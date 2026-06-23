@@ -1068,7 +1068,7 @@ export const BLOCK_DEFAULTS = {
         { image: '', imageAlt: '', title: 'Card two', backText: 'The back of the second card.' },
         { image: '', imageAlt: '', title: 'Card three', backText: 'The back of the third card.' },
       ],
-      columns: 3,
+      columns: { desktop: 3, tablet: 2, mobile: 1 },
       rowsPerPage: 2,
       gap: 16,
       shape: 'square', // square | rectangular | circular
@@ -1895,7 +1895,15 @@ export function validateBlock(block) {
           errors.push(`Card #${i + 1} image requires alt text.`);
         }
       });
-      if (!(Number(c.columns) >= 1)) errors.push('Card Flip Grid needs at least 1 column.');
+      // `columns` is either a legacy single number or a per-breakpoint
+      // object { desktop, tablet, mobile }. Accept either, requiring at
+      // least one valid (>=1) column value.
+      const colVals = (c.columns && typeof c.columns === 'object')
+        ? ['desktop', 'tablet', 'mobile'].map((bp) => Number(c.columns[bp]))
+        : [Number(c.columns)];
+      if (!colVals.some((n) => Number.isFinite(n) && n >= 1)) {
+        errors.push('Card Flip Grid needs at least 1 column.');
+      }
       if (!(Number(c.rowsPerPage) >= 1)) errors.push('Card Flip Grid needs at least 1 row per page.');
       break;
     }

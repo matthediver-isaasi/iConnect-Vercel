@@ -6044,10 +6044,23 @@ function SymbolInspector({ block }) {
 // Shared by both the editor canvas and the public renderer (mirrors HeroRender).
 // In the editor the content wrapper is pointer-events-none, so flips/pagination
 // are inert there (cards show their front) — exactly like Hero CTAs.
-function CardFlipGridRender({ block, asEditor }) {
+// Card Flip Grid `columns` is either a legacy single number or a
+// per-breakpoint object { desktop, tablet, mobile }. Resolve to the column
+// count for the active breakpoint, cascading mobile→tablet→desktop and
+// falling back to desktop (then 1) so old saved blocks keep working.
+function cardFlipColumnsForBreakpoint(columns, breakpoint) {
+  if (columns && typeof columns === 'object') {
+    const bp = breakpoint || 'desktop';
+    const raw = columns[bp] ?? columns.desktop;
+    return Math.max(1, Math.min(6, Number(raw) || 1));
+  }
+  return Math.max(1, Math.min(6, Number(columns) || 1));
+}
+
+function CardFlipGridRender({ block, asEditor, breakpoint }) {
   const c = block.content || {};
   const cards = Array.isArray(c.cards) ? c.cards : [];
-  const columns = Math.max(1, Number(c.columns) || 1);
+  const columns = cardFlipColumnsForBreakpoint(c.columns, breakpoint);
   const rowsPerPage = Math.max(1, Number(c.rowsPerPage) || 1);
   const gap = Number.isFinite(Number(c.gap)) ? Math.max(0, Number(c.gap)) : 16;
   const shape = c.shape || 'square';
@@ -6215,15 +6228,33 @@ function CardFlipGridInspector({ block, update }) {
   const c = block.content || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
   const clampInt = (v, min) => Math.max(min, Math.round(Number(v) || min));
+  // Normalize legacy single-number `columns` into the per-breakpoint object
+  // so the three inputs always have a value to show / edit.
+  const colsObj = (c.columns && typeof c.columns === 'object')
+    ? { desktop: 3, tablet: 2, mobile: 1, ...c.columns }
+    : { desktop: clampInt(c.columns ?? 3, 1), tablet: clampInt(c.columns ?? 2, 1), mobile: 1 };
+  const setCols = (bp, n) =>
+    set({ columns: { ...colsObj, [bp]: Math.max(1, Math.min(6, Number(n) || 1)) } });
   return (
     <>
-      <NumberField
-        label="Columns"
-        min={1}
-        value={c.columns ?? 3}
-        onChange={(v) => set({ columns: clampInt(v, 1) })}
-        testId="input-card-flip-columns"
-      />
+      <Field label="Columns per breakpoint">
+        <div className="grid grid-cols-3 gap-2">
+          {['desktop', 'tablet', 'mobile'].map((bp) => (
+            <div key={bp} className="space-y-1">
+              <Label className="text-[10px] uppercase text-slate-500">{bp}</Label>
+              <Input
+                type="number"
+                min={1}
+                max={6}
+                value={colsObj[bp]}
+                onChange={(e) => setCols(bp, e.target.value)}
+                className="h-8"
+                data-testid={`input-card-flip-columns-${bp}`}
+              />
+            </div>
+          ))}
+        </div>
+      </Field>
       <NumberField
         label="Rows per page"
         min={1}
