@@ -295,10 +295,33 @@ export default function PublicHeader() {
   const topNavFontSize = branding?.headerConfig?.topNavFontSize;
   const secondaryBarTextColor = secondaryBarConfig?.textColor || (secondaryBarEnabled ? '#FFFFFF' : '#0F172A');
   const secondaryBarFontSize = secondaryBarConfig?.fontSize;
+  // Per-bar hover color, link font weight, base font family. All optional;
+  // when unset the bar keeps today's defaults.
+  const topNavHoverColor = branding?.headerConfig?.topNavHoverColor;
+  const topNavFontWeight = branding?.headerConfig?.topNavFontWeight;
+  const topNavFontFamily = branding?.headerConfig?.topNavFontFamily;
+  const topNavIndicator = branding?.headerConfig?.topNavIndicator;
+  const secondaryBarHoverColor = secondaryBarConfig?.hoverColor;
+  const secondaryBarFontWeight = secondaryBarConfig?.fontWeight;
+  const secondaryBarFontFamily = secondaryBarConfig?.fontFamily;
+  const secondaryBarIndicator = secondaryBarConfig?.indicator;
   const colorStops = getColorStopsOnly(gradientStops);
   const navIndicatorGradient = colorStops.length > 0 
     ? `linear-gradient(to right, ${colorStops.map(s => s.color).join(', ')})`
     : BUTTON_ACCENT_GRADIENT_HORIZONTAL;
+
+  // Resolve the active-item indicator config for a given bar. Falls back to
+  // today's behavior when unset: the main-nav bar shows a 5px derived-gradient
+  // indicator, the top bar shows none.
+  const resolveBarIndicator = (isTopNav) => {
+    const cfg = isTopNav ? topNavIndicator : secondaryBarIndicator;
+    const enabled = (cfg && typeof cfg.enabled === 'boolean') ? cfg.enabled : !isTopNav;
+    const height = (cfg && Number.isFinite(parseInt(cfg.height, 10))) ? parseInt(cfg.height, 10) : 5;
+    const gradient = (cfg && Array.isArray(cfg.gradientStops) && cfg.gradientStops.length > 0)
+      ? buildGradientFromStops(cfg.gradientStops)
+      : navIndicatorGradient;
+    return { enabled, height, gradient };
+  };
   
   const [searchOpen, setSearchOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -773,13 +796,31 @@ export default function PublicHeader() {
       return 'font-medium';
     };
 
-    const baseClassName = `nav-link transition-colors ${getFontClass()} flex items-center gap-1`;
+    // Per-bar hover colour class (CSS injected once in the header render) so
+    // links transition to the configured hover colour. When no hover colour is
+    // set the class is harmless (no matching rule).
+    const hoverClass = isTopNav ? 'ph-topnav-link' : 'ph-secnav-link';
+    const baseClassName = `nav-link transition-colors ${getFontClass()} ${hoverClass} flex items-center gap-1`;
 
     // Per-bar link colour + size. Top bar defaults to white at 14px; combined
     // (main nav) bar defaults to its configured colour at 16px with Poppins.
+    // Configured font weight / base font family override the defaults per bar.
     const navLinkStyle = isTopNav
-      ? { color: topNavTextColor, fontSize: `${topNavFontSize || 14}px` }
-      : { color: secondaryBarTextColor, fontSize: `${secondaryBarFontSize || 16}px`, fontFamily: 'Poppins, sans-serif' };
+      ? {
+          color: topNavTextColor,
+          fontSize: `${topNavFontSize || 14}px`,
+          ...(topNavFontWeight ? { fontWeight: topNavFontWeight } : {}),
+          ...(topNavFontFamily ? { fontFamily: topNavFontFamily } : {})
+        }
+      : {
+          color: secondaryBarTextColor,
+          fontSize: `${secondaryBarFontSize || 16}px`,
+          fontFamily: secondaryBarFontFamily || 'Poppins, sans-serif',
+          ...(secondaryBarFontWeight ? { fontWeight: secondaryBarFontWeight } : {})
+        };
+
+    // Active-item indicator config for this bar.
+    const barIndicator = resolveBarIndicator(isTopNav);
 
     // Form modal link type - opens a form in a dialog instead of navigating
     if (item.link_type === 'form_modal') {
@@ -867,13 +908,15 @@ export default function PublicHeader() {
             <ChevronDown className="w-4 h-4" />
           </button>
 
-          {/* Active indicator - positioned at bottom of the combined bar */}
-          {!isTopNav && active && (
+          {/* Active indicator - positioned at bottom of the bar. Per-bar
+              toggle/height/gradient; also supported on the top bar now. */}
+          {barIndicator.enabled && active && (
             <div 
-              className="absolute left-0 right-0 h-[5px]"
+              className="absolute left-0 right-0"
               style={{
                 bottom: 0,
-                background: navIndicatorGradient
+                height: `${barIndicator.height}px`,
+                background: barIndicator.gradient
               }}
             />
           )}
@@ -987,13 +1030,15 @@ export default function PublicHeader() {
           {item.title}
         </LinkComponent>
 
-        {/* Active indicator - positioned at bottom of the combined bar */}
-        {!isTopNav && active && (
+        {/* Active indicator - positioned at bottom of the bar. Per-bar
+            toggle/height/gradient; also supported on the top bar now. */}
+        {barIndicator.enabled && active && (
           <div 
-            className="absolute left-0 right-0 h-[5px]"
+            className="absolute left-0 right-0"
             style={{
               bottom: 0,
-              background: navIndicatorGradient
+              height: `${barIndicator.height}px`,
+              background: barIndicator.gradient
             }}
           />
         )}
@@ -1099,6 +1144,12 @@ export default function PublicHeader() {
 
   return (
     <>
+      {(topNavHoverColor || secondaryBarHoverColor) && (
+        <style>{`
+          ${topNavHoverColor ? `.ph-topnav-link:hover { color: ${topNavHoverColor} !important; }` : ''}
+          ${secondaryBarHoverColor ? `.ph-secnav-link:hover { color: ${secondaryBarHoverColor} !important; }` : ''}
+        `}</style>
+      )}
       <header className="bg-white shadow-sm sticky top-0 z-40 relative">
         {/* Desktop: Overlapping Logo */}
         {headerIconsConfig.logo && (

@@ -28,6 +28,174 @@ import { useToast } from "@/components/ui/use-toast";
 import UnfurlPreview from "@/components/UnfurlPreview";
 import { publicClient } from "@/api/publicClient";
 
+const NAV_FONT_WEIGHTS = [
+  { value: 100, label: '100 - Thin' },
+  { value: 200, label: '200 - Extra Light' },
+  { value: 300, label: '300 - Light' },
+  { value: 400, label: '400 - Regular' },
+  { value: 500, label: '500 - Medium' },
+  { value: 600, label: '600 - Semibold' },
+  { value: 700, label: '700 - Bold' },
+  { value: 800, label: '800 - Extra Bold' },
+  { value: 900, label: '900 - Black' }
+];
+
+const NAV_AVAILABLE_FONTS = [
+  { value: 'Poppins, sans-serif', label: 'Poppins' },
+  { value: 'Urbanist, sans-serif', label: 'Urbanist' },
+  { value: "'Degular Medium', 'Poppins', sans-serif", label: 'Degular Medium' },
+  { value: 'Georgia, serif', label: 'Georgia' },
+  { value: 'Arial, sans-serif', label: 'Arial' },
+  { value: "'Times New Roman', serif", label: 'Times New Roman' }
+];
+
+const DEFAULT_INDICATOR_GRADIENT_STOPS = [
+  { color: '#5C0085', position: 0 },
+  { color: '#BA0087', position: 100 }
+];
+
+// Reusable multi-point gradient-stop editor (color picker + position slider +
+// add/remove). `onChange` receives the updated stops array.
+function GradientStopsEditor({ stops, onChange, testIdPrefix }) {
+  const [newColor, setNewColor] = useState('#000000');
+  const [newPosition, setNewPosition] = useState(100);
+  const list = Array.isArray(stops) && stops.length > 0 ? stops : DEFAULT_INDICATOR_GRADIENT_STOPS;
+  return (
+    <div className="space-y-3">
+      {list.map((stop, index) => (
+        <div key={index} className="flex items-center gap-3 bg-slate-900/50 rounded-lg p-3">
+          <input
+            type="color"
+            value={stop.color}
+            onChange={(e) => {
+              const ns = [...list];
+              ns[index] = { ...ns[index], color: e.target.value };
+              onChange(ns);
+            }}
+            className="w-10 h-10 rounded cursor-pointer flex-shrink-0"
+          />
+          <div className="flex-1 space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-slate-300 text-sm font-mono">{stop.color}</span>
+              <span className="text-slate-400 text-sm">{stop.position}%</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={stop.position}
+              onChange={(e) => {
+                const ns = [...list];
+                ns[index] = { ...ns[index], position: parseInt(e.target.value) };
+                onChange(ns);
+              }}
+              className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+              data-testid={`slider-${testIdPrefix}-position-${index}`}
+            />
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-slate-400 hover:text-red-400 flex-shrink-0"
+            onClick={() => onChange(list.filter((_, i) => i !== index))}
+            data-testid={`button-remove-${testIdPrefix}-${index}`}
+          >
+            <X className="w-4 h-4" />
+          </Button>
+        </div>
+      ))}
+      <div className="flex items-center gap-3 pt-2 border-t border-slate-700">
+        <input
+          type="color"
+          value={newColor}
+          onChange={(e) => setNewColor(e.target.value)}
+          className="w-10 h-10 rounded cursor-pointer"
+        />
+        <div className="flex-1 space-y-1">
+          <div className="flex items-center justify-between">
+            <span className="text-slate-400 text-sm">New color position</span>
+            <span className="text-slate-400 text-sm">{newPosition}%</span>
+          </div>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            value={newPosition}
+            onChange={(e) => setNewPosition(parseInt(e.target.value))}
+            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+            data-testid={`slider-${testIdPrefix}-new-position`}
+          />
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            onChange([...list, { color: newColor, position: newPosition }].sort((a, b) => a.position - b.position));
+            setNewColor('#000000');
+          }}
+          className="border-slate-600 text-slate-300"
+          data-testid={`button-add-${testIdPrefix}`}
+        >
+          <Plus className="w-4 h-4 mr-2" />
+          Add
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// Per-bar active-item indicator controls: enable toggle, height, and an
+// independent multi-point gradient. `value` is the bar's indicator config.
+function IndicatorEditor({ value, onChange, testIdPrefix }) {
+  const cfg = value || {};
+  return (
+    <div className="space-y-4 pt-3 border-t border-slate-700">
+      <div className="flex items-center justify-between gap-3">
+        <div className="space-y-0.5">
+          <Label className="text-slate-300">Active item indicator</Label>
+          <p className="text-xs text-slate-500">Show a colored bar under the currently selected menu item</p>
+        </div>
+        <Switch
+          checked={!!cfg.enabled}
+          onCheckedChange={(checked) => onChange({ ...cfg, enabled: checked })}
+          data-testid={`switch-${testIdPrefix}-enabled`}
+        />
+      </div>
+      {cfg.enabled && (
+        <>
+          <div className="space-y-2">
+            <Label className="text-slate-300">Indicator Height (px)</Label>
+            <Input
+              type="number"
+              min="1"
+              max="50"
+              placeholder="5"
+              value={cfg.height ?? ''}
+              onChange={(e) => {
+                const v = e.target.value;
+                onChange({ ...cfg, height: v === '' ? '' : parseInt(v, 10) });
+              }}
+              className="bg-slate-900 border-slate-600 text-white"
+              data-testid={`input-${testIdPrefix}-height`}
+            />
+            <p className="text-xs text-slate-500">Height of the indicator bar. Leave blank for the default (5px).</p>
+          </div>
+          <div className="space-y-2">
+            <Label className="text-slate-300">Indicator Gradient</Label>
+            <GradientStopsEditor
+              stops={cfg.gradientStops}
+              onChange={(s) => onChange({ ...cfg, gradientStops: s })}
+              testIdPrefix={`${testIdPrefix}-gradient`}
+            />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function AdminBranding() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -90,13 +258,21 @@ export default function AdminBranding() {
       gradientStops: DEFAULT_GRADIENT_STOPS,
       topBarHeight: '',
       topNavTextColor: '',
+      topNavHoverColor: '',
       topNavFontSize: '',
+      topNavFontWeight: '',
+      topNavFontFamily: '',
+      topNavIndicator: { enabled: false, height: '', gradientStops: DEFAULT_INDICATOR_GRADIENT_STOPS },
       secondaryBar: {
         enabled: false,
         height: '',
         gradientStops: DEFAULT_SECONDARY_BAR_GRADIENT_STOPS,
         textColor: '',
-        fontSize: ''
+        hoverColor: '',
+        fontSize: '',
+        fontWeight: '',
+        fontFamily: '',
+        indicator: { enabled: true, height: '', gradientStops: DEFAULT_INDICATOR_GRADIENT_STOPS }
       }
     },
     footer_config: {
@@ -216,7 +392,17 @@ export default function AdminBranding() {
                 gradientStops: getGradientStops(t?.header_config),
                 topBarHeight: t?.header_config?.topBarHeight || '',
                 topNavTextColor: t?.header_config?.topNavTextColor || '',
+                topNavHoverColor: t?.header_config?.topNavHoverColor || '',
                 topNavFontSize: t?.header_config?.topNavFontSize || '',
+                topNavFontWeight: t?.header_config?.topNavFontWeight || '',
+                topNavFontFamily: t?.header_config?.topNavFontFamily || '',
+                topNavIndicator: {
+                  enabled: t?.header_config?.topNavIndicator ? !!t.header_config.topNavIndicator.enabled : false,
+                  height: t?.header_config?.topNavIndicator?.height || '',
+                  gradientStops: (t?.header_config?.topNavIndicator?.gradientStops && t.header_config.topNavIndicator.gradientStops.length > 0)
+                    ? t.header_config.topNavIndicator.gradientStops
+                    : DEFAULT_INDICATOR_GRADIENT_STOPS
+                },
                 secondaryBar: {
                   enabled: !!t?.header_config?.secondaryBar?.enabled,
                   height: t?.header_config?.secondaryBar?.height || '',
@@ -224,7 +410,17 @@ export default function AdminBranding() {
                     ? t.header_config.secondaryBar.gradientStops
                     : DEFAULT_SECONDARY_BAR_GRADIENT_STOPS,
                   textColor: t?.header_config?.secondaryBar?.textColor || '',
-                  fontSize: t?.header_config?.secondaryBar?.fontSize || ''
+                  hoverColor: t?.header_config?.secondaryBar?.hoverColor || '',
+                  fontSize: t?.header_config?.secondaryBar?.fontSize || '',
+                  fontWeight: t?.header_config?.secondaryBar?.fontWeight || '',
+                  fontFamily: t?.header_config?.secondaryBar?.fontFamily || '',
+                  indicator: {
+                    enabled: t?.header_config?.secondaryBar?.indicator ? !!t.header_config.secondaryBar.indicator.enabled : true,
+                    height: t?.header_config?.secondaryBar?.indicator?.height || '',
+                    gradientStops: (t?.header_config?.secondaryBar?.indicator?.gradientStops && t.header_config.secondaryBar.indicator.gradientStops.length > 0)
+                      ? t.header_config.secondaryBar.indicator.gradientStops
+                      : DEFAULT_INDICATOR_GRADIENT_STOPS
+                  }
                 }
               },
               footer_config: {
@@ -665,6 +861,12 @@ export default function AdminBranding() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
+          {(formData.header_config?.topNavHoverColor || formData.header_config?.secondaryBar?.hoverColor) && (
+            <style>{`
+              ${formData.header_config?.topNavHoverColor ? `.ab-top-preview-link:hover { color: ${formData.header_config.topNavHoverColor} !important; }` : ''}
+              ${formData.header_config?.secondaryBar?.hoverColor ? `.ab-sec-preview-link:hover { color: ${formData.header_config.secondaryBar.hoverColor} !important; }` : ''}
+            `}</style>
+          )}
           <Card className="bg-slate-800/50 border-slate-700">
             <CardHeader>
               <CardTitle className="text-white flex items-center gap-2">
@@ -1417,7 +1619,92 @@ export default function AdminBranding() {
                   />
                   <p className="text-xs text-slate-500">Size of the top bar menu link text. Leave blank for default.</p>
                 </div>
+                <div className="space-y-2">
+                  <Label className="text-slate-300">Link Hover Color</Label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={formData.header_config?.topNavHoverColor || '#FFFFFF'}
+                      onChange={(e) => {
+                        setFormData(prev => ({
+                          ...prev,
+                          header_config: { ...prev.header_config, topNavHoverColor: e.target.value }
+                        }));
+                      }}
+                      className="w-10 h-10 rounded cursor-pointer flex-shrink-0"
+                      data-testid="input-top-nav-hover-color"
+                    />
+                    <Input
+                      type="text"
+                      placeholder="No hover change"
+                      value={formData.header_config?.topNavHoverColor || ''}
+                      onChange={(e) => {
+                        setFormData(prev => ({
+                          ...prev,
+                          header_config: { ...prev.header_config, topNavHoverColor: e.target.value }
+                        }));
+                      }}
+                      className="bg-slate-900 border-slate-600 text-white font-mono"
+                      data-testid="input-top-nav-hover-color-hex"
+                    />
+                  </div>
+                  <p className="text-xs text-slate-500">Color links change to on hover. Leave blank to keep current behavior.</p>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-slate-300">Link Font Weight</Label>
+                  <Select
+                    value={formData.header_config?.topNavFontWeight ? String(formData.header_config.topNavFontWeight) : 'default'}
+                    onValueChange={(val) => {
+                      setFormData(prev => ({
+                        ...prev,
+                        header_config: { ...prev.header_config, topNavFontWeight: val === 'default' ? '' : parseInt(val, 10) }
+                      }));
+                    }}
+                  >
+                    <SelectTrigger className="bg-slate-900 border-slate-600 text-white" data-testid="select-top-nav-font-weight">
+                      <SelectValue placeholder="Default" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="default">Default</SelectItem>
+                      {NAV_FONT_WEIGHTS.map((w) => (
+                        <SelectItem key={w.value} value={String(w.value)}>{w.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-slate-500">Weight of the top bar menu link text. Leave at default to keep current styling.</p>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-slate-300">Base Font Family</Label>
+                  <Select
+                    value={formData.header_config?.topNavFontFamily || 'default'}
+                    onValueChange={(val) => {
+                      setFormData(prev => ({
+                        ...prev,
+                        header_config: { ...prev.header_config, topNavFontFamily: val === 'default' ? '' : val }
+                      }));
+                    }}
+                  >
+                    <SelectTrigger className="bg-slate-900 border-slate-600 text-white" data-testid="select-top-nav-font-family">
+                      <SelectValue placeholder="Default" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="default">Default</SelectItem>
+                      {NAV_AVAILABLE_FONTS.map((f) => (
+                        <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-slate-500">Font family for the top bar menu links. Leave at default to keep current styling.</p>
+                </div>
               </div>
+              <IndicatorEditor
+                value={formData.header_config?.topNavIndicator}
+                onChange={(ind) => setFormData(prev => ({
+                  ...prev,
+                  header_config: { ...prev.header_config, topNavIndicator: ind }
+                }))}
+                testIdPrefix="top-nav-indicator"
+              />
               <div className="space-y-1">
                 <Label className="text-slate-300 text-xs">Live Preview</Label>
                 <div
@@ -1433,26 +1720,44 @@ export default function AdminBranding() {
                   data-testid="preview-top-bar"
                 >
                   {/* Mirror the live header: top-bar links sit right-aligned alongside Login + Search */}
-                  <div className="flex flex-1 justify-end items-center gap-6 px-4">
-                    {(navPreviewItems.topNav.length > 0 ? navPreviewItems.topNav : ['Home', 'About', 'Events', 'Contact']).map((label) => (
-                      <span
-                        key={label}
-                        style={{
-                          color: formData.header_config?.topNavTextColor || '#FFFFFF',
-                          fontSize: `${parseInt(formData.header_config?.topNavFontSize, 10) || 14}px`,
-                          fontWeight: 600,
-                          whiteSpace: 'nowrap'
-                        }}
-                      >
-                        {label}
-                      </span>
+                  <div className="flex flex-1 justify-end items-center gap-6 px-4 h-full">
+                    {(navPreviewItems.topNav.length > 0 ? navPreviewItems.topNav : ['Home', 'About', 'Events', 'Contact']).map((label, idx) => (
+                      <div key={label} className="relative h-full flex items-center">
+                        <span
+                          className="ab-top-preview-link"
+                          style={{
+                            color: formData.header_config?.topNavTextColor || '#FFFFFF',
+                            fontSize: `${parseInt(formData.header_config?.topNavFontSize, 10) || 14}px`,
+                            fontWeight: formData.header_config?.topNavFontWeight || 600,
+                            fontFamily: formData.header_config?.topNavFontFamily || undefined,
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
+                          {label}
+                        </span>
+                        {idx === 0 && formData.header_config?.topNavIndicator?.enabled && (
+                          <div
+                            className="absolute left-0 right-0"
+                            style={{
+                              bottom: 0,
+                              height: `${parseInt(formData.header_config?.topNavIndicator?.height, 10) || 5}px`,
+                              background: `linear-gradient(to right, ${(formData.header_config?.topNavIndicator?.gradientStops || DEFAULT_INDICATOR_GRADIENT_STOPS)
+                                .slice()
+                                .sort((a, b) => a.position - b.position)
+                                .map(stop => `${stop.color} ${stop.position}%`)
+                                .join(', ')})`
+                            }}
+                          />
+                        )}
+                      </div>
                     ))}
                     <span
                       className="flex items-center gap-1"
                       style={{
                         color: formData.header_config?.topNavTextColor || '#FFFFFF',
                         fontSize: `${parseInt(formData.header_config?.topNavFontSize, 10) || 14}px`,
-                        fontWeight: 600,
+                        fontWeight: formData.header_config?.topNavFontWeight || 600,
+                        fontFamily: formData.header_config?.topNavFontFamily || undefined,
                         whiteSpace: 'nowrap'
                       }}
                     >
@@ -1464,7 +1769,8 @@ export default function AdminBranding() {
                       style={{
                         color: formData.header_config?.topNavTextColor || '#FFFFFF',
                         fontSize: `${parseInt(formData.header_config?.topNavFontSize, 10) || 14}px`,
-                        fontWeight: 600,
+                        fontWeight: formData.header_config?.topNavFontWeight || 600,
+                        fontFamily: formData.header_config?.topNavFontFamily || undefined,
                         whiteSpace: 'nowrap'
                       }}
                     >
@@ -1677,23 +1983,30 @@ export default function AdminBranding() {
                           {(navPreviewItems.mainNav.length > 0 ? navPreviewItems.mainNav : ['Membership', 'Resources', 'News', 'Get Involved']).map((label, idx) => (
                             <div key={label} className="relative h-full flex items-center">
                               <span
+                                className="ab-sec-preview-link"
                                 style={{
                                   color: formData.header_config?.secondaryBar?.textColor || '#FFFFFF',
                                   fontSize: `${parseInt(formData.header_config?.secondaryBar?.fontSize, 10) || 16}px`,
-                                  fontWeight: idx === 0 ? 700 : 500,
-                                  fontFamily: 'Poppins, sans-serif',
+                                  fontWeight: formData.header_config?.secondaryBar?.fontWeight || (idx === 0 ? 700 : 500),
+                                  fontFamily: formData.header_config?.secondaryBar?.fontFamily || 'Poppins, sans-serif',
                                   whiteSpace: 'nowrap'
                                 }}
                               >
                                 {label}
                               </span>
-                              {idx === 0 && (
+                              {idx === 0 && (formData.header_config?.secondaryBar?.indicator ? formData.header_config.secondaryBar.indicator.enabled : true) && (
                                 <div
                                   className="absolute left-0 right-0"
                                   style={{
                                     bottom: 0,
-                                    height: '5px',
-                                    background: `linear-gradient(to right, ${formData.primary_color || '#5C0085'}, ${formData.secondary_color || '#BA0087'})`
+                                    height: `${parseInt(formData.header_config?.secondaryBar?.indicator?.height, 10) || 5}px`,
+                                    background: (formData.header_config?.secondaryBar?.indicator?.gradientStops && formData.header_config.secondaryBar.indicator.gradientStops.length > 0)
+                                      ? `linear-gradient(to right, ${formData.header_config.secondaryBar.indicator.gradientStops
+                                          .slice()
+                                          .sort((a, b) => a.position - b.position)
+                                          .map(stop => `${stop.color} ${stop.position}%`)
+                                          .join(', ')})`
+                                      : `linear-gradient(to right, ${formData.primary_color || '#5C0085'}, ${formData.secondary_color || '#BA0087'})`
                                   }}
                                 />
                               )}
@@ -1880,7 +2193,107 @@ export default function AdminBranding() {
                       />
                       <p className="text-xs text-slate-500">Size of the main menu link text. Leave blank for default.</p>
                     </div>
+                    <div className="space-y-2">
+                      <Label className="text-slate-300">Link Hover Color</Label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={formData.header_config?.secondaryBar?.hoverColor || '#FFFFFF'}
+                          onChange={(e) => {
+                            setFormData(prev => ({
+                              ...prev,
+                              header_config: {
+                                ...prev.header_config,
+                                secondaryBar: { ...prev.header_config?.secondaryBar, hoverColor: e.target.value }
+                              }
+                            }));
+                          }}
+                          className="w-10 h-10 rounded cursor-pointer flex-shrink-0"
+                          data-testid="input-secondary-bar-hover-color"
+                        />
+                        <Input
+                          type="text"
+                          placeholder="No hover change"
+                          value={formData.header_config?.secondaryBar?.hoverColor || ''}
+                          onChange={(e) => {
+                            setFormData(prev => ({
+                              ...prev,
+                              header_config: {
+                                ...prev.header_config,
+                                secondaryBar: { ...prev.header_config?.secondaryBar, hoverColor: e.target.value }
+                              }
+                            }));
+                          }}
+                          className="bg-slate-900 border-slate-600 text-white font-mono"
+                          data-testid="input-secondary-bar-hover-color-hex"
+                        />
+                      </div>
+                      <p className="text-xs text-slate-500">Color links change to on hover. Leave blank to keep current behavior.</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-slate-300">Link Font Weight</Label>
+                      <Select
+                        value={formData.header_config?.secondaryBar?.fontWeight ? String(formData.header_config.secondaryBar.fontWeight) : 'default'}
+                        onValueChange={(val) => {
+                          setFormData(prev => ({
+                            ...prev,
+                            header_config: {
+                              ...prev.header_config,
+                              secondaryBar: { ...prev.header_config?.secondaryBar, fontWeight: val === 'default' ? '' : parseInt(val, 10) }
+                            }
+                          }));
+                        }}
+                      >
+                        <SelectTrigger className="bg-slate-900 border-slate-600 text-white" data-testid="select-secondary-bar-font-weight">
+                          <SelectValue placeholder="Default" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="default">Default</SelectItem>
+                          {NAV_FONT_WEIGHTS.map((w) => (
+                            <SelectItem key={w.value} value={String(w.value)}>{w.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-slate-500">Weight of the main menu link text. Leave at default to keep current styling.</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-slate-300">Base Font Family</Label>
+                      <Select
+                        value={formData.header_config?.secondaryBar?.fontFamily || 'default'}
+                        onValueChange={(val) => {
+                          setFormData(prev => ({
+                            ...prev,
+                            header_config: {
+                              ...prev.header_config,
+                              secondaryBar: { ...prev.header_config?.secondaryBar, fontFamily: val === 'default' ? '' : val }
+                            }
+                          }));
+                        }}
+                      >
+                        <SelectTrigger className="bg-slate-900 border-slate-600 text-white" data-testid="select-secondary-bar-font-family">
+                          <SelectValue placeholder="Poppins" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="default">Poppins (default)</SelectItem>
+                          {NAV_AVAILABLE_FONTS.map((f) => (
+                            <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-slate-500">Font family for the main menu links. Defaults to Poppins.</p>
+                    </div>
                   </div>
+                  <IndicatorEditor
+                    value={formData.header_config?.secondaryBar?.indicator}
+                    onChange={(ind) => setFormData(prev => ({
+                      ...prev,
+                      header_config: {
+                        ...prev.header_config,
+                        secondaryBar: { ...prev.header_config?.secondaryBar, indicator: ind }
+                      }
+                    }))}
+                    testIdPrefix="secondary-bar-indicator"
+                  />
                 </>
               )}
             </CardContent>

@@ -16,6 +16,44 @@ function normalizeHexColor(color) {
   return null;
 }
 
+const ALLOWED_NAV_FONT_WEIGHTS = [100, 200, 300, 400, 500, 600, 700, 800, 900];
+const ALLOWED_NAV_FONT_FAMILIES = [
+  'Poppins, sans-serif',
+  'Urbanist, sans-serif',
+  "'Degular Medium', 'Poppins', sans-serif",
+  'Georgia, serif',
+  'Arial, sans-serif',
+  "'Times New Roman', serif"
+];
+
+function validateNavFontWeight(weight) {
+  const n = parseInt(weight, 10);
+  return ALLOWED_NAV_FONT_WEIGHTS.includes(n) ? n : null;
+}
+
+function validateNavFontFamily(family) {
+  return (typeof family === 'string' && ALLOWED_NAV_FONT_FAMILIES.includes(family)) ? family : null;
+}
+
+// Validate a per-bar active-indicator config. `gradientValidator` is the
+// handler-scoped validateGradientStops helper. Returns a sanitized object or
+// null when the input is not an object.
+function validateIndicatorConfig(indicator, gradientValidator) {
+  if (!indicator || typeof indicator !== 'object') return null;
+  const out = { enabled: !!indicator.enabled };
+  const h = parseInt(indicator.height, 10);
+  if (Number.isFinite(h)) {
+    out.height = Math.max(1, Math.min(50, h));
+  }
+  if (Array.isArray(indicator.gradientStops)) {
+    const stops = gradientValidator(indicator.gradientStops);
+    if (stops.length > 0) {
+      out.gradientStops = stops;
+    }
+  }
+  return out;
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
@@ -168,6 +206,46 @@ export default async function handler(req, res) {
         }
       }
 
+      // Validate top-nav link hover color
+      if (updates.header_config && updates.header_config.topNavHoverColor !== undefined) {
+        const hc = normalizeHexColor(updates.header_config.topNavHoverColor);
+        if (hc) {
+          updates.header_config.topNavHoverColor = hc;
+        } else {
+          delete updates.header_config.topNavHoverColor;
+        }
+      }
+
+      // Validate top-nav link font weight against the allowed weight scale
+      if (updates.header_config && updates.header_config.topNavFontWeight !== undefined) {
+        const fw = validateNavFontWeight(updates.header_config.topNavFontWeight);
+        if (fw) {
+          updates.header_config.topNavFontWeight = fw;
+        } else {
+          delete updates.header_config.topNavFontWeight;
+        }
+      }
+
+      // Validate top-nav base font family against the installed-font list
+      if (updates.header_config && updates.header_config.topNavFontFamily !== undefined) {
+        const ff = validateNavFontFamily(updates.header_config.topNavFontFamily);
+        if (ff) {
+          updates.header_config.topNavFontFamily = ff;
+        } else {
+          delete updates.header_config.topNavFontFamily;
+        }
+      }
+
+      // Validate top-nav active-item indicator config
+      if (updates.header_config && updates.header_config.topNavIndicator !== undefined) {
+        const ind = validateIndicatorConfig(updates.header_config.topNavIndicator, validateGradientStops);
+        if (ind) {
+          updates.header_config.topNavIndicator = ind;
+        } else {
+          delete updates.header_config.topNavIndicator;
+        }
+      }
+
       // Validate the secondary (lower) navigation bar config
       if (updates.header_config && updates.header_config.secondaryBar !== undefined) {
         const sb = updates.header_config.secondaryBar;
@@ -194,6 +272,26 @@ export default async function handler(req, res) {
           const sf = parseInt(sb.fontSize, 10);
           if (Number.isFinite(sf)) {
             sanitizedSecondaryBar.fontSize = Math.max(8, Math.min(48, sf));
+          }
+
+          const shc = normalizeHexColor(sb.hoverColor);
+          if (shc) {
+            sanitizedSecondaryBar.hoverColor = shc;
+          }
+
+          const sfw = validateNavFontWeight(sb.fontWeight);
+          if (sfw) {
+            sanitizedSecondaryBar.fontWeight = sfw;
+          }
+
+          const sff = validateNavFontFamily(sb.fontFamily);
+          if (sff) {
+            sanitizedSecondaryBar.fontFamily = sff;
+          }
+
+          const sInd = validateIndicatorConfig(sb.indicator, validateGradientStops);
+          if (sInd) {
+            sanitizedSecondaryBar.indicator = sInd;
           }
 
           updates.header_config.secondaryBar = sanitizedSecondaryBar;
