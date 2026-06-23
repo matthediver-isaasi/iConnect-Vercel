@@ -9,6 +9,12 @@ import { Save, Loader2, Eye, RotateCcw, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
+import { LUCIDE_ICONS, getLucideIcon } from "@/components/canvas/blocks/registry";
+
+// Default icon block shared by all styles. `name === ''` means "no icon"
+// (renders nothing). `color === ''` means "inherit the button's text colour".
+// Additive: older saved configs with no `icon` block load with no icon.
+const DEFAULT_ICON = { name: '', color: '', position: 'before', size: 18 };
 
 const DEFAULT_PRIMARY_STYLE = {
   background: {
@@ -42,7 +48,8 @@ const DEFAULT_PRIMARY_STYLE = {
     paddingY: 8,
     fontSize: 16,
     iconSize: 18
-  }
+  },
+  icon: { ...DEFAULT_ICON }
 };
 
 const DEFAULT_SECONDARY_STYLE = {
@@ -77,7 +84,8 @@ const DEFAULT_SECONDARY_STYLE = {
     paddingY: 8,
     fontSize: 16,
     iconSize: 18
-  }
+  },
+  icon: { ...DEFAULT_ICON }
 };
 
 // Default size block shared by both styles — used to backfill the field on
@@ -187,7 +195,35 @@ function ButtonStyleEditor({
     padding: '12px 24px',
     fontWeight: 500,
     cursor: 'pointer',
-    transition: 'all 0.2s ease'
+    transition: 'all 0.2s ease',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '8px'
+  };
+
+  // Default-icon preview helpers. The icon block is additive — when no icon
+  // is configured (`name === ''`) nothing is rendered. Icon colour falls back
+  // to the button's current text colour when left blank.
+  const iconCfg = style.icon || DEFAULT_ICON;
+  const IconComp = iconCfg.name ? getLucideIcon(iconCfg.name) : null;
+  const iconSizePx = Number.isFinite(iconCfg.size) ? iconCfg.size : DEFAULT_ICON.size;
+  const iconPosition = iconCfg.position === 'after' ? 'after' : 'before';
+
+  const renderPreviewInner = (textColor, label) => {
+    const iconEl = IconComp ? (
+      <IconComp style={{ width: iconSizePx, height: iconSizePx, color: iconCfg.color || textColor }} />
+    ) : null;
+    return iconPosition === 'after' ? (
+      <>
+        <span>{label}</span>
+        {iconEl}
+      </>
+    ) : (
+      <>
+        {iconEl}
+        <span>{label}</span>
+      </>
+    );
   };
 
   return (
@@ -228,54 +264,64 @@ function ButtonStyleEditor({
           <div className="text-center">
             <p className="text-xs text-slate-500 mb-2">Normal State</p>
             <button
+              className="unstyled"
               style={{
                 ...getBackgroundStyle(style.background),
                 border: `${style.border.width}px ${style.border.style} ${style.border.color}`,
                 borderRadius: `${style.radius}px`,
                 color: style.textColor,
                 padding: '12px 24px',
-                fontWeight: 500
+                fontWeight: 500,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px'
               }}
               data-testid={`preview-${title.toLowerCase().replace(' ', '-')}-normal`}
             >
-              Sample Button
+              {renderPreviewInner(style.textColor, 'Sample Button')}
             </button>
           </div>
           <div className="text-center">
             <p className="text-xs text-slate-500 mb-2">Hover State</p>
             <button
+              className="unstyled"
               style={{
                 ...getBackgroundStyle(style.hover),
                 border: `${style.border.width}px ${style.border.style} ${style.border.color}`,
                 borderRadius: `${style.radius}px`,
                 color: style.hoverTextColor,
                 padding: '12px 24px',
-                fontWeight: 500
+                fontWeight: 500,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px'
               }}
               data-testid={`preview-${title.toLowerCase().replace(' ', '-')}-hover`}
             >
-              Sample Button
+              {renderPreviewInner(style.hoverTextColor, 'Sample Button')}
             </button>
           </div>
           <div className="text-center">
             <p className="text-xs text-slate-500 mb-2">Interactive Preview</p>
             <button
+              className="unstyled"
               style={previewStyle}
               onMouseEnter={() => setIsHovered(true)}
               onMouseLeave={() => setIsHovered(false)}
               data-testid={`preview-${title.toLowerCase().replace(' ', '-')}-interactive`}
             >
-              Hover Me
+              {renderPreviewInner(isHovered ? style.hoverTextColor : style.textColor, 'Hover Me')}
             </button>
           </div>
         </div>
 
         <Tabs defaultValue="background" className="w-full">
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="grid w-full grid-cols-6">
             <TabsTrigger value="background" data-testid={`tab-${testIdPrefix}-background`}>Background</TabsTrigger>
             <TabsTrigger value="border" data-testid={`tab-${testIdPrefix}-border`}>Border</TabsTrigger>
             <TabsTrigger value="radius" data-testid={`tab-${testIdPrefix}-radius`}>Radius</TabsTrigger>
             <TabsTrigger value="size" data-testid={`tab-${testIdPrefix}-size`}>Size</TabsTrigger>
+            <TabsTrigger value="icon" data-testid={`tab-${testIdPrefix}-icon`}>Icon</TabsTrigger>
             <TabsTrigger value="hover" data-testid={`tab-${testIdPrefix}-hover`}>Hover Effect</TabsTrigger>
           </TabsList>
 
@@ -659,6 +705,119 @@ function ButtonStyleEditor({
             </div>
           </TabsContent>
 
+          {/* Icon Tab */}
+          <TabsContent value="icon" className="space-y-4 pt-4">
+            <p className="text-xs text-slate-500">
+              Set a default icon for this button style. It shows in the previews
+              above and on tenant-variant buttons placed on published pages. A
+              per-block icon chosen in the page builder overrides this default.
+            </p>
+
+            <div className="flex items-center gap-4">
+              <Label className="min-w-32">Icon:</Label>
+              <div className="flex items-center gap-3 flex-1">
+                <select
+                  value={style.icon?.name || ''}
+                  onChange={(e) => updateStyle('icon.name', e.target.value)}
+                  className="border rounded px-3 py-2 text-sm flex-1"
+                  data-testid={`select-${testIdPrefix}-icon-name`}
+                >
+                  <option value="">None</option>
+                  {Object.keys(LUCIDE_ICONS).map((name) => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                </select>
+                {(() => {
+                  const Preview = style.icon?.name ? getLucideIcon(style.icon.name) : null;
+                  return Preview ? (
+                    <Preview
+                      className="shrink-0"
+                      style={{
+                        width: style.icon?.size ?? DEFAULT_ICON.size,
+                        height: style.icon?.size ?? DEFAULT_ICON.size,
+                        color: style.icon?.color || style.textColor
+                      }}
+                      data-testid={`icon-preview-${testIdPrefix}`}
+                    />
+                  ) : null;
+                })()}
+              </div>
+            </div>
+
+            {style.icon?.name ? (
+              <>
+                <div className="flex items-center gap-4">
+                  <Label className="min-w-32">Icon size:</Label>
+                  <div className="flex items-center gap-4 flex-1">
+                    <Slider
+                      value={[style.icon?.size ?? DEFAULT_ICON.size]}
+                      onValueChange={([val]) => updateStyle('icon.size', val)}
+                      min={10}
+                      max={48}
+                      step={1}
+                      className="flex-1"
+                      data-testid={`slider-${testIdPrefix}-icon-size`}
+                    />
+                    <span className="text-sm text-slate-500 w-12" data-testid={`text-${testIdPrefix}-icon-size-value`}>
+                      {style.icon?.size ?? DEFAULT_ICON.size}px
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-4">
+                  <Label className="min-w-32">Icon color:</Label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={(style.icon?.color || style.textColor) === 'transparent' ? '#ffffff' : (style.icon?.color || style.textColor)}
+                      onChange={(e) => updateStyle('icon.color', e.target.value)}
+                      className="w-10 h-10 rounded cursor-pointer"
+                      data-testid={`colorpicker-${testIdPrefix}-icon-color`}
+                    />
+                    <Input
+                      value={style.icon?.color || ''}
+                      onChange={(e) => updateStyle('icon.color', e.target.value)}
+                      className="w-40"
+                      placeholder="Inherit text color"
+                      data-testid={`input-${testIdPrefix}-icon-color`}
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Leave blank to use the button's text colour. The icon colour can differ from the label.
+                </p>
+
+                <div className="flex items-center gap-4">
+                  <Label className="min-w-32">Position:</Label>
+                  <div className="flex gap-4">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name={`${testIdPrefix}-icon-position`}
+                        checked={(style.icon?.position || 'before') === 'before'}
+                        onChange={() => updateStyle('icon.position', 'before')}
+                        className="w-4 h-4"
+                        data-testid={`radio-${testIdPrefix}-icon-before`}
+                      />
+                      <span className="text-sm">Before label</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name={`${testIdPrefix}-icon-position`}
+                        checked={style.icon?.position === 'after'}
+                        onChange={() => updateStyle('icon.position', 'after')}
+                        className="w-4 h-4"
+                        data-testid={`radio-${testIdPrefix}-icon-after`}
+                      />
+                      <span className="text-sm">After label</span>
+                    </label>
+                  </div>
+                </div>
+              </>
+            ) : null}
+          </TabsContent>
+
           {/* Hover Tab */}
           <TabsContent value="hover" className="space-y-4 pt-4">
             <div className="flex items-center gap-4">
@@ -1000,7 +1159,8 @@ export default function ButtonElementsPage() {
                 ...buttonStyles.primary,
                 background: mergeBgBlock(DEFAULT_PRIMARY_STYLE.background, buttonStyles.primary.background),
                 hover: mergeBgBlock(DEFAULT_PRIMARY_STYLE.hover, buttonStyles.primary.hover),
-                size: { ...DEFAULT_SIZE, ...(buttonStyles.primary.size || {}) }
+                size: { ...DEFAULT_SIZE, ...(buttonStyles.primary.size || {}) },
+                icon: { ...DEFAULT_ICON, ...(buttonStyles.primary.icon || {}) }
               };
               setPrimaryStyle(migratedPrimary);
             }
@@ -1010,7 +1170,8 @@ export default function ButtonElementsPage() {
                 ...buttonStyles.secondary,
                 background: mergeBgBlock(DEFAULT_SECONDARY_STYLE.background, buttonStyles.secondary.background),
                 hover: mergeBgBlock(DEFAULT_SECONDARY_STYLE.hover, buttonStyles.secondary.hover),
-                size: { ...DEFAULT_SIZE, ...(buttonStyles.secondary.size || {}) }
+                size: { ...DEFAULT_SIZE, ...(buttonStyles.secondary.size || {}) },
+                icon: { ...DEFAULT_ICON, ...(buttonStyles.secondary.icon || {}) }
               };
               setSecondaryStyle(migratedSecondary);
             }
@@ -1028,7 +1189,8 @@ export default function ButtonElementsPage() {
                 ...entry,
                 background: mergeBgBlock(DEFAULT_PRIMARY_STYLE.background, entry.background),
                 hover: mergeBgBlock(DEFAULT_PRIMARY_STYLE.hover, entry.hover),
-                size: { ...DEFAULT_SIZE, ...(entry.size || {}) }
+                size: { ...DEFAULT_SIZE, ...(entry.size || {}) },
+                icon: { ...DEFAULT_ICON, ...(entry.icon || {}) }
               });
             });
             if (loadedCustom.length > 0) setCustomStyles(loadedCustom);

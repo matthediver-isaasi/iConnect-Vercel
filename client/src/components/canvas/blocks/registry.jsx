@@ -71,7 +71,7 @@ import { createPageUrl } from '@/utils';
 // that don't use it.
 const RichTextEditor = lazy(() => import('@/components/email-builder/RichTextEditor'));
 
-const LUCIDE_ICONS = {
+export const LUCIDE_ICONS = {
   Star, Bell, Award, Check, Heart, Mail, Phone, Globe, Calendar, Clock,
   Users, Building2, Briefcase, BookOpen, GraduationCap, Lightbulb,
   Shield, Zap, ArrowRight, ChevronDown, Square, Type, ImageIcon,
@@ -1552,12 +1552,42 @@ function ButtonRender({ block, asEditor, breakpoint }) {
       fontSize: fs,
       transition: 'background-color 0.2s ease, color 0.2s ease, background 0.2s ease',
     };
-    const tenantInner = (
-      <>
-        {Icon && <Icon style={{ width: iconPx, height: iconPx }} />}
-        <span style={labelInline || undefined}>{c.label || 'Button'}</span>
-      </>
-    );
+    // Default icon from the tenant button style. The per-block icon (c.icon,
+    // resolved into `Icon` above) always wins; the style's default icon only
+    // renders when the block itself has no icon. The style icon carries its
+    // own size/colour/position so it can differ from the label colour.
+    const styleIconCfg = tenantStyle.icon || null;
+    const StyleIcon = !Icon && styleIconCfg?.name ? getLucideIcon(styleIconCfg.name) : null;
+    const styleIconSize = StyleIcon && Number.isFinite(styleIconCfg.size) ? styleIconCfg.size : 18;
+    const styleIconColor = StyleIcon ? (styleIconCfg.color || undefined) : undefined;
+    const styleIconAfter = StyleIcon && styleIconCfg.position === 'after';
+    const labelSpan = <span style={labelInline || undefined}>{c.label || 'Button'}</span>;
+    const styleIconEl = StyleIcon ? (
+      <StyleIcon style={{ width: styleIconSize, height: styleIconSize, color: styleIconColor }} />
+    ) : null;
+    let tenantInner;
+    if (Icon) {
+      tenantInner = (
+        <>
+          <Icon style={{ width: iconPx, height: iconPx }} />
+          {labelSpan}
+        </>
+      );
+    } else if (StyleIcon) {
+      tenantInner = styleIconAfter ? (
+        <>
+          {labelSpan}
+          {styleIconEl}
+        </>
+      ) : (
+        <>
+          {styleIconEl}
+          {labelSpan}
+        </>
+      );
+    } else {
+      tenantInner = labelSpan;
+    }
     return (
       <div className="w-full h-full flex items-center justify-start">
         <a
