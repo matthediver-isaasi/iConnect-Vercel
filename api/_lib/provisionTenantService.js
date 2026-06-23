@@ -2,6 +2,7 @@ import { supabase } from './database.js';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { provisionEmailDomain } from './emailDomainService.js';
+import { normalizeHeaderToggles, resolveLoginPosition, buildHeaderControlInserts } from './headerControlSeed.js';
 
 const RESERVED_SLUGS = ['www', 'api', 'app', 'admin', 'mail', 'ftp', 'cdn', 'static', 'assets', 'images', 'login', 'signup', 'register'];
 
@@ -342,12 +343,6 @@ async function seedNavigationTemplates(tenantId) {
 // the old static header used to render. Idempotent: each control type is created
 // at most once across the Top Bar and Main Nav.
 async function seedHeaderControlElements(tenantId) {
-  const controls = [
-    { content_block_type: 'search', title: 'Search' },
-    { content_block_type: 'social', title: 'Social Icons' },
-    { content_block_type: 'account', title: 'Account' }
-  ];
-
   const { data: existing } = await supabase
     .from('navigation_item')
     .select('content_block_type')
@@ -355,22 +350,26 @@ async function seedHeaderControlElements(tenantId) {
     .eq('link_type', 'content_block')
     .in('location', ['top_nav', 'main_nav']);
 
+  // Honor any legacy visibility toggles + login position so the seeded header
+  // matches what the static header used to render for this tenant.
+  const { data: iconSetting } = await supabase
+    .from('system_settings')
+    .select('setting_value')
+    .eq('tenant_id', tenantId)
+    .eq('setting_key', 'header_icons_config')
+    .maybeSingle();
+
+  const { data: tenantRow } = await supabase
+    .from('tenant')
+    .select('header_config')
+    .eq('id', tenantId)
+    .maybeSingle();
+
+  const toggles = normalizeHeaderToggles(iconSetting?.setting_value);
+  const position = resolveLoginPosition(tenantRow?.header_config);
   const existingTypes = new Set((existing || []).map(r => r.content_block_type));
-  const toInsert = controls
-    .filter(c => !existingTypes.has(c.content_block_type))
-    .map((c, idx) => ({
-      tenant_id: tenantId,
-      title: c.title,
-      url: '',
-      link_type: 'content_block',
-      content_block_type: c.content_block_type,
-      location: 'top_nav',
-      display_order: 1000 + idx,
-      is_active: true,
-      open_in_new_tab: false,
-      display_type: 'link',
-      parent_id: null
-    }));
+
+  const toInsert = buildHeaderControlInserts({ tenantId, toggles, position, existingTypes });
 
   if (toInsert.length === 0) return;
 
