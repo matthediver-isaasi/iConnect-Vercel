@@ -993,11 +993,12 @@ function HeroCtaButton({ cta, asEditor, tenantStyles, stylesResolved }) {
     const iconEl = IconCmp ? (
       <IconCmp style={{ width: iconSizePx, height: iconSizePx, color: iconColor, flexShrink: 0 }} />
     ) : null;
+    const tenantTextColor = hovered
+      ? tenantStyle.hoverTextColor || tenantStyle.textColor || '#ffffff'
+      : tenantStyle.textColor || '#ffffff';
     const inlineStyle = {
       ...bg,
-      color: hovered
-        ? tenantStyle.hoverTextColor || tenantStyle.textColor || '#ffffff'
-        : tenantStyle.textColor || '#ffffff',
+      color: tenantTextColor,
       borderRadius: `${tenantStyle.radius ?? 6}px`,
       border:
         border.width > 0
@@ -1012,6 +1013,15 @@ function HeroCtaButton({ cta, asEditor, tenantStyles, stylesResolved }) {
       transition: 'background-color 0.2s ease, color 0.2s ease, background 0.2s ease',
       ...sizeStyle,
     };
+    // A typography style applied to the label <span> sets its own `color`,
+    // which would override the tenant button's hover text color (an inline
+    // color on the span wins over the inherited color from the <a>). Mirror
+    // the button's current text color onto the label so the tenant hover
+    // style is respected even when a font style is picked for the CTA.
+    const tenantLabelStyle = (awaitingLabel || ctaLabelInline)
+      ? { ...(ctaLabelInline || {}), color: tenantTextColor, ...(awaitingLabel ? { visibility: 'hidden' } : {}) }
+      : undefined;
+    const tenantLabelSpan = <span style={tenantLabelStyle}>{cta.label || 'CTA'}</span>;
     return (
       <a
         href={asEditor ? undefined : (cta.href || '#')}
@@ -1021,7 +1031,7 @@ function HeroCtaButton({ cta, asEditor, tenantStyles, stylesResolved }) {
         onMouseLeave={() => setHovered(false)}
         onClick={(e) => { if (asEditor) e.preventDefault(); }}
       >
-        {iconAfter ? (<>{labelSpan}{iconEl}</>) : (<>{iconEl}{labelSpan}</>)}
+        {iconAfter ? (<>{tenantLabelSpan}{iconEl}</>) : (<>{iconEl}{tenantLabelSpan}</>)}
       </a>
     );
   }
