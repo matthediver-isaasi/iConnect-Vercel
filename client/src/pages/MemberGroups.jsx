@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Users, Loader2, ImageIcon, ArrowRight } from "lucide-react";
+import { Users, Loader2, ImageIcon, ArrowRight, Wand2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -210,12 +210,10 @@ export default function MemberGroupsPage() {
                     )}
                     {isGroupAdmin && (
                       <div className="mb-3">
-                        <Badge
-                          className="bg-purple-100 text-purple-700 text-xs"
+                        <Wand2
+                          className="h-4 w-4 text-purple-700"
                           data-testid={`badge-group-admin-${group.id}`}
-                        >
-                          Group admin
-                        </Badge>
+                        />
                       </div>
                     )}
                     {isJoined ? (
