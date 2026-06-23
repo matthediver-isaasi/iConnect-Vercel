@@ -1026,7 +1026,7 @@ function HeroRender({ block, asEditor, priority, breakpoint }) {
       )}
       <div
         className="absolute inset-0"
-        style={{ background: `rgba(0,0,0,${Math.max(0, Math.min(1, c.darkWash ?? 0.4))})` }}
+        style={{ background: buildHeroOverlayBackground(c) }}
         aria-hidden="true"
       />
       <div
@@ -1131,11 +1131,71 @@ function HeroInspector({ block, update }) {
       {c.bgType === 'video' && (
         <TextField label="Background video URL" value={c.bgVideoUrl} onChange={(v) => set({ bgVideoUrl: v })} testId="input-hero-bg-video" />
       )}
-      <NumberField
-        label="Dark overlay (0–1)" value={c.darkWash} min={0} max={1} step={0.05}
-        onChange={(v) => set({ darkWash: Math.max(0, Math.min(1, Number(v) || 0)) })}
-        testId="input-hero-dark-wash"
+      <SelectField
+        label="Overlay style"
+        value={c.overlayStyle || 'solid'}
+        onChange={(v) => set({ overlayStyle: v })}
+        options={[
+          { value: 'solid', label: 'Solid' },
+          { value: 'gradient', label: 'Gradient' },
+        ]}
+        testId="select-hero-overlay-style"
       />
+      {(c.overlayStyle || 'solid') === 'solid' && (
+        <NumberField
+          label="Dark overlay (0–1)" value={c.darkWash} min={0} max={1} step={0.05}
+          onChange={(v) => set({ darkWash: Math.max(0, Math.min(1, Number(v) || 0)) })}
+          testId="input-hero-dark-wash"
+        />
+      )}
+      {c.overlayStyle === 'gradient' && (
+        <>
+          <ColorField
+            label="Gradient colour 1"
+            value={c.overlayFromColor || '#000000'}
+            onChange={(v) => set({ overlayFromColor: v })}
+            testId="input-hero-overlay-from-color"
+          />
+          <NumberField
+            label="Colour 1 opacity (0–1)" value={c.overlayFromOpacity ?? 0.6} min={0} max={1} step={0.05}
+            onChange={(v) => set({ overlayFromOpacity: Math.max(0, Math.min(1, Number(v) || 0)) })}
+            testId="input-hero-overlay-from-opacity"
+          />
+          <ColorField
+            label="Gradient colour 2"
+            value={c.overlayToColor || '#000000'}
+            onChange={(v) => set({ overlayToColor: v })}
+            testId="input-hero-overlay-to-color"
+          />
+          <NumberField
+            label="Colour 2 opacity (0–1)" value={c.overlayToOpacity ?? 0} min={0} max={1} step={0.05}
+            onChange={(v) => set({ overlayToOpacity: Math.max(0, Math.min(1, Number(v) || 0)) })}
+            testId="input-hero-overlay-to-opacity"
+          />
+          <SelectField
+            label="Gradient direction"
+            value={c.overlayDirection || 'to-top'}
+            onChange={(v) => set({ overlayDirection: v })}
+            options={[
+              { value: 'to-top', label: 'Bottom → Top' },
+              { value: 'to-bottom', label: 'Top → Bottom' },
+              { value: 'to-right', label: 'Left → Right' },
+              { value: 'to-left', label: 'Right → Left' },
+              { value: 'to-bottom-right', label: 'Diagonal ↘' },
+              { value: 'to-top-right', label: 'Diagonal ↗' },
+              { value: 'custom', label: 'Custom angle' },
+            ]}
+            testId="select-hero-overlay-direction"
+          />
+          {c.overlayDirection === 'custom' && (
+            <NumberField
+              label="Angle (deg)" value={c.overlayAngle ?? 0} min={0} max={360} step={1}
+              onChange={(v) => set({ overlayAngle: Math.max(0, Math.min(360, Number(v) || 0)) })}
+              testId="input-hero-overlay-angle"
+            />
+          )}
+        </>
+      )}
       <ToggleField
         label="Full-bleed (span full screen width)"
         value={!!c.fullBleed}
@@ -4872,6 +4932,39 @@ function hexToRgba(input, opacity) {
   // color-mix support fall back to the raw value (opacity ignored), which
   // is acceptable for v1 since the inspector picker emits hex.
   return `color-mix(in srgb, ${s} ${Math.round(o * 100)}%, transparent)`;
+}
+
+// Hero overlay direction presets → CSS linear-gradient angle (deg). The angle
+// names the direction the gradient travels toward, so e.g. 'to-top' (0deg)
+// puts the first colour at the bottom fading to the second at the top.
+const HERO_OVERLAY_DIRECTIONS = {
+  'to-top': 0,
+  'to-bottom': 180,
+  'to-right': 90,
+  'to-left': 270,
+  'to-bottom-right': 135,
+  'to-top-right': 45,
+};
+
+function heroOverlayAngle(c) {
+  const dir = c.overlayDirection || 'to-top';
+  if (dir === 'custom') {
+    return Number.isFinite(c.overlayAngle) ? c.overlayAngle : 0;
+  }
+  return HERO_OVERLAY_DIRECTIONS[dir] ?? 0;
+}
+
+// Builds the Hero image/video overlay CSS background. Solid (default, and the
+// fallback for legacy data that has no overlayStyle) reproduces the original
+// flat black wash driven by darkWash. Gradient emits a two-stop linear
+// gradient from the configured colours/opacities along the chosen direction.
+function buildHeroOverlayBackground(c) {
+  if ((c.overlayStyle || 'solid') === 'gradient') {
+    const from = hexToRgba(c.overlayFromColor || '#000000', c.overlayFromOpacity ?? 0.6);
+    const to = hexToRgba(c.overlayToColor || '#000000', c.overlayToOpacity ?? 0);
+    return `linear-gradient(${heroOverlayAngle(c)}deg, ${from}, ${to})`;
+  }
+  return `rgba(0,0,0,${Math.max(0, Math.min(1, c.darkWash ?? 0.4))})`;
 }
 
 function buildSectionOverlayBackground(c) {

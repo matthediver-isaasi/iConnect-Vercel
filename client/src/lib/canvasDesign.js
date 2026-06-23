@@ -298,6 +298,17 @@ export const BLOCK_DEFAULTS = {
       bgImageUrl: '',
       bgVideoUrl: '',
       darkWash: 0.4,
+      // Overlay style: 'solid' keeps the legacy flat black wash driven by
+      // darkWash; 'gradient' renders a two-stop linear gradient built from the
+      // overlay* fields below. Absent/old data is treated as solid so saved
+      // pages render byte-identically until the user opts into a gradient.
+      overlayStyle: 'solid',
+      overlayFromColor: '#000000',
+      overlayFromOpacity: 0.6,
+      overlayToColor: '#000000',
+      overlayToOpacity: 0,
+      overlayDirection: 'to-top',
+      overlayAngle: 0,
       fullBleed: false,
       alignment: 'center',
       textColor: 'var(--cb-color-on-primary, #ffffff)',
