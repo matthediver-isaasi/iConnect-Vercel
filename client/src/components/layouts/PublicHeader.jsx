@@ -1113,7 +1113,7 @@ export default function PublicHeader() {
           href={socialIcons.linkedin.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center hover:bg-slate-200 transition-colors"
+          className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors${resolvedSocialSvgs.linkedin ? '' : ' bg-slate-100 hover:bg-slate-200'}`}
         >
           {renderSocialGlyph({
             customSvg: resolvedSocialSvgs.linkedin,
@@ -1136,7 +1136,7 @@ export default function PublicHeader() {
           href={socialIcons.twitter.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center hover:bg-slate-200 transition-colors"
+          className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors${resolvedSocialSvgs.twitter ? '' : ' bg-slate-100 hover:bg-slate-200'}`}
         >
           {renderSocialGlyph({
             customSvg: resolvedSocialSvgs.twitter,
@@ -1159,7 +1159,7 @@ export default function PublicHeader() {
           href={socialIcons.facebook.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center hover:bg-slate-200 transition-colors"
+          className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors${resolvedSocialSvgs.facebook ? '' : ' bg-slate-100 hover:bg-slate-200'}`}
         >
           {renderSocialGlyph({
             customSvg: resolvedSocialSvgs.facebook,
@@ -1182,7 +1182,7 @@ export default function PublicHeader() {
           href={socialIcons.instagram.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center hover:bg-slate-200 transition-colors"
+          className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors${resolvedSocialSvgs.instagram ? '' : ' bg-slate-100 hover:bg-slate-200'}`}
         >
           {renderSocialGlyph({
             customSvg: resolvedSocialSvgs.instagram,
@@ -1205,7 +1205,7 @@ export default function PublicHeader() {
           href={socialIcons.youtube.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center hover:bg-slate-200 transition-colors"
+          className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors${resolvedSocialSvgs.youtube ? '' : ' bg-slate-100 hover:bg-slate-200'}`}
         >
           {renderSocialGlyph({
             customSvg: resolvedSocialSvgs.youtube,
@@ -1484,7 +1484,7 @@ export default function PublicHeader() {
                         target="_blank"
                         rel="noopener noreferrer"
                         className="w-7 h-7 rounded flex items-center justify-center hover:opacity-80 transition-opacity"
-                        style={{ backgroundColor: topNavTextColor }}
+                        style={{ backgroundColor: resolvedSocialSvgs.linkedin ? 'transparent' : topNavTextColor }}
                       >
                         {renderSocialGlyph({
                           customSvg: resolvedSocialSvgs.linkedin,
@@ -1504,7 +1504,7 @@ export default function PublicHeader() {
                         target="_blank"
                         rel="noopener noreferrer"
                         className="w-7 h-7 rounded flex items-center justify-center hover:opacity-80 transition-opacity"
-                        style={{ backgroundColor: topNavTextColor }}
+                        style={{ backgroundColor: resolvedSocialSvgs.twitter ? 'transparent' : topNavTextColor }}
                       >
                         {renderSocialGlyph({
                           customSvg: resolvedSocialSvgs.twitter,
@@ -1524,7 +1524,7 @@ export default function PublicHeader() {
                         target="_blank"
                         rel="noopener noreferrer"
                         className="w-7 h-7 rounded flex items-center justify-center hover:opacity-80 transition-opacity"
-                        style={{ backgroundColor: topNavTextColor }}
+                        style={{ backgroundColor: resolvedSocialSvgs.facebook ? 'transparent' : topNavTextColor }}
                       >
                         {renderSocialGlyph({
                           customSvg: resolvedSocialSvgs.facebook,
@@ -1544,7 +1544,7 @@ export default function PublicHeader() {
                         target="_blank"
                         rel="noopener noreferrer"
                         className="w-7 h-7 rounded flex items-center justify-center hover:opacity-80 transition-opacity"
-                        style={{ backgroundColor: topNavTextColor }}
+                        style={{ backgroundColor: resolvedSocialSvgs.instagram ? 'transparent' : topNavTextColor }}
                       >
                         {renderSocialGlyph({
                           customSvg: resolvedSocialSvgs.instagram,
@@ -1564,7 +1564,7 @@ export default function PublicHeader() {
                         target="_blank"
                         rel="noopener noreferrer"
                         className="w-7 h-7 rounded flex items-center justify-center hover:opacity-80 transition-opacity"
-                        style={{ backgroundColor: topNavTextColor }}
+                        style={{ backgroundColor: resolvedSocialSvgs.youtube ? 'transparent' : topNavTextColor }}
                       >
                         {renderSocialGlyph({
                           customSvg: resolvedSocialSvgs.youtube,

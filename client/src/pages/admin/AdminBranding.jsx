@@ -3373,13 +3373,13 @@ export default function AdminBranding() {
                       >
                         <div
                           className="w-9 h-9 rounded flex items-center justify-center shrink-0"
-                          style={{ backgroundColor: formData.branding_config?.headerSocialIconColor || '#5C0085' }}
+                          style={{ backgroundColor: (customSvg && resolvedSocialSvgs[platform.key]) ? 'transparent' : (formData.branding_config?.headerSocialIconColor || '#5C0085') }}
                         >
                           {customSvg && resolvedSocialSvgs[platform.key] ? (
                             <div
                               className="w-5 h-5"
                               style={{
-                                backgroundColor: '#FFFFFF',
+                                backgroundColor: formData.branding_config?.headerSocialIconColor || '#5C0085',
                                 WebkitMaskImage: `url("${resolvedSocialSvgs[platform.key]}")`,
                                 maskImage: `url("${resolvedSocialSvgs[platform.key]}")`,
                                 WebkitMaskRepeat: 'no-repeat',
