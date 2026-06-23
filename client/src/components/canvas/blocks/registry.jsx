@@ -31,6 +31,10 @@ import {
   Megaphone,
   Menu,
   X,
+  Plus,
+  ArrowUp,
+  ArrowDown,
+  Trash2,
 } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -4889,12 +4893,51 @@ function buildSectionOverlayBackground(c) {
   return null;
 }
 
+// A section gradient stops array is "usable" only when it carries at least
+// two valid stops. Anything less falls back to the legacy two-stop fields so
+// older sections (and sections mid-edit) keep rendering exactly as before.
+function getUsableGradientStops(c) {
+  if (!Array.isArray(c.gradientStops)) return null;
+  const stops = c.gradientStops.filter((s) => s && typeof s === 'object');
+  return stops.length >= 2 ? stops : null;
+}
+
+// Emits the CSS colour-stop list ("rgba(...) 25%, rgba(...) 80%") for a
+// multipoint gradient. Each stop contributes colour (with opacity folded in
+// via hexToRgba) plus an optional position; positions are clamped to 0–100%.
+function buildGradientStopList(stops) {
+  return stops
+    .map((s) => {
+      const col = hexToRgba(typeof s.color === 'string' ? s.color : '#000000', s.opacity ?? 1);
+      const posNum = Number(s.position);
+      if (Number.isFinite(posNum)) {
+        return `${col} ${Math.max(0, Math.min(100, posNum))}%`;
+      }
+      return col;
+    })
+    .join(', ');
+}
+
 // Builds the CSS gradient string for sections whose `bgType === 'gradient'`.
 // Mirrors buildSectionOverlayBackground but uses dedicated `gradient*` keys
 // so the value is preserved separately from any image-overlay configuration
 // the same section may also have stored.
+//
+// When a `gradientStops` array with 2+ stops is present it is the source of
+// truth and emits a full multipoint gradient. When it is absent (legacy
+// sections, or solid/image sections) we fall back to the original two-stop
+// from→to / centre→edge output so existing pages are byte-identical.
 function buildSectionGradientBackground(c) {
   const t = c.gradientType || 'linear';
+  const stops = getUsableGradientStops(c);
+  if (stops) {
+    const stopList = buildGradientStopList(stops);
+    if (t === 'radial') {
+      return `radial-gradient(ellipse at center, ${stopList})`;
+    }
+    const angle = Number.isFinite(c.gradientAngle) ? c.gradientAngle : 180;
+    return `linear-gradient(${angle}deg, ${stopList})`;
+  }
   if (t === 'radial') {
     const centre = hexToRgba(c.gradientCenterColor || '#3b82f6', c.gradientCenterOpacity ?? 1);
     const edge = hexToRgba(c.gradientEdgeColor || '#1e3a8a', c.gradientEdgeOpacity ?? 1);
@@ -4904,6 +4947,149 @@ function buildSectionGradientBackground(c) {
   const from = hexToRgba(c.gradientFromColor || '#3b82f6', c.gradientFromOpacity ?? 1);
   const to = hexToRgba(c.gradientToColor || '#1e3a8a', c.gradientToOpacity ?? 1);
   return `linear-gradient(${angle}deg, ${from}, ${to})`;
+}
+
+// Derives the stops array the inspector edits. When a usable stops array is
+// already stored we normalise it; otherwise we seed a sensible two-stop list
+// from the legacy from/to (linear) or centre/edge (radial) fields so the very
+// first edit picks up exactly what the section is rendering today.
+function deriveSectionGradientStops(c, type) {
+  const stored = getUsableGradientStops(c);
+  if (stored) {
+    return stored.map((s, i) => ({
+      color: typeof s.color === 'string' && s.color ? s.color : '#000000',
+      opacity: Math.max(0, Math.min(1, Number(s.opacity ?? 1) || 0)),
+      position: Number.isFinite(Number(s.position))
+        ? Math.max(0, Math.min(100, Number(s.position)))
+        : (i === 0 ? 0 : 100),
+    }));
+  }
+  if (type === 'radial') {
+    return [
+      { color: c.gradientCenterColor || '#3b82f6', opacity: c.gradientCenterOpacity ?? 1, position: 0 },
+      { color: c.gradientEdgeColor || '#1e3a8a', opacity: c.gradientEdgeOpacity ?? 1, position: 100 },
+    ];
+  }
+  return [
+    { color: c.gradientFromColor || '#3b82f6', opacity: c.gradientFromOpacity ?? 1, position: 0 },
+    { color: c.gradientToColor || '#1e3a8a', opacity: c.gradientToOpacity ?? 1, position: 100 },
+  ];
+}
+
+// Editable, ordered list of gradient colour stops for the Section inspector.
+// Each stop carries a colour, opacity (0–1), and position (0–100%). Authors can
+// add, remove, and reorder stops; a minimum of two stops is always enforced so
+// the gradient never degenerates. Writing any change persists `gradientStops`
+// as the source of truth (the legacy from/to fields are left untouched for
+// back-compat but are no longer consulted once stops exist).
+function SectionGradientStops({ c, gradientType, set }) {
+  const stops = deriveSectionGradientStops(c, gradientType);
+  const commit = (next) => set({ gradientStops: next });
+  const updateStop = (i, patch) => {
+    commit(stops.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
+  };
+  const addStop = () => {
+    // Insert a mid-point stop: midway in position between the last two stops,
+    // reusing the final stop's colour so the new row is visible immediately.
+    const last = stops[stops.length - 1];
+    const prev = stops[stops.length - 2];
+    const midPos = Math.round(((Number(prev?.position) || 0) + (Number(last?.position) || 100)) / 2);
+    commit([
+      ...stops,
+      { color: last?.color || '#1e3a8a', opacity: last?.opacity ?? 1, position: Math.max(0, Math.min(100, midPos)) },
+    ]);
+  };
+  const removeStop = (i) => {
+    if (stops.length <= 2) return; // always keep at least two stops
+    commit(stops.filter((_, idx) => idx !== i));
+  };
+  const moveStop = (i, dir) => {
+    const j = i + dir;
+    if (j < 0 || j >= stops.length) return;
+    const next = stops.slice();
+    [next[i], next[j]] = [next[j], next[i]];
+    commit(next);
+  };
+  return (
+    <div className="space-y-3" data-testid="section-gradient-stops">
+      <div className="flex items-center justify-between gap-2">
+        <Label className="text-xs text-slate-600">Colour stops</Label>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={addStop}
+          data-testid="button-section-gradient-stop-add"
+        >
+          <Plus className="w-3 h-3" />
+          Add stop
+        </Button>
+      </div>
+      {stops.map((stop, i) => (
+        <div
+          key={i}
+          className="space-y-2 rounded-md border border-slate-200 p-2"
+          data-testid={`section-gradient-stop-${i}`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-medium text-slate-500">Stop {i + 1}</span>
+            <div className="flex items-center gap-1">
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                disabled={i === 0}
+                onClick={() => moveStop(i, -1)}
+                data-testid={`button-section-gradient-stop-up-${i}`}
+              >
+                <ArrowUp className="w-3 h-3" />
+              </Button>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                disabled={i === stops.length - 1}
+                onClick={() => moveStop(i, 1)}
+                data-testid={`button-section-gradient-stop-down-${i}`}
+              >
+                <ArrowDown className="w-3 h-3" />
+              </Button>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                disabled={stops.length <= 2}
+                onClick={() => removeStop(i)}
+                data-testid={`button-section-gradient-stop-remove-${i}`}
+              >
+                <Trash2 className="w-3 h-3" />
+              </Button>
+            </div>
+          </div>
+          <ColorField
+            label="Colour"
+            value={stop.color || '#000000'}
+            onChange={(v) => updateStop(i, { color: v })}
+            testId={`input-section-gradient-stop-color-${i}`}
+          />
+          <NumberField
+            label="Opacity (0–1)"
+            min={0} max={1} step={0.05}
+            value={stop.opacity ?? 1}
+            onChange={(v) => updateStop(i, { opacity: Math.max(0, Math.min(1, Number(v) || 0)) })}
+            testId={`input-section-gradient-stop-opacity-${i}`}
+          />
+          <NumberField
+            label="Position (0–100%)"
+            min={0} max={100} step={1}
+            value={Number.isFinite(Number(stop.position)) ? Number(stop.position) : ''}
+            onChange={(v) => updateStop(i, { position: Math.max(0, Math.min(100, Number(v) || 0)) })}
+            testId={`input-section-gradient-stop-position-${i}`}
+          />
+        </div>
+      ))}
+    </div>
+  );
 }
 
 const SECTION_BLEND_MODES = [
@@ -5075,75 +5261,22 @@ function SectionInspector({ block, update }) {
             testId="select-section-gradient-type"
           />
           {gradientType === 'linear' && (
-            <>
-              <NumberField
-                label="Angle (0–360°)"
-                min={0} max={360} step={1}
-                value={Number.isFinite(c.gradientAngle) ? c.gradientAngle : 180}
-                onChange={(v) => {
-                  const n = Number(v);
-                  set({ gradientAngle: Number.isFinite(n) ? Math.max(0, Math.min(360, n)) : 180 });
-                }}
-                testId="input-section-gradient-angle"
-              />
-              <ColorField
-                label="From colour"
-                value={c.gradientFromColor || '#3b82f6'}
-                onChange={(v) => set({ gradientFromColor: v })}
-                testId="input-section-gradient-from-color"
-              />
-              <NumberField
-                label="From opacity (0–1)"
-                min={0} max={1} step={0.05}
-                value={c.gradientFromOpacity ?? 1}
-                onChange={(v) => set({ gradientFromOpacity: Math.max(0, Math.min(1, Number(v) || 0)) })}
-                testId="input-section-gradient-from-opacity"
-              />
-              <ColorField
-                label="To colour"
-                value={c.gradientToColor || '#1e3a8a'}
-                onChange={(v) => set({ gradientToColor: v })}
-                testId="input-section-gradient-to-color"
-              />
-              <NumberField
-                label="To opacity (0–1)"
-                min={0} max={1} step={0.05}
-                value={c.gradientToOpacity ?? 1}
-                onChange={(v) => set({ gradientToOpacity: Math.max(0, Math.min(1, Number(v) || 0)) })}
-                testId="input-section-gradient-to-opacity"
-              />
-            </>
+            <NumberField
+              label="Angle (0–360°)"
+              min={0} max={360} step={1}
+              value={Number.isFinite(c.gradientAngle) ? c.gradientAngle : 180}
+              onChange={(v) => {
+                const n = Number(v);
+                set({ gradientAngle: Number.isFinite(n) ? Math.max(0, Math.min(360, n)) : 180 });
+              }}
+              testId="input-section-gradient-angle"
+            />
           )}
-          {gradientType === 'radial' && (
-            <>
-              <ColorField
-                label="Centre colour"
-                value={c.gradientCenterColor || '#3b82f6'}
-                onChange={(v) => set({ gradientCenterColor: v })}
-                testId="input-section-gradient-center-color"
-              />
-              <NumberField
-                label="Centre opacity (0–1)"
-                min={0} max={1} step={0.05}
-                value={c.gradientCenterOpacity ?? 1}
-                onChange={(v) => set({ gradientCenterOpacity: Math.max(0, Math.min(1, Number(v) || 0)) })}
-                testId="input-section-gradient-center-opacity"
-              />
-              <ColorField
-                label="Edge colour"
-                value={c.gradientEdgeColor || '#1e3a8a'}
-                onChange={(v) => set({ gradientEdgeColor: v })}
-                testId="input-section-gradient-edge-color"
-              />
-              <NumberField
-                label="Edge opacity (0–1)"
-                min={0} max={1} step={0.05}
-                value={c.gradientEdgeOpacity ?? 1}
-                onChange={(v) => set({ gradientEdgeOpacity: Math.max(0, Math.min(1, Number(v) || 0)) })}
-                testId="input-section-gradient-edge-opacity"
-              />
-            </>
-          )}
+          <SectionGradientStops
+            c={c}
+            gradientType={gradientType}
+            set={set}
+          />
         </>
       )}
       {isImageBg && (

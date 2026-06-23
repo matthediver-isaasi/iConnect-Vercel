@@ -249,6 +249,16 @@ export const BLOCK_DEFAULTS = {
     // bgType defaults to 'color' so existing sections (which won't have
     // any of the new fields) are byte-identical to today. The overlay
     // fields are only consulted when bgType === 'image'.
+    //
+    // Multipoint gradients: `gradientStops` (an array of { color, opacity,
+    // position } stops) is the source of truth for the gradient background
+    // when present with 2+ stops. It is deliberately NOT seeded here — adding
+    // it to the defaults would make normalizeBlock backfill it onto every
+    // legacy gradient section and override their customised from/to colours.
+    // Instead the gradient builder falls back to the legacy two-stop
+    // from/to (linear) and centre/edge (radial) fields whenever the stops
+    // array is absent, and the inspector seeds a sensible two-stop list from
+    // those legacy fields on the author's first edit.
     content: {
       maxWidth: 0,
       fullBleed: false,
