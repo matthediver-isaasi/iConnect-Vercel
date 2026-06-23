@@ -721,6 +721,12 @@ export const BLOCK_DEFAULTS = {
       // e.g. "2026-12-31T23:59". Interpreted in the viewer's local timezone,
       // matching how the inspector's datetime-local input captures it.
       targetDate: '',
+      // Optional link to an event. When set, the target is read from the
+      // event's start_date instead of the manual targetDate above, keeping the
+      // countdown accurate if the event date changes. eventSlug is preferred
+      // (public-stable); eventId is the legacy fallback.
+      eventSlug: '',
+      eventId: '',
       showDays: true,
       showHours: true,
       showMinutes: true,
@@ -1196,7 +1202,7 @@ export function toDatetimeLocalValue(date) {
 // targetDate are left untouched.
 function buildBlockContent(type, defaultContent, overrideContent) {
   const merged = { ...(defaultContent || {}), ...(overrideContent || {}) };
-  if (type === BLOCK_TYPES.COUNTDOWN && !merged.targetDate) {
+  if (type === BLOCK_TYPES.COUNTDOWN && !merged.targetDate && !merged.eventSlug && !merged.eventId) {
     merged.targetDate = toDatetimeLocalValue(new Date(Date.now() + 24 * 60 * 60 * 1000));
   }
   return merged;
@@ -1867,7 +1873,8 @@ export function validateBlock(block) {
       break;
     }
     case BLOCK_TYPES.COUNTDOWN: {
-      if (!c.targetDate || Number.isNaN(new Date(c.targetDate).getTime())) {
+      const linkedToEvent = !!(c.eventSlug || c.eventId);
+      if (!linkedToEvent && (!c.targetDate || Number.isNaN(new Date(c.targetDate).getTime()))) {
         errors.push('Countdown requires a valid target date and time.');
       }
       if (!c.showDays && !c.showHours && !c.showMinutes && !c.showSeconds) {

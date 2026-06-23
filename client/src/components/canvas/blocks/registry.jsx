@@ -61,6 +61,7 @@ import {
 import ImageSelector from '@/components/ImageSelector';
 import { sanitizeRichText, stripTrailingEmptyParagraphs, sanitizeCustomHtml } from './sanitize';
 import { DYNAMIC_BLOCK_DEFINITIONS } from './dynamicBlocks';
+import { publicClient } from '@/api/publicClient';
 import { useTenantBranding } from '@/contexts/TenantBrandingContext';
 import { useCanvasAnchors } from '../CanvasAnchorContext';
 import { useCanvasSymbols } from '../CanvasSymbolsContext';
@@ -3130,11 +3131,28 @@ function computeCountdownParts(targetMs, now) {
 
 function CountdownRender({ block }) {
   const c = block.content || {};
+
+  // When linked to an event, read the target from the event's start_date so the
+  // countdown stays accurate if the event date changes. Falls back to the manual
+  // targetDate when no event is linked.
+  const eventKey = c.eventSlug || c.eventId || null;
+  const { data: linkedEvent } = useQuery({
+    queryKey: ['canvas', 'public-event', eventKey],
+    queryFn: async () => {
+      if (c.eventSlug) return publicClient.getEventBySlug(c.eventSlug);
+      if (c.eventId) return publicClient.getEvent(c.eventId);
+      return null;
+    },
+    enabled: !!eventKey,
+    staleTime: 60_000,
+  });
+
   const targetMs = useMemo(() => {
-    if (!c.targetDate) return null;
-    const t = new Date(c.targetDate).getTime();
+    const raw = eventKey ? linkedEvent?.start_date : c.targetDate;
+    if (!raw) return null;
+    const t = new Date(raw).getTime();
     return Number.isNaN(t) ? null : t;
-  }, [c.targetDate]);
+  }, [eventKey, linkedEvent?.start_date, c.targetDate]);
 
   const [now, setNow] = useState(() => Date.now());
 
@@ -3166,7 +3184,9 @@ function CountdownRender({ block }) {
   if (targetMs == null) {
     return (
       <div className="w-full h-full flex items-center justify-center text-center text-sm text-slate-400">
-        Set a target date in the inspector to start the countdown.
+        {eventKey
+          ? "The linked event has no start date yet."
+          : "Set a target date in the inspector to start the countdown."}
       </div>
     );
   }
@@ -3239,19 +3259,58 @@ function CountdownRender({ block }) {
   );
 }
 
+// Optional event link for the Countdown block. Mirrors the event-picker pattern
+// used by the dynamic blocks (publicClient.listEvents, slug-preferred values),
+// plus a "None" option so authors can unlink and return to a manual date.
+function CountdownEventPicker({ value, onChange, testId }) {
+  const { data: events, isLoading } = useQuery({
+    queryKey: ['canvas', 'public-events'],
+    queryFn: () => publicClient.listEvents(),
+    staleTime: 60_000,
+  });
+  const options = (events || []).map((e) => ({ value: e.slug || String(e.id), label: e.title }));
+  return (
+    <Field label={isLoading ? 'Link to event (loading…)' : 'Link to event'}>
+      <Select value={value || '__none__'} onValueChange={(v) => onChange(v === '__none__' ? '' : v)}>
+        <SelectTrigger className="h-8" data-testid={testId}>
+          <SelectValue placeholder="Select an event" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="__none__">None (use manual date)</SelectItem>
+          {options.map((o) => (
+            <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </Field>
+  );
+}
+
 function CountdownInspector({ block, update }) {
   const c = block.content || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+  const linkedToEvent = !!(c.eventSlug || c.eventId);
   return (
     <>
+      <CountdownEventPicker
+        value={c.eventSlug || c.eventId}
+        onChange={(v) => set({ eventSlug: v, eventId: '' })}
+        testId="select-countdown-event"
+      />
       <Field label="Target date & time">
         <Input
           type="datetime-local"
           value={c.targetDate || ''}
           onChange={(e) => set({ targetDate: e.target.value })}
           className="h-8"
+          disabled={linkedToEvent}
           data-testid="input-countdown-target"
         />
+        {linkedToEvent ? (
+          <p className="text-xs text-slate-500">
+            Using the linked event’s start date. Choose “None” above to set a date manually.
+          </p>
+        ) : null}
       </Field>
       <ToggleField label="Show days" value={c.showDays !== false} onChange={(v) => set({ showDays: v })} testId="toggle-countdown-days" />
       <ToggleField label="Show hours" value={c.showHours !== false} onChange={(v) => set({ showHours: v })} testId="toggle-countdown-hours" />
