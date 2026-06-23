@@ -6054,8 +6054,15 @@ function CardFlipGridRender({ block, asEditor }) {
   const isRect = shape === 'rectangular';
   const isCircular = shape === 'circular';
   const cardHeight = Math.max(40, Number(c.cardHeight) || 320);
-  const radius = isCircular ? '9999px' : '8px';
+  const cornerRadius = Number.isFinite(Number(c.cornerRadius)) ? Math.max(0, Number(c.cornerRadius)) : 8;
+  const radius = isCircular ? '9999px' : `${cornerRadius}px`;
+  const flipDuration = Number.isFinite(Number(c.flipDuration)) ? Math.max(0, Number(c.flipDuration)) : 0.7;
   const titleColor = c.titleColor || '#ffffff';
+  const titleSize = Number.isFinite(Number(c.titleSize)) ? Math.max(8, Number(c.titleSize)) : 16;
+  const showTitleOverlay = c.showTitleOverlay !== false;
+  const overlayStrength = Number.isFinite(Number(c.overlayStrength))
+    ? Math.min(1, Math.max(0, Number(c.overlayStrength)))
+    : 0.72;
   const backBgColor = c.backBgColor || 'var(--cb-color-surface, #ffffff)';
   const backTextColor = c.backTextColor || 'var(--cb-color-on-surface, #0f172a)';
 
@@ -6094,7 +6101,7 @@ function CardFlipGridRender({ block, asEditor }) {
                 <div
                   className="relative w-full h-full cursor-pointer"
                   style={{
-                    transition: 'transform 0.7s',
+                    transition: `transform ${flipDuration}s`,
                     transformStyle: 'preserve-3d',
                     transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)',
                   }}
@@ -6138,11 +6145,11 @@ function CardFlipGridRender({ block, asEditor }) {
                     )}
                     <div
                       className="absolute inset-x-0 bottom-0 px-3 py-2"
-                      style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.72), rgba(0,0,0,0))' }}
+                      style={{ background: showTitleOverlay ? `linear-gradient(to top, rgba(0,0,0,${overlayStrength}), rgba(0,0,0,0))` : 'none' }}
                     >
                       <span
                         className="block font-semibold leading-tight"
-                        style={{ color: titleColor, fontSize: 16, textAlign: isCircular ? 'center' : 'left' }}
+                        style={{ color: titleColor, fontSize: titleSize, textAlign: isCircular ? 'center' : 'left' }}
                       >
                         {card?.title || ''}
                       </span>
@@ -6251,7 +6258,48 @@ function CardFlipGridInspector({ block, update }) {
           testId="input-card-flip-height"
         />
       )}
+      {c.shape !== 'circular' && (
+        <NumberField
+          label="Corner radius (px)"
+          min={0}
+          value={c.cornerRadius ?? 8}
+          onChange={(v) => set({ cornerRadius: Math.max(0, Number(v) || 0) })}
+          testId="input-card-flip-radius"
+        />
+      )}
+      <NumberField
+        label="Flip duration (s)"
+        min={0}
+        step={0.1}
+        value={c.flipDuration ?? 0.7}
+        onChange={(v) => set({ flipDuration: Math.max(0, Number(v) || 0) })}
+        testId="input-card-flip-duration"
+      />
       <ColorField label="Title colour" value={c.titleColor} onChange={(v) => set({ titleColor: v })} testId="input-card-flip-title-color" />
+      <NumberField
+        label="Title size (px)"
+        min={8}
+        value={c.titleSize ?? 16}
+        onChange={(v) => set({ titleSize: Math.max(8, Number(v) || 8) })}
+        testId="input-card-flip-title-size"
+      />
+      <ToggleField
+        label="Show title overlay"
+        value={c.showTitleOverlay !== false}
+        onChange={(v) => set({ showTitleOverlay: v })}
+        testId="toggle-card-flip-overlay"
+      />
+      {c.showTitleOverlay !== false && (
+        <NumberField
+          label="Overlay strength (0-1)"
+          min={0}
+          max={1}
+          step={0.01}
+          value={c.overlayStrength ?? 0.72}
+          onChange={(v) => set({ overlayStrength: Math.min(1, Math.max(0, Number(v) || 0)) })}
+          testId="input-card-flip-overlay-strength"
+        />
+      )}
       <ColorField label="Back background" value={c.backBgColor} onChange={(v) => set({ backBgColor: v })} testId="input-card-flip-back-bg" />
       <ColorField label="Back text colour" value={c.backTextColor} onChange={(v) => set({ backTextColor: v })} testId="input-card-flip-back-text-color" />
       <Field label="Cards">

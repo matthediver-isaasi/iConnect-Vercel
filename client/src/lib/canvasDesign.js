@@ -1073,7 +1073,12 @@ export const BLOCK_DEFAULTS = {
       gap: 16,
       shape: 'square', // square | rectangular | circular
       cardHeight: 320, // only used when shape === 'rectangular'
+      cornerRadius: 8, // px; ignored when shape === 'circular' (forced round)
+      flipDuration: 0.7, // seconds for the flip animation
       titleColor: '#ffffff',
+      titleSize: 16, // px; front title font size
+      showTitleOverlay: true, // hide to drop the dark gradient behind the title
+      overlayStrength: 0.72, // 0-1 opacity of the bottom gradient wash
       backBgColor: 'var(--cb-color-surface, #ffffff)',
       backTextColor: 'var(--cb-color-on-surface, #0f172a)',
     },
