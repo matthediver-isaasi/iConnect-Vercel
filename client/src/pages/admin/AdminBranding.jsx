@@ -1389,16 +1389,35 @@ export default function AdminBranding() {
                   <p className="text-xs text-slate-500">Size of the top bar menu link text. Leave blank for default.</p>
                 </div>
               </div>
-              <div 
-                className="h-10 rounded-lg border border-slate-600"
-                style={{
-                  background: `linear-gradient(to right, ${(formData.header_config?.gradientStops || DEFAULT_GRADIENT_STOPS)
-                    .slice()
-                    .sort((a, b) => a.position - b.position)
-                    .map(stop => `${stop.color} ${stop.position}%`)
-                    .join(', ')})`
-                }}
-              />
+              <div className="space-y-1">
+                <Label className="text-slate-300 text-xs">Live Preview</Label>
+                <div
+                  className="rounded-lg border border-slate-600 overflow-hidden flex items-center gap-6 px-4"
+                  style={{
+                    minHeight: `${Math.min(Math.max(parseInt(formData.header_config?.topBarHeight, 10) || 48, 24), 120)}px`,
+                    background: `linear-gradient(to right, ${(formData.header_config?.gradientStops || DEFAULT_GRADIENT_STOPS)
+                      .slice()
+                      .sort((a, b) => a.position - b.position)
+                      .map(stop => `${stop.color} ${stop.position}%`)
+                      .join(', ')})`
+                  }}
+                  data-testid="preview-top-bar"
+                >
+                  {['Home', 'About', 'Events', 'Contact'].map((label) => (
+                    <span
+                      key={label}
+                      style={{
+                        color: formData.header_config?.topNavTextColor || '#FFFFFF',
+                        fontSize: `${parseInt(formData.header_config?.topNavFontSize, 10) || 14}px`,
+                        fontWeight: 500,
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      {label}
+                    </span>
+                  ))}
+                </div>
+              </div>
               <div className="space-y-3">
                 {(formData.header_config?.gradientStops || DEFAULT_GRADIENT_STOPS).map((stop, index) => (
                   <div key={index} className="flex items-center gap-3 bg-slate-900/50 rounded-lg p-3">
@@ -1561,16 +1580,35 @@ export default function AdminBranding() {
                     />
                   </div>
 
-                  <div
-                    className="h-10 rounded-lg border border-slate-600"
-                    style={{
-                      background: `linear-gradient(to right, ${(formData.header_config?.secondaryBar?.gradientStops || DEFAULT_SECONDARY_BAR_GRADIENT_STOPS)
-                        .slice()
-                        .sort((a, b) => a.position - b.position)
-                        .map(stop => `${stop.color} ${stop.position}%`)
-                        .join(', ')})`
-                    }}
-                  />
+                  <div className="space-y-1">
+                    <Label className="text-slate-300 text-xs">Live Preview</Label>
+                    <div
+                      className="rounded-lg border border-slate-600 overflow-hidden flex items-center gap-6 px-4"
+                      style={{
+                        minHeight: `${Math.min(Math.max(parseInt(formData.header_config?.secondaryBar?.height, 10) || 48, 24), 120)}px`,
+                        background: `linear-gradient(to right, ${(formData.header_config?.secondaryBar?.gradientStops || DEFAULT_SECONDARY_BAR_GRADIENT_STOPS)
+                          .slice()
+                          .sort((a, b) => a.position - b.position)
+                          .map(stop => `${stop.color} ${stop.position}%`)
+                          .join(', ')})`
+                      }}
+                      data-testid="preview-secondary-bar"
+                    >
+                      {['Membership', 'Resources', 'News', 'Get Involved'].map((label) => (
+                        <span
+                          key={label}
+                          style={{
+                            color: formData.header_config?.secondaryBar?.textColor || '#FFFFFF',
+                            fontSize: `${parseInt(formData.header_config?.secondaryBar?.fontSize, 10) || 16}px`,
+                            fontWeight: 500,
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
+                          {label}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
                   <div className="space-y-3">
                     {(formData.header_config?.secondaryBar?.gradientStops || DEFAULT_SECONDARY_BAR_GRADIENT_STOPS).map((stop, index) => (
                       <div key={index} className="flex items-center gap-3 bg-slate-900/50 rounded-lg p-3">
