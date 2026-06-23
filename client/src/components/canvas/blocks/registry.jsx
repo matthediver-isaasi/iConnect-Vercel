@@ -6206,7 +6206,7 @@ function CardFlipGridRender({ block, asEditor, breakpoint }) {
                       >
                         <span
                           className="block font-semibold leading-tight text-center"
-                          style={{ ...(titleTypoInline || {}), color: titleColor, fontSize: titleSize, ...(awaitingTitleStyle ? { visibility: 'hidden' } : null) }}
+                          style={{ whiteSpace: 'pre-line', ...(titleTypoInline || {}), color: titleColor, fontSize: titleSize, ...(awaitingTitleStyle ? { visibility: 'hidden' } : null) }}
                         >
                           {card?.title || ''}
                         </span>
@@ -6218,7 +6218,7 @@ function CardFlipGridRender({ block, asEditor, breakpoint }) {
                       >
                         <span
                           className="block font-semibold leading-tight"
-                          style={{ ...(titleTypoInline || {}), color: titleColor, fontSize: titleSize, textAlign: 'left', ...(awaitingTitleStyle ? { visibility: 'hidden' } : null) }}
+                          style={{ whiteSpace: 'pre-line', ...(titleTypoInline || {}), color: titleColor, fontSize: titleSize, textAlign: 'left', ...(awaitingTitleStyle ? { visibility: 'hidden' } : null) }}
                         >
                           {card?.title || ''}
                         </span>
@@ -6268,7 +6268,7 @@ function CardFlipGridRender({ block, asEditor, breakpoint }) {
             <DialogTitle>{modalCard?.title || ''}</DialogTitle>
           </DialogHeader>
           <div
-            className="prose prose-sm max-w-none [&_p:last-child]:mb-0"
+            className="prose prose-sm max-w-none [&_h1]:text-3xl [&_h1]:font-bold [&_h2]:text-2xl [&_h2]:font-bold [&_h3]:text-xl [&_h3]:font-semibold [&_h4]:text-lg [&_h4]:font-semibold [&_h5]:text-base [&_h5]:font-semibold [&_h6]:text-sm [&_h6]:font-semibold [&_h6]:uppercase [&_p]:mb-2 [&_p:last-child]:mb-0 [&_a]:text-blue-600 [&_a]:underline [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mb-1"
             dangerouslySetInnerHTML={{ __html: sanitizeRichText(stripTrailingEmptyParagraphs(modalCard?.content || '')) }}
           />
         </DialogContent>
@@ -6494,7 +6494,7 @@ function CardFlipGridInspector({ block, update }) {
                 onChangeAlt={(v) => patch({ imageAlt: v })}
                 testId={`card-flip-card-${idx}-image`}
               />
-              <TextField label="Front title" value={item.title} onChange={(v) => patch({ title: v })} testId={`card-flip-card-${idx}-title`} />
+              <TextField label="Front title" multiline value={item.title} onChange={(v) => patch({ title: v })} testId={`card-flip-card-${idx}-title`} />
               <TextField label="Back summary" multiline value={item.summary} onChange={(v) => patch({ summary: v })} testId={`card-flip-card-${idx}-summary`} />
               <RichTextField label="Full content (View more)" value={item.content} onChange={(v) => patch({ content: v })} testId={`card-flip-card-${idx}-content`} />
               {item.backText ? (
