@@ -1079,7 +1079,14 @@ export const BLOCK_DEFAULTS = {
       titleSize: 16, // px; front title font size
       showTitleOverlay: true, // hide to drop the dark gradient behind the title
       overlayStrength: 0.72, // 0-1 opacity of the bottom gradient wash
+      backBgType: 'color', // color | gradient
       backBgColor: 'var(--cb-color-surface, #ffffff)',
+      // Gradient back: only consulted when backBgType === 'gradient'. Kept on
+      // dedicated back* keys so they never collide with the solid backBgColor.
+      backGradientType: 'linear', // linear | radial
+      backGradientFromColor: '#3b82f6',
+      backGradientToColor: '#1e3a8a',
+      backGradientAngle: 180, // deg; linear only
       backTextColor: 'var(--cb-color-on-surface, #0f172a)',
     },
   },

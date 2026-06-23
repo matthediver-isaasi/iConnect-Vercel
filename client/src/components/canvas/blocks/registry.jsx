@@ -6048,6 +6048,22 @@ function SymbolInspector({ block }) {
 // per-breakpoint object { desktop, tablet, mobile }. Resolve to the column
 // count for the active breakpoint, cascading mobile→tablet→desktop and
 // falling back to desktop (then 1) so old saved blocks keep working.
+// Builds the back-face background for a Card Flip Grid card. Returns a solid
+// colour when backBgType is unset/'color' (legacy behaviour) or a CSS gradient
+// when 'gradient'. Gradient settings live on dedicated back* keys so they never
+// collide with the solid backBgColor.
+function buildCardFlipBackBackground(c) {
+  const solid = c.backBgColor || 'var(--cb-color-surface, #ffffff)';
+  if ((c.backBgType || 'color') !== 'gradient') return solid;
+  const from = c.backGradientFromColor || '#3b82f6';
+  const to = c.backGradientToColor || '#1e3a8a';
+  if ((c.backGradientType || 'linear') === 'radial') {
+    return `radial-gradient(ellipse at center, ${from}, ${to})`;
+  }
+  const angle = Number.isFinite(Number(c.backGradientAngle)) ? Number(c.backGradientAngle) : 180;
+  return `linear-gradient(${angle}deg, ${from}, ${to})`;
+}
+
 function cardFlipColumnsForBreakpoint(columns, breakpoint) {
   if (columns && typeof columns === 'object') {
     const bp = breakpoint || 'desktop';
@@ -6076,7 +6092,7 @@ function CardFlipGridRender({ block, asEditor, breakpoint }) {
   const overlayStrength = Number.isFinite(Number(c.overlayStrength))
     ? Math.min(1, Math.max(0, Number(c.overlayStrength)))
     : 0.72;
-  const backBgColor = c.backBgColor || 'var(--cb-color-surface, #ffffff)';
+  const backBackground = buildCardFlipBackBackground(c);
   const backTextColor = c.backTextColor || 'var(--cb-color-on-surface, #0f172a)';
 
   const perPage = columns * rowsPerPage;
@@ -6156,17 +6172,31 @@ function CardFlipGridRender({ block, asEditor, breakpoint }) {
                         <ImageIcon className="w-8 h-8" />
                       </div>
                     )}
-                    <div
-                      className="absolute inset-x-0 bottom-0 px-3 py-2"
-                      style={{ background: showTitleOverlay ? `linear-gradient(to top, rgba(0,0,0,${overlayStrength}), rgba(0,0,0,0))` : 'none' }}
-                    >
-                      <span
-                        className="block font-semibold leading-tight"
-                        style={{ color: titleColor, fontSize: titleSize, textAlign: isCircular ? 'center' : 'left' }}
+                    {isCircular ? (
+                      <div
+                        className="absolute inset-0 flex items-center justify-center px-4"
+                        style={{ background: showTitleOverlay ? `radial-gradient(ellipse at center, rgba(0,0,0,${overlayStrength}), rgba(0,0,0,0) 72%)` : 'none' }}
                       >
-                        {card?.title || ''}
-                      </span>
-                    </div>
+                        <span
+                          className="block font-semibold leading-tight text-center"
+                          style={{ color: titleColor, fontSize: titleSize }}
+                        >
+                          {card?.title || ''}
+                        </span>
+                      </div>
+                    ) : (
+                      <div
+                        className="absolute inset-x-0 bottom-0 px-3 py-2"
+                        style={{ background: showTitleOverlay ? `linear-gradient(to top, rgba(0,0,0,${overlayStrength}), rgba(0,0,0,0))` : 'none' }}
+                      >
+                        <span
+                          className="block font-semibold leading-tight"
+                          style={{ color: titleColor, fontSize: titleSize, textAlign: 'left' }}
+                        >
+                          {card?.title || ''}
+                        </span>
+                      </div>
+                    )}
                   </div>
                   {/* Back face: free text (pre-rotated 180°) */}
                   <div
@@ -6177,7 +6207,7 @@ function CardFlipGridRender({ block, asEditor, breakpoint }) {
                       transform: 'rotateY(180deg)',
                       borderRadius: radius,
                       overflow: 'auto',
-                      background: backBgColor,
+                      background: backBackground,
                       color: backTextColor,
                     }}
                   >
@@ -6331,7 +6361,45 @@ function CardFlipGridInspector({ block, update }) {
           testId="input-card-flip-overlay-strength"
         />
       )}
-      <ColorField label="Back background" value={c.backBgColor} onChange={(v) => set({ backBgColor: v })} testId="input-card-flip-back-bg" />
+      <SelectField
+        label="Back background type"
+        value={c.backBgType || 'color'}
+        onChange={(v) => set({ backBgType: v })}
+        options={[
+          { value: 'color', label: 'Solid colour' },
+          { value: 'gradient', label: 'Gradient' },
+        ]}
+        testId="select-card-flip-back-bg-type"
+      />
+      {(c.backBgType || 'color') === 'color' && (
+        <ColorField label="Back background" value={c.backBgColor} onChange={(v) => set({ backBgColor: v })} testId="input-card-flip-back-bg" />
+      )}
+      {c.backBgType === 'gradient' && (
+        <>
+          <SelectField
+            label="Gradient style"
+            value={c.backGradientType || 'linear'}
+            onChange={(v) => set({ backGradientType: v })}
+            options={[
+              { value: 'linear', label: 'Linear' },
+              { value: 'radial', label: 'Radial' },
+            ]}
+            testId="select-card-flip-back-gradient-type"
+          />
+          <ColorField label="Gradient from" value={c.backGradientFromColor || '#3b82f6'} onChange={(v) => set({ backGradientFromColor: v })} testId="input-card-flip-back-gradient-from" />
+          <ColorField label="Gradient to" value={c.backGradientToColor || '#1e3a8a'} onChange={(v) => set({ backGradientToColor: v })} testId="input-card-flip-back-gradient-to" />
+          {(c.backGradientType || 'linear') === 'linear' && (
+            <NumberField
+              label="Gradient angle (deg)"
+              min={0}
+              max={360}
+              value={c.backGradientAngle ?? 180}
+              onChange={(v) => set({ backGradientAngle: Math.max(0, Math.min(360, Number(v) || 0)) })}
+              testId="input-card-flip-back-gradient-angle"
+            />
+          )}
+        </>
+      )}
       <ColorField label="Back text colour" value={c.backTextColor} onChange={(v) => set({ backTextColor: v })} testId="input-card-flip-back-text-color" />
       <Field label="Cards">
         <ArrayList
