@@ -54,6 +54,17 @@ const DEFAULT_INDICATOR_GRADIENT_STOPS = [
   { color: '#BA0087', position: 100 }
 ];
 
+// The five supported social platforms (kept in sync with `availableSocialIcons`
+// in SocialIconsConfig.jsx). Each can have a custom uploaded SVG glyph that is
+// recoloured to the configured header/footer social-icon colour at render time.
+const SOCIAL_ICON_PLATFORMS = [
+  { key: 'linkedin', name: 'LinkedIn' },
+  { key: 'twitter', name: 'Twitter/X' },
+  { key: 'facebook', name: 'Facebook' },
+  { key: 'instagram', name: 'Instagram' },
+  { key: 'youtube', name: 'YouTube' }
+];
+
 // Reusable multi-point gradient-stop editor (color picker + position slider +
 // add/remove). `onChange` receives the updated stops array.
 function GradientStopsEditor({ stops, onChange, testIdPrefix }) {
@@ -206,6 +217,7 @@ export default function AdminBranding() {
   const [uploadingHeaderLogo, setUploadingHeaderLogo] = useState(false);
   const [uploadingSocialImage, setUploadingSocialImage] = useState(false);
   const [socialImageDimWarning, setSocialImageDimWarning] = useState('');
+  const [uploadingSocialSvg, setUploadingSocialSvg] = useState(null);
   const [tenantUser, setTenantUser] = useState(null);
   const [tenant, setTenant] = useState(null);
   const [navPreviewItems, setNavPreviewItems] = useState({ topNav: [], mainNav: [] });
@@ -213,6 +225,7 @@ export default function AdminBranding() {
   const logoInputRef = useRef(null);
   const headerLogoInputRef = useRef(null);
   const socialImageInputRef = useRef(null);
+  const socialSvgInputRefs = useRef({});
   
   const DEFAULT_GRADIENT_STOPS = [
     { color: '#FFFFFF', position: 0 },
@@ -302,7 +315,8 @@ export default function AdminBranding() {
       footerLogoWidth: '',
       footerLogoInvert: false,
       headerSocialIconColor: '#5C0085',
-      footerSocialIconColor: '#FFFFFF'
+      footerSocialIconColor: '#FFFFFF',
+      socialIconCustomSvgs: {}
     },
     platform_branding: {
       showPlatformBranding: true,
@@ -450,7 +464,8 @@ export default function AdminBranding() {
                 footerLogoWidth: t?.branding_config?.footerLogoWidth || '',
                 footerLogoInvert: t?.branding_config?.footerLogoInvert === true,
                 headerSocialIconColor: t?.branding_config?.headerSocialIconColor || '#5C0085',
-                footerSocialIconColor: t?.branding_config?.footerSocialIconColor || '#FFFFFF'
+                footerSocialIconColor: t?.branding_config?.footerSocialIconColor || '#FFFFFF',
+                socialIconCustomSvgs: t?.branding_config?.socialIconCustomSvgs || {}
               },
               platform_branding: {
                 showPlatformBranding: t?.platform_branding?.showPlatformBranding !== false,
@@ -707,6 +722,111 @@ export default function AdminBranding() {
     } catch (_err) {
       toast({
         title: "Image cleared locally",
+        description: "Removal not saved on the server. Click Save to persist changes.",
+        variant: "warning"
+      });
+    }
+  };
+
+  // Upload a custom SVG glyph for a single social platform. Only SVG files are
+  // accepted (validated client-side by MIME and extension). The returned URL is
+  // stored in branding_config.socialIconCustomSvgs[platform] and auto-saved
+  // through the existing branding PATCH flow.
+  const handleSocialSvgUpload = async (platform, e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const isSvg = (file.type === 'image/svg+xml') || /\.svg$/i.test(file.name || '');
+    if (!isSvg) {
+      toast({
+        title: "Invalid file type",
+        description: "Only SVG files are allowed for custom social icons.",
+        variant: "destructive"
+      });
+      if (socialSvgInputRefs.current[platform]) socialSvgInputRefs.current[platform].value = '';
+      return;
+    }
+
+    setUploadingSocialSvg(platform);
+    const uploadFormData = new FormData();
+    uploadFormData.append('file', file);
+    uploadFormData.append('folder', 'branding');
+
+    try {
+      const response = await fetch('/api/integrations/upload-file', {
+        method: 'POST',
+        credentials: 'include',
+        body: uploadFormData
+      });
+
+      if (!response.ok) throw new Error('Upload failed');
+
+      const data = await response.json();
+      const newUrl = data.file_url;
+      const nextSvgs = { ...(formData.branding_config?.socialIconCustomSvgs || {}), [platform]: newUrl };
+      const nextBrandingConfig = { ...formData.branding_config, socialIconCustomSvgs: nextSvgs };
+      setFormData(prev => ({ ...prev, branding_config: nextBrandingConfig }));
+
+      const saveResponse = await fetch('/api/admin/tenant-branding', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ branding_config: nextBrandingConfig })
+      });
+
+      if (saveResponse.ok) {
+        toast({
+          title: "Icon saved",
+          description: "Your custom social icon has been uploaded and saved."
+        });
+      } else {
+        toast({
+          title: "Icon uploaded",
+          description: "Icon uploaded but not saved. Click Save to persist changes.",
+          variant: "warning"
+        });
+      }
+    } catch (err) {
+      toast({
+        title: "Upload failed",
+        description: "Could not upload the icon. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      setUploadingSocialSvg(null);
+      if (socialSvgInputRefs.current[platform]) socialSvgInputRefs.current[platform].value = '';
+    }
+  };
+
+  // Remove a platform's custom SVG, reverting it to the built-in icon.
+  const handleRemoveSocialSvg = async (platform) => {
+    const nextSvgs = { ...(formData.branding_config?.socialIconCustomSvgs || {}) };
+    delete nextSvgs[platform];
+    const nextBrandingConfig = { ...formData.branding_config, socialIconCustomSvgs: nextSvgs };
+    setFormData(prev => ({ ...prev, branding_config: nextBrandingConfig }));
+
+    try {
+      const response = await fetch('/api/admin/tenant-branding', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ branding_config: nextBrandingConfig })
+      });
+      if (response.ok) {
+        toast({
+          title: "Icon removed",
+          description: "Reverted to the built-in icon."
+        });
+      } else {
+        toast({
+          title: "Icon cleared locally",
+          description: "Removal not saved on the server. Click Save to persist changes.",
+          variant: "warning"
+        });
+      }
+    } catch (_err) {
+      toast({
+        title: "Icon cleared locally",
         description: "Removal not saved on the server. Click Save to persist changes.",
         variant: "warning"
       });
@@ -2806,6 +2926,91 @@ export default function AdminBranding() {
                     />
                   </div>
                   <p className="text-xs text-slate-500">Color for social icons in the footer</p>
+                </div>
+              </div>
+
+              <div className="space-y-3 pt-2 border-t border-slate-700">
+                <div>
+                  <Label className="text-slate-200">Custom Icon SVGs</Label>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Upload your own SVG glyph for any platform. It is recoloured to the header/footer colours above and appears wherever that platform's icon shows today. Leave empty to use the built-in icon.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  {SOCIAL_ICON_PLATFORMS.map((platform) => {
+                    const customSvg = formData.branding_config?.socialIconCustomSvgs?.[platform.key];
+                    const isUploading = uploadingSocialSvg === platform.key;
+                    return (
+                      <div
+                        key={platform.key}
+                        className="flex items-center gap-3 flex-wrap p-3 bg-slate-900/50 rounded-md border border-slate-700"
+                        data-testid={`row-social-svg-${platform.key}`}
+                      >
+                        <div
+                          className="w-9 h-9 rounded flex items-center justify-center shrink-0"
+                          style={{ backgroundColor: formData.branding_config?.headerSocialIconColor || '#5C0085' }}
+                        >
+                          {customSvg ? (
+                            <div
+                              className="w-5 h-5"
+                              style={{
+                                backgroundColor: '#FFFFFF',
+                                WebkitMaskImage: `url("${customSvg}")`,
+                                maskImage: `url("${customSvg}")`,
+                                WebkitMaskRepeat: 'no-repeat',
+                                maskRepeat: 'no-repeat',
+                                WebkitMaskPosition: 'center',
+                                maskPosition: 'center',
+                                WebkitMaskSize: 'contain',
+                                maskSize: 'contain'
+                              }}
+                              data-testid={`preview-social-svg-${platform.key}`}
+                            />
+                          ) : (
+                            <Image className="w-4 h-4 text-white/70" />
+                          )}
+                        </div>
+                        <span className="text-sm text-slate-200 flex-1 min-w-[5rem]">{platform.name}</span>
+                        <input
+                          type="file"
+                          accept=".svg,image/svg+xml"
+                          ref={(el) => { socialSvgInputRefs.current[platform.key] = el; }}
+                          onChange={(e) => handleSocialSvgUpload(platform.key, e)}
+                          className="hidden"
+                          data-testid={`input-social-svg-${platform.key}`}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => socialSvgInputRefs.current[platform.key]?.click()}
+                          disabled={isUploading}
+                          className="border-slate-600 text-slate-300"
+                          data-testid={`button-upload-social-svg-${platform.key}`}
+                        >
+                          {isUploading ? (
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          ) : (
+                            <Upload className="w-4 h-4 mr-2" />
+                          )}
+                          {customSvg ? 'Replace' : 'Upload SVG'}
+                        </Button>
+                        {customSvg && (
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => handleRemoveSocialSvg(platform.key)}
+                            disabled={isUploading}
+                            data-testid={`button-remove-social-svg-${platform.key}`}
+                          >
+                            <Trash2 className="w-4 h-4 mr-2" />
+                            Remove
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </CardContent>
