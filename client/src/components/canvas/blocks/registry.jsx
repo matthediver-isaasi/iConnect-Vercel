@@ -944,12 +944,12 @@ function HeroRender({ block, asEditor, priority, breakpoint }) {
   const isPreview = breakpoint === 'desktop' || breakpoint === 'tablet' || breakpoint === 'mobile';
   const bpForInline = isPreview ? breakpoint : 'desktop';
   const headlineInline = headlineStyleObj
-    ? { color: 'inherit', margin: 0, ...buildTypographyInlineStyle(headlineStyleObj, { breakpoint: bpForInline }) }
-    : { color: 'inherit', margin: 0, fontSize: 'clamp(1.5rem, 4vw, 2.5rem)', fontWeight: 700 };
+    ? { color: 'inherit', margin: 0, width: '100%', ...buildTypographyInlineStyle(headlineStyleObj, { breakpoint: bpForInline }) }
+    : { color: 'inherit', margin: 0, width: '100%', fontSize: 'clamp(1.5rem, 4vw, 2.5rem)', fontWeight: 700 };
   if (awaitingHeadline) headlineInline.visibility = 'hidden';
   const subheadlineInline = subheadlineStyleObj
-    ? { color: 'inherit', marginTop: 8, opacity: 0.9, maxWidth: 720, ...buildTypographyInlineStyle(subheadlineStyleObj, { breakpoint: bpForInline }) }
-    : { color: 'inherit', marginTop: 8, opacity: 0.9, maxWidth: 720 };
+    ? { color: 'inherit', marginTop: 8, opacity: 0.9, width: '100%', ...buildTypographyInlineStyle(subheadlineStyleObj, { breakpoint: bpForInline }) }
+    : { color: 'inherit', marginTop: 8, opacity: 0.9, width: '100%' };
   if (awaitingSubheadline) subheadlineInline.visibility = 'hidden';
   // Public visitor: emit per-block @media CSS so tablet/mobile values
   // kick in below their breakpoints. Editor preview pins the matching
