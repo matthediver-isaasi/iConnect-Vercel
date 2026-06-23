@@ -6,6 +6,7 @@ import { createPageUrl } from "@/utils";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
 import { useNavigationRealtime } from "@/hooks/useNavigationRealtime";
+import { useResolvedSocialIcons } from "@/hooks/useResolvedSocialIcons";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { Search, User, ArrowUpRight, LogOut, ChevronDown, ChevronRight, Calendar, Building, Briefcase, FileText, Users, Sparkles, Home, Mail, Phone, Menu, X, Loader2, Newspaper, BookOpen, FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -254,6 +255,7 @@ export default function PublicHeader() {
   const buttonStyles = branding?.brandingConfig?.button_styles || {};
   const headerSocialIconColor = branding?.brandingConfig?.headerSocialIconColor || NEUTRAL_SOCIAL_ICON_COLOR;
   const socialIconCustomSvgs = branding?.brandingConfig?.socialIconCustomSvgs || {};
+  const resolvedSocialSvgs = useResolvedSocialIcons(socialIconCustomSvgs);
   const headerLogoUrl = branding?.headerLogoUrl || null;
   const tenantName = branding?.name || "";
   const hasLogoUrl = !!headerLogoUrl;
@@ -1108,7 +1110,7 @@ export default function PublicHeader() {
           className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center hover:bg-slate-200 transition-colors"
         >
           {renderSocialGlyph({
-            customSvg: socialIconCustomSvgs.linkedin,
+            customSvg: resolvedSocialSvgs.linkedin,
             color: headerSocialColor,
             sizeClassName: "w-5 h-5",
             builtin: (
@@ -1131,7 +1133,7 @@ export default function PublicHeader() {
           className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center hover:bg-slate-200 transition-colors"
         >
           {renderSocialGlyph({
-            customSvg: socialIconCustomSvgs.twitter,
+            customSvg: resolvedSocialSvgs.twitter,
             color: headerSocialColor,
             sizeClassName: "w-5 h-5",
             builtin: (
@@ -1154,7 +1156,7 @@ export default function PublicHeader() {
           className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center hover:bg-slate-200 transition-colors"
         >
           {renderSocialGlyph({
-            customSvg: socialIconCustomSvgs.facebook,
+            customSvg: resolvedSocialSvgs.facebook,
             color: headerSocialColor,
             sizeClassName: "w-5 h-5",
             builtin: (
@@ -1177,7 +1179,7 @@ export default function PublicHeader() {
           className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center hover:bg-slate-200 transition-colors"
         >
           {renderSocialGlyph({
-            customSvg: socialIconCustomSvgs.instagram,
+            customSvg: resolvedSocialSvgs.instagram,
             color: headerSocialColor,
             sizeClassName: "w-5 h-5",
             builtin: (
@@ -1200,7 +1202,7 @@ export default function PublicHeader() {
           className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center hover:bg-slate-200 transition-colors"
         >
           {renderSocialGlyph({
-            customSvg: socialIconCustomSvgs.youtube,
+            customSvg: resolvedSocialSvgs.youtube,
             color: headerSocialColor,
             sizeClassName: "w-5 h-5",
             builtin: (
@@ -1479,7 +1481,7 @@ export default function PublicHeader() {
                         style={{ backgroundColor: topNavTextColor }}
                       >
                         {renderSocialGlyph({
-                          customSvg: socialIconCustomSvgs.linkedin,
+                          customSvg: resolvedSocialSvgs.linkedin,
                           color: headerSocialIconColor,
                           sizeClassName: "w-4 h-4",
                           builtin: (
@@ -1499,7 +1501,7 @@ export default function PublicHeader() {
                         style={{ backgroundColor: topNavTextColor }}
                       >
                         {renderSocialGlyph({
-                          customSvg: socialIconCustomSvgs.twitter,
+                          customSvg: resolvedSocialSvgs.twitter,
                           color: headerSocialIconColor,
                           sizeClassName: "w-4 h-4",
                           builtin: (
@@ -1519,7 +1521,7 @@ export default function PublicHeader() {
                         style={{ backgroundColor: topNavTextColor }}
                       >
                         {renderSocialGlyph({
-                          customSvg: socialIconCustomSvgs.facebook,
+                          customSvg: resolvedSocialSvgs.facebook,
                           color: headerSocialIconColor,
                           sizeClassName: "w-4 h-4",
                           builtin: (
@@ -1539,7 +1541,7 @@ export default function PublicHeader() {
                         style={{ backgroundColor: topNavTextColor }}
                       >
                         {renderSocialGlyph({
-                          customSvg: socialIconCustomSvgs.instagram,
+                          customSvg: resolvedSocialSvgs.instagram,
                           color: headerSocialIconColor,
                           sizeClassName: "w-4 h-4",
                           builtin: (
@@ -1559,7 +1561,7 @@ export default function PublicHeader() {
                         style={{ backgroundColor: topNavTextColor }}
                       >
                         {renderSocialGlyph({
-                          customSvg: socialIconCustomSvgs.youtube,
+                          customSvg: resolvedSocialSvgs.youtube,
                           color: headerSocialIconColor,
                           sizeClassName: "w-4 h-4",
                           builtin: (

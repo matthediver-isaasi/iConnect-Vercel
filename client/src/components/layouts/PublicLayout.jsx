@@ -14,6 +14,7 @@ import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 import { BannerProvider } from "@/contexts/BannerContext";
 import IEditFormElement from "../iedit/elements/IEditFormElement";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
+import { useResolvedSocialIcons } from "@/hooks/useResolvedSocialIcons";
 
 // Map page names to portal page identifiers for banner matching
 // These identifiers must match the PORTAL_PAGES values in PageBannerManagement.jsx
@@ -65,6 +66,7 @@ export default function PublicLayout({ children, currentPageName }) {
   });
 
   const tenantFooterConfig = branding?.footerConfig || {};
+  const resolvedFooterSocialSvgs = useResolvedSocialIcons(branding?.brandingConfig?.socialIconCustomSvgs || {});
   // Neutral, tenant-agnostic placeholder used until branding loads (or when it is genuinely
   // absent) so no GFI-specific identity flashes before the real branding arrives.
   const NEUTRAL_PRIMARY_COLOR = '#64748B';
@@ -545,7 +547,9 @@ export default function PublicLayout({ children, currentPageName }) {
                     );
                   case 'social':
                     const footerSocialColor = branding?.brandingConfig?.footerSocialIconColor || '#FFFFFF';
-                    const footerSocialCustomSvgs = branding?.brandingConfig?.socialIconCustomSvgs || {};
+                    // Resolved to same-origin data URIs; a cross-origin URL in mask-image
+                    // is unreliable and paints a solid coloured square instead of the icon.
+                    const footerSocialCustomSvgs = resolvedFooterSocialSvgs;
                     const socialIconBorderStyle = {
                       border: `1px solid ${adjustColorOpacity(footerSocialColor, 0.3)}`,
                     };

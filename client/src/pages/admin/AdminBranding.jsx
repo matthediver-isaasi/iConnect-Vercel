@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/use-toast";
+import { useResolvedSocialIcons } from "@/hooks/useResolvedSocialIcons";
 import UnfurlPreview from "@/components/UnfurlPreview";
 import { publicClient } from "@/api/publicClient";
 
@@ -340,6 +341,11 @@ export default function AdminBranding() {
       textColor: '#64748b'
     }
   });
+
+  // Resolve uploaded custom social SVGs to same-origin data URIs so the preview
+  // thumbnails below mask reliably (a cross-origin URL in mask-image renders as
+  // a solid coloured square, matching what users would otherwise see live).
+  const resolvedSocialSvgs = useResolvedSocialIcons(formData.branding_config?.socialIconCustomSvgs || {});
 
   const [newAddressLine, setNewAddressLine] = useState('');
   const [newGradientColor, setNewGradientColor] = useState('#000000');
@@ -3252,6 +3258,9 @@ export default function AdminBranding() {
                   <p className="text-xs text-slate-500 mt-1">
                     Upload your own SVG glyph for any platform. It is recoloured to the header/footer colours above and appears wherever that platform's icon shows today. Leave empty to use the built-in icon.
                   </p>
+                  <p className="text-xs text-warning mt-1" data-testid="text-social-svg-transparent-hint">
+                    Custom icons must be SVGs with a transparent background. An SVG with a filled or solid background will display as a coloured square, not the icon shape.
+                  </p>
                 </div>
                 <div className="space-y-2">
                   {SOCIAL_ICON_PLATFORMS.map((platform) => {
@@ -3267,13 +3276,13 @@ export default function AdminBranding() {
                           className="w-9 h-9 rounded flex items-center justify-center shrink-0"
                           style={{ backgroundColor: formData.branding_config?.headerSocialIconColor || '#5C0085' }}
                         >
-                          {customSvg ? (
+                          {customSvg && resolvedSocialSvgs[platform.key] ? (
                             <div
                               className="w-5 h-5"
                               style={{
                                 backgroundColor: '#FFFFFF',
-                                WebkitMaskImage: `url("${customSvg}")`,
-                                maskImage: `url("${customSvg}")`,
+                                WebkitMaskImage: `url("${resolvedSocialSvgs[platform.key]}")`,
+                                maskImage: `url("${resolvedSocialSvgs[platform.key]}")`,
                                 WebkitMaskRepeat: 'no-repeat',
                                 maskRepeat: 'no-repeat',
                                 WebkitMaskPosition: 'center',
