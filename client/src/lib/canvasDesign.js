@@ -1081,6 +1081,7 @@ export const BLOCK_DEFAULTS = {
       showTitleOverlay: true, // hide to drop the gradient behind the title
       overlayStrength: 0.72, // 0-1 opacity of the front overlay wash
       overlayColor: '#000000', // colour of the front overlay gradient (fades to transparent)
+      overlayStyle: 'fade', // fade = gradient to transparent | solid = full coverage uniform wash
       backBgType: 'color', // color | gradient
       backBgColor: 'var(--cb-color-surface, #ffffff)',
       // Gradient back: only consulted when backBgType === 'gradient'. Kept on

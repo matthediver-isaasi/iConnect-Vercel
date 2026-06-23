@@ -6096,6 +6096,15 @@ function CardFlipGridRender({ block, asEditor, breakpoint }) {
   const overlayColor = c.overlayColor || '#000000';
   const overlayFrom = hexToRgba(overlayColor, overlayStrength);
   const overlayTo = hexToRgba(overlayColor, 0);
+  // 'solid' fills the whole card with a uniform wash; 'fade' (default) keeps the
+  // legacy radial/linear gradient that fades to transparent.
+  const overlaySolid = c.overlayStyle === 'solid';
+  const circularOverlayBg = overlaySolid
+    ? overlayFrom
+    : `radial-gradient(ellipse at center, ${overlayFrom}, ${overlayTo} 72%)`;
+  const linearOverlayBg = overlaySolid
+    ? overlayFrom
+    : `linear-gradient(to top, ${overlayFrom}, ${overlayTo})`;
   const backBackground = buildCardFlipBackBackground(c);
   const backTextColor = c.backTextColor || 'var(--cb-color-on-surface, #0f172a)';
 
@@ -6193,7 +6202,7 @@ function CardFlipGridRender({ block, asEditor, breakpoint }) {
                     {isCircular ? (
                       <div
                         className="absolute inset-0 flex items-center justify-center px-4"
-                        style={{ background: showTitleOverlay ? `radial-gradient(ellipse at center, ${overlayFrom}, ${overlayTo} 72%)` : 'none' }}
+                        style={{ background: showTitleOverlay ? circularOverlayBg : 'none' }}
                       >
                         <span
                           className="block font-semibold leading-tight text-center"
@@ -6205,7 +6214,7 @@ function CardFlipGridRender({ block, asEditor, breakpoint }) {
                     ) : (
                       <div
                         className="absolute inset-x-0 bottom-0 px-3 py-2"
-                        style={{ background: showTitleOverlay ? `linear-gradient(to top, ${overlayFrom}, ${overlayTo})` : 'none' }}
+                        style={{ background: showTitleOverlay ? linearOverlayBg : 'none' }}
                       >
                         <span
                           className="block font-semibold leading-tight"
@@ -6401,6 +6410,16 @@ function CardFlipGridInspector({ block, update }) {
       />
       {c.showTitleOverlay !== false && (
         <>
+          <SelectField
+            label="Overlay style"
+            value={c.overlayStyle || 'fade'}
+            onChange={(v) => set({ overlayStyle: v })}
+            options={[
+              { value: 'fade', label: 'Fade to transparent' },
+              { value: 'solid', label: 'Full coverage' },
+            ]}
+            testId="select-card-flip-overlay-style"
+          />
           <ColorField
             label="Overlay colour"
             value={c.overlayColor || '#000000'}
