@@ -19,11 +19,14 @@ import {
   LayoutTemplate,
   Plus,
   X,
-  Shield
+  Shield,
+  User,
+  Search
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/use-toast";
 import UnfurlPreview from "@/components/UnfurlPreview";
+import { publicClient } from "@/api/publicClient";
 
 export default function AdminBranding() {
   const navigate = useNavigate();
@@ -37,6 +40,7 @@ export default function AdminBranding() {
   const [socialImageDimWarning, setSocialImageDimWarning] = useState('');
   const [tenantUser, setTenantUser] = useState(null);
   const [tenant, setTenant] = useState(null);
+  const [navPreviewItems, setNavPreviewItems] = useState({ topNav: [], mainNav: [] });
   
   const logoInputRef = useRef(null);
   const headerLogoInputRef = useRef(null);
@@ -287,6 +291,31 @@ export default function AdminBranding() {
     
     checkAuth();
   }, [navigate]);
+
+  // Fetch real navigation items so the header previews mirror the live site's
+  // actual top-level menu structure (falls back to placeholders if none exist).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const items = await publicClient.listNavigationItems();
+        const topLevelTitles = (location) => (items || [])
+          .filter(i => (i.parent_id == null) && i.location === location)
+          .sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
+          .map(i => i.title)
+          .filter(Boolean);
+        if (!cancelled) {
+          setNavPreviewItems({
+            topNav: topLevelTitles('top_nav'),
+            mainNav: topLevelTitles('main_nav')
+          });
+        }
+      } catch (err) {
+        if (!cancelled) setNavPreviewItems({ topNav: [], mainNav: [] });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -1392,7 +1421,7 @@ export default function AdminBranding() {
               <div className="space-y-1">
                 <Label className="text-slate-300 text-xs">Live Preview</Label>
                 <div
-                  className="rounded-lg border border-slate-600 overflow-hidden flex items-center gap-6 px-4"
+                  className="rounded-lg border border-slate-600 overflow-hidden flex"
                   style={{
                     minHeight: `${Math.min(Math.max(parseInt(formData.header_config?.topBarHeight, 10) || 48, 24), 120)}px`,
                     background: `linear-gradient(to right, ${(formData.header_config?.gradientStops || DEFAULT_GRADIENT_STOPS)
@@ -1403,19 +1432,46 @@ export default function AdminBranding() {
                   }}
                   data-testid="preview-top-bar"
                 >
-                  {['Home', 'About', 'Events', 'Contact'].map((label) => (
+                  {/* Mirror the live header: top-bar links sit right-aligned alongside Login + Search */}
+                  <div className="flex flex-1 justify-end items-center gap-6 px-4">
+                    {(navPreviewItems.topNav.length > 0 ? navPreviewItems.topNav : ['Home', 'About', 'Events', 'Contact']).map((label) => (
+                      <span
+                        key={label}
+                        style={{
+                          color: formData.header_config?.topNavTextColor || '#FFFFFF',
+                          fontSize: `${parseInt(formData.header_config?.topNavFontSize, 10) || 14}px`,
+                          fontWeight: 600,
+                          whiteSpace: 'nowrap'
+                        }}
+                      >
+                        {label}
+                      </span>
+                    ))}
                     <span
-                      key={label}
+                      className="flex items-center gap-1"
                       style={{
                         color: formData.header_config?.topNavTextColor || '#FFFFFF',
                         fontSize: `${parseInt(formData.header_config?.topNavFontSize, 10) || 14}px`,
-                        fontWeight: 500,
+                        fontWeight: 600,
                         whiteSpace: 'nowrap'
                       }}
                     >
-                      {label}
+                      <User className="w-4 h-4" />
+                      Login
                     </span>
-                  ))}
+                    <span
+                      className="flex items-center gap-1"
+                      style={{
+                        color: formData.header_config?.topNavTextColor || '#FFFFFF',
+                        fontSize: `${parseInt(formData.header_config?.topNavFontSize, 10) || 14}px`,
+                        fontWeight: 600,
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      <Search className="w-4 h-4" />
+                      Search
+                    </span>
+                  </div>
                 </div>
               </div>
               <div className="space-y-3">
@@ -1583,7 +1639,7 @@ export default function AdminBranding() {
                   <div className="space-y-1">
                     <Label className="text-slate-300 text-xs">Live Preview</Label>
                     <div
-                      className="rounded-lg border border-slate-600 overflow-hidden flex items-center gap-6 px-4"
+                      className="rounded-lg border border-slate-600 overflow-hidden flex"
                       style={{
                         minHeight: `${Math.min(Math.max(parseInt(formData.header_config?.secondaryBar?.height, 10) || 48, 24), 120)}px`,
                         background: `linear-gradient(to right, ${(formData.header_config?.secondaryBar?.gradientStops || DEFAULT_SECONDARY_BAR_GRADIENT_STOPS)
@@ -1594,19 +1650,57 @@ export default function AdminBranding() {
                       }}
                       data-testid="preview-secondary-bar"
                     >
-                      {['Membership', 'Resources', 'News', 'Get Involved'].map((label) => (
-                        <span
-                          key={label}
-                          style={{
-                            color: formData.header_config?.secondaryBar?.textColor || '#FFFFFF',
-                            fontSize: `${parseInt(formData.header_config?.secondaryBar?.fontSize, 10) || 16}px`,
-                            fontWeight: 500,
-                            whiteSpace: 'nowrap'
-                          }}
-                        >
-                          {label}
-                        </span>
-                      ))}
+                      {/* Mirror the live header: logo sits on the left, main-nav links on the right */}
+                      <div className="flex flex-1 items-center justify-between gap-6 px-4">
+                        <div className="flex items-center flex-shrink-0">
+                          {formData.header_logo_url ? (
+                            <img
+                              src={formData.header_logo_url}
+                              alt={tenant?.name || 'Logo'}
+                              className="object-contain"
+                              style={{ height: '32px', width: 'auto', maxWidth: '160px' }}
+                            />
+                          ) : (
+                            <span
+                              className="font-bold"
+                              style={{
+                                color: formData.header_config?.secondaryBar?.textColor || '#FFFFFF',
+                                fontSize: '18px',
+                                whiteSpace: 'nowrap'
+                              }}
+                            >
+                              {tenant?.name || 'Your Logo'}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-8 h-full">
+                          {(navPreviewItems.mainNav.length > 0 ? navPreviewItems.mainNav : ['Membership', 'Resources', 'News', 'Get Involved']).map((label, idx) => (
+                            <div key={label} className="relative h-full flex items-center">
+                              <span
+                                style={{
+                                  color: formData.header_config?.secondaryBar?.textColor || '#FFFFFF',
+                                  fontSize: `${parseInt(formData.header_config?.secondaryBar?.fontSize, 10) || 16}px`,
+                                  fontWeight: idx === 0 ? 700 : 500,
+                                  fontFamily: 'Poppins, sans-serif',
+                                  whiteSpace: 'nowrap'
+                                }}
+                              >
+                                {label}
+                              </span>
+                              {idx === 0 && (
+                                <div
+                                  className="absolute left-0 right-0"
+                                  style={{
+                                    bottom: 0,
+                                    height: '5px',
+                                    background: `linear-gradient(to right, ${formData.primary_color || '#5C0085'}, ${formData.secondary_color || '#BA0087'})`
+                                  }}
+                                />
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                   </div>
                   <div className="space-y-3">
