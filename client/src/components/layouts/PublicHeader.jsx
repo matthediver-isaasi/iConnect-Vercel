@@ -333,6 +333,23 @@ export default function PublicHeader() {
   const secondaryBarFontWeight = secondaryBarConfig?.fontWeight;
   const secondaryBarFontFamily = secondaryBarConfig?.fontFamily;
   const secondaryBarIndicator = secondaryBarConfig?.indicator;
+
+  // Login-link button styling. Defaults reproduce today's plain-text link:
+  // asButton off, positioned to the left of the social icons.
+  const loginLinkConfig = branding?.headerConfig?.loginLink;
+  const loginAsButton = !!loginLinkConfig?.asButton;
+  const loginPosition = loginLinkConfig?.position === 'right' ? 'right' : 'left';
+  const loginButtonBackground = (loginLinkConfig?.backgroundMode === 'gradient'
+    && Array.isArray(loginLinkConfig?.gradientStops) && loginLinkConfig.gradientStops.length > 0)
+    ? buildGradientFromStops(loginLinkConfig.gradientStops)
+    : (loginLinkConfig?.solidColor || '#5C0085');
+  const loginButtonStyle = loginAsButton ? {
+    background: loginButtonBackground,
+    borderRadius: `${parseInt(loginLinkConfig?.cornerRadius, 10) || 0}px`,
+    borderWidth: `${parseInt(loginLinkConfig?.borderWidth, 10) || 0}px`,
+    borderStyle: loginLinkConfig?.borderStyle || 'solid',
+    borderColor: loginLinkConfig?.borderColor || 'transparent'
+  } : {};
   const colorStops = getColorStopsOnly(gradientStops);
   const navIndicatorGradient = colorStops.length > 0 
     ? `linear-gradient(to right, ${colorStops.map(s => s.color).join(', ')})`
@@ -1315,12 +1332,12 @@ export default function PublicHeader() {
                 {/* Dynamic Top Nav Items */}
                 {navItems.topNav?.map(item => renderNavItem(item, true))}
 
-                {/* Static Items - Login / Member Area */}
-                {headerIconsConfig.login && (
+                {/* Static Items - Login / Member Area (left of social icons) */}
+                {headerIconsConfig.login && loginPosition === 'left' && (
                   <Link
                     to={isLoggedIn ? createPageUrl(memberLandingPage) : "/login"}
-                    className="flex items-center gap-1 hover:opacity-80 transition-opacity text-sm font-semibold"
-                    style={{ color: topNavTextColor }}
+                    className={`flex items-center gap-1 hover:opacity-80 transition-opacity text-sm font-semibold${loginAsButton ? ' px-3 py-1.5' : ''}`}
+                    style={{ color: topNavTextColor, ...loginButtonStyle }}
                     data-testid="link-header-login"
                   >
                     <User className="w-4 h-4" />
@@ -1554,6 +1571,19 @@ export default function PublicHeader() {
                       </a>
                     )}
                   </div>
+                )}
+
+                {/* Static Items - Login / Member Area (right of social icons) */}
+                {headerIconsConfig.login && loginPosition === 'right' && (
+                  <Link
+                    to={isLoggedIn ? createPageUrl(memberLandingPage) : "/login"}
+                    className={`flex items-center gap-1 hover:opacity-80 transition-opacity text-sm font-semibold${loginAsButton ? ' px-3 py-1.5' : ''}`}
+                    style={{ color: topNavTextColor, ...loginButtonStyle }}
+                    data-testid="link-header-login"
+                  >
+                    <User className="w-4 h-4" />
+                    <span>{isLoggedIn ? 'Member Area' : 'Login'}</span>
+                  </Link>
                 )}
               </div>
             </div>

@@ -242,6 +242,11 @@ export default function AdminBranding() {
     { color: '#BA0087', position: 100 }
   ];
 
+  const DEFAULT_LOGIN_BUTTON_GRADIENT_STOPS = [
+    { color: '#5C0085', position: 0 },
+    { color: '#BA0087', position: 100 }
+  ];
+
   const [formData, setFormData] = useState({
     primary_color: '#5C0085',
     secondary_color: '#BA0087',
@@ -286,6 +291,17 @@ export default function AdminBranding() {
         fontWeight: '',
         fontFamily: '',
         indicator: { enabled: true, height: '', gradientStops: DEFAULT_INDICATOR_GRADIENT_STOPS }
+      },
+      loginLink: {
+        asButton: false,
+        backgroundMode: 'solid',
+        solidColor: '',
+        gradientStops: DEFAULT_LOGIN_BUTTON_GRADIENT_STOPS,
+        cornerRadius: '',
+        borderWidth: '',
+        borderColor: '',
+        borderStyle: 'solid',
+        position: 'left'
       }
     },
     footer_config: {
@@ -435,6 +451,19 @@ export default function AdminBranding() {
                       ? t.header_config.secondaryBar.indicator.gradientStops
                       : DEFAULT_INDICATOR_GRADIENT_STOPS
                   }
+                },
+                loginLink: {
+                  asButton: !!t?.header_config?.loginLink?.asButton,
+                  backgroundMode: t?.header_config?.loginLink?.backgroundMode === 'gradient' ? 'gradient' : 'solid',
+                  solidColor: t?.header_config?.loginLink?.solidColor || '',
+                  gradientStops: (t?.header_config?.loginLink?.gradientStops && t.header_config.loginLink.gradientStops.length > 0)
+                    ? t.header_config.loginLink.gradientStops
+                    : DEFAULT_LOGIN_BUTTON_GRADIENT_STOPS,
+                  cornerRadius: t?.header_config?.loginLink?.cornerRadius ?? '',
+                  borderWidth: t?.header_config?.loginLink?.borderWidth ?? '',
+                  borderColor: t?.header_config?.loginLink?.borderColor || '',
+                  borderStyle: t?.header_config?.loginLink?.borderStyle || 'solid',
+                  position: t?.header_config?.loginLink?.position === 'right' ? 'right' : 'left'
                 }
               },
               footer_config: {
@@ -2003,6 +2032,294 @@ export default function AdminBranding() {
                 </Button>
               </div>
               <p className="text-xs text-slate-500">Adjust sliders to control where each color appears in the gradient (0% = left, 100% = right). Use white at 0% and 30% for the fade-from-white effect.</p>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-slate-800/50 border-slate-700">
+            <CardHeader>
+              <CardTitle className="text-white flex items-center gap-2">
+                <User className="w-5 h-5" />
+                Login Link
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                Style the Login / Member Area link in the top bar as a button, and choose which side of the social icons it sits on
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="space-y-0.5">
+                  <Label className="text-slate-300">Render as button</Label>
+                  <p className="text-xs text-slate-500">Off keeps the current plain text link. On shows a styled button.</p>
+                </div>
+                <Switch
+                  checked={!!formData.header_config?.loginLink?.asButton}
+                  onCheckedChange={(checked) => {
+                    setFormData(prev => ({
+                      ...prev,
+                      header_config: {
+                        ...prev.header_config,
+                        loginLink: { ...prev.header_config?.loginLink, asButton: checked }
+                      }
+                    }));
+                  }}
+                  data-testid="switch-login-link-as-button"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-slate-300">Position relative to social icons</Label>
+                <Select
+                  value={formData.header_config?.loginLink?.position || 'left'}
+                  onValueChange={(val) => {
+                    setFormData(prev => ({
+                      ...prev,
+                      header_config: {
+                        ...prev.header_config,
+                        loginLink: { ...prev.header_config?.loginLink, position: val }
+                      }
+                    }));
+                  }}
+                >
+                  <SelectTrigger className="bg-slate-900 border-slate-600 text-white" data-testid="select-login-link-position">
+                    <SelectValue placeholder="Left of social icons" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="left">Left of social icons</SelectItem>
+                    <SelectItem value="right">Right of social icons</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-slate-500">Where the Login / Member Area element appears in the top bar.</p>
+              </div>
+
+              {formData.header_config?.loginLink?.asButton && (
+                <>
+                  <div className="space-y-1">
+                    <Label className="text-slate-300 text-xs">Live Preview</Label>
+                    <div
+                      className="rounded-lg border border-slate-600 overflow-hidden flex items-center justify-end p-4"
+                      style={{
+                        background: `linear-gradient(to right, ${(formData.header_config?.gradientStops || DEFAULT_GRADIENT_STOPS)
+                          .slice()
+                          .sort((a, b) => a.position - b.position)
+                          .map(stop => `${stop.color} ${stop.position}%`)
+                          .join(', ')})`
+                      }}
+                      data-testid="preview-login-button"
+                    >
+                      <span
+                        className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-semibold"
+                        style={{
+                          color: formData.header_config?.topNavTextColor || '#FFFFFF',
+                          background: (formData.header_config?.loginLink?.backgroundMode === 'gradient')
+                            ? `linear-gradient(to right, ${(formData.header_config?.loginLink?.gradientStops || DEFAULT_LOGIN_BUTTON_GRADIENT_STOPS)
+                                .slice()
+                                .sort((a, b) => a.position - b.position)
+                                .map(stop => `${stop.color} ${stop.position}%`)
+                                .join(', ')})`
+                            : (formData.header_config?.loginLink?.solidColor || '#5C0085'),
+                          borderRadius: `${parseInt(formData.header_config?.loginLink?.cornerRadius, 10) || 0}px`,
+                          borderWidth: `${parseInt(formData.header_config?.loginLink?.borderWidth, 10) || 0}px`,
+                          borderStyle: formData.header_config?.loginLink?.borderStyle || 'solid',
+                          borderColor: formData.header_config?.loginLink?.borderColor || 'transparent',
+                          whiteSpace: 'nowrap'
+                        }}
+                      >
+                        <User className="w-4 h-4" />
+                        Login
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-slate-300">Background style</Label>
+                    <Select
+                      value={formData.header_config?.loginLink?.backgroundMode || 'solid'}
+                      onValueChange={(val) => {
+                        setFormData(prev => ({
+                          ...prev,
+                          header_config: {
+                            ...prev.header_config,
+                            loginLink: { ...prev.header_config?.loginLink, backgroundMode: val }
+                          }
+                        }));
+                      }}
+                    >
+                      <SelectTrigger className="bg-slate-900 border-slate-600 text-white" data-testid="select-login-link-background-mode">
+                        <SelectValue placeholder="Solid color" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="solid">Solid color</SelectItem>
+                        <SelectItem value="gradient">Multi-stop gradient</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {(formData.header_config?.loginLink?.backgroundMode || 'solid') === 'solid' ? (
+                    <div className="space-y-2">
+                      <Label className="text-slate-300">Background Color</Label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={formData.header_config?.loginLink?.solidColor || '#5C0085'}
+                          onChange={(e) => {
+                            setFormData(prev => ({
+                              ...prev,
+                              header_config: {
+                                ...prev.header_config,
+                                loginLink: { ...prev.header_config?.loginLink, solidColor: e.target.value }
+                              }
+                            }));
+                          }}
+                          className="w-10 h-10 rounded cursor-pointer flex-shrink-0"
+                          data-testid="input-login-link-solid-color"
+                        />
+                        <Input
+                          type="text"
+                          placeholder="#5C0085"
+                          value={formData.header_config?.loginLink?.solidColor || ''}
+                          onChange={(e) => {
+                            setFormData(prev => ({
+                              ...prev,
+                              header_config: {
+                                ...prev.header_config,
+                                loginLink: { ...prev.header_config?.loginLink, solidColor: e.target.value }
+                              }
+                            }));
+                          }}
+                          className="bg-slate-900 border-slate-600 text-white font-mono"
+                          data-testid="input-login-link-solid-color-hex"
+                        />
+                      </div>
+                      <p className="text-xs text-slate-500">Solid background color for the login button.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <Label className="text-slate-300">Background Gradient</Label>
+                      <GradientStopsEditor
+                        stops={formData.header_config?.loginLink?.gradientStops || DEFAULT_LOGIN_BUTTON_GRADIENT_STOPS}
+                        onChange={(s) => setFormData(prev => ({
+                          ...prev,
+                          header_config: {
+                            ...prev.header_config,
+                            loginLink: { ...prev.header_config?.loginLink, gradientStops: s }
+                          }
+                        }))}
+                        testIdPrefix="login-link-gradient"
+                      />
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="text-slate-300">Corner Radius (px)</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        max="50"
+                        placeholder="0"
+                        value={formData.header_config?.loginLink?.cornerRadius ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setFormData(prev => ({
+                            ...prev,
+                            header_config: {
+                              ...prev.header_config,
+                              loginLink: { ...prev.header_config?.loginLink, cornerRadius: val === '' ? '' : parseInt(val, 10) }
+                            }
+                          }));
+                        }}
+                        className="bg-slate-900 border-slate-600 text-white"
+                        data-testid="input-login-link-corner-radius"
+                      />
+                      <p className="text-xs text-slate-500">Roundness of the button corners. Leave blank for square (0px).</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-slate-300">Border Width (px)</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        max="10"
+                        placeholder="0"
+                        value={formData.header_config?.loginLink?.borderWidth ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setFormData(prev => ({
+                            ...prev,
+                            header_config: {
+                              ...prev.header_config,
+                              loginLink: { ...prev.header_config?.loginLink, borderWidth: val === '' ? '' : parseInt(val, 10) }
+                            }
+                          }));
+                        }}
+                        className="bg-slate-900 border-slate-600 text-white"
+                        data-testid="input-login-link-border-width"
+                      />
+                      <p className="text-xs text-slate-500">Thickness of the border. Leave blank for no border.</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-slate-300">Border Color</Label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={formData.header_config?.loginLink?.borderColor || '#FFFFFF'}
+                          onChange={(e) => {
+                            setFormData(prev => ({
+                              ...prev,
+                              header_config: {
+                                ...prev.header_config,
+                                loginLink: { ...prev.header_config?.loginLink, borderColor: e.target.value }
+                              }
+                            }));
+                          }}
+                          className="w-10 h-10 rounded cursor-pointer flex-shrink-0"
+                          data-testid="input-login-link-border-color"
+                        />
+                        <Input
+                          type="text"
+                          placeholder="No border color"
+                          value={formData.header_config?.loginLink?.borderColor || ''}
+                          onChange={(e) => {
+                            setFormData(prev => ({
+                              ...prev,
+                              header_config: {
+                                ...prev.header_config,
+                                loginLink: { ...prev.header_config?.loginLink, borderColor: e.target.value }
+                              }
+                            }));
+                          }}
+                          className="bg-slate-900 border-slate-600 text-white font-mono"
+                          data-testid="input-login-link-border-color-hex"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-slate-300">Border Style</Label>
+                      <Select
+                        value={formData.header_config?.loginLink?.borderStyle || 'solid'}
+                        onValueChange={(val) => {
+                          setFormData(prev => ({
+                            ...prev,
+                            header_config: {
+                              ...prev.header_config,
+                              loginLink: { ...prev.header_config?.loginLink, borderStyle: val }
+                            }
+                          }));
+                        }}
+                      >
+                        <SelectTrigger className="bg-slate-900 border-slate-600 text-white" data-testid="select-login-link-border-style">
+                          <SelectValue placeholder="Solid" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="solid">Solid</SelectItem>
+                          <SelectItem value="dashed">Dashed</SelectItem>
+                          <SelectItem value="dotted">Dotted</SelectItem>
+                          <SelectItem value="none">None</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
 

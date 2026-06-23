@@ -300,6 +300,56 @@ export default async function handler(req, res) {
         }
       }
 
+      // Validate the login-link button config. header_config is rebuilt from a
+      // whitelist, so this block must explicitly copy each supported field or it
+      // is silently dropped on save.
+      if (updates.header_config && updates.header_config.loginLink !== undefined) {
+        const ll = updates.header_config.loginLink;
+        if (ll && typeof ll === 'object') {
+          const sanitizedLoginLink = {
+            asButton: !!ll.asButton,
+            backgroundMode: ll.backgroundMode === 'gradient' ? 'gradient' : 'solid',
+            position: ll.position === 'right' ? 'right' : 'left'
+          };
+
+          const llSolid = normalizeHexColor(ll.solidColor);
+          if (llSolid) {
+            sanitizedLoginLink.solidColor = llSolid;
+          }
+
+          if (Array.isArray(ll.gradientStops)) {
+            const validatedLoginStops = validateGradientStops(ll.gradientStops);
+            if (validatedLoginStops.length > 0) {
+              sanitizedLoginLink.gradientStops = validatedLoginStops;
+            }
+          }
+
+          const llRadius = parseInt(ll.cornerRadius, 10);
+          if (Number.isFinite(llRadius)) {
+            sanitizedLoginLink.cornerRadius = Math.max(0, Math.min(50, llRadius));
+          }
+
+          const llBorderWidth = parseInt(ll.borderWidth, 10);
+          if (Number.isFinite(llBorderWidth)) {
+            sanitizedLoginLink.borderWidth = Math.max(0, Math.min(10, llBorderWidth));
+          }
+
+          const llBorderColor = normalizeHexColor(ll.borderColor);
+          if (llBorderColor) {
+            sanitizedLoginLink.borderColor = llBorderColor;
+          }
+
+          const ALLOWED_BORDER_STYLES = ['solid', 'dashed', 'dotted', 'none'];
+          if (ALLOWED_BORDER_STYLES.includes(ll.borderStyle)) {
+            sanitizedLoginLink.borderStyle = ll.borderStyle;
+          }
+
+          updates.header_config.loginLink = sanitizedLoginLink;
+        } else {
+          delete updates.header_config.loginLink;
+        }
+      }
+
       // Validate platform_branding colors if provided
       if (updates.platform_branding) {
         if (updates.platform_branding.backgroundColor) {
