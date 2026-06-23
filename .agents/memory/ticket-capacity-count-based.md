@@ -37,4 +37,22 @@ and training-fund balances are NOT reversed yet.
 `api/public/event.js` enriches finite classes with `sold_count` + `is_sold_out`.
 `client/src/hooks/useTicketAvailabilityRealtime.js` computes remaining from
 confirmed counts and subscribes to booking INSERT/UPDATE/DELETE + event UPDATE.
-Complex (multi-session) events are intentionally OUT of scope of this model.
+
+## Complex (multi-session) events — same model
+Complex events now use the identical count-based model. Key differences from the
+one-off case:
+- Capacity lives in its own table column `complex_event_ticket_class.available_count`
+  (uuid id, `is_unlimited_tickets` flag), NOT in a JSON pricing_config. Confirmed
+  counts come from `complex_event_booking` (status always 'confirmed'); its
+  `ticket_class_id` is TEXT while the class id is uuid, so the guard matches
+  `id::text = p_ticket_class_id`.
+- Guard: `check_complex_event_ticket_capacity(...)` — same pre-check/post-verify
+  contract, advisory-lock namespaced `'cx:'` so it never collides with the
+  one-off lock. Migration + `scripts/apply-complex-event-ticket-capacity-guard.mjs`.
+- The complex booking path still maintains the event-level stored
+  `complex_event.available_seats` counter (that is a separate event-wide cap);
+  only the per-ticket-class stored decrement was removed. The old
+  `atomic_decrement_ticket_class_seats` RPC is no longer called from booking.
+- `useComplexEventTicketAvailabilityRealtime` was reworked to subscribe to
+  `complex_event_booking` (not the ticket_class table) and derive remaining from
+  confirmed counts, mirroring the one-off hook.

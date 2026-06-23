@@ -516,6 +516,9 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
     { initialTicketClasses: ticketClasses, showSoldOutToast: false }
   );
 
+  // Count-based availability (Task #1760): prefer the live derived value, then
+  // the count-based fields embedded by the public API, falling back to the
+  // raw capacity only when nothing else is available.
   const isTicketSoldOut = useCallback((tc) => {
     const live = getTicketClassAvailability(tc.id);
     if (live) return live.isSoldOut;
@@ -524,7 +527,22 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
       || tc.available_count === undefined
       || tc.available_count === '';
     if (isUnlimited) return false;
+    if (typeof tc.is_sold_out === 'boolean') return tc.is_sold_out;
+    if (typeof tc.remaining === 'number') return tc.remaining <= 0;
     return Number(tc.available_count) <= 0;
+  }, [getTicketClassAvailability]);
+
+  // Remaining tickets for a finite class, or null when unlimited / unknown.
+  const getTicketRemaining = useCallback((tc) => {
+    const live = getTicketClassAvailability(tc.id);
+    if (live) return live.is_unlimited_tickets ? null : live.remaining;
+    const isUnlimited = tc.is_unlimited_tickets === true
+      || tc.available_count === null
+      || tc.available_count === undefined
+      || tc.available_count === '';
+    if (isUnlimited) return null;
+    if (typeof tc.remaining === 'number') return tc.remaining;
+    return null;
   }, [getTicketClassAvailability]);
 
   const getTicketVisibility = (tc) => {
@@ -797,6 +815,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
         const tcPrice = getEffectiveTicketPrice(tc);
         const restricted = isTicketRestricted(tc);
         const soldOut = isTicketSoldOut(tc);
+        const remaining = getTicketRemaining(tc);
         const cartEntry = cart[tc.id];
         const count = cartEntry?.attendees?.length || 0;
 
@@ -835,6 +854,14 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
                 </span>
                 {tc.description && (
                   <p className="text-xs text-slate-500 mt-0.5">{tc.description}</p>
+                )}
+                {event?.show_ticket_availability && !soldOut && remaining !== null && (
+                  <p
+                    className={`text-xs mt-0.5 ${remaining <= 5 ? 'text-warning' : 'text-slate-500'}`}
+                    data-testid={`text-remaining-${tc.id}`}
+                  >
+                    {remaining <= 5 ? `Only ${remaining} left` : `${remaining} available`}
+                  </p>
                 )}
                 <TrackAccessIndicator ticket={tc} tracks={eventTracks} />
               </div>
@@ -937,6 +964,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
               {availableTicketClasses.map(tc => {
                 const tcPrice = getEffectiveTicketPrice(tc);
                 const soldOut = isTicketSoldOut(tc);
+                const remaining = getTicketRemaining(tc);
                 return (
                   <div
                     key={tc.id}
@@ -966,6 +994,14 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
                         </span>
                         {tc.description && (
                           <p className="text-xs text-slate-500 mt-0.5">{tc.description}</p>
+                        )}
+                        {event?.show_ticket_availability && !soldOut && remaining !== null && (
+                          <p
+                            className={`text-xs mt-0.5 ${remaining <= 5 ? 'text-warning' : 'text-slate-500'}`}
+                            data-testid={`text-remaining-${tc.id}`}
+                          >
+                            {remaining <= 5 ? `Only ${remaining} left` : `${remaining} available`}
+                          </p>
                         )}
                       </div>
                       <div className="flex flex-col items-end gap-1.5 shrink-0">

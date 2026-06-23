@@ -58,13 +58,36 @@ export default async function handler(req, res) {
 
     const { data: ticketClasses, error: tcError } = await supabase
       .from('complex_event_ticket_class')
-      .select('id, name, price, is_free, early_bird_enabled, early_bird_price, early_bird_deadline, visibility_mode, linked_track_ids, all_tracks, display_order, is_group_ticket, group_size, role_ids, role_match_only, member_group_ids')
+      .select('id, name, price, is_free, early_bird_enabled, early_bird_price, early_bird_deadline, visibility_mode, linked_track_ids, all_tracks, display_order, is_group_ticket, group_size, role_ids, role_match_only, member_group_ids, available_count, is_unlimited_tickets')
       .eq('complex_event_id', event.id)
       .eq('tenant_id', tenant.id)
       .order('display_order', { ascending: true });
 
     if (tcError) {
       console.error('[Public Complex Event] ticket class query error:', tcError.message);
+    }
+
+    // Count-based ticket availability (Task #1760): available_count is a fixed
+    // maximum; live availability is derived from the number of confirmed
+    // complex_event_booking rows per finite ticket class.
+    const soldCounts = {};
+    const finiteTicketClassIds = (ticketClasses || [])
+      .filter(tc => !tc.is_unlimited_tickets && tc.available_count !== null && tc.available_count !== undefined)
+      .map(tc => String(tc.id));
+    if (finiteTicketClassIds.length > 0) {
+      await Promise.all(finiteTicketClassIds.map(async (tcId) => {
+        const { count, error: countError } = await supabase
+          .from('complex_event_booking')
+          .select('id', { count: 'exact', head: true })
+          .eq('event_id', event.id)
+          .eq('ticket_class_id', tcId)
+          .eq('status', 'confirmed');
+        if (countError) {
+          console.error('[Public Complex Event] sold-count query error for', tcId, countError.message);
+          return;
+        }
+        soldCounts[tcId] = count || 0;
+      }));
     }
 
     const { data: tracks } = await supabase
@@ -75,25 +98,38 @@ export default async function handler(req, res) {
       .order('display_order', { ascending: true });
 
     const publicTicketClasses = (ticketClasses || [])
-      .map(tc => ({
-        id: tc.id,
-        name: tc.name,
-        price: Number(tc.price) || 0,
-        currency: 'gbp',
-        is_free: tc.is_free,
-        visibility_mode: tc.visibility_mode,
-        early_bird_enabled: tc.early_bird_enabled || false,
-        early_bird_price: tc.early_bird_price != null ? Number(tc.early_bird_price) : null,
-        early_bird_deadline: tc.early_bird_deadline || null,
-        linked_track_ids: tc.linked_track_ids || [],
-        all_tracks: tc.all_tracks,
-        display_order: tc.display_order,
-        is_group_ticket: tc.is_group_ticket || false,
-        group_size: tc.group_size || null,
-        role_ids: tc.role_ids || [],
-        role_match_only: tc.role_match_only || false,
-        member_group_ids: Array.isArray(tc.member_group_ids) ? tc.member_group_ids : []
-      }));
+      .map(tc => {
+        const isUnlimited = tc.is_unlimited_tickets === true ||
+          tc.available_count === null || tc.available_count === undefined;
+        const max = isUnlimited ? null : (Number(tc.available_count) || 0);
+        const soldCount = soldCounts[String(tc.id)] || 0;
+        const remaining = isUnlimited ? null : Math.max(0, max - soldCount);
+        return {
+          id: tc.id,
+          name: tc.name,
+          price: Number(tc.price) || 0,
+          currency: 'gbp',
+          is_free: tc.is_free,
+          visibility_mode: tc.visibility_mode,
+          early_bird_enabled: tc.early_bird_enabled || false,
+          early_bird_price: tc.early_bird_price != null ? Number(tc.early_bird_price) : null,
+          early_bird_deadline: tc.early_bird_deadline || null,
+          linked_track_ids: tc.linked_track_ids || [],
+          all_tracks: tc.all_tracks,
+          display_order: tc.display_order,
+          is_group_ticket: tc.is_group_ticket || false,
+          group_size: tc.group_size || null,
+          role_ids: tc.role_ids || [],
+          role_match_only: tc.role_match_only || false,
+          member_group_ids: Array.isArray(tc.member_group_ids) ? tc.member_group_ids : [],
+          // Count-based availability (Task #1760)
+          available_count: max,
+          is_unlimited_tickets: isUnlimited,
+          sold_count: soldCount,
+          remaining,
+          is_sold_out: !isUnlimited && remaining <= 0
+        };
+      });
 
     res.json({
       id: event.id,

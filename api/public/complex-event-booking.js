@@ -244,6 +244,9 @@ export default async function handler(req, res) {
 
     let paymentStatus = 'free';
     let confirmedPaymentMethod = 'free';
+    // Captured during card verification so sold-out paths can auto-refund
+    // (mirrors the standard-event guard's auto-refund). Task #1760.
+    let stripeSecretKeyForRefund = null;
 
     let org = null;
     if (organization_id) {
@@ -288,6 +291,7 @@ export default async function handler(req, res) {
         if (!stripeSecretKey) {
           return res.status(503).json({ error: 'Payment processing not configured' });
         }
+        stripeSecretKeyForRefund = stripeSecretKey;
 
         try {
           const stripeResponse = await fetch(`https://api.stripe.com/v1/payment_intents/${stripe_payment_intent_id}`, {
@@ -524,6 +528,71 @@ export default async function handler(req, res) {
       }
     }
 
+    // Auto-refund any card payment when we have to bail out on a sold-out race
+    // (mirrors the standard-event guard's behaviour). Task #1760.
+    const refundCardPayment = async () => {
+      if (confirmedPaymentMethod !== 'card' || !stripe_payment_intent_id || !stripeSecretKeyForRefund) {
+        return { refunded: false };
+      }
+      try {
+        const resp = await fetch('https://api.stripe.com/v1/refunds', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${stripeSecretKeyForRefund}`,
+            'Content-Type': 'application/x-www-form-urlencoded'
+          },
+          body: new URLSearchParams({
+            payment_intent: stripe_payment_intent_id,
+            reason: 'requested_by_customer'
+          })
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          console.error('[Complex Event Booking] Auto-refund failed:', data?.error?.message || resp.status);
+          return { refunded: false };
+        }
+        console.log('[Complex Event Booking] Auto-refunded payment intent', stripe_payment_intent_id);
+        return { refunded: true };
+      } catch (e) {
+        console.error('[Complex Event Booking] Auto-refund exception:', e.message);
+        return { refunded: false };
+      }
+    };
+
+    // Count-based ticket capacity PRE-CHECK (Task #1760). available_count on a
+    // complex_event_ticket_class is a FIXED maximum that is never mutated;
+    // availability is derived from the count of status='confirmed'
+    // complex_event_booking rows. The guard atomically confirms there is room
+    // before we decrement event seats or insert anything. We run it BEFORE the
+    // event-seat decrement so a sold-out class needs no seat restore here.
+    for (const [tcId, count] of Object.entries(ticketClassCounts)) {
+      const tc = allTicketClasses.find(t => String(t.id) === String(tcId));
+      if (!tc || tc.is_unlimited_tickets || tc.available_count === null || tc.available_count === undefined) continue;
+      try {
+        const { data: capCheck, error: capError } = await supabase.rpc('check_complex_event_ticket_capacity', {
+          p_event_id: event_id,
+          p_ticket_class_id: String(tcId),
+          p_requested: count,
+          p_booking_ids: null
+        });
+        if (capError) {
+          console.error('[Complex Event Booking] Capacity pre-check RPC error:', capError.message);
+        } else if (capCheck && capCheck.ok === false) {
+          console.warn(`[Complex Event Booking] Ticket class sold out at pre-check: '${tc.name}'`, capCheck);
+          const { refunded } = await refundCardPayment();
+          return res.status(409).json({
+            error: refunded
+              ? `Sorry, "${tc.name}" tickets have just sold out. Your payment has been automatically refunded.`
+              : `Not enough seats available for ticket class '${tc.name}'`,
+            sold_out: true,
+            refunded
+          });
+        }
+      } catch (capErr) {
+        console.error('[Complex Event Booking] Capacity pre-check exception:', capErr.message);
+      }
+    }
+
     if (event.available_seats !== null && event.available_seats !== undefined) {
       const { data: newSeats, error: seatError } = await supabase.rpc('atomic_decrement_complex_event_seats', {
         p_event_id: event_id,
@@ -537,40 +606,11 @@ export default async function handler(req, res) {
       console.log(`[Complex Event Booking] Atomically decremented complex_event seats to ${newSeats}`);
     }
 
+    // Ticket-class capacity is NOT decremented in stored columns anymore
+    // (count-based, Task #1760). Only the event-level available_seats counter is
+    // still maintained as a stored value; the post-verify guard below enforces
+    // per-ticket-class limits atomically against confirmed-booking counts.
     let seatsDecrementedForEvent = event.available_seats !== null && event.available_seats !== undefined;
-    const ticketClassSeatsDecremented = [];
-
-    for (const [tcId, count] of Object.entries(ticketClassCounts)) {
-      const tc = allTicketClasses.find(t => String(t.id) === String(tcId));
-      if (tc && !tc.is_unlimited_tickets && tc.available_count !== null && tc.available_count !== undefined) {
-        const { data: newCount, error: tcErr } = await supabase.rpc('atomic_decrement_ticket_class_seats', {
-          p_ticket_class_id: tcId,
-          p_count: count
-        });
-
-        if (tcErr) {
-          console.error(`[Complex Event Booking] Atomic ticket class seat decrement failed for '${tc.name}': ${tcErr.message}`);
-
-          if (seatsDecrementedForEvent) {
-            const { data: curEvt } = await supabase.from('complex_event').select('available_seats').eq('id', event_id).single();
-            if (curEvt) {
-              await supabase.from('complex_event').update({ available_seats: curEvt.available_seats + totalAttendees }).eq('id', event_id)
-                .then(({ error }) => { if (error) console.error('[Complex Event Booking] Seat restore error:', error.message); });
-            }
-          }
-          for (const prev of ticketClassSeatsDecremented) {
-            const { data: curTc } = await supabase.from('complex_event_ticket_class').select('available_count').eq('id', prev.tcId).single();
-            if (curTc) {
-              await supabase.from('complex_event_ticket_class').update({ available_count: curTc.available_count + prev.count }).eq('id', prev.tcId)
-                .then(({ error }) => { if (error) console.error('[Complex Event Booking] Ticket class seat restore error:', error.message); });
-            }
-          }
-          return res.status(409).json({ error: `Not enough seats available for ticket class '${tc.name}'` });
-        }
-        ticketClassSeatsDecremented.push({ tcId, count });
-        console.log(`[Complex Event Booking] Atomically decremented ticket class '${tc.name}' availability to ${newCount}`);
-      }
-    }
 
     const bookingGroupRef = generateBookingReference();
     const bookings = [];
@@ -590,20 +630,6 @@ export default async function handler(req, res) {
             .update({ available_seats: currentEvent.available_seats + totalAttendees })
             .eq('id', event_id)
             .catch(e => console.error('[Complex Event Booking] Failed to restore event seats:', e.message));
-        }
-      }
-      for (const prev of ticketClassSeatsDecremented) {
-        const { data: currentTc } = await supabase
-          .from('complex_event_ticket_class')
-          .select('available_count')
-          .eq('id', prev.tcId)
-          .single();
-        if (currentTc) {
-          await supabase
-            .from('complex_event_ticket_class')
-            .update({ available_count: currentTc.available_count + prev.count })
-            .eq('id', prev.tcId)
-            .catch(e => console.error('[Complex Event Booking] Failed to restore ticket class seats:', e.message));
         }
       }
     };
@@ -721,6 +747,54 @@ export default async function handler(req, res) {
         }
       }
     };
+
+    // Count-based ticket capacity POST-VERIFY (Task #1760). Our rows are now
+    // inserted (status='confirmed'); re-rank them under the same per-class
+    // advisory lock. If a class is over its maximum, the guard DELETES the
+    // losing rows for us. We then roll back the remainder of the group, restore
+    // event seats, and auto-refund any card payment. Runs BEFORE any financial
+    // deduction so there is nothing financial to unwind on a sold-out race.
+    const bookingIdsByClass = {};
+    for (const b of bookings) {
+      if (!b.ticket_class_id) continue;
+      const key = String(b.ticket_class_id);
+      (bookingIdsByClass[key] = bookingIdsByClass[key] || []).push(b.id);
+    }
+    let capacityExceeded = false;
+    let exceededTicketName = null;
+    for (const [tcId, ids] of Object.entries(bookingIdsByClass)) {
+      const tc = allTicketClasses.find(t => String(t.id) === String(tcId));
+      if (!tc || tc.is_unlimited_tickets || tc.available_count === null || tc.available_count === undefined) continue;
+      try {
+        const { data: capVerify, error: capVerifyError } = await supabase.rpc('check_complex_event_ticket_capacity', {
+          p_event_id: event_id,
+          p_ticket_class_id: String(tcId),
+          p_requested: ids.length,
+          p_booking_ids: ids
+        });
+        if (capVerifyError) {
+          console.error('[Complex Event Booking] Capacity post-verify RPC error:', capVerifyError.message);
+        } else if (capVerify && capVerify.ok === false) {
+          capacityExceeded = true;
+          exceededTicketName = tc.name;
+          console.warn(`[Complex Event Booking] Capacity exceeded at post-verify for '${tc.name}'; losing rows removed by guard`, capVerify);
+          break;
+        }
+      } catch (capErr) {
+        console.error('[Complex Event Booking] Capacity post-verify exception:', capErr.message);
+      }
+    }
+    if (capacityExceeded) {
+      await rollbackBookingsAndSeats();
+      const { refunded } = await refundCardPayment();
+      return res.status(409).json({
+        error: refunded
+          ? `Sorry, "${exceededTicketName}" tickets have just sold out. Your payment has been automatically refunded.`
+          : `Sorry, "${exceededTicketName}" tickets have just sold out.`,
+        sold_out: true,
+        refunded
+      });
+    }
 
     const rollbackFinancialDeductions = async () => {
       for (const d of voucherDeductions) {
