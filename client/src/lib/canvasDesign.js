@@ -737,8 +737,18 @@ export const BLOCK_DEFAULTS = {
       secondsLabel: 'Seconds',
       finishedMessage: "Time's up!",
       alignment: 'center',
+      // Visual preset for the units: 'plain' renders bare numbers + labels;
+      // 'boxed' wraps each unit in a card using shared block tokens. Existing
+      // countdowns (no value persisted) fall back to 'plain' — no visual change.
+      presetStyle: 'plain',
+      // Show ':' colon separators between adjacent units.
+      showSeparators: false,
       numberColor: 'var(--cb-color-primary, #0f172a)',
       labelColor: '',
+      // Boxed preset: background + border of each unit card. Empty strings fall
+      // back to shared block tokens so tenant branding flows through.
+      boxBackground: '',
+      boxBorderColor: '',
       numberFontSize: 40,
       labelFontSize: 13,
     },

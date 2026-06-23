@@ -3218,6 +3218,10 @@ function CountdownRender({ block }) {
   ].filter((u) => u.show);
 
   const pad = (n) => String(n).padStart(2, '0');
+  const boxed = c.presetStyle === 'boxed';
+  const showSeparators = !!c.showSeparators;
+  // Separators look wrong squeezed between cards, so they only apply to plain.
+  const withSeparators = showSeparators && !boxed;
 
   return (
     <div
@@ -3225,34 +3229,61 @@ function CountdownRender({ block }) {
       style={{ justifyContent }}
       aria-label={block.a11y?.ariaLabel || 'Countdown timer'}
     >
-      <div className="flex flex-wrap items-start" style={{ gap: 'clamp(0.75rem, 3vw, 2rem)', justifyContent }}>
-        {units.map((u) => (
-          <div key={u.key} className="flex flex-col items-center text-center" data-testid={`countdown-unit-${u.key}`}>
+      <div className="flex flex-wrap items-stretch" style={{ gap: boxed ? 'clamp(0.5rem, 2vw, 1rem)' : 'clamp(0.75rem, 3vw, 2rem)', justifyContent }}>
+        {units.map((u, i) => (
+          <Fragment key={u.key}>
             <div
-              data-testid={`text-countdown-${u.key}`}
-              style={{
-                color: numberColor,
-                fontSize: numberFontSize,
-                fontWeight: 700,
-                lineHeight: 1,
-                fontVariantNumeric: 'tabular-nums',
-              }}
+              className="flex flex-col items-center justify-center text-center"
+              data-testid={`countdown-unit-${u.key}`}
+              style={boxed ? {
+                background: c.boxBackground || 'var(--cb-color-surface, #ffffff)',
+                border: `1px solid ${c.boxBorderColor || 'var(--cb-color-border, #e2e8f0)'}`,
+                borderRadius: 'var(--cb-radius, 8px)',
+                padding: 'clamp(0.5rem, 2vw, 1rem) clamp(0.75rem, 3vw, 1.25rem)',
+                minWidth: '4.5rem',
+              } : undefined}
             >
-              {u.key === 'days' ? u.value : pad(u.value)}
+              <div
+                data-testid={`text-countdown-${u.key}`}
+                style={{
+                  color: numberColor,
+                  fontSize: numberFontSize,
+                  fontWeight: 700,
+                  lineHeight: 1,
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+              >
+                {u.key === 'days' ? u.value : pad(u.value)}
+              </div>
+              <div
+                className={c.labelColor ? '' : 'text-slate-600'}
+                style={{
+                  color: c.labelColor || undefined,
+                  fontSize: labelFontSize,
+                  marginTop: 4,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.04em',
+                }}
+              >
+                {u.label}
+              </div>
             </div>
-            <div
-              className={c.labelColor ? '' : 'text-slate-600'}
-              style={{
-                color: c.labelColor || undefined,
-                fontSize: labelFontSize,
-                marginTop: 4,
-                textTransform: 'uppercase',
-                letterSpacing: '0.04em',
-              }}
-            >
-              {u.label}
-            </div>
-          </div>
+            {withSeparators && i < units.length - 1 && (
+              <div
+                aria-hidden="true"
+                data-testid={`countdown-separator-${u.key}`}
+                className="flex items-start"
+                style={{
+                  color: numberColor,
+                  fontSize: numberFontSize,
+                  fontWeight: 700,
+                  lineHeight: 1,
+                }}
+              >
+                :
+              </div>
+            )}
+          </Fragment>
         ))}
       </div>
     </div>
@@ -3332,8 +3363,27 @@ function CountdownInspector({ block, update }) {
         ]}
         testId="select-countdown-alignment"
       />
+      <SelectField
+        label="Style"
+        value={c.presetStyle === 'boxed' ? 'boxed' : 'plain'}
+        onChange={(v) => set({ presetStyle: v })}
+        options={[
+          { value: 'plain', label: 'Plain' },
+          { value: 'boxed', label: 'Boxed' },
+        ]}
+        testId="select-countdown-style"
+      />
+      {c.presetStyle !== 'boxed' && (
+        <ToggleField label="Show separators (:)" value={!!c.showSeparators} onChange={(v) => set({ showSeparators: v })} testId="toggle-countdown-separators" />
+      )}
       <ColorField label="Number colour" value={c.numberColor} onChange={(v) => set({ numberColor: v })} testId="input-countdown-number-color" />
       <ColorField label="Label colour" value={c.labelColor} onChange={(v) => set({ labelColor: v })} testId="input-countdown-label-color" />
+      {c.presetStyle === 'boxed' && (
+        <>
+          <ColorField label="Box background" value={c.boxBackground} onChange={(v) => set({ boxBackground: v })} testId="input-countdown-box-background" />
+          <ColorField label="Box border colour" value={c.boxBorderColor} onChange={(v) => set({ boxBorderColor: v })} testId="input-countdown-box-border" />
+        </>
+      )}
       <NumberField
         label="Number size (px)"
         min={8}
