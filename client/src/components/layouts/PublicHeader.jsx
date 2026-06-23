@@ -384,6 +384,9 @@ export default function PublicHeader() {
   };
 
   const loginLinkConfig = branding?.headerConfig?.loginLink;
+  // Member Area link config (logged-in state). Falls back to the login link
+  // config when absent so the styled-button appearance is preserved.
+  const memberAreaLinkConfig = branding?.headerConfig?.memberAreaLink || loginLinkConfig;
   const colorStops = getColorStopsOnly(gradientStops);
   const navIndicatorGradient = colorStops.length > 0 
     ? `linear-gradient(to right, ${colorStops.map(s => s.color).join(', ')})`
@@ -408,6 +411,8 @@ export default function PublicHeader() {
 
   // Login styling/label for the positionable Account element (logged-out state).
   const loginLink = resolveHeaderLink(loginLinkConfig, 'Login');
+  // Member Area styling/label for the positionable Account element (logged-in state).
+  const memberAreaLink = resolveHeaderLink(memberAreaLinkConfig, 'Member Area');
 
   // Fetch article display name setting
   const { data: articleDisplayName } = useQuery({
@@ -880,16 +885,26 @@ export default function PublicHeader() {
     const plainColor = isTopNav ? topNavTextColor : secondaryBarTextColor;
     if (isLoggedIn) {
       return (
-        <button
-          onClick={handleLogout}
-          className="flex items-center gap-1 hover:opacity-80 transition-opacity text-sm font-semibold"
-          style={{ color: plainColor }}
-          title="Logout"
-          data-testid="button-header-logout"
-        >
-          <LogOut className="w-4 h-4" />
-          <span>Logout</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            to={createPageUrl(memberLandingPage)}
+            className={`flex items-center gap-1 hover:opacity-80 transition-opacity text-sm font-semibold${memberAreaLink.asButton ? ' px-3 py-1.5' : ''}`}
+            style={{ ...memberAreaLink.buttonStyle, color: memberAreaLink.asButton ? memberAreaLink.labelColor : plainColor }}
+            data-testid="link-header-member-area"
+          >
+            <User className="w-4 h-4" />
+            <span>{memberAreaLink.label}</span>
+          </Link>
+          <button
+            onClick={handleLogout}
+            className="flex items-center hover:opacity-80 transition-opacity"
+            style={{ color: plainColor }}
+            title="Logout"
+            data-testid="button-header-logout"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
+        </div>
       );
     }
     return (
@@ -988,14 +1003,25 @@ export default function PublicHeader() {
   const renderMobileAccountControl = (item) => (
     <div key={item.id} className="px-4 py-3 border-b border-slate-200">
       {isLoggedIn ? (
-        <button
-          onClick={handleLogout}
-          className="flex items-center gap-2 py-2 text-red-600 font-medium"
-          data-testid="button-mobile-logout"
-        >
-          <LogOut className="w-5 h-5" />
-          Logout
-        </button>
+        <div className="flex flex-col gap-1">
+          <Link
+            to={createPageUrl(memberLandingPage)}
+            onClick={() => setMobileMenuOpen(false)}
+            className="flex items-center gap-2 py-2 text-slate-900 font-medium"
+            data-testid="link-mobile-member-area"
+          >
+            <User className="w-5 h-5 text-slate-600" />
+            {memberAreaLink.label}
+          </Link>
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-2 py-2 text-red-600 font-medium"
+            data-testid="button-mobile-logout"
+          >
+            <LogOut className="w-5 h-5" />
+            Logout
+          </button>
+        </div>
       ) : (
         <Link
           to="/login"
