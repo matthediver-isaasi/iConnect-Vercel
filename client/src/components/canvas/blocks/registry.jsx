@@ -63,6 +63,7 @@ import {
   getRootChildren,
 } from '@/lib/canvasDesign';
 import ImageSelector from '@/components/ImageSelector';
+import { FocalPointPicker, getFocalPointStyle } from '@/components/FocalPointPicker';
 import { sanitizeRichText, stripTrailingEmptyParagraphs, sanitizeCustomHtml } from './sanitize';
 import { DYNAMIC_BLOCK_DEFINITIONS } from './dynamicBlocks';
 import { publicClient } from '@/api/publicClient';
@@ -1151,6 +1152,7 @@ function HeroRender({ block, asEditor, priority, breakpoint }) {
             decoding="async"
             fetchpriority={priority ? 'high' : undefined}
             className="absolute inset-0 w-full h-full object-cover"
+            style={getFocalPointStyle(c.bgFocalPoint)}
           />
         );
       })()}
@@ -1159,6 +1161,7 @@ function HeroRender({ block, asEditor, priority, breakpoint }) {
           src={c.bgVideoUrl}
           autoPlay muted loop playsInline
           className="absolute inset-0 w-full h-full object-cover"
+          style={getFocalPointStyle(c.bgFocalPoint)}
           aria-hidden="true"
         />
       )}
@@ -1271,8 +1274,38 @@ function HeroInspector({ block, update }) {
           testId="input-hero-bg-image"
         />
       )}
+      {c.bgType === 'image' && c.bgImageUrl && (
+        <div className="space-y-1">
+          <Label className="text-xs text-muted-foreground">Focal point</Label>
+          <FocalPointPicker
+            imageUrl={c.bgImageUrl}
+            focalPoint={c.bgFocalPoint || { x: 50, y: 50 }}
+            onChange={(fp) => set({ bgFocalPoint: fp })}
+          />
+        </div>
+      )}
       {c.bgType === 'video' && (
         <TextField label="Background video URL" value={c.bgVideoUrl} onChange={(v) => set({ bgVideoUrl: v })} testId="input-hero-bg-video" />
+      )}
+      {c.bgType === 'video' && c.bgVideoUrl && (
+        <>
+          <NumberField
+            label="Focal point X (%)"
+            value={c.bgFocalPoint?.x ?? 50}
+            onChange={(v) => set({ bgFocalPoint: { x: Math.max(0, Math.min(100, Number(v) || 0)), y: c.bgFocalPoint?.y ?? 50 } })}
+            min={0}
+            max={100}
+            testId="input-hero-bg-focal-x"
+          />
+          <NumberField
+            label="Focal point Y (%)"
+            value={c.bgFocalPoint?.y ?? 50}
+            onChange={(v) => set({ bgFocalPoint: { x: c.bgFocalPoint?.x ?? 50, y: Math.max(0, Math.min(100, Number(v) || 0)) } })}
+            min={0}
+            max={100}
+            testId="input-hero-bg-focal-y"
+          />
+        </>
       )}
       <SelectField
         label="Overlay style"
