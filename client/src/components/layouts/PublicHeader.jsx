@@ -336,28 +336,40 @@ export default function PublicHeader() {
   const secondaryBarFontFamily = secondaryBarConfig?.fontFamily;
   const secondaryBarIndicator = secondaryBarConfig?.indicator;
 
-  // Login-link button styling. Defaults reproduce today's plain-text link:
-  // asButton off, positioned to the left of the social icons.
+  // Header action-link (Login / Member Area) styling. Each state has its own
+  // config so it can be styled and labelled independently. Defaults reproduce
+  // today's plain-text link: asButton off, positioned left of the social icons.
+  // resolveHeaderLink derives the rendered style + label for a given config.
+  const resolveHeaderLink = (linkConfig, defaultLabel) => {
+    const asButton = !!linkConfig?.asButton;
+    const position = linkConfig?.position === 'right' ? 'right' : 'left';
+    const background = (linkConfig?.backgroundMode === 'gradient'
+      && Array.isArray(linkConfig?.gradientStops) && linkConfig.gradientStops.length > 0)
+      ? buildGradientFromStops(linkConfig.gradientStops)
+      : (linkConfig?.solidColor || '#5C0085');
+    const buttonHeight = parseInt(linkConfig?.height, 10);
+    const buttonWidth = parseInt(linkConfig?.width, 10);
+    const buttonStyle = asButton ? {
+      background,
+      borderRadius: `${parseInt(linkConfig?.cornerRadius, 10) || 0}px`,
+      borderWidth: `${parseInt(linkConfig?.borderWidth, 10) || 0}px`,
+      borderStyle: linkConfig?.borderStyle || 'solid',
+      borderColor: linkConfig?.borderColor || 'transparent',
+      ...(buttonHeight > 0 ? { height: `${buttonHeight}px` } : {}),
+      ...(buttonWidth > 0 ? { width: `${buttonWidth}px`, justifyContent: 'center' } : {})
+    } : {};
+    // Label color falls back to the top-nav text color when not explicitly set.
+    const labelColor = (asButton && linkConfig?.labelColor) || topNavTextColor;
+    const label = (typeof linkConfig?.label === 'string' && linkConfig.label.trim())
+      ? linkConfig.label.trim()
+      : defaultLabel;
+    return { asButton, position, buttonStyle, labelColor, label };
+  };
+
   const loginLinkConfig = branding?.headerConfig?.loginLink;
-  const loginAsButton = !!loginLinkConfig?.asButton;
-  const loginPosition = loginLinkConfig?.position === 'right' ? 'right' : 'left';
-  const loginButtonBackground = (loginLinkConfig?.backgroundMode === 'gradient'
-    && Array.isArray(loginLinkConfig?.gradientStops) && loginLinkConfig.gradientStops.length > 0)
-    ? buildGradientFromStops(loginLinkConfig.gradientStops)
-    : (loginLinkConfig?.solidColor || '#5C0085');
-  const loginButtonHeight = parseInt(loginLinkConfig?.height, 10);
-  const loginButtonWidth = parseInt(loginLinkConfig?.width, 10);
-  const loginButtonStyle = loginAsButton ? {
-    background: loginButtonBackground,
-    borderRadius: `${parseInt(loginLinkConfig?.cornerRadius, 10) || 0}px`,
-    borderWidth: `${parseInt(loginLinkConfig?.borderWidth, 10) || 0}px`,
-    borderStyle: loginLinkConfig?.borderStyle || 'solid',
-    borderColor: loginLinkConfig?.borderColor || 'transparent',
-    ...(loginButtonHeight > 0 ? { height: `${loginButtonHeight}px` } : {}),
-    ...(loginButtonWidth > 0 ? { width: `${loginButtonWidth}px`, justifyContent: 'center' } : {})
-  } : {};
-  // Label color falls back to the top-nav text color when not explicitly set.
-  const loginLabelColor = (loginAsButton && loginLinkConfig?.labelColor) || topNavTextColor;
+  // Member Area falls back to the legacy single loginLink config when it has not
+  // been configured separately, so existing tenants keep their current look.
+  const memberAreaLinkConfig = branding?.headerConfig?.memberAreaLink || loginLinkConfig;
   const colorStops = getColorStopsOnly(gradientStops);
   const navIndicatorGradient = colorStops.length > 0 
     ? `linear-gradient(to right, ${colorStops.map(s => s.color).join(', ')})`
@@ -379,6 +391,17 @@ export default function PublicHeader() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [memberLandingPage, setMemberLandingPage] = useState('Events');
+
+  // Resolve the active header action-link config from the login state. Defined
+  // after isLoggedIn so it reflects the current auth state.
+  const activeHeaderLink = isLoggedIn
+    ? resolveHeaderLink(memberAreaLinkConfig, 'Member Area')
+    : resolveHeaderLink(loginLinkConfig, 'Login');
+  const loginAsButton = activeHeaderLink.asButton;
+  const loginPosition = activeHeaderLink.position;
+  const loginButtonStyle = activeHeaderLink.buttonStyle;
+  const loginLabelColor = activeHeaderLink.labelColor;
+  const headerLinkLabel = activeHeaderLink.label;
 
   // Fetch article display name setting
   const { data: articleDisplayName } = useQuery({
@@ -1349,7 +1372,7 @@ export default function PublicHeader() {
                     data-testid="link-header-login"
                   >
                     <User className="w-4 h-4" />
-                    <span>{isLoggedIn ? 'Member Area' : 'Login'}</span>
+                    <span>{headerLinkLabel}</span>
                   </Link>
                 )}
 
@@ -1590,7 +1613,7 @@ export default function PublicHeader() {
                     data-testid="link-header-login"
                   >
                     <User className="w-4 h-4" />
-                    <span>{isLoggedIn ? 'Member Area' : 'Login'}</span>
+                    <span>{headerLinkLabel}</span>
                   </Link>
                 )}
               </div>
@@ -1736,7 +1759,7 @@ export default function PublicHeader() {
                     data-testid="link-mobile-member-area"
                   >
                     <User className="w-5 h-5 text-slate-600" />
-                    Member Area
+                    {headerLinkLabel}
                   </Link>
                 ) : (
                   <span />
@@ -1758,7 +1781,7 @@ export default function PublicHeader() {
                 data-testid="link-mobile-login"
               >
                 <User className="w-5 h-5 text-slate-600" />
-                Login
+                {headerLinkLabel}
               </Link>
             ) : null}
           </div>

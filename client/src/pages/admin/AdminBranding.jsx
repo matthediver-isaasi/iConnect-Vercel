@@ -208,6 +208,305 @@ function IndicatorEditor({ value, onChange, testIdPrefix }) {
   );
 }
 
+const HEADER_LINK_GRADIENT_STOPS = [
+  { color: '#5C0085', position: 0 },
+  { color: '#BA0087', position: 100 }
+];
+
+// Reusable control group for a header action link (Login / Member Area). Renders
+// a custom-label input plus the full style control set (button-vs-link, position,
+// background, corner radius, border, label colour, height, width). `config` is
+// the link object from formData.header_config; `onChange(patch)` shallow-merges
+// the patch into that object. `defaultLabel` is the placeholder/fallback shown
+// when the label is blank (e.g. "Login" / "Member Area").
+function HeaderLinkControls({ config, onChange, title, description, defaultLabel, testIdPrefix, previewBackgroundStops }) {
+  const cfg = config || {};
+  const update = (patch) => onChange(patch);
+  const previewLabel = (typeof cfg.label === 'string' && cfg.label.trim()) ? cfg.label.trim() : defaultLabel;
+  return (
+    <Card className="bg-slate-800/50 border-slate-700">
+      <CardHeader>
+        <CardTitle className="text-white flex items-center gap-2">
+          <User className="w-5 h-5" />
+          {title}
+        </CardTitle>
+        <CardDescription className="text-slate-400">
+          {description}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="space-y-2">
+          <Label className="text-slate-300">Custom label</Label>
+          <Input
+            type="text"
+            maxLength={60}
+            placeholder={defaultLabel}
+            value={cfg.label || ''}
+            onChange={(e) => update({ label: e.target.value })}
+            className="bg-slate-900 border-slate-600 text-white"
+            data-testid={`input-${testIdPrefix}-label`}
+          />
+          <p className="text-xs text-slate-500">Text shown on the {defaultLabel.toLowerCase()} item. Leave blank to use the default "{defaultLabel}".</p>
+        </div>
+
+        <div className="flex items-center justify-between gap-3">
+          <div className="space-y-0.5">
+            <Label className="text-slate-300">Render as button</Label>
+            <p className="text-xs text-slate-500">Off keeps a plain text link. On shows a styled button.</p>
+          </div>
+          <Switch
+            checked={!!cfg.asButton}
+            onCheckedChange={(checked) => update({ asButton: checked })}
+            data-testid={`switch-${testIdPrefix}-as-button`}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label className="text-slate-300">Position relative to social icons</Label>
+          <Select
+            value={cfg.position || 'left'}
+            onValueChange={(val) => update({ position: val })}
+          >
+            <SelectTrigger className="bg-slate-900 border-slate-600 text-white" data-testid={`select-${testIdPrefix}-position`}>
+              <SelectValue placeholder="Left of social icons" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="left">Left of social icons</SelectItem>
+              <SelectItem value="right">Right of social icons</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-slate-500">Where the {defaultLabel} element appears in the top bar.</p>
+        </div>
+
+        {cfg.asButton && (
+          <>
+            <div className="space-y-1">
+              <Label className="text-slate-300 text-xs">Live Preview</Label>
+              <div
+                className="rounded-lg border border-slate-600 overflow-hidden flex items-center justify-end p-4"
+                style={{
+                  background: `linear-gradient(to right, ${(previewBackgroundStops || HEADER_LINK_GRADIENT_STOPS)
+                    .slice()
+                    .sort((a, b) => a.position - b.position)
+                    .map(stop => `${stop.color} ${stop.position}%`)
+                    .join(', ')})`
+                }}
+                data-testid={`preview-${testIdPrefix}-button`}
+              >
+                <span
+                  className="inline-flex items-center justify-center gap-1 px-3 py-1.5 text-sm font-semibold"
+                  style={{
+                    color: cfg.labelColor || '#FFFFFF',
+                    background: (cfg.backgroundMode === 'gradient')
+                      ? `linear-gradient(to right, ${(cfg.gradientStops || HEADER_LINK_GRADIENT_STOPS)
+                          .slice()
+                          .sort((a, b) => a.position - b.position)
+                          .map(stop => `${stop.color} ${stop.position}%`)
+                          .join(', ')})`
+                      : (cfg.solidColor || '#5C0085'),
+                    borderRadius: `${parseInt(cfg.cornerRadius, 10) || 0}px`,
+                    borderWidth: `${parseInt(cfg.borderWidth, 10) || 0}px`,
+                    borderStyle: cfg.borderStyle || 'solid',
+                    borderColor: cfg.borderColor || 'transparent',
+                    ...(parseInt(cfg.height, 10) > 0 ? { height: `${parseInt(cfg.height, 10)}px` } : {}),
+                    ...(parseInt(cfg.width, 10) > 0 ? { width: `${parseInt(cfg.width, 10)}px` } : {}),
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  <User className="w-4 h-4" />
+                  {previewLabel}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-slate-300">Background style</Label>
+              <Select
+                value={cfg.backgroundMode || 'solid'}
+                onValueChange={(val) => update({ backgroundMode: val })}
+              >
+                <SelectTrigger className="bg-slate-900 border-slate-600 text-white" data-testid={`select-${testIdPrefix}-background-mode`}>
+                  <SelectValue placeholder="Solid color" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="solid">Solid color</SelectItem>
+                  <SelectItem value="gradient">Multi-stop gradient</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {(cfg.backgroundMode || 'solid') === 'solid' ? (
+              <div className="space-y-2">
+                <Label className="text-slate-300">Background Color</Label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={cfg.solidColor || '#5C0085'}
+                    onChange={(e) => update({ solidColor: e.target.value })}
+                    className="w-10 h-10 rounded cursor-pointer flex-shrink-0"
+                    data-testid={`input-${testIdPrefix}-solid-color`}
+                  />
+                  <Input
+                    type="text"
+                    placeholder="#5C0085"
+                    value={cfg.solidColor || ''}
+                    onChange={(e) => update({ solidColor: e.target.value })}
+                    className="bg-slate-900 border-slate-600 text-white font-mono"
+                    data-testid={`input-${testIdPrefix}-solid-color-hex`}
+                  />
+                </div>
+                <p className="text-xs text-slate-500">Solid background color for the button.</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label className="text-slate-300">Background Gradient</Label>
+                <GradientStopsEditor
+                  stops={cfg.gradientStops || HEADER_LINK_GRADIENT_STOPS}
+                  onChange={(s) => update({ gradientStops: s })}
+                  testIdPrefix={`${testIdPrefix}-gradient`}
+                />
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-slate-300">Corner Radius (px)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  max="50"
+                  placeholder="0"
+                  value={cfg.cornerRadius ?? ''}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    update({ cornerRadius: val === '' ? '' : parseInt(val, 10) });
+                  }}
+                  className="bg-slate-900 border-slate-600 text-white"
+                  data-testid={`input-${testIdPrefix}-corner-radius`}
+                />
+                <p className="text-xs text-slate-500">Roundness of the button corners. Leave blank for square (0px).</p>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-slate-300">Border Width (px)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  max="10"
+                  placeholder="0"
+                  value={cfg.borderWidth ?? ''}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    update({ borderWidth: val === '' ? '' : parseInt(val, 10) });
+                  }}
+                  className="bg-slate-900 border-slate-600 text-white"
+                  data-testid={`input-${testIdPrefix}-border-width`}
+                />
+                <p className="text-xs text-slate-500">Thickness of the border. Leave blank for no border.</p>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-slate-300">Border Color</Label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={cfg.borderColor || '#FFFFFF'}
+                    onChange={(e) => update({ borderColor: e.target.value })}
+                    className="w-10 h-10 rounded cursor-pointer flex-shrink-0"
+                    data-testid={`input-${testIdPrefix}-border-color`}
+                  />
+                  <Input
+                    type="text"
+                    placeholder="No border color"
+                    value={cfg.borderColor || ''}
+                    onChange={(e) => update({ borderColor: e.target.value })}
+                    className="bg-slate-900 border-slate-600 text-white font-mono"
+                    data-testid={`input-${testIdPrefix}-border-color-hex`}
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-slate-300">Border Style</Label>
+                <Select
+                  value={cfg.borderStyle || 'solid'}
+                  onValueChange={(val) => update({ borderStyle: val })}
+                >
+                  <SelectTrigger className="bg-slate-900 border-slate-600 text-white" data-testid={`select-${testIdPrefix}-border-style`}>
+                    <SelectValue placeholder="Solid" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="solid">Solid</SelectItem>
+                    <SelectItem value="dashed">Dashed</SelectItem>
+                    <SelectItem value="dotted">Dotted</SelectItem>
+                    <SelectItem value="none">None</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-slate-300">Label Color</Label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={cfg.labelColor || '#FFFFFF'}
+                  onChange={(e) => update({ labelColor: e.target.value })}
+                  className="w-10 h-10 rounded cursor-pointer flex-shrink-0"
+                  data-testid={`input-${testIdPrefix}-label-color`}
+                />
+                <Input
+                  type="text"
+                  placeholder="Inherit nav text color"
+                  value={cfg.labelColor || ''}
+                  onChange={(e) => update({ labelColor: e.target.value })}
+                  className="bg-slate-900 border-slate-600 text-white font-mono"
+                  data-testid={`input-${testIdPrefix}-label-color-hex`}
+                />
+              </div>
+              <p className="text-xs text-slate-500">Color of the button label text. Leave blank to inherit the top-nav text color.</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-slate-300">Height (px)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  max="200"
+                  placeholder="Auto"
+                  value={cfg.height ?? ''}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    update({ height: val === '' ? '' : parseInt(val, 10) });
+                  }}
+                  className="bg-slate-900 border-slate-600 text-white"
+                  data-testid={`input-${testIdPrefix}-height`}
+                />
+                <p className="text-xs text-slate-500">Button height. Leave blank to size to content.</p>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-slate-300">Width (px)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  max="400"
+                  placeholder="Auto"
+                  value={cfg.width ?? ''}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    update({ width: val === '' ? '' : parseInt(val, 10) });
+                  }}
+                  className="bg-slate-900 border-slate-600 text-white"
+                  data-testid={`input-${testIdPrefix}-width`}
+                />
+                <p className="text-xs text-slate-500">Button width. Leave blank to size to content.</p>
+              </div>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function AdminBranding() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -294,6 +593,22 @@ export default function AdminBranding() {
         indicator: { enabled: true, height: '', gradientStops: DEFAULT_INDICATOR_GRADIENT_STOPS }
       },
       loginLink: {
+        label: '',
+        asButton: false,
+        backgroundMode: 'solid',
+        solidColor: '',
+        gradientStops: DEFAULT_LOGIN_BUTTON_GRADIENT_STOPS,
+        cornerRadius: '',
+        borderWidth: '',
+        borderColor: '',
+        borderStyle: 'solid',
+        labelColor: '',
+        height: '',
+        width: '',
+        position: 'left'
+      },
+      memberAreaLink: {
+        label: '',
         asButton: false,
         backgroundMode: 'solid',
         solidColor: '',
@@ -462,6 +777,7 @@ export default function AdminBranding() {
                   }
                 },
                 loginLink: {
+                  label: t?.header_config?.loginLink?.label || '',
                   asButton: !!t?.header_config?.loginLink?.asButton,
                   backgroundMode: t?.header_config?.loginLink?.backgroundMode === 'gradient' ? 'gradient' : 'solid',
                   solidColor: t?.header_config?.loginLink?.solidColor || '',
@@ -476,6 +792,23 @@ export default function AdminBranding() {
                   height: t?.header_config?.loginLink?.height ?? '',
                   width: t?.header_config?.loginLink?.width ?? '',
                   position: t?.header_config?.loginLink?.position === 'right' ? 'right' : 'left'
+                },
+                memberAreaLink: {
+                  label: t?.header_config?.memberAreaLink?.label || '',
+                  asButton: !!t?.header_config?.memberAreaLink?.asButton,
+                  backgroundMode: t?.header_config?.memberAreaLink?.backgroundMode === 'gradient' ? 'gradient' : 'solid',
+                  solidColor: t?.header_config?.memberAreaLink?.solidColor || '',
+                  gradientStops: (t?.header_config?.memberAreaLink?.gradientStops && t.header_config.memberAreaLink.gradientStops.length > 0)
+                    ? t.header_config.memberAreaLink.gradientStops
+                    : DEFAULT_LOGIN_BUTTON_GRADIENT_STOPS,
+                  cornerRadius: t?.header_config?.memberAreaLink?.cornerRadius ?? '',
+                  borderWidth: t?.header_config?.memberAreaLink?.borderWidth ?? '',
+                  borderColor: t?.header_config?.memberAreaLink?.borderColor || '',
+                  borderStyle: t?.header_config?.memberAreaLink?.borderStyle || 'solid',
+                  labelColor: t?.header_config?.memberAreaLink?.labelColor || '',
+                  height: t?.header_config?.memberAreaLink?.height ?? '',
+                  width: t?.header_config?.memberAreaLink?.width ?? '',
+                  position: t?.header_config?.memberAreaLink?.position === 'right' ? 'right' : 'left'
                 }
               },
               footer_config: {
@@ -2047,386 +2380,37 @@ export default function AdminBranding() {
             </CardContent>
           </Card>
 
-          <Card className="bg-slate-800/50 border-slate-700">
-            <CardHeader>
-              <CardTitle className="text-white flex items-center gap-2">
-                <User className="w-5 h-5" />
-                Login Link
-              </CardTitle>
-              <CardDescription className="text-slate-400">
-                Style the Login / Member Area link in the top bar as a button, and choose which side of the social icons it sits on
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between gap-3">
-                <div className="space-y-0.5">
-                  <Label className="text-slate-300">Render as button</Label>
-                  <p className="text-xs text-slate-500">Off keeps the current plain text link. On shows a styled button.</p>
-                </div>
-                <Switch
-                  checked={!!formData.header_config?.loginLink?.asButton}
-                  onCheckedChange={(checked) => {
-                    setFormData(prev => ({
-                      ...prev,
-                      header_config: {
-                        ...prev.header_config,
-                        loginLink: { ...prev.header_config?.loginLink, asButton: checked }
-                      }
-                    }));
-                  }}
-                  data-testid="switch-login-link-as-button"
-                />
-              </div>
+          <HeaderLinkControls
+            config={formData.header_config?.loginLink}
+            onChange={(patch) => setFormData(prev => ({
+              ...prev,
+              header_config: {
+                ...prev.header_config,
+                loginLink: { ...prev.header_config?.loginLink, ...patch }
+              }
+            }))}
+            title="Login Button (logged out)"
+            description="Style and label the Login item shown in the top bar to logged-out visitors."
+            defaultLabel="Login"
+            testIdPrefix="login-link"
+            previewBackgroundStops={formData.header_config?.gradientStops || DEFAULT_GRADIENT_STOPS}
+          />
 
-              <div className="space-y-2">
-                <Label className="text-slate-300">Position relative to social icons</Label>
-                <Select
-                  value={formData.header_config?.loginLink?.position || 'left'}
-                  onValueChange={(val) => {
-                    setFormData(prev => ({
-                      ...prev,
-                      header_config: {
-                        ...prev.header_config,
-                        loginLink: { ...prev.header_config?.loginLink, position: val }
-                      }
-                    }));
-                  }}
-                >
-                  <SelectTrigger className="bg-slate-900 border-slate-600 text-white" data-testid="select-login-link-position">
-                    <SelectValue placeholder="Left of social icons" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="left">Left of social icons</SelectItem>
-                    <SelectItem value="right">Right of social icons</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-slate-500">Where the Login / Member Area element appears in the top bar.</p>
-              </div>
-
-              {formData.header_config?.loginLink?.asButton && (
-                <>
-                  <div className="space-y-1">
-                    <Label className="text-slate-300 text-xs">Live Preview</Label>
-                    <div
-                      className="rounded-lg border border-slate-600 overflow-hidden flex items-center justify-end p-4"
-                      style={{
-                        background: `linear-gradient(to right, ${(formData.header_config?.gradientStops || DEFAULT_GRADIENT_STOPS)
-                          .slice()
-                          .sort((a, b) => a.position - b.position)
-                          .map(stop => `${stop.color} ${stop.position}%`)
-                          .join(', ')})`
-                      }}
-                      data-testid="preview-login-button"
-                    >
-                      <span
-                        className="inline-flex items-center justify-center gap-1 px-3 py-1.5 text-sm font-semibold"
-                        style={{
-                          color: formData.header_config?.loginLink?.labelColor || formData.header_config?.topNavTextColor || '#FFFFFF',
-                          background: (formData.header_config?.loginLink?.backgroundMode === 'gradient')
-                            ? `linear-gradient(to right, ${(formData.header_config?.loginLink?.gradientStops || DEFAULT_LOGIN_BUTTON_GRADIENT_STOPS)
-                                .slice()
-                                .sort((a, b) => a.position - b.position)
-                                .map(stop => `${stop.color} ${stop.position}%`)
-                                .join(', ')})`
-                            : (formData.header_config?.loginLink?.solidColor || '#5C0085'),
-                          borderRadius: `${parseInt(formData.header_config?.loginLink?.cornerRadius, 10) || 0}px`,
-                          borderWidth: `${parseInt(formData.header_config?.loginLink?.borderWidth, 10) || 0}px`,
-                          borderStyle: formData.header_config?.loginLink?.borderStyle || 'solid',
-                          borderColor: formData.header_config?.loginLink?.borderColor || 'transparent',
-                          ...(parseInt(formData.header_config?.loginLink?.height, 10) > 0
-                            ? { height: `${parseInt(formData.header_config?.loginLink?.height, 10)}px` }
-                            : {}),
-                          ...(parseInt(formData.header_config?.loginLink?.width, 10) > 0
-                            ? { width: `${parseInt(formData.header_config?.loginLink?.width, 10)}px` }
-                            : {}),
-                          whiteSpace: 'nowrap'
-                        }}
-                      >
-                        <User className="w-4 h-4" />
-                        Login
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-slate-300">Background style</Label>
-                    <Select
-                      value={formData.header_config?.loginLink?.backgroundMode || 'solid'}
-                      onValueChange={(val) => {
-                        setFormData(prev => ({
-                          ...prev,
-                          header_config: {
-                            ...prev.header_config,
-                            loginLink: { ...prev.header_config?.loginLink, backgroundMode: val }
-                          }
-                        }));
-                      }}
-                    >
-                      <SelectTrigger className="bg-slate-900 border-slate-600 text-white" data-testid="select-login-link-background-mode">
-                        <SelectValue placeholder="Solid color" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="solid">Solid color</SelectItem>
-                        <SelectItem value="gradient">Multi-stop gradient</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {(formData.header_config?.loginLink?.backgroundMode || 'solid') === 'solid' ? (
-                    <div className="space-y-2">
-                      <Label className="text-slate-300">Background Color</Label>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="color"
-                          value={formData.header_config?.loginLink?.solidColor || '#5C0085'}
-                          onChange={(e) => {
-                            setFormData(prev => ({
-                              ...prev,
-                              header_config: {
-                                ...prev.header_config,
-                                loginLink: { ...prev.header_config?.loginLink, solidColor: e.target.value }
-                              }
-                            }));
-                          }}
-                          className="w-10 h-10 rounded cursor-pointer flex-shrink-0"
-                          data-testid="input-login-link-solid-color"
-                        />
-                        <Input
-                          type="text"
-                          placeholder="#5C0085"
-                          value={formData.header_config?.loginLink?.solidColor || ''}
-                          onChange={(e) => {
-                            setFormData(prev => ({
-                              ...prev,
-                              header_config: {
-                                ...prev.header_config,
-                                loginLink: { ...prev.header_config?.loginLink, solidColor: e.target.value }
-                              }
-                            }));
-                          }}
-                          className="bg-slate-900 border-slate-600 text-white font-mono"
-                          data-testid="input-login-link-solid-color-hex"
-                        />
-                      </div>
-                      <p className="text-xs text-slate-500">Solid background color for the login button.</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <Label className="text-slate-300">Background Gradient</Label>
-                      <GradientStopsEditor
-                        stops={formData.header_config?.loginLink?.gradientStops || DEFAULT_LOGIN_BUTTON_GRADIENT_STOPS}
-                        onChange={(s) => setFormData(prev => ({
-                          ...prev,
-                          header_config: {
-                            ...prev.header_config,
-                            loginLink: { ...prev.header_config?.loginLink, gradientStops: s }
-                          }
-                        }))}
-                        testIdPrefix="login-link-gradient"
-                      />
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label className="text-slate-300">Corner Radius (px)</Label>
-                      <Input
-                        type="number"
-                        min="0"
-                        max="50"
-                        placeholder="0"
-                        value={formData.header_config?.loginLink?.cornerRadius ?? ''}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setFormData(prev => ({
-                            ...prev,
-                            header_config: {
-                              ...prev.header_config,
-                              loginLink: { ...prev.header_config?.loginLink, cornerRadius: val === '' ? '' : parseInt(val, 10) }
-                            }
-                          }));
-                        }}
-                        className="bg-slate-900 border-slate-600 text-white"
-                        data-testid="input-login-link-corner-radius"
-                      />
-                      <p className="text-xs text-slate-500">Roundness of the button corners. Leave blank for square (0px).</p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-slate-300">Border Width (px)</Label>
-                      <Input
-                        type="number"
-                        min="0"
-                        max="10"
-                        placeholder="0"
-                        value={formData.header_config?.loginLink?.borderWidth ?? ''}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setFormData(prev => ({
-                            ...prev,
-                            header_config: {
-                              ...prev.header_config,
-                              loginLink: { ...prev.header_config?.loginLink, borderWidth: val === '' ? '' : parseInt(val, 10) }
-                            }
-                          }));
-                        }}
-                        className="bg-slate-900 border-slate-600 text-white"
-                        data-testid="input-login-link-border-width"
-                      />
-                      <p className="text-xs text-slate-500">Thickness of the border. Leave blank for no border.</p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-slate-300">Border Color</Label>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="color"
-                          value={formData.header_config?.loginLink?.borderColor || '#FFFFFF'}
-                          onChange={(e) => {
-                            setFormData(prev => ({
-                              ...prev,
-                              header_config: {
-                                ...prev.header_config,
-                                loginLink: { ...prev.header_config?.loginLink, borderColor: e.target.value }
-                              }
-                            }));
-                          }}
-                          className="w-10 h-10 rounded cursor-pointer flex-shrink-0"
-                          data-testid="input-login-link-border-color"
-                        />
-                        <Input
-                          type="text"
-                          placeholder="No border color"
-                          value={formData.header_config?.loginLink?.borderColor || ''}
-                          onChange={(e) => {
-                            setFormData(prev => ({
-                              ...prev,
-                              header_config: {
-                                ...prev.header_config,
-                                loginLink: { ...prev.header_config?.loginLink, borderColor: e.target.value }
-                              }
-                            }));
-                          }}
-                          className="bg-slate-900 border-slate-600 text-white font-mono"
-                          data-testid="input-login-link-border-color-hex"
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-slate-300">Border Style</Label>
-                      <Select
-                        value={formData.header_config?.loginLink?.borderStyle || 'solid'}
-                        onValueChange={(val) => {
-                          setFormData(prev => ({
-                            ...prev,
-                            header_config: {
-                              ...prev.header_config,
-                              loginLink: { ...prev.header_config?.loginLink, borderStyle: val }
-                            }
-                          }));
-                        }}
-                      >
-                        <SelectTrigger className="bg-slate-900 border-slate-600 text-white" data-testid="select-login-link-border-style">
-                          <SelectValue placeholder="Solid" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="solid">Solid</SelectItem>
-                          <SelectItem value="dashed">Dashed</SelectItem>
-                          <SelectItem value="dotted">Dotted</SelectItem>
-                          <SelectItem value="none">None</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-slate-300">Label Color</Label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="color"
-                        value={formData.header_config?.loginLink?.labelColor || formData.header_config?.topNavTextColor || '#FFFFFF'}
-                        onChange={(e) => {
-                          setFormData(prev => ({
-                            ...prev,
-                            header_config: {
-                              ...prev.header_config,
-                              loginLink: { ...prev.header_config?.loginLink, labelColor: e.target.value }
-                            }
-                          }));
-                        }}
-                        className="w-10 h-10 rounded cursor-pointer flex-shrink-0"
-                        data-testid="input-login-link-label-color"
-                      />
-                      <Input
-                        type="text"
-                        placeholder="Inherit nav text color"
-                        value={formData.header_config?.loginLink?.labelColor || ''}
-                        onChange={(e) => {
-                          setFormData(prev => ({
-                            ...prev,
-                            header_config: {
-                              ...prev.header_config,
-                              loginLink: { ...prev.header_config?.loginLink, labelColor: e.target.value }
-                            }
-                          }));
-                        }}
-                        className="bg-slate-900 border-slate-600 text-white font-mono"
-                        data-testid="input-login-link-label-color-hex"
-                      />
-                    </div>
-                    <p className="text-xs text-slate-500">Color of the button label text. Leave blank to inherit the top-nav text color.</p>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label className="text-slate-300">Height (px)</Label>
-                      <Input
-                        type="number"
-                        min="0"
-                        max="200"
-                        placeholder="Auto"
-                        value={formData.header_config?.loginLink?.height ?? ''}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setFormData(prev => ({
-                            ...prev,
-                            header_config: {
-                              ...prev.header_config,
-                              loginLink: { ...prev.header_config?.loginLink, height: val === '' ? '' : parseInt(val, 10) }
-                            }
-                          }));
-                        }}
-                        className="bg-slate-900 border-slate-600 text-white"
-                        data-testid="input-login-link-height"
-                      />
-                      <p className="text-xs text-slate-500">Button height. Leave blank to size to content.</p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-slate-300">Width (px)</Label>
-                      <Input
-                        type="number"
-                        min="0"
-                        max="400"
-                        placeholder="Auto"
-                        value={formData.header_config?.loginLink?.width ?? ''}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setFormData(prev => ({
-                            ...prev,
-                            header_config: {
-                              ...prev.header_config,
-                              loginLink: { ...prev.header_config?.loginLink, width: val === '' ? '' : parseInt(val, 10) }
-                            }
-                          }));
-                        }}
-                        className="bg-slate-900 border-slate-600 text-white"
-                        data-testid="input-login-link-width"
-                      />
-                      <p className="text-xs text-slate-500">Button width. Leave blank to size to content.</p>
-                    </div>
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
+          <HeaderLinkControls
+            config={formData.header_config?.memberAreaLink}
+            onChange={(patch) => setFormData(prev => ({
+              ...prev,
+              header_config: {
+                ...prev.header_config,
+                memberAreaLink: { ...prev.header_config?.memberAreaLink, ...patch }
+              }
+            }))}
+            title="Member Area Button (logged in)"
+            description="Style and label the Member Area item shown in the top bar to logged-in members."
+            defaultLabel="Member Area"
+            testIdPrefix="member-area-link"
+            previewBackgroundStops={formData.header_config?.gradientStops || DEFAULT_GRADIENT_STOPS}
+          />
 
           <Card className="bg-slate-800/50 border-slate-700">
             <CardHeader>

@@ -54,6 +54,77 @@ function validateIndicatorConfig(indicator, gradientValidator) {
   return out;
 }
 
+const HEADER_LINK_LABEL_MAX_LENGTH = 60;
+const ALLOWED_HEADER_LINK_BORDER_STYLES = ['solid', 'dashed', 'dotted', 'none'];
+
+// Validate a header action-link button config (Login / Member Area). Both share
+// the same control set: button-vs-link, position, solid/gradient background,
+// corner radius, border, label colour, height, width, plus a custom label.
+// `gradientValidator` is the handler-scoped validateGradientStops helper.
+// Returns a sanitized object, or null when the input is not an object.
+function sanitizeHeaderLink(link, gradientValidator) {
+  if (!link || typeof link !== 'object') return null;
+
+  const sanitized = {
+    asButton: !!link.asButton,
+    backgroundMode: link.backgroundMode === 'gradient' ? 'gradient' : 'solid',
+    position: link.position === 'right' ? 'right' : 'left'
+  };
+
+  if (typeof link.label === 'string') {
+    const trimmedLabel = link.label.trim().slice(0, HEADER_LINK_LABEL_MAX_LENGTH);
+    sanitized.label = trimmedLabel;
+  }
+
+  const solid = normalizeHexColor(link.solidColor);
+  if (solid) {
+    sanitized.solidColor = solid;
+  }
+
+  if (Array.isArray(link.gradientStops)) {
+    const validatedStops = gradientValidator(link.gradientStops);
+    if (validatedStops.length > 0) {
+      sanitized.gradientStops = validatedStops;
+    }
+  }
+
+  const radius = parseInt(link.cornerRadius, 10);
+  if (Number.isFinite(radius)) {
+    sanitized.cornerRadius = Math.max(0, Math.min(50, radius));
+  }
+
+  const borderWidth = parseInt(link.borderWidth, 10);
+  if (Number.isFinite(borderWidth)) {
+    sanitized.borderWidth = Math.max(0, Math.min(10, borderWidth));
+  }
+
+  const borderColor = normalizeHexColor(link.borderColor);
+  if (borderColor) {
+    sanitized.borderColor = borderColor;
+  }
+
+  const labelColor = normalizeHexColor(link.labelColor);
+  if (labelColor) {
+    sanitized.labelColor = labelColor;
+  }
+
+  const height = parseInt(link.height, 10);
+  if (Number.isFinite(height)) {
+    sanitized.height = Math.max(0, Math.min(200, height));
+  }
+
+  const width = parseInt(link.width, 10);
+  if (Number.isFinite(width)) {
+    sanitized.width = Math.max(0, Math.min(400, width));
+  }
+
+  if (ALLOWED_HEADER_LINK_BORDER_STYLES.includes(link.borderStyle)) {
+    sanitized.borderStyle = link.borderStyle;
+  }
+
+  return sanitized;
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
@@ -300,68 +371,27 @@ export default async function handler(req, res) {
         }
       }
 
-      // Validate the login-link button config. header_config is rebuilt from a
-      // whitelist, so this block must explicitly copy each supported field or it
-      // is silently dropped on save.
+      // Validate the login-link button config (logged-out "Login" state).
+      // header_config is rebuilt from a whitelist, so each supported field must
+      // be explicitly copied via sanitizeHeaderLink or it is dropped on save.
       if (updates.header_config && updates.header_config.loginLink !== undefined) {
-        const ll = updates.header_config.loginLink;
-        if (ll && typeof ll === 'object') {
-          const sanitizedLoginLink = {
-            asButton: !!ll.asButton,
-            backgroundMode: ll.backgroundMode === 'gradient' ? 'gradient' : 'solid',
-            position: ll.position === 'right' ? 'right' : 'left'
-          };
-
-          const llSolid = normalizeHexColor(ll.solidColor);
-          if (llSolid) {
-            sanitizedLoginLink.solidColor = llSolid;
-          }
-
-          if (Array.isArray(ll.gradientStops)) {
-            const validatedLoginStops = validateGradientStops(ll.gradientStops);
-            if (validatedLoginStops.length > 0) {
-              sanitizedLoginLink.gradientStops = validatedLoginStops;
-            }
-          }
-
-          const llRadius = parseInt(ll.cornerRadius, 10);
-          if (Number.isFinite(llRadius)) {
-            sanitizedLoginLink.cornerRadius = Math.max(0, Math.min(50, llRadius));
-          }
-
-          const llBorderWidth = parseInt(ll.borderWidth, 10);
-          if (Number.isFinite(llBorderWidth)) {
-            sanitizedLoginLink.borderWidth = Math.max(0, Math.min(10, llBorderWidth));
-          }
-
-          const llBorderColor = normalizeHexColor(ll.borderColor);
-          if (llBorderColor) {
-            sanitizedLoginLink.borderColor = llBorderColor;
-          }
-
-          const llLabelColor = normalizeHexColor(ll.labelColor);
-          if (llLabelColor) {
-            sanitizedLoginLink.labelColor = llLabelColor;
-          }
-
-          const llHeight = parseInt(ll.height, 10);
-          if (Number.isFinite(llHeight)) {
-            sanitizedLoginLink.height = Math.max(0, Math.min(200, llHeight));
-          }
-
-          const llWidth = parseInt(ll.width, 10);
-          if (Number.isFinite(llWidth)) {
-            sanitizedLoginLink.width = Math.max(0, Math.min(400, llWidth));
-          }
-
-          const ALLOWED_BORDER_STYLES = ['solid', 'dashed', 'dotted', 'none'];
-          if (ALLOWED_BORDER_STYLES.includes(ll.borderStyle)) {
-            sanitizedLoginLink.borderStyle = ll.borderStyle;
-          }
-
+        const sanitizedLoginLink = sanitizeHeaderLink(updates.header_config.loginLink, validateGradientStops);
+        if (sanitizedLoginLink) {
           updates.header_config.loginLink = sanitizedLoginLink;
         } else {
           delete updates.header_config.loginLink;
+        }
+      }
+
+      // Validate the member-area-link button config (logged-in "Member Area"
+      // state). Mirrors the loginLink control set so it can be styled and
+      // labelled independently.
+      if (updates.header_config && updates.header_config.memberAreaLink !== undefined) {
+        const sanitizedMemberAreaLink = sanitizeHeaderLink(updates.header_config.memberAreaLink, validateGradientStops);
+        if (sanitizedMemberAreaLink) {
+          updates.header_config.memberAreaLink = sanitizedMemberAreaLink;
+        } else {
+          delete updates.header_config.memberAreaLink;
         }
       }
 
