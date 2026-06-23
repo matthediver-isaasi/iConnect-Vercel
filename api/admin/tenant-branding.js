@@ -307,6 +307,18 @@ export default async function handler(req, res) {
         }
       }
 
+      // Validate the desktop top-row Search display mode. Governs appearance
+      // only (icon / label / both); the on/off visibility is handled separately
+      // by the Header Icons config. Drop anything outside the allowed set so it
+      // falls back to the 'both' default.
+      if (updates.header_config && updates.header_config.searchDisplay !== undefined) {
+        if (['icon', 'label', 'both'].includes(updates.header_config.searchDisplay)) {
+          // keep as-is
+        } else {
+          delete updates.header_config.searchDisplay;
+        }
+      }
+
       // Validate top-nav active-item indicator config
       if (updates.header_config && updates.header_config.topNavIndicator !== undefined) {
         const ind = validateIndicatorConfig(updates.header_config.topNavIndicator, validateGradientStops);

@@ -331,6 +331,11 @@ export default function PublicHeader() {
   const topNavFontWeight = branding?.headerConfig?.topNavFontWeight;
   const topNavFontFamily = branding?.headerConfig?.topNavFontFamily;
   const topNavIndicator = branding?.headerConfig?.topNavIndicator;
+  // How the desktop top-row Search control is presented: 'icon' | 'label' | 'both'.
+  // Governs appearance only; on/off visibility is the separate Header Icons toggle.
+  const searchDisplay = ['icon', 'label', 'both'].includes(branding?.headerConfig?.searchDisplay)
+    ? branding.headerConfig.searchDisplay
+    : 'both';
   const secondaryBarHoverColor = secondaryBarConfig?.hoverColor;
   const secondaryBarFontWeight = secondaryBarConfig?.fontWeight;
   const secondaryBarFontFamily = secondaryBarConfig?.fontFamily;
@@ -1381,12 +1386,17 @@ export default function PublicHeader() {
                 <div className="relative">
                   <button
                     onClick={() => setSearchOpen(!searchOpen)}
-                    className="flex items-center gap-2 hover:opacity-80 transition-opacity text-sm font-semibold"
-                    style={{ color: topNavTextColor }}
+                    className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+                    style={{
+                      color: topNavTextColor,
+                      fontSize: `${topNavFontSize || 14}px`,
+                      ...(topNavFontWeight ? { fontWeight: topNavFontWeight } : {}),
+                      ...(topNavFontFamily ? { fontFamily: topNavFontFamily } : {})
+                    }}
                     data-testid="button-search-toggle"
                   >
-                    <Search className="w-4 h-4" />
-                    <span>Search</span>
+                    {searchDisplay !== 'label' && <Search className="w-4 h-4" />}
+                    {searchDisplay !== 'icon' && <span>Search</span>}
                   </button>
 
                   {searchOpen && (

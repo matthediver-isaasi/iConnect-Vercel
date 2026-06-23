@@ -580,6 +580,7 @@ export default function AdminBranding() {
       topNavFontSize: '',
       topNavFontWeight: '',
       topNavFontFamily: '',
+      searchDisplay: 'both',
       topNavIndicator: { enabled: false, height: '', gradientStops: DEFAULT_INDICATOR_GRADIENT_STOPS },
       secondaryBar: {
         enabled: false,
@@ -750,6 +751,9 @@ export default function AdminBranding() {
                 topNavFontSize: t?.header_config?.topNavFontSize || '',
                 topNavFontWeight: t?.header_config?.topNavFontWeight || '',
                 topNavFontFamily: t?.header_config?.topNavFontFamily || '',
+                searchDisplay: ['icon', 'label', 'both'].includes(t?.header_config?.searchDisplay)
+                  ? t.header_config.searchDisplay
+                  : 'both',
                 topNavIndicator: {
                   enabled: t?.header_config?.topNavIndicator ? !!t.header_config.topNavIndicator.enabled : false,
                   height: t?.header_config?.topNavIndicator?.height || '',
@@ -2199,6 +2203,28 @@ export default function AdminBranding() {
                 }))}
                 testIdPrefix="top-nav-indicator"
               />
+              <div className="space-y-2">
+                <Label className="text-slate-300">Search Display</Label>
+                <Select
+                  value={['icon', 'label', 'both'].includes(formData.header_config?.searchDisplay) ? formData.header_config.searchDisplay : 'both'}
+                  onValueChange={(val) => {
+                    setFormData(prev => ({
+                      ...prev,
+                      header_config: { ...prev.header_config, searchDisplay: val }
+                    }));
+                  }}
+                >
+                  <SelectTrigger className="bg-slate-900 border-slate-600 text-white" data-testid="select-search-display">
+                    <SelectValue placeholder="Spy glass and label" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="icon">Spy glass only</SelectItem>
+                    <SelectItem value="label">Label only</SelectItem>
+                    <SelectItem value="both">Spy glass and label</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-slate-500">How the top bar Search control is shown. This only changes its appearance — turn Search on or off under Navigation → Header Icons. The Search control follows the top bar link styling above.</p>
+              </div>
               <div className="space-y-1">
                 <Label className="text-slate-300 text-xs">Live Preview</Label>
                 <div
@@ -2268,8 +2294,8 @@ export default function AdminBranding() {
                         whiteSpace: 'nowrap'
                       }}
                     >
-                      <Search className="w-4 h-4" />
-                      Search
+                      {(['icon', 'label', 'both'].includes(formData.header_config?.searchDisplay) ? formData.header_config.searchDisplay : 'both') !== 'label' && <Search className="w-4 h-4" />}
+                      {(['icon', 'label', 'both'].includes(formData.header_config?.searchDisplay) ? formData.header_config.searchDisplay : 'both') !== 'icon' && <span>Search</span>}
                     </span>
                   </div>
                 </div>
