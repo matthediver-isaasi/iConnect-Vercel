@@ -52,6 +52,11 @@ export default function AdminBranding() {
     { color: '#FFB000', position: 100 }
   ];
 
+  const DEFAULT_SECONDARY_BAR_GRADIENT_STOPS = [
+    { color: '#5C0085', position: 0 },
+    { color: '#BA0087', position: 100 }
+  ];
+
   const [formData, setFormData] = useState({
     primary_color: '#5C0085',
     secondary_color: '#BA0087',
@@ -74,7 +79,13 @@ export default function AdminBranding() {
       logoPadding: '',
       logoMarginTop: '',
       logoMarginLeft: '',
-      gradientStops: DEFAULT_GRADIENT_STOPS
+      gradientStops: DEFAULT_GRADIENT_STOPS,
+      topBarHeight: '',
+      secondaryBar: {
+        enabled: false,
+        height: '',
+        gradientStops: DEFAULT_SECONDARY_BAR_GRADIENT_STOPS
+      }
     },
     footer_config: {
       columns: 4,
@@ -116,6 +127,8 @@ export default function AdminBranding() {
   const [newGradientColor, setNewGradientColor] = useState('#000000');
   const [newHeaderGradientColor, setNewHeaderGradientColor] = useState('#000000');
   const [newHeaderGradientPosition, setNewHeaderGradientPosition] = useState(100);
+  const [newSecondaryBarGradientColor, setNewSecondaryBarGradientColor] = useState('#000000');
+  const [newSecondaryBarGradientPosition, setNewSecondaryBarGradientPosition] = useState(100);
   const [platformDefaults, setPlatformDefaults] = useState({
     platformBrandingText: 'Powered by isaasi',
     platformBrandingUrl: 'https://isaasi.co.uk'
@@ -184,7 +197,15 @@ export default function AdminBranding() {
                 logoPadding: t?.header_config?.logoPadding || '',
                 logoMarginTop: t?.header_config?.logoMarginTop || '',
                 logoMarginLeft: t?.header_config?.logoMarginLeft || '',
-                gradientStops: getGradientStops(t?.header_config)
+                gradientStops: getGradientStops(t?.header_config),
+                topBarHeight: t?.header_config?.topBarHeight || '',
+                secondaryBar: {
+                  enabled: !!t?.header_config?.secondaryBar?.enabled,
+                  height: t?.header_config?.secondaryBar?.height || '',
+                  gradientStops: (t?.header_config?.secondaryBar?.gradientStops && t?.header_config?.secondaryBar?.gradientStops.length > 0)
+                    ? t.header_config.secondaryBar.gradientStops
+                    : DEFAULT_SECONDARY_BAR_GRADIENT_STOPS
+                }
               },
               footer_config: {
                 columns: t?.footer_config?.columns || 4,
@@ -1216,6 +1237,26 @@ export default function AdminBranding() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label className="text-slate-300">Top Navigation Bar Height (px)</Label>
+                <Input
+                  type="number"
+                  min="20"
+                  max="300"
+                  placeholder="Default"
+                  value={formData.header_config?.topBarHeight ?? ''}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setFormData(prev => ({
+                      ...prev,
+                      header_config: { ...prev.header_config, topBarHeight: val === '' ? '' : parseInt(val, 10) }
+                    }));
+                  }}
+                  className="bg-slate-900 border-slate-600 text-white"
+                  data-testid="input-top-bar-height"
+                />
+                <p className="text-xs text-slate-500">Sets the height of the gradient top bar. Leave blank to use the default size.</p>
+              </div>
               <div 
                 className="h-10 rounded-lg border border-slate-600"
                 style={{
@@ -1329,6 +1370,192 @@ export default function AdminBranding() {
                 </Button>
               </div>
               <p className="text-xs text-slate-500">Adjust sliders to control where each color appears in the gradient (0% = left, 100% = right). Use white at 0% and 30% for the fade-from-white effect.</p>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-slate-800/50 border-slate-700">
+            <CardHeader>
+              <CardTitle className="text-white flex items-center gap-2">
+                <Palette className="w-5 h-5" />
+                Secondary Lower Navigation Bar
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                Add an optional second bar below the top navigation bar with its own height and gradient background
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="space-y-0.5">
+                  <Label className="text-slate-300">Enable secondary bar</Label>
+                  <p className="text-xs text-slate-500">Renders a second bar directly beneath the top navigation bar</p>
+                </div>
+                <Switch
+                  checked={!!formData.header_config?.secondaryBar?.enabled}
+                  onCheckedChange={(checked) => {
+                    setFormData(prev => ({
+                      ...prev,
+                      header_config: {
+                        ...prev.header_config,
+                        secondaryBar: { ...prev.header_config?.secondaryBar, enabled: checked }
+                      }
+                    }));
+                  }}
+                  data-testid="switch-secondary-bar-enabled"
+                />
+              </div>
+
+              {formData.header_config?.secondaryBar?.enabled && (
+                <>
+                  <div className="space-y-2">
+                    <Label className="text-slate-300">Secondary Bar Height (px)</Label>
+                    <Input
+                      type="number"
+                      min="20"
+                      max="300"
+                      placeholder="48"
+                      value={formData.header_config?.secondaryBar?.height ?? ''}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setFormData(prev => ({
+                          ...prev,
+                          header_config: {
+                            ...prev.header_config,
+                            secondaryBar: { ...prev.header_config?.secondaryBar, height: val === '' ? '' : parseInt(val, 10) }
+                          }
+                        }));
+                      }}
+                      className="bg-slate-900 border-slate-600 text-white"
+                      data-testid="input-secondary-bar-height"
+                    />
+                  </div>
+
+                  <div
+                    className="h-10 rounded-lg border border-slate-600"
+                    style={{
+                      background: `linear-gradient(to right, ${(formData.header_config?.secondaryBar?.gradientStops || DEFAULT_SECONDARY_BAR_GRADIENT_STOPS)
+                        .slice()
+                        .sort((a, b) => a.position - b.position)
+                        .map(stop => `${stop.color} ${stop.position}%`)
+                        .join(', ')})`
+                    }}
+                  />
+                  <div className="space-y-3">
+                    {(formData.header_config?.secondaryBar?.gradientStops || DEFAULT_SECONDARY_BAR_GRADIENT_STOPS).map((stop, index) => (
+                      <div key={index} className="flex items-center gap-3 bg-slate-900/50 rounded-lg p-3">
+                        <input
+                          type="color"
+                          value={stop.color}
+                          onChange={(e) => {
+                            const newStops = [...(formData.header_config?.secondaryBar?.gradientStops || DEFAULT_SECONDARY_BAR_GRADIENT_STOPS)];
+                            newStops[index] = { ...newStops[index], color: e.target.value };
+                            setFormData(prev => ({
+                              ...prev,
+                              header_config: {
+                                ...prev.header_config,
+                                secondaryBar: { ...prev.header_config?.secondaryBar, gradientStops: newStops }
+                              }
+                            }));
+                          }}
+                          className="w-10 h-10 rounded cursor-pointer flex-shrink-0"
+                        />
+                        <div className="flex-1 space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-300 text-sm font-mono">{stop.color}</span>
+                            <span className="text-slate-400 text-sm">{stop.position}%</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            value={stop.position}
+                            onChange={(e) => {
+                              const newStops = [...(formData.header_config?.secondaryBar?.gradientStops || DEFAULT_SECONDARY_BAR_GRADIENT_STOPS)];
+                              newStops[index] = { ...newStops[index], position: parseInt(e.target.value) };
+                              setFormData(prev => ({
+                                ...prev,
+                                header_config: {
+                                  ...prev.header_config,
+                                  secondaryBar: { ...prev.header_config?.secondaryBar, gradientStops: newStops }
+                                }
+                              }));
+                            }}
+                            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                            data-testid={`slider-secondary-bar-gradient-position-${index}`}
+                          />
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-slate-400 hover:text-red-400 flex-shrink-0"
+                          onClick={() => {
+                            const newStops = (formData.header_config?.secondaryBar?.gradientStops || DEFAULT_SECONDARY_BAR_GRADIENT_STOPS).filter((_, i) => i !== index);
+                            setFormData(prev => ({
+                              ...prev,
+                              header_config: {
+                                ...prev.header_config,
+                                secondaryBar: { ...prev.header_config?.secondaryBar, gradientStops: newStops }
+                              }
+                            }));
+                          }}
+                          data-testid={`button-remove-secondary-bar-gradient-${index}`}
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-3 pt-2 border-t border-slate-700">
+                    <input
+                      type="color"
+                      value={newSecondaryBarGradientColor}
+                      onChange={(e) => setNewSecondaryBarGradientColor(e.target.value)}
+                      className="w-10 h-10 rounded cursor-pointer"
+                    />
+                    <div className="flex-1 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-400 text-sm">New color position</span>
+                        <span className="text-slate-400 text-sm">{newSecondaryBarGradientPosition}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={newSecondaryBarGradientPosition}
+                        onChange={(e) => setNewSecondaryBarGradientPosition(parseInt(e.target.value))}
+                        className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                        data-testid="slider-new-secondary-bar-gradient-position"
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const newStop = { color: newSecondaryBarGradientColor, position: newSecondaryBarGradientPosition };
+                        setFormData(prev => ({
+                          ...prev,
+                          header_config: {
+                            ...prev.header_config,
+                            secondaryBar: {
+                              ...prev.header_config?.secondaryBar,
+                              gradientStops: [...(prev.header_config?.secondaryBar?.gradientStops || DEFAULT_SECONDARY_BAR_GRADIENT_STOPS), newStop]
+                                .sort((a, b) => a.position - b.position)
+                            }
+                          }
+                        }));
+                        setNewSecondaryBarGradientColor('#000000');
+                      }}
+                      className="border-slate-600 text-slate-300"
+                      data-testid="button-add-secondary-bar-gradient-color"
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add
+                    </Button>
+                  </div>
+                  <p className="text-xs text-slate-500">Adjust sliders to control where each color appears in the gradient (0% = left, 100% = right).</p>
+                </>
+              )}
             </CardContent>
           </Card>
 

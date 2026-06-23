@@ -269,6 +269,14 @@ export default function PublicHeader() {
     boxShadow: getShadowStyle(logoShadow)
   };
   const topBarGradient = buildGradientFromStops(gradientStops);
+  const topBarHeight = branding?.headerConfig?.topBarHeight;
+  const secondaryBarConfig = branding?.headerConfig?.secondaryBar;
+  const secondaryBarEnabled = !!secondaryBarConfig?.enabled;
+  const secondaryBarHeight = secondaryBarConfig?.height || 48;
+  const secondaryBarStops = (secondaryBarConfig?.gradientStops && secondaryBarConfig.gradientStops.length > 0)
+    ? secondaryBarConfig.gradientStops
+    : [{ color: '#5C0085', position: 0 }, { color: '#BA0087', position: 100 }];
+  const secondaryBarGradient = buildGradientFromStops(secondaryBarStops);
   const colorStops = getColorStopsOnly(gradientStops);
   const navIndicatorGradient = colorStops.length > 0 
     ? `linear-gradient(to right, ${colorStops.map(s => s.color).join(', ')})`
@@ -1155,12 +1163,13 @@ export default function PublicHeader() {
 
         {/* Top Row - Gradient Header (Desktop only) */}
         <div
-          className="py-2 relative hidden lg:block"
+          className={`relative hidden lg:flex items-center ${topBarHeight ? '' : 'py-2'}`}
           style={{
-            background: topBarGradient
+            background: topBarGradient,
+            ...(topBarHeight ? { height: `${topBarHeight}px` } : {})
           }}
         >
-          <div className="max-w-7xl mx-auto px-4">
+          <div className="max-w-7xl w-full mx-auto px-4">
             <div className="flex justify-end items-center">
               <div className="flex items-center gap-6">
                 {/* Dynamic Top Nav Items */}
@@ -1367,6 +1376,18 @@ export default function PublicHeader() {
             </div>
           </div>
         </div>
+
+        {/* Secondary Lower Navigation Bar (Desktop only) */}
+        {secondaryBarEnabled && (
+          <div
+            className="relative hidden lg:block"
+            style={{
+              background: secondaryBarGradient,
+              height: `${secondaryBarHeight}px`
+            }}
+            data-testid="secondary-nav-bar"
+          />
+        )}
 
         {/* Bottom Row - Main Navigation */}
         <div className="bg-white border-b border-slate-200">

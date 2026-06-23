@@ -116,9 +116,9 @@ export default async function handler(req, res) {
         updates.footer_config.gradientColors = validatedColors;
       }
 
-      if (updates.header_config?.gradientStops) {
+      const validateGradientStops = (stops) => {
         const validatedStops = [];
-        for (const stop of updates.header_config.gradientStops) {
+        for (const stop of stops) {
           if (typeof stop === 'object' && stop.color && typeof stop.position === 'number') {
             const normalized = normalizeHexColor(stop.color);
             if (normalized) {
@@ -127,9 +127,48 @@ export default async function handler(req, res) {
             }
           }
         }
+        validatedStops.sort((a, b) => a.position - b.position);
+        return validatedStops;
+      };
+
+      if (updates.header_config?.gradientStops) {
+        const validatedStops = validateGradientStops(updates.header_config.gradientStops);
         if (validatedStops.length > 0) {
-          validatedStops.sort((a, b) => a.position - b.position);
           updates.header_config.gradientStops = validatedStops;
+        }
+      }
+
+      // Clamp top navigation bar height (px) to a sensible range
+      if (updates.header_config && updates.header_config.topBarHeight !== undefined) {
+        const h = parseInt(updates.header_config.topBarHeight, 10);
+        if (Number.isFinite(h)) {
+          updates.header_config.topBarHeight = Math.max(20, Math.min(300, h));
+        } else {
+          delete updates.header_config.topBarHeight;
+        }
+      }
+
+      // Validate the secondary (lower) navigation bar config
+      if (updates.header_config && updates.header_config.secondaryBar !== undefined) {
+        const sb = updates.header_config.secondaryBar;
+        if (sb && typeof sb === 'object') {
+          const sanitizedSecondaryBar = { enabled: !!sb.enabled };
+
+          const sh = parseInt(sb.height, 10);
+          if (Number.isFinite(sh)) {
+            sanitizedSecondaryBar.height = Math.max(20, Math.min(300, sh));
+          }
+
+          if (Array.isArray(sb.gradientStops)) {
+            const validatedSecondaryStops = validateGradientStops(sb.gradientStops);
+            if (validatedSecondaryStops.length > 0) {
+              sanitizedSecondaryBar.gradientStops = validatedSecondaryStops;
+            }
+          }
+
+          updates.header_config.secondaryBar = sanitizedSecondaryBar;
+        } else {
+          delete updates.header_config.secondaryBar;
         }
       }
 
