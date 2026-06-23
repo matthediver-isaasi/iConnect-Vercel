@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Navigation, Plus, Pencil, Trash2, ChevronRight, ChevronDown, Menu, Sparkles, Calendar, Building, Briefcase, FileText, Users, Home, Mail, Phone, X, Newspaper, PenLine, Globe, Folder, Image, MessageSquare, Bell, Star, Heart, Eye, Link, ExternalLink, Tag, Award, Bookmark, Clock, Search, MapPin, Video, Music, Camera, Mic, Headphones, Tv, Radio, Rss, Share2, Gift, Zap, Target, Flag, Layers, Grid, List, Layout, Monitor, Smartphone, Tablet, Laptop, Server, Database, Cloud, Lock, Key, UserCheck, UserPlus, UserMinus, Users2, MessageCircle, Send, Inbox, Archive, CreditCard, Ticket, Wallet, ShoppingCart, History, Settings, BookOpen, HelpCircle, Shield, BarChart3, FileEdit, AtSign, FolderTree, Trophy, MousePointer2, Download, Type, AlignLeft, AlignCenter, AlignRight, Minus, GripVertical } from "lucide-react";
+import { Navigation, Plus, Pencil, Trash2, ChevronRight, ChevronDown, Menu, Sparkles, Calendar, Building, Briefcase, FileText, Users, Home, Mail, Phone, X, Newspaper, PenLine, Globe, Folder, Image, MessageSquare, Bell, Star, Heart, Eye, Link, ExternalLink, Tag, Award, Bookmark, Clock, Search, MapPin, Video, Music, Camera, Mic, Headphones, Tv, Radio, Rss, Share2, Gift, Zap, Target, Flag, Layers, Grid, List, Layout, Monitor, Smartphone, Tablet, Laptop, Server, Database, Cloud, Lock, Key, UserCheck, UserPlus, UserMinus, Users2, MessageCircle, Send, Inbox, Archive, CreditCard, Ticket, Wallet, ShoppingCart, History, Settings, BookOpen, HelpCircle, Shield, BarChart3, FileEdit, AtSign, FolderTree, Trophy, MousePointer2, Download, Type, AlignLeft, AlignCenter, AlignRight, Minus, GripVertical, ArrowLeftRight } from "lucide-react";
 import SocialIconsConfig from "../components/navigation/SocialIconsConfig";
 import HeaderIconsConfig from "../components/navigation/HeaderIconsConfig";
 import { toast } from "sonner";
@@ -738,6 +738,50 @@ export default function NavigationManagementPage() {
     toast.success('Navigation order updated');
   };
 
+  const moveToOtherBar = async (itemId) => {
+    const item = navItems.find(i => i.id === itemId);
+    if (!item || (item.location !== 'top_nav' && item.location !== 'main_nav')) return;
+
+    const targetLocation = item.location === 'top_nav' ? 'main_nav' : 'top_nav';
+
+    const targetTopLevel = navItems.filter(
+      i => i.location === targetLocation && i.parent_id === null
+    );
+    const maxOrder = targetTopLevel.reduce(
+      (max, i) => Math.max(max, i.display_order || 0),
+      -1
+    );
+
+    const collectDescendants = (parentId) => {
+      const directChildren = navItems.filter(i => i.parent_id === parentId);
+      return directChildren.reduce(
+        (acc, child) => [...acc, child, ...collectDescendants(child.id)],
+        []
+      );
+    };
+
+    try {
+      await base44.entities.NavigationItem.update(item.id, {
+        location: targetLocation,
+        display_order: maxOrder + 1
+      });
+
+      const descendants = collectDescendants(item.id);
+      for (const descendant of descendants) {
+        await base44.entities.NavigationItem.update(descendant.id, {
+          location: targetLocation
+        });
+      }
+
+      await queryClient.invalidateQueries({ queryKey: ['navigation-items'] });
+      toast.success(
+        `Moved to ${targetLocation === 'top_nav' ? 'Top Bar' : 'Main Nav'}`
+      );
+    } catch (error) {
+      toast.error('Failed to move item: ' + error.message);
+    }
+  };
+
   const toggleExpand = (itemId) => {
     setExpandedItems(prev => ({ ...prev, [itemId]: !prev[itemId] }));
   };
@@ -812,6 +856,17 @@ export default function NavigationManagementPage() {
                 className="h-8 w-8 p-0"
               >
                 ▼
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => moveToOtherBar(item.id)}
+                className="h-8 w-8 p-0"
+                title={`Move to ${item.location === 'top_nav' ? 'Main Nav' : 'Top Bar'}`}
+                aria-label={`Move to ${item.location === 'top_nav' ? 'Main Nav' : 'Top Bar'}`}
+                data-testid={`button-move-bar-${item.id}`}
+              >
+                <ArrowLeftRight className="w-4 h-4" />
               </Button>
               <Button
                 variant="ghost"
