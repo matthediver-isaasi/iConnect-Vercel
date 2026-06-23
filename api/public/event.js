@@ -99,7 +99,7 @@ export default async function handler(req, res) {
       }
     }
 
-    const publicTicketClasses = allTicketClasses
+    const publicTicketClassesBase = allTicketClasses
       .filter(tc => {
         if (allowGuestsToViewAllTickets) return true;
         if (tc.visibility_mode) {
@@ -134,6 +134,44 @@ export default async function handler(req, res) {
         member_group_ids: Array.isArray(tc.member_group_ids) ? tc.member_group_ids : [],
         is_default: tc.is_default || false
       }));
+
+    // Count-based availability (Task #1758): treat available_count as a fixed
+    // maximum and derive availability from the actual number of confirmed
+    // bookings per ticket class. We only count finite (non-unlimited) classes —
+    // unlimited tickets are never sold out.
+    const isUnlimitedTicket = (tc) => {
+      const ac = tc.available_count;
+      return tc.is_unlimited_tickets === true || ac === null || ac === undefined || ac === '';
+    };
+
+    const finiteTicketIds = publicTicketClassesBase
+      .filter(tc => !isUnlimitedTicket(tc))
+      .map(tc => String(tc.id))
+      .filter(id => id && id !== 'undefined' && id !== 'null');
+
+    const soldCounts = {};
+    await Promise.all(finiteTicketIds.map(async (tcId) => {
+      const { count, error: countError } = await supabase
+        .from('booking')
+        .select('id', { count: 'exact', head: true })
+        .eq('event_id', event.id)
+        .eq('ticket_class_id', tcId)
+        .eq('status', 'confirmed');
+      if (countError) {
+        console.error('[Public Event] Failed to count confirmed bookings for ticket class', tcId, countError.message);
+      }
+      soldCounts[tcId] = count || 0;
+    }));
+
+    const publicTicketClasses = publicTicketClassesBase.map(tc => {
+      if (isUnlimitedTicket(tc)) {
+        return { ...tc, sold_count: 0, is_sold_out: false };
+      }
+      const soldCount = soldCounts[String(tc.id)] || 0;
+      const max = Number(tc.available_count);
+      const isSoldOut = Number.isFinite(max) ? (max - soldCount) <= 0 : false;
+      return { ...tc, sold_count: soldCount, is_sold_out: isSoldOut };
+    });
 
     const publicEvent = {
       id: event.id,

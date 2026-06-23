@@ -2142,6 +2142,59 @@ const functionHandlers = {
       }
     }
 
+    // Count-based ticket capacity PRE-CHECK (Task #1758). available_count is a
+    // fixed maximum that is never mutated; availability is derived from the count
+    // of status='confirmed' bookings per ticket_class_id. This atomically checks
+    // there is room for the requested tickets before we take any further action.
+    // Unlimited / legacy single-price tickets (no ticketClassId) return ok=true.
+    if (ticketClassId) {
+      try {
+        const { data: capCheck, error: capError } = await supabase.rpc('check_oneoff_ticket_capacity', {
+          p_event_id: eventId,
+          p_ticket_class_id: ticketClassId,
+          p_requested: bookingAttendees.length,
+          p_booking_ids: null
+        });
+        if (capError) {
+          // Best-effort: proceed; the post-verify guard is authoritative.
+          console.error('[createOneOffEventBooking] Capacity pre-check RPC error:', capError.message);
+        } else if (capCheck && capCheck.ok === false) {
+          console.warn('[createOneOffEventBooking] Ticket class sold out at pre-check:', { ticketClassId, capCheck });
+          // Refund any Stripe payment already taken, since we are not booking.
+          if (stripePaymentIntentId && verifiedStripeClient) {
+            try {
+              await verifiedStripeClient.refunds.create({
+                payment_intent: stripePaymentIntentId,
+                reason: 'requested_by_customer'
+              });
+              return {
+                success: false,
+                error: 'Sorry, these tickets have just sold out. Your payment has been automatically refunded.',
+                sold_out: true,
+                refunded: true
+              };
+            } catch (refundError) {
+              console.error('[createOneOffEventBooking] Failed to auto-refund after sold-out pre-check:', refundError.message);
+              return {
+                success: false,
+                error: `These tickets have just sold out and we could not process an automatic refund. Please contact support with reference: ${stripePaymentIntentId}`,
+                sold_out: true,
+                refund_failed: true,
+                stripe_payment_intent_id: stripePaymentIntentId
+              };
+            }
+          }
+          return {
+            success: false,
+            error: 'Sorry, these tickets have just sold out.',
+            sold_out: true
+          };
+        }
+      } catch (capErr) {
+        console.error('[createOneOffEventBooking] Capacity pre-check exception:', capErr.message);
+      }
+    }
+
     // Generate booking reference
     const bookingReference = `OOE-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
     
@@ -2680,6 +2733,74 @@ const functionHandlers = {
       }
       
       return { success: false, error: 'No bookings were created' };
+    }
+
+    // Count-based ticket capacity POST-VERIFY (Task #1758). The pre-check is not
+    // sufficient under concurrency: two checkouts can both pass it and then both
+    // insert their rows. This atomically confirms our just-inserted rows fit
+    // within the fixed maximum (under the same advisory lock); if they do not,
+    // the guard DELETES our booking rows (this booking lost the race) and we
+    // refund any payment taken (mirrors the no-bookings auto-refund above).
+    if (ticketClassId && createdBookings.length > 0) {
+      let capacityExceeded = false;
+      try {
+        const { data: capVerify, error: capVerifyError } = await supabase.rpc('check_oneoff_ticket_capacity', {
+          p_event_id: eventId,
+          p_ticket_class_id: ticketClassId,
+          p_requested: createdBookings.length,
+          p_booking_ids: createdBookings.map(b => b.id)
+        });
+        if (capVerifyError) {
+          console.error('[createOneOffEventBooking] Capacity post-verify RPC error:', capVerifyError.message);
+        } else if (capVerify && capVerify.ok === false) {
+          capacityExceeded = true;
+          console.warn('[createOneOffEventBooking] Capacity exceeded at post-verify; rows removed by guard:', { ticketClassId, capVerify });
+        }
+      } catch (capErr) {
+        console.error('[createOneOffEventBooking] Capacity post-verify exception:', capErr.message);
+      }
+
+      if (capacityExceeded) {
+        // The guard already deleted our booking rows under its advisory lock.
+        // Best-effort: cancel any reminder emails scheduled for those rows.
+        try {
+          await supabase
+            .from('scheduled_email')
+            .delete()
+            .in('booking_id', createdBookings.map(b => b.id));
+        } catch (cleanupErr) {
+          console.error('[createOneOffEventBooking] Failed to clean up scheduled emails after capacity post-verify:', cleanupErr.message);
+        }
+
+        if (stripePaymentIntentId && verifiedStripeClient) {
+          try {
+            await verifiedStripeClient.refunds.create({
+              payment_intent: stripePaymentIntentId,
+              reason: 'requested_by_customer'
+            });
+            return {
+              success: false,
+              error: 'Sorry, these tickets have just sold out. Your payment has been automatically refunded.',
+              sold_out: true,
+              refunded: true
+            };
+          } catch (refundError) {
+            console.error('[createOneOffEventBooking] Failed to auto-refund after capacity post-verify:', refundError.message);
+            return {
+              success: false,
+              error: `These tickets have just sold out and we could not process an automatic refund. Please contact support with reference: ${stripePaymentIntentId}`,
+              sold_out: true,
+              refund_failed: true,
+              stripe_payment_intent_id: stripePaymentIntentId
+            };
+          }
+        }
+        return {
+          success: false,
+          error: 'Sorry, these tickets have just sold out.',
+          sold_out: true
+        };
+      }
     }
 
     // Backfill the booking_id on the training fund transaction now that we
@@ -3383,44 +3504,12 @@ const functionHandlers = {
       }
     }
 
-    // Decrement ticket class availability if ticket class has limited tickets
-    if (ticketClassId && event.pricing_config?.ticket_classes && createdBookings.length > 0) {
-      try {
-        const ticketClasses = event.pricing_config.ticket_classes;
-        const ticketClassIndex = ticketClasses.findIndex(tc => tc.id === ticketClassId);
-        
-        if (ticketClassIndex !== -1) {
-          const ticketClass = ticketClasses[ticketClassIndex];
-          // Only decrement if ticket class has limited availability (not unlimited)
-          if (ticketClass.available_count !== null && ticketClass.available_count !== undefined && !ticketClass.is_unlimited_tickets) {
-            const ticketsToDecrement = createdBookings.length;
-            const newAvailableCount = Math.max(0, Number(ticketClass.available_count) - ticketsToDecrement);
-            
-            // Update the ticket class in pricing_config
-            const updatedTicketClasses = [...ticketClasses];
-            updatedTicketClasses[ticketClassIndex] = {
-              ...ticketClass,
-              available_count: newAvailableCount
-            };
-            
-            const updatedPricingConfig = {
-              ...event.pricing_config,
-              ticket_classes: updatedTicketClasses
-            };
-            
-            await supabase
-              .from('event')
-              .update({ pricing_config: updatedPricingConfig })
-              .eq('id', eventId);
-            
-            console.log(`[createOneOffEventBooking] Decremented ticket class '${ticketClass.name}' availability: ${ticketClass.available_count} -> ${newAvailableCount}`);
-          }
-        }
-      } catch (ticketClassErr) {
-        console.error(`[createOneOffEventBooking] Ticket class availability decrement failed:`, ticketClassErr.message);
-        // Don't fail the booking, just log the error
-      }
-    }
+    // NOTE (Task #1758): ticket-class availability is COUNT-BASED. available_count
+    // is a fixed maximum (capacity) and is never mutated by bookings — derived
+    // availability comes from counting status='confirmed' bookings per
+    // ticket_class_id. Capacity is enforced atomically via the
+    // check_oneoff_ticket_capacity pre-check / post-verify guard above, so there
+    // is no decrement step here.
 
     // Send confirmation emails using event_email configuration
     const emailResults = [];

@@ -539,9 +539,12 @@ export default function EventDetailsPage() {
           bogo_get_free_quantity: Number(tc.bogo_get_free_quantity) || 0,
           bulk_discount_threshold: Number(tc.bulk_discount_threshold) || 0,
           bulk_discount_percentage: Number(tc.bulk_discount_percentage) || 0,
-          // Ticket class availability fields
+          // Ticket class availability fields (count-based: available_count is a
+          // fixed maximum; sold_count/is_sold_out come from the public API)
           available_count: tc.available_count,
           is_unlimited_tickets: tc.is_unlimited_tickets,
+          sold_count: typeof tc.sold_count === 'number' ? tc.sold_count : undefined,
+          is_sold_out: typeof tc.is_sold_out === 'boolean' ? tc.is_sold_out : undefined,
           // Group ticket fields
           is_group_ticket: Boolean(tc.is_group_ticket),
           group_size: tc.group_size ? Number(tc.group_size) : null,
@@ -553,6 +556,46 @@ export default function EventDetailsPage() {
       });
   }, [isOneOffEvent, pricingConfig]);
   
+  // Count-based availability helpers (Task #1758). available_count is a fixed
+  // maximum; availability is derived from confirmed-booking counts. Prefer live
+  // realtime data, otherwise fall back to the sold_count / is_sold_out embedded
+  // on the ticket by the public API.
+  const getTicketSoldOut = (ticket) => {
+    if (!ticket) return false;
+    const realtimeAvail = getTicketClassAvailability(String(ticket.id));
+    if (realtimeAvail) {
+      return realtimeAvail.isSoldOut === true;
+    }
+    const rawAvailCount = ticket.available_count;
+    const isUnlimited = ticket.is_unlimited_tickets === true ||
+      rawAvailCount === null || rawAvailCount === undefined || rawAvailCount === '';
+    if (isUnlimited) return false;
+    if (typeof ticket.is_sold_out === 'boolean') return ticket.is_sold_out;
+    const max = Number(rawAvailCount);
+    if (!Number.isFinite(max)) return false;
+    const sold = typeof ticket.sold_count === 'number' ? ticket.sold_count : 0;
+    return (max - sold) <= 0;
+  };
+
+  // Remaining tickets for display. Returns null for unlimited / no enforceable
+  // maximum (caller should not show a count in that case).
+  const getTicketRemaining = (ticket) => {
+    if (!ticket) return null;
+    const realtimeAvail = getTicketClassAvailability(String(ticket.id));
+    if (realtimeAvail) {
+      if (realtimeAvail.is_unlimited_tickets || realtimeAvail.remaining === null) return null;
+      return Math.max(0, realtimeAvail.remaining);
+    }
+    const rawAvailCount = ticket.available_count;
+    const isUnlimited = ticket.is_unlimited_tickets === true ||
+      rawAvailCount === null || rawAvailCount === undefined || rawAvailCount === '';
+    if (isUnlimited) return null;
+    const max = Number(rawAvailCount);
+    if (!Number.isFinite(max)) return null;
+    const sold = typeof ticket.sold_count === 'number' ? ticket.sold_count : 0;
+    return Math.max(0, max - sold);
+  };
+
   // Helper to check if a ticket is purchasable by the current user
   // Visibility logic:
   // - Members Only: Visible to logged-in members. If role_match_only=true, only if user's role is in role_ids
@@ -561,28 +604,11 @@ export default function EventDetailsPage() {
   const isTicketPurchasable = (ticket) => {
     if (!ticket) return false;
     
-    // Check ticket class availability first (using realtime data if available)
-    // Always use string ID for lookup to match the normalized keys in the realtime map
-    const realtimeAvail = getTicketClassAvailability(String(ticket.id));
-    const rawAvailCount = realtimeAvail?.available_count ?? ticket.available_count;
-    
-    // Check if unlimited: explicit flag, null, undefined, or empty string all mean unlimited
-    const isUnlimited = (realtimeAvail?.is_unlimited_tickets ?? ticket.is_unlimited_tickets) || 
-                        rawAvailCount === null || 
-                        rawAvailCount === undefined ||
-                        rawAvailCount === '';
-    
-    // Parse available_count safely
-    // Empty string, null, undefined -> treat as unlimited
-    // Invalid number -> treat as 0 (sold out for safety)
-    let availCount = null;
-    if (rawAvailCount !== null && rawAvailCount !== undefined && rawAvailCount !== '') {
-      const parsed = Number(rawAvailCount);
-      availCount = isNaN(parsed) ? 0 : parsed;
-    }
-    
-    // If ticket class is sold out, it's not purchasable
-    if (!isUnlimited && availCount !== null && availCount <= 0) {
+    // Count-based availability (Task #1758): availability is derived from the
+    // number of confirmed bookings, not from mutating available_count.
+    // Prefer the live realtime data; otherwise fall back to the sold_count /
+    // is_sold_out the public API embedded on the ticket.
+    if (getTicketSoldOut(ticket)) {
       return false;
     }
     
@@ -2174,29 +2200,14 @@ export default function EventDetailsPage() {
                                 </div>
                               )}
                               {event.show_ticket_availability && (() => {
-                                const realtimeAvail = getTicketClassAvailability(String(tc.id));
-                                const rawAvailCount = realtimeAvail?.available_count ?? tc.available_count;
-                                const isUnlimited = (realtimeAvail?.is_unlimited_tickets ?? tc.is_unlimited_tickets) || 
-                                                    rawAvailCount === null || 
-                                                    rawAvailCount === undefined ||
-                                                    rawAvailCount === '';
-                                
-                                let availCount = null;
-                                if (rawAvailCount !== null && rawAvailCount !== undefined && rawAvailCount !== '') {
-                                  const parsed = Number(rawAvailCount);
-                                  availCount = isNaN(parsed) ? 0 : parsed;
+                                const remaining = getTicketRemaining(tc);
+                                if (remaining === null) return null;
+                                if (remaining <= 0) {
+                                  return <div className="text-xs text-red-600 mt-0.5">Sold out</div>;
+                                } else if (remaining <= 5) {
+                                  return <div className="text-xs text-warning mt-0.5">Only {remaining} left</div>;
                                 }
-                                
-                                if (!isUnlimited && availCount !== null) {
-                                  if (availCount <= 0) {
-                                    return <div className="text-xs text-red-600 mt-0.5">Sold out</div>;
-                                  } else if (availCount <= 5) {
-                                    return <div className="text-xs text-warning mt-0.5">Only {availCount} left</div>;
-                                  } else {
-                                    return <div className="text-xs text-slate-500 mt-0.5">{availCount} available</div>;
-                                  }
-                                }
-                                return null;
+                                return <div className="text-xs text-slate-500 mt-0.5">{remaining} available</div>;
                               })()}
                             </div>
                           </div>
@@ -2274,29 +2285,14 @@ export default function EventDetailsPage() {
                               </div>
                             )}
                             {event.show_ticket_availability && (() => {
-                              const realtimeAvail = getTicketClassAvailability(String(selectedTicketClass.id));
-                              const rawAvailCount = realtimeAvail?.available_count ?? selectedTicketClass.available_count;
-                              const isUnlimited = (realtimeAvail?.is_unlimited_tickets ?? selectedTicketClass.is_unlimited_tickets) || 
-                                                  rawAvailCount === null || 
-                                                  rawAvailCount === undefined ||
-                                                  rawAvailCount === '';
-                              
-                              let availCount = null;
-                              if (rawAvailCount !== null && rawAvailCount !== undefined && rawAvailCount !== '') {
-                                const parsed = Number(rawAvailCount);
-                                availCount = isNaN(parsed) ? 0 : parsed;
+                              const remaining = getTicketRemaining(selectedTicketClass);
+                              if (remaining === null) return null;
+                              if (remaining <= 0) {
+                                return <div className="text-xs text-red-600 mt-0.5">Sold out</div>;
+                              } else if (remaining <= 5) {
+                                return <div className="text-xs text-warning mt-0.5">Only {remaining} left</div>;
                               }
-                              
-                              if (!isUnlimited && availCount !== null) {
-                                if (availCount <= 0) {
-                                  return <div className="text-xs text-red-600 mt-0.5">Sold out</div>;
-                                } else if (availCount <= 5) {
-                                  return <div className="text-xs text-warning mt-0.5">Only {availCount} left</div>;
-                                } else {
-                                  return <div className="text-xs text-slate-500 mt-0.5">{availCount} available</div>;
-                                }
-                              }
-                              return null;
+                              return <div className="text-xs text-slate-500 mt-0.5">{remaining} available</div>;
                             })()}
                           </div>
                         </div>
