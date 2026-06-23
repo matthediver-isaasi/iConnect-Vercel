@@ -976,6 +976,17 @@ function HeroRender({ block, asEditor, priority, breakpoint }) {
     : c.bgType === 'color'
       ? { background: c.bgColor || '#0f172a' }
       : { background: '#0f172a' };
+  // Internal padding of the text/CTA content wrapper. Stored on
+  // block.style.padding* (mirrors the Section block) and falls back to 24px
+  // per side so legacy heroes that never set padding render exactly as the
+  // old hardcoded `p-6`.
+  const s = block.style || {};
+  const heroPadding = {
+    paddingTop: s.paddingTop ?? 24,
+    paddingRight: s.paddingRight ?? 24,
+    paddingBottom: s.paddingBottom ?? 24,
+    paddingLeft: s.paddingLeft ?? 24,
+  };
   return (
     <div
       className="absolute inset-0 overflow-hidden"
@@ -1014,8 +1025,8 @@ function HeroRender({ block, asEditor, priority, breakpoint }) {
         aria-hidden="true"
       />
       <div
-        className="relative h-full w-full flex flex-col p-6"
-        style={{ alignItems: justify, justifyContent: 'center', textAlign, color: c.textColor || '#ffffff', ...(railStyle || {}) }}
+        className="relative h-full w-full flex flex-col"
+        style={{ alignItems: justify, justifyContent: 'center', textAlign, color: c.textColor || '#ffffff', ...heroPadding, ...(railStyle || {}) }}
       >
         <Heading style={headlineInline} data-tg-r="headline">
           {c.headline || ''}
@@ -1054,7 +1065,10 @@ function HeroRender({ block, asEditor, priority, breakpoint }) {
 
 function HeroInspector({ block, update }) {
   const c = block.content || {};
+  const s = block.style || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+  const setStyle = (patch) => update((b) => ({ ...b, style: { ...b.style, ...patch } }));
+  const clampPad = (v) => Math.max(0, Number(v) || 0);
   return (
     <>
       <TextField label="Headline" value={c.headline} onChange={(v) => set({ headline: v })} testId="input-hero-headline" />
@@ -1134,6 +1148,26 @@ function HeroInspector({ block, update }) {
           { value: 'right', label: 'Right' },
         ]}
         testId="select-hero-alignment"
+      />
+      <NumberField
+        label="Padding top (px)" min={0} value={s.paddingTop ?? 24}
+        onChange={(v) => setStyle({ paddingTop: clampPad(v) })}
+        testId="input-hero-padding-top"
+      />
+      <NumberField
+        label="Padding right (px)" min={0} value={s.paddingRight ?? 24}
+        onChange={(v) => setStyle({ paddingRight: clampPad(v) })}
+        testId="input-hero-padding-right"
+      />
+      <NumberField
+        label="Padding bottom (px)" min={0} value={s.paddingBottom ?? 24}
+        onChange={(v) => setStyle({ paddingBottom: clampPad(v) })}
+        testId="input-hero-padding-bottom"
+      />
+      <NumberField
+        label="Padding left (px)" min={0} value={s.paddingLeft ?? 24}
+        onChange={(v) => setStyle({ paddingLeft: clampPad(v) })}
+        testId="input-hero-padding-left"
       />
       <Field label="Call-to-action buttons">
         <ArrayList

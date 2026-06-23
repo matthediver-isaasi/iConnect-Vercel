@@ -276,7 +276,7 @@ export const BLOCK_DEFAULTS = {
     // branding automatically while still rendering sensibly when no
     // theme is configured.
     geom: { w: 800, h: 420 },
-    style: { background: 'var(--cb-color-primary, #0f172a)', borderWidth: 0, borderRadius: 0 },
+    style: { background: 'var(--cb-color-primary, #0f172a)', borderWidth: 0, borderRadius: 0, paddingTop: 24, paddingRight: 24, paddingBottom: 24, paddingLeft: 24 },
     a11y: {},
     content: {
       headline: 'Your headline here',
