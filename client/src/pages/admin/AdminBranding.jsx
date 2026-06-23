@@ -214,7 +214,7 @@ const HEADER_LINK_GRADIENT_STOPS = [
 ];
 
 // Reusable control group for a header action link (Login / Member Area). Renders
-// a custom-label input plus the full style control set (button-vs-link, position,
+// a custom-label input plus the full style control set (button-vs-link,
 // background, corner radius, border, label colour, height, width). `config` is
 // the link object from formData.header_config; `onChange(patch)` shallow-merges
 // the patch into that object. `defaultLabel` is the placeholder/fallback shown
@@ -259,23 +259,6 @@ function HeaderLinkControls({ config, onChange, title, description, defaultLabel
             onCheckedChange={(checked) => update({ asButton: checked })}
             data-testid={`switch-${testIdPrefix}-as-button`}
           />
-        </div>
-
-        <div className="space-y-2">
-          <Label className="text-slate-300">Position relative to social icons</Label>
-          <Select
-            value={cfg.position || 'left'}
-            onValueChange={(val) => update({ position: val })}
-          >
-            <SelectTrigger className="bg-slate-900 border-slate-600 text-white" data-testid={`select-${testIdPrefix}-position`}>
-              <SelectValue placeholder="Left of social icons" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="left">Left of social icons</SelectItem>
-              <SelectItem value="right">Right of social icons</SelectItem>
-            </SelectContent>
-          </Select>
-          <p className="text-xs text-slate-500">Where the {defaultLabel} element appears in the top bar.</p>
         </div>
 
         {cfg.asButton && (
@@ -605,8 +588,7 @@ export default function AdminBranding() {
         borderStyle: 'solid',
         labelColor: '',
         height: '',
-        width: '',
-        position: 'left'
+        width: ''
       },
       memberAreaLink: {
         label: '',
@@ -620,8 +602,7 @@ export default function AdminBranding() {
         borderStyle: 'solid',
         labelColor: '',
         height: '',
-        width: '',
-        position: 'left'
+        width: ''
       }
     },
     footer_config: {
@@ -794,8 +775,7 @@ export default function AdminBranding() {
                   borderStyle: t?.header_config?.loginLink?.borderStyle || 'solid',
                   labelColor: t?.header_config?.loginLink?.labelColor || '',
                   height: t?.header_config?.loginLink?.height ?? '',
-                  width: t?.header_config?.loginLink?.width ?? '',
-                  position: t?.header_config?.loginLink?.position === 'right' ? 'right' : 'left'
+                  width: t?.header_config?.loginLink?.width ?? ''
                 },
                 memberAreaLink: {
                   label: t?.header_config?.memberAreaLink?.label || '',
@@ -811,8 +791,7 @@ export default function AdminBranding() {
                   borderStyle: t?.header_config?.memberAreaLink?.borderStyle || 'solid',
                   labelColor: t?.header_config?.memberAreaLink?.labelColor || '',
                   height: t?.header_config?.memberAreaLink?.height ?? '',
-                  width: t?.header_config?.memberAreaLink?.width ?? '',
-                  position: t?.header_config?.memberAreaLink?.position === 'right' ? 'right' : 'left'
+                  width: t?.header_config?.memberAreaLink?.width ?? ''
                 }
               },
               footer_config: {

@@ -34,6 +34,16 @@ const footerContentBlocks = [
   { type: 'spacer', label: 'Spacer', icon: Minus, description: 'Add vertical spacing between elements' }
 ];
 
+// Header control elements that can be positioned in the Top Bar or Main Nav.
+// These render live controls (Search popover, Social icons, Login/Logout) in the
+// public header wherever the admin places them. Each type may appear once.
+const headerContentBlocks = [
+  { type: 'search', label: 'Search', icon: Search, description: 'Search box and results popover' },
+  { type: 'social', label: 'Social Icons', icon: Share2, description: 'Social media icons from settings' },
+  { type: 'account', label: 'Account', icon: UserCheck, description: 'Login link, or Logout when signed in' }
+];
+const HEADER_CONTENT_BLOCK_TYPES = headerContentBlocks.map(b => b.type);
+
 // Available Lucide icons for navigation
 const availableIcons = [
   { name: "Calendar", component: Calendar },
@@ -623,6 +633,28 @@ export default function NavigationManagementPage() {
     setShowDialog(true);
   };
 
+  // Create a positionable header control element (search / social / account).
+  // Defaults to the Top Bar; admins can move it to the Main Nav afterwards.
+  const handleCreateHeaderBlock = (contentBlockType, location = 'top_nav') => {
+    const blockDef = headerContentBlocks.find(b => b.type === contentBlockType);
+    setEditingItem({
+      title: blockDef?.label || contentBlockType,
+      url: "",
+      link_type: "content_block",
+      content_block_type: contentBlockType,
+      location,
+      parent_id: null,
+      display_order: navItems.filter(i => i.location === location && i.parent_id === null).length,
+      is_active: true,
+      open_in_new_tab: false,
+      icon: null,
+      description: "",
+      display_type: "link",
+      button_style: null
+    });
+    setShowDialog(true);
+  };
+
   const handleEdit = (item) => {
     setEditingItem({ ...item });
     setShowDialog(true);
@@ -641,6 +673,21 @@ export default function NavigationManagementPage() {
     if (editingItem.link_type === 'form_modal' && !editingItem.form_slug) {
       toast.error('Please select a form to display');
       return;
+    }
+    // Header control elements (search/social/account) may only exist once across
+    // the Top Bar and Main Nav combined.
+    if (editingItem.link_type === 'content_block' && HEADER_CONTENT_BLOCK_TYPES.includes(editingItem.content_block_type)) {
+      const duplicate = navItems.some(i =>
+        i.id !== editingItem.id &&
+        i.link_type === 'content_block' &&
+        i.content_block_type === editingItem.content_block_type &&
+        (i.location === 'top_nav' || i.location === 'main_nav')
+      );
+      if (duplicate) {
+        const def = headerContentBlocks.find(b => b.type === editingItem.content_block_type);
+        toast.error(`${def?.label || 'This element'} is already in your header. Move or remove the existing one first.`);
+        return;
+      }
     }
 
     if (editingItem.id) {
@@ -789,7 +836,12 @@ export default function NavigationManagementPage() {
   // Render item tree recursively
   const renderItemTree = (items, level = 0) => {
     return items.map((item) => {
-      const IconComponent = availableIcons.find(i => i.name === item.icon)?.component;
+      const headerBlockDef = item.link_type === 'content_block'
+        ? headerContentBlocks.find(b => b.type === item.content_block_type)
+        : null;
+      const IconComponent = headerBlockDef
+        ? headerBlockDef.icon
+        : availableIcons.find(i => i.name === item.icon)?.component;
       const hasChildren = item.children && item.children.length > 0;
       const isExpanded = expandedItems[item.id];
       const indentClass = level > 0 ? `ml-${Math.min(level * 8, 16)}` : '';
@@ -820,27 +872,40 @@ export default function NavigationManagementPage() {
                     Button
                   </Badge>
                 )}
+                {headerBlockDef && (
+                  <Badge variant="outline" className="text-xs text-purple-600 border-purple-300">
+                    {headerBlockDef.label}
+                  </Badge>
+                )}
                 {hasChildren && (
                   <Badge variant="outline" className="text-xs">
                     {item.children.length} sub-item{item.children.length > 1 ? 's' : ''}
                   </Badge>
                 )}
               </div>
-              <div className="text-sm text-slate-500 truncate">
-                {item.link_type === 'external' ? '🔗 ' : '📄 '}{item.url}
-              </div>
+              {headerBlockDef ? (
+                <div className="text-sm text-slate-500 truncate">
+                  {headerBlockDef.description}
+                </div>
+              ) : (
+                <div className="text-sm text-slate-500 truncate">
+                  {item.link_type === 'external' ? '🔗 ' : '📄 '}{item.url}
+                </div>
+              )}
             </div>
 
             <div className="flex items-center gap-1">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => handleCreate(item.location, item.id)}
-                className="h-8 px-2"
-                title="Add submenu item"
-              >
-                <Plus className="w-4 h-4" />
-              </Button>
+              {!headerBlockDef && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleCreate(item.location, item.id)}
+                  className="h-8 px-2"
+                  title="Add submenu item"
+                >
+                  <Plus className="w-4 h-4" />
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="sm"
@@ -897,6 +962,9 @@ export default function NavigationManagementPage() {
     });
   };
 
+  const isHeaderContentBlock = editingItem?.link_type === 'content_block'
+    && HEADER_CONTENT_BLOCK_TYPES.includes(editingItem?.content_block_type);
+
   if (!accessChecked) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
@@ -935,6 +1003,44 @@ export default function NavigationManagementPage() {
             {/* Header Icons Toggles */}
             <HeaderIconsConfig />
 
+            {/* Header Elements (positionable controls) */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Header Elements</CardTitle>
+                <p className="text-sm text-slate-500">
+                  Add the search box, social icons, or login/account control as a navigation item. Once added you can position it anywhere in the Top or Main bar, just like any other item. Each element can be used once.
+                </p>
+              </CardHeader>
+              <CardContent>
+                <div className="grid sm:grid-cols-3 gap-3">
+                  {headerContentBlocks.map((block) => {
+                    const ElementIcon = block.icon;
+                    const alreadyAdded = navItems.some(i =>
+                      i.link_type === 'content_block' &&
+                      i.content_block_type === block.type &&
+                      (i.location === 'top_nav' || i.location === 'main_nav')
+                    );
+                    return (
+                      <Button
+                        key={block.type}
+                        variant="outline"
+                        className="h-auto py-3 flex flex-col items-center gap-2 whitespace-normal"
+                        disabled={alreadyAdded}
+                        onClick={() => handleCreateHeaderBlock(block.type)}
+                        data-testid={`button-add-header-${block.type}`}
+                      >
+                        <ElementIcon className="w-5 h-5" />
+                        <span className="font-medium">{block.label}</span>
+                        <span className="text-xs text-slate-500">
+                          {alreadyAdded ? 'Already added' : block.description}
+                        </span>
+                      </Button>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+
             {/* Info Banner */}
             <Card className="border-blue-200 bg-blue-50">
               <CardContent className="p-4">
@@ -943,7 +1049,7 @@ export default function NavigationManagementPage() {
                   <div className="flex-1">
                     <h3 className="font-semibold text-blue-900 mb-1">Dynamic Navigation</h3>
                     <p className="text-sm text-blue-700">
-                      Create custom navigation items for the public header. Static items (Login/Logout, Member Area, Join Us button) are managed separately and will always appear in their designated positions.
+                      Create custom navigation items for the public header. The search box, social icons, and login/account control can be added as Header Elements above and positioned anywhere in the Top or Main bar.
                     </p>
                   </div>
                 </div>
@@ -1261,34 +1367,45 @@ export default function NavigationManagementPage() {
 
                 <div className="grid md:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="link_type">Item Type</Label>
-                    <Select
-                      value={editingItem.link_type}
-                      onValueChange={(value) => setEditingItem({ 
-                        ...editingItem, 
-                        link_type: value,
-                        // Clear URL when switching to content block or form modal
-                        url: (value === 'content_block' || value === 'form_modal') ? '' : editingItem.url,
-                        // Set default content block type
-                        content_block_type: value === 'content_block' ? (editingItem.content_block_type || 'address') : null,
-                        // Clear form_slug when switching away from form_modal
-                        form_slug: value === 'form_modal' ? (editingItem.form_slug || '') : null,
-                        // Buttons work best with form modals
-                        display_type: value === 'form_modal' ? 'button' : editingItem.display_type
-                      })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="internal">Internal Page</SelectItem>
-                        <SelectItem value="external">External URL</SelectItem>
-                        <SelectItem value="form_modal">Open Form</SelectItem>
-                        {editingItem.location === 'footer' && (
-                          <SelectItem value="content_block">Content Block</SelectItem>
-                        )}
-                      </SelectContent>
-                    </Select>
+                    <Label htmlFor="link_type">
+                      {isHeaderContentBlock ? 'Element Type' : 'Item Type'}
+                    </Label>
+                    {isHeaderContentBlock ? (
+                      <Input
+                        id="link_type"
+                        value={headerContentBlocks.find(b => b.type === editingItem.content_block_type)?.label || 'Header Element'}
+                        disabled
+                        data-testid="display-header-element-type"
+                      />
+                    ) : (
+                      <Select
+                        value={editingItem.link_type}
+                        onValueChange={(value) => setEditingItem({ 
+                          ...editingItem, 
+                          link_type: value,
+                          // Clear URL when switching to content block or form modal
+                          url: (value === 'content_block' || value === 'form_modal') ? '' : editingItem.url,
+                          // Set default content block type
+                          content_block_type: value === 'content_block' ? (editingItem.content_block_type || 'address') : null,
+                          // Clear form_slug when switching away from form_modal
+                          form_slug: value === 'form_modal' ? (editingItem.form_slug || '') : null,
+                          // Buttons work best with form modals
+                          display_type: value === 'form_modal' ? 'button' : editingItem.display_type
+                        })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="internal">Internal Page</SelectItem>
+                          <SelectItem value="external">External URL</SelectItem>
+                          <SelectItem value="form_modal">Open Form</SelectItem>
+                          {editingItem.location === 'footer' && (
+                            <SelectItem value="content_block">Content Block</SelectItem>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    )}
                   </div>
 
                   <div className="space-y-2">
@@ -1299,9 +1416,10 @@ export default function NavigationManagementPage() {
                         ...editingItem, 
                         location: value, 
                         footer_column: value === 'footer' ? 1 : null,
-                        // Reset link_type if switching away from footer with content_block
-                        link_type: value !== 'footer' && editingItem.link_type === 'content_block' ? 'internal' : editingItem.link_type,
-                        content_block_type: value !== 'footer' ? null : editingItem.content_block_type
+                        // Reset link_type only for footer content blocks; header
+                        // control elements keep their content_block type in either bar.
+                        link_type: (value !== 'footer' && editingItem.link_type === 'content_block' && !HEADER_CONTENT_BLOCK_TYPES.includes(editingItem.content_block_type)) ? 'internal' : editingItem.link_type,
+                        content_block_type: (value !== 'footer' && !HEADER_CONTENT_BLOCK_TYPES.includes(editingItem.content_block_type)) ? null : editingItem.content_block_type
                       })}
                     >
                       <SelectTrigger>
@@ -1310,7 +1428,9 @@ export default function NavigationManagementPage() {
                       <SelectContent>
                         <SelectItem value="top_nav">Top Navigation Bar</SelectItem>
                         <SelectItem value="main_nav">Main Navigation Bar</SelectItem>
-                        <SelectItem value="footer">Footer</SelectItem>
+                        {!isHeaderContentBlock && (
+                          <SelectItem value="footer">Footer</SelectItem>
+                        )}
                       </SelectContent>
                     </Select>
                   </div>
@@ -1337,7 +1457,7 @@ export default function NavigationManagementPage() {
                     </div>
                     
                     {/* Content Block Type Selector - only show when link_type is content_block */}
-                    {editingItem.link_type === 'content_block' && (
+                    {editingItem.link_type === 'content_block' && !isHeaderContentBlock && (
                       <div className="space-y-2">
                         <Label htmlFor="content_block_type">Content Block Type</Label>
                         <Select
@@ -1505,6 +1625,7 @@ export default function NavigationManagementPage() {
                   </div>
                 )}
 
+                {!isHeaderContentBlock && (
                 <div className="space-y-2">
                   <Label htmlFor="parent">Parent Item (for sub-menu)</Label>
                   <Select
@@ -1560,6 +1681,7 @@ export default function NavigationManagementPage() {
                     Create nested sub-menus by selecting a parent item (supports multiple levels)
                   </p>
                 </div>
+                )}
 
                 <div className="space-y-2">
                   <Label htmlFor="description">Description (Optional)</Label>
@@ -1572,6 +1694,7 @@ export default function NavigationManagementPage() {
                   />
                 </div>
 
+                {!isHeaderContentBlock && (
                 <div className="grid md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="display_type">Display Type</Label>
@@ -1644,6 +1767,7 @@ export default function NavigationManagementPage() {
                     )}
                   </div>
                 </div>
+                )}
 
                 <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-lg">
                   <div className="flex items-center gap-3 flex-1">

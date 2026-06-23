@@ -333,6 +333,53 @@ async function seedNavigationTemplates(tenantId) {
     }
     console.log(`[Provision Tenant] Created ${Object.keys(publicNavTemplateKeyToNewId).length} public navigation items`);
   }
+
+  await seedHeaderControlElements(tenantId);
+}
+
+// Seed the positionable header control elements (search box, social icons,
+// login/account) as navigation items so new tenants get the same default header
+// the old static header used to render. Idempotent: each control type is created
+// at most once across the Top Bar and Main Nav.
+async function seedHeaderControlElements(tenantId) {
+  const controls = [
+    { content_block_type: 'search', title: 'Search' },
+    { content_block_type: 'social', title: 'Social Icons' },
+    { content_block_type: 'account', title: 'Account' }
+  ];
+
+  const { data: existing } = await supabase
+    .from('navigation_item')
+    .select('content_block_type')
+    .eq('tenant_id', tenantId)
+    .eq('link_type', 'content_block')
+    .in('location', ['top_nav', 'main_nav']);
+
+  const existingTypes = new Set((existing || []).map(r => r.content_block_type));
+  const toInsert = controls
+    .filter(c => !existingTypes.has(c.content_block_type))
+    .map((c, idx) => ({
+      tenant_id: tenantId,
+      title: c.title,
+      url: '',
+      link_type: 'content_block',
+      content_block_type: c.content_block_type,
+      location: 'top_nav',
+      display_order: 1000 + idx,
+      is_active: true,
+      open_in_new_tab: false,
+      display_type: 'link',
+      parent_id: null
+    }));
+
+  if (toInsert.length === 0) return;
+
+  const { error } = await supabase.from('navigation_item').insert(toInsert);
+  if (error) {
+    console.error('[Provision Tenant] Failed to seed header control elements:', error.message);
+  } else {
+    console.log(`[Provision Tenant] Created ${toInsert.length} header control elements`);
+  }
 }
 
 export async function provisionTenant({

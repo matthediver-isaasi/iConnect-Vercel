@@ -8,25 +8,11 @@ import { Switch } from "@/components/ui/switch";
 import { Loader2, Save, LayoutDashboard } from "lucide-react";
 import { toast } from "sonner";
 
-const DEFAULT_CONFIG = { login: true, search: true, social: true, logo: true };
+const DEFAULT_CONFIG = { logo: true };
 
+// Search, Social icons and Login/Account are now positionable navigation items
+// managed under "Header Elements" — only the logo toggle remains here.
 const ICONS = [
-  {
-    key: "login",
-    label: "Login",
-    description: "Show the Login / Member Area link in the header.",
-  },
-  {
-    key: "search",
-    label: "Search",
-    description: "Show the Search icon and popover in the header.",
-  },
-  {
-    key: "social",
-    label: "Social Icons",
-    description:
-      "Show the social media icons row in the header. The footer and Social Media tab are not affected.",
-  },
   {
     key: "logo",
     label: "Logo",
@@ -116,11 +102,11 @@ export default function HeaderIconsConfig() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <LayoutDashboard className="w-5 h-5 text-blue-600" />
-          Header Icons
+          Header Logo
         </CardTitle>
         <p className="text-sm text-slate-600 mt-1">
-          Choose which utility icons appear in the public header. Turning a
-          toggle off hides the icon in both desktop and mobile headers.
+          Show or hide the tenant logo in the public header. Search, social
+          icons, and login are managed as positionable Header Elements below.
         </p>
       </CardHeader>
       <CardContent className="space-y-3">

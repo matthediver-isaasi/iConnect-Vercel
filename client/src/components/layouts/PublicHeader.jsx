@@ -250,6 +250,19 @@ function renderSocialGlyph({ customSvg, color, sizeClassName, builtin }) {
   return builtin;
 }
 
+// Social platforms rendered in the header social-icons element. Each entry holds
+// the built-in glyph path; custom uploaded SVGs override the built-in glyph.
+const SOCIAL_PLATFORMS = [
+  { key: 'linkedin', path: 'M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z' },
+  { key: 'twitter', path: 'M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z' },
+  { key: 'facebook', path: 'M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z' },
+  { key: 'instagram', path: 'M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z' },
+  { key: 'youtube', path: 'M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z' }
+];
+
+// Special navigation elements that render header controls instead of links.
+const HEADER_CONTENT_BLOCK_TYPES = ['search', 'social', 'account'];
+
 export default function PublicHeader() {
   const { branding } = useTenantBranding() || {};
   const buttonStyles = branding?.brandingConfig?.button_styles || {};
@@ -347,7 +360,6 @@ export default function PublicHeader() {
   // resolveHeaderLink derives the rendered style + label for a given config.
   const resolveHeaderLink = (linkConfig, defaultLabel) => {
     const asButton = !!linkConfig?.asButton;
-    const position = linkConfig?.position === 'right' ? 'right' : 'left';
     const background = (linkConfig?.backgroundMode === 'gradient'
       && Array.isArray(linkConfig?.gradientStops) && linkConfig.gradientStops.length > 0)
       ? buildGradientFromStops(linkConfig.gradientStops)
@@ -368,13 +380,10 @@ export default function PublicHeader() {
     const label = (typeof linkConfig?.label === 'string' && linkConfig.label.trim())
       ? linkConfig.label.trim()
       : defaultLabel;
-    return { asButton, position, buttonStyle, labelColor, label };
+    return { asButton, buttonStyle, labelColor, label };
   };
 
   const loginLinkConfig = branding?.headerConfig?.loginLink;
-  // Member Area falls back to the legacy single loginLink config when it has not
-  // been configured separately, so existing tenants keep their current look.
-  const memberAreaLinkConfig = branding?.headerConfig?.memberAreaLink || loginLinkConfig;
   const colorStops = getColorStopsOnly(gradientStops);
   const navIndicatorGradient = colorStops.length > 0 
     ? `linear-gradient(to right, ${colorStops.map(s => s.color).join(', ')})`
@@ -397,16 +406,8 @@ export default function PublicHeader() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [memberLandingPage, setMemberLandingPage] = useState('Events');
 
-  // Resolve the active header action-link config from the login state. Defined
-  // after isLoggedIn so it reflects the current auth state.
-  const activeHeaderLink = isLoggedIn
-    ? resolveHeaderLink(memberAreaLinkConfig, 'Member Area')
-    : resolveHeaderLink(loginLinkConfig, 'Login');
-  const loginAsButton = activeHeaderLink.asButton;
-  const loginPosition = activeHeaderLink.position;
-  const loginButtonStyle = activeHeaderLink.buttonStyle;
-  const loginLabelColor = activeHeaderLink.labelColor;
-  const headerLinkLabel = activeHeaderLink.label;
+  // Login styling/label for the positionable Account element (logged-out state).
+  const loginLink = resolveHeaderLink(loginLinkConfig, 'Login');
 
   // Fetch article display name setting
   const { data: articleDisplayName } = useQuery({
@@ -713,8 +714,311 @@ export default function PublicHeader() {
     }));
   };
 
+  // --- Positionable header control elements (content_block nav items) -------
+  // These render the Search popover, Social icons, and Account (Login/Logout)
+  // controls inline wherever the admin places the matching nav item.
+
+  // Social icons row. textColor drives the built-in glyph background; custom
+  // uploaded SVGs render transparent. hoverClass applies the per-bar hover.
+  const renderSocialIcons = (textColor, hoverClass = '') => {
+    if (!socialIcons) return null;
+    return (
+      <div className="flex items-center gap-2">
+        {SOCIAL_PLATFORMS.map(({ key, path }) => {
+          const cfg = socialIcons[key];
+          if (!cfg?.enabled || !cfg?.url) return null;
+          const customSvg = resolvedSocialSvgs[key];
+          return (
+            <a
+              key={key}
+              href={cfg.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`w-7 h-7 rounded flex items-center justify-center transition-colors ${hoverClass}`}
+              style={{ backgroundColor: customSvg ? 'transparent' : textColor, color: headerSocialIconColor }}
+              data-testid={`link-social-${key}`}
+            >
+              {renderSocialGlyph({
+                customSvg,
+                color: 'currentColor',
+                sizeClassName: 'w-4 h-4',
+                builtin: (
+                  <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor">
+                    <path d={path} />
+                  </svg>
+                )
+              })}
+            </a>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // Desktop search control: toggle button + popover. isTopNav drives colours.
+  const renderSearchControl = (isTopNav) => {
+    const color = isTopNav ? topNavTextColor : secondaryBarTextColor;
+    const fontSize = isTopNav ? (topNavFontSize || 14) : (secondaryBarFontSize || 16);
+    const hoverClass = isTopNav ? 'ph-topnav-link' : 'ph-secnav-link';
+    return (
+      <div className="relative">
+        <button
+          onClick={() => setSearchOpen(!searchOpen)}
+          className={`flex items-center gap-2 ${hoverClass} transition-colors`}
+          style={{
+            color,
+            fontSize: `${fontSize}px`,
+            ...(isTopNav && topNavFontWeight ? { fontWeight: topNavFontWeight } : {}),
+            ...(isTopNav && topNavFontFamily ? { fontFamily: topNavFontFamily } : {})
+          }}
+          data-testid="button-search-toggle"
+        >
+          {searchDisplay !== 'label' && <Search className="w-4 h-4" />}
+          {searchDisplay !== 'icon' && <span>Search</span>}
+        </button>
+
+        {searchOpen && (
+          <div className="absolute top-full right-0 mt-2 w-96 bg-white rounded-lg shadow-xl border border-slate-200 z-50">
+            <div className="p-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  {isSearching ? (
+                    <Loader2 className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400 animate-spin" />
+                  ) : (
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  )}
+                  <Input
+                    type="text"
+                    placeholder="Search events, articles, news, resources..."
+                    className="pl-10 pr-10"
+                    autoFocus
+                    value={searchQuery}
+                    onChange={(e) => handleSearch(e.target.value)}
+                    data-testid="input-search"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => handleSearch('')}
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+                <button
+                  onClick={() => {
+                    setSearchOpen(false);
+                    setSearchQuery('');
+                    setSearchResults([]);
+                  }}
+                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-md transition-colors"
+                  data-testid="button-close-search"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {searchQuery.length >= 2 && (
+              <div className="max-h-80 overflow-y-auto">
+                {searchResults.length > 0 ? (
+                  <>
+                    {searchResults.map((result) => {
+                      const TypeIcon = typeIconMap[result.type] || FileText;
+                      return (
+                        <button
+                          key={`${result.type}-${result.id}`}
+                          onClick={() => handleResultClick(result.url)}
+                          className="w-full px-4 py-3 flex items-start gap-3 hover:bg-slate-50 transition-colors text-left border-b border-slate-50 last:border-0"
+                          data-testid={`search-result-${result.type}-${result.id}`}
+                        >
+                          <div className="flex-shrink-0 w-8 h-8 bg-slate-100 rounded flex items-center justify-center">
+                            <TypeIcon className="w-4 h-4 text-slate-600" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-medium text-purple-600 uppercase">{getTypeLabel(result.type)}</span>
+                            </div>
+                            <p className="font-medium text-slate-900 truncate">{result.title}</p>
+                            {result.description && (
+                              <p className="text-sm text-slate-500 line-clamp-1">{result.description}</p>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                    <button
+                      onClick={handleViewAllResults}
+                      className="w-full px-4 py-3 text-center text-sm font-medium text-purple-600 hover:bg-slate-50 transition-colors"
+                      data-testid="button-view-all-results"
+                    >
+                      View all results
+                    </button>
+                  </>
+                ) : !isSearching && (
+                  <div className="px-4 py-8 text-center text-slate-500">
+                    <Search className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                    <p className="text-sm">No results found for "{searchQuery}"</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {searchQuery.length < 2 && (
+              <div className="px-4 py-6 text-center text-slate-400 text-sm">
+                Type at least 2 characters to search
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Desktop account control: Login link (logged out) or Logout button (logged in).
+  const renderAccountControl = (isTopNav) => {
+    const plainColor = isTopNav ? topNavTextColor : secondaryBarTextColor;
+    if (isLoggedIn) {
+      return (
+        <button
+          onClick={handleLogout}
+          className="flex items-center gap-1 hover:opacity-80 transition-opacity text-sm font-semibold"
+          style={{ color: plainColor }}
+          title="Logout"
+          data-testid="button-header-logout"
+        >
+          <LogOut className="w-4 h-4" />
+          <span>Logout</span>
+        </button>
+      );
+    }
+    return (
+      <Link
+        to="/login"
+        className={`flex items-center gap-1 hover:opacity-80 transition-opacity text-sm font-semibold${loginLink.asButton ? ' px-3 py-1.5' : ''}`}
+        style={{ ...loginLink.buttonStyle, color: loginLink.asButton ? loginLink.labelColor : plainColor }}
+        data-testid="link-header-login"
+      >
+        <User className="w-4 h-4" />
+        <span>{loginLink.label}</span>
+      </Link>
+    );
+  };
+
+  // Mobile variants of the header control elements (rendered inside the drawer).
+  const renderMobileSearchControl = (item) => (
+    <div key={item.id} className="p-4 border-b border-slate-200">
+      <div className="relative">
+        {isMobileSearching ? (
+          <Loader2 className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400 animate-spin" />
+        ) : (
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
+        )}
+        <Input
+          type="text"
+          placeholder="Search events, articles, news..."
+          className="pl-10 pr-10 w-full"
+          value={mobileSearchQuery}
+          onChange={(e) => handleMobileSearch(e.target.value)}
+          data-testid="input-mobile-search"
+        />
+        {mobileSearchQuery && (
+          <button
+            onClick={() => handleMobileSearch('')}
+            className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+
+      {mobileSearchQuery.length >= 2 && (
+        <div className="mt-3 max-h-60 overflow-y-auto rounded-lg border border-slate-200 bg-white">
+          {mobileSearchResults.length > 0 ? (
+            <>
+              {mobileSearchResults.map((result) => {
+                const TypeIcon = typeIconMap[result.type] || FileText;
+                return (
+                  <button
+                    key={`mobile-${result.type}-${result.id}`}
+                    onClick={() => handleMobileResultClick(result.url)}
+                    className="w-full px-3 py-2.5 flex items-start gap-2 hover:bg-slate-50 transition-colors text-left border-b border-slate-100 last:border-0"
+                    data-testid={`mobile-search-result-${result.type}-${result.id}`}
+                  >
+                    <div className="flex-shrink-0 w-6 h-6 bg-slate-100 rounded flex items-center justify-center">
+                      <TypeIcon className="w-3 h-3 text-slate-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-xs font-medium text-purple-600 uppercase">{getTypeLabel(result.type)}</span>
+                      <p className="font-medium text-slate-900 text-sm truncate">{result.title}</p>
+                    </div>
+                  </button>
+                );
+              })}
+              <button
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  navigate(`/search?q=${encodeURIComponent(mobileSearchQuery.trim())}`);
+                }}
+                className="w-full px-3 py-2 text-center text-sm font-medium text-purple-600 hover:bg-slate-50 transition-colors"
+                data-testid="button-mobile-view-all-results"
+              >
+                View all results
+              </button>
+            </>
+          ) : !isMobileSearching && (
+            <div className="px-3 py-4 text-center text-slate-500 text-sm">
+              No results found
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
+  const renderMobileSocialControl = (item) => {
+    if (!socialIcons) return null;
+    return (
+      <div key={item.id} className="px-4 py-3 border-b border-slate-200">
+        {renderSocialIcons('#475569', '')}
+      </div>
+    );
+  };
+
+  const renderMobileAccountControl = (item) => (
+    <div key={item.id} className="px-4 py-3 border-b border-slate-200">
+      {isLoggedIn ? (
+        <button
+          onClick={handleLogout}
+          className="flex items-center gap-2 py-2 text-red-600 font-medium"
+          data-testid="button-mobile-logout"
+        >
+          <LogOut className="w-5 h-5" />
+          Logout
+        </button>
+      ) : (
+        <Link
+          to="/login"
+          onClick={() => setMobileMenuOpen(false)}
+          className="flex items-center gap-2 py-2 text-slate-900 font-medium"
+          data-testid="link-mobile-login"
+        >
+          <User className="w-5 h-5 text-slate-600" />
+          {loginLink.label}
+        </Link>
+      )}
+    </div>
+  );
+
   // Render mobile navigation item
   const renderMobileNavItem = (item, level = 0) => {
+    // Special header control elements render dedicated controls.
+    if (item.link_type === 'content_block') {
+      if (item.content_block_type === 'search') return renderMobileSearchControl(item);
+      if (item.content_block_type === 'social') return renderMobileSocialControl(item);
+      if (item.content_block_type === 'account') return renderMobileAccountControl(item);
+      return null;
+    }
     const hasChildren = item.children && item.children.length > 0;
     const Icon = item.icon && iconMap[item.icon] ? iconMap[item.icon] : null;
     const active = isActive(item);
@@ -851,6 +1155,20 @@ export default function PublicHeader() {
 
   // Render navigation item with icon support and active state (Desktop)
   const renderNavItem = (item, isTopNav = false) => {
+    // Special header control elements render dedicated controls inline.
+    if (item.link_type === 'content_block') {
+      if (item.content_block_type === 'search') {
+        return <div key={item.id} className="flex items-center">{renderSearchControl(isTopNav)}</div>;
+      }
+      if (item.content_block_type === 'social') {
+        const social = renderSocialIcons(isTopNav ? topNavTextColor : secondaryBarTextColor, isTopNav ? 'ph-topnav-link' : 'ph-secnav-link');
+        return social ? <div key={item.id} className="flex items-center">{social}</div> : null;
+      }
+      if (item.content_block_type === 'account') {
+        return <div key={item.id} className="flex items-center">{renderAccountControl(isTopNav)}</div>;
+      }
+      return null;
+    }
     const hasChildren = item.children && item.children.length > 0;
     const Icon = item.icon && iconMap[item.icon] ? iconMap[item.icon] : null;
     const active = isActive(item);
@@ -1127,137 +1445,6 @@ export default function PublicHeader() {
     );
   };
 
-  // Render social icons for mobile menu
-  const renderSocialIcons = () => {
-    if (!socialIcons) return null;
-
-    const headerSocialColor = branding?.brandingConfig?.headerSocialIconColor || NEUTRAL_SOCIAL_ICON_COLOR;
-    const icons = [];
-    
-    if (socialIcons.linkedin?.enabled && socialIcons.linkedin?.url) {
-      icons.push(
-        <a
-          key="linkedin"
-          href={socialIcons.linkedin.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors${resolvedSocialSvgs.linkedin ? '' : ' bg-slate-100 hover:bg-slate-200'}`}
-        >
-          {renderSocialGlyph({
-            customSvg: resolvedSocialSvgs.linkedin,
-            color: headerSocialColor,
-            sizeClassName: "w-5 h-5",
-            builtin: (
-              <svg viewBox="0 0 24 24" className="w-5 h-5" fill={headerSocialColor}>
-                <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" />
-              </svg>
-            )
-          })}
-        </a>
-      );
-    }
-    
-    if (socialIcons.twitter?.enabled && socialIcons.twitter?.url) {
-      icons.push(
-        <a
-          key="twitter"
-          href={socialIcons.twitter.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors${resolvedSocialSvgs.twitter ? '' : ' bg-slate-100 hover:bg-slate-200'}`}
-        >
-          {renderSocialGlyph({
-            customSvg: resolvedSocialSvgs.twitter,
-            color: headerSocialColor,
-            sizeClassName: "w-5 h-5",
-            builtin: (
-              <svg viewBox="0 0 24 24" className="w-5 h-5" fill={headerSocialColor}>
-                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-              </svg>
-            )
-          })}
-        </a>
-      );
-    }
-    
-    if (socialIcons.facebook?.enabled && socialIcons.facebook?.url) {
-      icons.push(
-        <a
-          key="facebook"
-          href={socialIcons.facebook.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors${resolvedSocialSvgs.facebook ? '' : ' bg-slate-100 hover:bg-slate-200'}`}
-        >
-          {renderSocialGlyph({
-            customSvg: resolvedSocialSvgs.facebook,
-            color: headerSocialColor,
-            sizeClassName: "w-5 h-5",
-            builtin: (
-              <svg viewBox="0 0 24 24" className="w-5 h-5" fill={headerSocialColor}>
-                <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
-              </svg>
-            )
-          })}
-        </a>
-      );
-    }
-    
-    if (socialIcons.instagram?.enabled && socialIcons.instagram?.url) {
-      icons.push(
-        <a
-          key="instagram"
-          href={socialIcons.instagram.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors${resolvedSocialSvgs.instagram ? '' : ' bg-slate-100 hover:bg-slate-200'}`}
-        >
-          {renderSocialGlyph({
-            customSvg: resolvedSocialSvgs.instagram,
-            color: headerSocialColor,
-            sizeClassName: "w-5 h-5",
-            builtin: (
-              <svg viewBox="0 0 24 24" className="w-5 h-5" fill={headerSocialColor}>
-                <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/>
-              </svg>
-            )
-          })}
-        </a>
-      );
-    }
-    
-    if (socialIcons.youtube?.enabled && socialIcons.youtube?.url) {
-      icons.push(
-        <a
-          key="youtube"
-          href={socialIcons.youtube.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors${resolvedSocialSvgs.youtube ? '' : ' bg-slate-100 hover:bg-slate-200'}`}
-        >
-          {renderSocialGlyph({
-            customSvg: resolvedSocialSvgs.youtube,
-            color: headerSocialColor,
-            sizeClassName: "w-5 h-5",
-            builtin: (
-              <svg viewBox="0 0 24 24" className="w-5 h-5" fill={headerSocialColor}>
-                <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
-              </svg>
-            )
-          })}
-        </a>
-      );
-    }
-
-    if (icons.length === 0) return null;
-
-    return (
-      <div className="flex items-center justify-center gap-3 py-4 border-t border-slate-200">
-        {icons}
-      </div>
-    );
-  };
-
   return (
     <>
       {(topNavHoverColor || secondaryBarHoverColor) && (
@@ -1368,264 +1555,6 @@ export default function PublicHeader() {
                 {/* Dynamic Top Nav Items */}
                 {navItems.topNav?.map(item => renderNavItem(item, true))}
 
-                {/* Static Items - Login / Member Area (left of social icons) */}
-                {headerIconsConfig.login && loginPosition === 'left' && (
-                  <Link
-                    to={isLoggedIn ? createPageUrl(memberLandingPage) : "/login"}
-                    className={`flex items-center gap-1 hover:opacity-80 transition-opacity text-sm font-semibold${loginAsButton ? ' px-3 py-1.5' : ''}`}
-                    style={{ ...loginButtonStyle, color: loginLabelColor }}
-                    data-testid="link-header-login"
-                  >
-                    <User className="w-4 h-4" />
-                    <span>{headerLinkLabel}</span>
-                  </Link>
-                )}
-
-                {/* Search */}
-                {headerIconsConfig.search && (
-                <div className="relative">
-                  <button
-                    onClick={() => setSearchOpen(!searchOpen)}
-                    className="flex items-center gap-2 ph-topnav-link transition-colors"
-                    style={{
-                      color: topNavTextColor,
-                      fontSize: `${topNavFontSize || 14}px`,
-                      ...(topNavFontWeight ? { fontWeight: topNavFontWeight } : {}),
-                      ...(topNavFontFamily ? { fontFamily: topNavFontFamily } : {})
-                    }}
-                    data-testid="button-search-toggle"
-                  >
-                    {searchDisplay !== 'label' && <Search className="w-4 h-4" />}
-                    {searchDisplay !== 'icon' && <span>Search</span>}
-                  </button>
-
-                  {searchOpen && (
-                    <div className="absolute top-full right-0 mt-2 w-96 bg-white rounded-lg shadow-xl border border-slate-200 z-50">
-                      <div className="p-3 border-b border-slate-100">
-                        <div className="flex items-center gap-2">
-                          <div className="relative flex-1">
-                            {isSearching ? (
-                              <Loader2 className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400 animate-spin" />
-                            ) : (
-                              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
-                            )}
-                            <Input
-                              type="text"
-                              placeholder="Search events, articles, news, resources..."
-                              className="pl-10 pr-10"
-                              autoFocus
-                              value={searchQuery}
-                              onChange={(e) => handleSearch(e.target.value)}
-                              data-testid="input-search"
-                            />
-                            {searchQuery && (
-                              <button
-                                onClick={() => handleSearch('')}
-                                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                              >
-                                <X className="w-4 h-4" />
-                              </button>
-                            )}
-                          </div>
-                          <button
-                            onClick={() => {
-                              setSearchOpen(false);
-                              setSearchQuery('');
-                              setSearchResults([]);
-                            }}
-                            className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-md transition-colors"
-                            data-testid="button-close-search"
-                          >
-                            <X className="w-5 h-5" />
-                          </button>
-                        </div>
-                      </div>
-                      
-                      {searchQuery.length >= 2 && (
-                        <div className="max-h-80 overflow-y-auto">
-                          {searchResults.length > 0 ? (
-                            <>
-                              {searchResults.map((result) => {
-                                const TypeIcon = typeIconMap[result.type] || FileText;
-                                return (
-                                  <button
-                                    key={`${result.type}-${result.id}`}
-                                    onClick={() => handleResultClick(result.url)}
-                                    className="w-full px-4 py-3 flex items-start gap-3 hover:bg-slate-50 transition-colors text-left border-b border-slate-50 last:border-0"
-                                    data-testid={`search-result-${result.type}-${result.id}`}
-                                  >
-                                    <div className="flex-shrink-0 w-8 h-8 bg-slate-100 rounded flex items-center justify-center">
-                                      <TypeIcon className="w-4 h-4 text-slate-600" />
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-xs font-medium text-purple-600 uppercase">{getTypeLabel(result.type)}</span>
-                                      </div>
-                                      <p className="font-medium text-slate-900 truncate">{result.title}</p>
-                                      {result.description && (
-                                        <p className="text-sm text-slate-500 line-clamp-1">{result.description}</p>
-                                      )}
-                                    </div>
-                                  </button>
-                                );
-                              })}
-                              <button
-                                onClick={handleViewAllResults}
-                                className="w-full px-4 py-3 text-center text-sm font-medium text-purple-600 hover:bg-slate-50 transition-colors"
-                                data-testid="button-view-all-results"
-                              >
-                                View all results
-                              </button>
-                            </>
-                          ) : !isSearching && (
-                            <div className="px-4 py-8 text-center text-slate-500">
-                              <Search className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-                              <p className="text-sm">No results found for "{searchQuery}"</p>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                      
-                      {searchQuery.length < 2 && (
-                        <div className="px-4 py-6 text-center text-slate-400 text-sm">
-                          Type at least 2 characters to search
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-                )}
-
-                {/* Logout Icon */}
-                {isLoggedIn && (
-                  <button
-                    onClick={handleLogout}
-                    className="flex items-center gap-2 hover:opacity-80 transition-opacity text-sm font-semibold"
-                    style={{ color: topNavTextColor }}
-                    title="Logout"
-                  >
-                    <LogOut className="w-4 h-4" />
-                  </button>
-                )}
-
-                {/* Social Media Icons */}
-                {headerIconsConfig.social && socialIcons && (
-                  <div className="flex items-center gap-2">
-                    {socialIcons.linkedin?.enabled && socialIcons.linkedin?.url && (
-                      <a
-                        href={socialIcons.linkedin.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="w-7 h-7 rounded flex items-center justify-center ph-topnav-link transition-colors"
-                        style={{ backgroundColor: resolvedSocialSvgs.linkedin ? 'transparent' : topNavTextColor, color: headerSocialIconColor }}
-                      >
-                        {renderSocialGlyph({
-                          customSvg: resolvedSocialSvgs.linkedin,
-                          color: 'currentColor',
-                          sizeClassName: "w-4 h-4",
-                          builtin: (
-                            <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor">
-                              <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" />
-                            </svg>
-                          )
-                        })}
-                      </a>
-                    )}
-                    {socialIcons.twitter?.enabled && socialIcons.twitter?.url && (
-                      <a
-                        href={socialIcons.twitter.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="w-7 h-7 rounded flex items-center justify-center ph-topnav-link transition-colors"
-                        style={{ backgroundColor: resolvedSocialSvgs.twitter ? 'transparent' : topNavTextColor, color: headerSocialIconColor }}
-                      >
-                        {renderSocialGlyph({
-                          customSvg: resolvedSocialSvgs.twitter,
-                          color: 'currentColor',
-                          sizeClassName: "w-4 h-4",
-                          builtin: (
-                            <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor">
-                              <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-                            </svg>
-                          )
-                        })}
-                      </a>
-                    )}
-                    {socialIcons.facebook?.enabled && socialIcons.facebook?.url && (
-                      <a
-                        href={socialIcons.facebook.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="w-7 h-7 rounded flex items-center justify-center ph-topnav-link transition-colors"
-                        style={{ backgroundColor: resolvedSocialSvgs.facebook ? 'transparent' : topNavTextColor, color: headerSocialIconColor }}
-                      >
-                        {renderSocialGlyph({
-                          customSvg: resolvedSocialSvgs.facebook,
-                          color: 'currentColor',
-                          sizeClassName: "w-4 h-4",
-                          builtin: (
-                            <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor">
-                              <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
-                            </svg>
-                          )
-                        })}
-                      </a>
-                    )}
-                    {socialIcons.instagram?.enabled && socialIcons.instagram?.url && (
-                      <a
-                        href={socialIcons.instagram.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="w-7 h-7 rounded flex items-center justify-center ph-topnav-link transition-colors"
-                        style={{ backgroundColor: resolvedSocialSvgs.instagram ? 'transparent' : topNavTextColor, color: headerSocialIconColor }}
-                      >
-                        {renderSocialGlyph({
-                          customSvg: resolvedSocialSvgs.instagram,
-                          color: 'currentColor',
-                          sizeClassName: "w-4 h-4",
-                          builtin: (
-                            <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor">
-                              <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/>
-                            </svg>
-                          )
-                        })}
-                      </a>
-                    )}
-                    {socialIcons.youtube?.enabled && socialIcons.youtube?.url && (
-                      <a
-                        href={socialIcons.youtube.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="w-7 h-7 rounded flex items-center justify-center ph-topnav-link transition-colors"
-                        style={{ backgroundColor: resolvedSocialSvgs.youtube ? 'transparent' : topNavTextColor, color: headerSocialIconColor }}
-                      >
-                        {renderSocialGlyph({
-                          customSvg: resolvedSocialSvgs.youtube,
-                          color: 'currentColor',
-                          sizeClassName: "w-4 h-4",
-                          builtin: (
-                            <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor">
-                              <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
-                            </svg>
-                          )
-                        })}
-                      </a>
-                    )}
-                  </div>
-                )}
-
-                {/* Static Items - Login / Member Area (right of social icons) */}
-                {headerIconsConfig.login && loginPosition === 'right' && (
-                  <Link
-                    to={isLoggedIn ? createPageUrl(memberLandingPage) : "/login"}
-                    className={`flex items-center gap-1 hover:opacity-80 transition-opacity text-sm font-semibold${loginAsButton ? ' px-3 py-1.5' : ''}`}
-                    style={{ ...loginButtonStyle, color: loginLabelColor }}
-                    data-testid="link-header-login"
-                  >
-                    <User className="w-4 h-4" />
-                    <span>{headerLinkLabel}</span>
-                  </Link>
-                )}
               </div>
             </div>
           </div>
@@ -1756,118 +1685,6 @@ export default function PublicHeader() {
 
         {/* Mobile Menu Content */}
         <div className="flex flex-col h-[calc(100%-73px)] overflow-y-auto">
-          {/* Login/Logout - at the top */}
-          {(headerIconsConfig.login || isLoggedIn) && (
-          <div className="px-4 py-3 border-b border-slate-200">
-            {isLoggedIn ? (
-              <div className="flex items-center justify-between gap-3">
-                {headerIconsConfig.login ? (
-                  <Link
-                    to={createPageUrl(memberLandingPage)}
-                    onClick={() => setMobileMenuOpen(false)}
-                    className="flex items-center gap-2 py-2 text-slate-900 font-medium"
-                    data-testid="link-mobile-member-area"
-                  >
-                    <User className="w-5 h-5 text-slate-600" />
-                    {headerLinkLabel}
-                  </Link>
-                ) : (
-                  <span />
-                )}
-                <button
-                  onClick={handleLogout}
-                  className="flex items-center gap-2 py-2 text-red-600 font-medium"
-                  data-testid="button-mobile-logout"
-                >
-                  <LogOut className="w-5 h-5" />
-                  Logout
-                </button>
-              </div>
-            ) : headerIconsConfig.login ? (
-              <Link
-                to="/login"
-                onClick={() => setMobileMenuOpen(false)}
-                className="flex items-center gap-2 py-2 text-slate-900 font-medium"
-                data-testid="link-mobile-login"
-              >
-                <User className="w-5 h-5 text-slate-600" />
-                {headerLinkLabel}
-              </Link>
-            ) : null}
-          </div>
-          )}
-
-          {/* Search Bar */}
-          {headerIconsConfig.search && (
-          <div className="p-4 border-b border-slate-200">
-            <div className="relative">
-              {isMobileSearching ? (
-                <Loader2 className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400 animate-spin" />
-              ) : (
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
-              )}
-              <Input
-                type="text"
-                placeholder="Search events, articles, news..."
-                className="pl-10 pr-10 w-full"
-                value={mobileSearchQuery}
-                onChange={(e) => handleMobileSearch(e.target.value)}
-                data-testid="input-mobile-search"
-              />
-              {mobileSearchQuery && (
-                <button
-                  onClick={() => handleMobileSearch('')}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-            
-            {/* Mobile Search Results */}
-            {mobileSearchQuery.length >= 2 && (
-              <div className="mt-3 max-h-60 overflow-y-auto rounded-lg border border-slate-200 bg-white">
-                {mobileSearchResults.length > 0 ? (
-                  <>
-                    {mobileSearchResults.map((result) => {
-                      const TypeIcon = typeIconMap[result.type] || FileText;
-                      return (
-                        <button
-                          key={`mobile-${result.type}-${result.id}`}
-                          onClick={() => handleMobileResultClick(result.url)}
-                          className="w-full px-3 py-2.5 flex items-start gap-2 hover:bg-slate-50 transition-colors text-left border-b border-slate-100 last:border-0"
-                          data-testid={`mobile-search-result-${result.type}-${result.id}`}
-                        >
-                          <div className="flex-shrink-0 w-6 h-6 bg-slate-100 rounded flex items-center justify-center">
-                            <TypeIcon className="w-3 h-3 text-slate-600" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <span className="text-xs font-medium text-purple-600 uppercase">{getTypeLabel(result.type)}</span>
-                            <p className="font-medium text-slate-900 text-sm truncate">{result.title}</p>
-                          </div>
-                        </button>
-                      );
-                    })}
-                    <button
-                      onClick={() => {
-                        setMobileMenuOpen(false);
-                        navigate(`/search?q=${encodeURIComponent(mobileSearchQuery.trim())}`);
-                      }}
-                      className="w-full px-3 py-2 text-center text-sm font-medium text-purple-600 hover:bg-slate-50 transition-colors"
-                      data-testid="button-mobile-view-all-results"
-                    >
-                      View all results
-                    </button>
-                  </>
-                ) : !isMobileSearching && (
-                  <div className="px-3 py-4 text-center text-slate-500 text-sm">
-                    No results found
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-          )}
 
           {/* Navigation Items */}
           <div className="flex-1 py-2">

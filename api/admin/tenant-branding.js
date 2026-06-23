@@ -58,8 +58,9 @@ const HEADER_LINK_LABEL_MAX_LENGTH = 60;
 const ALLOWED_HEADER_LINK_BORDER_STYLES = ['solid', 'dashed', 'dotted', 'none'];
 
 // Validate a header action-link button config (Login / Member Area). Both share
-// the same control set: button-vs-link, position, solid/gradient background,
+// the same control set: button-vs-link, solid/gradient background,
 // corner radius, border, label colour, height, width, plus a custom label.
+// Positioning is handled by navigation items (the account Header Element), not here.
 // `gradientValidator` is the handler-scoped validateGradientStops helper.
 // Returns a sanitized object, or null when the input is not an object.
 function sanitizeHeaderLink(link, gradientValidator) {
@@ -67,8 +68,7 @@ function sanitizeHeaderLink(link, gradientValidator) {
 
   const sanitized = {
     asButton: !!link.asButton,
-    backgroundMode: link.backgroundMode === 'gradient' ? 'gradient' : 'solid',
-    position: link.position === 'right' ? 'right' : 'left'
+    backgroundMode: link.backgroundMode === 'gradient' ? 'gradient' : 'solid'
   };
 
   if (typeof link.label === 'string') {
