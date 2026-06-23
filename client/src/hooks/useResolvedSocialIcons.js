@@ -1,44 +1,93 @@
 import { useEffect, useState } from 'react';
 
 // Custom social-icon SVGs are stored as cross-origin URLs (vault.iconn.app /
-// supabase storage). Referencing a cross-origin URL directly in a CSS
-// `mask-image` is unreliable: the browser frequently refuses to apply the mask,
-// which leaves the element painted as a solid coloured square (or invisible).
+// supabase storage). Two things make referencing them directly unreliable:
+//
+//  1. A cross-origin URL used directly in a CSS `mask-image` is frequently
+//     refused by the browser, leaving the element painted as a solid coloured
+//     square (or invisible).
+//  2. vault.iconn.app sits behind Cloudflare bot management, so a plain
+//     browser `fetch()` of the SVG can be challenged/blocked (or returns an
+//     HTML challenge page instead of the SVG) — so inlining fails too.
 //
 // To make the recolour-via-mask path reliable we fetch each SVG once and inline
-// it as a same-origin `data:` URI, which masks correctly in every browser.
-// Results are cached at module scope so the fetch happens at most once per URL
-// across the whole app (header + footer share the cache).
+// it as a same-origin base64 `data:` URI, which masks correctly in every
+// browser. Cross-origin URLs on the known asset hosts are fetched through the
+// same-origin `/api/og-image` proxy (the server fetches the bytes cleanly,
+// without Cloudflare challenges or CORS) before inlining. Results are cached at
+// module scope so the work happens at most once per URL across the whole app
+// (header + footer share the cache).
 
 const cache = new Map(); // url -> data URI (string) | null (fetch failed)
 const inflight = new Map(); // url -> Promise<string|null>
 
-function toDataUri(svgText) {
+// Hosts the same-origin /api/og-image proxy is allow-listed to serve.
+const PROXYABLE_HOST_SUFFIXES = ['.supabase.co'];
+const PROXYABLE_HOSTS = new Set(['vault.iconn.app']);
+
+function isProxyableHost(hostname) {
+  if (!hostname) return false;
+  if (PROXYABLE_HOSTS.has(hostname)) return true;
+  return PROXYABLE_HOST_SUFFIXES.some((suffix) => hostname.endsWith(suffix));
+}
+
+// Returns the ordered list of URLs to try when fetching the SVG bytes.
+function fetchCandidates(url) {
+  if (typeof window === 'undefined') return [url];
+  let parsed;
+  try {
+    parsed = new URL(url, window.location.origin);
+  } catch {
+    return [url];
+  }
+  if (parsed.origin === window.location.origin) return [url];
+  const proxied = `/api/og-image?url=${encodeURIComponent(url)}`;
+  // For known asset hosts the proxy is the reliable path (Cloudflare/CORS),
+  // with a direct fetch as a last resort. For anything else, try direct first.
+  return isProxyableHost(parsed.hostname) ? [proxied, url] : [url, proxied];
+}
+
+function toBase64DataUri(svgText) {
   // Strip any XML/doctype prologue and leading whitespace so the data URI is
-  // a clean <svg> document, then percent-encode for safe inlining.
+  // a clean <svg> document, then base64-encode for the most cross-browser-safe
+  // mask source.
   const cleaned = String(svgText)
     .replace(/<\?xml[\s\S]*?\?>/i, '')
     .replace(/<!DOCTYPE[\s\S]*?>/i, '')
     .trim();
   if (!/^<svg[\s>]/i.test(cleaned)) return null;
-  return `data:image/svg+xml;utf8,${encodeURIComponent(cleaned)}`;
+  try {
+    const base64 = btoa(unescape(encodeURIComponent(cleaned)));
+    return `data:image/svg+xml;base64,${base64}`;
+  } catch {
+    // Fallback to percent-encoded form if btoa chokes on the content.
+    return `data:image/svg+xml,${encodeURIComponent(cleaned)}`;
+  }
+}
+
+async function fetchSvgText(url) {
+  for (const candidate of fetchCandidates(url)) {
+    try {
+      const res = await fetch(candidate, { credentials: 'omit' });
+      if (!res.ok) continue;
+      const type = (res.headers.get('content-type') || '').toLowerCase();
+      if (type && !type.includes('svg') && !type.includes('xml')) continue;
+      const text = await res.text();
+      if (/^[\s]*(<\?xml|<!DOCTYPE|<svg[\s>])/i.test(text)) return text;
+    } catch {
+      // try next candidate
+    }
+  }
+  return null;
 }
 
 function resolveOne(url) {
   if (cache.has(url)) return Promise.resolve(cache.get(url));
   if (inflight.has(url)) return inflight.get(url);
 
-  const p = fetch(url, { credentials: 'omit' })
-    .then((res) => {
-      if (!res.ok) throw new Error(`status ${res.status}`);
-      const type = (res.headers.get('content-type') || '').toLowerCase();
-      if (type && !type.includes('svg') && !type.includes('xml')) {
-        throw new Error(`unexpected content-type ${type}`);
-      }
-      return res.text();
-    })
+  const p = fetchSvgText(url)
     .then((text) => {
-      const dataUri = toDataUri(text);
+      const dataUri = text ? toBase64DataUri(text) : null;
       cache.set(url, dataUri);
       return dataUri;
     })

@@ -35,4 +35,4 @@
 - [Training fund pending-vs-available balance](training-fund-pending-balance.md) — top-ups split org balance into spendable + pending(invoice); credited from 2 paths (card confirm + cron) via one compare-and-set helper to stay idempotent.
 - [Canvas ruler guides (editor-only)](canvas-ruler-guides.md) — guides at root.guides (editor-only, never public); overlay renders OUTSIDE zoom-scaled div in screen px; guide-drag owns keyboard via ref guard.
 - [tenant-branding secondaryBar sanitization](tenant-branding-secondarybar-sanitize.md) — branding PATCH rebuilds header_config.secondaryBar from scratch; new subfields silently dropped unless whitelisted in the sanitizer.
-- [Cross-origin CSS mask-image](cross-origin-css-mask.md) — a cross-origin URL in mask-image won't apply (paints a solid coloured square); fetch + inline a same-origin data URI instead.
+- [Cross-origin CSS mask-image](cross-origin-css-mask.md) — square = SVG not inlined, not a mask-technique fault; fetch Cloudflare-fronted assets via /api/og-image proxy, inline as base64 data URI.
