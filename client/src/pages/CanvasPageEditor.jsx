@@ -1238,6 +1238,7 @@ export default function CanvasPageEditorPage() {
             extraIssues={axeStale ? [] : (axeIssues || [])}
             onLocateIssue={handleLocateIssue}
             otherPages={otherPages}
+            onUnlinkSymbol={() => unlinkSelectedSymbol(canvasRef)}
           />
         </div>
 

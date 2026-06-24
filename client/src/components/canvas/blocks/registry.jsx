@@ -38,6 +38,7 @@ import {
   ArrowUp,
   ArrowDown,
   Trash2,
+  Unlink,
 } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -6021,14 +6022,25 @@ function SymbolRender({ block, breakpoint, asEditor }) {
     </div>
   );
 }
-function SymbolInspector({ block }) {
+function SymbolInspector({ block, onUnlinkSymbol }) {
   const c = block.content || {};
   return (
     <div className="space-y-2 text-xs text-slate-600">
       <p><strong>Symbol:</strong> {c.symbolName || c.symbolId || '—'}</p>
       <p className="text-slate-500">
-        This block reuses a saved symbol. Open the Symbols dialog to manage symbols, or use Unlink to convert this instance back into editable blocks on the page.
+        This block reuses a saved symbol. Open the Symbols dialog to manage symbols, or unlink it to convert this instance back into editable blocks on the page.
       </p>
+      <Button
+        size="sm"
+        variant="outline"
+        className="w-full"
+        onClick={() => onUnlinkSymbol?.()}
+        disabled={!onUnlinkSymbol || !c.symbolId}
+        data-testid="button-unlink-symbol"
+      >
+        <Unlink className="w-4 h-4 mr-2" />
+        Unlink symbol
+      </Button>
     </div>
   );
 }

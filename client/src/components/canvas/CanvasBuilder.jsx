@@ -195,6 +195,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   extraIssues = [],
   onLocateIssue,
   otherPages = [],
+  onUnlinkSymbol,
 }, ref) {
   const [design, setDesignState] = useState(() => normalizeCanvasDesign(initialDesign));
   const [selectedIds, setSelectedIds] = useState([]);
@@ -1671,6 +1672,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
               onToggleHidden={toggleHiddenById}
               onClearOverride={clearOverrideById}
               onReorderBlock={moveBlockInReadingOrder}
+              onUnlinkSymbol={onUnlinkSymbol}
               readingOrderIndex={
                 selectedBlocks.length === 1
                   ? children.findIndex((b) => b.id === selectedBlocks[0].id)

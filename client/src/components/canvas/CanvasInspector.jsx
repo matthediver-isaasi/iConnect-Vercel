@@ -68,6 +68,7 @@ export default function CanvasInspector({
   onToggleHidden,
   onClearOverride,
   onReorderBlock,
+  onUnlinkSymbol,
   readingOrderIndex = -1,
   readingOrderTotal = 0,
 }) {
@@ -112,6 +113,7 @@ export default function CanvasInspector({
     onToggleHidden={() => onToggleHidden(single.id)}
     onClearOverride={(field) => onClearOverride(single.id, breakpoint, field)}
     onReorder={onReorderBlock ? (dir) => onReorderBlock(single.id, dir) : null}
+    onUnlinkSymbol={onUnlinkSymbol}
     readingOrderIndex={readingOrderIndex}
     readingOrderTotal={readingOrderTotal}
   />;
@@ -219,7 +221,7 @@ function A11ySection({ block, issues, onReorder, readingOrderIndex, readingOrder
   );
 }
 
-function ContentSection({ block, breakpoint, onUpdate }) {
+function ContentSection({ block, breakpoint, onUpdate, onUnlinkSymbol }) {
   const def = getBlockDefinition(block.type);
   const InspectorComponent = def.Inspector;
   if (!InspectorComponent) return null;
@@ -237,13 +239,13 @@ function ContentSection({ block, breakpoint, onUpdate }) {
         </div>
       )}
       <div className="space-y-2">
-        <InspectorComponent block={block} update={onUpdate} breakpoint={breakpoint} />
+        <InspectorComponent block={block} update={onUpdate} breakpoint={breakpoint} onUnlinkSymbol={onUnlinkSymbol} />
       </div>
     </Section>
   );
 }
 
-function SingleBlockInspector({ block, breakpoint, blockIssues, onUpdate, onToggleLocked, onToggleHidden, onClearOverride, onReorder, readingOrderIndex, readingOrderTotal }) {
+function SingleBlockInspector({ block, breakpoint, blockIssues, onUpdate, onToggleLocked, onToggleHidden, onClearOverride, onReorder, onUnlinkSymbol, readingOrderIndex, readingOrderTotal }) {
   const geom = useMemo(() => resolveBlockAtBreakpoint(block, breakpoint), [block, breakpoint]);
 
   const updateGeom = (field, value) => {
@@ -321,7 +323,7 @@ function SingleBlockInspector({ block, breakpoint, blockIssues, onUpdate, onTogg
         />
       </div>
 
-      <ContentSection block={block} breakpoint={breakpoint} onUpdate={onUpdate} />
+      <ContentSection block={block} breakpoint={breakpoint} onUpdate={onUpdate} onUnlinkSymbol={onUnlinkSymbol} />
 
       <A11ySection
         block={block}
