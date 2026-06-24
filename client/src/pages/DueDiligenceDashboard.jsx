@@ -99,23 +99,28 @@ function StatCard({ title, value, icon: Icon, color, subtitle }) {
   );
 }
 
-function RiskLevelsCard({ breakdown, avgRiskLevel }) {
+function RiskLevelsCard({ breakdown, avgRiskLevel, avgScore }) {
   return (
     <Card className="hover-elevate" data-testid="stat-card-risk-levels">
       <CardContent className="pt-6">
         <div className="flex items-center justify-between gap-2">
           <p className="text-sm text-muted-foreground">Risk Levels</p>
-          {avgRiskLevel ? (
-            <Badge
-              variant="outline"
-              style={{ borderColor: avgRiskLevel.color, color: avgRiskLevel.color }}
-              data-testid="badge-avg-risk-level"
-            >
-              Avg: {String(avgRiskLevel.name).replace(/_/g, ' ')}
-            </Badge>
-          ) : (
-            <span className="text-xs text-muted-foreground" data-testid="text-avg-risk-level">Avg: --</span>
-          )}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground" data-testid="text-overall-avg-score">
+              Avg score: {avgScore !== null && avgScore !== undefined ? avgScore : '--'}
+            </span>
+            {avgRiskLevel ? (
+              <Badge
+                variant="outline"
+                style={{ borderColor: avgRiskLevel.color, color: avgRiskLevel.color }}
+                data-testid="badge-avg-risk-level"
+              >
+                Avg: {String(avgRiskLevel.name).replace(/_/g, ' ')}
+              </Badge>
+            ) : (
+              <span className="text-xs text-muted-foreground" data-testid="text-avg-risk-level">Avg: --</span>
+            )}
+          </div>
         </div>
         <div className="mt-3 space-y-1.5">
           {breakdown.length > 0 ? (
@@ -132,7 +137,12 @@ function RiskLevelsCard({ breakdown, avgRiskLevel }) {
                   />
                   <span className="text-sm capitalize truncate">{String(level.name).replace(/_/g, ' ')}</span>
                 </div>
-                <span className="text-sm font-semibold" data-testid={`text-risk-count-${level.value}`}>{level.count}</span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-xs text-muted-foreground" data-testid={`text-risk-avg-score-${level.value}`}>
+                    avg {level.avgScore !== null && level.avgScore !== undefined ? level.avgScore : '—'}
+                  </span>
+                  <span className="text-sm font-semibold" data-testid={`text-risk-count-${level.value}`}>{level.count}</span>
+                </div>
               </div>
             ))
           ) : (
@@ -456,6 +466,8 @@ export default function DueDiligenceDashboardPage() {
     const total = submissions.length;
     const byStatus = {};
     const byRisk = {};
+    const scoreByRisk = {};
+    const scoredCountByRisk = {};
     let scoredCount = 0;
     let totalScore = 0;
     
@@ -467,6 +479,10 @@ export default function DueDiligenceDashboardPage() {
       if (sub.due_diligence_score !== null && sub.due_diligence_score !== undefined) {
         scoredCount++;
         totalScore += sub.due_diligence_score;
+        if (sub.risk_level) {
+          scoreByRisk[sub.risk_level] = (scoreByRisk[sub.risk_level] || 0) + sub.due_diligence_score;
+          scoredCountByRisk[sub.risk_level] = (scoredCountByRisk[sub.risk_level] || 0) + 1;
+        }
       }
     });
     
@@ -494,7 +510,10 @@ export default function DueDiligenceDashboardPage() {
 
     const riskBreakdown = [...scale, ...extras].map(l => ({
       ...l,
-      count: byRisk[l.value] || 0
+      count: byRisk[l.value] || 0,
+      avgScore: scoredCountByRisk[l.value]
+        ? Math.round(scoreByRisk[l.value] / scoredCountByRisk[l.value])
+        : null
     }));
 
     // Average risk level via ordinal scale (index = severity), rounded back to a label.
@@ -853,7 +872,7 @@ export default function DueDiligenceDashboardPage() {
           color="#ef4444"
           subtitle="Needs attention"
         />
-        <RiskLevelsCard breakdown={stats.riskBreakdown} avgRiskLevel={stats.avgRiskLevel} />
+        <RiskLevelsCard breakdown={stats.riskBreakdown} avgRiskLevel={stats.avgRiskLevel} avgScore={stats.avgScore} />
       </div>
 
       <Card>
