@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -5468,6 +5468,32 @@ export default function FormBuilderPage() {
     }
   }, [existingForm]);
 
+  // Redirect URL can either be a static URL (current behaviour) or be driven by
+  // the value the respondent submits for one of the form's own fields. The
+  // field-based option is encoded into the existing `redirect_url` column with a
+  // `field:` prefix so no schema change is required.
+  const REDIRECT_FIELD_PREFIX = 'field:';
+  const lastStaticRedirectRef = useRef('');
+  const redirectIsField = (formData.redirect_url || '').startsWith(REDIRECT_FIELD_PREFIX);
+  const redirectMode = redirectIsField ? 'field' : 'static';
+  const selectedRedirectFieldId = redirectIsField
+    ? formData.redirect_url.slice(REDIRECT_FIELD_PREFIX.length)
+    : '';
+  if (!redirectIsField) {
+    // Remember the last static URL so toggling to "field" and back doesn't lose it.
+    lastStaticRedirectRef.current = formData.redirect_url || '';
+  }
+  const handleRedirectModeChange = (mode) => {
+    if (mode === 'field') {
+      setFormData({ ...formData, redirect_url: REDIRECT_FIELD_PREFIX });
+    } else {
+      setFormData({ ...formData, redirect_url: lastStaticRedirectRef.current || '' });
+    }
+  };
+  const handleRedirectFieldChange = (fieldId) => {
+    setFormData({ ...formData, redirect_url: `${REDIRECT_FIELD_PREFIX}${fieldId}` });
+  };
+
   const createFormMutation = useMutation({
     mutationFn: async (data) => {
       console.log('[FormBuilder] Creating form with data:', JSON.stringify(data, null, 2));
@@ -5963,13 +5989,49 @@ export default function FormBuilderPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="redirect_url">Redirect URL</Label>
-                <Input
-                  id="redirect_url"
-                  type="url"
-                  value={formData.redirect_url}
-                  onChange={(e) => setFormData({ ...formData, redirect_url: e.target.value })}
-                  placeholder="https://example.com/thanks"
-                />
+                <Select value={redirectMode} onValueChange={handleRedirectModeChange}>
+                  <SelectTrigger data-testid="select-redirect-mode">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="static">Static URL</SelectItem>
+                    <SelectItem value="field">Use a form field</SelectItem>
+                  </SelectContent>
+                </Select>
+                {redirectMode === 'static' ? (
+                  <Input
+                    id="redirect_url"
+                    type="url"
+                    value={formData.redirect_url}
+                    onChange={(e) => {
+                      lastStaticRedirectRef.current = e.target.value;
+                      setFormData({ ...formData, redirect_url: e.target.value });
+                    }}
+                    placeholder="https://example.com/thanks"
+                    data-testid="input-redirect-url"
+                  />
+                ) : (
+                  <>
+                    <Select
+                      value={selectedRedirectFieldId || undefined}
+                      onValueChange={handleRedirectFieldChange}
+                    >
+                      <SelectTrigger data-testid="select-redirect-field">
+                        <SelectValue placeholder="Select a field" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {formData.fields.map((field) => (
+                          <SelectItem key={field.id} value={field.id}>
+                            {field.label || field.id}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      After submitting, the user is sent to the URL they entered in this field.
+                    </p>
+                  </>
+                )}
               </div>
             </div>
 

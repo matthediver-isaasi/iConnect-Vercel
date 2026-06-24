@@ -11,6 +11,43 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { isFieldValueFilled, parseCustomFieldValue } from "@/lib/formFieldPrefill";
 
+// A `redirect_url` beginning with this prefix means the redirect target is driven
+// by the value the respondent submitted for the field whose id follows the prefix.
+const REDIRECT_FIELD_PREFIX = 'field:';
+
+// Only allow http(s) absolute URLs or site-relative paths for the dynamic
+// (field-driven) redirect, so a submitted value can't trigger javascript:/data:
+// or other unsafe schemes.
+function isSafeDynamicRedirect(url) {
+  if (!url || typeof url !== 'string') return false;
+  const trimmed = url.trim();
+  if (!trimmed) return false;
+  if (/^https?:\/\//i.test(trimmed)) return true;
+  if (trimmed.startsWith('/')) return true;
+  return false;
+}
+
+// Resolve the actual URL to redirect to after a successful submission.
+// - Static redirect_url: returned unchanged (existing behaviour).
+// - Field-driven redirect: resolves to the submitted value of the configured
+//   field, guarding against missing/removed fields, empty or unsafe values.
+// Returns null when there is nothing safe to redirect to.
+function resolveRedirectTarget(form, formValues) {
+  const raw = form?.redirect_url;
+  if (!raw || typeof raw !== 'string') return null;
+  if (raw.startsWith(REDIRECT_FIELD_PREFIX)) {
+    const fieldId = raw.slice(REDIRECT_FIELD_PREFIX.length);
+    if (!fieldId) return null;
+    const field = form?.fields?.find((f) => f.id === fieldId);
+    if (!field) return null;
+    const value = formValues?.[fieldId];
+    if (value == null) return null;
+    const str = String(value).trim();
+    return isSafeDynamicRedirect(str) ? str : null;
+  }
+  return raw;
+}
+
 export default function FormViewPage() {
   const { memberInfo, organizationInfo } = useMemberAccess();
   const { setForceBlankLayout } = useLayoutContext();
@@ -810,9 +847,10 @@ export default function FormViewPage() {
       queryClient.invalidateQueries({ queryKey: ['form-by-slug'] });
       setSubmitted(true);
       
-      if (form?.redirect_url) {
+      const redirectTarget = resolveRedirectTarget(form, formValues);
+      if (redirectTarget) {
         setTimeout(() => {
-          window.location.href = form.redirect_url;
+          window.location.href = redirectTarget;
         }, 2000);
       }
     },
@@ -2153,7 +2191,7 @@ export default function FormViewPage() {
             </div>
             <h3 className="text-xl font-semibold text-slate-900 mb-2">Success!</h3>
             <p className="text-slate-600">{form.success_message}</p>
-            {form.redirect_url && (
+            {resolveRedirectTarget(form, formValues) && (
               <p className="text-sm text-slate-500 mt-4">Redirecting...</p>
             )}
           </CardContent>
