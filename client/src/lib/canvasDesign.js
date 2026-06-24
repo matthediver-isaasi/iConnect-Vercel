@@ -536,6 +536,19 @@ export const BLOCK_DEFAULTS = {
       columns: { desktop: 3, tablet: 2, mobile: 1 },
       gap: 16,
       recommendedBadgeLabel: 'Most popular',
+      // Tenant typography controls (heading / sub-heading / card content).
+      // Empty/null defaults keep existing blocks visually identical — when no
+      // style id or size/colour override is set the renderer falls back to the
+      // legacy hardcoded styling, so saved blocks render unchanged.
+      headingTypographyStyleId: '',
+      headingFontSize: null,
+      headingColor: '',
+      subheadingTypographyStyleId: '',
+      subheadingFontSize: null,
+      subheadingColor: '',
+      cardTypographyStyleId: '',
+      cardFontSize: null,
+      cardColor: '',
       tiers: [
         {
           name: 'Starter',

@@ -4624,26 +4624,104 @@ function PricingTableRender({ block, asEditor, breakpoint }) {
   const showToggle = !!c.billingToggle;
   const [billing, setBilling] = useState(c.defaultBilling === 'annual' ? 'annual' : 'monthly');
   const headingLevel = Math.max(1, Math.min(6, Number(c.headingLevel) || 2));
-  const Heading = `h${headingLevel}`;
   const isPreview = breakpoint === 'desktop' || breakpoint === 'tablet' || breakpoint === 'mobile';
-  const responsiveCss = !isPreview ? buildResponsiveColumnsCss(block.id, c.columns, c.gap) : null;
+  const bpForInline = isPreview ? breakpoint : 'desktop';
+  const columnsCss = !isPreview ? buildResponsiveColumnsCss(block.id, c.columns, c.gap) : null;
   const previewCols = isPreview ? resolveColumns(c.columns, breakpoint) : null;
   const recommendedBadge = c.recommendedBadgeLabel || 'Most popular';
 
+  // Tenant typography: resolve the chosen styles for the heading,
+  // sub-heading and card content. Mirrors the Hero block — when a style
+  // resolves we build an inline style from it (pinning the per-breakpoint
+  // value in the editor preview) and emit @media CSS for the public
+  // visitor; when nothing is selected we keep the legacy hardcoded look.
+  const { styles: tenantStyles, resolved: stylesResolved } = useTenantTypographyStylesState();
+  const headingStyleObj = resolveTenantStyle(c.headingTypographyStyleId, tenantStyles);
+  const subheadingStyleObj = resolveTenantStyle(c.subheadingTypographyStyleId, tenantStyles);
+  const cardStyleObj = resolveTenantStyle(c.cardTypographyStyleId, tenantStyles);
+  const awaitingHeading = isAwaitingTypographyStyle(c.headingTypographyStyleId, headingStyleObj, stylesResolved);
+  const awaitingSubheading = isAwaitingTypographyStyle(c.subheadingTypographyStyleId, subheadingStyleObj, stylesResolved);
+  const awaitingCard = isAwaitingTypographyStyle(c.cardTypographyStyleId, cardStyleObj, stylesResolved);
+
+  const Heading = headingStyleObj ? tagForTypographyStyleType(headingStyleObj.style_type) : `h${headingLevel}`;
+  const Sub = subheadingStyleObj ? tagForTypographyStyleType(subheadingStyleObj.style_type) : 'p';
+
+  const headingInline = {
+    margin: 0,
+    fontSize: '1.5rem',
+    fontWeight: 600,
+    color: 'var(--cb-color-on-surface, #0f172a)',
+    ...(headingStyleObj ? buildTypographyInlineStyle(headingStyleObj, { breakpoint: bpForInline }) : {}),
+  };
+  if (Number.isFinite(c.headingFontSize) && c.headingFontSize > 0) headingInline.fontSize = `${c.headingFontSize}px`;
+  if (c.headingColor) headingInline.color = c.headingColor;
+  if (awaitingHeading) headingInline.visibility = 'hidden';
+
+  const subheadingInline = {
+    marginTop: 4,
+    fontSize: '0.875rem',
+    color: 'var(--cb-color-on-surface-muted, #475569)',
+    ...(subheadingStyleObj ? buildTypographyInlineStyle(subheadingStyleObj, { breakpoint: bpForInline }) : {}),
+  };
+  if (Number.isFinite(c.subheadingFontSize) && c.subheadingFontSize > 0) subheadingInline.fontSize = `${c.subheadingFontSize}px`;
+  if (c.subheadingColor) subheadingInline.color = c.subheadingColor;
+  if (awaitingSubheading) subheadingInline.visibility = 'hidden';
+
+  // Card content typography. When active (a style is chosen, or a size/colour
+  // override is set), the card's base text style lives on the <article> and
+  // the individual text elements use em-relative sizes so the existing visual
+  // hierarchy (name / price / description) scales from that base. When
+  // inactive every card keeps its original classes/colours (zero regression).
+  const cardActive = !!cardStyleObj
+    || awaitingCard
+    || (Number.isFinite(c.cardFontSize) && c.cardFontSize > 0)
+    || !!c.cardColor;
+  const cardPrimaryColor = c.cardColor || cardStyleObj?.color || 'var(--cb-color-on-surface, #0f172a)';
+  const cardMutedColor = c.cardColor || 'var(--cb-color-on-surface-muted, #475569)';
+  const cardBaseTypo = cardActive
+    ? (() => {
+        const base = { fontSize: '1rem' };
+        if (cardStyleObj) {
+          Object.assign(base, buildTypographyInlineStyle(cardStyleObj, { breakpoint: bpForInline, omitMarginBottom: true }));
+        }
+        if (Number.isFinite(c.cardFontSize) && c.cardFontSize > 0) base.fontSize = `${c.cardFontSize}px`;
+        // Colours are applied per text element (primary vs muted) below.
+        delete base.color;
+        if (awaitingCard) base.visibility = 'hidden';
+        return base;
+      })()
+    : null;
+
+  const safeBlockId = String(block.id || '').replace(/["\\]/g, '');
+  const typographyResponsiveCss = !isPreview
+    ? [
+        headingStyleObj && hasResponsiveTypographyOverride(headingStyleObj)
+          ? buildTenantTypographyResponsiveCss(`[data-cb="${safeBlockId}"] [data-tg-r="pricing-heading"]`, headingStyleObj)
+          : null,
+        subheadingStyleObj && hasResponsiveTypographyOverride(subheadingStyleObj)
+          ? buildTenantTypographyResponsiveCss(`[data-cb="${safeBlockId}"] [data-tg-r="pricing-subheading"]`, subheadingStyleObj)
+          : null,
+        cardStyleObj && hasResponsiveTypographyOverride(cardStyleObj)
+          ? buildTenantTypographyResponsiveCss(`[data-cb="${safeBlockId}"] [data-tg-r="pricing-card"]`, cardStyleObj)
+          : null,
+      ].filter(Boolean).join('') || null
+    : null;
+
   return (
     <div className="w-full h-full overflow-auto">
-      {responsiveCss && <style dangerouslySetInnerHTML={{ __html: responsiveCss }} />}
+      {columnsCss && <style dangerouslySetInnerHTML={{ __html: columnsCss }} />}
+      {typographyResponsiveCss && <style dangerouslySetInnerHTML={{ __html: typographyResponsiveCss }} />}
       {(c.heading || c.subheading) && (
         <div className="mb-4 text-center">
           {c.heading && (
-            <Heading style={{ margin: 0, fontSize: '1.5rem', fontWeight: 600, color: 'var(--cb-color-on-surface, #0f172a)' }}>
+            <Heading style={headingInline} data-tg-r="pricing-heading">
               {c.heading}
             </Heading>
           )}
           {c.subheading && (
-            <p className="mt-1 text-sm" style={{ color: 'var(--cb-color-on-surface-muted, #475569)' }}>
+            <Sub style={subheadingInline} data-tg-r="pricing-subheading">
               {c.subheading}
-            </p>
+            </Sub>
           )}
         </div>
       )}
@@ -4704,7 +4782,8 @@ function PricingTableRender({ block, asEditor, breakpoint }) {
               key={i}
               data-cb-pricing-tier={i}
               data-cb-pricing-recommended={t.recommended ? 'true' : undefined}
-              style={tierStyle}
+              data-tg-r="pricing-card"
+              style={cardActive ? { ...tierStyle, ...cardBaseTypo } : tierStyle}
               aria-label={`${t.name || `Tier ${i + 1}`} pricing tier`}
             >
               {t.recommended && (
@@ -4718,26 +4797,55 @@ function PricingTableRender({ block, asEditor, breakpoint }) {
                   {recommendedBadge}
                 </span>
               )}
-              <h3 className="text-base font-semibold" style={{ margin: 0, color: 'var(--cb-color-on-surface, #0f172a)' }}>
+              <h3
+                className={cardActive ? 'font-semibold' : 'text-base font-semibold'}
+                style={cardActive
+                  ? { margin: 0, fontSize: '1em', color: cardPrimaryColor }
+                  : { margin: 0, color: 'var(--cb-color-on-surface, #0f172a)' }}
+              >
                 {t.name || `Tier ${i + 1}`}
               </h3>
               {t.description && (
-                <p className="mt-1 text-sm" style={{ color: 'var(--cb-color-on-surface-muted, #475569)' }}>
+                <p
+                  className={cardActive ? '' : 'mt-1 text-sm'}
+                  style={cardActive
+                    ? { marginTop: 4, fontSize: '0.875em', color: cardMutedColor }
+                    : { color: 'var(--cb-color-on-surface-muted, #475569)' }}
+                >
                   {t.description}
                 </p>
               )}
               <div className="mt-3 flex items-baseline gap-1">
-                <span className="text-3xl font-bold" style={{ color: 'var(--cb-color-on-surface, #0f172a)' }}>
+                <span
+                  className={cardActive ? 'font-bold' : 'text-3xl font-bold'}
+                  style={cardActive
+                    ? { fontSize: '1.875em', color: cardPrimaryColor }
+                    : { color: 'var(--cb-color-on-surface, #0f172a)' }}
+                >
                   {price || '—'}
                 </span>
                 {t.period && (
-                  <span className="text-sm" style={{ color: 'var(--cb-color-on-surface-muted, #475569)' }}>
+                  <span
+                    className={cardActive ? '' : 'text-sm'}
+                    style={cardActive
+                      ? { fontSize: '0.875em', color: cardMutedColor }
+                      : { color: 'var(--cb-color-on-surface-muted, #475569)' }}
+                  >
                     {t.period}
                   </span>
                 )}
               </div>
               {Array.isArray(t.features) && t.features.length > 0 && (
-                <ul className="mt-4 space-y-1.5 text-sm" style={{ listStyle: 'none', padding: 0, margin: 0, color: 'var(--cb-color-on-surface, #0f172a)' }}>
+                <ul
+                  className={`mt-4 space-y-1.5 ${cardActive ? '' : 'text-sm'}`}
+                  style={{
+                    listStyle: 'none',
+                    padding: 0,
+                    margin: 0,
+                    color: cardActive ? cardPrimaryColor : 'var(--cb-color-on-surface, #0f172a)',
+                    ...(cardActive ? { fontSize: '0.875em' } : {}),
+                  }}
+                >
                   {t.features.filter(Boolean).map((f, fi) => {
                     const feat = typeof f === 'string' ? { text: f, included: true, tooltip: '' } : (f || {});
                     const included = feat.included !== false;
@@ -4804,7 +4912,66 @@ function PricingTableInspector({ block, update }) {
         options={[2, 3, 4, 5, 6].map((n) => ({ value: String(n), label: `H${n}` }))}
         testId="select-pricing-heading-level"
       />
+      <TypographyStyleField
+        label="Heading style"
+        value={c.headingTypographyStyleId}
+        onChange={(id, picked) => {
+          // Mirror the chosen style's heading level so the block degrades to
+          // the right heading if the tenant style is later removed (matches Hero).
+          const fallback = fallbackHeadingAsForStyleType(picked && picked.style_type);
+          set({
+            headingTypographyStyleId: id,
+            ...(fallback ? { headingLevel: Number(fallback) } : {}),
+          });
+        }}
+        testId="select-pricing-heading-typography"
+      />
+      <div className="grid grid-cols-2 gap-2">
+        <NumberField
+          label="Heading size (px)"
+          min={8}
+          max={120}
+          value={Number.isFinite(c.headingFontSize) ? c.headingFontSize : ''}
+          onChange={(v) => set({ headingFontSize: v === '' || v == null ? null : Math.max(8, Math.min(120, Number(v) || 0)) })}
+          testId="input-pricing-heading-size"
+        />
+        <ColorField label="Heading colour" value={c.headingColor} onChange={(v) => set({ headingColor: v })} testId="input-pricing-heading-color" />
+      </div>
       <TextField label="Subheading" multiline value={c.subheading} onChange={(v) => set({ subheading: v })} testId="input-pricing-subheading" />
+      <TypographyStyleField
+        label="Sub-heading style"
+        value={c.subheadingTypographyStyleId}
+        onChange={(id) => set({ subheadingTypographyStyleId: id })}
+        testId="select-pricing-subheading-typography"
+      />
+      <div className="grid grid-cols-2 gap-2">
+        <NumberField
+          label="Sub-heading size (px)"
+          min={8}
+          max={80}
+          value={Number.isFinite(c.subheadingFontSize) ? c.subheadingFontSize : ''}
+          onChange={(v) => set({ subheadingFontSize: v === '' || v == null ? null : Math.max(8, Math.min(80, Number(v) || 0)) })}
+          testId="input-pricing-subheading-size"
+        />
+        <ColorField label="Sub-heading colour" value={c.subheadingColor} onChange={(v) => set({ subheadingColor: v })} testId="input-pricing-subheading-color" />
+      </div>
+      <TypographyStyleField
+        label="Card content style"
+        value={c.cardTypographyStyleId}
+        onChange={(id) => set({ cardTypographyStyleId: id })}
+        testId="select-pricing-card-typography"
+      />
+      <div className="grid grid-cols-2 gap-2">
+        <NumberField
+          label="Card text size (px)"
+          min={8}
+          max={80}
+          value={Number.isFinite(c.cardFontSize) ? c.cardFontSize : ''}
+          onChange={(v) => set({ cardFontSize: v === '' || v == null ? null : Math.max(8, Math.min(80, Number(v) || 0)) })}
+          testId="input-pricing-card-size"
+        />
+        <ColorField label="Card text colour" value={c.cardColor} onChange={(v) => set({ cardColor: v })} testId="input-pricing-card-color" />
+      </div>
       <ToggleField
         label="Show monthly / annual toggle"
         value={c.billingToggle}
