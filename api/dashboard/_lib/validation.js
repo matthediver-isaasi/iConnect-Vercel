@@ -12,6 +12,9 @@ const filterSchema = z.object({
   fieldId: z.string().nullable().optional(),
   operator: z.enum(['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'in', 'contains', 'is_null', 'is_not_null', 'lmic']),
   value: z.any().optional(),
+  // DD-only: when filtering on the synthetic "Date moved to stage …" field,
+  // carries the canonical DD status whose entry timestamp is being scoped.
+  stage: z.string().nullable().optional(),
 });
 
 // Optional secondary field references for additive measures. When the
@@ -43,6 +46,9 @@ const timeBucketSchema = z.object({
   // compatibility with existing widgets.
   fieldKind: z.enum(['system', 'custom']).nullable().optional(),
   fieldId: z.string().nullable().optional(),
+  // DD-only: when the bucket field is the synthetic "Date moved to stage …"
+  // field, carries the canonical DD status whose entry timestamp is bucketed.
+  stage: z.string().nullable().optional(),
 });
 
 const groupBySchema = z.object({

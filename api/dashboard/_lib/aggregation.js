@@ -9,7 +9,14 @@ import {
   CANONICAL,
   sortedHistory,
   getStatusFromHistory,
+  findFirstTransitionAt,
 } from '../../reports/_ddReportHelpers.js';
+
+// Synthetic DD date dimension: "Date moved to stage …". Not a stored column;
+// each row's value is derived from its history_log as the timestamp it first
+// entered the chosen workflow stage. The chosen stage rides on the
+// time-bucket / filter field config (its `stage` property).
+const DD_MOVED_TO_STAGE_FIELD = 'moved_to_stage';
 
 const MAX_BUCKETS = 50;
 const MAX_GROUPS = 20;
@@ -809,6 +816,24 @@ function canonicaliseDdStatus(rawStatus, formId, matchers, isHeldDecisionForForm
   return String(rawStatus);
 }
 
+// Derive a row's "moved to stage X" timestamp: the FIRST time its history_log
+// records a transition into `chosenStage` (a canonical DD status label). Stage
+// matching reuses canonicaliseDdStatus so a stored stage UUID or label both
+// match, consistent with the DD reports/transition counting. Returns an ISO
+// string (so it feeds bucketTimestamp / matchFilter like a real date column)
+// or null when the submission never entered that stage.
+function ddStageEntryAt(row, chosenStage, ddCtx) {
+  if (!chosenStage) return null;
+  const { matchers, isHeldDecisionForForm, stageMaps } = ddCtx;
+  const at = findFirstTransitionAt(row.history_log, (_canonical, entry) => {
+    const label = canonicaliseDdStatus(
+      getStatusFromHistory(entry, 'new'), row.form_id, matchers, isHeldDecisionForForm, stageMaps,
+    );
+    return label === chosenStage;
+  });
+  return at ? at.toISOString() : null;
+}
+
 function ddFieldUsed(config, fieldName) {
   if (!config) return false;
   const matchRef = (ref) => ref && ref.fieldKind === 'system' && ref.field === fieldName;
@@ -908,6 +933,24 @@ async function runDdWidgetConfig(config, tenantId, source) {
   const groupBy = transition ? null : (config.groupBy || null);
   const timeBucket = transition ? null : (config.timeBucket || null);
 
+  // "Date moved to stage …" is a synthetic, history-derived date dimension.
+  // Detect its use (as the time-bucket field or as a filter field) so we know
+  // to fetch history_log and resolve which stage the entry timestamp tracks.
+  const movedFilters = transition
+    ? []
+    : (config.filters || []).filter(f => f.fieldKind === 'system' && f.field === DD_MOVED_TO_STAGE_FIELD);
+  const usesMovedToStage = !!(timeBucket && timeBucket.field === DD_MOVED_TO_STAGE_FIELD)
+    || movedFilters.length > 0;
+  // Single stage drives the derivation; prefer the time-bucket's stage, else
+  // the first date-range filter's stage. (Both normally pick the same stage.)
+  const movedStage = (timeBucket && timeBucket.field === DD_MOVED_TO_STAGE_FIELD ? timeBucket.stage : null)
+    || movedFilters.map(f => f.stage).find(Boolean)
+    || null;
+  const needsHistory = !!transition || usesMovedToStage;
+  if (usesMovedToStage && !movedStage) {
+    throw new Error('Pick a stage for the "Date moved to stage" field.');
+  }
+
   if (!measure) throw new Error('Measure is required');
   if (groupBy && timeBucket) throw new Error('Choose either group-by or time-bucket, not both');
 
@@ -947,7 +990,7 @@ async function runDdWidgetConfig(config, tenantId, source) {
       .select(`
         id,
         workflow_status,
-        created_at,${transition ? '\n        history_log,' : ''}
+        created_at,${needsHistory ? '\n        history_log,' : ''}
         form_submission:form_submission_id(id, form_id, organization_id, created_date)
       `)
       .eq('tenant_id', tenantId)
@@ -978,8 +1021,15 @@ async function runDdWidgetConfig(config, tenantId, source) {
       submitted_at: fs?.created_date || null,
       created_at: r.created_at,
       org_type: null,
-      history_log: transition ? (r.history_log || null) : null,
+      history_log: needsHistory ? (r.history_log || null) : null,
     });
+  }
+
+  // Derive the synthetic "moved to stage" timestamp per row before any
+  // filtering / bucketing, so it behaves like a real date column downstream.
+  if (usesMovedToStage) {
+    const ddCtx = { matchers, isHeldDecisionForForm, stageMaps };
+    flat.forEach(r => { r[DD_MOVED_TO_STAGE_FIELD] = ddStageEntryAt(r, movedStage, ddCtx); });
   }
 
   // Hydrate org_type only if the widget actually references it.

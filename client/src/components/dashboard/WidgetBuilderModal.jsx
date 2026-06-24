@@ -154,6 +154,10 @@ function buildFieldOptions(source) {
     type: f.type,
     aggregatable: !!f.aggregatable,
     options: Array.isArray(f.options) ? f.options : null,
+    // DD-only synthetic date dimension ("Date moved to stage …") needs a
+    // stage picked alongside it; carry the marker + canonical stage list.
+    stageField: !!f.stageField,
+    stageOptions: Array.isArray(f.stageOptions) ? f.stageOptions : null,
   }));
   const custom = (source.customFields || []).map(f => ({
     value: `custom:${f.id}`,
@@ -402,9 +406,20 @@ export default function WidgetBuilderModal({
       ) {
         errs.push("Bar and pie charts need a group-by or time bucket.");
       }
+      // "Date moved to stage …" needs a stage chosen alongside it.
+      const tbOpt = draft.config.timeBucket?.field
+        ? fieldOptions.find(o => o.fieldKind === "system" && o.field === draft.config.timeBucket.field)
+        : null;
+      if (tbOpt?.stageField && !draft.config.timeBucket?.stage) {
+        errs.push("Pick a stage for the time bucket.");
+      }
     }
     (draft.config.filters || []).forEach((f, i) => {
       if (!f.field && !f.fieldId) errs.push(`Filter ${i + 1}: choose a field.`);
+      const fOpt = f.field
+        ? fieldOptions.find(o => o.fieldKind === "system" && o.field === f.field)
+        : null;
+      if (fOpt?.stageField && !f.stage) errs.push(`Filter ${i + 1}: choose a stage.`);
       if (f.operator === "in") {
         const list = Array.isArray(f.value)
           ? f.value
@@ -418,7 +433,7 @@ export default function WidgetBuilderModal({
       }
     });
     return errs;
-  }, [draft, requireMeasureField]);
+  }, [draft, requireMeasureField, fieldOptions]);
 
   const canSave = validationErrors.length === 0;
 
@@ -910,6 +925,43 @@ export default function WidgetBuilderModal({
               </div>
             </div>
 
+            {(() => {
+              // When the chosen time-bucket field is the synthetic "Date moved
+              // to stage …" DD field, surface a stage picker — the count is
+              // bucketed by when each submission first entered that stage.
+              const tb = draft.config.timeBucket;
+              const opt = tb?.field
+                ? fieldOptions.find(o => o.fieldKind === "system" && o.field === tb.field)
+                : null;
+              if (!opt?.stageField) return null;
+              return (
+                <div className="space-y-2">
+                  <Label>Stage</Label>
+                  <Select
+                    value={tb.stage || ""}
+                    onValueChange={value =>
+                      updateConfig({ timeBucket: { ...tb, stage: value } })
+                    }
+                  >
+                    <SelectTrigger data-testid="select-widget-timebucket-stage">
+                      <SelectValue placeholder="Choose stage" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(opt.stageOptions || []).map(o => (
+                        <SelectItem key={o.value} value={String(o.value)}>
+                          {o.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Counts each submission once, in the period it first reached
+                    this stage. Submissions that never reached it are excluded.
+                  </p>
+                </div>
+              );
+            })()}
+
             {draft.widget_type === "line" && draft.config.timeBucket?.field && (
               <div className="flex items-center justify-between gap-4 rounded-md border p-3">
                 <div className="space-y-1">
@@ -962,9 +1014,10 @@ export default function WidgetBuilderModal({
                   return (
                     <div
                       key={idx}
-                      className="grid gap-2 rounded-md border p-2 sm:grid-cols-[1fr_1fr_1fr_auto]"
+                      className="space-y-2 rounded-md border p-2"
                       data-testid={`filter-row-${idx}`}
                     >
+                    <div className="grid gap-2 sm:grid-cols-[1fr_1fr_1fr_auto]">
                       <Select
                         value={opt?.value || ""}
                         onValueChange={value => {
@@ -974,6 +1027,9 @@ export default function WidgetBuilderModal({
                             fieldKind: sel.fieldKind,
                             field: sel.field,
                             fieldId: sel.fieldId,
+                            // Stage only applies to the synthetic DD stage
+                            // field; drop it when switching to anything else.
+                            stage: sel.stageField ? (filter.stage || null) : null,
                           });
                         }}
                       >
@@ -1069,6 +1125,24 @@ export default function WidgetBuilderModal({
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
+                    </div>
+                    {opt?.stageField && (
+                      <Select
+                        value={filter.stage || ""}
+                        onValueChange={value => updateFilter(idx, { stage: value })}
+                      >
+                        <SelectTrigger data-testid={`select-filter-stage-${idx}`}>
+                          <SelectValue placeholder="Choose stage to scope by" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(opt.stageOptions || []).map(o => (
+                            <SelectItem key={o.value} value={String(o.value)}>
+                              {o.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
                     </div>
                   );
                 })}

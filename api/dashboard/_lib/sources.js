@@ -87,6 +87,28 @@ export const DASHBOARD_SOURCES = {
       },
       { name: 'submitted_at', label: 'Submitted at', type: 'date' },
       { name: 'created_at', label: 'Created at', type: 'date' },
+      {
+        // Synthetic, history-derived date dimension. Has no stored column;
+        // the aggregator resolves each submission's value to the timestamp it
+        // first entered the chosen workflow stage (carried on the time-bucket /
+        // filter field config as `stage`). `stageField: true` tells the builder
+        // to show a stage picker alongside it; `stageOptions` are the canonical
+        // DD statuses (same list as workflow_status above).
+        name: 'moved_to_stage',
+        label: 'Date moved to stage…',
+        type: 'date',
+        stageField: true,
+        stageOptions: [
+          { value: 'New', label: 'New' },
+          { value: 'In Review', label: 'In Review' },
+          { value: 'Verified', label: 'Verified' },
+          { value: 'DD Meet Attended', label: 'DD Meet Attended' },
+          { value: 'Held', label: 'Held' },
+          { value: 'Approved', label: 'Approved' },
+          { value: 'Rejected', label: 'Rejected' },
+          { value: 'Incomplete', label: 'Incomplete' },
+        ],
+      },
     ],
   },
   member: {
