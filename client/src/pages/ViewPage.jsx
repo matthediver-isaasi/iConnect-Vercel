@@ -9,7 +9,7 @@ import IEditElementRenderer from "../components/iedit/IEditElementRenderer";
 
 export default function ViewPage() {
   const { branding } = useTenantBranding();
-  const { setForceBlankLayout, setForcePublicLayout, setChromeReady } = useLayoutContext();
+  const { setForceBlankLayout, setForcePublicLayout, setChromeReady, setPublicChrome } = useLayoutContext();
   const urlParams = new URLSearchParams(window.location.search);
   const pageSlug = urlParams.get('slug');
 
@@ -56,17 +56,21 @@ export default function ViewPage() {
     return () => {
       setChromeReady(true);
       setForceBlankLayout(false);
+      setPublicChrome('both');
     };
-  }, [pageSlug, setChromeReady, setForceBlankLayout]);
+  }, [pageSlug, setChromeReady, setForceBlankLayout, setPublicChrome]);
 
   useLayoutEffect(() => {
     if (pageLoading || !page) return;
     if (page.hide_chrome) {
       setForcePublicLayout(false);
       setForceBlankLayout(true);
+    } else if (page.layout_type !== 'member') {
+      // Public-layout page: honour its per-page header/footer choice.
+      setPublicChrome(page.public_chrome || 'both');
     }
     setChromeReady(true);
-  }, [page, pageLoading, setForceBlankLayout, setForcePublicLayout, setChromeReady]);
+  }, [page, pageLoading, setForceBlankLayout, setForcePublicLayout, setChromeReady, setPublicChrome]);
 
   // Handle anchor scrolling after elements are loaded
   useEffect(() => {

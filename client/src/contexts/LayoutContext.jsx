@@ -5,6 +5,8 @@ const LayoutContext = createContext({
   setForcePublicLayout: () => {},
   forceBlankLayout: false,
   setForceBlankLayout: () => {},
+  publicChrome: 'both',
+  setPublicChrome: () => {},
   chromeReady: true,
   setChromeReady: () => {},
   hasBanner: false,
@@ -37,6 +39,9 @@ const LayoutContext = createContext({
 export function LayoutProvider({ children }) {
   const [forcePublicLayout, setForcePublicLayout] = useState(false);
   const [forceBlankLayout, setForceBlankLayoutState] = useState(false);
+  // Per-page public chrome control: 'both' | 'none' | 'header' | 'footer'.
+  // Read by PublicLayout; set by DynamicPage / ViewPage from the page record.
+  const [publicChrome, setPublicChromeState] = useState('both');
   const [chromeReady, setChromeReadyState] = useState(true);
   const [hasBanner, setHasBannerState] = useState(false);
   const [portalBanner, setPortalBannerState] = useState(null);
@@ -102,6 +107,10 @@ export function LayoutProvider({ children }) {
     setForceBlankLayoutState(value);
   }, []);
 
+  const setPublicChrome = useCallback((value) => {
+    setPublicChromeState(value || 'both');
+  }, []);
+
   const setChromeReady = useCallback((value) => {
     setChromeReadyState(value);
   }, []);
@@ -112,6 +121,8 @@ export function LayoutProvider({ children }) {
       setForcePublicLayout: setLayout,
       forceBlankLayout,
       setForceBlankLayout,
+      publicChrome,
+      setPublicChrome,
       chromeReady,
       setChromeReady,
       hasBanner,

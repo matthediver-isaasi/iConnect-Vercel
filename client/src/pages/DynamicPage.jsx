@@ -68,7 +68,7 @@ export default function DynamicPage() {
     if (!isAccessReady) return false;
     return !isFeatureExcluded('site-builder.page-editor');
   }, [isCanvasPreview, memberInfo, isAccessReady, isFeatureExcluded]);
-  const { setForcePublicLayout, setForceBlankLayout, setChromeReady } = useLayoutContext();
+  const { setForcePublicLayout, setForceBlankLayout, setChromeReady, setPublicChrome } = useLayoutContext();
   const { branding } = useTenantBranding();
   
   // Get banners that should appear below the first element
@@ -322,8 +322,12 @@ export default function DynamicPage() {
       // component supports guests internally via publicClient; we just need
       // the public chrome (no portal sidebar) to wrap it.
       setForcePublicLayout(isPublicArticleRoute || !isLoggedIn);
+      // Article routes always show the full public chrome. Reset explicitly so
+      // a per-page chrome choice from a previously viewed page cannot leak in.
+      setPublicChrome('both');
       return () => {
         setForcePublicLayout(false);
+        setPublicChrome('both');
       };
     }
 
@@ -334,11 +338,18 @@ export default function DynamicPage() {
 
     const shouldForcePublic = forcePublicPreview || isPublicPage || (isHybridPage && !isLoggedIn);
     setForcePublicLayout(shouldForcePublic);
-    
+    // When this page renders with the public layout, honour its per-page
+    // header/footer choice. Reset to 'both' on cleanup so it never leaks to
+    // the next page.
+    if (shouldForcePublic) {
+      setPublicChrome(page.public_chrome || 'both');
+    }
+
     return () => {
       setForcePublicLayout(false);
+      setPublicChrome('both');
     };
-  }, [page, pageLoading, isPublicPage, isHybridPage, isLoggedIn, forcePublicPreview, setForcePublicLayout, dynamicArticleRoute]);
+  }, [page, pageLoading, isPublicPage, isHybridPage, isLoggedIn, forcePublicPreview, setForcePublicLayout, setPublicChrome, dynamicArticleRoute]);
 
   // Check for redirect mappings when page is not found
   const shouldCheckRedirect = !pageLoading && !page && !dynamicArticleRoute && !!slug;

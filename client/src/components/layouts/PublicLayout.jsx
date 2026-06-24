@@ -15,6 +15,7 @@ import { BannerProvider } from "@/contexts/BannerContext";
 import IEditFormElement from "../iedit/elements/IEditFormElement";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { useResolvedSocialIcons } from "@/hooks/useResolvedSocialIcons";
+import { useLayoutContext } from "@/contexts/LayoutContext";
 
 // Map page names to portal page identifiers for banner matching
 // These identifiers must match the PORTAL_PAGES values in PageBannerManagement.jsx
@@ -49,6 +50,11 @@ const pageToPortalPageMap = {
 };
 
 export default function PublicLayout({ children, currentPageName }) {
+  // Per-page public chrome control (set by DynamicPage / ViewPage from the
+  // page's `public_chrome` field). Defaults to showing both header and footer.
+  const { publicChrome } = useLayoutContext();
+  const showHeader = publicChrome === 'both' || publicChrome === 'header';
+  const showFooter = publicChrome === 'both' || publicChrome === 'footer';
   const { getPublicArticlesUrl, articleDisplayName, urlSlug, publicSlug, isCustomSlug, isLoading: articleUrlLoading } = useArticleUrl();
   const { branding, hasBranding } = useTenantBranding();
   const [banners, setBanners] = useState([]);
@@ -376,7 +382,7 @@ export default function PublicLayout({ children, currentPageName }) {
         </a>
 
         {/* Public Header - Now using dedicated component */}
-        <PublicHeader />
+        {showHeader && <PublicHeader />}
 
         {/* Top Page Banners - Displayed between header and main content */}
         {!loadingBanners && topBanners.length > 0 && (
@@ -397,6 +403,7 @@ export default function PublicLayout({ children, currentPageName }) {
         </main>
 
         {/* Public Footer */}
+        {showFooter && (
         <footer 
           style={{ 
             backgroundColor: tenantFooterConfig.backgroundColor || '#000000',
@@ -939,6 +946,7 @@ export default function PublicLayout({ children, currentPageName }) {
             </div>
           </div>
         </footer>
+        )}
 
         {/* Floater Display for Public Pages */}
         <FloaterDisplay location="public" />
