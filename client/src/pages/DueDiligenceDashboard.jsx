@@ -99,6 +99,51 @@ function StatCard({ title, value, icon: Icon, color, subtitle }) {
   );
 }
 
+function RiskLevelsCard({ breakdown, avgRiskLevel }) {
+  return (
+    <Card className="hover-elevate" data-testid="stat-card-risk-levels">
+      <CardContent className="pt-6">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm text-muted-foreground">Risk Levels</p>
+          {avgRiskLevel ? (
+            <Badge
+              variant="outline"
+              style={{ borderColor: avgRiskLevel.color, color: avgRiskLevel.color }}
+              data-testid="badge-avg-risk-level"
+            >
+              Avg: {String(avgRiskLevel.name).replace(/_/g, ' ')}
+            </Badge>
+          ) : (
+            <span className="text-xs text-muted-foreground" data-testid="text-avg-risk-level">Avg: --</span>
+          )}
+        </div>
+        <div className="mt-3 space-y-1.5">
+          {breakdown.length > 0 ? (
+            breakdown.map(level => (
+              <div
+                key={level.value}
+                className="flex items-center justify-between gap-2"
+                data-testid={`row-risk-level-${level.value}`}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <span
+                    className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
+                    style={{ backgroundColor: level.color }}
+                  />
+                  <span className="text-sm capitalize truncate">{String(level.name).replace(/_/g, ' ')}</span>
+                </div>
+                <span className="text-sm font-semibold" data-testid={`text-risk-count-${level.value}`}>{level.count}</span>
+              </div>
+            ))
+          ) : (
+            <p className="text-xs text-muted-foreground">No risk data</p>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function SubmissionRow({ submission, workflowStages, riskLevels, onClick, onDelete, onSwap, cardReferenceField, columnWidths, eligibleForms }) {
   const stage = workflowStages.find(s => s.id === submission.workflow_status) || { label: submission.workflow_status, color: '#6b7280' };
   // Match risk config using normalized value (which matches stored risk_level format)
@@ -425,16 +470,55 @@ export default function DueDiligenceDashboardPage() {
       }
     });
     
+    // Build the ordered risk-level scale used for the breakdown card.
+    // Use the selected form's custom levels when a single form is selected,
+    // otherwise fall back to the default low/medium/high/critical set.
+    const norm = (name) => String(name).toLowerCase().replace(/\s+/g, '_');
+    const baseScale = selectedFormId !== 'all'
+      ? (riskLevelsByFormId[selectedFormId] || DEFAULT_RISK_LEVELS)
+      : DEFAULT_RISK_LEVELS;
+    // Order ascending by risk (highest threshold = lowest risk first) when
+    // thresholds are available; otherwise preserve the configured array order.
+    const hasThresholds = baseScale.length > 0 && baseScale.every(l => typeof l.threshold === 'number');
+    const orderedScale = hasThresholds
+      ? [...baseScale].sort((a, b) => b.threshold - a.threshold)
+      : baseScale;
+    const scale = orderedScale.map(l => ({ value: norm(l.name), name: l.name, color: l.color }));
+
+    // Append any risk levels present in the data but not in the scale
+    // (e.g. submissions from other forms with custom levels).
+    const scaleValues = new Set(scale.map(l => l.value));
+    const extras = Object.keys(byRisk)
+      .filter(v => !scaleValues.has(v))
+      .map(v => ({ value: v, name: v, color: '#6b7280' }));
+
+    const riskBreakdown = [...scale, ...extras].map(l => ({
+      ...l,
+      count: byRisk[l.value] || 0
+    }));
+
+    // Average risk level via ordinal scale (index = severity), rounded back to a label.
+    let ordinalSum = 0;
+    let riskScoredCount = 0;
+    riskBreakdown.forEach((l, idx) => {
+      ordinalSum += idx * l.count;
+      riskScoredCount += l.count;
+    });
+    const avgRiskIndex = riskScoredCount > 0 ? Math.round(ordinalSum / riskScoredCount) : null;
+    const avgRiskLevel = avgRiskIndex !== null ? (riskBreakdown[avgRiskIndex] || null) : null;
+
     return {
       total,
       byStatus,
       byRisk,
+      riskBreakdown,
+      avgRiskLevel,
       avgScore: scoredCount > 0 ? Math.round(totalScore / scoredCount) : null,
       pendingReview: byStatus['new'] || 0,
       approved: byStatus['approved'] || 0,
       highRisk: (byRisk['high'] || 0) + (byRisk['critical'] || 0)
     };
-  }, [submissions]);
+  }, [submissions, selectedFormId, riskLevelsByFormId]);
 
   const uniqueOwners = useMemo(() => {
     const owners = new Map();
@@ -740,7 +824,7 @@ export default function DueDiligenceDashboardPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         <StatCard
           title="Total Submissions"
           value={stats.total}
@@ -769,6 +853,7 @@ export default function DueDiligenceDashboardPage() {
           color="#ef4444"
           subtitle="Needs attention"
         />
+        <RiskLevelsCard breakdown={stats.riskBreakdown} avgRiskLevel={stats.avgRiskLevel} />
       </div>
 
       <Card>
