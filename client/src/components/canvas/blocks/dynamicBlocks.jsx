@@ -3822,7 +3822,12 @@ function FormEmbedRender({ block, asEditor, priority }) {
   }
   if (isError || !form) return <ErrorState message="Form not found or not active." />;
 
-  const href = `/embed/form/${encodeURIComponent(form.slug)}`;
+  const params = new URLSearchParams();
+  if (c.fontFamily) params.set('font', c.fontFamily);
+  if (Number.isFinite(c.fontSize) && c.fontSize > 0) params.set('fontSize', String(c.fontSize));
+  const qs = params.toString();
+  const href = `/embed/form/${encodeURIComponent(form.slug)}${qs ? `?${qs}` : ''}`;
+
   const mode = c.mode || 'inline';
 
   // The form's inner content for each display mode. It is placed inside the
@@ -4095,6 +4100,37 @@ function FormPickerField({ value, onChange, testId }) {
   );
 }
 
+// Font picker for the embedded form. Sources the selectable families from the
+// tenant's typography styles (the same list InstalledFonts/IEdit drive off), so
+// authors can only pick fonts the tenant actually has. `value` is the full CSS
+// font-family string (e.g. "Poppins, sans-serif"); empty = the form's default.
+function FormFontField({ value, onChange, testId }) {
+  const { styles } = useTenantTypographyStylesState();
+  const fonts = useMemo(() => {
+    const seen = new Map();
+    (styles || []).forEach((s) => {
+      const fam = String(s?.font_family || '').trim();
+      if (!fam || seen.has(fam)) return;
+      const label = fam.split(',')[0].trim().replace(/^['"]|['"]$/g, '');
+      seen.set(fam, label || fam);
+    });
+    return Array.from(seen, ([v, label]) => ({ value: v, label }));
+  }, [styles]);
+  return (
+    <Field label="Font" hint={fonts.length === 0 ? 'No tenant fonts found; using the form default.' : null}>
+      <Select value={value || '__default__'} onValueChange={(v) => onChange(v === '__default__' ? '' : v)}>
+        <SelectTrigger className="h-8" data-testid={testId}><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="__default__">Default</SelectItem>
+          {fonts.map((o) => (
+            <SelectItem key={o.value} value={o.value} style={{ fontFamily: o.value }}>{o.label}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </Field>
+  );
+}
+
 function FormEmbedInspector({ block, update }) {
   const c = block.content || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
@@ -4116,6 +4152,20 @@ function FormEmbedInspector({ block, update }) {
           { value: 'link', label: 'Link only' },
         ]}
         testId="select-form-embed-mode"
+      />
+      <FormFontField value={c.fontFamily} onChange={(v) => set({ fontFamily: v })} testId="select-form-embed-font" />
+      <SelectField
+        label="Text size"
+        value={Number.isFinite(c.fontSize) && c.fontSize > 0 ? String(c.fontSize) : '__default__'}
+        onChange={(v) => set({ fontSize: v === '__default__' ? null : Number(v) })}
+        options={[
+          { value: '__default__', label: 'Default' },
+          { value: '14', label: 'Small' },
+          { value: '16', label: 'Medium' },
+          { value: '18', label: 'Large' },
+          { value: '20', label: 'Extra large' },
+        ]}
+        testId="select-form-embed-font-size"
       />
       <TextField label="Title override" value={c.title} onChange={(v) => set({ title: v })} testId="input-form-embed-title" />
       <TextField label="CTA label" value={c.ctaLabel} onChange={(v) => set({ ctaLabel: v })} testId="input-form-embed-cta" />

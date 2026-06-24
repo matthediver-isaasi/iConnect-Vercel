@@ -998,6 +998,8 @@ export const BLOCK_DEFAULTS = {
       overlayCenterOpacity: 0,
       overlayEdgeColor: '#000000',
       overlayEdgeOpacity: 0.6,
+      fontFamily: '', // unset = embedded form's default typography
+      fontSize: null, // unset = embedded form's default base text size (px)
     },
   },
   [BLOCK_TYPES.CAMPAIGN_EMBED]: {

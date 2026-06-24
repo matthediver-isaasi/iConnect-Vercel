@@ -32,6 +32,8 @@ export default function EmbedFormPage() {
 
   const prefillOrgId = searchParams.get('organization_id');
   const tenantParam = searchParams.get('tenant');
+  const fontFamilyParam = searchParams.get('font') || '';
+  const fontSizeParam = searchParams.get('fontSize') || '';
 
   const { data: form, isLoading, error } = useQuery({
     queryKey: ['embed-form', slug, tenantParam],
@@ -621,6 +623,63 @@ export default function EmbedFormPage() {
     resizeObserver.observe(document.body);
     return () => resizeObserver.disconnect();
   }, []);
+
+  // Canvas Builder "Form embed" block lets authors choose one tenant font +
+  // base text size for the whole embedded form. They arrive as `font` (a full
+  // CSS font-family string) and `fontSize` (px) query params. This route renders
+  // standalone (outside PublicLayout/Layout), so the global tenant font
+  // injection never runs here — we must load the chosen font ourselves before
+  // the font-family can take effect, otherwise it silently falls back.
+  useEffect(() => {
+    if (!fontFamilyParam) return;
+    const primary = fontFamilyParam.split(',')[0].trim().replace(/^['"]|['"]$/g, '');
+    if (!primary) return;
+    const SYSTEM_FONTS = new Set([
+      'arial', 'helvetica', 'georgia', 'times new roman', 'times', 'verdana',
+      'courier new', 'courier', 'serif', 'sans-serif', 'monospace',
+    ]);
+    const lower = primary.toLowerCase();
+    const injected = [];
+    if (lower === 'degular medium') {
+      // Tenant-hosted font (same source PublicLayout/BarePublicLayout use).
+      const styleEl = document.createElement('style');
+      styleEl.setAttribute('data-embed-font', 'degular-medium');
+      styleEl.textContent = `@font-face { font-family: 'Degular Medium'; src: url('https://teeone.pythonanywhere.com/font-assets/Degular-Medium.woff') format('woff'); font-weight: 500; font-style: normal; font-display: swap; }`;
+      document.head.appendChild(styleEl);
+      injected.push(styleEl);
+    } else if (!SYSTEM_FONTS.has(lower)) {
+      // Assume a Google Font (Poppins, Urbanist, …). Request common weights so
+      // the form's headings, labels, and body all render in the chosen family.
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.setAttribute('data-embed-font', 'google');
+      link.href = `https://fonts.googleapis.com/css2?family=${primary.replace(/ /g, '+')}:wght@300;400;500;600;700&display=swap`;
+      document.head.appendChild(link);
+      injected.push(link);
+    }
+    // Apply the family to the whole document so every form element inherits it.
+    const prevBodyFont = document.body.style.fontFamily;
+    document.body.style.fontFamily = fontFamilyParam;
+    notifyParentResize();
+    return () => {
+      injected.forEach((el) => el.remove());
+      document.body.style.fontFamily = prevBodyFont;
+    };
+  }, [fontFamilyParam]);
+
+  // Base text size: scale the root font-size so the form's rem-based
+  // typography (Tailwind text-* utilities) scales coherently. Standalone
+  // document, so this is isolated to the embed iframe.
+  useEffect(() => {
+    const size = Number(fontSizeParam);
+    if (!Number.isFinite(size) || size <= 0) return;
+    const prevRootSize = document.documentElement.style.fontSize;
+    document.documentElement.style.fontSize = `${size}px`;
+    notifyParentResize();
+    return () => {
+      document.documentElement.style.fontSize = prevRootSize;
+    };
+  }, [fontSizeParam]);
 
   if (isLoading) {
     return (
