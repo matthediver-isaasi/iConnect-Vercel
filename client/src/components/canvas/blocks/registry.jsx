@@ -393,7 +393,9 @@ function RichTextField({ label, value, onChange, testId, breakpoint }) {
   );
 }
 
-function ArrayList({ items, onChange, renderItem, makeNew, addLabel = 'Add item', testIdPrefix }) {
+function ArrayList({ items, onChange, renderItem, makeNew, addLabel = 'Add item', testIdPrefix, duplicateItem, maxItems }) {
+  const count = (items || []).length;
+  const atMax = typeof maxItems === 'number' && count >= maxItems;
   return (
     <div className="space-y-2">
       {(items || []).map((item, idx) => (
@@ -430,6 +432,20 @@ function ArrayList({ items, onChange, renderItem, makeNew, addLabel = 'Add item'
                 data-testid={`${testIdPrefix}-down-${idx}`}
               >Down</Button>
             )}
+            {duplicateItem && (
+              <Button
+                size="sm" variant="ghost" type="button"
+                disabled={atMax}
+                title={atMax ? 'Maximum reached' : undefined}
+                onClick={() => {
+                  if (atMax) return;
+                  const next = [...items];
+                  next.splice(idx + 1, 0, duplicateItem(item));
+                  onChange(next);
+                }}
+                data-testid={`${testIdPrefix}-duplicate-${idx}`}
+              >Duplicate</Button>
+            )}
             <Button
               size="sm" variant="ghost" type="button"
               onClick={() => onChange(items.filter((_, i) => i !== idx))}
@@ -440,6 +456,7 @@ function ArrayList({ items, onChange, renderItem, makeNew, addLabel = 'Add item'
       ))}
       <Button
         size="sm" variant="outline" type="button"
+        disabled={atMax}
         onClick={() => onChange([...(items || []), makeNew()])}
         data-testid={`${testIdPrefix}-add`}
       >
@@ -5032,6 +5049,11 @@ function PricingTableInspector({ block, update }) {
             description: '', features: [{ text: 'Feature one', included: true, tooltip: '' }],
             ctaLabel: 'Choose', ctaHref: '#', ctaVariant: 'outline', recommended: false,
           })}
+          duplicateItem={(item) => ({
+            ...JSON.parse(JSON.stringify(item || {})),
+            recommended: false,
+          })}
+          maxItems={4}
           addLabel={tiers.length >= 4 ? 'Maximum 4 tiers' : 'Add tier'}
           testIdPrefix="pricing-tier"
           renderItem={(item, idx, patch) => {
