@@ -316,7 +316,7 @@ function ColorField({ label, value, onChange, testId }) {
   );
 }
 
-function ImageField({ label, value, alt, onChangeSrc, onChangeAlt, testId }) {
+export function ImageField({ label, value, alt, onChangeSrc, onChangeAlt, testId }) {
   // The "Media library" button asks the editor shell to open the shared
   // MediaLibraryDialog. The shell wires up a window event listener that
   // sets a callback so the picked asset flows back here. This keeps
@@ -5550,7 +5550,7 @@ function buildHeroOverlayBackground(c) {
   return `rgba(0,0,0,${Math.max(0, Math.min(1, c.darkWash ?? 0.4))})`;
 }
 
-function buildSectionOverlayBackground(c) {
+export function buildSectionOverlayBackground(c) {
   const t = c.overlayType || 'none';
   if (t === 'solid') {
     return hexToRgba(c.overlayColor || '#000000', c.overlayOpacity ?? 0.4);
@@ -5608,7 +5608,7 @@ function buildGradientStopList(stops) {
 // truth and emits a full multipoint gradient. When it is absent (legacy
 // sections, or solid/image sections) we fall back to the original two-stop
 // from→to / centre→edge output so existing pages are byte-identical.
-function buildSectionGradientBackground(c) {
+export function buildSectionGradientBackground(c) {
   const t = c.gradientType || 'linear';
   const stops = getUsableGradientStops(c);
   if (stops) {
@@ -5889,7 +5889,7 @@ function GradientStopsEditor({ stops, onChange, testIdPrefix }) {
 // Section gradient stops editor. Persists the edited list to `gradientStops`,
 // the source of truth once stops exist (the legacy from/to fields are left
 // untouched for back-compat but are no longer consulted).
-function SectionGradientStops({ c, gradientType, set }) {
+export function SectionGradientStops({ c, gradientType, set }) {
   const stops = deriveSectionGradientStops(c, gradientType);
   return (
     <GradientStopsEditor
@@ -5935,7 +5935,7 @@ function HeroOverlayStops({ c, set }) {
   );
 }
 
-const SECTION_BLEND_MODES = [
+export const SECTION_BLEND_MODES = [
   'normal', 'multiply', 'screen', 'overlay', 'soft-light', 'hard-light',
   'darken', 'lighten', 'color-dodge', 'color-burn', 'difference', 'exclusion',
   'hue', 'saturation', 'color', 'luminosity',

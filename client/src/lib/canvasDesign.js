@@ -192,6 +192,7 @@ export const FULL_BLEED_BLOCK_TYPES = new Set([
   BLOCK_TYPES.MEGA_MENU,
   BLOCK_TYPES.WALL_OF_FAME,
   BLOCK_TYPES.TESTIMONIALS,
+  BLOCK_TYPES.FORM_EMBED,
 ]);
 
 export function blockSupportsFullBleed(type) {
@@ -970,11 +971,33 @@ export const BLOCK_DEFAULTS = {
     name: 'Form embed',
     geom: { w: 640, h: 480 },
     style: { background: 'transparent', borderWidth: 0 },
+    // fullBleed defaults to false and bgType to 'color' so existing form
+    // embeds (which carry none of these fields) render byte-identically to
+    // today: transparent background, no full-bleed. The overlay/gradient
+    // fields mirror the Section element's background schema and are only
+    // consulted when bgType is 'image'/'gradient' respectively. As with
+    // Section, `gradientStops` is deliberately NOT seeded here.
     content: {
       formSlug: '',
       mode: 'inline', // inline | iframe | link
       title: '',
       ctaLabel: 'Open form',
+      fullBleed: false,
+      bgType: 'color',
+      bgImageUrl: '',
+      overlayType: 'solid',
+      overlayBlendMode: 'normal',
+      overlayColor: '#000000',
+      overlayOpacity: 0.4,
+      overlayFromColor: '#000000',
+      overlayFromOpacity: 0.6,
+      overlayToColor: '#000000',
+      overlayToOpacity: 0,
+      overlayAngle: 180,
+      overlayCenterColor: '#000000',
+      overlayCenterOpacity: 0,
+      overlayEdgeColor: '#000000',
+      overlayEdgeOpacity: 0.6,
     },
   },
   [BLOCK_TYPES.CAMPAIGN_EMBED]: {

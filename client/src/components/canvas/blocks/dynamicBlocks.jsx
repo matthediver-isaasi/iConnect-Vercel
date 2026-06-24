@@ -37,6 +37,7 @@ import {
   hasResponsiveOverride,
   hasAnyResponsiveValue,
   writeResponsiveValue,
+  buildResponsiveImage,
 } from '@/lib/canvasDesign';
 import { publicClient } from '@/api/publicClient';
 import { base44 } from '@/api/base44Client';
@@ -53,6 +54,11 @@ import {
   buildTenantTypographyResponsiveCss,
   hasResponsiveTypographyOverride,
   LinkField,
+  ImageField,
+  SectionGradientStops,
+  SECTION_BLEND_MODES,
+  buildSectionGradientBackground,
+  buildSectionOverlayBackground,
 } from './registry';
 
 // ---- Shared small primitives (duplicated minimally from registry.jsx to
@@ -3795,7 +3801,7 @@ function ResourceListInspector({ block, update }) {
 // ============================================================================
 // FORM EMBED
 // ============================================================================
-function FormEmbedRender({ block, asEditor }) {
+function FormEmbedRender({ block, asEditor, priority }) {
   const c = block.content || {};
   const { data: form, isLoading, isError } = useQuery({
     queryKey: ['canvas', 'public-form', c.formSlug],
@@ -3817,12 +3823,15 @@ function FormEmbedRender({ block, asEditor }) {
   if (isError || !form) return <ErrorState message="Form not found or not active." />;
 
   const href = `/embed/form/${encodeURIComponent(form.slug)}`;
-
   const mode = c.mode || 'inline';
 
+  // The form's inner content for each display mode. It is placed inside the
+  // centred content rail so the form stays within the page column even when
+  // the surrounding background bleeds full width.
+  let inner;
   if (mode === 'link') {
-    return (
-      <article className="w-full h-full overflow-auto flex flex-col gap-2" aria-label={block.a11y?.ariaLabel || form.name}>
+    inner = (
+      <article className="w-full h-full overflow-auto flex flex-col gap-2">
         <h3 className="text-lg font-semibold text-slate-900 m-0">{c.title || form.name}</h3>
         {form.description ? <p className="text-sm text-slate-700 m-0">{form.description}</p> : null}
         <a
@@ -3837,22 +3846,123 @@ function FormEmbedRender({ block, asEditor }) {
         </a>
       </article>
     );
+  } else {
+    // inline + iframe both render the real public form runtime in an iframe so
+    // conditional logic, validation, and the submission pipeline are preserved.
+    inner = (
+      <>
+        {mode === 'inline' && (c.title || form.name) ? (
+          <h3 className="text-base font-semibold text-slate-900 m-0 mb-2">{c.title || form.name}</h3>
+        ) : null}
+        {asEditor ? (
+          <div className="flex-1 min-h-[200px] grid place-items-center text-xs text-slate-500 border border-dashed border-slate-300 rounded">
+            Form preview ({form.name}) — submissions only run on the published page.
+          </div>
+        ) : (
+          <FormEmbedIframe href={href} title={c.title || form.name || 'Form'} />
+        )}
+      </>
+    );
   }
 
-  // inline + iframe both render the real public form runtime in an iframe so
-  // conditional logic, validation, and the submission pipeline are preserved.
+  // Background treatment mirrors the Section element: colour (driven by the
+  // Appearance panel's style.background on the outer block tag), gradient
+  // (painted on this wrapper), or image + overlay (rendered as inset layers).
+  // All image-mode side effects are gated behind `isImageBg` so legacy form
+  // embeds (no bgType / bgType === 'color') emit exactly the same DOM as before.
+  const isImageBg = c.bgType === 'image' && !!c.bgImageUrl;
+  const isGradientBg = c.bgType === 'gradient';
+  const gradientBg = isGradientBg ? buildSectionGradientBackground(c) : null;
+  const overlayBg = isImageBg ? buildSectionOverlayBackground(c) : null;
+  const hasOverlay = isImageBg && overlayBg && (c.overlayType || 'none') !== 'none';
+
+  const s = block.style || {};
+  const pt = s.paddingTop || 0;
+  const pr = s.paddingRight || 0;
+  const pb = s.paddingBottom || 0;
+  const pl = s.paddingLeft || 0;
+  const layerInset = isImageBg ? {
+    position: 'absolute',
+    top: -pt,
+    right: -pr,
+    bottom: -pb,
+    left: -pl,
+    pointerEvents: 'none',
+  } : null;
+
+  // Inner rail keeps the form within the page content column. When full-bleed,
+  // the wrapper background spans 100vw (via geomRule on the outer tag) but the
+  // rail caps the form to `--cb-content-width` (published per breakpoint;
+  // 1200/768/375, fallback 1200) — mirroring the News Ticker pattern. It is a
+  // flex column so the iframe can flex to fill until it reports its height.
+  const railStyle = {
+    width: '100%',
+    height: '100%',
+    display: 'flex',
+    flexDirection: 'column',
+  };
+  if (c.fullBleed) {
+    railStyle.maxWidth = 'var(--cb-content-width, 1200px)';
+    railStyle.marginInline = 'auto';
+  }
+  if (isImageBg) {
+    railStyle.position = 'relative';
+    railStyle.zIndex = 2;
+  }
+
+  // `isolation: isolate` confines the overlay's mix-blend-mode to the
+  // image+overlay stack so the form never compositionally blends with anything
+  // beneath the block.
+  let wrapperStyle = isImageBg ? { isolation: 'isolate' } : undefined;
+  if (isGradientBg && gradientBg) {
+    wrapperStyle = { ...(wrapperStyle || {}), background: gradientBg };
+  }
+
   return (
-    <div className="w-full h-full flex flex-col" aria-label={block.a11y?.ariaLabel || form.name}>
-      {mode === 'inline' && (c.title || form.name) ? (
-        <h3 className="text-base font-semibold text-slate-900 m-0 mb-2">{c.title || form.name}</h3>
-      ) : null}
-      {asEditor ? (
-        <div className="flex-1 min-h-[200px] grid place-items-center text-xs text-slate-500 border border-dashed border-slate-300 rounded">
-          Form preview ({form.name}) — submissions only run on the published page.
-        </div>
-      ) : (
-        <FormEmbedIframe href={href} title={c.title || form.name || 'Form'} />
+    <div
+      className="w-full h-full relative"
+      style={wrapperStyle || undefined}
+      aria-label={block.a11y?.ariaLabel || form.name}
+      data-full-bleed={c.fullBleed ? 'true' : 'false'}
+      {...(isImageBg ? { 'data-bg-type': 'image' } : isGradientBg ? { 'data-bg-type': 'gradient' } : null)}
+    >
+      {isImageBg && (() => {
+        const r = buildResponsiveImage(c.bgImageUrl, { sizes: '100vw' });
+        return (
+          <img
+            src={r.src}
+            srcSet={r.srcSet}
+            sizes={r.sizes}
+            alt=""
+            aria-hidden="true"
+            loading={priority ? 'eager' : 'lazy'}
+            decoding="async"
+            fetchpriority={priority ? 'high' : undefined}
+            style={{
+              ...layerInset,
+              width: `calc(100% + ${pl + pr}px)`,
+              height: `calc(100% + ${pt + pb}px)`,
+              objectFit: 'cover',
+              objectPosition: 'center',
+              zIndex: 0,
+            }}
+          />
+        );
+      })()}
+      {hasOverlay && (
+        <div
+          aria-hidden="true"
+          style={{
+            ...layerInset,
+            background: overlayBg,
+            mixBlendMode: c.overlayBlendMode || 'normal',
+            zIndex: 1,
+          }}
+        />
       )}
+      <div style={railStyle}>
+        {inner}
+      </div>
     </div>
   );
 }
@@ -3988,6 +4098,11 @@ function FormPickerField({ value, onChange, testId }) {
 function FormEmbedInspector({ block, update }) {
   const c = block.content || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+  const bgType = c.bgType || 'color';
+  const overlayType = c.overlayType || 'solid';
+  const isImageBg = bgType === 'image';
+  const isGradientBg = bgType === 'gradient';
+  const gradientType = c.gradientType || 'linear';
   return (
     <>
       <FormPickerField value={c.formSlug} onChange={(v) => set({ formSlug: v })} testId="select-form-embed-slug" />
@@ -4004,6 +4119,178 @@ function FormEmbedInspector({ block, update }) {
       />
       <TextField label="Title override" value={c.title} onChange={(v) => set({ title: v })} testId="input-form-embed-title" />
       <TextField label="CTA label" value={c.ctaLabel} onChange={(v) => set({ ctaLabel: v })} testId="input-form-embed-cta" />
+      <ToggleField
+        label="Full-bleed"
+        value={!!c.fullBleed}
+        onChange={(v) => set({ fullBleed: v })}
+        testId="toggle-form-embed-full-bleed"
+        hint="Background spans the full viewport width; the form stays within the page content column."
+      />
+      <SelectField
+        label="Background"
+        value={bgType}
+        onChange={(v) => set({ bgType: v })}
+        options={[
+          { value: 'color', label: 'Colour' },
+          { value: 'gradient', label: 'Gradient' },
+          { value: 'image', label: 'Image' },
+        ]}
+        testId="select-form-embed-bg-type"
+      />
+      {isGradientBg && (
+        <>
+          <SelectField
+            label="Gradient type"
+            value={gradientType}
+            onChange={(v) => set({ gradientType: v })}
+            options={[
+              { value: 'linear', label: 'Linear' },
+              { value: 'radial', label: 'Radial' },
+            ]}
+            testId="select-form-embed-gradient-type"
+          />
+          {gradientType === 'linear' && (
+            <NumberField
+              label="Angle (0–360°)"
+              min={0} max={360} step={1}
+              value={Number.isFinite(c.gradientAngle) ? c.gradientAngle : 180}
+              onChange={(v) => {
+                const n = Number(v);
+                set({ gradientAngle: Number.isFinite(n) ? Math.max(0, Math.min(360, n)) : 180 });
+              }}
+              testId="input-form-embed-gradient-angle"
+            />
+          )}
+          <SectionGradientStops
+            c={c}
+            gradientType={gradientType}
+            set={set}
+          />
+        </>
+      )}
+      {isImageBg && (
+        <>
+          <ImageField
+            label="Background image"
+            value={c.bgImageUrl}
+            onChangeSrc={(v) => set({ bgImageUrl: v })}
+            testId="input-form-embed-bg-image"
+          />
+          <SelectField
+            label="Overlay"
+            value={overlayType}
+            onChange={(v) => set({ overlayType: v })}
+            options={[
+              { value: 'none', label: 'None' },
+              { value: 'solid', label: 'Solid colour' },
+              { value: 'linear', label: 'Linear gradient' },
+              { value: 'radial', label: 'Radial gradient' },
+            ]}
+            testId="select-form-embed-overlay-type"
+          />
+          {overlayType === 'solid' && (
+            <>
+              <ColorField
+                label="Overlay colour"
+                value={c.overlayColor || '#000000'}
+                onChange={(v) => set({ overlayColor: v })}
+                testId="input-form-embed-overlay-color"
+              />
+              <NumberField
+                label="Overlay opacity (0–1)"
+                min={0} max={1} step={0.05}
+                value={c.overlayOpacity ?? 0.4}
+                onChange={(v) => set({ overlayOpacity: Math.max(0, Math.min(1, Number(v) || 0)) })}
+                testId="input-form-embed-overlay-opacity"
+              />
+            </>
+          )}
+          {overlayType === 'linear' && (
+            <>
+              <ColorField
+                label="From colour"
+                value={c.overlayFromColor || '#000000'}
+                onChange={(v) => set({ overlayFromColor: v })}
+                testId="input-form-embed-overlay-from-color"
+              />
+              <NumberField
+                label="From opacity (0–1)"
+                min={0} max={1} step={0.05}
+                value={c.overlayFromOpacity ?? 0.6}
+                onChange={(v) => set({ overlayFromOpacity: Math.max(0, Math.min(1, Number(v) || 0)) })}
+                testId="input-form-embed-overlay-from-opacity"
+              />
+              <ColorField
+                label="To colour"
+                value={c.overlayToColor || '#000000'}
+                onChange={(v) => set({ overlayToColor: v })}
+                testId="input-form-embed-overlay-to-color"
+              />
+              <NumberField
+                label="To opacity (0–1)"
+                min={0} max={1} step={0.05}
+                value={c.overlayToOpacity ?? 0}
+                onChange={(v) => set({ overlayToOpacity: Math.max(0, Math.min(1, Number(v) || 0)) })}
+                testId="input-form-embed-overlay-to-opacity"
+              />
+              <NumberField
+                label="Angle (0–360°)"
+                min={0} max={360} step={1}
+                value={Number.isFinite(c.overlayAngle) ? c.overlayAngle : 180}
+                onChange={(v) => {
+                  const n = Number(v);
+                  set({ overlayAngle: Number.isFinite(n) ? Math.max(0, Math.min(360, n)) : 180 });
+                }}
+                testId="input-form-embed-overlay-angle"
+              />
+            </>
+          )}
+          {overlayType === 'radial' && (
+            <>
+              <ColorField
+                label="Centre colour"
+                value={c.overlayCenterColor || '#000000'}
+                onChange={(v) => set({ overlayCenterColor: v })}
+                testId="input-form-embed-overlay-center-color"
+              />
+              <NumberField
+                label="Centre opacity (0–1)"
+                min={0} max={1} step={0.05}
+                value={c.overlayCenterOpacity ?? 0}
+                onChange={(v) => set({ overlayCenterOpacity: Math.max(0, Math.min(1, Number(v) || 0)) })}
+                testId="input-form-embed-overlay-center-opacity"
+              />
+              <ColorField
+                label="Edge colour"
+                value={c.overlayEdgeColor || '#000000'}
+                onChange={(v) => set({ overlayEdgeColor: v })}
+                testId="input-form-embed-overlay-edge-color"
+              />
+              <NumberField
+                label="Edge opacity (0–1)"
+                min={0} max={1} step={0.05}
+                value={c.overlayEdgeOpacity ?? 0.6}
+                onChange={(v) => set({ overlayEdgeOpacity: Math.max(0, Math.min(1, Number(v) || 0)) })}
+                testId="input-form-embed-overlay-edge-opacity"
+              />
+            </>
+          )}
+          {overlayType !== 'none' && (
+            <SelectField
+              label="Blend mode"
+              value={c.overlayBlendMode || 'normal'}
+              onChange={(v) => set({ overlayBlendMode: v })}
+              options={SECTION_BLEND_MODES.map((m) => ({ value: m, label: m }))}
+              testId="select-form-embed-overlay-blend"
+            />
+          )}
+        </>
+      )}
+      <p className="text-xs text-slate-500">
+        Use the Appearance panel above for the background colour, border and padding.
+        {isImageBg ? ' The Appearance colour shows through any transparent areas of the image overlay.' : ''}
+        {isGradientBg ? ' The gradient renders behind the form; the Appearance background colour is hidden when a gradient is set.' : ''}
+      </p>
     </>
   );
 }
