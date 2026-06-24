@@ -4707,6 +4707,91 @@ function buildResponsiveColumnsCss(blockId, columns, gap) {
   return parts.join('');
 }
 
+// Per-tier CTA button. Legacy variants (primary/default/outline/ghost) keep
+// flowing through buttonClasses unchanged. Tenant variants (tenant-primary /
+// tenant-secondary / tenant:<key>) resolve through the same inline-style path
+// the Button block uses, including the hover swap. Content (icon + label) and
+// background sit vertically centred via items-center/justify-center.
+function PricingTierCTA({ tier, index, asEditor, branding }) {
+  const variant = tier.ctaVariant || (tier.recommended ? 'primary' : 'outline');
+  const isTenant = isTenantButtonVariant(variant);
+  const tenantStyle = isTenant ? resolveTenantButtonStyle(variant, branding) : null;
+  const [hovered, setHovered] = useState(false);
+  const label = tier.ctaLabel;
+  const ariaLabel = `${label} — ${tier.name || `Tier ${index + 1}`}`;
+  const href = asEditor ? undefined : (tier.ctaHref || '#');
+  const onClick = (e) => { if (asEditor) e.preventDefault(); };
+
+  if (isTenant && tenantStyle) {
+    const baseline = { ...TENANT_BUTTON_DEFAULT_SIZE, ...(tenantStyle.size || {}) };
+    const bg = bgCssFromConfig(hovered ? tenantStyle.hover : tenantStyle.background) || {};
+    const border = tenantStyle.border || {};
+    const inlineStyle = {
+      ...bg,
+      width: '100%',
+      color: hovered
+        ? tenantStyle.hoverTextColor || tenantStyle.textColor || '#ffffff'
+        : tenantStyle.textColor || '#ffffff',
+      borderRadius: `${tenantStyle.radius ?? 6}px`,
+      border:
+        border.width > 0
+          ? `${border.width}px ${border.style || 'solid'} ${border.color || '#000000'}`
+          : 'none',
+      paddingTop: `${baseline.paddingY}px`,
+      paddingBottom: `${baseline.paddingY}px`,
+      paddingLeft: `${baseline.paddingX}px`,
+      paddingRight: `${baseline.paddingX}px`,
+      fontSize: `${baseline.fontSize}px`,
+      transition: 'background-color 0.2s ease, color 0.2s ease, background 0.2s ease',
+    };
+    const styleIconCfg = tenantStyle.icon || null;
+    const StyleIcon = styleIconCfg?.name ? getLucideIcon(styleIconCfg.name) : null;
+    const styleIconSize = StyleIcon && Number.isFinite(styleIconCfg.size) ? styleIconCfg.size : 18;
+    const styleIconColor = StyleIcon ? (styleIconCfg.color || undefined) : undefined;
+    const styleIconAfter = StyleIcon && styleIconCfg.position === 'after';
+    const styleIconEl = StyleIcon ? (
+      <StyleIcon style={{ width: styleIconSize, height: styleIconSize, color: styleIconColor }} />
+    ) : null;
+    return (
+      <a
+        href={href}
+        onClick={onClick}
+        className="flex w-full items-center justify-center gap-1.5 rounded-md font-medium whitespace-nowrap"
+        style={inlineStyle}
+        aria-label={ariaLabel}
+        data-testid={`link-pricing-cta-${index}`}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+      >
+        {styleIconAfter ? (
+          <>
+            <span>{label}</span>
+            {styleIconEl}
+          </>
+        ) : (
+          <>
+            {styleIconEl}
+            <span>{label}</span>
+          </>
+        )}
+      </a>
+    );
+  }
+
+  return (
+    <a
+      href={href}
+      onClick={onClick}
+      className={buttonClasses(variant, 'default')}
+      style={{ width: '100%', justifyContent: 'center' }}
+      aria-label={ariaLabel}
+      data-testid={`link-pricing-cta-${index}`}
+    >
+      <span>{label}</span>
+    </a>
+  );
+}
+
 function PricingTableRender({ block, asEditor, breakpoint }) {
   const c = block.content || {};
   const tiers = Array.isArray(c.tiers) ? c.tiers.slice(0, 6) : [];
@@ -4725,6 +4810,7 @@ function PricingTableRender({ block, asEditor, breakpoint }) {
   // value in the editor preview) and emit @media CSS for the public
   // visitor; when nothing is selected we keep the legacy hardcoded look.
   const { styles: tenantStyles, resolved: stylesResolved } = useTenantTypographyStylesState();
+  const branding = useTenantBranding()?.branding || null;
   const headingStyleObj = resolveTenantStyle(c.headingTypographyStyleId, tenantStyles);
   const subheadingStyleObj = resolveTenantStyle(c.subheadingTypographyStyleId, tenantStyles);
   const cardStyleObj = resolveTenantStyle(c.cardTypographyStyleId, tenantStyles);
@@ -4943,13 +5029,17 @@ function PricingTableRender({ block, asEditor, breakpoint }) {
                     return (
                       <li
                         key={fi}
-                        className="flex items-start gap-2"
+                        className="flex items-center gap-2"
                         title={feat.tooltip || undefined}
                         style={{ opacity: included ? 1 : 0.65 }}
                       >
                         <Glyph
-                          className="w-4 h-4 mt-0.5 shrink-0"
-                          style={{ color: included ? 'var(--cb-color-primary, #0f172a)' : 'var(--cb-color-on-surface-muted, #64748b)' }}
+                          className="w-4 h-4 shrink-0"
+                          style={{
+                            color: included
+                              ? (c.tickColor || 'var(--cb-color-primary, #0f172a)')
+                              : (c.crossColor || 'var(--cb-color-on-surface-muted, #64748b)'),
+                          }}
                           aria-hidden="true"
                         />
                         <span>
@@ -4966,16 +5056,7 @@ function PricingTableRender({ block, asEditor, breakpoint }) {
               )}
               {t.ctaLabel && (
                 <div className="mt-5">
-                  <a
-                    href={asEditor ? undefined : (t.ctaHref || '#')}
-                    onClick={(e) => { if (asEditor) e.preventDefault(); }}
-                    className={buttonClasses(t.ctaVariant || (t.recommended ? 'primary' : 'outline'), 'default')}
-                    style={{ width: '100%', justifyContent: 'center' }}
-                    aria-label={`${t.ctaLabel} — ${t.name || `Tier ${i + 1}`}`}
-                    data-testid={`link-pricing-cta-${i}`}
-                  >
-                    <span>{t.ctaLabel}</span>
-                  </a>
+                  <PricingTierCTA tier={t} index={i} asEditor={asEditor} branding={branding} />
                 </div>
               )}
             </article>
@@ -4991,6 +5072,20 @@ function PricingTableInspector({ block, update }) {
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
   const setColumns = (bp, val) => set({ columns: { ...(c.columns || {}), [bp]: Math.max(1, Math.min(6, Number(val) || 1)) } });
   const tiers = Array.isArray(c.tiers) ? c.tiers : [];
+  // Tenant branded button styles, sourced the same way the Button/Hero
+  // inspectors build their custom style list, so the per-tier CTA picker
+  // can offer the tenant's configured button styles alongside the legacy ones.
+  const branding = useTenantBranding()?.branding || null;
+  const customStyleEntries = (() => {
+    const styles =
+      branding?.buttonStyles ||
+      branding?.brandingConfig?.button_styles ||
+      null;
+    if (!styles || typeof styles !== 'object') return [];
+    return Object.entries(styles)
+      .filter(([k, v]) => k !== 'primary' && k !== 'secondary' && v && typeof v === 'object')
+      .map(([k, v]) => ({ key: k, label: v.label || k }));
+  })();
   return (
     <>
       <TextField label="Heading" value={c.heading} onChange={(v) => set({ heading: v })} testId="input-pricing-heading" />
@@ -5060,6 +5155,10 @@ function PricingTableInspector({ block, update }) {
           testId="input-pricing-card-size"
         />
         <ColorField label="Card text colour" value={c.cardColor} onChange={(v) => set({ cardColor: v })} testId="input-pricing-card-color" />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <ColorField label="Tick icon colour" value={c.tickColor} onChange={(v) => set({ tickColor: v })} testId="input-pricing-tick-color" />
+        <ColorField label="Cross icon colour" value={c.crossColor} onChange={(v) => set({ crossColor: v })} testId="input-pricing-cross-color" />
       </div>
       <ToggleField
         label="Show monthly / annual toggle"
@@ -5186,6 +5285,12 @@ function PricingTableInspector({ block, update }) {
                     { value: 'default', label: 'Default' },
                     { value: 'outline', label: 'Outline' },
                     { value: 'ghost', label: 'Ghost' },
+                    { value: 'tenant-primary', label: 'Tenant primary (branded)' },
+                    { value: 'tenant-secondary', label: 'Tenant secondary (branded)' },
+                    ...customStyleEntries.map((e) => ({
+                      value: `tenant:${e.key}`,
+                      label: `Tenant: ${e.label}`,
+                    })),
                   ]}
                   testId={`pricing-tier-${idx}-cta-variant`}
                 />

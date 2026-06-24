@@ -549,6 +549,10 @@ export const BLOCK_DEFAULTS = {
       cardTypographyStyleId: '',
       cardFontSize: null,
       cardColor: '',
+      // Feature glyph colours. Empty defaults preserve the legacy look:
+      // tick uses the primary CSS var, cross uses the muted CSS var.
+      tickColor: '',
+      crossColor: '',
       tiers: [
         {
           name: 'Starter',
