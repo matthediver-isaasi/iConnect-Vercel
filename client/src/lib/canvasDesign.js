@@ -1933,7 +1933,7 @@ export function validateBlock(block) {
     case BLOCK_TYPES.PRICING_TABLE: {
       const tiers = Array.isArray(c.tiers) ? c.tiers : [];
       if (tiers.length < 2) errors.push('Pricing table needs at least 2 tiers.');
-      if (tiers.length > 4) errors.push('Pricing table supports a maximum of 4 tiers.');
+      if (tiers.length > 6) errors.push('Pricing table supports a maximum of 6 tiers.');
       tiers.forEach((t, i) => {
         if (!t?.name || !String(t.name).trim()) errors.push(`Pricing tier #${i + 1} requires a name.`);
         if (t?.ctaLabel && !t?.ctaHref) errors.push(`Pricing tier #${i + 1} CTA needs a link.`);

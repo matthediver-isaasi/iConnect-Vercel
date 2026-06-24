@@ -393,71 +393,143 @@ function RichTextField({ label, value, onChange, testId, breakpoint }) {
   );
 }
 
-function ArrayList({ items, onChange, renderItem, makeNew, addLabel = 'Add item', testIdPrefix, duplicateItem, maxItems }) {
-  const count = (items || []).length;
+function ArrayList({ items, onChange, renderItem, makeNew, addLabel = 'Add item', testIdPrefix, duplicateItem, maxItems, collapsible = false, getItemTitle }) {
+  const list = items || [];
+  const count = list.length;
   const atMax = typeof maxItems === 'number' && count >= maxItems;
+
+  // Per-item expand/collapse state (only used when `collapsible`). Existing
+  // items start collapsed so the list is short and scannable; newly added or
+  // duplicated items are inserted expanded so the admin can edit them at once.
+  const [expanded, setExpanded] = useState(() => list.map(() => !collapsible));
+  useEffect(() => {
+    setExpanded((prev) => {
+      if (prev.length === list.length) return prev;
+      return list.map((_, i) => (i < prev.length ? prev[i] : !collapsible));
+    });
+  }, [list.length, collapsible]);
+
+  const move = (idx, dir) => {
+    const next = [...list];
+    [next[idx + dir], next[idx]] = [next[idx], next[idx + dir]];
+    setExpanded((prev) => {
+      const e = [...prev];
+      [e[idx + dir], e[idx]] = [e[idx], e[idx + dir]];
+      return e;
+    });
+    onChange(next);
+  };
+  const duplicate = (idx) => {
+    if (atMax) return;
+    const next = [...list];
+    next.splice(idx + 1, 0, duplicateItem(list[idx]));
+    setExpanded((prev) => {
+      const e = [...prev];
+      e.splice(idx + 1, 0, true);
+      return e;
+    });
+    onChange(next);
+  };
+  const removeAt = (idx) => {
+    setExpanded((prev) => prev.filter((_, i) => i !== idx));
+    onChange(list.filter((_, i) => i !== idx));
+  };
+  const addItem = () => {
+    setExpanded((prev) => [...prev, true]);
+    onChange([...list, makeNew()]);
+  };
+  const patchAt = (idx, patch) => {
+    const next = [...list];
+    next[idx] = { ...next[idx], ...patch };
+    onChange(next);
+  };
+
+  const actionButtons = (idx) => (
+    <>
+      {idx > 0 && (
+        <Button
+          size="sm" variant="ghost" type="button"
+          onClick={() => move(idx, -1)}
+          data-testid={`${testIdPrefix}-up-${idx}`}
+        >Up</Button>
+      )}
+      {idx < count - 1 && (
+        <Button
+          size="sm" variant="ghost" type="button"
+          onClick={() => move(idx, 1)}
+          data-testid={`${testIdPrefix}-down-${idx}`}
+        >Down</Button>
+      )}
+      {duplicateItem && (
+        <Button
+          size="sm" variant="ghost" type="button"
+          disabled={atMax}
+          title={atMax ? 'Maximum reached' : undefined}
+          onClick={() => duplicate(idx)}
+          data-testid={`${testIdPrefix}-duplicate-${idx}`}
+        >Duplicate</Button>
+      )}
+      <Button
+        size="sm" variant="ghost" type="button"
+        onClick={() => removeAt(idx)}
+        data-testid={`${testIdPrefix}-remove-${idx}`}
+      >Remove</Button>
+    </>
+  );
+
   return (
     <div className="space-y-2">
-      {(items || []).map((item, idx) => (
-        <div
-          key={idx}
-          className="space-y-2 p-2 rounded-md border border-slate-200 bg-slate-50"
-          data-testid={`${testIdPrefix}-item-${idx}`}
-        >
-          {renderItem(item, idx, (patch) => {
-            const next = [...items];
-            next[idx] = { ...next[idx], ...patch };
-            onChange(next);
-          })}
-          <div className="flex items-center justify-end gap-1">
-            {idx > 0 && (
-              <Button
-                size="sm" variant="ghost" type="button"
-                onClick={() => {
-                  const next = [...items];
-                  [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
-                  onChange(next);
-                }}
-                data-testid={`${testIdPrefix}-up-${idx}`}
-              >Up</Button>
-            )}
-            {idx < items.length - 1 && (
-              <Button
-                size="sm" variant="ghost" type="button"
-                onClick={() => {
-                  const next = [...items];
-                  [next[idx + 1], next[idx]] = [next[idx], next[idx + 1]];
-                  onChange(next);
-                }}
-                data-testid={`${testIdPrefix}-down-${idx}`}
-              >Down</Button>
-            )}
-            {duplicateItem && (
-              <Button
-                size="sm" variant="ghost" type="button"
-                disabled={atMax}
-                title={atMax ? 'Maximum reached' : undefined}
-                onClick={() => {
-                  if (atMax) return;
-                  const next = [...items];
-                  next.splice(idx + 1, 0, duplicateItem(item));
-                  onChange(next);
-                }}
-                data-testid={`${testIdPrefix}-duplicate-${idx}`}
-              >Duplicate</Button>
-            )}
-            <Button
-              size="sm" variant="ghost" type="button"
-              onClick={() => onChange(items.filter((_, i) => i !== idx))}
-              data-testid={`${testIdPrefix}-remove-${idx}`}
-            >Remove</Button>
+      {list.map((item, idx) => {
+        if (collapsible) {
+          const isOpen = expanded[idx] !== false;
+          const title = (getItemTitle && getItemTitle(item, idx)) || `Item ${idx + 1}`;
+          return (
+            <div
+              key={idx}
+              className="rounded-md border border-slate-200 bg-slate-50"
+              data-testid={`${testIdPrefix}-item-${idx}`}
+            >
+              <div className="flex items-center gap-1 p-2 flex-wrap">
+                <Button
+                  size="sm" variant="ghost" type="button"
+                  className="flex-1 justify-start min-w-0 gap-1"
+                  onClick={() => setExpanded((prev) => prev.map((v, i) => (i === idx ? !v : v)))}
+                  data-testid={`${testIdPrefix}-toggle-${idx}`}
+                >
+                  {isOpen
+                    ? <ChevronDown className="h-4 w-4 shrink-0" />
+                    : <ChevronRight className="h-4 w-4 shrink-0" />}
+                  <span className="truncate">{title}</span>
+                </Button>
+                <div className="flex items-center gap-1 shrink-0">
+                  {actionButtons(idx)}
+                </div>
+              </div>
+              {isOpen && (
+                <div className="space-y-2 p-2 pt-0">
+                  {renderItem(item, idx, (patch) => patchAt(idx, patch))}
+                </div>
+              )}
+            </div>
+          );
+        }
+        return (
+          <div
+            key={idx}
+            className="space-y-2 p-2 rounded-md border border-slate-200 bg-slate-50"
+            data-testid={`${testIdPrefix}-item-${idx}`}
+          >
+            {renderItem(item, idx, (patch) => patchAt(idx, patch))}
+            <div className="flex items-center justify-end gap-1">
+              {actionButtons(idx)}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
       <Button
         size="sm" variant="outline" type="button"
         disabled={atMax}
-        onClick={() => onChange([...(items || []), makeNew()])}
+        onClick={addItem}
         data-testid={`${testIdPrefix}-add`}
       >
         {addLabel}
@@ -4600,7 +4672,7 @@ function MegaMenuInspector({ block, update }) {
 }
 
 // PRICING TABLE --------------------------------------------------------------
-// Author-friendly pricing layout with 2-4 tiers. Each tier carries its own
+// Author-friendly pricing layout with 2-6 tiers. Each tier carries its own
 // monthly/annual price strings; when `billingToggle` is on, a small inline
 // toggle swaps which price is shown without re-rendering anything else on
 // the page. The recommended tier is highlighted via the semantic primary
@@ -4637,7 +4709,7 @@ function buildResponsiveColumnsCss(blockId, columns, gap) {
 
 function PricingTableRender({ block, asEditor, breakpoint }) {
   const c = block.content || {};
-  const tiers = Array.isArray(c.tiers) ? c.tiers.slice(0, 4) : [];
+  const tiers = Array.isArray(c.tiers) ? c.tiers.slice(0, 6) : [];
   const showToggle = !!c.billingToggle;
   const [billing, setBilling] = useState(c.defaultBilling === 'annual' ? 'annual' : 'monthly');
   const headingLevel = Math.max(1, Math.min(6, Number(c.headingLevel) || 2));
@@ -4917,7 +4989,7 @@ function PricingTableRender({ block, asEditor, breakpoint }) {
 function PricingTableInspector({ block, update }) {
   const c = block.content || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
-  const setColumns = (bp, val) => set({ columns: { ...(c.columns || {}), [bp]: Math.max(1, Math.min(4, Number(val) || 1)) } });
+  const setColumns = (bp, val) => set({ columns: { ...(c.columns || {}), [bp]: Math.max(1, Math.min(6, Number(val) || 1)) } });
   const tiers = Array.isArray(c.tiers) ? c.tiers : [];
   return (
     <>
@@ -5019,7 +5091,7 @@ function PricingTableInspector({ block, update }) {
         testId="input-pricing-recommended-label"
       />
       <div className="grid grid-cols-3 gap-2">
-        <NumberField label="Cols (desktop)" min={1} max={4} value={resolveColumns(c.columns, 'desktop')} onChange={(v) => setColumns('desktop', v)} testId="input-pricing-cols-desktop" />
+        <NumberField label="Cols (desktop)" min={1} max={6} value={resolveColumns(c.columns, 'desktop')} onChange={(v) => setColumns('desktop', v)} testId="input-pricing-cols-desktop" />
         <NumberField label="Cols (tablet)" min={1} max={4} value={resolveColumns(c.columns, 'tablet')} onChange={(v) => setColumns('tablet', v)} testId="input-pricing-cols-tablet" />
         <NumberField label="Cols (mobile)" min={1} max={4} value={resolveColumns(c.columns, 'mobile')} onChange={(v) => setColumns('mobile', v)} testId="input-pricing-cols-mobile" />
       </div>
@@ -5040,10 +5112,12 @@ function PricingTableInspector({ block, update }) {
         ]}
         testId="select-pricing-recommended"
       />
-      <Field label="Tiers (2–4)">
+      <Field label="Tiers (2–6)">
         <ArrayList
           items={tiers}
-          onChange={(next) => set({ tiers: next.slice(0, 4) })}
+          collapsible
+          getItemTitle={(item, idx) => (item?.name && String(item.name).trim()) || `Tier ${idx + 1}`}
+          onChange={(next) => set({ tiers: next.slice(0, 6) })}
           makeNew={() => ({
             name: 'New tier', monthlyPrice: '£0', annualPrice: '£0', period: '/month',
             description: '', features: [{ text: 'Feature one', included: true, tooltip: '' }],
@@ -5053,8 +5127,8 @@ function PricingTableInspector({ block, update }) {
             ...JSON.parse(JSON.stringify(item || {})),
             recommended: false,
           })}
-          maxItems={4}
-          addLabel={tiers.length >= 4 ? 'Maximum 4 tiers' : 'Add tier'}
+          maxItems={6}
+          addLabel={tiers.length >= 6 ? 'Maximum 6 tiers' : 'Add tier'}
           testIdPrefix="pricing-tier"
           renderItem={(item, idx, patch) => {
             const features = Array.isArray(item.features)
@@ -5122,8 +5196,8 @@ function PricingTableInspector({ block, update }) {
             );
           }}
         />
-        {tiers.length > 4 && (
-          <p className="text-xs text-warning mt-1">Only the first 4 tiers will render.</p>
+        {tiers.length > 6 && (
+          <p className="text-xs text-warning mt-1">Only the first 6 tiers will render.</p>
         )}
       </Field>
     </>
