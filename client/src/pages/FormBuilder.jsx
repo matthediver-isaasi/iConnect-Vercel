@@ -1150,6 +1150,37 @@ function LogicRulesSection({
       return <p className="text-xs text-slate-400">Select a target field first</p>;
     }
 
+    // Instructions-only targets: replace the displayed rich-text content. Only
+    // static rich text is supported (no field/prefill/formula sources), so we
+    // render the same rich-text editor used to author instructions content.
+    if (targetInfo.type === 'instructions') {
+      return (
+        <div className="space-y-2">
+          <p className="text-xs text-slate-500">
+            Replace the instructions content shown to users when this rule's conditions are met.
+          </p>
+          <div className="bg-white rounded border border-slate-200">
+            <ReactQuill
+              theme="snow"
+              value={typeof action.set_value === 'string' ? action.set_value : ''}
+              onChange={(value) => updateAction(ruleId, action.id, { set_value: value })}
+              placeholder="Enter the instructions content to display..."
+              modules={{
+                toolbar: [
+                  [{ 'header': [1, 2, 3, false] }],
+                  ['bold', 'italic', 'underline'],
+                  [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                  ['link'],
+                  ['clean']
+                ]
+              }}
+              data-testid={`richtext-set-value-${actionIndex}`}
+            />
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-3">
         <div className="flex items-center gap-2 flex-wrap">
@@ -1957,7 +1988,18 @@ function LogicRulesSection({
                                     value={action.target_field_id || undefined}
                                     onValueChange={(value) => {
                                       if (value) {
-                                        updateAction(rule.id, action.id, { target_field_id: value, set_value: '' });
+                                        const targetField = fields.find(f => f.id === value);
+                                        const isInstructionsTarget = targetField?.type === 'instructions';
+                                        updateAction(rule.id, action.id, {
+                                          target_field_id: value,
+                                          set_value: '',
+                                          // Instructions targets only support static rich-text content
+                                          ...(isInstructionsTarget ? {
+                                            set_value_source: 'static',
+                                            set_value_field_id: '',
+                                            set_value_prefill_field: ''
+                                          } : {})
+                                        });
                                       }
                                     }}
                                   >

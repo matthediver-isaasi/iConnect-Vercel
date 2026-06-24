@@ -584,11 +584,22 @@ export default function EmbedFormPage() {
       }
     }
 
+    // Exclude display-only fields (instructions/image) from the submission.
+    // Conditional logic can write rich-text HTML into an instructions field's
+    // live value to override its displayed content; that must never be persisted
+    // as an answer.
+    const displayOnlyFieldIds = new Set(
+      (form.fields || []).filter(f => f.type === 'instructions' || f.type === 'image').map(f => f.id)
+    );
+    const filteredFormValues = Object.fromEntries(
+      Object.entries(formValues).filter(([key]) => !displayOnlyFieldIds.has(key))
+    );
+
     // Match FormView submission structure exactly
     submitFormMutation.mutate({
       form_id: form.id,
       form_name: form.name,
-      submission_data: formValues
+      submission_data: filteredFormValues
     });
   };
 

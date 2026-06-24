@@ -23,6 +23,7 @@ import { COUNTRIES } from "@/data/countries";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
+import DOMPurify from 'dompurify';
 
 function CountryCombobox({ countries, value, onChange, disabled, placeholder, fieldId }) {
   const [open, setOpen] = useState(false);
@@ -1868,6 +1869,13 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
   }
 
   if (field.type === 'instructions') {
+    // Conditional logic "set value" rules can override the displayed content by
+    // writing rich-text HTML into this field's live value. When an active rule
+    // targets this instructions field, render its content; otherwise fall back
+    // to the originally authored field.content.
+    const overrideContent = typeof value === 'string' && value.trim() !== '' ? value : null;
+    const rawContent = overrideContent ?? field.content ?? '<p>No instructions provided.</p>';
+    const sanitizedContent = DOMPurify.sanitize(rawContent);
     return (
       <div 
         className="prose prose-sm max-w-none p-4 bg-blue-50 border border-blue-200 rounded-lg"
@@ -1878,7 +1886,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
         )}
         <div 
           className="text-blue-800 [&>p]:mb-2 [&>ul]:list-disc [&>ul]:pl-4 [&>ol]:list-decimal [&>ol]:pl-4"
-          dangerouslySetInnerHTML={{ __html: field.content || '<p>No instructions provided.</p>' }}
+          dangerouslySetInnerHTML={{ __html: sanitizedContent }}
         />
       </div>
     );

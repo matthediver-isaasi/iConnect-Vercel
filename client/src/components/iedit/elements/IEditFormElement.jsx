@@ -1530,12 +1530,23 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       setIsValidating(false);
     }
 
+    // Exclude display-only fields (instructions/image) from the submission.
+    // Conditional logic can write rich-text HTML into an instructions field's
+    // live value to override its displayed content; that must never be persisted
+    // as an answer.
+    const displayOnlyFieldIds = new Set(
+      (form.fields || []).filter(f => f.type === 'instructions' || f.type === 'image').map(f => f.id)
+    );
+    const filteredFormValues = Object.fromEntries(
+      Object.entries(formValues).filter(([key]) => !displayOnlyFieldIds.has(key))
+    );
+
     const submissionData = {
       form_id: form.id,
       form_name: form.name,
       submitted_by_email: memberInfo?.email || null,
       submitted_by_name: memberInfo ? `${memberInfo.first_name} ${memberInfo.last_name}` : null,
-      submission_data: formValues,
+      submission_data: filteredFormValues,
       created_date: new Date().toISOString()
     };
 
