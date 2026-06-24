@@ -3871,12 +3871,16 @@ function FormEmbedRender({ block, asEditor, priority }) {
   }
 
   // Background treatment mirrors the Section element: colour (driven by the
-  // Appearance panel's style.background on the outer block tag), gradient
-  // (painted on this wrapper), or image + overlay (rendered as inset layers).
-  // All image-mode side effects are gated behind `isImageBg` so legacy form
-  // embeds (no bgType / bgType === 'color') emit exactly the same DOM as before.
+  // Appearance panel's style.background on the outer block tag), or gradient /
+  // image + overlay (both rendered as inset bleed layers). Gradient and image
+  // backgrounds bleed back out to the full block edge via `layerInset` negative
+  // offsets, so the outer padding insets the form *within* the visible
+  // background instead of outside it. All bleed-mode side effects are gated
+  // behind `isImageBg` / `isGradientBg` so legacy form embeds (no bgType /
+  // bgType === 'color') emit exactly the same DOM as before.
   const isImageBg = c.bgType === 'image' && !!c.bgImageUrl;
   const isGradientBg = c.bgType === 'gradient';
+  const isBleedBg = isImageBg || isGradientBg;
   const gradientBg = isGradientBg ? buildSectionGradientBackground(c) : null;
   const overlayBg = isImageBg ? buildSectionOverlayBackground(c) : null;
   const hasOverlay = isImageBg && overlayBg && (c.overlayType || 'none') !== 'none';
@@ -3886,7 +3890,7 @@ function FormEmbedRender({ block, asEditor, priority }) {
   const pr = s.paddingRight || 0;
   const pb = s.paddingBottom || 0;
   const pl = s.paddingLeft || 0;
-  const layerInset = isImageBg ? {
+  const layerInset = isBleedBg ? {
     position: 'absolute',
     top: -pt,
     right: -pr,
@@ -3910,18 +3914,19 @@ function FormEmbedRender({ block, asEditor, priority }) {
     railStyle.maxWidth = 'var(--cb-content-width, 1200px)';
     railStyle.marginInline = 'auto';
   }
-  if (isImageBg) {
+  if (isBleedBg) {
+    // Keep the form rail above the gradient/image bleed layer so the outer
+    // padding stays visible as breathing room between background and form.
     railStyle.position = 'relative';
     railStyle.zIndex = 2;
   }
 
   // `isolation: isolate` confines the overlay's mix-blend-mode to the
   // image+overlay stack so the form never compositionally blends with anything
-  // beneath the block.
-  let wrapperStyle = isImageBg ? { isolation: 'isolate' } : undefined;
-  if (isGradientBg && gradientBg) {
-    wrapperStyle = { ...(wrapperStyle || {}), background: gradientBg };
-  }
+  // beneath the block. Gradient now paints on an inset bleed layer (like image)
+  // rather than on this wrapper, so the outer padding insets the form within
+  // the gradient instead of outside it.
+  const wrapperStyle = isImageBg ? { isolation: 'isolate' } : undefined;
 
   return (
     <div
@@ -3954,6 +3959,16 @@ function FormEmbedRender({ block, asEditor, priority }) {
           />
         );
       })()}
+      {isGradientBg && gradientBg && (
+        <div
+          aria-hidden="true"
+          style={{
+            ...layerInset,
+            background: gradientBg,
+            zIndex: 0,
+          }}
+        />
+      )}
       {hasOverlay && (
         <div
           aria-hidden="true"
