@@ -133,6 +133,8 @@ const DEFAULT_DRAFT = {
     measure: { aggregator: "count", field: null, fieldKind: null, fieldId: null },
     groupBy: null,
     timeBucket: null,
+    // DD-only stage-transition mode; null for every other source.
+    transition: null,
     filters: [],
   },
 };
@@ -202,6 +204,7 @@ export default function WidgetBuilderModal({
           groupBy: seed.config?.groupBy || null,
           timeBucket: seed.config?.timeBucket || null,
           cumulative: !!seed.config?.cumulative,
+          transition: seed.config?.transition || null,
           filters: seed.config?.filters || [],
         },
       });
@@ -228,6 +231,17 @@ export default function WidgetBuilderModal({
   const sources = sourcesPayload?.sources || [];
   const currentSource = sources.find(s => s.id === draft.config.source) || null;
   const fieldOptions = useMemo(() => buildFieldOptions(currentSource), [currentSource]);
+
+  // DD stage-transition capability (surfaced via the source's `isDd` flag so
+  // we don't hard-code the source id here). The From/To pickers reuse the
+  // canonical DD status list already published on the `workflow_status` field.
+  const isDdSource = !!currentSource?.isDd;
+  const transition = draft.config.transition || null;
+  const transitionActive = isDdSource && !!transition?.mode;
+  const ddStageOptions = useMemo(() => {
+    const f = (currentSource?.systemFields || []).find(s => s.name === "workflow_status");
+    return Array.isArray(f?.options) ? f.options : [];
+  }, [currentSource]);
 
   // Debounced preview.
   useEffect(() => {
@@ -269,6 +283,52 @@ export default function WidgetBuilderModal({
     setDraft(prev => ({
       ...prev,
       config: { ...prev.config, measure: { ...prev.config.measure, ...patch } },
+    }));
+  };
+
+  // Toggle DD stage-transition mode on/off. Turning it on forces a count
+  // measure (transitions are event counts), clears group-by / time-bucket
+  // (they don't apply), and defaults to the breakdown bar chart. Turning it
+  // off restores a plain count widget.
+  const setTransitionEnabled = on => {
+    setDraft(prev => {
+      if (on) {
+        return {
+          ...prev,
+          widget_type: "bar",
+          config: {
+            ...prev.config,
+            transition: { mode: "breakdown", fromStage: null, toStage: null },
+            measure: { aggregator: "count", field: null, fieldKind: null, fieldId: null },
+            groupBy: null,
+            timeBucket: null,
+            cumulative: false,
+          },
+        };
+      }
+      return { ...prev, config: { ...prev.config, transition: null } };
+    });
+  };
+
+  // Breakdown -> bar (one bar per "From → To"); single -> stat (one count).
+  const setTransitionMode = mode => {
+    setDraft(prev => ({
+      ...prev,
+      widget_type: mode === "single" ? "stat" : "bar",
+      config: {
+        ...prev.config,
+        transition: { ...(prev.config.transition || {}), mode },
+      },
+    }));
+  };
+
+  const updateTransition = patch => {
+    setDraft(prev => ({
+      ...prev,
+      config: {
+        ...prev.config,
+        transition: { ...(prev.config.transition || {}), ...patch },
+      },
     }));
   };
 
@@ -318,18 +378,30 @@ export default function WidgetBuilderModal({
       const reqText = agg === "count_distinct" ? "needs a field" : "needs a numeric field";
       errs.push(`${agg} ${reqText}.`);
     }
-    if (draft.config.groupBy && draft.config.timeBucket?.field) {
-      errs.push("Pick either group-by or a time bucket, not both.");
-    }
-    if (draft.widget_type === "line" && !draft.config.timeBucket?.field) {
-      errs.push("Line charts need a time bucket field.");
-    }
-    if (
-      ["bar", "pie"].includes(draft.widget_type) &&
-      !draft.config.groupBy &&
-      !draft.config.timeBucket?.field
-    ) {
-      errs.push("Bar and pie charts need a group-by or time bucket.");
+    const tActive = !!draft.config.transition?.mode;
+    if (tActive) {
+      // Stage transitions count history events; group-by / time-bucket
+      // don't apply, so only validate the single-transition picker.
+      if (
+        draft.config.transition.mode === "single" &&
+        (!draft.config.transition.fromStage || !draft.config.transition.toStage)
+      ) {
+        errs.push("Pick a From stage and a To stage for the transition.");
+      }
+    } else {
+      if (draft.config.groupBy && draft.config.timeBucket?.field) {
+        errs.push("Pick either group-by or a time bucket, not both.");
+      }
+      if (draft.widget_type === "line" && !draft.config.timeBucket?.field) {
+        errs.push("Line charts need a time bucket field.");
+      }
+      if (
+        ["bar", "pie"].includes(draft.widget_type) &&
+        !draft.config.groupBy &&
+        !draft.config.timeBucket?.field
+      ) {
+        errs.push("Bar and pie charts need a group-by or time bucket.");
+      }
     }
     (draft.config.filters || []).forEach((f, i) => {
       if (!f.field && !f.fieldId) errs.push(`Filter ${i + 1}: choose a field.`);
@@ -560,6 +632,95 @@ export default function WidgetBuilderModal({
               </Select>
             </div>
 
+            {isDdSource && (
+              <div className="space-y-3 rounded-md border p-3">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <Label htmlFor="switch-dd-transition">Count stage transitions</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Count moves between Due Diligence stages (e.g. New → Incomplete)
+                      instead of current submissions.
+                    </p>
+                  </div>
+                  <Switch
+                    id="switch-dd-transition"
+                    data-testid="switch-dd-transition"
+                    checked={transitionActive}
+                    onCheckedChange={setTransitionEnabled}
+                  />
+                </div>
+
+                {transitionActive && (
+                  <div className="space-y-3">
+                    <div className="space-y-2">
+                      <Label>Mode</Label>
+                      <Select
+                        value={transition.mode || "breakdown"}
+                        onValueChange={setTransitionMode}
+                      >
+                        <SelectTrigger data-testid="select-transition-mode">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="breakdown">All transitions (bar chart)</SelectItem>
+                          <SelectItem value="single">Single transition (stat)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {transition.mode === "single" && (
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label>From stage</Label>
+                          <Select
+                            value={transition.fromStage || ""}
+                            onValueChange={value => updateTransition({ fromStage: value })}
+                          >
+                            <SelectTrigger data-testid="select-transition-from">
+                              <SelectValue placeholder="Choose stage" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {ddStageOptions.map(o => (
+                                <SelectItem key={o.value} value={String(o.value)}>
+                                  {o.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>To stage</Label>
+                          <Select
+                            value={transition.toStage || ""}
+                            onValueChange={value => updateTransition({ toStage: value })}
+                          >
+                            <SelectTrigger data-testid="select-transition-to">
+                              <SelectValue placeholder="Choose stage" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {ddStageOptions.map(o => (
+                                <SelectItem key={o.value} value={String(o.value)}>
+                                  {o.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    )}
+
+                    <p className="text-xs text-muted-foreground">
+                      Each stage change counts once — if a submission moves to a stage,
+                      back, then forward again, that counts as two transitions. Date
+                      filters apply to when the transition happened.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {!transitionActive && (
+            <>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>Aggregation</Label>
@@ -769,6 +930,8 @@ export default function WidgetBuilderModal({
                   }
                 />
               </div>
+            )}
+            </>
             )}
 
             <Separator />
@@ -994,8 +1157,11 @@ function PreviewBody({ widget, payload }) {
             {value === null || value === undefined ? "—" : Number(value).toLocaleString()}
           </p>
           <p className="text-xs uppercase text-muted-foreground">
-            {widget.config.measure?.aggregator || "count"} · {payload.total ?? 0} record
-            {payload.total === 1 ? "" : "s"}
+            {widget.config.transition?.mode
+              ? `${payload.total ?? 0} transition${payload.total === 1 ? "" : "s"}`
+              : `${widget.config.measure?.aggregator || "count"} · ${payload.total ?? 0} record${
+                  payload.total === 1 ? "" : "s"
+                }`}
           </p>
         </div>
       );

@@ -173,6 +173,9 @@ export async function getSourceCatalog(tenantId) {
       id: def.id,
       label: def.label,
       timestampField: def.timestampField,
+      // Surfaced so the builder can offer DD-only capabilities (stage
+      // transitions) without hard-coding the source id client-side.
+      isDd: !!def.isDd,
       systemFields,
       customFields,
     });

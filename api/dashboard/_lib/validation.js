@@ -51,6 +51,17 @@ const groupBySchema = z.object({
   fieldId: z.string().nullable().optional(),
 });
 
+// DD stage-transition mode. When present (with a `mode`), the Due Diligence
+// aggregator counts `status_changed` history events instead of current-status
+// rows. `breakdown` produces one count per "From → To" pair (bar chart);
+// `single` produces one count for a chosen From/To pair (stat/KPI). Stage
+// values are canonical DD status labels (e.g. "New", "Verified").
+const transitionSchema = z.object({
+  mode: z.enum(['breakdown', 'single']),
+  fromStage: z.string().nullable().optional(),
+  toStage: z.string().nullable().optional(),
+});
+
 export const widgetConfigSchema = z.object({
   source: z.string(),
   measure: measureSchema,
@@ -61,6 +72,9 @@ export const widgetConfigSchema = z.object({
   // instead of the per-bucket value. Defaults to off; ignored for
   // scalar and grouped widgets.
   cumulative: z.boolean().optional(),
+  // DD-only: present (with a mode) to switch the Due Diligence aggregator
+  // into stage-transition counting. Null/absent for every other widget.
+  transition: transitionSchema.nullable().optional(),
   filters: z.array(filterSchema).default([]),
 }).passthrough();
 

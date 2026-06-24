@@ -7,6 +7,8 @@ import {
   mkMatchers,
   canonicalizeKey,
   CANONICAL,
+  sortedHistory,
+  getStatusFromHistory,
 } from '../../reports/_ddReportHelpers.js';
 
 const MAX_BUCKETS = 50;
@@ -816,10 +818,95 @@ function ddFieldUsed(config, fieldName) {
   return (config.filters || []).some(matchRef);
 }
 
+// Count DD stage transitions across the flattened submission rows.
+// A transition is a single consecutive `status_changed` history event; each
+// event is counted independently (a stage that is set, reverted, and re-set
+// counts twice). System filters split in two: date-typed filters scope the
+// transition by its OWN timestamp (so a transition is counted in a period
+// based on when it happened, not when the submission was created); every
+// other filter selects which submissions are eligible.
+function computeDdTransitions(flat, config, source, transition, ddCtx) {
+  const { matchers, isHeldDecisionForForm, stageMaps } = ddCtx;
+  const mode = transition.mode === 'single' ? 'single' : 'breakdown';
+  const fromStage = transition.fromStage || null;
+  const toStage = transition.toStage || null;
+
+  const dateFieldNames = new Set(
+    (source.systemFields || []).filter(f => f.type === 'date').map(f => f.name),
+  );
+  const allFilters = (config.filters || []).filter(f => f.fieldKind === 'system' && f.field);
+  const submissionFilters = allFilters.filter(f => !dateFieldNames.has(f.field));
+  const dateFilters = allFilters.filter(f => dateFieldNames.has(f.field));
+
+  const eligible = flat.filter(row =>
+    submissionFilters.every(f => matchFilter(row[f.field], f, null, false)),
+  );
+
+  const inDateRange = ts => {
+    if (dateFilters.length === 0) return true;
+    if (!ts) return false;
+    return dateFilters.every(f => matchFilter(ts, f, null, false));
+  };
+
+  const counts = new Map();
+  let singleCount = 0;
+
+  for (const sub of eligible) {
+    const formId = sub.form_id;
+    for (const entry of sortedHistory(sub.history_log)) {
+      const prevLabel = canonicaliseDdStatus(
+        getStatusFromHistory(entry, 'previous'), formId, matchers, isHeldDecisionForForm, stageMaps,
+      );
+      const newLabel = canonicaliseDdStatus(
+        getStatusFromHistory(entry, 'new'), formId, matchers, isHeldDecisionForForm, stageMaps,
+      );
+      if (!prevLabel || !newLabel) continue;
+      if (!inDateRange(entry.timestamp || null)) continue;
+
+      if (mode === 'single') {
+        if ((!fromStage || prevLabel === fromStage) && (!toStage || newLabel === toStage)) {
+          singleCount += 1;
+        }
+      } else {
+        const key = `${prevLabel} → ${newLabel}`;
+        counts.set(key, (counts.get(key) || 0) + 1);
+      }
+    }
+  }
+
+  if (mode === 'single') {
+    return {
+      type: 'scalar',
+      total: singleCount,
+      value: singleCount,
+      rows: [{ key: 'total', value: singleCount }],
+    };
+  }
+
+  const rows = Array.from(counts.entries())
+    .map(([key, value]) => ({ key, value }))
+    .sort((a, b) => b.value - a.value);
+  if (rows.length > MAX_GROUPS) {
+    throw new Error(
+      `Stage transitions produced ${rows.length} pairs (max ${MAX_GROUPS}). Add filters to narrow the dataset.`,
+    );
+  }
+  return {
+    type: 'group',
+    total: rows.reduce((a, r) => a + r.value, 0),
+    categories: ['value'],
+    rows,
+  };
+}
+
 async function runDdWidgetConfig(config, tenantId, source) {
   const measure = normaliseMeasure(config.measure);
-  const groupBy = config.groupBy || null;
-  const timeBucket = config.timeBucket || null;
+  // Stage-transition mode counts `status_changed` history events rather than
+  // current-status rows, so group-by / time-bucket don't apply — neutralise
+  // them here so the generic checks below stay happy.
+  const transition = config.transition && config.transition.mode ? config.transition : null;
+  const groupBy = transition ? null : (config.groupBy || null);
+  const timeBucket = transition ? null : (config.timeBucket || null);
 
   if (!measure) throw new Error('Measure is required');
   if (groupBy && timeBucket) throw new Error('Choose either group-by or time-bucket, not both');
@@ -860,7 +947,7 @@ async function runDdWidgetConfig(config, tenantId, source) {
       .select(`
         id,
         workflow_status,
-        created_at,
+        created_at,${transition ? '\n        history_log,' : ''}
         form_submission:form_submission_id(id, form_id, organization_id, created_date)
       `)
       .eq('tenant_id', tenantId)
@@ -891,6 +978,7 @@ async function runDdWidgetConfig(config, tenantId, source) {
       submitted_at: fs?.created_date || null,
       created_at: r.created_at,
       org_type: null,
+      history_log: transition ? (r.history_log || null) : null,
     });
   }
 
@@ -926,6 +1014,15 @@ async function runDdWidgetConfig(config, tenantId, source) {
         flat.forEach(r => { r.org_type = orgTypeMap.get(r.organization_id) ?? null; });
       }
     }
+  }
+
+  // Stage-transition mode: count `status_changed` history events instead of
+  // aggregating current-status rows. Diverges from the generic measure path
+  // here because the unit of counting is a history event, not a submission.
+  if (transition) {
+    return computeDdTransitions(flat, config, source, transition, {
+      matchers, isHeldDecisionForForm, stageMaps,
+    });
   }
 
   // Apply all filters in JS (system filters become row-level matchers

@@ -323,7 +323,9 @@ function StatBody({ widget, payload }) {
         {formatNumber(value)}
       </p>
       <p className="text-xs uppercase text-muted-foreground">
-        {aggregator} · {payload.total ?? 0} record{payload.total === 1 ? "" : "s"}
+        {widget.config?.transition?.mode
+          ? `${payload.total ?? 0} transition${payload.total === 1 ? "" : "s"}`
+          : `${aggregator} · ${payload.total ?? 0} record${payload.total === 1 ? "" : "s"}`}
       </p>
     </div>
   );
