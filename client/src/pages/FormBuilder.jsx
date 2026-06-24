@@ -1102,6 +1102,17 @@ function LogicRulesSection({
     onRulesChange(visibilityRules.filter(r => r.id !== ruleId));
   };
 
+  // Reorder rules via drag-and-drop. Rules are evaluated in array order, so
+  // this lets users control the evaluation sequence.
+  const handleRuleDragEnd = (result) => {
+    if (!result.destination) return;
+    if (result.destination.index === result.source.index) return;
+    const reordered = Array.from(visibilityRules);
+    const [moved] = reordered.splice(result.source.index, 1);
+    reordered.splice(result.destination.index, 0, moved);
+    onRulesChange(reordered);
+  };
+
   // Legacy function - kept for potential backward compatibility but no longer used
   const toggleTargetField = (ruleId, fieldId) => {
     const rule = visibilityRules.find(r => r.id === ruleId);
@@ -1510,26 +1521,43 @@ function LogicRulesSection({
           <p className="text-xs mt-1">Add rules to show/hide fields or set values based on user responses</p>
         </div>
       ) : (
-        <div className="space-y-3">
-          {visibilityRules.map((rule, index) => {
-            const normalizedRule = normalizeRule(rule);
-            const conditions = normalizedRule.conditions || [];
-            const conditionFieldIds = conditions.map(c => c.field_id).filter(Boolean);
-            // For visibility actions, exclude condition fields
-            const availableTargetFields = fields.filter(f => !conditionFieldIds.includes(f.id));
-            // For set_value actions, include ALL fields (including locked ones) - locked fields are prime targets for conditional value setting
-            const availableSetValueTargetFields = fields;
-            const actions = normalizedRule.actions || [];
-            
-            return (
+        <DragDropContext onDragEnd={handleRuleDragEnd}>
+          <Droppable droppableId="logic-rules">
+            {(dropProvided) => (
+              <div
+                className="space-y-3"
+                ref={dropProvided.innerRef}
+                {...dropProvided.droppableProps}
+              >
+                {visibilityRules.map((rule, index) => {
+                  const normalizedRule = normalizeRule(rule);
+                  const conditions = normalizedRule.conditions || [];
+                  const conditionFieldIds = conditions.map(c => c.field_id).filter(Boolean);
+                  // For visibility actions, exclude condition fields
+                  const availableTargetFields = fields.filter(f => !conditionFieldIds.includes(f.id));
+                  // For set_value actions, include ALL fields (including locked ones) - locked fields are prime targets for conditional value setting
+                  const availableSetValueTargetFields = fields;
+                  const actions = normalizedRule.actions || [];
+
+                  return (
+                    <Draggable key={rule.id} draggableId={rule.id} index={index}>
+                      {(dragProvided) => (
               <div 
-                key={rule.id} 
+                ref={dragProvided.innerRef}
+                {...dragProvided.draggableProps}
                 className="p-4 border rounded-lg space-y-3 bg-slate-50 border-slate-200"
                 data-testid={`rule-row-${index}`}
               >
                 {/* Rule Header */}
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
+                    <div
+                      {...dragProvided.dragHandleProps}
+                      className="cursor-move flex-shrink-0"
+                      data-testid={`drag-handle-rule-${index}`}
+                    >
+                      <GripVertical className="w-4 h-4 text-slate-400" />
+                    </div>
                     <Settings2 className="w-4 h-4 text-slate-600" />
                     <span className="text-xs font-medium text-slate-600">
                       Rule #{index + 1} ({conditions.length} condition{conditions.length !== 1 ? 's' : ''}, {actions.length} action{actions.length !== 1 ? 's' : ''})
@@ -2028,9 +2056,15 @@ function LogicRulesSection({
                   )}
                 </div>
               </div>
-            );
-          })}
-        </div>
+                      )}
+                    </Draggable>
+                  );
+                })}
+                {dropProvided.placeholder}
+              </div>
+            )}
+          </Droppable>
+        </DragDropContext>
       )}
     </div>
   );
