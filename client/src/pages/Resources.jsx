@@ -579,16 +579,17 @@ export default function ResourcesPage() {
           transition: all 0.3s;
         }
         .agcas-pagination-button:hover:not(:disabled) {
-          background: ${primaryButtonStyle ? primaryButtonStyle.hoverBackground : 'linear-gradient(to right top, rgb(92, 0, 133), rgb(186, 0, 135), rgb(238, 0, 195), rgb(255, 66, 41), rgb(255, 176, 0))'};
-          color: ${primaryButtonStyle ? primaryButtonStyle.hoverColor : 'white'};
+          background: ${primaryButtonStyle ? primaryButtonStyle.hoverBackground : 'hsl(var(--primary))'};
+          color: ${primaryButtonStyle ? primaryButtonStyle.hoverColor : 'hsl(var(--primary-foreground))'};
           box-shadow: none !important;
-          ${primaryButtonStyle ? `border-radius: ${primaryButtonStyle.radius}px;` : ''}
+          border-radius: ${primaryButtonStyle ? `${primaryButtonStyle.radius}px` : 'var(--radius)'};
         }
-        .agcas-pagination-button.active {
-          background: ${primaryButtonStyle ? primaryButtonStyle.background : 'linear-gradient(to right top, rgb(92, 0, 133), rgb(186, 0, 135), rgb(238, 0, 195), rgb(255, 66, 41), rgb(255, 176, 0))'};
-          color: ${primaryButtonStyle ? primaryButtonStyle.color : 'white'};
+        .agcas-pagination-button.active,
+        .agcas-pagination-button.active:hover:not(:disabled) {
+          background: ${primaryButtonStyle ? primaryButtonStyle.background : 'hsl(var(--primary))'};
+          color: ${primaryButtonStyle ? primaryButtonStyle.color : 'hsl(var(--primary-foreground))'};
           box-shadow: none !important;
-          ${primaryButtonStyle ? `border-radius: ${primaryButtonStyle.radius}px;` : ''}
+          border-radius: ${primaryButtonStyle ? `${primaryButtonStyle.radius}px` : 'var(--radius)'};
         }
         .agcas-pagination-button:disabled {
           opacity: 0.5;
