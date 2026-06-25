@@ -2,6 +2,7 @@ import React, { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PaginationPageButton } from "@/components/ui/PaginationPageButton";
 import { FileQuestion, ChevronLeft, ChevronRight, SlidersHorizontal } from "lucide-react";
 import { publicClient } from "@/api/publicClient";
 import ArticleFilter from "../components/blog/ArticleFilter";
@@ -236,15 +237,14 @@ export default function PublicNewsPage() {
                         page === '...' ? (
                           <span key={`ellipsis-${idx}`} className="px-2 text-slate-400">...</span>
                         ) : (
-                          <Button
+                          <PaginationPageButton
                             key={page}
-                            variant={currentPage === page ? "default" : "outline"}
-                            size="sm"
+                            active={currentPage === page}
                             onClick={() => setCurrentPage(page)}
                             className="min-w-[40px]"
                           >
                             {page}
-                          </Button>
+                          </PaginationPageButton>
                         )
                       ))}
                       

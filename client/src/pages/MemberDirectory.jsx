@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
+import { PaginationPageButton } from "@/components/ui/PaginationPageButton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import MemberProfileModal from "@/components/MemberProfileModal";
 import MultiSelectFilter from "@/components/MultiSelectFilter";
@@ -827,15 +828,14 @@ export default function MemberDirectoryPage() {
                           pageNum = currentPage - 2 + i;
                         }
                         return (
-                          <Button
+                          <PaginationPageButton
                             key={pageNum}
-                            variant={currentPage === pageNum ? "default" : "outline"}
-                            size="sm"
+                            active={currentPage === pageNum}
                             onClick={() => setCurrentPage(pageNum)}
                             className="w-9"
                           >
                             {pageNum}
-                          </Button>
+                          </PaginationPageButton>
                         );
                       })}
                     </div>

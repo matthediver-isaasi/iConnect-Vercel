@@ -2,6 +2,7 @@ import React, { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PaginationPageButton } from "@/components/ui/PaginationPageButton";
 import { FileQuestion, ChevronLeft, ChevronRight, SlidersHorizontal } from "lucide-react";
 import { createPageUrl } from "@/utils";
 import { publicClient } from "@/api/publicClient";
@@ -326,14 +327,13 @@ export default function PublicArticlesPage() {
                               {page === '...' ? (
                                 <span className="px-2 text-slate-400">...</span>
                               ) : (
-                                <Button
-                                  variant={currentPage === page ? "default" : "outline"}
-                                  size="sm"
+                                <PaginationPageButton
+                                  active={currentPage === page}
                                   onClick={() => handlePageChange(page)}
                                   className="min-w-[40px]"
                                 >
                                   {page}
-                                </Button>
+                                </PaginationPageButton>
                               )}
                             </React.Fragment>
                           ))}

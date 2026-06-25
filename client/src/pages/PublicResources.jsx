@@ -8,6 +8,10 @@ import ResourceFilter from "../components/resources/ResourceFilter";
 import ResourceCard from "../components/resources/ResourceCard";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useResourceRealtime } from "@/hooks/useResourceRealtime";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
+import { resolveTenantButtonStyle, resolveTenantButtonStyleValues } from "@/lib/tenantButtonStyle";
+
+const DEFAULT_RESOURCE_CATEGORY_TITLE_COLOR = '#7e22ce';
 
 export default function PublicResourcesPage() {
   const [selectedCategory, setSelectedCategory] = useState("all");
@@ -16,6 +20,10 @@ export default function PublicResourcesPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [sortBy, setSortBy] = useState("newest");
   const [itemsPerPage, setItemsPerPage] = useState(6);
+
+  const tenantBranding = useTenantBranding()?.branding;
+  const categoryTitleColor = tenantBranding?.brandingConfig?.resourceCategoryTitleColor || DEFAULT_RESOURCE_CATEGORY_TITLE_COLOR;
+  const primaryButtonStyle = resolveTenantButtonStyleValues(resolveTenantButtonStyle(tenantBranding, 'primary'));
 
   useResourceRealtime(['public-resources']);
 
@@ -163,14 +171,16 @@ export default function PublicResourcesPage() {
           color: #334155; /* slate-700 */
         }
         .agcas-pagination-button:hover:not(:disabled) {
-          background: linear-gradient(to right top, rgb(92, 0, 133), rgb(186, 0, 135), rgb(238, 0, 195), rgb(255, 66, 41), rgb(255, 176, 0));
-          color: white;
+          background: ${primaryButtonStyle ? primaryButtonStyle.hoverBackground : 'linear-gradient(to right top, rgb(92, 0, 133), rgb(186, 0, 135), rgb(238, 0, 195), rgb(255, 66, 41), rgb(255, 176, 0))'};
+          color: ${primaryButtonStyle ? primaryButtonStyle.hoverColor : 'white'};
           box-shadow: none !important;
+          ${primaryButtonStyle ? `border-radius: ${primaryButtonStyle.radius}px;` : ''}
         }
         .agcas-pagination-button.active {
-          background: linear-gradient(to right top, rgb(92, 0, 133), rgb(186, 0, 135), rgb(238, 0, 195), rgb(255, 66, 41), rgb(255, 176, 0));
-          color: white;
+          background: ${primaryButtonStyle ? primaryButtonStyle.background : 'linear-gradient(to right top, rgb(92, 0, 133), rgb(186, 0, 135), rgb(238, 0, 195), rgb(255, 66, 41), rgb(255, 176, 0))'};
+          color: ${primaryButtonStyle ? primaryButtonStyle.color : 'white'};
           box-shadow: none !important;
+          ${primaryButtonStyle ? `border-radius: ${primaryButtonStyle.radius}px;` : ''}
         }
         .agcas-pagination-button:disabled {
           opacity: 0.5;
@@ -201,6 +211,7 @@ export default function PublicResourcesPage() {
                 onSearchChange={setSearchQuery}
                 onClearSearch={() => setSearchQuery("")}
                 isLoading={categoriesLoading}
+                categoryTitleColor={categoryTitleColor}
               />
             </div>
           </div>

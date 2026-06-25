@@ -568,6 +568,9 @@ export default async function handler(req, res) {
         if (updates.branding_config.basePortalFont !== undefined) {
           updates.branding_config.basePortalFont = validateNavFontFamily(updates.branding_config.basePortalFont);
         }
+        if (updates.branding_config.resourceCategoryTitleColor !== undefined) {
+          updates.branding_config.resourceCategoryTitleColor = normalizeHexColor(updates.branding_config.resourceCategoryTitleColor);
+        }
       }
 
       if (Object.keys(updates).length === 0) {

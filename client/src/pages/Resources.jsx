@@ -12,10 +12,17 @@ import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useResourceRealtime } from "@/hooks/useResourceRealtime";
 import { useLayoutContext } from "@/contexts/LayoutContext";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
+import { resolveTenantButtonStyle, resolveTenantButtonStyleValues } from "@/lib/tenantButtonStyle";
+
+const DEFAULT_RESOURCE_CATEGORY_TITLE_COLOR = '#7e22ce';
 
 export default function ResourcesPage() {
   const { memberInfo, memberRole, isAdmin, isFeatureExcluded } = useMemberAccess();
   const { hasBanner, sessionValidated, authResolved } = useLayoutContext();
+  const tenantBranding = useTenantBranding()?.branding;
+  const categoryTitleColor = tenantBranding?.brandingConfig?.resourceCategoryTitleColor || DEFAULT_RESOURCE_CATEGORY_TITLE_COLOR;
+  const primaryButtonStyle = resolveTenantButtonStyleValues(resolveTenantButtonStyle(tenantBranding, 'primary'));
   
   // SECURITY: Only consider user authenticated when all conditions are true:
   // 1. authResolved is true (server completed the auth check)
@@ -572,14 +579,16 @@ export default function ResourcesPage() {
           transition: all 0.3s;
         }
         .agcas-pagination-button:hover:not(:disabled) {
-          background: linear-gradient(to right top, rgb(92, 0, 133), rgb(186, 0, 135), rgb(238, 0, 195), rgb(255, 66, 41), rgb(255, 176, 0));
-          color: white;
+          background: ${primaryButtonStyle ? primaryButtonStyle.hoverBackground : 'linear-gradient(to right top, rgb(92, 0, 133), rgb(186, 0, 135), rgb(238, 0, 195), rgb(255, 66, 41), rgb(255, 176, 0))'};
+          color: ${primaryButtonStyle ? primaryButtonStyle.hoverColor : 'white'};
           box-shadow: none !important;
+          ${primaryButtonStyle ? `border-radius: ${primaryButtonStyle.radius}px;` : ''}
         }
         .agcas-pagination-button.active {
-          background: linear-gradient(to right top, rgb(92, 0, 133), rgb(186, 0, 135), rgb(238, 0, 195), rgb(255, 66, 41), rgb(255, 176, 0));
-          color: white;
+          background: ${primaryButtonStyle ? primaryButtonStyle.background : 'linear-gradient(to right top, rgb(92, 0, 133), rgb(186, 0, 135), rgb(238, 0, 195), rgb(255, 66, 41), rgb(255, 176, 0))'};
+          color: ${primaryButtonStyle ? primaryButtonStyle.color : 'white'};
           box-shadow: none !important;
+          ${primaryButtonStyle ? `border-radius: ${primaryButtonStyle.radius}px;` : ''}
         }
         .agcas-pagination-button:disabled {
           opacity: 0.5;
@@ -617,6 +626,7 @@ export default function ResourcesPage() {
                 isLoading={categoriesLoading}
                 resources={resources}
                 hideEmptySubcategories={hideEmptySubcategories}
+                categoryTitleColor={categoryTitleColor}
               />
               
               {memberInfo && hasUnsavedChanges && (

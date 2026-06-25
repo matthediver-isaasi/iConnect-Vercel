@@ -861,7 +861,8 @@ export default function AdminBranding() {
       footerSocialIconColor: '#FFFFFF',
       socialIconCustomSvgs: {},
       portalNav: DEFAULT_PORTAL_NAV,
-      basePortalFont: ''
+      basePortalFont: '',
+      resourceCategoryTitleColor: '#7e22ce'
     },
     platform_branding: {
       showPlatformBranding: true,
@@ -1052,7 +1053,8 @@ export default function AdminBranding() {
                 footerSocialIconColor: t?.branding_config?.footerSocialIconColor || '#FFFFFF',
                 socialIconCustomSvgs: t?.branding_config?.socialIconCustomSvgs || {},
                 portalNav: hydratePortalNav(t?.branding_config?.portalNav),
-                basePortalFont: t?.branding_config?.basePortalFont || ''
+                basePortalFont: t?.branding_config?.basePortalFont || '',
+                resourceCategoryTitleColor: t?.branding_config?.resourceCategoryTitleColor || '#7e22ce'
               },
               platform_branding: {
                 showPlatformBranding: t?.platform_branding?.showPlatformBranding !== false,
@@ -1767,6 +1769,26 @@ export default function AdminBranding() {
                       placeholder="#BA0087"
                     />
                   </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="resource_category_title_color" className="text-slate-200">Resource category title colour</Label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="color"
+                      id="resource_category_title_color"
+                      value={formData.branding_config?.resourceCategoryTitleColor || '#7e22ce'}
+                      onChange={(e) => setFormData({ ...formData, branding_config: { ...formData.branding_config, resourceCategoryTitleColor: e.target.value } })}
+                      className="w-12 h-10 rounded cursor-pointer"
+                      data-testid="input-resource-category-title-color"
+                    />
+                    <Input
+                      value={formData.branding_config?.resourceCategoryTitleColor || ''}
+                      onChange={(e) => setFormData({ ...formData, branding_config: { ...formData.branding_config, resourceCategoryTitleColor: e.target.value } })}
+                      className="bg-slate-900/50 border-slate-600 text-white flex-1"
+                      placeholder="#7e22ce"
+                    />
+                  </div>
+                  <p className="text-xs text-slate-400">Colour of category titles in the Resources sidebar filter. Defaults to purple.</p>
                 </div>
               </div>
             </CardContent>
