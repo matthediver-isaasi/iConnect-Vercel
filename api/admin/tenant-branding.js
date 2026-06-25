@@ -21,6 +21,7 @@ const ALLOWED_NAV_FONT_FAMILIES = [
   'Poppins, sans-serif',
   'Urbanist, sans-serif',
   "'Degular Medium', 'Poppins', sans-serif",
+  "'Source Sans Pro', sans-serif",
   'Georgia, serif',
   'Arial, sans-serif',
   "'Times New Roman', serif"
