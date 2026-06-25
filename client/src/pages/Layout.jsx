@@ -847,6 +847,16 @@ export default function Layout({ children, currentPageName }) {
   const basePortalFont = tenantBranding?.branding?.brandingConfig?.basePortalFont || '';
   const portalNavBgStyle = portalNav?.background ? buildPortalNavBackgroundStyle(portalNav.background) : {};
   const hasPortalNavBg = Object.keys(portalNavBgStyle).length > 0;
+  // Shadcn's <Sidebar> paints its visible surface on an inner
+  // [data-sidebar="sidebar"] div whose `bg-sidebar` background-color covers any
+  // background-image set on the outer wrapper's `style` prop. So gradient/image
+  // backgrounds must be applied directly to that inner div via a scoped CSS
+  // rule (Task #1829), not through the outer style prop.
+  const portalNavBgCss = hasPortalNavBg
+    ? Object.entries(portalNavBgStyle)
+        .map(([prop, value]) => `${prop.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)}: ${value};`)
+        .join(' ')
+    : '';
   const portalRootFont = basePortalFont
     ? `${basePortalFont}, Poppins, sans-serif`
     : 'Poppins, sans-serif';
@@ -2118,6 +2128,8 @@ useEffect(() => {
           .shadow, .shadow-sm, .shadow-md, .shadow-lg {
             border-radius: var(--border-radius) !important;
           }
+
+          ${portalNavBgCss ? `[data-sidebar="sidebar"] { ${portalNavBgCss} }` : ''}
         `}
       </style>
 
