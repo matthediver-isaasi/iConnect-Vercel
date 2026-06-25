@@ -361,6 +361,11 @@ export const BLOCK_DEFAULTS = {
       alt: '',
       href: '',
       objectFit: 'cover', // cover | contain | fill | none | scale-down
+      // Font Awesome icon (alternative to image)
+      iconClass: '',
+      iconSize: 64,
+      iconColor: '',
+      iconAlign: 'center',
     },
   },
   [BLOCK_TYPES.BUTTON]: {
@@ -1889,12 +1894,14 @@ export function validateBlock(block) {
         errors.push('Hero background video URL is missing.');
       }
       break;
-    case BLOCK_TYPES.IMAGE:
-      if (!c.src) errors.push('Image source is missing.');
-      if (!c.alt || !String(c.alt).trim()) {
+    case BLOCK_TYPES.IMAGE: {
+      const hasIcon = c.iconClass && String(c.iconClass).trim();
+      if (!c.src && !hasIcon) errors.push('Image source or icon is required.');
+      if (c.src && (!c.alt || !String(c.alt).trim())) {
         errors.push('Image requires alt text for accessibility.');
       }
       break;
+    }
     case BLOCK_TYPES.BUTTON:
       if (!c.label || !String(c.label).trim()) errors.push('Button requires a label.');
       if (!c.href) errors.push('Button requires a link target.');

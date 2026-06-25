@@ -1911,8 +1911,43 @@ function TextInspector({ block, update, breakpoint }) {
 }
 
 // IMAGE ----------------------------------------------------------------------
+function _sanitizeFaIconClassForImage(raw) {
+  if (!raw || typeof raw !== 'string') return '';
+  return raw
+    .trim()
+    .split(/\s+/)
+    .filter((t) => /^fa[a-z0-9-]*$/.test(t))
+    .join(' ');
+}
+
 function ImageRender({ block, asEditor, priority }) {
   const c = block.content || {};
+  const iconClass = _sanitizeFaIconClassForImage(c.iconClass);
+
+  if (iconClass) {
+    const alignToJustify = (a) => (a === 'center' ? 'center' : a === 'right' ? 'flex-end' : 'flex-start');
+    const iconEl = (
+      <div
+        className="w-full h-full flex items-center"
+        style={{ justifyContent: alignToJustify(c.iconAlign) }}
+      >
+        <i
+          className={iconClass}
+          aria-hidden="true"
+          style={{
+            fontSize: Number.isFinite(Number(c.iconSize)) && Number(c.iconSize) > 0 ? Number(c.iconSize) : 64,
+            color: c.iconColor || undefined,
+            lineHeight: 1,
+          }}
+        />
+      </div>
+    );
+    if (c.href && !asEditor) {
+      return <a href={c.href} className="block w-full h-full">{iconEl}</a>;
+    }
+    return iconEl;
+  }
+
   const r = c.src ? buildResponsiveImage(c.src, { sizes: '(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw' }) : null;
   const img = c.src ? (
     <img
@@ -1945,6 +1980,8 @@ function ImageRender({ block, asEditor, priority }) {
 function ImageInspector({ block, update }) {
   const c = block.content || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+  const [iconPickerOpen, setIconPickerOpen] = useState(false);
+  const iconClass = _sanitizeFaIconClassForImage(c.iconClass);
   return (
     <>
       <ImageField
@@ -1955,20 +1992,102 @@ function ImageInspector({ block, update }) {
         onChangeAlt={(v) => set({ alt: v })}
         testId="input-image"
       />
+      <div className="pt-1 border-t border-slate-100 space-y-2">
+        <div className="flex items-center gap-2">
+          <Label className="text-xs text-slate-600">Font Awesome icon</Label>
+          {iconClass ? (
+            <i
+              className={iconClass}
+              aria-hidden="true"
+              style={{ color: c.iconColor || undefined }}
+              data-testid="preview-image-icon"
+            />
+          ) : null}
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="w-full justify-start gap-2"
+          onClick={() => setIconPickerOpen(true)}
+          data-testid="button-browse-image-icon"
+        >
+          <Search className="w-4 h-4" />
+          {iconClass ? 'Change icon…' : 'Browse icons…'}
+        </Button>
+        <Suspense fallback={null}>
+          {iconPickerOpen ? (
+            <FontAwesomeIconPicker
+              open={iconPickerOpen}
+              onClose={() => setIconPickerOpen(false)}
+              onSelect={(cls) => set({ iconClass: cls })}
+              currentValue={c.iconClass}
+            />
+          ) : null}
+        </Suspense>
+        <TextField
+          label="Font Awesome class (advanced — or use the picker above)"
+          value={c.iconClass}
+          onChange={(v) => set({ iconClass: v })}
+          placeholder="fa-solid fa-image"
+          testId="input-image-icon-class"
+        />
+        {iconClass && (
+          <>
+            <NumberField
+              label="Icon size (px)"
+              value={c.iconSize == null ? 64 : c.iconSize}
+              onChange={(v) => set({ iconSize: v })}
+              min={8}
+              max={320}
+              testId="input-image-icon-size"
+            />
+            <SelectField
+              label="Icon alignment"
+              value={c.iconAlign || 'center'}
+              onChange={(v) => set({ iconAlign: v })}
+              options={[
+                { value: 'left', label: 'Left' },
+                { value: 'center', label: 'Center' },
+                { value: 'right', label: 'Right' },
+              ]}
+              testId="select-image-icon-align"
+            />
+            <ColorField
+              label="Icon colour (optional)"
+              value={c.iconColor}
+              onChange={(v) => set({ iconColor: v })}
+              testId="input-image-icon-color"
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start text-slate-500"
+              onClick={() => set({ iconClass: '', iconSize: 64, iconColor: '', iconAlign: 'center' })}
+              data-testid="button-remove-image-icon"
+            >
+              Remove icon
+            </Button>
+          </>
+        )}
+      </div>
       <LinkField label="Link (optional)" value={c.href} onChange={(v) => set({ href: v })} testId="input-image-href" />
-      <SelectField
-        label="Object fit"
-        value={c.objectFit || 'cover'}
-        onChange={(v) => set({ objectFit: v })}
-        options={[
-          { value: 'cover', label: 'Cover' },
-          { value: 'contain', label: 'Contain' },
-          { value: 'fill', label: 'Fill' },
-          { value: 'none', label: 'None' },
-          { value: 'scale-down', label: 'Scale down' },
-        ]}
-        testId="select-image-fit"
-      />
+      {!iconClass && (
+        <SelectField
+          label="Object fit"
+          value={c.objectFit || 'cover'}
+          onChange={(v) => set({ objectFit: v })}
+          options={[
+            { value: 'cover', label: 'Cover' },
+            { value: 'contain', label: 'Contain' },
+            { value: 'fill', label: 'Fill' },
+            { value: 'none', label: 'None' },
+            { value: 'scale-down', label: 'Scale down' },
+          ]}
+          testId="select-image-fit"
+        />
+      )}
     </>
   );
 }
