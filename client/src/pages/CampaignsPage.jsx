@@ -7,6 +7,7 @@ import {
   Heart, Loader2, Users, Target, Calendar, ArrowRight, AlertCircle
 } from "lucide-react";
 import { getTenantSlugFromLocation } from "@/api/publicClient";
+import TenantCtaButton from "@/components/common/TenantCtaButton";
 
 function formatCurrency(amount, currency) {
   const symbols = { GBP: '\u00a3', USD: '$', EUR: '\u20ac' };
@@ -115,14 +116,14 @@ function CampaignCard({ campaign, onRegister }) {
         </div>
 
         {canRegister ? (
-          <Button
+          <TenantCtaButton
             className="w-full"
             onClick={() => onRegister(campaign.slug)}
             data-testid={`button-register-${campaign.id}`}
           >
             Start Fundraising
             <ArrowRight className="w-4 h-4 ml-1" />
-          </Button>
+          </TenantCtaButton>
         ) : isEnded ? (
           <Badge variant="secondary" className="w-full justify-center py-1.5" data-testid={`badge-ended-${campaign.id}`}>
             Campaign Ended

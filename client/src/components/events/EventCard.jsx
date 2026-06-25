@@ -14,6 +14,7 @@ import { parseEventTypes } from "@/lib/utils";
 import { formatEventTime, formatEventDate, is24HourFormat } from "@/utils/timeFormat";
 import { base44 } from "@/api/base44Client";
 import { getFocalPointStyle } from "@/components/FocalPointPicker";
+import TenantCtaButton from "@/components/common/TenantCtaButton";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -1029,25 +1030,46 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                     (event.registration_closes_at && new Date() > new Date(event.registration_closes_at));
                   const buttonLabel = isRegistrationClosed ? "Registration Closed" : (isSoldOut ? "Sold Out" : ctaConfig.label);
                   const isGradient = ctaConfig.style === 'gradient';
-                  
+                  // Registration closed/sold-out are inactive states — keep
+                  // their existing look. Only the active register CTA picks up
+                  // the tenant Primary button style (falls back to the existing
+                  // gradient / blue when no Primary style is configured).
+                  const isActiveCta = !isRegistrationClosed && !isSoldOut;
+                  const handleRegisterClick = () => {
+                    if (event.cta_override_url && event.cta_override_mode !== 'detail_page') {
+                      window.location.href = event.cta_override_url;
+                    } else {
+                      window.location.href = getEventUrl(event);
+                    }
+                  };
+
+                  if (!isActiveCta) {
+                    return (
+                      <Button
+                        variant={isRegistrationClosed ? "secondary" : "default"}
+                        className={`w-full ${!isRegistrationClosed && isGradient
+                          ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 text-white shadow-lg'
+                          : !isRegistrationClosed ? 'bg-blue-600' : ''}`}
+                        disabled={isSoldOut}
+                        onClick={handleRegisterClick}
+                        data-testid={`button-register-event-${event.id}`}
+                      >
+                        {buttonLabel}
+                      </Button>
+                    );
+                  }
+
                   return (
-                    <Button 
-                      variant={isRegistrationClosed ? "secondary" : "default"}
-                      className={`w-full ${!isRegistrationClosed && isGradient 
-                        ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 text-white shadow-lg' 
-                        : !isRegistrationClosed ? 'bg-blue-600' : ''}`}
-                      disabled={isSoldOut}
-                      onClick={() => {
-                        if (event.cta_override_url && event.cta_override_mode !== 'detail_page') {
-                          window.location.href = event.cta_override_url;
-                        } else {
-                          window.location.href = getEventUrl(event);
-                        }
-                      }}
+                    <TenantCtaButton
+                      className="w-full"
+                      fallbackClassName={isGradient
+                        ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 text-white shadow-lg'
+                        : 'bg-blue-600'}
+                      onClick={handleRegisterClick}
                       data-testid={`button-register-event-${event.id}`}
                     >
                       {buttonLabel}
-                    </Button>
+                    </TenantCtaButton>
                   );
                 })()}
               </>

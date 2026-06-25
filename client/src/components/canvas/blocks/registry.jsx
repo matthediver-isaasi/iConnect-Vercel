@@ -73,6 +73,12 @@ import { sanitizeRichText, stripTrailingEmptyParagraphs, sanitizeCustomHtml } fr
 import { DYNAMIC_BLOCK_DEFINITIONS } from './dynamicBlocks';
 import { publicClient } from '@/api/publicClient';
 import { useTenantBranding } from '@/contexts/TenantBrandingContext';
+import {
+  TENANT_BUTTON_DEFAULT_SIZE,
+  bgCssFromConfig,
+  resolveTenantButtonStyle,
+  isTenantButtonVariant,
+} from '@/lib/tenantButtonStyle';
 import { useCanvasAnchors } from '../CanvasAnchorContext';
 import { useCanvasSymbols } from '../CanvasSymbolsContext';
 import { Link } from 'react-router-dom';
@@ -891,17 +897,6 @@ function buttonClasses(variant, size) {
   return `inline-flex items-center justify-center gap-1.5 rounded-md font-medium ${v[variant] || v.default} ${s[size] || s.default}`;
 }
 
-// Default size for tenant button variants on the canvas — matches today's
-// `lg` canvas button dimensions (h-10 px-5 text-base) so a tenant whose
-// stored `button_styles.{primary,secondary}` has no `size` block still
-// renders at sensible CTA proportions.
-const TENANT_BUTTON_DEFAULT_SIZE = {
-  paddingX: 20,
-  paddingY: 8,
-  fontSize: 16,
-  iconSize: 18,
-};
-
 // Task #962: numeric baselines for the legacy size classes used by
 // `buttonClasses`. When a legacy variant gets a per-block `content.size`
 // override (partial { paddingX?, paddingY?, fontSize?, iconSize? }), the
@@ -931,77 +926,6 @@ function readLegacySizeClass(c) {
 function readSizeOverrides(c) {
   if (c && c.size && typeof c.size === 'object' && !Array.isArray(c.size)) return c.size;
   return null;
-}
-
-// Compute a CSS `background` shorthand from a button_styles bg/hover config
-// (the shape produced by `/ButtonElements`). Mirrors the resolver already
-// used by PublicHeader / PublicLayout. Returns null when the config is
-// missing so callers can fall back to a default.
-function bgCssFromConfig(bgConfig) {
-  if (!bgConfig) return null;
-  // Task #961: explicit transparent type — no fill, regardless of any
-  // stale `solidColor` / `gradientStops` left on the object.
-  if (bgConfig.type === 'transparent') {
-    return { backgroundColor: 'transparent' };
-  }
-  if (bgConfig.type === 'solid') {
-    return { backgroundColor: bgConfig.solidColor || 'transparent' };
-  }
-  const stops = bgConfig.gradientStops;
-  if (Array.isArray(stops) && stops.length >= 2) {
-    const angle = bgConfig.gradientAngle ?? 90;
-    const parts = [...stops]
-      .sort((a, b) => a.position - b.position)
-      .map((s) => `${s.color} ${s.position}%`)
-      .join(', ');
-    return { background: `linear-gradient(${angle}deg, ${parts})` };
-  }
-  if (bgConfig.gradientStart && bgConfig.gradientEnd) {
-    return {
-      background: `linear-gradient(90deg, ${bgConfig.gradientStart} 0%, ${bgConfig.gradientEnd} 100%)`,
-    };
-  }
-  if (bgConfig.solidColor) {
-    return { backgroundColor: bgConfig.solidColor };
-  }
-  return null;
-}
-
-// Resolve a stored tenant button-style key against the branding payload.
-// Accepts the canvas variant string ('tenant-primary' / 'tenant-secondary')
-// and returns the corresponding `branding.buttonStyles[primary|secondary]`
-// object — or null when branding isn't loaded / the slot isn't configured.
-function resolveTenantButtonStyle(variant, branding) {
-  // Three accepted variant shapes:
-  //   'tenant-primary'   → button_styles.primary    (legacy, kept stable)
-  //   'tenant-secondary' → button_styles.secondary  (legacy, kept stable)
-  //   'tenant:<key>'     → button_styles[<key>]     (free-form custom entries, task #960)
-  let key = null;
-  if (variant === 'tenant-primary') key = 'primary';
-  else if (variant === 'tenant-secondary') key = 'secondary';
-  else if (typeof variant === 'string' && variant.startsWith('tenant:')) {
-    key = variant.slice('tenant:'.length);
-  }
-  if (!key) return null;
-  // `buttonStyles` is the flat field exposed by /api/public/tenant-branding;
-  // older payloads expose it nested as `brandingConfig.button_styles`.
-  const styles =
-    branding?.buttonStyles ||
-    branding?.brandingConfig?.button_styles ||
-    null;
-  if (!styles) return null;
-  return styles[key] || null;
-}
-
-// True for any variant that should be rendered via the inline-style
-// tenant button path (legacy `tenant-primary` / `tenant-secondary` plus
-// the free-form `tenant:<key>` form introduced in task #960).
-function isTenantButtonVariant(variant) {
-  return (
-    variant === 'tenant-primary' ||
-    variant === 'tenant-secondary' ||
-    (typeof variant === 'string' && variant.startsWith('tenant:'))
-  );
 }
 
 function aspectFromRatio(r) {

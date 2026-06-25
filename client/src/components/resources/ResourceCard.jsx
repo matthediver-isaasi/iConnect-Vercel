@@ -15,6 +15,9 @@ import { createPageUrl } from "@/utils";
 import AGCASButton from "../ui/AGCASButton";
 import AGCASSquareButton from "../ui/AGCASSquareButton";
 import BookmarkButton from "../bookmarks/BookmarkButton";
+import TenantCtaButton from "@/components/common/TenantCtaButton";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
+import { resolveTenantButtonStyle } from "@/lib/tenantButtonStyle";
 
 const iconMap = {
   ArrowUpRight,
@@ -32,6 +35,11 @@ export default function ResourceCard({ resource, isLocked = false, isEventLocked
   
   // Get button style from props instead of fetching
   const buttonStyle = buttonStyles.find(s => s.resource_type === resource.resource_type) || null;
+
+  // Tenant Primary button style (Button Style Creator). When configured it
+  // takes precedence for the prominent CTA so resource cards match the brand.
+  const branding = useTenantBranding()?.branding || null;
+  const tenantPrimaryStyle = resolveTenantButtonStyle('tenant-primary', branding);
   
   // Check if this resource requires login (non-public resource and user not authenticated)
   const requiresLogin = !isAuthenticated && !resource.is_public;
@@ -124,6 +132,67 @@ export default function ResourceCard({ resource, isLocked = false, isEventLocked
       );
     }
     
+    // Tenant Primary button style takes precedence for the prominent CTA.
+    if (tenantPrimaryStyle) {
+      const IconComponent = buttonStyle?.icon_name && iconMap[buttonStyle.icon_name];
+      const ctaIcon = IconComponent && buttonStyle?.icon_name !== 'none'
+        ? <IconComponent className="w-4 h-4" />
+        : getResourceIcon(resource.resource_type);
+      const ctaText = buttonStyle?.button_text || getResourceLabel(resource.resource_type);
+      return (
+        <div className="flex gap-2">
+          <TenantCtaButton
+            onClick={handleResourceClick}
+            className={resource.is_public ? 'flex-1' : 'w-full'}
+            data-testid={`button-resource-cta-${resource.id}`}
+          >
+            {ctaIcon}
+            <span>{ctaText}</span>
+          </TenantCtaButton>
+
+          {resource.is_public && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="shrink-0 w-10 self-stretch inline-flex items-center justify-center bg-transparent rounded-none transition-all duration-300 hover:text-white agcas-share-button">
+                  <Share2 className="w-4 h-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {enabledSocialIcons.includes('x') && (
+                  <DropdownMenuItem onClick={() => handleShare('x')} className="cursor-pointer">
+                    <svg className="w-4 h-4 mr-2" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                    </svg>
+                    Share on X
+                  </DropdownMenuItem>
+                )}
+                {enabledSocialIcons.includes('linkedin') && (
+                  <DropdownMenuItem onClick={() => handleShare('linkedin')} className="cursor-pointer">
+                    <svg className="w-4 h-4 mr-2" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+                    </svg>
+                    Share on LinkedIn
+                  </DropdownMenuItem>
+                )}
+                {enabledSocialIcons.includes('email') && (
+                  <DropdownMenuItem onClick={() => handleShare('email')} className="cursor-pointer">
+                    <Mail className="w-4 h-4 mr-2" />
+                    Share via Email
+                  </DropdownMenuItem>
+                )}
+                {enabledSocialIcons.includes('copy') && (
+                  <DropdownMenuItem onClick={() => handleShare('copy')} className="cursor-pointer">
+                    {copied ? <Check className="w-4 h-4 mr-2 text-green-600" /> : <Copy className="w-4 h-4 mr-2" />}
+                    {copied ? 'Copied!' : 'Copy Link'}
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
+      );
+    }
+
     if (!buttonStyle) {
       // Default fallback
       return (

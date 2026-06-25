@@ -6,6 +6,7 @@ import { Calendar, User, ArrowUpRight, Pencil, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { Link } from "react-router-dom";
+import TenantCtaButton from "@/components/common/TenantCtaButton";
 
 export default function NewsCard({ 
   article, 
@@ -141,13 +142,16 @@ export default function NewsCard({
 
       <div className="mt-auto flex items-end justify-between">
         <ActionButtons />
-        <Link 
+        <TenantCtaButton
+          as="link"
           to={articleUrl}
-          className="inline-flex items-center justify-center w-12 h-12 bg-black hover:bg-gray-800 transition-colors duration-200 ml-auto"
+          applySize={false}
+          className="w-12 h-12 ml-auto"
+          fallbackClassName="inline-flex items-center justify-center bg-black hover:bg-gray-800 text-white transition-colors duration-200"
           data-testid={`button-read-news-${article.id}`}
         >
-          <ArrowUpRight className="w-6 h-6 text-white" strokeWidth={2} />
-        </Link>
+          <ArrowUpRight className="w-6 h-6" strokeWidth={2} />
+        </TenantCtaButton>
       </div>
     </Card>
   );

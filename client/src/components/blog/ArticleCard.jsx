@@ -6,6 +6,7 @@ import { Calendar, User, ArrowUpRight, Pencil, Trash2, Eye } from "lucide-react"
 import { format } from "date-fns";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 import { Link } from "react-router-dom";
+import TenantCtaButton from "@/components/common/TenantCtaButton";
 
 export default function ArticleCard({ 
   article, 
@@ -228,13 +229,16 @@ export default function ArticleCard({
             </Badge>
           )}
         </div>
-        <Link 
+        <TenantCtaButton
+          as="link"
           to={articleUrl}
-          className="inline-flex items-center justify-center w-12 h-12 bg-black hover:bg-gray-800 transition-colors duration-200"
+          applySize={false}
+          className="w-12 h-12"
+          fallbackClassName="inline-flex items-center justify-center bg-black hover:bg-gray-800 text-white transition-colors duration-200"
           data-testid={`button-read-article-${article.id}`}
         >
-          <ArrowUpRight className="w-6 h-6 text-white" strokeWidth={2} />
-        </Link>
+          <ArrowUpRight className="w-6 h-6" strokeWidth={2} />
+        </TenantCtaButton>
       </div>
     </Card>
   );
