@@ -1561,10 +1561,18 @@ function applyBulletIconToHtml(html, iconClass, color, sizePx, pad) {
   const hasPad = padT !== null || padR !== null || padB !== null || padL !== null;
   const legacy = !hasPad && sizeNum === null;
 
+  // Vertical position of the icon. Top pushes the icon DOWN, bottom pushes it
+  // UP — both move only the absolutely-positioned icon, never the list text,
+  // so the bullet can be nudged to line up precisely with the text baseline.
+  // Default baseline offset stays 0.15em when neither is set.
+  const iconTop = (padT !== null || padB !== null)
+    ? `calc(0.15em + ${padT !== null ? padT : 0}px - ${padB !== null ? padB : 0}px)`
+    : '0.15em';
+
   const iconStyle = [
     'position:absolute',
     `left:${padL !== null ? `${padL}px` : '0'}`,
-    `top:${padT !== null ? `${padT}px` : '0.15em'}`,
+    `top:${iconTop}`,
     cssColor ? `color:${cssColor}` : '',
     sizeNum !== null ? `font-size:${sizeNum}px` : '',
   ].filter(Boolean).join(';');
@@ -1574,8 +1582,9 @@ function applyBulletIconToHtml(html, iconClass, color, sizePx, pad) {
   // width allowance scales with the icon size: when a px size is set we use
   // 1.25x it (Font Awesome glyphs can be up to ~1.25em wide); when no size is
   // set the icon inherits the list font size, so we reserve 1.25em via calc()
-  // — this keeps the text clear even at large font sizes. In legacy mode
-  // (no size and no padding) we keep the original fixed 1.6em hanging indent.
+  // — this keeps the text clear even at large font sizes. Top/bottom padding
+  // deliberately does NOT pad the <li> (it only moves the icon, see above). In
+  // legacy mode (no size and no padding) we keep the original 1.6em indent.
   let liStyle;
   if (legacy) {
     liStyle = 'list-style:none;position:relative;padding-left:1.6em';
@@ -1584,10 +1593,7 @@ function applyBulletIconToHtml(html, iconClass, color, sizePx, pad) {
     const gap = padR !== null ? padR : 8;
     const iconW = sizeNum !== null ? `${Math.round(sizeNum * 1.25)}px` : '1.25em';
     const inset = `calc(${left}px + ${iconW} + ${gap}px)`;
-    const liParts = ['list-style:none', 'position:relative', `padding-left:${inset}`];
-    if (padT !== null) liParts.push(`padding-top:${padT}px`);
-    if (padB !== null) liParts.push(`padding-bottom:${padB}px`);
-    liStyle = liParts.join(';');
+    liStyle = ['list-style:none', 'position:relative', `padding-left:${inset}`].join(';');
   }
 
   const iconHtml = `<i class="${cleanedClass} cb-bullet-icon" aria-hidden="true" style="${iconStyle}"></i>`;
@@ -1864,10 +1870,11 @@ function TextInspector({ block, update, breakpoint }) {
               step={1}
               testId="input-text-bullet-icon-size"
             />
-            <Label className="text-xs text-slate-600">Bullet icon padding (px, blank for default)</Label>
+            <Label className="text-xs text-slate-600">Bullet icon position (px, blank for default)</Label>
+            <p className="text-[11px] text-slate-500">Moves the bullet icon only — the text stays put. Top nudges the bullet down, Bottom nudges it up; Left/Right adjust the horizontal gap.</p>
             <div className="grid grid-cols-2 gap-2">
               <NumberField
-                label="Top"
+                label="Top (move down)"
                 value={Number.isFinite(c.bulletIconPadTop) ? c.bulletIconPadTop : null}
                 onChange={(v) => set({ bulletIconPadTop: Number.isFinite(v) ? v : null })}
                 min={0}
@@ -1876,7 +1883,7 @@ function TextInspector({ block, update, breakpoint }) {
                 testId="input-text-bullet-icon-pad-top"
               />
               <NumberField
-                label="Right"
+                label="Right (gap)"
                 value={Number.isFinite(c.bulletIconPadRight) ? c.bulletIconPadRight : null}
                 onChange={(v) => set({ bulletIconPadRight: Number.isFinite(v) ? v : null })}
                 min={0}
@@ -1885,7 +1892,7 @@ function TextInspector({ block, update, breakpoint }) {
                 testId="input-text-bullet-icon-pad-right"
               />
               <NumberField
-                label="Bottom"
+                label="Bottom (move up)"
                 value={Number.isFinite(c.bulletIconPadBottom) ? c.bulletIconPadBottom : null}
                 onChange={(v) => set({ bulletIconPadBottom: Number.isFinite(v) ? v : null })}
                 min={0}
@@ -1894,7 +1901,7 @@ function TextInspector({ block, update, breakpoint }) {
                 testId="input-text-bullet-icon-pad-bottom"
               />
               <NumberField
-                label="Left"
+                label="Left (move right)"
                 value={Number.isFinite(c.bulletIconPadLeft) ? c.bulletIconPadLeft : null}
                 onChange={(v) => set({ bulletIconPadLeft: Number.isFinite(v) ? v : null })}
                 min={0}
