@@ -341,6 +341,15 @@ export const BLOCK_DEFAULTS = {
       bulletIcon: '', // e.g. 'fa-solid fa-book-open'
       bulletIconColor: '', // hex; empty = inherit text colour
       bulletIconSize: null, // px number; empty/null = default (~1em)
+      // Padding (px) around the bullet icon. All null = legacy spacing
+      // (1.6em hanging indent). Left = icon offset from the edge; right = gap
+      // between the icon and the text; top/bottom = vertical space around the
+      // icon row. The list text inset is derived from left + icon size + right
+      // so a larger icon never overruns the text.
+      bulletIconPadTop: null,
+      bulletIconPadRight: null,
+      bulletIconPadBottom: null,
+      bulletIconPadLeft: null,
     },
   },
   [BLOCK_TYPES.IMAGE]: {

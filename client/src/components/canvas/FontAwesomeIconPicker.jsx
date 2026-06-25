@@ -33,10 +33,18 @@ export function FontAwesomeIconPicker({ open, onClose, onSelect, currentValue })
   const [query, setQuery] = useState('');
   const [styleFilter, setStyleFilter] = useState('all');
   const searchRef = useRef(null);
+  // Guards against kicking off a second load. A ref (not the `loading` state)
+  // is used deliberately: depending on `loading` in the effect below makes the
+  // effect re-run the instant it sets loading=true, and that re-run's cleanup
+  // would flip `cancelled` and silently discard the in-flight import — the
+  // spinner would then spin forever. The ref keeps the load idempotent without
+  // re-triggering the effect.
+  const loadStartedRef = useRef(false);
 
   // Lazily load the dataset the first time the dialog opens.
   useEffect(() => {
-    if (!open || icons || loading) return;
+    if (!open || icons || loadStartedRef.current) return;
+    loadStartedRef.current = true;
     let cancelled = false;
     setLoading(true);
     setError(false);
@@ -48,13 +56,15 @@ export function FontAwesomeIconPicker({ open, onClose, onSelect, currentValue })
       })
       .catch(() => {
         if (cancelled) return;
+        // Allow a retry the next time the picker opens.
+        loadStartedRef.current = false;
         setError(true);
         setLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [open, icons, loading]);
+  }, [open, icons]);
 
   useEffect(() => {
     if (open) {

@@ -1544,16 +1544,52 @@ function mergeStyleIntoOpenTag(tagName, attrs, styleToAdd) {
   return `<${tagName}${attrs} style="${styleToAdd}">`;
 }
 
-function applyBulletIconToHtml(html, iconClass, color, sizePx) {
+function applyBulletIconToHtml(html, iconClass, color, sizePx, pad) {
   if (!html || !iconClass || !String(iconClass).trim()) return html;
   const cleanedClass = escapeBulletAttr(String(iconClass).trim());
-  const size = Number.isFinite(sizePx) ? `${sizePx}px` : null;
+  const sizeNum = Number.isFinite(sizePx) ? sizePx : null;
   const cssColor = safeCssColor(color);
+
+  // Optional per-side padding (px) around the icon. When every side is unset
+  // AND no custom size is configured we fall back to the original 1.6em
+  // hanging indent so existing blocks render byte-identically.
+  const p = pad || {};
+  const padT = Number.isFinite(p.top) ? p.top : null;
+  const padR = Number.isFinite(p.right) ? p.right : null;
+  const padB = Number.isFinite(p.bottom) ? p.bottom : null;
+  const padL = Number.isFinite(p.left) ? p.left : null;
+  const hasPad = padT !== null || padR !== null || padB !== null || padL !== null;
+  const legacy = !hasPad && sizeNum === null;
+
   const iconStyle = [
-    'position:absolute', 'left:0', 'top:0.15em',
+    'position:absolute',
+    `left:${padL !== null ? `${padL}px` : '0'}`,
+    `top:${padT !== null ? `${padT}px` : '0.15em'}`,
     cssColor ? `color:${cssColor}` : '',
-    size ? `font-size:${size}` : '',
+    sizeNum !== null ? `font-size:${sizeNum}px` : '',
   ].filter(Boolean).join(';');
+
+  // Text inset: enough room for the icon so it never overruns the text.
+  // inset = left padding + icon width + right gap (default 8px). The icon
+  // width allowance scales with the icon size: when a px size is set we use
+  // 1.25x it (Font Awesome glyphs can be up to ~1.25em wide); when no size is
+  // set the icon inherits the list font size, so we reserve 1.25em via calc()
+  // — this keeps the text clear even at large font sizes. In legacy mode
+  // (no size and no padding) we keep the original fixed 1.6em hanging indent.
+  let liStyle;
+  if (legacy) {
+    liStyle = 'list-style:none;position:relative;padding-left:1.6em';
+  } else {
+    const left = padL !== null ? padL : 0;
+    const gap = padR !== null ? padR : 8;
+    const iconW = sizeNum !== null ? `${Math.round(sizeNum * 1.25)}px` : '1.25em';
+    const inset = `calc(${left}px + ${iconW} + ${gap}px)`;
+    const liParts = ['list-style:none', 'position:relative', `padding-left:${inset}`];
+    if (padT !== null) liParts.push(`padding-top:${padT}px`);
+    if (padB !== null) liParts.push(`padding-bottom:${padB}px`);
+    liStyle = liParts.join(';');
+  }
+
   const iconHtml = `<i class="${cleanedClass} cb-bullet-icon" aria-hidden="true" style="${iconStyle}"></i>`;
 
   const tagRe = /<(\/?)(ul|ol|li)\b([^>]*)>/gi;
@@ -1575,7 +1611,7 @@ function applyBulletIconToHtml(html, iconClass, color, sizePx) {
         out += full;
       } else { // li
         if (listStack[listStack.length - 1] === 'ul') {
-          out += mergeStyleIntoOpenTag('li', attrs, 'list-style:none;position:relative;padding-left:1.6em');
+          out += mergeStyleIntoOpenTag('li', attrs, liStyle);
           out += iconHtml;
         } else {
           out += full;
@@ -1597,6 +1633,12 @@ function TextRender({ block, breakpoint }) {
     c.bulletIcon,
     c.bulletIconColor,
     c.bulletIconSize,
+    {
+      top: c.bulletIconPadTop,
+      right: c.bulletIconPadRight,
+      bottom: c.bulletIconPadBottom,
+      left: c.bulletIconPadLeft,
+    },
   );
   // Tenant typography style takes precedence when set and resolvable — the
   // outer tag follows the style's `style_type` (h1–h6/paragraph) and an
@@ -1822,6 +1864,45 @@ function TextInspector({ block, update, breakpoint }) {
               step={1}
               testId="input-text-bullet-icon-size"
             />
+            <Label className="text-xs text-slate-600">Bullet icon padding (px, blank for default)</Label>
+            <div className="grid grid-cols-2 gap-2">
+              <NumberField
+                label="Top"
+                value={Number.isFinite(c.bulletIconPadTop) ? c.bulletIconPadTop : null}
+                onChange={(v) => set({ bulletIconPadTop: Number.isFinite(v) ? v : null })}
+                min={0}
+                max={96}
+                step={1}
+                testId="input-text-bullet-icon-pad-top"
+              />
+              <NumberField
+                label="Right"
+                value={Number.isFinite(c.bulletIconPadRight) ? c.bulletIconPadRight : null}
+                onChange={(v) => set({ bulletIconPadRight: Number.isFinite(v) ? v : null })}
+                min={0}
+                max={96}
+                step={1}
+                testId="input-text-bullet-icon-pad-right"
+              />
+              <NumberField
+                label="Bottom"
+                value={Number.isFinite(c.bulletIconPadBottom) ? c.bulletIconPadBottom : null}
+                onChange={(v) => set({ bulletIconPadBottom: Number.isFinite(v) ? v : null })}
+                min={0}
+                max={96}
+                step={1}
+                testId="input-text-bullet-icon-pad-bottom"
+              />
+              <NumberField
+                label="Left"
+                value={Number.isFinite(c.bulletIconPadLeft) ? c.bulletIconPadLeft : null}
+                onChange={(v) => set({ bulletIconPadLeft: Number.isFinite(v) ? v : null })}
+                min={0}
+                max={96}
+                step={1}
+                testId="input-text-bullet-icon-pad-left"
+              />
+            </div>
           </>
         ) : null}
       </div>
