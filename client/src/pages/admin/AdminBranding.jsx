@@ -47,6 +47,7 @@ const NAV_AVAILABLE_FONTS = [
   { value: 'Poppins, sans-serif', label: 'Poppins' },
   { value: 'Urbanist, sans-serif', label: 'Urbanist' },
   { value: "'Degular Medium', 'Poppins', sans-serif", label: 'Degular Medium' },
+  { value: "'Source Sans Pro', sans-serif", label: 'Source Sans Pro' },
   { value: 'Georgia, serif', label: 'Georgia' },
   { value: 'Arial, sans-serif', label: 'Arial' },
   { value: "'Times New Roman', serif", label: 'Times New Roman' }
