@@ -335,6 +335,12 @@ export const BLOCK_DEFAULTS = {
     content: {
       html: '<p>Click to edit this text.</p>',
       colorRole: 'default', // default | secondary | tertiary
+      // Custom bullet-list icon (Font Awesome). Empty bulletIcon = standard
+      // disc bullets (no change to existing blocks). When set, every <ul> in
+      // the block renders this icon as its marker in the chosen colour/size.
+      bulletIcon: '', // e.g. 'fa-solid fa-book-open'
+      bulletIconColor: '', // hex; empty = inherit text colour
+      bulletIconSize: null, // px number; empty/null = default (~1em)
     },
   },
   [BLOCK_TYPES.IMAGE]: {

@@ -1,6 +1,10 @@
 import { createRoot } from 'react-dom/client'
 import App from '@/App.jsx'
 import '@/index.css'
+// Font Awesome Free (solid/regular/brands) — loaded app-wide so its CSS and
+// web fonts are available in both the CanvasBuilder editor and the
+// public/SSR-rendered canvas pages (used for custom bullet-list icons).
+import '@fortawesome/fontawesome-free/css/all.min.css'
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 

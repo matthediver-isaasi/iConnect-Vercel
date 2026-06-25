@@ -1503,9 +1503,99 @@ function HeroInspector({ block, update }) {
 }
 
 // TEXT -----------------------------------------------------------------------
+// Custom bullet-list icons. When a Text block sets `content.bulletIcon`
+// (a Font Awesome class string, e.g. `fa-solid fa-book-open`), every <ul> in
+// the block drops its default disc marker and renders the chosen icon instead,
+// in the configured colour/size. We inject an <i> element into each <ul>'s <li>
+// at render time (after sanitisation) — robust against icon changes and avoids
+// any unicode-codepoint lookups. The SAME code path runs in the editor stage
+// and the public renderer (both use TextRender), so previews match published
+// output. When no icon is set, the HTML is returned untouched (no regression).
+//
+// The transform is a pure string tokenizer (no `window`/`DOMParser`
+// dependency) so it produces identical output in the browser AND in any
+// server-rendered path. A list-type stack is tracked so nested ordered lists
+// (<ol>) keep their numbers — only <ul> items get the icon marker.
+function escapeBulletAttr(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// Keep a CSS colour token safe to place inside a style="" attribute value:
+// allow only the characters valid in colour values (hex, rgb()/hsl(), named).
+function safeCssColor(c) {
+  const v = String(c || '').trim();
+  if (!v) return '';
+  return /^[#a-zA-Z0-9(),.%\s-]+$/.test(v) ? v : '';
+}
+
+function mergeStyleIntoOpenTag(tagName, attrs, styleToAdd) {
+  const styleRe = /style\s*=\s*"([^"]*)"/i;
+  if (styleRe.test(attrs)) {
+    const newAttrs = attrs.replace(styleRe, (_full, val) =>
+      `style="${val.replace(/;\s*$/, '')};${styleToAdd}"`);
+    return `<${tagName}${newAttrs}>`;
+  }
+  return `<${tagName}${attrs} style="${styleToAdd}">`;
+}
+
+function applyBulletIconToHtml(html, iconClass, color, sizePx) {
+  if (!html || !iconClass || !String(iconClass).trim()) return html;
+  const cleanedClass = escapeBulletAttr(String(iconClass).trim());
+  const size = Number.isFinite(sizePx) ? `${sizePx}px` : null;
+  const cssColor = safeCssColor(color);
+  const iconStyle = [
+    'position:absolute', 'left:0', 'top:0.15em',
+    cssColor ? `color:${cssColor}` : '',
+    size ? `font-size:${size}` : '',
+  ].filter(Boolean).join(';');
+  const iconHtml = `<i class="${cleanedClass} cb-bullet-icon" aria-hidden="true" style="${iconStyle}"></i>`;
+
+  const tagRe = /<(\/?)(ul|ol|li)\b([^>]*)>/gi;
+  const listStack = [];
+  let out = '';
+  let lastIndex = 0;
+  let m;
+  while ((m = tagRe.exec(html))) {
+    const [full, slash, rawName, attrs] = m;
+    const name = rawName.toLowerCase();
+    out += html.slice(lastIndex, m.index);
+    lastIndex = m.index + full.length;
+    if (!slash) {
+      if (name === 'ul') {
+        listStack.push('ul');
+        out += mergeStyleIntoOpenTag('ul', attrs, 'list-style:none;padding-left:0;margin-left:0');
+      } else if (name === 'ol') {
+        listStack.push('ol');
+        out += full;
+      } else { // li
+        if (listStack[listStack.length - 1] === 'ul') {
+          out += mergeStyleIntoOpenTag('li', attrs, 'list-style:none;position:relative;padding-left:1.6em');
+          out += iconHtml;
+        } else {
+          out += full;
+        }
+      }
+    } else {
+      if ((name === 'ul' || name === 'ol') && listStack.length) listStack.pop();
+      out += full;
+    }
+  }
+  out += html.slice(lastIndex);
+  return out;
+}
+
 function TextRender({ block, breakpoint }) {
   const c = block.content || {};
-  const safeHtml = sanitizeRichText(stripTrailingEmptyParagraphs(c.html || ''));
+  const safeHtml = applyBulletIconToHtml(
+    sanitizeRichText(stripTrailingEmptyParagraphs(c.html || '')),
+    c.bulletIcon,
+    c.bulletIconColor,
+    c.bulletIconSize,
+  );
   // Tenant typography style takes precedence when set and resolvable — the
   // outer tag follows the style's `style_type` (h1–h6/paragraph) and an
   // inline style object carries font-family/size/weight/etc so the public
@@ -1672,6 +1762,45 @@ function TextInspector({ block, update, breakpoint }) {
         step={0.1}
         testId="input-text-line-height"
       />
+      <div className="pt-1 border-t border-slate-100 space-y-2">
+        <div className="flex items-center gap-2">
+          <Label className="text-xs text-slate-600">Bullet list icon</Label>
+          {c.bulletIcon && String(c.bulletIcon).trim() ? (
+            <i
+              className={String(c.bulletIcon).trim()}
+              aria-hidden="true"
+              style={{ color: c.bulletIconColor || undefined }}
+              data-testid="preview-text-bullet-icon"
+            />
+          ) : null}
+        </div>
+        <TextField
+          label="Font Awesome class (leave blank for default disc)"
+          value={c.bulletIcon}
+          onChange={(v) => set({ bulletIcon: v })}
+          placeholder="fa-solid fa-book-open"
+          testId="input-text-bullet-icon"
+        />
+        {c.bulletIcon && String(c.bulletIcon).trim() ? (
+          <>
+            <ColorField
+              label="Bullet icon colour"
+              value={c.bulletIconColor || ''}
+              onChange={(v) => set({ bulletIconColor: v })}
+              testId="input-text-bullet-icon-color"
+            />
+            <NumberField
+              label="Bullet icon size (px, blank for default)"
+              value={Number.isFinite(c.bulletIconSize) ? c.bulletIconSize : null}
+              onChange={(v) => set({ bulletIconSize: Number.isFinite(v) ? v : null })}
+              min={6}
+              max={96}
+              step={1}
+              testId="input-text-bullet-icon-size"
+            />
+          </>
+        ) : null}
+      </div>
     </>
   );
 }
