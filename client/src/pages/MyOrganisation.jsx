@@ -723,7 +723,7 @@ export default function MyOrganisationPage() {
 
   if (!accessChecked) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
       </div>
     );
@@ -731,7 +731,7 @@ export default function MyOrganisationPage() {
 
   if (!memberInfo?.organization_id) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+      <div className="min-h-screen p-4 md:p-8">
         <div className="max-w-4xl mx-auto">
           <Card className="border-slate-200">
             <CardContent className="p-12 text-center">
@@ -987,7 +987,7 @@ export default function MyOrganisationPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-4xl mx-auto">
         <div className="mb-8 flex items-start justify-between gap-4">
           <div>

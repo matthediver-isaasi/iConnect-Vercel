@@ -904,7 +904,7 @@ export default function ZoomWebinarProvisioning() {
 
   if (!accessChecked || loadingZoomStatus) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading...</div>
       </div>
     );
@@ -912,7 +912,7 @@ export default function ZoomWebinarProvisioning() {
 
   if (zoomStatus && !zoomStatus.connected) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+      <div className="min-h-screen p-4 md:p-8">
         <div className="max-w-2xl mx-auto mt-16">
           <Card>
             <CardHeader className="text-center">
@@ -940,7 +940,7 @@ export default function ZoomWebinarProvisioning() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto" data-testid="zoom-webinar-page">
       <div className="flex items-center justify-between mb-6">
         <div>

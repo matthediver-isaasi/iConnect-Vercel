@@ -87,7 +87,7 @@ export default function NewsViewPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading news...</div>
       </div>
     );
@@ -95,7 +95,7 @@ export default function NewsViewPage() {
 
   if (!news) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+      <div className="min-h-screen p-4 md:p-8">
         <div className="max-w-4xl mx-auto text-center py-16">
           <h2 className="text-2xl font-bold text-slate-900 mb-4">News not found</h2>
           <Link to={createPageUrl('News')}>
@@ -107,7 +107,7 @@ export default function NewsViewPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-4xl mx-auto">
         <div className="flex items-center justify-between mb-8">
           <Link 

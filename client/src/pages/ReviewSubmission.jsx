@@ -2075,7 +2075,7 @@ export default function ReviewSubmissionPage() {
   const currentStage = workflowStages.find(s => s.id === workflowStatus);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-6 space-y-6 relative">
+    <div className="min-h-screen p-6 space-y-6 relative">
       {(isProcessingStatusChange || updateStatusMutation.isPending) && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center" data-testid="status-processing-overlay">
           <div className="bg-white rounded-xl p-8 shadow-2xl flex flex-col items-center gap-4">

@@ -847,7 +847,7 @@ export default function ArticleEditorPage() {
 
   if (!memberInfo) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading...</div>
       </div>
     );
@@ -856,7 +856,7 @@ export default function ArticleEditorPage() {
   // Show loading while fetching article data or member data
   if (isEditing && (articleLoading || memberLoading)) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading...</div>
       </div>
     );
@@ -865,7 +865,7 @@ export default function ArticleEditorPage() {
   // Also show loading for new articles if member data is still loading
   if (!isEditing && memberLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading...</div>
       </div>
     );
@@ -874,7 +874,7 @@ export default function ArticleEditorPage() {
   // Show warning if member doesn't have a handle
   if (!currentMember?.handle) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+      <div className="min-h-screen p-4 md:p-8">
         <div className="max-w-4xl mx-auto">
           <Card className="border-warning/30 shadow-sm">
             <CardContent className="p-12 text-center">
@@ -929,7 +929,7 @@ export default function ArticleEditorPage() {
     String(article.author_id) === String(memberInfo.id);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         {/* Breadcrumb navigation */}
         <Link 

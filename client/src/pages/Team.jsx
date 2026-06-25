@@ -646,7 +646,7 @@ export default function TeamPage({ hasBanner }) {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
       </div>
     );
@@ -654,7 +654,7 @@ export default function TeamPage({ hasBanner }) {
 
   return (
     <TooltipProvider delayDuration={100}>
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+      <div className="min-h-screen p-4 md:p-8">
         <div className="max-w-7xl mx-auto">
           {/* Header - hidden when custom banner is present */}
           {!hasBanner && (

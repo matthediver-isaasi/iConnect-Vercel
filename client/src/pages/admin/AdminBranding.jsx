@@ -582,6 +582,7 @@ export default function AdminBranding() {
   const [uploadingHeaderLogo, setUploadingHeaderLogo] = useState(false);
   const [uploadingSocialImage, setUploadingSocialImage] = useState(false);
   const [uploadingPortalNavImage, setUploadingPortalNavImage] = useState(false);
+  const [uploadingPortalPageImage, setUploadingPortalPageImage] = useState(false);
   const [socialImageDimWarning, setSocialImageDimWarning] = useState('');
   const [uploadingSocialSvg, setUploadingSocialSvg] = useState(null);
   const [tenantUser, setTenantUser] = useState(null);
@@ -592,6 +593,7 @@ export default function AdminBranding() {
   const headerLogoInputRef = useRef(null);
   const socialImageInputRef = useRef(null);
   const portalNavImageInputRef = useRef(null);
+  const portalPageImageInputRef = useRef(null);
   const socialSvgInputRefs = useRef({});
   
   const DEFAULT_GRADIENT_STOPS = [
@@ -624,6 +626,28 @@ export default function AdminBranding() {
     { color: '#000000', opacity: 0, position: 100 }
   ];
 
+  // Default portal *page* background reproduces today's hardcoded look
+  // (`bg-gradient-to-br from-slate-50 to-blue-50`): slate-50 → blue-50 at 135°.
+  const DEFAULT_PORTAL_PAGE_GRADIENT_STOPS = [
+    { color: '#f8fafc', opacity: 1, position: 0 },
+    { color: '#eff6ff', opacity: 1, position: 100 }
+  ];
+
+  const DEFAULT_PORTAL_PAGE_BACKGROUND = {
+    type: 'gradient',
+    solidColor: '',
+    imageUrl: '',
+    focalPoint: { x: 50, y: 50 },
+    overlayStyle: 'solid',
+    darkWash: 0.4,
+    overlayStops: DEFAULT_PORTAL_NAV_OVERLAY_STOPS,
+    overlayDirection: 'to-top',
+    overlayAngle: 0,
+    gradientType: 'linear',
+    gradientStops: DEFAULT_PORTAL_PAGE_GRADIENT_STOPS,
+    gradientAngle: 135
+  };
+
   const DEFAULT_PORTAL_NAV = {
     background: {
       type: 'solid',
@@ -639,6 +663,7 @@ export default function AdminBranding() {
       gradientStops: DEFAULT_PORTAL_NAV_GRADIENT_STOPS,
       gradientAngle: 180
     },
+    pageBackground: DEFAULT_PORTAL_PAGE_BACKGROUND,
     textColor: '',
     iconColor: '',
     activeBackgroundColor: '',
@@ -681,6 +706,30 @@ export default function AdminBranding() {
           : DEFAULT_PORTAL_NAV_GRADIENT_STOPS,
         gradientAngle: Number.isFinite(Number(bg.gradientAngle)) ? Number(bg.gradientAngle) : 180
       },
+      pageBackground: (() => {
+        const pbg = s.pageBackground && typeof s.pageBackground === 'object' ? s.pageBackground : {};
+        return {
+          type: ['solid', 'image', 'gradient'].includes(pbg.type) ? pbg.type : 'gradient',
+          solidColor: pbg.solidColor || '',
+          imageUrl: pbg.imageUrl || '',
+          focalPoint: {
+            x: Number.isFinite(Number(pbg.focalPoint?.x)) ? Number(pbg.focalPoint.x) : 50,
+            y: Number.isFinite(Number(pbg.focalPoint?.y)) ? Number(pbg.focalPoint.y) : 50
+          },
+          overlayStyle: pbg.overlayStyle === 'gradient' ? 'gradient' : 'solid',
+          darkWash: Number.isFinite(Number(pbg.darkWash)) ? Number(pbg.darkWash) : 0.4,
+          overlayStops: (Array.isArray(pbg.overlayStops) && pbg.overlayStops.length >= 2)
+            ? pbg.overlayStops
+            : DEFAULT_PORTAL_NAV_OVERLAY_STOPS,
+          overlayDirection: pbg.overlayDirection || 'to-top',
+          overlayAngle: Number.isFinite(Number(pbg.overlayAngle)) ? Number(pbg.overlayAngle) : 0,
+          gradientType: pbg.gradientType === 'radial' ? 'radial' : 'linear',
+          gradientStops: (Array.isArray(pbg.gradientStops) && pbg.gradientStops.length >= 2)
+            ? pbg.gradientStops
+            : DEFAULT_PORTAL_PAGE_GRADIENT_STOPS,
+          gradientAngle: Number.isFinite(Number(pbg.gradientAngle)) ? Number(pbg.gradientAngle) : 135
+        };
+      })(),
       textColor: s.textColor || '',
       iconColor: s.iconColor || '',
       activeBackgroundColor: s.activeBackgroundColor || '',
@@ -1099,6 +1148,24 @@ export default function AdminBranding() {
     });
   };
 
+  const pageBg = portalNav.pageBackground || DEFAULT_PORTAL_NAV.pageBackground;
+
+  const setPageBg = (patch) => {
+    setFormData(prev => {
+      const pn = prev.branding_config?.portalNav || DEFAULT_PORTAL_NAV;
+      return {
+        ...prev,
+        branding_config: {
+          ...prev.branding_config,
+          portalNav: {
+            ...pn,
+            pageBackground: { ...(pn.pageBackground || DEFAULT_PORTAL_NAV.pageBackground), ...patch }
+          }
+        }
+      };
+    });
+  };
+
   const userCard = portalNav.userCard || DEFAULT_PORTAL_NAV.userCard;
   const userCardBg = userCard.background || DEFAULT_PORTAL_NAV.userCard.background;
 
@@ -1162,6 +1229,33 @@ export default function AdminBranding() {
       toast({ title: 'Upload failed', description: 'Could not upload the image.', variant: 'destructive' });
     } finally {
       setUploadingPortalNavImage(false);
+    }
+  };
+
+  const handlePortalPageImageUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingPortalPageImage(true);
+    const uploadFormData = new FormData();
+    uploadFormData.append('file', file);
+    uploadFormData.append('folder', 'branding');
+    try {
+      const response = await fetch('/api/integrations/upload-file', {
+        method: 'POST',
+        credentials: 'include',
+        body: uploadFormData
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setPageBg({ imageUrl: data.file_url });
+        toast({ title: 'Image uploaded', description: 'Remember to Save to apply your page background.' });
+      } else {
+        toast({ title: 'Upload failed', description: 'Could not upload the image.', variant: 'destructive' });
+      }
+    } catch (err) {
+      toast({ title: 'Upload failed', description: 'Could not upload the image.', variant: 'destructive' });
+    } finally {
+      setUploadingPortalPageImage(false);
     }
   };
 
@@ -2833,6 +2927,283 @@ export default function AdminBranding() {
                           </div>
                         );
                       })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-slate-800/50 border-slate-700">
+            <CardHeader>
+              <CardTitle className="text-white flex items-center gap-2">
+                <LayoutTemplate className="w-5 h-5" />
+                Portal Page Background
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                Brand the main content area behind every logged-in member portal page (Dashboard, Events, Bookings, Members &amp; more). The default reproduces the standard slate-to-blue gradient; pick a solid colour, an image with a wash, or a custom gradient.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* ---- Controls ---- */}
+                <div className="space-y-6">
+                  {/* Background type */}
+                  <div className="space-y-2">
+                    <Label className="text-slate-300">Background</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { value: 'solid', label: 'Solid colour' },
+                        { value: 'image', label: 'Image' },
+                        { value: 'gradient', label: 'Gradient' }
+                      ].map((opt) => (
+                        <Button
+                          key={opt.value}
+                          type="button"
+                          variant={pageBg.type === opt.value ? 'default' : 'outline'}
+                          size="sm"
+                          className={pageBg.type === opt.value ? '' : 'border-slate-600 text-slate-300'}
+                          onClick={() => setPageBg({ type: opt.value })}
+                          data-testid={`button-portalpage-bgtype-${opt.value}`}
+                        >
+                          {opt.label}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {pageBg.type === 'solid' && (
+                    <div className="space-y-2">
+                      <Label className="text-slate-300">Background colour</Label>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="color"
+                          value={pageBg.solidColor || '#f8fafc'}
+                          onChange={(e) => setPageBg({ solidColor: e.target.value })}
+                          className="w-12 h-9 rounded cursor-pointer"
+                          data-testid="color-portalpage-solid"
+                        />
+                        <Input
+                          value={pageBg.solidColor || ''}
+                          placeholder="Default (theme)"
+                          onChange={(e) => setPageBg({ solidColor: e.target.value })}
+                          className="bg-slate-900 border-slate-700 text-white font-mono"
+                          data-testid="input-portalpage-solid"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {pageBg.type === 'image' && (
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label className="text-slate-300">Image</Label>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <input
+                            ref={portalPageImageInputRef}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={handlePortalPageImageUpload}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="border-slate-600 text-slate-300"
+                            disabled={uploadingPortalPageImage}
+                            onClick={() => portalPageImageInputRef.current?.click()}
+                            data-testid="button-portalpage-upload"
+                          >
+                            {uploadingPortalPageImage ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
+                            Upload image
+                          </Button>
+                          {pageBg.imageUrl && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="text-slate-400"
+                              onClick={() => setPageBg({ imageUrl: '' })}
+                              data-testid="button-portalpage-clear-image"
+                            >
+                              <Trash2 className="w-4 h-4 mr-2" />
+                              Remove
+                            </Button>
+                          )}
+                        </div>
+                        <Input
+                          value={pageBg.imageUrl || ''}
+                          placeholder="https://… image URL"
+                          onChange={(e) => setPageBg({ imageUrl: e.target.value })}
+                          className="bg-slate-900 border-slate-700 text-white"
+                          data-testid="input-portalpage-image-url"
+                        />
+                      </div>
+
+                      {pageBg.imageUrl && (
+                        <div className="space-y-2">
+                          <Label className="text-slate-300">Focal point</Label>
+                          <FocalPointPicker
+                            imageUrl={pageBg.imageUrl}
+                            focalPoint={pageBg.focalPoint || { x: 50, y: 50 }}
+                            onChange={(fp) => setPageBg({ focalPoint: fp })}
+                          />
+                        </div>
+                      )}
+
+                      <div className="space-y-2">
+                        <Label className="text-slate-300">Overlay</Label>
+                        <div className="flex flex-wrap gap-2">
+                          {[
+                            { value: 'solid', label: 'Wash' },
+                            { value: 'gradient', label: 'Gradient' }
+                          ].map((opt) => (
+                            <Button
+                              key={opt.value}
+                              type="button"
+                              variant={(pageBg.overlayStyle || 'solid') === opt.value ? 'default' : 'outline'}
+                              size="sm"
+                              className={(pageBg.overlayStyle || 'solid') === opt.value ? '' : 'border-slate-600 text-slate-300'}
+                              onClick={() => setPageBg({ overlayStyle: opt.value })}
+                              data-testid={`button-portalpage-overlay-${opt.value}`}
+                            >
+                              {opt.label}
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {(pageBg.overlayStyle || 'solid') === 'solid' ? (
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <Label className="text-slate-300">Dark wash strength</Label>
+                            <span className="text-slate-400 text-sm">{Math.round((pageBg.darkWash ?? 0.4) * 100)}%</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            value={Math.round((pageBg.darkWash ?? 0.4) * 100)}
+                            onChange={(e) => setPageBg({ darkWash: parseInt(e.target.value, 10) / 100 })}
+                            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                            data-testid="slider-portalpage-darkwash"
+                          />
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          <div className="space-y-2">
+                            <Label className="text-slate-300">Overlay direction</Label>
+                            <Select
+                              value={pageBg.overlayDirection || 'to-top'}
+                              onValueChange={(v) => setPageBg({ overlayDirection: v })}
+                            >
+                              <SelectTrigger className="bg-slate-900 border-slate-700 text-white" data-testid="select-portalpage-overlay-direction">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="to-top">To top</SelectItem>
+                                <SelectItem value="to-bottom">To bottom</SelectItem>
+                                <SelectItem value="to-right">To right</SelectItem>
+                                <SelectItem value="to-left">To left</SelectItem>
+                                <SelectItem value="to-bottom-right">To bottom-right</SelectItem>
+                                <SelectItem value="to-top-right">To top-right</SelectItem>
+                                <SelectItem value="custom">Custom angle</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          {pageBg.overlayDirection === 'custom' && (
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <Label className="text-slate-300">Angle</Label>
+                                <span className="text-slate-400 text-sm">{pageBg.overlayAngle ?? 0}°</span>
+                              </div>
+                              <input
+                                type="range"
+                                min="0"
+                                max="360"
+                                value={pageBg.overlayAngle ?? 0}
+                                onChange={(e) => setPageBg({ overlayAngle: parseInt(e.target.value, 10) })}
+                                className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                                data-testid="slider-portalpage-overlay-angle"
+                              />
+                            </div>
+                          )}
+                          <OpacityStopsEditor
+                            stops={pageBg.overlayStops}
+                            onChange={(stops) => setPageBg({ overlayStops: stops })}
+                            testIdPrefix="portalpage-overlay"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {pageBg.type === 'gradient' && (
+                    <div className="space-y-3">
+                      <div className="space-y-2">
+                        <Label className="text-slate-300">Gradient type</Label>
+                        <div className="flex flex-wrap gap-2">
+                          {[
+                            { value: 'linear', label: 'Linear' },
+                            { value: 'radial', label: 'Radial' }
+                          ].map((opt) => (
+                            <Button
+                              key={opt.value}
+                              type="button"
+                              variant={(pageBg.gradientType || 'linear') === opt.value ? 'default' : 'outline'}
+                              size="sm"
+                              className={(pageBg.gradientType || 'linear') === opt.value ? '' : 'border-slate-600 text-slate-300'}
+                              onClick={() => setPageBg({ gradientType: opt.value })}
+                              data-testid={`button-portalpage-gradient-${opt.value}`}
+                            >
+                              {opt.label}
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
+                      {(pageBg.gradientType || 'linear') === 'linear' && (
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <Label className="text-slate-300">Angle</Label>
+                            <span className="text-slate-400 text-sm">{pageBg.gradientAngle ?? 135}°</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="360"
+                            value={pageBg.gradientAngle ?? 135}
+                            onChange={(e) => setPageBg({ gradientAngle: parseInt(e.target.value, 10) })}
+                            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                            data-testid="slider-portalpage-gradient-angle"
+                          />
+                        </div>
+                      )}
+                      <OpacityStopsEditor
+                        stops={pageBg.gradientStops}
+                        onChange={(stops) => setPageBg({ gradientStops: stops })}
+                        testIdPrefix="portalpage-gradient"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* ---- Live preview ---- */}
+                <div className="space-y-2">
+                  <Label className="text-slate-300">Preview</Label>
+                  <div
+                    className="rounded-md overflow-hidden border border-slate-700 w-full min-h-[220px] p-4"
+                    style={
+                      Object.keys(buildPortalNavBackgroundStyle(pageBg)).length
+                        ? buildPortalNavBackgroundStyle(pageBg)
+                        : { backgroundImage: 'linear-gradient(135deg, #f8fafc, #eff6ff)' }
+                    }
+                    data-testid="preview-portalpage"
+                  >
+                    <div className="rounded-md bg-white/90 border border-slate-200 p-3 max-w-[240px] shadow-sm">
+                      <div className="h-3 w-24 rounded bg-slate-300 mb-2" />
+                      <div className="h-2 w-full rounded bg-slate-200 mb-1.5" />
+                      <div className="h-2 w-2/3 rounded bg-slate-200" />
                     </div>
                   </div>
                 </div>

@@ -790,7 +790,7 @@ export default function FileManagementPage() {
 
   if (isFeatureExcluded('content.files')) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <Card className="border-red-200">
           <CardContent className="p-8 text-center">
             <p className="text-red-600">You need administrator privileges to access this page.</p>
@@ -801,7 +801,7 @@ export default function FileManagementPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-8">
           <div>

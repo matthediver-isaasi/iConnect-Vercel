@@ -345,7 +345,7 @@ export default function NewsEditorPage() {
 
   if (isFeatureExcluded('content.news-editor')) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <Card className="border-red-200">
           <CardContent className="p-8 text-center">
             <p className="text-red-600">Administrator access required</p>
@@ -357,7 +357,7 @@ export default function NewsEditorPage() {
 
   if (!memberInfo) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading...</div>
       </div>
     );
@@ -365,14 +365,14 @@ export default function NewsEditorPage() {
 
   if (isEditing && (newsLoading || memberLoading)) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading news...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <Link to={createPageUrl('News')} className="inline-flex items-center gap-2 text-slate-600 hover:text-slate-900">

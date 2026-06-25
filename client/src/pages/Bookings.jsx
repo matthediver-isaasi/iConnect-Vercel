@@ -604,7 +604,7 @@ export default function BookingsPage() {
 
   if (!memberInfo) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading...</div>
       </div>
     );
@@ -682,7 +682,7 @@ export default function BookingsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       {showTour && shouldShowTours && (
         <PageTour
           tourGroupName="Bookings"

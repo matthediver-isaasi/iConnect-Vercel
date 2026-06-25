@@ -166,7 +166,7 @@ export default function JobBoardPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 overflow-x-hidden">
+    <div className="min-h-screen p-4 md:p-8 overflow-x-hidden">
       <div className="max-w-7xl mx-auto w-full">
         {/* Header - hidden when custom banner is present */}
         {!hasBanner && belowFirstElementBanners.length === 0 && (

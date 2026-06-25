@@ -560,7 +560,7 @@ export default function AdminMemberEdit() {
 
   if (!isAccessReady) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
       </div>
     );
@@ -568,7 +568,7 @@ export default function AdminMemberEdit() {
 
   if (!canEditMembers) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
       </div>
     );
@@ -576,7 +576,7 @@ export default function AdminMemberEdit() {
 
   if (!memberId) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+      <div className="min-h-screen p-4 md:p-8">
         <div className="max-w-4xl mx-auto">
           <Card className="border-warning/30 bg-warning/10">
             <CardContent className="py-12 text-center">
@@ -598,7 +598,7 @@ export default function AdminMemberEdit() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
       </div>
     );
@@ -606,7 +606,7 @@ export default function AdminMemberEdit() {
 
   if (memberError || !memberRecord) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+      <div className="min-h-screen p-4 md:p-8">
         <div className="max-w-4xl mx-auto">
           <Card className="border-red-200 bg-red-50">
             <CardContent className="py-12 text-center">
@@ -629,7 +629,7 @@ export default function AdminMemberEdit() {
   const memberFullName = [memberRecord.first_name, memberRecord.last_name].filter(Boolean).join(' ') || 'Unknown Member';
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-4xl mx-auto space-y-8">
         {!hasBanner && (
           <div>

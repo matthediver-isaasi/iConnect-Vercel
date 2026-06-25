@@ -239,14 +239,14 @@ export default function FormSettingsPage() {
 
   if (!accessChecked || isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center" data-testid="loading-container">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center" data-testid="loading-container">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" data-testid="loading-spinner" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8" data-testid="form-settings-page">
+    <div className="min-h-screen p-4 md:p-8" data-testid="form-settings-page">
       <div className="max-w-3xl mx-auto">
         <div className="flex items-center gap-3 mb-6">
           <ClipboardList className="w-8 h-8 text-blue-600" />

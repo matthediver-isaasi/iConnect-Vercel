@@ -1196,7 +1196,7 @@ export default function CommunicationsManagementPage() {
 
   if (!accessChecked) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading...</div>
       </div>
     );
@@ -1208,7 +1208,7 @@ export default function CommunicationsManagementPage() {
 
   if (tablesNotSetup) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+      <div className="min-h-screen p-4 md:p-8">
         <div className="max-w-4xl mx-auto">
           <Card className="border-warning/30 bg-warning/10">
             <CardHeader>
@@ -1294,7 +1294,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-6xl mx-auto">
         <Card className="shadow-lg border-0">
           <CardHeader className="border-b border-slate-200 bg-white rounded-t-lg">

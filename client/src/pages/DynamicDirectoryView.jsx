@@ -786,7 +786,7 @@ export default function DynamicDirectoryView() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center" data-testid="loading-container">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center" data-testid="loading-container">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" data-testid="loading-spinner" />
       </div>
     );
@@ -794,7 +794,7 @@ export default function DynamicDirectoryView() {
 
   if (!directory) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center" data-testid="not-found-container">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center" data-testid="not-found-container">
         <Card className="max-w-md w-full" data-testid="not-found-card">
           <CardContent className="p-8 text-center">
             <AlertCircle className="w-16 h-16 text-slate-300 mx-auto mb-4" />
@@ -813,7 +813,7 @@ export default function DynamicDirectoryView() {
 
   if (directory.entity_type === 'organization') {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+      <div className="min-h-screen p-4 md:p-8">
         <div className="max-w-7xl mx-auto">
           <div className="mb-8">
             <div className="flex items-center gap-3 mb-2">
@@ -1285,7 +1285,7 @@ export default function DynamicDirectoryView() {
 
   return (
     <TooltipProvider delayDuration={100}>
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+      <div className="min-h-screen p-4 md:p-8">
         <div className="max-w-7xl mx-auto">
           <div className="mb-8">
             <div className="flex items-center gap-3 mb-2">

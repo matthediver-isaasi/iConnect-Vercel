@@ -866,6 +866,11 @@ export default function Layout({ children, currentPageName }) {
   const basePortalFont = tenantBranding?.branding?.brandingConfig?.basePortalFont || '';
   const portalNavBgStyle = portalNav?.background ? buildPortalNavBackgroundStyle(portalNav.background) : {};
   const hasPortalNavBg = Object.keys(portalNavBgStyle).length > 0;
+  // Tenant-controllable background for the authenticated portal main content
+  // area (Task #1841). When no config is stored we fall back to the default
+  // slate→blue gradient Tailwind classes so existing tenants see no change.
+  const portalPageBgStyle = portalNav?.pageBackground ? buildPortalNavBackgroundStyle(portalNav.pageBackground) : {};
+  const hasPortalPageBg = Object.keys(portalPageBgStyle).length > 0;
   // Current-user card branding (signed-in member box at the bottom of the nav).
   const userCardBgStyle = portalNav?.userCard?.background ? buildPortalNavBackgroundStyle(portalNav.userCard.background) : null;
   const hasUserCardBg = !!(userCardBgStyle && Object.keys(userCardBgStyle).length);
@@ -2707,7 +2712,7 @@ useEffect(() => {
             >
               Skip to main content
             </a>
-            <main id="main-content" tabIndex={-1} ref={mainContentRef} className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 overscroll-contain focus:outline-none">
+            <main id="main-content" tabIndex={-1} ref={mainContentRef} className={`flex-1 overflow-y-auto overflow-x-hidden min-h-0 overscroll-contain focus:outline-none${hasPortalPageBg ? '' : ' bg-gradient-to-br from-slate-50 to-blue-50'}`} style={hasPortalPageBg ? portalPageBgStyle : undefined}>
               {/* Render ALL top banners with appropriate component based on banner_type */}
               {topBanners.length > 0 && (
                 <div className="w-full">

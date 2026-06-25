@@ -530,7 +530,7 @@ export default function ArticlesPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+      <div className="min-h-screen p-4 md:p-8">
         <div className="max-w-7xl mx-auto">
           <div className="grid xl:grid-cols-2 gap-6">
             {Array(6).fill(0).map((_, i) => (
@@ -554,7 +554,7 @@ export default function ArticlesPage() {
     : articleDisplayName;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         {/* My Articles header - shown when viewing own articles */}
         {showMyArticlesOnly && (

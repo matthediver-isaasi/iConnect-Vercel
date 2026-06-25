@@ -616,7 +616,7 @@ export default function ArticleViewPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading...</div>
       </div>
     );
@@ -629,7 +629,7 @@ export default function ArticleViewPage() {
 
   if (!article) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+      <div className="min-h-screen p-4 md:p-8">
         <div className="max-w-4xl mx-auto text-center py-16">
           <h2 className="text-2xl font-bold text-slate-900 mb-4">{singularDisplayName} not found</h2>
           <Link to={isLoggedIn ? getArticleListUrl() : getPublicArticlesUrl()}>
@@ -650,7 +650,7 @@ export default function ArticleViewPage() {
   // If it's a draft and user doesn't have permission, show not found
   if (isDraft && !canViewDraft) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+      <div className="min-h-screen p-4 md:p-8">
         <div className="max-w-4xl mx-auto text-center py-16">
           <h2 className="text-2xl font-bold text-slate-900 mb-4">{singularDisplayName} not found</h2>
           <p className="text-slate-600 mb-6">This {singularDisplayName.toLowerCase()} is not available.</p>
@@ -663,7 +663,7 @@ export default function ArticleViewPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-4xl mx-auto">
         {/* Preview Mode Banner */}
         {isDraft && canViewDraft && (
