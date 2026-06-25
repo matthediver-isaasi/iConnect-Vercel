@@ -39,6 +39,7 @@ import {
   ArrowDown,
   Trash2,
   Unlink,
+  Search,
 } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -96,6 +97,7 @@ import {
 // Lazy-load the rich text editor — it's heavy (tiptap) and not needed for blocks
 // that don't use it.
 const RichTextEditor = lazy(() => import('@/components/email-builder/RichTextEditor'));
+const FontAwesomeIconPicker = lazy(() => import('@/components/canvas/FontAwesomeIconPicker'));
 
 export const LUCIDE_ICONS = {
   Star, Bell, Award, Check, Heart, Mail, Phone, Globe, Calendar, Clock,
@@ -1688,6 +1690,7 @@ function TextRender({ block, breakpoint }) {
 function TextInspector({ block, update, breakpoint }) {
   const c = block.content || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+  const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const tenantStyles = useTenantTypographyStyles();
   const sortedTenantStyles = useMemo(
     () => sortTypographyStyles(tenantStyles),
@@ -1774,8 +1777,29 @@ function TextInspector({ block, update, breakpoint }) {
             />
           ) : null}
         </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="w-full justify-start gap-2"
+          onClick={() => setIconPickerOpen(true)}
+          data-testid="button-browse-bullet-icon"
+        >
+          <Search className="w-4 h-4" />
+          {c.bulletIcon && String(c.bulletIcon).trim() ? 'Change icon…' : 'Browse icons…'}
+        </Button>
+        <Suspense fallback={null}>
+          {iconPickerOpen ? (
+            <FontAwesomeIconPicker
+              open={iconPickerOpen}
+              onClose={() => setIconPickerOpen(false)}
+              onSelect={(cls) => set({ bulletIcon: cls })}
+              currentValue={c.bulletIcon}
+            />
+          ) : null}
+        </Suspense>
         <TextField
-          label="Font Awesome class (leave blank for default disc)"
+          label="Font Awesome class (advanced — or use the picker above)"
           value={c.bulletIcon}
           onChange={(v) => set({ bulletIcon: v })}
           placeholder="fa-solid fa-book-open"
