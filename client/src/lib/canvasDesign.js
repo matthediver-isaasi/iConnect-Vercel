@@ -467,14 +467,33 @@ export const BLOCK_DEFAULTS = {
     content: {
       imageUrl: '',
       imageAlt: '',
+      // Image layout: 'full-bleed' (legacy default — cropped header image) or
+      // 'inline' (uncropped, sized to a % of the card width and aligned).
+      imageDisplayMode: 'full-bleed',
+      imageWidthPct: 100,
+      imageAlign: 'center',
+      // Optional Font Awesome icon rendered above the heading (e.g.
+      // 'fa-solid fa-book-open'). Empty by default so existing cards are
+      // unchanged.
+      iconClass: '',
+      iconSize: 32,
+      iconAlign: 'left',
+      iconColor: '',
       heading: 'Card heading',
       headingLevel: 3,
       body: '<p>A short description for this card.</p>',
       contentPadding: 16,
+      // CTA is shown by default so existing cards (which always rendered the
+      // CTA when a label was present) are unchanged.
+      ctaEnabled: true,
       ctaLabel: 'Learn more',
       ctaHref: '#',
       ctaVariant: 'outline',
       ctaAlign: 'left',
+      // Drop shadow ('none' | 'sm' | 'md' | 'lg') + optional highlight ring.
+      shadow: 'none',
+      highlight: false,
+      highlightColor: '#3b82f6',
     },
   },
   [BLOCK_TYPES.STAT]: {

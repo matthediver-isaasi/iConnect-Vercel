@@ -3023,6 +3023,27 @@ function IconInspector({ block, update, breakpoint }) {
 }
 
 // CARD -----------------------------------------------------------------------
+// Sanitize an author-supplied Font Awesome class string. Only tokens that
+// start with `fa` and consist of [a-z0-9-] survive (e.g. `fa-solid`,
+// `fa-book-open`, legacy `fas`/`fab`). This blocks arbitrary class injection
+// while allowing every Font Awesome style prefix + icon name.
+function sanitizeFaIconClass(raw) {
+  if (!raw || typeof raw !== 'string') return '';
+  return raw
+    .trim()
+    .split(/\s+/)
+    .filter((t) => /^fa[a-z0-9-]*$/.test(t))
+    .join(' ');
+}
+
+// Card drop-shadow presets, mirroring Tailwind's shadow scale.
+const CARD_SHADOW_PRESETS = {
+  none: null,
+  sm: '0 1px 2px 0 rgba(0,0,0,0.05)',
+  md: '0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1)',
+  lg: '0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1)',
+};
+
 function CardRender({ block, asEditor, priority, breakpoint }) {
   const c = block.content || {};
   // Tenant typography style takes precedence for the card title — the
@@ -3052,16 +3073,39 @@ function CardRender({ block, asEditor, priority, breakpoint }) {
   const cardResponsiveCss = !isPreview && headingStyleObj && hasResponsiveTypographyOverride(headingStyleObj)
     ? buildTenantTypographyResponsiveCss(`[data-cb="${safeBlockId}"] [data-tg-r="card-heading"]`, headingStyleObj)
     : null;
+
+  // Branding + hover state drive the optional tenant-styled CTA (mirrors
+  // ButtonRender). Declared unconditionally so hook order stays stable.
+  const branding = useTenantBranding()?.branding || null;
+  const [ctaHovered, setCtaHovered] = useState(false);
+
+  const cardRadius = (block.style && block.style.borderRadius) || 0;
+  const imageMode = c.imageDisplayMode === 'inline' ? 'inline' : 'full-bleed';
+  const alignToJustify = (a) => (a === 'center' ? 'center' : a === 'right' ? 'flex-end' : 'flex-start');
+
+  // Drop shadow + highlight ring → combined box-shadow on the card surface.
+  // Needs `allowOverflow` on the registry entry so the wrapper's
+  // `overflow: hidden` doesn't clip it.
+  const shadowParts = [];
+  const shadowPreset = CARD_SHADOW_PRESETS[c.shadow];
+  if (shadowPreset) shadowParts.push(shadowPreset);
+  if (c.highlight) shadowParts.push(`0 0 0 3px ${c.highlightColor || '#3b82f6'}`);
+  const cardBoxShadow = shadowParts.length ? shadowParts.join(', ') : undefined;
+
+  const iconClass = sanitizeFaIconClass(c.iconClass);
+
   return (
-    <div className="w-full h-full flex flex-col">
+    <div
+      className="w-full h-full flex flex-col"
+      style={cardBoxShadow ? { boxShadow: cardBoxShadow, borderRadius: cardRadius } : undefined}
+    >
       {cardResponsiveCss && (
         <style dangerouslySetInnerHTML={{ __html: cardResponsiveCss }} />
       )}
-      {c.imageUrl && (() => {
+      {c.imageUrl && imageMode === 'full-bleed' && (() => {
         const r = buildResponsiveImage(c.imageUrl, { sizes: '(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw' });
         // Full-bleed header image: round its top corners to match the card
         // radius and square the bottom, since the padded text area sits below.
-        const cardRadius = (block.style && block.style.borderRadius) || 0;
         return (
           <img
             src={r.src}
@@ -3082,6 +3126,42 @@ function CardRender({ block, asEditor, priority, breakpoint }) {
         );
       })()}
       <div className="flex-1 flex flex-col min-h-0" style={{ padding: contentPadding }}>
+        {iconClass && (
+          <div className="flex mb-2" style={{ justifyContent: alignToJustify(c.iconAlign) }}>
+            <i
+              className={iconClass}
+              aria-hidden="true"
+              style={{
+                fontSize: Number.isFinite(Number(c.iconSize)) && Number(c.iconSize) > 0 ? Number(c.iconSize) : 32,
+                color: c.iconColor || undefined,
+                lineHeight: 1,
+              }}
+            />
+          </div>
+        )}
+        {c.imageUrl && imageMode === 'inline' && (() => {
+          const r = buildResponsiveImage(c.imageUrl, { sizes: '(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw' });
+          const pct = Number.isFinite(Number(c.imageWidthPct)) ? Math.max(5, Math.min(100, Number(c.imageWidthPct))) : 100;
+          return (
+            <div className="flex mb-2" style={{ justifyContent: alignToJustify(c.imageAlign) }}>
+              <img
+                src={r.src}
+                srcSet={r.srcSet}
+                sizes={r.sizes}
+                alt={c.imageAlt || ''}
+                loading={priority ? 'eager' : 'lazy'}
+                decoding="async"
+                fetchpriority={priority ? 'high' : undefined}
+                style={{
+                  width: `${pct}%`,
+                  height: 'auto',
+                  display: 'block',
+                  borderRadius: cardRadius,
+                }}
+              />
+            </div>
+          );
+        })()}
         <Heading style={headingInline} data-tg-r="card-heading">
           {c.heading}
         </Heading>
@@ -3089,17 +3169,64 @@ function CardRender({ block, asEditor, priority, breakpoint }) {
           className="prose prose-sm max-w-none mt-1 flex-1 [&_p:last-child]:mb-0"
           dangerouslySetInnerHTML={{ __html: sanitizeRichText(stripTrailingEmptyParagraphs(c.body || '')) }}
         />
-        {c.ctaLabel && (() => {
+        {c.ctaEnabled !== false && c.ctaLabel && (() => {
           const ctaLabelStyleObj = resolveTenantStyle(c.ctaLabelTypographyStyleId, tenantStyles);
           const awaitingCtaLabel = isAwaitingTypographyStyle(c.ctaLabelTypographyStyleId, ctaLabelStyleObj, stylesResolved);
           const ctaLabelInline = ctaLabelStyleObj
             ? buildTypographyInlineStyle(ctaLabelStyleObj)
             : (awaitingCtaLabel ? { visibility: 'hidden' } : null);
+          const ctaVariant = c.ctaVariant || 'outline';
+          // Tenant-styled CTA: route through the shared tenant button resolver
+          // exactly like ButtonRender so background/border/radius/hover honour
+          // the tenant's saved button styles.
+          const isTenantVariant = isTenantButtonVariant(ctaVariant);
+          const tenantStyle = isTenantVariant ? resolveTenantButtonStyle(ctaVariant, branding) : null;
+          if (isTenantVariant && tenantStyle) {
+            const baseline = { ...TENANT_BUTTON_DEFAULT_SIZE, ...(tenantStyle.size || {}) };
+            const bg = bgCssFromConfig(ctaHovered ? tenantStyle.hover : tenantStyle.background) || {};
+            const border = tenantStyle.border || {};
+            const inlineStyle = {
+              ...bg,
+              color: ctaHovered
+                ? tenantStyle.hoverTextColor || tenantStyle.textColor || '#ffffff'
+                : tenantStyle.textColor || '#ffffff',
+              borderRadius: `${tenantStyle.radius ?? 6}px`,
+              border:
+                border.width > 0
+                  ? `${border.width}px ${border.style || 'solid'} ${border.color || '#000000'}`
+                  : 'none',
+              paddingTop: baseline.paddingY,
+              paddingBottom: baseline.paddingY,
+              paddingLeft: baseline.paddingX,
+              paddingRight: baseline.paddingX,
+              fontSize: baseline.fontSize,
+              transition: 'background-color 0.2s ease, color 0.2s ease, background 0.2s ease',
+            };
+            return (
+              <div className="mt-2 flex" style={{ justifyContent: ctaJustify }}>
+                <a
+                  href={asEditor ? undefined : (c.ctaHref || '#')}
+                  className="inline-flex items-center justify-center gap-1.5 font-medium whitespace-nowrap"
+                  style={inlineStyle}
+                  onMouseEnter={() => setCtaHovered(true)}
+                  onMouseLeave={() => setCtaHovered(false)}
+                  onClick={(e) => { if (asEditor) e.preventDefault(); }}
+                >
+                  <span style={ctaLabelInline || undefined}>{c.ctaLabel}</span>
+                  <ArrowRight className="w-4 h-4" />
+                </a>
+              </div>
+            );
+          }
+          // Fallback path: tenant variant chosen but tenant has no matching
+          // style configured → render with the legacy `outline` classes so the
+          // CTA still looks sensible.
+          const fallbackVariant = isTenantVariant ? 'outline' : ctaVariant;
           return (
             <div className="mt-2 flex" style={{ justifyContent: ctaJustify }}>
               <a
                 href={asEditor ? undefined : (c.ctaHref || '#')}
-                className={buttonClasses(c.ctaVariant || 'outline', 'default')}
+                className={buttonClasses(fallbackVariant, 'default')}
                 onClick={(e) => { if (asEditor) e.preventDefault(); }}
               >
                 <span style={ctaLabelInline || undefined}>{c.ctaLabel}</span>
@@ -3116,6 +3243,22 @@ function CardRender({ block, asEditor, priority, breakpoint }) {
 function CardInspector({ block, update }) {
   const c = block.content || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+  // Tenant custom button styles for the CTA variant picker — same
+  // enumeration as ButtonInspector so the Card CTA offers the exact same
+  // tenant-branded options.
+  const branding = useTenantBranding()?.branding || null;
+  const customStyleEntries = (() => {
+    const styles =
+      branding?.buttonStyles ||
+      branding?.brandingConfig?.button_styles ||
+      null;
+    if (!styles || typeof styles !== 'object') return [];
+    return Object.entries(styles)
+      .filter(([k, v]) => k !== 'primary' && k !== 'secondary' && v && typeof v === 'object')
+      .map(([k, v]) => ({ key: k, label: v.label || k }));
+  })();
+  const imageMode = c.imageDisplayMode === 'inline' ? 'inline' : 'full-bleed';
+  const ctaEnabled = c.ctaEnabled !== false;
   return (
     <>
       <ImageField
@@ -3126,6 +3269,78 @@ function CardInspector({ block, update }) {
         onChangeAlt={(v) => set({ imageAlt: v })}
         testId="input-card-image"
       />
+      {c.imageUrl && (
+        <SelectField
+          label="Image display"
+          value={imageMode}
+          onChange={(v) => set({ imageDisplayMode: v })}
+          options={[
+            { value: 'full-bleed', label: 'Full bleed (cropped header)' },
+            { value: 'inline', label: 'Inline (uncropped, sized)' },
+          ]}
+          testId="select-card-image-mode"
+        />
+      )}
+      {c.imageUrl && imageMode === 'inline' && (
+        <>
+          <NumberField
+            label="Image width (%)"
+            value={c.imageWidthPct == null ? 100 : c.imageWidthPct}
+            onChange={(v) => set({ imageWidthPct: v })}
+            min={5}
+            max={100}
+            step={5}
+            testId="input-card-image-width"
+          />
+          <SelectField
+            label="Image alignment"
+            value={c.imageAlign || 'center'}
+            onChange={(v) => set({ imageAlign: v })}
+            options={[
+              { value: 'left', label: 'Left' },
+              { value: 'center', label: 'Center' },
+              { value: 'right', label: 'Right' },
+            ]}
+            testId="select-card-image-align"
+          />
+        </>
+      )}
+      <TextField
+        label="Icon class (Font Awesome, optional)"
+        value={c.iconClass}
+        onChange={(v) => set({ iconClass: v })}
+        placeholder="e.g. fa-solid fa-book-open"
+        testId="input-card-icon-class"
+      />
+      {sanitizeFaIconClass(c.iconClass) && (
+        <>
+          <NumberField
+            label="Icon size (px)"
+            value={c.iconSize == null ? 32 : c.iconSize}
+            onChange={(v) => set({ iconSize: v })}
+            min={8}
+            max={160}
+            testId="input-card-icon-size"
+          />
+          <SelectField
+            label="Icon alignment"
+            value={c.iconAlign || 'left'}
+            onChange={(v) => set({ iconAlign: v })}
+            options={[
+              { value: 'left', label: 'Left' },
+              { value: 'center', label: 'Center' },
+              { value: 'right', label: 'Right' },
+            ]}
+            testId="select-card-icon-align"
+          />
+          <ColorField
+            label="Icon colour (optional)"
+            value={c.iconColor}
+            onChange={(v) => set({ iconColor: v })}
+            testId="input-card-icon-color"
+          />
+        </>
+      )}
       <TextField label="Heading" value={c.heading} onChange={(v) => set({ heading: v })} testId="input-card-heading" />
       <SelectField
         label="Heading level"
@@ -3159,37 +3374,79 @@ function CardInspector({ block, update }) {
         max={64}
         testId="input-card-content-padding"
       />
-      <TextField label="CTA label" value={c.ctaLabel} onChange={(v) => set({ ctaLabel: v })} testId="input-card-cta-label" />
-      <TypographyStyleField
-        label="CTA label style"
-        value={c.ctaLabelTypographyStyleId}
-        onChange={(id) => set({ ctaLabelTypographyStyleId: id })}
-        testId="select-card-cta-typography"
+      <ToggleField
+        label="Show CTA"
+        value={ctaEnabled}
+        onChange={(v) => set({ ctaEnabled: v })}
+        testId="toggle-card-cta-enabled"
       />
-      <LinkField label="CTA link" value={c.ctaHref} onChange={(v) => set({ ctaHref: v })} testId="input-card-cta-href" />
+      {ctaEnabled && (
+        <>
+          <TextField label="CTA label" value={c.ctaLabel} onChange={(v) => set({ ctaLabel: v })} testId="input-card-cta-label" />
+          <TypographyStyleField
+            label="CTA label style"
+            value={c.ctaLabelTypographyStyleId}
+            onChange={(id) => set({ ctaLabelTypographyStyleId: id })}
+            testId="select-card-cta-typography"
+          />
+          <LinkField label="CTA link" value={c.ctaHref} onChange={(v) => set({ ctaHref: v })} testId="input-card-cta-href" />
+          <SelectField
+            label="CTA variant"
+            value={c.ctaVariant || 'outline'}
+            onChange={(v) => set({ ctaVariant: v })}
+            options={[
+              { value: 'primary', label: 'Primary' },
+              { value: 'default', label: 'Default' },
+              { value: 'outline', label: 'Outline' },
+              { value: 'ghost', label: 'Ghost' },
+              { value: 'tenant-primary', label: 'Tenant primary (branded)' },
+              { value: 'tenant-secondary', label: 'Tenant secondary (branded)' },
+              ...customStyleEntries.map((e) => ({
+                value: `tenant:${e.key}`,
+                label: `Tenant: ${e.label}`,
+              })),
+            ]}
+            testId="select-card-cta-variant"
+          />
+          <SelectField
+            label="CTA alignment"
+            value={c.ctaAlign || 'left'}
+            onChange={(v) => set({ ctaAlign: v })}
+            options={[
+              { value: 'left', label: 'Left' },
+              { value: 'center', label: 'Center' },
+              { value: 'right', label: 'Right' },
+            ]}
+            testId="select-card-cta-align"
+          />
+        </>
+      )}
       <SelectField
-        label="CTA variant"
-        value={c.ctaVariant || 'outline'}
-        onChange={(v) => set({ ctaVariant: v })}
+        label="Drop shadow"
+        value={c.shadow || 'none'}
+        onChange={(v) => set({ shadow: v })}
         options={[
-          { value: 'primary', label: 'Primary' },
-          { value: 'default', label: 'Default' },
-          { value: 'outline', label: 'Outline' },
-          { value: 'ghost', label: 'Ghost' },
+          { value: 'none', label: 'None' },
+          { value: 'sm', label: 'Small' },
+          { value: 'md', label: 'Medium' },
+          { value: 'lg', label: 'Large' },
         ]}
-        testId="select-card-cta-variant"
+        testId="select-card-shadow"
       />
-      <SelectField
-        label="CTA alignment"
-        value={c.ctaAlign || 'left'}
-        onChange={(v) => set({ ctaAlign: v })}
-        options={[
-          { value: 'left', label: 'Left' },
-          { value: 'center', label: 'Center' },
-          { value: 'right', label: 'Right' },
-        ]}
-        testId="select-card-cta-align"
+      <ToggleField
+        label="Highlight ring"
+        value={!!c.highlight}
+        onChange={(v) => set({ highlight: v })}
+        testId="toggle-card-highlight"
       />
+      {c.highlight && (
+        <ColorField
+          label="Highlight colour"
+          value={c.highlightColor || '#3b82f6'}
+          onChange={(v) => set({ highlightColor: v })}
+          testId="input-card-highlight-color"
+        />
+      )}
     </>
   );
 }
@@ -6667,7 +6924,7 @@ const REGISTRY = {
   [BLOCK_TYPES.TESTIMONIALS]: { label: 'Testimonials',   icon: Quote,          category: 'content',  Editor: TestimonialsRender, Renderer: TestimonialsRender, Inspector: TestimonialsInspector },
   [BLOCK_TYPES.CUSTOM_HTML]:  { label: 'Custom HTML',    icon: Code2,          category: 'advanced', Editor: CustomHtmlRender,   Renderer: CustomHtmlRender,   Inspector: CustomHtmlInspector },
   [BLOCK_TYPES.ICON]:         { label: 'Icon',           icon: Star,           category: 'ui',       Editor: IconRender,         Renderer: IconRender,         Inspector: IconInspector },
-  [BLOCK_TYPES.CARD]:         { label: 'Card',           icon: LayoutGrid,     category: 'ui',       Editor: CardRender,         Renderer: CardRender,         Inspector: CardInspector },
+  [BLOCK_TYPES.CARD]:         { label: 'Card',           icon: LayoutGrid,     category: 'ui',       Editor: CardRender,         Renderer: CardRender,         Inspector: CardInspector, allowOverflow: true },
   [BLOCK_TYPES.STAT]:         { label: 'Stat',           icon: Hash,           category: 'ui',       Editor: StatRender,         Renderer: StatRender,         Inspector: StatInspector },
   [BLOCK_TYPES.LOGO_STRIP]:   { label: 'Logo strip',     icon: Images,         category: 'ui',       Editor: LogoStripRender,    Renderer: LogoStripRender,    Inspector: LogoStripInspector },
   [BLOCK_TYPES.MAP]:          { label: 'Map',            icon: MapIcon,        category: 'media',    Editor: MapRender,          Renderer: MapRender,          Inspector: MapInspector },
