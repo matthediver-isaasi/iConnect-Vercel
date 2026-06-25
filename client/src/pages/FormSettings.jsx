@@ -7,10 +7,18 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Save, ClipboardList, Mail, FileText, Users } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Loader2, Save, ClipboardList, Mail, FileText, Users, Palette, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
+import { getReadableTextColor } from "@/components/RoleBadge";
+
+const STATS_CARD_DEFS = [
+  { key: 'submissions', defaultLabel: 'Submissions', defaultColour: '#dbeafe' },
+  { key: 'jobs', defaultLabel: 'Jobs', defaultColour: '#fef3c7' },
+  { key: 'cancellations', defaultLabel: 'Cancellations', defaultColour: '#ffe4e6' },
+];
 
 export default function FormSettingsPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -23,6 +31,8 @@ export default function FormSettingsPage() {
   const [statsBarSettingId, setStatsBarSettingId] = useState(null);
   const [statsBarFormIds, setStatsBarFormIds] = useState([]);
   const [statsBarFormsSettingId, setStatsBarFormsSettingId] = useState(null);
+  const [cardStyles, setCardStyles] = useState({});
+  const [cardStylesSettingId, setCardStylesSettingId] = useState(null);
 
   const queryClient = useQueryClient();
 
@@ -49,6 +59,7 @@ export default function FormSettingsPage() {
       const newsletterSetting = allSettings.find(s => s.setting_key === 'newsletter_signup_form_id');
       const statsBarSetting = allSettings.find(s => s.setting_key === 'submission_stats_allowed_roles');
       const statsBarFormsSetting = allSettings.find(s => s.setting_key === 'submission_stats_included_form_ids');
+      const cardStylesSetting = allSettings.find(s => s.setting_key === 'submission_stats_card_styles');
       
       let statsBarFormIds = [];
       if (statsBarFormsSetting?.setting_value) {
@@ -56,6 +67,18 @@ export default function FormSettingsPage() {
           statsBarFormIds = JSON.parse(statsBarFormsSetting.setting_value);
         } catch (e) {
           statsBarFormIds = [];
+        }
+      }
+
+      let cardStyles = {};
+      if (cardStylesSetting?.setting_value) {
+        try {
+          const parsed = JSON.parse(cardStylesSetting.setting_value);
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            cardStyles = parsed;
+          }
+        } catch (e) {
+          cardStyles = {};
         }
       }
 
@@ -67,7 +90,9 @@ export default function FormSettingsPage() {
         stats_bar_setting_id: statsBarSetting?.id || null,
         stats_bar_role_ids: statsBarSetting?.setting_value ? JSON.parse(statsBarSetting.setting_value) : [],
         stats_bar_forms_setting_id: statsBarFormsSetting?.id || null,
-        stats_bar_form_ids: statsBarFormIds
+        stats_bar_form_ids: statsBarFormIds,
+        card_styles_setting_id: cardStylesSetting?.id || null,
+        card_styles: cardStyles
       };
     },
     staleTime: 0,
@@ -94,6 +119,8 @@ export default function FormSettingsPage() {
       setStatsBarSettingId(formSettings.stats_bar_setting_id || null);
       setStatsBarFormIds(formSettings.stats_bar_form_ids || []);
       setStatsBarFormsSettingId(formSettings.stats_bar_forms_setting_id || null);
+      setCardStyles(formSettings.card_styles || {});
+      setCardStylesSettingId(formSettings.card_styles_setting_id || null);
     }
   }, [formSettings]);
 
@@ -209,6 +236,57 @@ export default function FormSettingsPage() {
       toast.error('Failed to save stats bar forms');
     }
   });
+
+  const saveCardStylesMutation = useMutation({
+    mutationFn: async (styles) => {
+      const value = JSON.stringify(styles);
+      if (cardStylesSettingId) {
+        return await base44.entities.SystemSettings.update(cardStylesSettingId, {
+          setting_value: value
+        });
+      } else {
+        return await base44.entities.SystemSettings.create({
+          setting_key: 'submission_stats_card_styles',
+          setting_value: value,
+          description: 'Per-card background colour and label overrides for the sidebar Submission Stats Bar'
+        });
+      }
+    },
+    onSuccess: (data) => {
+      if (data?.id && !cardStylesSettingId) {
+        setCardStylesSettingId(data.id);
+      }
+      queryClient.invalidateQueries({ queryKey: ['formDefaultSettings'] });
+      queryClient.invalidateQueries({ queryKey: ['form-submission-stats'] });
+      toast.success('Stats bar appearance saved');
+    },
+    onError: (error) => {
+      console.error('Failed to save stats bar appearance:', error);
+      toast.error('Failed to save stats bar appearance');
+    }
+  });
+
+  const handleCardLabelChange = (key, label) => {
+    const next = { ...cardStyles, [key]: { ...(cardStyles[key] || {}), label } };
+    setCardStyles(next);
+  };
+
+  const handleCardColourChange = (key, colour) => {
+    const next = { ...cardStyles, [key]: { ...(cardStyles[key] || {}), colour } };
+    setCardStyles(next);
+    saveCardStylesMutation.mutate(next);
+  };
+
+  const handleCardLabelBlur = () => {
+    saveCardStylesMutation.mutate(cardStyles);
+  };
+
+  const handleResetCard = (key) => {
+    const next = { ...cardStyles };
+    delete next[key];
+    setCardStyles(next);
+    saveCardStylesMutation.mutate(next);
+  };
 
   const handleToggleStatsForm = (formId) => {
     const newFormIds = statsBarFormIds.includes(formId)
@@ -364,6 +442,91 @@ export default function FormSettingsPage() {
               </div>
             )}
             {saveStatsBarFormsMutation.isPending && (
+              <div className="flex items-center gap-2 text-sm text-slate-500">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                Saving...
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card data-testid="stats-bar-appearance-card" className="mb-6">
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Palette className="w-5 h-5 text-blue-600" />
+              <CardTitle>Stats Bar Appearance</CardTitle>
+            </div>
+            <CardDescription>
+              Customise the background colour and label for each card in the sidebar Submission Stats Bar.
+              Text colour is chosen automatically for readability. Leave a card unchanged to use its default style.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {STATS_CARD_DEFS.map(card => {
+              const config = cardStyles[card.key] || {};
+              const colour = (typeof config.colour === 'string' && config.colour) ? config.colour : '';
+              const label = (typeof config.label === 'string') ? config.label : '';
+              const previewColour = colour || card.defaultColour;
+              const previewLabel = label.trim() || card.defaultLabel;
+              const previewTextColor = getReadableTextColor(previewColour);
+              const isCustomised = !!colour || !!label.trim();
+              return (
+                <div
+                  key={card.key}
+                  className="flex flex-col sm:flex-row sm:items-end gap-3 p-3 rounded-md border border-slate-200"
+                  data-testid={`stats-card-style-row-${card.key}`}
+                >
+                  <div className="flex-1 space-y-1">
+                    <Label htmlFor={`card-label-${card.key}`} className="text-xs">Label</Label>
+                    <Input
+                      id={`card-label-${card.key}`}
+                      value={label}
+                      placeholder={card.defaultLabel}
+                      onChange={(e) => handleCardLabelChange(card.key, e.target.value)}
+                      onBlur={handleCardLabelBlur}
+                      data-testid={`input-card-label-${card.key}`}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor={`card-colour-${card.key}`} className="text-xs">Colour</Label>
+                    <input
+                      id={`card-colour-${card.key}`}
+                      type="color"
+                      value={colour || card.defaultColour}
+                      onChange={(e) => handleCardColourChange(card.key, e.target.value)}
+                      className="h-9 w-14 rounded-md border border-slate-200 bg-white cursor-pointer p-1"
+                      data-testid={`input-card-colour-${card.key}`}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Preview</Label>
+                    <div
+                      className="flex flex-col items-center justify-center gap-1 h-14 w-20 rounded-md border"
+                      style={{ backgroundColor: previewColour, color: previewTextColor, borderColor: previewColour }}
+                      data-testid={`preview-card-${card.key}`}
+                    >
+                      <span className="text-base font-bold leading-none">0</span>
+                      <span className="text-[10px] font-medium leading-tight text-center px-1 truncate max-w-full">{previewLabel}</span>
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs invisible hidden sm:block">Reset</Label>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleResetCard(card.key)}
+                      disabled={!isCustomised || saveCardStylesMutation.isPending}
+                      data-testid={`button-reset-card-${card.key}`}
+                    >
+                      <RotateCcw className="w-3 h-3 mr-1" />
+                      Reset
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+            {saveCardStylesMutation.isPending && (
               <div className="flex items-center gap-2 text-sm text-slate-500">
                 <Loader2 className="w-3 h-3 animate-spin" />
                 Saving...

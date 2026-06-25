@@ -97,6 +97,26 @@ export default async function handler(req, res) {
       }
     }
 
+    // Get per-card style config (colour + label) - scoped to tenant
+    const { data: cardStylesSetting } = await supabase
+      .from('system_settings')
+      .select('setting_value')
+      .eq('setting_key', 'submission_stats_card_styles')
+      .eq('tenant_id', tenantId)
+      .single();
+
+    let cardStyles = {};
+    if (cardStylesSetting?.setting_value) {
+      try {
+        const parsed = JSON.parse(cardStylesSetting.setting_value);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          cardStyles = parsed;
+        }
+      } catch (e) {
+        console.error('[FormSubmissionStats] Error parsing card_styles:', e);
+      }
+    }
+
     let totalQuery = supabase
       .from('form_submission')
       .select('id', { count: 'exact', head: true })
@@ -167,7 +187,8 @@ export default async function handler(req, res) {
       new: newCount || 0,
       pending_jobs: pendingJobsCount || 0,
       pending_cancellations_transfers: pendingCancellationsTransfers,
-      allowed_roles: allowedRoles
+      allowed_roles: allowedRoles,
+      card_styles: cardStyles
     });
   } catch (error) {
     console.error('[Admin Form Submission Stats] Error:', error);

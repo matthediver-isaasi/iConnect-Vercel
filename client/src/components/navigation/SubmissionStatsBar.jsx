@@ -5,6 +5,36 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
+import { getReadableTextColor } from "@/components/RoleBadge";
+
+const DEFAULT_CARD_LABELS = {
+  submissions: "Submissions",
+  jobs: "Jobs",
+  cancellations: "Cancellations",
+};
+
+// Resolve a card's configured colour/label from the stats response.
+// Returns { label, expandedStyle, collapsedStyle } where the *Style objects
+// are inline styles when a colour is configured, or null to fall back to the
+// hardcoded Tailwind classes.
+function resolveCardStyle(cardStyles, key) {
+  const config = (cardStyles && cardStyles[key]) || {};
+  const colour = typeof config.colour === "string" ? config.colour.trim() : "";
+  const label = (typeof config.label === "string" && config.label.trim())
+    ? config.label.trim()
+    : DEFAULT_CARD_LABELS[key];
+
+  if (!colour) {
+    return { label, style: null, iconColor: undefined };
+  }
+
+  const textColor = getReadableTextColor(colour);
+  return {
+    label,
+    style: { backgroundColor: colour, color: textColor, borderColor: colour },
+    iconColor: textColor,
+  };
+}
 
 export default function SubmissionStatsBar() {
   const navigate = useNavigate();
@@ -67,6 +97,11 @@ export default function SubmissionStatsBar() {
   const pendingJobs = stats.pending_jobs || 0;
   const pendingCancellationsTransfers = stats.pending_cancellations_transfers || 0;
 
+  const cardStyles = stats.card_styles || {};
+  const submissionsCard = resolveCardStyle(cardStyles, 'submissions');
+  const jobsCard = resolveCardStyle(cardStyles, 'jobs');
+  const cancellationsCard = resolveCardStyle(cardStyles, 'cancellations');
+
   const handleSubmissionsClick = () => {
     navigate(createPageUrl("FormSubmissions"));
   };
@@ -87,40 +122,46 @@ export default function SubmissionStatsBar() {
           {/* New Submissions Card */}
           <div 
             onClick={handleSubmissionsClick}
-            className="flex flex-col items-center gap-1 p-2 rounded-md bg-blue-50 hover-elevate active-elevate-2 transition-colors border border-blue-200 cursor-pointer"
+            className={`flex flex-col items-center gap-1 p-2 rounded-md hover-elevate active-elevate-2 transition-colors border cursor-pointer ${submissionsCard.style ? '' : 'bg-blue-50 border-blue-200'}`}
+            style={submissionsCard.style || undefined}
             data-testid="link-new-submissions"
             role="button"
             tabIndex={0}
             onKeyDown={(e) => e.key === 'Enter' && handleSubmissionsClick()}
           >
-            <FileText className="w-4 h-4 text-blue-600" />
-            <span className="text-base font-bold text-blue-700" data-testid="text-new-submissions-count">{newSubmissions}</span>
+            <FileText className={`w-4 h-4 ${submissionsCard.style ? '' : 'text-blue-600'}`} style={submissionsCard.iconColor ? { color: submissionsCard.iconColor } : undefined} />
+            <span className={`text-base font-bold ${submissionsCard.style ? '' : 'text-blue-700'}`} data-testid="text-new-submissions-count">{newSubmissions}</span>
+            <span className={`text-[10px] font-medium leading-tight text-center ${submissionsCard.style ? '' : 'text-blue-700'}`} data-testid="text-new-submissions-label">{submissionsCard.label}</span>
           </div>
           
           {/* Pending Jobs Card */}
           <div 
             onClick={handleJobsClick}
-            className="flex flex-col items-center gap-1 p-2 rounded-md bg-warning/10 hover-elevate active-elevate-2 transition-colors border border-warning/30 cursor-pointer"
+            className={`flex flex-col items-center gap-1 p-2 rounded-md hover-elevate active-elevate-2 transition-colors border cursor-pointer ${jobsCard.style ? '' : 'bg-warning/10 border-warning/30'}`}
+            style={jobsCard.style || undefined}
             data-testid="link-pending-jobs"
             role="button"
             tabIndex={0}
             onKeyDown={(e) => e.key === 'Enter' && handleJobsClick()}
           >
-            <Briefcase className="w-4 h-4 text-warning" />
-            <span className="text-base font-bold text-warning" data-testid="text-pending-jobs-count">{pendingJobs}</span>
+            <Briefcase className={`w-4 h-4 ${jobsCard.style ? '' : 'text-warning'}`} style={jobsCard.iconColor ? { color: jobsCard.iconColor } : undefined} />
+            <span className={`text-base font-bold ${jobsCard.style ? '' : 'text-warning'}`} data-testid="text-pending-jobs-count">{pendingJobs}</span>
+            <span className={`text-[10px] font-medium leading-tight text-center ${jobsCard.style ? '' : 'text-warning'}`} data-testid="text-pending-jobs-label">{jobsCard.label}</span>
           </div>
 
           {/* Pending Cancellations / Transfers Card */}
           <div
             onClick={handleCancellationsClick}
-            className="flex flex-col items-center gap-1 p-2 rounded-md bg-rose-50 hover-elevate active-elevate-2 transition-colors border border-rose-200 cursor-pointer"
+            className={`flex flex-col items-center gap-1 p-2 rounded-md hover-elevate active-elevate-2 transition-colors border cursor-pointer ${cancellationsCard.style ? '' : 'bg-rose-50 border-rose-200'}`}
+            style={cancellationsCard.style || undefined}
             data-testid="link-pending-cancellations-transfers"
             role="button"
             tabIndex={0}
             onKeyDown={(e) => e.key === 'Enter' && handleCancellationsClick()}
           >
-            <XCircle className="w-4 h-4 text-rose-600" />
-            <span className="text-base font-bold text-rose-700" data-testid="text-pending-cancellations-transfers-count">{pendingCancellationsTransfers}</span>
+            <XCircle className={`w-4 h-4 ${cancellationsCard.style ? '' : 'text-rose-600'}`} style={cancellationsCard.iconColor ? { color: cancellationsCard.iconColor } : undefined} />
+            <span className={`text-base font-bold ${cancellationsCard.style ? '' : 'text-rose-700'}`} data-testid="text-pending-cancellations-transfers-count">{pendingCancellationsTransfers}</span>
+            <span className={`text-[10px] font-medium leading-tight text-center ${cancellationsCard.style ? '' : 'text-rose-700'}`} data-testid="text-pending-cancellations-transfers-label">{cancellationsCard.label}</span>
           </div>
         </div>
       </div>
@@ -131,13 +172,14 @@ export default function SubmissionStatsBar() {
           <TooltipTrigger asChild onFocus={(e) => e.preventDefault()}>
             <div 
               onClick={handleSubmissionsClick}
-              className="relative flex items-center justify-center w-8 h-8 rounded-md bg-blue-600 hover-elevate active-elevate-2 transition-colors cursor-pointer"
+              className={`relative flex items-center justify-center w-8 h-8 rounded-md hover-elevate active-elevate-2 transition-colors cursor-pointer ${submissionsCard.style ? '' : 'bg-blue-600'}`}
+              style={submissionsCard.style ? { backgroundColor: submissionsCard.style.backgroundColor } : undefined}
               data-testid="link-new-submissions-collapsed"
               role="button"
               tabIndex={0}
               onKeyDown={(e) => e.key === 'Enter' && handleSubmissionsClick()}
             >
-              <span className="text-white text-xs font-bold" data-testid="text-new-submissions-count-collapsed">{newSubmissions}</span>
+              <span className={`text-xs font-bold ${submissionsCard.style ? '' : 'text-white'}`} style={submissionsCard.iconColor ? { color: submissionsCard.iconColor } : undefined} data-testid="text-new-submissions-count-collapsed">{newSubmissions}</span>
             </div>
           </TooltipTrigger>
           <TooltipContent side="right">
@@ -149,13 +191,14 @@ export default function SubmissionStatsBar() {
           <TooltipTrigger asChild onFocus={(e) => e.preventDefault()}>
             <div 
               onClick={handleJobsClick}
-              className="relative flex items-center justify-center w-8 h-8 rounded-md bg-warning hover-elevate active-elevate-2 transition-colors cursor-pointer"
+              className={`relative flex items-center justify-center w-8 h-8 rounded-md hover-elevate active-elevate-2 transition-colors cursor-pointer ${jobsCard.style ? '' : 'bg-warning'}`}
+              style={jobsCard.style ? { backgroundColor: jobsCard.style.backgroundColor } : undefined}
               data-testid="link-pending-jobs-collapsed"
               role="button"
               tabIndex={0}
               onKeyDown={(e) => e.key === 'Enter' && handleJobsClick()}
             >
-              <span className="text-white text-xs font-bold" data-testid="text-pending-jobs-count-collapsed">{pendingJobs}</span>
+              <span className={`text-xs font-bold ${jobsCard.style ? '' : 'text-white'}`} style={jobsCard.iconColor ? { color: jobsCard.iconColor } : undefined} data-testid="text-pending-jobs-count-collapsed">{pendingJobs}</span>
             </div>
           </TooltipTrigger>
           <TooltipContent side="right">
@@ -167,13 +210,14 @@ export default function SubmissionStatsBar() {
           <TooltipTrigger asChild onFocus={(e) => e.preventDefault()}>
             <div
               onClick={handleCancellationsClick}
-              className="relative flex items-center justify-center w-8 h-8 rounded-md bg-rose-600 hover-elevate active-elevate-2 transition-colors cursor-pointer"
+              className={`relative flex items-center justify-center w-8 h-8 rounded-md hover-elevate active-elevate-2 transition-colors cursor-pointer ${cancellationsCard.style ? '' : 'bg-rose-600'}`}
+              style={cancellationsCard.style ? { backgroundColor: cancellationsCard.style.backgroundColor } : undefined}
               data-testid="link-pending-cancellations-transfers-collapsed"
               role="button"
               tabIndex={0}
               onKeyDown={(e) => e.key === 'Enter' && handleCancellationsClick()}
             >
-              <span className="text-white text-xs font-bold" data-testid="text-pending-cancellations-transfers-count-collapsed">{pendingCancellationsTransfers}</span>
+              <span className={`text-xs font-bold ${cancellationsCard.style ? '' : 'text-white'}`} style={cancellationsCard.iconColor ? { color: cancellationsCard.iconColor } : undefined} data-testid="text-pending-cancellations-transfers-count-collapsed">{pendingCancellationsTransfers}</span>
             </div>
           </TooltipTrigger>
           <TooltipContent side="right">
