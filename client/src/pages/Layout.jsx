@@ -8,6 +8,7 @@ import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { isResourceExcluded } from "@/lib/roleVisibility";
 import { migrateLegacyFeatureId } from "@/lib/roleAccessMap";
+import { buildPortalNavBackgroundStyle } from "@/lib/canvasBackground";
 import { publicClient } from "@/api/publicClient";
 import {
   Sidebar,
@@ -685,8 +686,31 @@ function SidebarFooterContent({ memberInfo, memberRole, handleLogout }) {
   );
 }
 
+// Per-tenant portal sidebar nav-item branding. Returns undefined when the
+// tenant has no portalNav config so the default Tailwind classes apply (no
+// visual regression); otherwise returns inline styles that override them.
+function portalNavItemStyle(navTheme, isActive) {
+  if (!navTheme) return undefined;
+  if (isActive) {
+    const style = {};
+    if (navTheme.activeBackgroundColor) style.backgroundColor = navTheme.activeBackgroundColor;
+    const color = navTheme.activeTextColor || navTheme.textColor;
+    if (color) style.color = color;
+    return Object.keys(style).length ? style : undefined;
+  }
+  return navTheme.textColor ? { color: navTheme.textColor } : undefined;
+}
+
+function portalNavIconStyle(navTheme, isActive) {
+  if (!navTheme) return undefined;
+  const color = isActive
+    ? (navTheme.activeIconColor || navTheme.activeTextColor || navTheme.iconColor || navTheme.textColor)
+    : (navTheme.iconColor || navTheme.textColor);
+  return color ? { color } : undefined;
+}
+
 // Navigation item component that handles both expanded (collapsible) and collapsed (popover) states
-function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = false }) {
+function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = false, navTheme = null }) {
   const { state } = useSidebar();
   const isCollapsed = state === 'collapsed';
   const [popoverOpen, setPopoverOpen] = useState(false);
@@ -698,6 +722,12 @@ function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = 
   const colors = variant === 'admin' 
     ? { hover: 'hover:bg-warning/10 hover:text-warning', active: 'bg-warning/10 text-warning' }
     : { hover: 'hover:bg-blue-50 hover:text-blue-700', active: 'bg-blue-50 text-blue-700' };
+
+  // Per-tenant portal-nav branding: inline styles override the Tailwind
+  // colour classes when set, and stay undefined (no regression) when unset.
+  const itemStyle = portalNavItemStyle(navTheme, isActive);
+  const iconStyle = portalNavIconStyle(navTheme, isActive);
+  const subItemStyle = (active) => portalNavItemStyle(navTheme, active);
   
   // When collapsed, show popover with submenu
   if (isCollapsed) {
@@ -708,12 +738,13 @@ function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = 
             <SidebarMenuButton 
               tooltip={popoverOpen ? undefined : item.title}
               isActive={isActive}
+              style={itemStyle}
               className={`${colors.hover} transition-colors rounded-lg mb-1 ${
                 isActive ? `${colors.active} font-medium` : ''
               }`}
               data-testid={`button-nav-parent-${item.title.toLowerCase().replace(/\s+/g, '-')}`}
             >
-              <Icon className="w-4 h-4 shrink-0" />
+              <Icon className="w-4 h-4 shrink-0" style={iconStyle} />
               <span className="group-data-[collapsible=icon]:hidden">{item.title}</span>
               <ChevronRight className="ml-auto w-4 h-4 group-data-[collapsible=icon]:hidden" />
             </SidebarMenuButton>
@@ -735,6 +766,7 @@ function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = 
                     key={subItem.title}
                     to={subItem.url}
                     onClick={() => setPopoverOpen(false)}
+                    style={subItemStyle(isSubItemActive)}
                     className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-sm ${
                       isSubItemActive ? `${colors.active} font-medium` : `${colors.hover}`
                     }`}
@@ -762,11 +794,12 @@ function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = 
           <SidebarMenuButton 
             tooltip={item.title}
             isActive={isActive}
+            style={itemStyle}
             className={`items-start h-auto min-h-8 group-data-[collapsible=icon]:items-center ${colors.hover} transition-colors rounded-lg mb-1 ${
               isActive ? `${colors.active} font-medium` : ''
             }`}
           >
-            <Icon className="w-4 h-4 shrink-0 mt-0.5 group-data-[collapsible=icon]:mt-0" />
+            <Icon className="w-4 h-4 shrink-0 mt-0.5 group-data-[collapsible=icon]:mt-0" style={iconStyle} />
             <span className="group-data-[collapsible=icon]:hidden">{item.title}</span>
             <ChevronRight className="ml-auto w-4 h-4 mt-0.5 transition-transform group-data-[state=open]/collapsible:rotate-90 group-data-[collapsible=icon]:hidden" />
           </SidebarMenuButton>
@@ -782,6 +815,7 @@ function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = 
               <SidebarMenuSubItem key={subItem.title}>
                 <Link
                   to={subItem.url}
+                  style={subItemStyle(isSubItemActive)}
                   className={`flex items-start gap-3 px-3 py-2.5 rounded-lg text-sm ${
                     isSubItemActive ? `${colors.active} font-medium` : colors.hover
                   }`}
@@ -806,6 +840,21 @@ export default function Layout({ children, currentPageName }) {
   // Task #939: BNMS tenant gets Urbanist + extra Poppins weights (admin shell, for InstalledFonts previews).
   const tenantBranding = useTenantBranding();
   const isBnmsTenant = tenantBranding?.branding?.id === 'ff2df806-b321-4254-b651-3af11fccf1db';
+
+  // Per-tenant authenticated-portal sidebar branding (Task #1826). Unset =>
+  // null/'' so all surfaces fall back to the existing defaults (no regression).
+  const portalNav = tenantBranding?.branding?.brandingConfig?.portalNav || null;
+  const basePortalFont = tenantBranding?.branding?.brandingConfig?.basePortalFont || '';
+  const portalNavBgStyle = portalNav?.background ? buildPortalNavBackgroundStyle(portalNav.background) : {};
+  const hasPortalNavBg = Object.keys(portalNavBgStyle).length > 0;
+  const portalRootFont = basePortalFont
+    ? `${basePortalFont}, Poppins, sans-serif`
+    : 'Poppins, sans-serif';
+  // Pull a Google font when a non-system base font is selected (skip the
+  // already-imported Poppins and the locally-hosted Degular).
+  const portalFontImportName = basePortalFont && !/poppins|degular/i.test(basePortalFont)
+    ? basePortalFont.split(',')[0].trim().replace(/['"]/g, '')
+    : '';
   
   // Initialize from sessionStorage immediately to prevent flicker
   const [memberInfo, setMemberInfo] = useState(() => {
@@ -2031,12 +2080,13 @@ useEffect(() => {
   }
 
   return (
-    <div style={{ fontFamily: 'Poppins, sans-serif' }}>
+    <div style={{ fontFamily: portalRootFont }}>
       {/* Google Fonts - Poppins */}
       <style>
         {`
           @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap');
           ${isBnmsTenant ? `@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Urbanist:wght@500;600;700;800&display=swap');` : ''}
+          ${portalFontImportName ? `@import url('https://fonts.googleapis.com/css2?family=${encodeURIComponent(portalFontImportName).replace(/%20/g, '+')}:wght@400;500;600;700&display=swap');` : ''}
 
           @font-face {
             font-family: 'Degular Medium';
@@ -2073,7 +2123,7 @@ useEffect(() => {
 
       <SidebarProvider key="main-sidebar-provider">
         <div className="flex h-screen w-full overflow-hidden">
-        <Sidebar collapsible="icon" className="border-r border-slate-200 bg-white flex-shrink-0">
+        <Sidebar collapsible="icon" className={`border-r border-slate-200 flex-shrink-0 ${hasPortalNavBg ? '' : 'bg-white'}`} style={hasPortalNavBg ? portalNavBgStyle : undefined}>
             <SidebarHeader className="relative border-b border-slate-200 p-4">
               {/* Edge toggle positioned at sidebar boundary */}
               <div className="absolute top-1/2 -right-3 z-50" style={{ transform: 'translateY(-50%)' }}>
@@ -2171,6 +2221,7 @@ useEffect(() => {
                             location={location} 
                             variant="user"
                             hasPendingPOs={hasPendingPOs}
+                            navTheme={portalNav}
                           />
                         );
                       } else {
@@ -2186,12 +2237,13 @@ useEffect(() => {
                               asChild
                               tooltip={item.title}
                               isActive={isActive}
+                              style={portalNavItemStyle(portalNav, isActive)}
                               className={`items-start h-auto min-h-8 group-data-[collapsible=icon]:items-center hover:bg-blue-50 hover:text-blue-700 transition-colors rounded-lg mb-1 ${
                                 isActive ? 'bg-blue-50 text-blue-700 font-medium' : ''
                               }`}
                             >
                               <SidebarNavLink to={item.url}>
-                                <Icon className="w-4 h-4 shrink-0 mt-0.5 group-data-[collapsible=icon]:mt-0" />
+                                <Icon className="w-4 h-4 shrink-0 mt-0.5 group-data-[collapsible=icon]:mt-0" style={portalNavIconStyle(portalNav, isActive)} />
                                 <span className="group-data-[collapsible=icon]:hidden">{item.title}</span>
                                 {showPendingPOWarning && (
                                   <Bell className="w-4 h-4 text-warning animate-pulse group-data-[collapsible=icon]:hidden" data-testid="pending-po-warning-bell" />
@@ -2227,6 +2279,7 @@ useEffect(() => {
                               item={item} 
                               location={location} 
                               variant="admin"
+                              navTheme={portalNav}
                             />
                           );
                         } else {
@@ -2236,12 +2289,13 @@ useEffect(() => {
                                   asChild
                                   tooltip={item.title}
                                   isActive={isActive}
+                                  style={portalNavItemStyle(portalNav, isActive)}
                                   className={`items-start h-auto min-h-8 group-data-[collapsible=icon]:items-center hover:bg-warning/10 hover:text-warning transition-colors rounded-lg mb-1 ${
                                     isActive ? 'bg-warning/10 text-warning font-medium' : ''
                                   }`}
                                 >
                                   <SidebarNavLink to={item.url}>
-                                    <Icon className="w-4 h-4 shrink-0 mt-0.5 group-data-[collapsible=icon]:mt-0" />
+                                    <Icon className="w-4 h-4 shrink-0 mt-0.5 group-data-[collapsible=icon]:mt-0" style={portalNavIconStyle(portalNav, isActive)} />
                                     <span className="group-data-[collapsible=icon]:hidden">{item.title}</span>
                                   </SidebarNavLink>
                               </SidebarMenuButton>
@@ -2309,7 +2363,7 @@ useEffect(() => {
 
             {/* Mobile Navigation Sheet */}
             <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
-              <SheetContent side="left" className="w-[300px] p-0 flex flex-col">
+              <SheetContent side="left" className="w-[300px] p-0 flex flex-col" style={hasPortalNavBg ? portalNavBgStyle : undefined}>
                 <SheetHeader className="border-b border-slate-200 p-4">
                   {portalLogoSettings?.logoUrl ? (
                     // Custom portal logo in mobile sheet
@@ -2383,10 +2437,10 @@ useEffect(() => {
                         if (item.subItems) {
                           return (
                             <Collapsible key={item.title} defaultOpen={isActive}>
-                              <CollapsibleTrigger className={`w-full flex items-start gap-3 px-3 py-2.5 rounded-lg text-sm ${
+                              <CollapsibleTrigger style={portalNavItemStyle(portalNav, isActive)} className={`w-full flex items-start gap-3 px-3 py-2.5 rounded-lg text-sm ${
                                 isActive ? 'bg-blue-50 text-blue-700 font-medium' : 'hover:bg-blue-50 hover:text-blue-700'
                               }`}>
-                                <Icon className="w-4 h-4 shrink-0 mt-0.5" />
+                                <Icon className="w-4 h-4 shrink-0 mt-0.5" style={portalNavIconStyle(portalNav, isActive)} />
                                 <span className="flex-1 text-left">{item.title}</span>
                                 <ChevronRight className="w-4 h-4 shrink-0 mt-0.5 transition-transform group-data-[state=open]:rotate-90" />
                               </CollapsibleTrigger>
@@ -2399,6 +2453,7 @@ useEffect(() => {
                                         key={subItem.title}
                                         to={subItem.url}
                                         onClick={() => setMobileMenuOpen(false)}
+                                        style={portalNavItemStyle(portalNav, isSubItemActive)}
                                         className={`block px-3 py-2 rounded-lg text-sm ${
                                           isSubItemActive ? 'bg-blue-50 text-blue-700 font-medium' : 'hover:bg-blue-50 hover:text-blue-700'
                                         }`}
@@ -2417,11 +2472,12 @@ useEffect(() => {
                               key={item.title}
                               to={item.url}
                               onClick={() => setMobileMenuOpen(false)}
+                              style={portalNavItemStyle(portalNav, isActive)}
                               className={`flex items-start gap-3 px-3 py-2.5 rounded-lg text-sm ${
                                 isActive ? 'bg-blue-50 text-blue-700 font-medium' : 'hover:bg-blue-50 hover:text-blue-700'
                               }`}
                             >
-                              <Icon className="w-4 h-4 shrink-0 mt-0.5" />
+                              <Icon className="w-4 h-4 shrink-0 mt-0.5" style={portalNavIconStyle(portalNav, isActive)} />
                               <span className="flex-1">{item.title}</span>
                               {showPendingPOWarning && (
                                 <Bell className="w-4 h-4 text-warning animate-pulse" data-testid="pending-po-warning-bell-mobile" />
@@ -2448,10 +2504,10 @@ useEffect(() => {
                           if (item.subItems) {
                             return (
                               <Collapsible key={item.title} defaultOpen={isActive}>
-                                <CollapsibleTrigger className={`w-full flex items-start gap-3 px-3 py-2.5 rounded-lg text-sm ${
+                                <CollapsibleTrigger style={portalNavItemStyle(portalNav, isActive)} className={`w-full flex items-start gap-3 px-3 py-2.5 rounded-lg text-sm ${
                                   isActive ? 'bg-warning/10 text-warning font-medium' : 'hover:bg-warning/10 hover:text-warning'
                                 }`}>
-                                  <Icon className="w-4 h-4 shrink-0 mt-0.5" />
+                                  <Icon className="w-4 h-4 shrink-0 mt-0.5" style={portalNavIconStyle(portalNav, isActive)} />
                                   <span className="flex-1 text-left">{item.title}</span>
                                   <ChevronRight className="w-4 h-4 shrink-0 mt-0.5 transition-transform group-data-[state=open]:rotate-90" />
                                 </CollapsibleTrigger>
@@ -2464,6 +2520,7 @@ useEffect(() => {
                                           key={subItem.title}
                                           to={subItem.url}
                                           onClick={() => setMobileMenuOpen(false)}
+                                          style={portalNavItemStyle(portalNav, isSubItemActive)}
                                           className={`block px-3 py-2 rounded-lg text-sm ${
                                             isSubItemActive ? 'bg-warning/10 text-warning font-medium' : 'hover:bg-warning/10 hover:text-warning'
                                           }`}
@@ -2482,11 +2539,12 @@ useEffect(() => {
                                 key={item.title}
                                 to={item.url}
                                 onClick={() => setMobileMenuOpen(false)}
+                                style={portalNavItemStyle(portalNav, isActive)}
                                 className={`flex items-start gap-3 px-3 py-2.5 rounded-lg text-sm ${
                                   isActive ? 'bg-warning/10 text-warning font-medium' : 'hover:bg-warning/10 hover:text-warning'
                                 }`}
                               >
-                                <Icon className="w-4 h-4 shrink-0 mt-0.5" />
+                                <Icon className="w-4 h-4 shrink-0 mt-0.5" style={portalNavIconStyle(portalNav, isActive)} />
                                 <span>{item.title}</span>
                               </Link>
                             );

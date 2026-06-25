@@ -28,6 +28,8 @@ import { useToast } from "@/components/ui/use-toast";
 import { useResolvedSocialIcons } from "@/hooks/useResolvedSocialIcons";
 import UnfurlPreview from "@/components/UnfurlPreview";
 import { publicClient } from "@/api/publicClient";
+import { FocalPointPicker } from "@/components/FocalPointPicker";
+import { buildPortalNavBackgroundStyle } from "@/lib/canvasBackground";
 
 const NAV_FONT_WEIGHTS = [
   { value: 100, label: '100 - Thin' },
@@ -154,6 +156,85 @@ function GradientStopsEditor({ stops, onChange, testIdPrefix }) {
           Add
         </Button>
       </div>
+    </div>
+  );
+}
+
+// Multi-point stops editor that also exposes a per-stop opacity (0-100%) so the
+// underlying image can show through. Used by the portal sidebar image-overlay
+// and gradient backgrounds. `stops` is [{ color, opacity, position }].
+function OpacityStopsEditor({ stops, onChange, testIdPrefix }) {
+  const list = Array.isArray(stops) && stops.length > 0
+    ? stops
+    : [{ color: '#000000', opacity: 0.6, position: 0 }, { color: '#000000', opacity: 0, position: 100 }];
+  const update = (index, patch) => {
+    const ns = [...list];
+    ns[index] = { ...ns[index], ...patch };
+    onChange(ns);
+  };
+  return (
+    <div className="space-y-3">
+      {list.map((stop, index) => (
+        <div key={index} className="flex items-center gap-3 bg-slate-900/50 rounded-lg p-3">
+          <input
+            type="color"
+            value={stop.color || '#000000'}
+            onChange={(e) => update(index, { color: e.target.value })}
+            className="w-10 h-10 rounded cursor-pointer flex-shrink-0"
+            data-testid={`color-${testIdPrefix}-${index}`}
+          />
+          <div className="flex-1 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-slate-300 text-sm font-mono">{stop.color}</span>
+              <span className="text-slate-400 text-sm">{stop.position}%</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={stop.position}
+              onChange={(e) => update(index, { position: parseInt(e.target.value, 10) })}
+              className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+              data-testid={`slider-${testIdPrefix}-position-${index}`}
+            />
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-slate-400 text-xs">Opacity</span>
+              <span className="text-slate-400 text-xs">{Math.round((stop.opacity ?? 1) * 100)}%</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={Math.round((stop.opacity ?? 1) * 100)}
+              onChange={(e) => update(index, { opacity: parseInt(e.target.value, 10) / 100 })}
+              className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+              data-testid={`slider-${testIdPrefix}-opacity-${index}`}
+            />
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-slate-400 hover:text-red-400 flex-shrink-0"
+            onClick={() => onChange(list.filter((_, i) => i !== index))}
+            disabled={list.length <= 2}
+            data-testid={`button-remove-${testIdPrefix}-${index}`}
+          >
+            <X className="w-4 h-4" />
+          </Button>
+        </div>
+      ))}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => onChange([...list, { color: '#000000', opacity: 0.5, position: 100 }].sort((a, b) => a.position - b.position))}
+        className="border-slate-600 text-slate-300"
+        data-testid={`button-add-${testIdPrefix}`}
+      >
+        <Plus className="w-4 h-4 mr-2" />
+        Add stop
+      </Button>
     </div>
   );
 }
@@ -499,6 +580,7 @@ export default function AdminBranding() {
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [uploadingHeaderLogo, setUploadingHeaderLogo] = useState(false);
   const [uploadingSocialImage, setUploadingSocialImage] = useState(false);
+  const [uploadingPortalNavImage, setUploadingPortalNavImage] = useState(false);
   const [socialImageDimWarning, setSocialImageDimWarning] = useState('');
   const [uploadingSocialSvg, setUploadingSocialSvg] = useState(null);
   const [tenantUser, setTenantUser] = useState(null);
@@ -508,6 +590,7 @@ export default function AdminBranding() {
   const logoInputRef = useRef(null);
   const headerLogoInputRef = useRef(null);
   const socialImageInputRef = useRef(null);
+  const portalNavImageInputRef = useRef(null);
   const socialSvgInputRefs = useRef({});
   
   const DEFAULT_GRADIENT_STOPS = [
@@ -529,6 +612,75 @@ export default function AdminBranding() {
     { color: '#5C0085', position: 0 },
     { color: '#BA0087', position: 100 }
   ];
+
+  const DEFAULT_PORTAL_NAV_GRADIENT_STOPS = [
+    { color: '#5C0085', opacity: 1, position: 0 },
+    { color: '#BA0087', opacity: 1, position: 100 }
+  ];
+
+  const DEFAULT_PORTAL_NAV_OVERLAY_STOPS = [
+    { color: '#000000', opacity: 0.6, position: 0 },
+    { color: '#000000', opacity: 0, position: 100 }
+  ];
+
+  const DEFAULT_PORTAL_NAV = {
+    background: {
+      type: 'solid',
+      solidColor: '',
+      imageUrl: '',
+      focalPoint: { x: 50, y: 50 },
+      overlayStyle: 'solid',
+      darkWash: 0.4,
+      overlayStops: DEFAULT_PORTAL_NAV_OVERLAY_STOPS,
+      overlayDirection: 'to-top',
+      overlayAngle: 0,
+      gradientType: 'linear',
+      gradientStops: DEFAULT_PORTAL_NAV_GRADIENT_STOPS,
+      gradientAngle: 180
+    },
+    textColor: '',
+    iconColor: '',
+    activeBackgroundColor: '',
+    activeTextColor: '',
+    activeIconColor: ''
+  };
+
+  // Merge a stored portalNav blob onto the full default shape so every control
+  // is always controlled (no undefined→controlled warnings) and missing
+  // sub-fields fall back to the defaults. Stops arrays are kept verbatim when
+  // present so the user's exact stops round-trip.
+  const hydratePortalNav = (stored) => {
+    const s = stored && typeof stored === 'object' ? stored : {};
+    const bg = s.background && typeof s.background === 'object' ? s.background : {};
+    return {
+      background: {
+        type: ['solid', 'image', 'gradient'].includes(bg.type) ? bg.type : 'solid',
+        solidColor: bg.solidColor || '',
+        imageUrl: bg.imageUrl || '',
+        focalPoint: {
+          x: Number.isFinite(Number(bg.focalPoint?.x)) ? Number(bg.focalPoint.x) : 50,
+          y: Number.isFinite(Number(bg.focalPoint?.y)) ? Number(bg.focalPoint.y) : 50
+        },
+        overlayStyle: bg.overlayStyle === 'gradient' ? 'gradient' : 'solid',
+        darkWash: Number.isFinite(Number(bg.darkWash)) ? Number(bg.darkWash) : 0.4,
+        overlayStops: (Array.isArray(bg.overlayStops) && bg.overlayStops.length >= 2)
+          ? bg.overlayStops
+          : DEFAULT_PORTAL_NAV_OVERLAY_STOPS,
+        overlayDirection: bg.overlayDirection || 'to-top',
+        overlayAngle: Number.isFinite(Number(bg.overlayAngle)) ? Number(bg.overlayAngle) : 0,
+        gradientType: bg.gradientType === 'radial' ? 'radial' : 'linear',
+        gradientStops: (Array.isArray(bg.gradientStops) && bg.gradientStops.length >= 2)
+          ? bg.gradientStops
+          : DEFAULT_PORTAL_NAV_GRADIENT_STOPS,
+        gradientAngle: Number.isFinite(Number(bg.gradientAngle)) ? Number(bg.gradientAngle) : 180
+      },
+      textColor: s.textColor || '',
+      iconColor: s.iconColor || '',
+      activeBackgroundColor: s.activeBackgroundColor || '',
+      activeTextColor: s.activeTextColor || '',
+      activeIconColor: s.activeIconColor || ''
+    };
+  };
 
   const [formData, setFormData] = useState({
     primary_color: '#5C0085',
@@ -633,7 +785,9 @@ export default function AdminBranding() {
       footerLogoInvert: false,
       headerSocialIconColor: '#5C0085',
       footerSocialIconColor: '#FFFFFF',
-      socialIconCustomSvgs: {}
+      socialIconCustomSvgs: {},
+      portalNav: DEFAULT_PORTAL_NAV,
+      basePortalFont: ''
     },
     platform_branding: {
       showPlatformBranding: true,
@@ -822,7 +976,9 @@ export default function AdminBranding() {
                 footerLogoInvert: t?.branding_config?.footerLogoInvert === true,
                 headerSocialIconColor: t?.branding_config?.headerSocialIconColor || '#5C0085',
                 footerSocialIconColor: t?.branding_config?.footerSocialIconColor || '#FFFFFF',
-                socialIconCustomSvgs: t?.branding_config?.socialIconCustomSvgs || {}
+                socialIconCustomSvgs: t?.branding_config?.socialIconCustomSvgs || {},
+                portalNav: hydratePortalNav(t?.branding_config?.portalNav),
+                basePortalFont: t?.branding_config?.basePortalFont || ''
               },
               platform_branding: {
                 showPlatformBranding: t?.platform_branding?.showPlatformBranding !== false,
@@ -884,6 +1040,66 @@ export default function AdminBranding() {
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // --- Portal sidebar (authenticated-portal nav) branding helpers ---
+  const portalNav = formData.branding_config?.portalNav || DEFAULT_PORTAL_NAV;
+  const portalNavBg = portalNav.background || DEFAULT_PORTAL_NAV.background;
+
+  const setPortalNav = (patch) => {
+    setFormData(prev => ({
+      ...prev,
+      branding_config: {
+        ...prev.branding_config,
+        portalNav: {
+          ...(prev.branding_config?.portalNav || DEFAULT_PORTAL_NAV),
+          ...patch
+        }
+      }
+    }));
+  };
+
+  const setPortalNavBg = (patch) => {
+    setFormData(prev => {
+      const pn = prev.branding_config?.portalNav || DEFAULT_PORTAL_NAV;
+      return {
+        ...prev,
+        branding_config: {
+          ...prev.branding_config,
+          portalNav: {
+            ...pn,
+            background: { ...(pn.background || DEFAULT_PORTAL_NAV.background), ...patch }
+          }
+        }
+      };
+    });
+  };
+
+  const handlePortalNavImageUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingPortalNavImage(true);
+    const uploadFormData = new FormData();
+    uploadFormData.append('file', file);
+    uploadFormData.append('folder', 'branding');
+    try {
+      const response = await fetch('/api/integrations/upload-file', {
+        method: 'POST',
+        credentials: 'include',
+        body: uploadFormData
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setPortalNavBg({ imageUrl: data.file_url });
+        toast({ title: 'Image uploaded', description: 'Remember to Save to apply your sidebar background.' });
+      } else {
+        toast({ title: 'Upload failed', description: 'Could not upload the image.', variant: 'destructive' });
+      }
+    } catch (err) {
+      toast({ title: 'Upload failed', description: 'Could not upload the image.', variant: 'destructive' });
+    } finally {
+      setUploadingPortalNavImage(false);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -2050,6 +2266,362 @@ export default function AdminBranding() {
                     </div>
                   </div>
                 )}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-slate-800/50 border-slate-700">
+            <CardHeader>
+              <CardTitle className="text-white flex items-center gap-2">
+                <LayoutTemplate className="w-5 h-5" />
+                Portal Sidebar
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                Brand the left navigation pane of the logged-in member portal: background, text &amp; icon colours, the selected-item treatment, and the portal-wide font. Leave fields blank to keep the current defaults.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* ---- Controls ---- */}
+                <div className="space-y-6">
+                  {/* Background type */}
+                  <div className="space-y-2">
+                    <Label className="text-slate-300">Background</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { value: 'solid', label: 'Solid colour' },
+                        { value: 'image', label: 'Image' },
+                        { value: 'gradient', label: 'Gradient' }
+                      ].map((opt) => (
+                        <Button
+                          key={opt.value}
+                          type="button"
+                          variant={portalNavBg.type === opt.value ? 'default' : 'outline'}
+                          size="sm"
+                          className={portalNavBg.type === opt.value ? '' : 'border-slate-600 text-slate-300'}
+                          onClick={() => setPortalNavBg({ type: opt.value })}
+                          data-testid={`button-portalnav-bgtype-${opt.value}`}
+                        >
+                          {opt.label}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {portalNavBg.type === 'solid' && (
+                    <div className="space-y-2">
+                      <Label className="text-slate-300">Background colour</Label>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="color"
+                          value={portalNavBg.solidColor || '#1e293b'}
+                          onChange={(e) => setPortalNavBg({ solidColor: e.target.value })}
+                          className="w-12 h-9 rounded cursor-pointer"
+                          data-testid="color-portalnav-solid"
+                        />
+                        <Input
+                          value={portalNavBg.solidColor || ''}
+                          placeholder="Default (theme)"
+                          onChange={(e) => setPortalNavBg({ solidColor: e.target.value })}
+                          className="bg-slate-900 border-slate-700 text-white font-mono"
+                          data-testid="input-portalnav-solid"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {portalNavBg.type === 'image' && (
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label className="text-slate-300">Image</Label>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <input
+                            ref={portalNavImageInputRef}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={handlePortalNavImageUpload}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="border-slate-600 text-slate-300"
+                            disabled={uploadingPortalNavImage}
+                            onClick={() => portalNavImageInputRef.current?.click()}
+                            data-testid="button-portalnav-upload"
+                          >
+                            {uploadingPortalNavImage ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
+                            Upload image
+                          </Button>
+                          {portalNavBg.imageUrl && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="text-slate-400"
+                              onClick={() => setPortalNavBg({ imageUrl: '' })}
+                              data-testid="button-portalnav-clear-image"
+                            >
+                              <Trash2 className="w-4 h-4 mr-2" />
+                              Remove
+                            </Button>
+                          )}
+                        </div>
+                        <Input
+                          value={portalNavBg.imageUrl || ''}
+                          placeholder="https://… image URL"
+                          onChange={(e) => setPortalNavBg({ imageUrl: e.target.value })}
+                          className="bg-slate-900 border-slate-700 text-white"
+                          data-testid="input-portalnav-image-url"
+                        />
+                      </div>
+
+                      {portalNavBg.imageUrl && (
+                        <div className="space-y-2">
+                          <Label className="text-slate-300">Focal point</Label>
+                          <FocalPointPicker
+                            imageUrl={portalNavBg.imageUrl}
+                            focalPoint={portalNavBg.focalPoint || { x: 50, y: 50 }}
+                            onChange={(fp) => setPortalNavBg({ focalPoint: fp })}
+                          />
+                        </div>
+                      )}
+
+                      <div className="space-y-2">
+                        <Label className="text-slate-300">Overlay</Label>
+                        <div className="flex flex-wrap gap-2">
+                          {[
+                            { value: 'solid', label: 'Wash' },
+                            { value: 'gradient', label: 'Gradient' }
+                          ].map((opt) => (
+                            <Button
+                              key={opt.value}
+                              type="button"
+                              variant={(portalNavBg.overlayStyle || 'solid') === opt.value ? 'default' : 'outline'}
+                              size="sm"
+                              className={(portalNavBg.overlayStyle || 'solid') === opt.value ? '' : 'border-slate-600 text-slate-300'}
+                              onClick={() => setPortalNavBg({ overlayStyle: opt.value })}
+                              data-testid={`button-portalnav-overlay-${opt.value}`}
+                            >
+                              {opt.label}
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {(portalNavBg.overlayStyle || 'solid') === 'solid' ? (
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <Label className="text-slate-300">Dark wash strength</Label>
+                            <span className="text-slate-400 text-sm">{Math.round((portalNavBg.darkWash ?? 0.4) * 100)}%</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            value={Math.round((portalNavBg.darkWash ?? 0.4) * 100)}
+                            onChange={(e) => setPortalNavBg({ darkWash: parseInt(e.target.value, 10) / 100 })}
+                            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                            data-testid="slider-portalnav-darkwash"
+                          />
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          <div className="space-y-2">
+                            <Label className="text-slate-300">Overlay direction</Label>
+                            <Select
+                              value={portalNavBg.overlayDirection || 'to-top'}
+                              onValueChange={(v) => setPortalNavBg({ overlayDirection: v })}
+                            >
+                              <SelectTrigger className="bg-slate-900 border-slate-700 text-white" data-testid="select-portalnav-overlay-direction">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="to-top">To top</SelectItem>
+                                <SelectItem value="to-bottom">To bottom</SelectItem>
+                                <SelectItem value="to-right">To right</SelectItem>
+                                <SelectItem value="to-left">To left</SelectItem>
+                                <SelectItem value="to-bottom-right">To bottom-right</SelectItem>
+                                <SelectItem value="to-top-right">To top-right</SelectItem>
+                                <SelectItem value="custom">Custom angle</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          {portalNavBg.overlayDirection === 'custom' && (
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <Label className="text-slate-300">Angle</Label>
+                                <span className="text-slate-400 text-sm">{portalNavBg.overlayAngle ?? 0}°</span>
+                              </div>
+                              <input
+                                type="range"
+                                min="0"
+                                max="360"
+                                value={portalNavBg.overlayAngle ?? 0}
+                                onChange={(e) => setPortalNavBg({ overlayAngle: parseInt(e.target.value, 10) })}
+                                className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                                data-testid="slider-portalnav-overlay-angle"
+                              />
+                            </div>
+                          )}
+                          <OpacityStopsEditor
+                            stops={portalNavBg.overlayStops}
+                            onChange={(stops) => setPortalNavBg({ overlayStops: stops })}
+                            testIdPrefix="portalnav-overlay"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {portalNavBg.type === 'gradient' && (
+                    <div className="space-y-3">
+                      <div className="space-y-2">
+                        <Label className="text-slate-300">Gradient type</Label>
+                        <div className="flex flex-wrap gap-2">
+                          {[
+                            { value: 'linear', label: 'Linear' },
+                            { value: 'radial', label: 'Radial' }
+                          ].map((opt) => (
+                            <Button
+                              key={opt.value}
+                              type="button"
+                              variant={(portalNavBg.gradientType || 'linear') === opt.value ? 'default' : 'outline'}
+                              size="sm"
+                              className={(portalNavBg.gradientType || 'linear') === opt.value ? '' : 'border-slate-600 text-slate-300'}
+                              onClick={() => setPortalNavBg({ gradientType: opt.value })}
+                              data-testid={`button-portalnav-gradient-${opt.value}`}
+                            >
+                              {opt.label}
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
+                      {(portalNavBg.gradientType || 'linear') === 'linear' && (
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <Label className="text-slate-300">Angle</Label>
+                            <span className="text-slate-400 text-sm">{portalNavBg.gradientAngle ?? 180}°</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="360"
+                            value={portalNavBg.gradientAngle ?? 180}
+                            onChange={(e) => setPortalNavBg({ gradientAngle: parseInt(e.target.value, 10) })}
+                            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                            data-testid="slider-portalnav-gradient-angle"
+                          />
+                        </div>
+                      )}
+                      <OpacityStopsEditor
+                        stops={portalNavBg.gradientStops}
+                        onChange={(stops) => setPortalNavBg({ gradientStops: stops })}
+                        testIdPrefix="portalnav-gradient"
+                      />
+                    </div>
+                  )}
+
+                  {/* Colours */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-700">
+                    {[
+                      { key: 'textColor', label: 'Nav text colour' },
+                      { key: 'iconColor', label: 'Nav icon colour' },
+                      { key: 'activeBackgroundColor', label: 'Selected background' },
+                      { key: 'activeTextColor', label: 'Selected text colour' },
+                      { key: 'activeIconColor', label: 'Selected icon colour' }
+                    ].map((f) => (
+                      <div key={f.key} className="space-y-2">
+                        <Label className="text-slate-300">{f.label}</Label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={portalNav[f.key] || '#000000'}
+                            onChange={(e) => setPortalNav({ [f.key]: e.target.value })}
+                            className="w-10 h-9 rounded cursor-pointer flex-shrink-0"
+                            data-testid={`color-portalnav-${f.key}`}
+                          />
+                          <Input
+                            value={portalNav[f.key] || ''}
+                            placeholder="Default"
+                            onChange={(e) => setPortalNav({ [f.key]: e.target.value })}
+                            className="bg-slate-900 border-slate-700 text-white font-mono"
+                            data-testid={`input-portalnav-${f.key}`}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Base portal font */}
+                  <div className="space-y-2 pt-2 border-t border-slate-700">
+                    <Label className="text-slate-300">Base portal font</Label>
+                    <Select
+                      value={formData.branding_config?.basePortalFont || 'default'}
+                      onValueChange={(v) => setFormData(prev => ({
+                        ...prev,
+                        branding_config: { ...prev.branding_config, basePortalFont: v === 'default' ? '' : v }
+                      }))}
+                    >
+                      <SelectTrigger className="bg-slate-900 border-slate-700 text-white" data-testid="select-portalnav-font">
+                        <SelectValue placeholder="Default" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="default">Default</SelectItem>
+                        {NAV_AVAILABLE_FONTS.map((f) => (
+                          <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-slate-500 text-xs">Applied across the whole logged-in portal.</p>
+                  </div>
+                </div>
+
+                {/* ---- Live preview ---- */}
+                <div className="space-y-2">
+                  <Label className="text-slate-300">Preview</Label>
+                  <div
+                    className="rounded-md overflow-hidden border border-slate-700 w-full max-w-[260px]"
+                    style={{
+                      fontFamily: formData.branding_config?.basePortalFont || undefined,
+                      ...(Object.keys(buildPortalNavBackgroundStyle(portalNavBg)).length
+                        ? buildPortalNavBackgroundStyle(portalNavBg)
+                        : { backgroundColor: '#0f172a' })
+                    }}
+                    data-testid="preview-portalnav"
+                  >
+                    <div className="p-3 space-y-1">
+                      {[
+                        { label: 'Dashboard', active: false },
+                        { label: 'Events', active: true },
+                        { label: 'Members', active: false },
+                        { label: 'Resources', active: false }
+                      ].map((item) => {
+                        const isActive = item.active;
+                        const itemStyle = isActive
+                          ? {
+                              backgroundColor: portalNav.activeBackgroundColor || 'rgba(255,255,255,0.15)',
+                              color: portalNav.activeTextColor || portalNav.textColor || '#ffffff'
+                            }
+                          : { color: portalNav.textColor || '#e2e8f0' };
+                        const iconColor = isActive
+                          ? (portalNav.activeIconColor || portalNav.activeTextColor || portalNav.iconColor || portalNav.textColor || '#ffffff')
+                          : (portalNav.iconColor || portalNav.textColor || '#cbd5e1');
+                        return (
+                          <div
+                            key={item.label}
+                            className="flex items-center gap-2 rounded-md px-3 py-2 text-sm"
+                            style={itemStyle}
+                          >
+                            <LayoutTemplate className="w-4 h-4" style={{ color: iconColor }} />
+                            <span>{item.label}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
               </div>
             </CardContent>
           </Card>

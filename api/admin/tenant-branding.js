@@ -35,6 +35,107 @@ function validateNavFontFamily(family) {
   return (typeof family === 'string' && ALLOWED_NAV_FONT_FAMILIES.includes(family)) ? family : null;
 }
 
+// --- Portal sidebar (authenticated portal nav) branding validators ---
+// branding_config.portalNav drives the authenticated-portal sidebar background,
+// nav text/icon colours and active-item treatment (Layout.jsx). Every field is
+// whitelisted/clamped here; anything unrecognised is dropped so the stored blob
+// stays well-formed. Background field names mirror the canvas Hero/Section block
+// so the same CSS builders (client/src/lib/canvasBackground.js) render both.
+const ALLOWED_PORTAL_NAV_BG_TYPES = ['solid', 'image', 'gradient'];
+const ALLOWED_PORTAL_NAV_OVERLAY_STYLES = ['solid', 'gradient'];
+const ALLOWED_PORTAL_NAV_GRADIENT_TYPES = ['linear', 'radial'];
+const ALLOWED_PORTAL_NAV_OVERLAY_DIRECTIONS = [
+  'to-top', 'to-bottom', 'to-right', 'to-left', 'to-bottom-right', 'to-top-right', 'custom'
+];
+const PORTAL_NAV_IMAGE_URL_MAX = 2048;
+
+function clampOpacity(value, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(0, Math.min(1, n));
+}
+
+function clampAngle(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return Math.max(0, Math.min(360, Math.round(n)));
+}
+
+// Validate a multi-point stops array that may carry per-stop opacity (image
+// overlay / gradient). Returns a sorted array of 2+ stops, or null.
+function validatePortalNavStops(stops) {
+  if (!Array.isArray(stops)) return null;
+  const out = [];
+  for (const s of stops) {
+    if (!s || typeof s !== 'object') continue;
+    const color = normalizeHexColor(s.color);
+    if (!color) continue;
+    const pos = Math.round(Number(s.position));
+    const stop = { color, position: Number.isFinite(pos) ? Math.max(0, Math.min(100, pos)) : 0 };
+    if (s.opacity !== undefined) stop.opacity = clampOpacity(s.opacity, 1);
+    out.push(stop);
+  }
+  out.sort((a, b) => a.position - b.position);
+  return out.length >= 2 ? out : null;
+}
+
+function validatePortalNavBackground(bg) {
+  if (!bg || typeof bg !== 'object') return null;
+  const type = ALLOWED_PORTAL_NAV_BG_TYPES.includes(bg.type) ? bg.type : 'solid';
+  const out = { type };
+
+  const solid = normalizeHexColor(bg.solidColor);
+  if (solid) out.solidColor = solid;
+
+  if (type === 'image') {
+    if (typeof bg.imageUrl === 'string') {
+      const url = bg.imageUrl.trim();
+      if (/^https?:\/\//i.test(url) && url.length <= PORTAL_NAV_IMAGE_URL_MAX) {
+        out.imageUrl = url;
+      }
+    }
+    if (bg.focalPoint && typeof bg.focalPoint === 'object') {
+      const fx = Math.round(Number(bg.focalPoint.x));
+      const fy = Math.round(Number(bg.focalPoint.y));
+      out.focalPoint = {
+        x: Number.isFinite(fx) ? Math.max(0, Math.min(100, fx)) : 50,
+        y: Number.isFinite(fy) ? Math.max(0, Math.min(100, fy)) : 50,
+      };
+    }
+    out.overlayStyle = ALLOWED_PORTAL_NAV_OVERLAY_STYLES.includes(bg.overlayStyle) ? bg.overlayStyle : 'solid';
+    out.darkWash = clampOpacity(bg.darkWash, 0.4);
+    const ostops = validatePortalNavStops(bg.overlayStops);
+    if (ostops) out.overlayStops = ostops;
+    if (ALLOWED_PORTAL_NAV_OVERLAY_DIRECTIONS.includes(bg.overlayDirection)) {
+      out.overlayDirection = bg.overlayDirection;
+    }
+    const oa = clampAngle(bg.overlayAngle);
+    if (oa !== null) out.overlayAngle = oa;
+  }
+
+  if (type === 'gradient') {
+    out.gradientType = ALLOWED_PORTAL_NAV_GRADIENT_TYPES.includes(bg.gradientType) ? bg.gradientType : 'linear';
+    const gstops = validatePortalNavStops(bg.gradientStops);
+    if (gstops) out.gradientStops = gstops;
+    const ga = clampAngle(bg.gradientAngle);
+    if (ga !== null) out.gradientAngle = ga;
+  }
+
+  return out;
+}
+
+function validatePortalNav(portalNav) {
+  if (!portalNav || typeof portalNav !== 'object') return null;
+  const out = {};
+  const bg = validatePortalNavBackground(portalNav.background);
+  if (bg) out.background = bg;
+  for (const key of ['textColor', 'iconColor', 'activeBackgroundColor', 'activeTextColor', 'activeIconColor']) {
+    const c = normalizeHexColor(portalNav[key]);
+    if (c) out[key] = c;
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 // Validate a per-bar active-indicator config. `gradientValidator` is the
 // handler-scoped validateGradientStops helper. Returns a sanitized object or
 // null when the input is not an object.
@@ -436,6 +537,18 @@ export default async function handler(req, res) {
           if (normalized) {
             updates.platform_branding.textColor = normalized;
           }
+        }
+      }
+
+      // Validate the portal sidebar branding block + base portal font that live
+      // inside branding_config. Invalid/empty input is set to null (explicitly
+      // clearing) rather than left untouched so the admin can reset to defaults.
+      if (updates.branding_config && typeof updates.branding_config === 'object') {
+        if (updates.branding_config.portalNav !== undefined) {
+          updates.branding_config.portalNav = validatePortalNav(updates.branding_config.portalNav);
+        }
+        if (updates.branding_config.basePortalFont !== undefined) {
+          updates.branding_config.basePortalFont = validateNavFontFamily(updates.branding_config.basePortalFont);
         }
       }
 
