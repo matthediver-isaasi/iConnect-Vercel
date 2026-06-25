@@ -4,6 +4,7 @@ import { base44 } from "@/api/base44Client";
 import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import RoleBadge from "@/components/RoleBadge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -1074,9 +1075,13 @@ export default function MembersListPage() {
                 });
               }
               return (
-                <Badge key={idx} variant="outline" className="text-xs">
-                  {role?.name || 'Unknown role'}
-                </Badge>
+                <RoleBadge
+                  key={idx}
+                  role={role}
+                  name={role?.name || 'Unknown role'}
+                  className="text-xs"
+                  data-testid={`badge-role-${roleId}`}
+                />
               );
             })}
             {memberRoles.length > 2 && (

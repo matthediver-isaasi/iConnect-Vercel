@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import MultiSelectFilter from "@/components/MultiSelectFilter";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import RoleBadge from "@/components/RoleBadge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { toast } from "sonner";
@@ -1476,12 +1477,7 @@ export default function DynamicDirectoryView() {
                             </CardTitle>
                             {role && (
                               <div className="flex items-center gap-1 mb-1">
-                                <Badge 
-                                  variant="secondary" 
-                                  className="bg-blue-100 text-blue-700"
-                                >
-                                  {role.name}
-                                </Badge>
+                                <RoleBadge role={role} />
                               </div>
                             )}
                             {isVisibleOnFront(memberDisplaySettings, 'show_job_title') && member.job_title && (
@@ -1735,12 +1731,7 @@ export default function DynamicDirectoryView() {
                   {(() => {
                     const role = roles.find(r => r.id === viewingMember.role_id);
                     return role ? (
-                      <Badge 
-                        variant="secondary" 
-                        className="bg-blue-100 text-blue-700"
-                      >
-                        {role.name}
-                      </Badge>
+                      <RoleBadge role={role} />
                     ) : null;
                   })()}
                 </div>

@@ -64,6 +64,14 @@
         "type": "boolean",
         "default": false,
         "description": "Whether assigning this role requires an Effective From date (e.g., for Alumni)"
+      },
+      "badge_background_colour": {
+        "type": "string",
+        "description": "CSS colour (hex) used as the background of this role's name badge. When unset, a neutral default badge style is used."
+      },
+      "badge_text_colour": {
+        "type": "string",
+        "description": "CSS colour (hex) used for the text of this role's name badge. When unset, a readable colour is derived from the background or a neutral default is used."
       }
     },
     "required": [

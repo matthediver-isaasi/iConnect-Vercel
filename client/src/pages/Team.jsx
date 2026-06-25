@@ -4,6 +4,7 @@ import { publicClient } from "@/api/publicClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import RoleBadge from "@/components/RoleBadge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -915,12 +916,10 @@ export default function TeamPage({ hasBanner }) {
                             {(showRoleBadge && role) || guestStatus ? (
                               <div className="flex items-center gap-1 mb-1 flex-wrap">
                                 {showRoleBadge && role && (
-                                  <Badge
-                                    variant="secondary"
-                                    className="bg-blue-100 text-blue-700"
-                                  >
-                                    {role.name}
-                                  </Badge>
+                                  <RoleBadge
+                                    role={role}
+                                    data-testid={`badge-role-${member.id}`}
+                                  />
                                 )}
                                 {guestStatus && (
                                   <Badge

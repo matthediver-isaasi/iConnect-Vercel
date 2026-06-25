@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import RoleBadge from "@/components/RoleBadge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Users, Shield, Download, BarChart3, ChevronDown, ChevronRight, ChevronLeft, Building2, Filter } from "lucide-react";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -374,7 +375,7 @@ export default function MemberRoleReportPage() {
                         ) : (
                           <ChevronRight className="w-5 h-5 text-slate-400" />
                         )}
-                        <span className="font-medium text-slate-800">{stat.role.name}</span>
+                        <RoleBadge role={stat.role} data-testid={`badge-role-${stat.role.id}`} />
                       </div>
                       <Badge 
                         variant="outline" 

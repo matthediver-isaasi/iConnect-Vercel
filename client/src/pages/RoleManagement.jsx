@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import RoleBadge from "@/components/RoleBadge";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
@@ -478,6 +479,8 @@ export default function RoleManagementPage() {
       requires_effective_from_date: editingRole.requires_effective_from_date || false,
       is_tenant_admin: editingRole.is_tenant_admin || false,
       badge_image_url: editingRole.badge_image_url || null,
+      badge_background_colour: editingRole.badge_background_colour || null,
+      badge_text_colour: editingRole.badge_text_colour || null,
       segment_values: segmentationFieldId ? (editingRole.segment_values || []) : null,
       max_members: editingRole.max_members === '' || editingRole.max_members === null ? null : parseInt(editingRole.max_members, 10) || null
     };
@@ -892,6 +895,80 @@ export default function RoleManagementPage() {
                       </label>
                     </div>
                   )}
+                </div>
+
+                {/* Role Badge Colours */}
+                <div className="space-y-2">
+                  <Label>Role Badge Colours</Label>
+                  <p className="text-xs text-slate-500 mb-2">
+                    Choose the colours used for this role's name badge wherever it appears (members list, team cards, member details, reports). Leave unset for a neutral default.
+                  </p>
+                  <div className="flex flex-wrap items-end gap-6 p-4 bg-slate-50 rounded-lg border">
+                    <div className="space-y-1">
+                      <Label htmlFor="badge-bg-colour" className="text-xs text-slate-600">Background</Label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          id="badge-bg-colour"
+                          type="color"
+                          value={editingRole.badge_background_colour || "#e2e8f0"}
+                          onChange={(e) => setEditingRole({ ...editingRole, badge_background_colour: e.target.value })}
+                          className="w-10 h-10 rounded cursor-pointer flex-shrink-0"
+                          data-testid="input-badge-background-colour"
+                        />
+                        <Input
+                          type="text"
+                          placeholder="#e2e8f0"
+                          value={editingRole.badge_background_colour || ""}
+                          onChange={(e) => setEditingRole({ ...editingRole, badge_background_colour: e.target.value })}
+                          className="w-28 font-mono text-sm"
+                          data-testid="input-badge-background-colour-text"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="badge-text-colour" className="text-xs text-slate-600">Text</Label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          id="badge-text-colour"
+                          type="color"
+                          value={editingRole.badge_text_colour || "#1e293b"}
+                          onChange={(e) => setEditingRole({ ...editingRole, badge_text_colour: e.target.value })}
+                          className="w-10 h-10 rounded cursor-pointer flex-shrink-0"
+                          data-testid="input-badge-text-colour"
+                        />
+                        <Input
+                          type="text"
+                          placeholder="#1e293b"
+                          value={editingRole.badge_text_colour || ""}
+                          onChange={(e) => setEditingRole({ ...editingRole, badge_text_colour: e.target.value })}
+                          className="w-28 font-mono text-sm"
+                          data-testid="input-badge-text-colour-text"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Preview</Label>
+                      <div className="flex items-center h-10 gap-2">
+                        <RoleBadge
+                          role={editingRole}
+                          name={editingRole.name?.trim() || "Role name"}
+                          data-testid="preview-role-badge"
+                        />
+                        {(editingRole.badge_background_colour || editingRole.badge_text_colour) && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setEditingRole({ ...editingRole, badge_background_colour: "", badge_text_colour: "" })}
+                            data-testid="button-clear-badge-colours"
+                          >
+                            <X className="w-4 h-4 mr-1" />
+                            Reset
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="space-y-3">

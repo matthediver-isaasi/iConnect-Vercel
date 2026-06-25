@@ -3,6 +3,7 @@ import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import RoleBadge from "@/components/RoleBadge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -673,12 +674,7 @@ export default function MemberDirectoryPage() {
                             </CardTitle>
                             {role && (
                               <div className="flex items-center gap-1 mb-1">
-                                <Badge 
-                                  variant="secondary" 
-                                  className="bg-blue-100 text-blue-700"
-                                >
-                                  {role.name}
-                                </Badge>
+                                <RoleBadge role={role} />
                               </div>
                             )}
                             {isVisibleOnFront(displaySettings, 'show_job_title') && member.job_title && (

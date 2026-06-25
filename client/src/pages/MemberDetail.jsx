@@ -41,6 +41,7 @@ import { toast } from "sonner";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import RoleBadge from "@/components/RoleBadge";
 import MemberLoginStatusBadge from "@/components/MemberLoginStatusBadge";
 import GuestAccessControl from "@/components/GuestAccessControl";
 import { Button } from "@/components/ui/button";
@@ -1924,9 +1925,11 @@ export default function MemberDetail() {
                       <p className="text-xs text-slate-500">Role</p>
                       <div className="flex flex-wrap gap-1 mt-1">
                         {member.role_id ? (
-                          <Badge variant="secondary" className="text-xs">
-                            {getRoleName(member.role_id)}
-                          </Badge>
+                          <RoleBadge
+                            role={roles.find(r => r.id === member.role_id)}
+                            name={getRoleName(member.role_id)}
+                            className="text-xs"
+                          />
                         ) : (
                           <span className="text-sm text-slate-500">No role assigned</span>
                         )}
@@ -2116,9 +2119,11 @@ export default function MemberDetail() {
                     <p className="text-sm text-slate-500">No role assigned</p>
                   ) : (
                     <div className="flex flex-wrap gap-2">
-                      <Badge variant="secondary" className="text-sm">
-                        {getRoleName(member.role_id)}
-                      </Badge>
+                      <RoleBadge
+                        role={roles.find(r => r.id === member.role_id)}
+                        name={getRoleName(member.role_id)}
+                        className="text-sm"
+                      />
                     </div>
                   )}
                 </div>
