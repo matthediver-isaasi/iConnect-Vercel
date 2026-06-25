@@ -8,16 +8,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { Loader2, Save, ClipboardList, Mail, FileText, Users, Palette, RotateCcw } from "lucide-react";
+import { Loader2, Save, ClipboardList, Mail, FileText, Users, Palette, RotateCcw, Briefcase, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import { getReadableTextColor } from "@/components/RoleBadge";
 
 const STATS_CARD_DEFS = [
-  { key: 'submissions', defaultLabel: 'Submissions', defaultColour: '#dbeafe' },
-  { key: 'jobs', defaultLabel: 'Jobs', defaultColour: '#fef3c7' },
-  { key: 'cancellations', defaultLabel: 'Cancellations', defaultColour: '#ffe4e6' },
+  { key: 'submissions', defaultLabel: 'Submissions', defaultColour: '#dbeafe', Icon: FileText },
+  { key: 'jobs', defaultLabel: 'Jobs', defaultColour: '#fef3c7', Icon: Briefcase },
+  { key: 'cancellations', defaultLabel: 'Cancellations', defaultColour: '#ffe4e6', Icon: XCircle },
 ];
 
 export default function FormSettingsPage() {
@@ -277,6 +277,12 @@ export default function FormSettingsPage() {
     saveCardStylesMutation.mutate(next);
   };
 
+  const handleCardTextColorChange = (key, textColor) => {
+    const next = { ...cardStyles, [key]: { ...(cardStyles[key] || {}), textColor } };
+    setCardStyles(next);
+    saveCardStylesMutation.mutate(next);
+  };
+
   const handleCardLabelBlur = () => {
     saveCardStylesMutation.mutate(cardStyles);
   };
@@ -457,19 +463,20 @@ export default function FormSettingsPage() {
               <CardTitle>Stats Bar Appearance</CardTitle>
             </div>
             <CardDescription>
-              Customise the background colour and label for each card in the sidebar Submission Stats Bar.
-              Text colour is chosen automatically for readability. Leave a card unchanged to use its default style.
+              Customise the background colour, text colour and label for each card in the sidebar Submission Stats Bar.
+              Leave the text colour unset to have it chosen automatically for readability. Leave a card unchanged to use its default style.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {STATS_CARD_DEFS.map(card => {
               const config = cardStyles[card.key] || {};
               const colour = (typeof config.colour === 'string' && config.colour) ? config.colour : '';
+              const textColor = (typeof config.textColor === 'string' && config.textColor) ? config.textColor : '';
               const label = (typeof config.label === 'string') ? config.label : '';
               const previewColour = colour || card.defaultColour;
               const previewLabel = label.trim() || card.defaultLabel;
-              const previewTextColor = getReadableTextColor(previewColour);
-              const isCustomised = !!colour || !!label.trim();
+              const previewTextColor = textColor || getReadableTextColor(previewColour);
+              const isCustomised = !!colour || !!textColor || !!label.trim();
               return (
                 <div
                   key={card.key}
@@ -499,12 +506,24 @@ export default function FormSettingsPage() {
                     />
                   </div>
                   <div className="space-y-1">
+                    <Label htmlFor={`card-text-colour-${card.key}`} className="text-xs">Text Colour</Label>
+                    <input
+                      id={`card-text-colour-${card.key}`}
+                      type="color"
+                      value={textColor || previewTextColor}
+                      onChange={(e) => handleCardTextColorChange(card.key, e.target.value)}
+                      className="h-9 w-14 rounded-md border border-slate-200 bg-white cursor-pointer p-1"
+                      data-testid={`input-card-text-colour-${card.key}`}
+                    />
+                  </div>
+                  <div className="space-y-1">
                     <Label className="text-xs">Preview</Label>
                     <div
                       className="flex flex-col items-center justify-center gap-1 h-14 w-20 rounded-md border"
                       style={{ backgroundColor: previewColour, color: previewTextColor, borderColor: previewColour }}
                       data-testid={`preview-card-${card.key}`}
                     >
+                      <card.Icon className="w-3.5 h-3.5" style={{ color: previewTextColor }} />
                       <span className="text-base font-bold leading-none">0</span>
                       <span className="text-[10px] font-medium leading-tight text-center px-1 truncate max-w-full">{previewLabel}</span>
                     </div>
