@@ -643,7 +643,9 @@ export default function AdminBranding() {
     iconColor: '',
     activeBackgroundColor: '',
     activeTextColor: '',
-    activeIconColor: ''
+    activeIconColor: '',
+    hoverBackgroundColor: '',
+    hoverTextColor: ''
   };
 
   // Merge a stored portalNav blob onto the full default shape so every control
@@ -679,7 +681,9 @@ export default function AdminBranding() {
       iconColor: s.iconColor || '',
       activeBackgroundColor: s.activeBackgroundColor || '',
       activeTextColor: s.activeTextColor || '',
-      activeIconColor: s.activeIconColor || ''
+      activeIconColor: s.activeIconColor || '',
+      hoverBackgroundColor: s.hoverBackgroundColor || '',
+      hoverTextColor: s.hoverTextColor || ''
     };
   };
 
@@ -2531,7 +2535,9 @@ export default function AdminBranding() {
                       { key: 'iconColor', label: 'Nav icon colour' },
                       { key: 'activeBackgroundColor', label: 'Selected background' },
                       { key: 'activeTextColor', label: 'Selected text colour' },
-                      { key: 'activeIconColor', label: 'Selected icon colour' }
+                      { key: 'activeIconColor', label: 'Selected icon colour' },
+                      { key: 'hoverBackgroundColor', label: 'Hover background' },
+                      { key: 'hoverTextColor', label: 'Hover text' }
                     ].map((f) => (
                       <div key={f.key} className="space-y-2">
                         <Label className="text-slate-300">{f.label}</Label>
@@ -2592,6 +2598,15 @@ export default function AdminBranding() {
                     }}
                     data-testid="preview-portalnav"
                   >
+                    {(portalNav.hoverBackgroundColor || portalNav.hoverTextColor) && (
+                      <style>{`
+                        .portalnav-preview-item:hover {
+                          ${portalNav.hoverBackgroundColor ? `background-color: ${portalNav.hoverBackgroundColor} !important;` : ''}
+                          ${portalNav.hoverTextColor ? `color: ${portalNav.hoverTextColor} !important;` : ''}
+                        }
+                        ${portalNav.hoverTextColor ? `.portalnav-preview-item:hover svg { color: ${portalNav.hoverTextColor} !important; }` : ''}
+                      `}</style>
+                    )}
                     <div className="p-3 space-y-1">
                       {[
                         { label: 'Dashboard', active: false },
@@ -2612,7 +2627,7 @@ export default function AdminBranding() {
                         return (
                           <div
                             key={item.label}
-                            className="flex items-center gap-2 rounded-md px-3 py-2 text-sm"
+                            className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm${isActive ? '' : ' portalnav-preview-item'}`}
                             style={itemStyle}
                           >
                             <LayoutTemplate className="w-4 h-4" style={{ color: iconColor }} />

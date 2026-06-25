@@ -739,7 +739,7 @@ function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = 
               tooltip={popoverOpen ? undefined : item.title}
               isActive={isActive}
               style={itemStyle}
-              className={`${colors.hover} transition-colors rounded-lg mb-1 ${
+              className={`nav-item-themed ${colors.hover} transition-colors rounded-lg mb-1 ${
                 isActive ? `${colors.active} font-medium` : ''
               }`}
               data-testid={`button-nav-parent-${item.title.toLowerCase().replace(/\s+/g, '-')}`}
@@ -767,7 +767,7 @@ function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = 
                     to={subItem.url}
                     onClick={() => setPopoverOpen(false)}
                     style={subItemStyle(isSubItemActive)}
-                    className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-sm ${
+                    className={`nav-item-themed flex items-center gap-2 px-2 py-1.5 rounded-md text-sm ${
                       isSubItemActive ? `${colors.active} font-medium` : `${colors.hover}`
                     }`}
                     data-testid={`link-submenu-${subItem.title.toLowerCase().replace(/\s+/g, '-')}`}
@@ -795,7 +795,7 @@ function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = 
             tooltip={item.title}
             isActive={isActive}
             style={itemStyle}
-            className={`items-start h-auto min-h-8 group-data-[collapsible=icon]:items-center ${colors.hover} transition-colors rounded-lg mb-1 ${
+            className={`nav-item-themed items-start h-auto min-h-8 group-data-[collapsible=icon]:items-center ${colors.hover} transition-colors rounded-lg mb-1 ${
               isActive ? `${colors.active} font-medium` : ''
             }`}
           >
@@ -816,7 +816,7 @@ function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = 
                 <Link
                   to={subItem.url}
                   style={subItemStyle(isSubItemActive)}
-                  className={`flex items-start gap-3 px-3 py-2.5 rounded-lg text-sm ${
+                  className={`nav-item-themed flex items-start gap-3 px-3 py-2.5 rounded-lg text-sm ${
                     isSubItemActive ? `${colors.active} font-medium` : colors.hover
                   }`}
                 >
@@ -856,6 +856,17 @@ export default function Layout({ children, currentPageName }) {
     ? Object.entries(portalNavBgStyle)
         .map(([prop, value]) => `${prop.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)}: ${value};`)
         .join(' ')
+    : '';
+  // Per-tenant hover colour for nav items (Task #1832). When set, scoped CSS
+  // overrides the hardcoded blue/amber Tailwind hover classes on every element
+  // tagged `.nav-item-themed` (sidebar buttons, collapsible triggers, popover
+  // sub-links, and the mobile sheet). `!important` is required to beat both the
+  // Tailwind hover utilities AND any inline non-hover colour set from textColor.
+  const portalNavHoverBg = portalNav?.hoverBackgroundColor || '';
+  const portalNavHoverText = portalNav?.hoverTextColor || '';
+  const portalNavHoverCss = (portalNavHoverBg || portalNavHoverText)
+    ? `.nav-item-themed:hover { ${portalNavHoverBg ? `background-color: ${portalNavHoverBg} !important;` : ''} ${portalNavHoverText ? `color: ${portalNavHoverText} !important;` : ''} }
+       ${portalNavHoverText ? `.nav-item-themed:hover svg { color: ${portalNavHoverText} !important; }` : ''}`
     : '';
   const portalRootFont = basePortalFont
     ? `${basePortalFont}, Poppins, sans-serif`
@@ -2130,6 +2141,7 @@ useEffect(() => {
           }
 
           ${portalNavBgCss ? `[data-sidebar="sidebar"] { ${portalNavBgCss} }` : ''}
+          ${portalNavHoverCss}
         `}
       </style>
 
@@ -2250,7 +2262,7 @@ useEffect(() => {
                               tooltip={item.title}
                               isActive={isActive}
                               style={portalNavItemStyle(portalNav, isActive)}
-                              className={`items-start h-auto min-h-8 group-data-[collapsible=icon]:items-center hover:bg-blue-50 hover:text-blue-700 transition-colors rounded-lg mb-1 ${
+                              className={`nav-item-themed items-start h-auto min-h-8 group-data-[collapsible=icon]:items-center hover:bg-blue-50 hover:text-blue-700 transition-colors rounded-lg mb-1 ${
                                 isActive ? 'bg-blue-50 text-blue-700 font-medium' : ''
                               }`}
                             >
@@ -2302,7 +2314,7 @@ useEffect(() => {
                                   tooltip={item.title}
                                   isActive={isActive}
                                   style={portalNavItemStyle(portalNav, isActive)}
-                                  className={`items-start h-auto min-h-8 group-data-[collapsible=icon]:items-center hover:bg-warning/10 hover:text-warning transition-colors rounded-lg mb-1 ${
+                                  className={`nav-item-themed items-start h-auto min-h-8 group-data-[collapsible=icon]:items-center hover:bg-warning/10 hover:text-warning transition-colors rounded-lg mb-1 ${
                                     isActive ? 'bg-warning/10 text-warning font-medium' : ''
                                   }`}
                                 >
@@ -2449,7 +2461,7 @@ useEffect(() => {
                         if (item.subItems) {
                           return (
                             <Collapsible key={item.title} defaultOpen={isActive}>
-                              <CollapsibleTrigger style={portalNavItemStyle(portalNav, isActive)} className={`w-full flex items-start gap-3 px-3 py-2.5 rounded-lg text-sm ${
+                              <CollapsibleTrigger style={portalNavItemStyle(portalNav, isActive)} className={`nav-item-themed w-full flex items-start gap-3 px-3 py-2.5 rounded-lg text-sm ${
                                 isActive ? 'bg-blue-50 text-blue-700 font-medium' : 'hover:bg-blue-50 hover:text-blue-700'
                               }`}>
                                 <Icon className="w-4 h-4 shrink-0 mt-0.5" style={portalNavIconStyle(portalNav, isActive)} />
@@ -2466,7 +2478,7 @@ useEffect(() => {
                                         to={subItem.url}
                                         onClick={() => setMobileMenuOpen(false)}
                                         style={portalNavItemStyle(portalNav, isSubItemActive)}
-                                        className={`block px-3 py-2 rounded-lg text-sm ${
+                                        className={`nav-item-themed block px-3 py-2 rounded-lg text-sm ${
                                           isSubItemActive ? 'bg-blue-50 text-blue-700 font-medium' : 'hover:bg-blue-50 hover:text-blue-700'
                                         }`}
                                       >
@@ -2485,7 +2497,7 @@ useEffect(() => {
                               to={item.url}
                               onClick={() => setMobileMenuOpen(false)}
                               style={portalNavItemStyle(portalNav, isActive)}
-                              className={`flex items-start gap-3 px-3 py-2.5 rounded-lg text-sm ${
+                              className={`nav-item-themed flex items-start gap-3 px-3 py-2.5 rounded-lg text-sm ${
                                 isActive ? 'bg-blue-50 text-blue-700 font-medium' : 'hover:bg-blue-50 hover:text-blue-700'
                               }`}
                             >
@@ -2516,7 +2528,7 @@ useEffect(() => {
                           if (item.subItems) {
                             return (
                               <Collapsible key={item.title} defaultOpen={isActive}>
-                                <CollapsibleTrigger style={portalNavItemStyle(portalNav, isActive)} className={`w-full flex items-start gap-3 px-3 py-2.5 rounded-lg text-sm ${
+                                <CollapsibleTrigger style={portalNavItemStyle(portalNav, isActive)} className={`nav-item-themed w-full flex items-start gap-3 px-3 py-2.5 rounded-lg text-sm ${
                                   isActive ? 'bg-warning/10 text-warning font-medium' : 'hover:bg-warning/10 hover:text-warning'
                                 }`}>
                                   <Icon className="w-4 h-4 shrink-0 mt-0.5" style={portalNavIconStyle(portalNav, isActive)} />
@@ -2533,7 +2545,7 @@ useEffect(() => {
                                           to={subItem.url}
                                           onClick={() => setMobileMenuOpen(false)}
                                           style={portalNavItemStyle(portalNav, isSubItemActive)}
-                                          className={`block px-3 py-2 rounded-lg text-sm ${
+                                          className={`nav-item-themed block px-3 py-2 rounded-lg text-sm ${
                                             isSubItemActive ? 'bg-warning/10 text-warning font-medium' : 'hover:bg-warning/10 hover:text-warning'
                                           }`}
                                         >
@@ -2552,7 +2564,7 @@ useEffect(() => {
                                 to={item.url}
                                 onClick={() => setMobileMenuOpen(false)}
                                 style={portalNavItemStyle(portalNav, isActive)}
-                                className={`flex items-start gap-3 px-3 py-2.5 rounded-lg text-sm ${
+                                className={`nav-item-themed flex items-start gap-3 px-3 py-2.5 rounded-lg text-sm ${
                                   isActive ? 'bg-warning/10 text-warning font-medium' : 'hover:bg-warning/10 hover:text-warning'
                                 }`}
                               >
