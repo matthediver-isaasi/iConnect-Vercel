@@ -709,6 +709,17 @@ function portalNavIconStyle(navTheme, isActive) {
   return color ? { color } : undefined;
 }
 
+// Drives the colour of the structural (non-clickable) text in the portal nav
+// pane — section headings ("Your Account"/"Navigation"/"Administration"), the
+// "Organisation" label + org name, and the "Vouchers" label/amount. Returns the
+// configured portalNav text colour so these stay legible against a custom nav
+// background; returns undefined when unset so the existing slate/blue Tailwind
+// classes apply unchanged (no visual regression for unbranded tenants).
+function portalNavLabelStyle(navTheme) {
+  if (!navTheme) return undefined;
+  return navTheme.textColor ? { color: navTheme.textColor } : undefined;
+}
+
 // Navigation item component that handles both expanded (collapsible) and collapsed (popover) states
 function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = false, navTheme = null }) {
   const { state } = useSidebar();
@@ -2198,21 +2209,21 @@ useEffect(() => {
               {/* Only show organization info for regular members - hidden when sidebar is collapsed */}
               {memberInfo && !memberInfo.is_team_member && organizationInfo && (
                 <SidebarGroup className="group-data-[collapsible=icon]:hidden">
-                  <SidebarGroupLabel className="text-xs font-medium text-slate-500 uppercase tracking-wider px-3 py-2">
+                  <SidebarGroupLabel className="text-xs font-medium text-slate-500 uppercase tracking-wider px-3 py-2" style={portalNavLabelStyle(portalNav)}>
                     Your Account
                   </SidebarGroupLabel>
                   <SidebarGroupContent>
                     <div className="px-3 py-2 space-y-3">
                       {organizationInfo.name && (
                         <div className="text-sm">
-                          <span className="text-slate-600 block mb-1">Organisation</span>
-                          <span className="font-medium text-slate-900">{organizationInfo.name}</span>
+                          <span className="text-slate-600 block mb-1" style={portalNavLabelStyle(portalNav)}>Organisation</span>
+                          <span className="font-medium text-slate-900" style={portalNavLabelStyle(portalNav)}>{organizationInfo.name}</span>
                         </div>
                       )}
                       {organizationInfo.voucher_balance > 0 && (
                         <div className="flex items-center justify-between text-sm">
-                          <span className="text-slate-600">Vouchers</span>
-                          <span className="font-semibold text-blue-600">£{organizationInfo.voucher_balance}</span>
+                          <span className="text-slate-600" style={portalNavLabelStyle(portalNav)}>Vouchers</span>
+                          <span className="font-semibold text-blue-600" style={portalNavLabelStyle(portalNav)}>£{organizationInfo.voucher_balance}</span>
                         </div>
                       )}
                     </div>
@@ -2226,7 +2237,7 @@ useEffect(() => {
               )}
 
               <SidebarGroup className={memberInfo && !memberInfo.is_team_member && organizationInfo ? "mt-4 group-data-[collapsible=icon]:mt-0" : ""}>
-                <SidebarGroupLabel className="text-xs font-medium text-slate-500 uppercase tracking-wider px-3 py-2 group-data-[collapsible=icon]:hidden">
+                <SidebarGroupLabel className="text-xs font-medium text-slate-500 uppercase tracking-wider px-3 py-2 group-data-[collapsible=icon]:hidden" style={portalNavLabelStyle(portalNav)}>
                   Navigation
                 </SidebarGroupLabel>
                 <SidebarGroupContent>
@@ -2285,7 +2296,7 @@ useEffect(() => {
               {/* Admin Section */}
               {filteredAdminNavigationItems.length > 0 && (
                 <SidebarGroup className="mt-4 group-data-[collapsible=icon]:mt-0">
-                  <SidebarGroupLabel className="text-xs font-medium text-warning uppercase tracking-wider px-3 py-2 group-data-[collapsible=icon]:hidden">
+                  <SidebarGroupLabel className="text-xs font-medium text-warning uppercase tracking-wider px-3 py-2 group-data-[collapsible=icon]:hidden" style={portalNavLabelStyle(portalNav)}>
                     Administration
                   </SidebarGroupLabel>
                   <SidebarGroupContent>
@@ -2425,20 +2436,20 @@ useEffect(() => {
                   {/* Member Info Section */}
                   {memberInfo && !memberInfo.is_team_member && organizationInfo && (
                     <div className="mb-4">
-                      <div className="text-xs font-medium text-slate-500 uppercase tracking-wider px-3 py-2">
+                      <div className="text-xs font-medium text-slate-500 uppercase tracking-wider px-3 py-2" style={portalNavLabelStyle(portalNav)}>
                         Your Account
                       </div>
                       <div className="px-3 py-2 space-y-3">
                         {organizationInfo.name && (
                           <div className="text-sm">
-                            <span className="text-slate-600 block mb-1">Organisation</span>
-                            <span className="font-medium text-slate-900">{organizationInfo.name}</span>
+                            <span className="text-slate-600 block mb-1" style={portalNavLabelStyle(portalNav)}>Organisation</span>
+                            <span className="font-medium text-slate-900" style={portalNavLabelStyle(portalNav)}>{organizationInfo.name}</span>
                           </div>
                         )}
                         {organizationInfo.voucher_balance > 0 && (
                           <div className="flex items-center justify-between text-sm">
-                            <span className="text-slate-600">Vouchers</span>
-                            <span className="font-semibold text-blue-600">£{organizationInfo.voucher_balance}</span>
+                            <span className="text-slate-600" style={portalNavLabelStyle(portalNav)}>Vouchers</span>
+                            <span className="font-semibold text-blue-600" style={portalNavLabelStyle(portalNav)}>£{organizationInfo.voucher_balance}</span>
                           </div>
                         )}
                       </div>
@@ -2447,7 +2458,7 @@ useEffect(() => {
 
                   {/* Navigation Section */}
                   <div className="mb-4">
-                    <div className="text-xs font-medium text-slate-500 uppercase tracking-wider px-3 py-2">
+                    <div className="text-xs font-medium text-slate-500 uppercase tracking-wider px-3 py-2" style={portalNavLabelStyle(portalNav)}>
                       Navigation
                     </div>
                     <nav className="space-y-1">
@@ -2516,7 +2527,7 @@ useEffect(() => {
                   {/* Admin Section */}
                   {filteredAdminNavigationItems.length > 0 && (
                     <div className="mb-4">
-                      <div className="text-xs font-medium text-warning uppercase tracking-wider px-3 py-2">
+                      <div className="text-xs font-medium text-warning uppercase tracking-wider px-3 py-2" style={portalNavLabelStyle(portalNav)}>
                         Administration
                       </div>
                       <nav className="space-y-1">
