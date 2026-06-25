@@ -33,6 +33,9 @@ export default function NewsSettingsPage() {
   const [showAuthor, setShowAuthor] = useState(false);
   const [cardsPerRow, setCardsPerRow] = useState("3");
   const [showImage, setShowImage] = useState(false);
+  const [tickerBgStart, setTickerBgStart] = useState("");
+  const [tickerBgEnd, setTickerBgEnd] = useState("");
+  const [tickerTextColor, setTickerTextColor] = useState("");
 
   const queryClient = useQueryClient();
 
@@ -47,7 +50,10 @@ export default function NewsSettingsPage() {
         s.setting_key === 'news_ticker_bottom_margin' ||
         s.setting_key === 'news_show_author' ||
         s.setting_key === 'news_cards_per_row' ||
-        s.setting_key === 'news_show_image'
+        s.setting_key === 'news_show_image' ||
+        s.setting_key === 'news_ticker_bg_start' ||
+        s.setting_key === 'news_ticker_bg_end' ||
+        s.setting_key === 'news_ticker_text_color'
       );
     },
     enabled: accessChecked
@@ -62,6 +68,9 @@ export default function NewsSettingsPage() {
       const authorSetting = settings.find(s => s.setting_key === 'news_show_author');
       const cardsPerRowSetting = settings.find(s => s.setting_key === 'news_cards_per_row');
       const showImageSetting = settings.find(s => s.setting_key === 'news_show_image');
+      const bgStartSetting = settings.find(s => s.setting_key === 'news_ticker_bg_start');
+      const bgEndSetting = settings.find(s => s.setting_key === 'news_ticker_bg_end');
+      const textColorSetting = settings.find(s => s.setting_key === 'news_ticker_text_color');
       
       if (countSetting) setTickerCount(parseInt(countSetting.setting_value) || 3);
       if (cycleSetting) setCycleSeconds(parseInt(cycleSetting.setting_value) || 5);
@@ -70,6 +79,9 @@ export default function NewsSettingsPage() {
       if (authorSetting) setShowAuthor(authorSetting.setting_value === 'true');
       if (cardsPerRowSetting) setCardsPerRow(cardsPerRowSetting.setting_value || "3");
       if (showImageSetting) setShowImage(showImageSetting.setting_value === 'true');
+      if (bgStartSetting) setTickerBgStart(bgStartSetting.setting_value || "");
+      if (bgEndSetting) setTickerBgEnd(bgEndSetting.setting_value || "");
+      if (textColorSetting) setTickerTextColor(textColorSetting.setting_value || "");
     }
   }, [settings]);
 
@@ -82,6 +94,9 @@ export default function NewsSettingsPage() {
       const authorSetting = settings.find(s => s.setting_key === 'news_show_author');
       const cardsPerRowSetting = settings.find(s => s.setting_key === 'news_cards_per_row');
       const showImageSetting = settings.find(s => s.setting_key === 'news_show_image');
+      const bgStartSetting = settings.find(s => s.setting_key === 'news_ticker_bg_start');
+      const bgEndSetting = settings.find(s => s.setting_key === 'news_ticker_bg_end');
+      const textColorSetting = settings.find(s => s.setting_key === 'news_ticker_text_color');
 
       const promises = [];
 
@@ -193,6 +208,54 @@ export default function NewsSettingsPage() {
             setting_key: 'news_show_image',
             setting_value: showImage.toString(),
             description: 'Whether to show feature images on news cards'
+          })
+        );
+      }
+
+      if (bgStartSetting) {
+        promises.push(
+          base44.entities.SystemSettings.update(bgStartSetting.id, {
+            setting_value: tickerBgStart
+          })
+        );
+      } else {
+        promises.push(
+          base44.entities.SystemSettings.create({
+            setting_key: 'news_ticker_bg_start',
+            setting_value: tickerBgStart,
+            description: 'News ticker background gradient start colour'
+          })
+        );
+      }
+
+      if (bgEndSetting) {
+        promises.push(
+          base44.entities.SystemSettings.update(bgEndSetting.id, {
+            setting_value: tickerBgEnd
+          })
+        );
+      } else {
+        promises.push(
+          base44.entities.SystemSettings.create({
+            setting_key: 'news_ticker_bg_end',
+            setting_value: tickerBgEnd,
+            description: 'News ticker background gradient end colour'
+          })
+        );
+      }
+
+      if (textColorSetting) {
+        promises.push(
+          base44.entities.SystemSettings.update(textColorSetting.id, {
+            setting_value: tickerTextColor
+          })
+        );
+      } else {
+        promises.push(
+          base44.entities.SystemSettings.create({
+            setting_key: 'news_ticker_text_color',
+            setting_value: tickerTextColor,
+            description: 'News ticker text colour'
           })
         );
       }
@@ -382,6 +445,87 @@ export default function NewsSettingsPage() {
                     />
                     <p className="text-xs text-slate-500">
                       Space below the news ticker bar (0-100 pixels)
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="ticker-bg-start">Background Start Colour</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        id="ticker-bg-start"
+                        type="color"
+                        value={tickerBgStart || "#9333ea"}
+                        onChange={(e) => setTickerBgStart(e.target.value)}
+                        className="h-9 w-16 p-1 cursor-pointer"
+                        data-testid="input-ticker-bg-start"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setTickerBgStart("")}
+                        disabled={!tickerBgStart}
+                        data-testid="button-reset-ticker-bg-start"
+                      >
+                        Reset to default
+                      </Button>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      Left side of the ticker background gradient. Leave unset for the default purple.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="ticker-bg-end">Background End Colour</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        id="ticker-bg-end"
+                        type="color"
+                        value={tickerBgEnd || "#2563eb"}
+                        onChange={(e) => setTickerBgEnd(e.target.value)}
+                        className="h-9 w-16 p-1 cursor-pointer"
+                        data-testid="input-ticker-bg-end"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setTickerBgEnd("")}
+                        disabled={!tickerBgEnd}
+                        data-testid="button-reset-ticker-bg-end"
+                      >
+                        Reset to default
+                      </Button>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      Right side of the ticker background gradient. Leave unset for the default blue.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="ticker-text-color">Text Colour</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        id="ticker-text-color"
+                        type="color"
+                        value={tickerTextColor || "#ffffff"}
+                        onChange={(e) => setTickerTextColor(e.target.value)}
+                        className="h-9 w-16 p-1 cursor-pointer"
+                        data-testid="input-ticker-text-color"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setTickerTextColor("")}
+                        disabled={!tickerTextColor}
+                        data-testid="button-reset-ticker-text-color"
+                      >
+                        Reset to default
+                      </Button>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      Colour of the ticker label, headlines, and chevron. Leave unset for the default white.
                     </p>
                   </div>
                 </>

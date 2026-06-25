@@ -18,7 +18,10 @@ export default function NewsTickerBar() {
           s.setting_key === 'news_ticker_count' || 
           s.setting_key === 'news_ticker_cycle_seconds' ||
           s.setting_key === 'news_ticker_enabled' ||
-          s.setting_key === 'news_ticker_bottom_margin'
+          s.setting_key === 'news_ticker_bottom_margin' ||
+          s.setting_key === 'news_ticker_bg_start' ||
+          s.setting_key === 'news_ticker_bg_end' ||
+          s.setting_key === 'news_ticker_text_color'
         );
       } catch (error) {
         console.error("Error loading news ticker settings:", error);
@@ -49,6 +52,29 @@ export default function NewsTickerBar() {
         (s) => s.setting_key === "news_ticker_bottom_margin"
       )?.setting_value
     ) || 0;
+
+  const bgStart =
+    settings.find((s) => s.setting_key === "news_ticker_bg_start")
+      ?.setting_value || "";
+  const bgEnd =
+    settings.find((s) => s.setting_key === "news_ticker_bg_end")
+      ?.setting_value || "";
+  const textColor =
+    settings.find((s) => s.setting_key === "news_ticker_text_color")
+      ?.setting_value || "";
+
+  const hasCustomBg = Boolean(bgStart || bgEnd);
+  const gradientStart = bgStart || "#9333ea";
+  const gradientEnd = bgEnd || "#2563eb";
+  const containerStyle = {
+    marginBottom: bottomMargin > 0 ? `${bottomMargin}px` : undefined,
+  };
+  if (hasCustomBg) {
+    containerStyle.background = `linear-gradient(to right, ${gradientStart}, ${gradientEnd})`;
+  }
+  if (textColor) {
+    containerStyle.color = textColor;
+  }
 
   // Load latest news posts via base44 client (portal-only component)
   const { data: latestNews = [] } = useQuery({
@@ -93,8 +119,8 @@ export default function NewsTickerBar() {
 
   return (
     <div 
-      className="bg-gradient-to-r from-purple-600 to-blue-600 text-white overflow-hidden"
-      style={{ marginBottom: bottomMargin > 0 ? `${bottomMargin}px` : undefined }}
+      className={`overflow-hidden${hasCustomBg ? "" : " bg-gradient-to-r from-purple-600 to-blue-600"}${textColor ? "" : " text-white"}`}
+      style={containerStyle}
     >
       <div className="max-w-7xl mx-auto px-4 py-3">
         <div className="flex items-center gap-3">
