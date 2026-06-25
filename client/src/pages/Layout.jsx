@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import RoleBadge from "@/components/RoleBadge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -664,9 +665,7 @@ function SidebarFooterContent({ memberInfo, memberRole, handleLogout, portalNav 
         <p className="text-xs text-slate-500 pl-6 truncate" title={memberInfo.email} style={userCardTextStyle}>{memberInfo.email}</p>
         {memberRole && (
           <div className="pl-6 mt-2">
-            <Badge className="bg-purple-100 text-purple-700 text-xs">
-              {memberRole.name}
-            </Badge>
+            <RoleBadge role={memberRole} className="text-xs" />
           </div>
         )}
       </div>
@@ -2629,9 +2628,7 @@ useEffect(() => {
                         <p className="text-xs text-slate-500 pl-6 truncate" title={memberInfo.email} style={userCardTextStyle}>{memberInfo.email}</p>
                         {memberRole && (
                           <div className="pl-6 mt-2">
-                            <Badge className="bg-purple-100 text-purple-700 text-xs">
-                              {memberRole.name}
-                            </Badge>
+                            <RoleBadge role={memberRole} className="text-xs" />
                           </div>
                         )}
                       </div>
