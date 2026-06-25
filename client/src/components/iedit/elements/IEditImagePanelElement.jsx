@@ -7,6 +7,7 @@ import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import DOMPurify from 'dompurify';
 import { AlignLeft, AlignCenter, AlignRight, ChevronDown, ChevronUp, ChevronLeft, ChevronRight } from "lucide-react";
+import { CURATED_FONTS } from "@/lib/sharedFonts";
 
 const panelQuillModules = {
   toolbar: [
@@ -642,13 +643,7 @@ export function IEditImagePanelElementEditor({ element, onChange }) {
     }
   };
 
-  const AVAILABLE_FONTS = [
-    { value: 'Poppins, sans-serif', label: 'Poppins' },
-    { value: "'Degular Medium', 'Poppins', sans-serif", label: 'Degular Medium' },
-    { value: 'Georgia, serif', label: 'Georgia' },
-    { value: 'Arial, sans-serif', label: 'Arial' },
-    { value: "'Times New Roman', serif", label: 'Times New Roman' }
-  ];
+  const AVAILABLE_FONTS = CURATED_FONTS;
 
   const fontWeights = [
     { value: 300, label: 'Light' },

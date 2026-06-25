@@ -596,6 +596,7 @@ const GOOGLE_FONTS = {
   'Playfair Display': 'https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&display=swap',
   'Merriweather': 'https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700&display=swap',
   'Source Sans Pro': 'https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@400;700&display=swap',
+  'Urbanist': 'https://fonts.googleapis.com/css2?family=Urbanist:wght@400;700&display=swap',
 };
 
 const collectUsedFonts = (blocks) => {

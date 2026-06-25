@@ -37,19 +37,21 @@ import SpacingControl from './SpacingControl';
 
 const GOOGLE_FONT_OPTIONS = [
   { value: '', label: 'Default (inherit)' },
-  { value: "'Roboto', sans-serif", label: 'Roboto' },
-  { value: "'Open Sans', sans-serif", label: 'Open Sans' },
+  { value: "Arial, sans-serif", label: 'Arial' },
+  { value: "'Degular Medium', 'Poppins', sans-serif", label: 'Degular Medium' },
+  { value: "Georgia, serif", label: 'Georgia' },
   { value: "'Lato', sans-serif", label: 'Lato' },
+  { value: "'Merriweather', serif", label: 'Merriweather' },
   { value: "'Montserrat', sans-serif", label: 'Montserrat' },
-  { value: "'Poppins', sans-serif", label: 'Poppins' },
-  { value: "'Raleway', sans-serif", label: 'Raleway' },
+  { value: "'Open Sans', sans-serif", label: 'Open Sans' },
   { value: "'Oswald', sans-serif", label: 'Oswald' },
   { value: "'Playfair Display', serif", label: 'Playfair Display' },
-  { value: "'Merriweather', serif", label: 'Merriweather' },
+  { value: "'Poppins', sans-serif", label: 'Poppins' },
+  { value: "'Raleway', sans-serif", label: 'Raleway' },
+  { value: "'Roboto', sans-serif", label: 'Roboto' },
   { value: "'Source Sans Pro', sans-serif", label: 'Source Sans Pro' },
-  { value: "Arial, sans-serif", label: 'Arial' },
-  { value: "Georgia, serif", label: 'Georgia' },
   { value: "'Times New Roman', serif", label: 'Times New Roman' },
+  { value: "'Urbanist', sans-serif", label: 'Urbanist' },
   { value: "Verdana, sans-serif", label: 'Verdana' },
 ];
 

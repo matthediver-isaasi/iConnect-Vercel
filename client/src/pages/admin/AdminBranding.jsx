@@ -30,6 +30,7 @@ import UnfurlPreview from "@/components/UnfurlPreview";
 import { publicClient } from "@/api/publicClient";
 import { FocalPointPicker } from "@/components/FocalPointPicker";
 import { buildPortalNavBackgroundStyle } from "@/lib/canvasBackground";
+import { CURATED_FONTS } from "@/lib/sharedFonts";
 
 const NAV_FONT_WEIGHTS = [
   { value: 100, label: '100 - Thin' },
@@ -43,15 +44,7 @@ const NAV_FONT_WEIGHTS = [
   { value: 900, label: '900 - Black' }
 ];
 
-const NAV_AVAILABLE_FONTS = [
-  { value: 'Poppins, sans-serif', label: 'Poppins' },
-  { value: 'Urbanist, sans-serif', label: 'Urbanist' },
-  { value: "'Degular Medium', 'Poppins', sans-serif", label: 'Degular Medium' },
-  { value: "'Source Sans Pro', sans-serif", label: 'Source Sans Pro' },
-  { value: 'Georgia, serif', label: 'Georgia' },
-  { value: 'Arial, sans-serif', label: 'Arial' },
-  { value: "'Times New Roman', serif", label: 'Times New Roman' }
-];
+const NAV_AVAILABLE_FONTS = CURATED_FONTS;
 
 const DEFAULT_INDICATOR_GRADIENT_STOPS = [
   { color: '#5C0085', position: 0 },
