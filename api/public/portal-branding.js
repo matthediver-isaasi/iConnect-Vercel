@@ -79,7 +79,7 @@ export default async function handler(req, res) {
       const homePageSlug = systemSettingsMap.public_home_page_slug || tenantSettings.home_page_slug || '';
       
       return res.status(200).json({
-        logoUrl: tenant.header_logo_url || tenant.logo_url || null,
+        logoUrl: tenant.logo_url || tenant.header_logo_url || null,
         faviconUrl: tenant.favicon_url || null,
         logoHeight: tenantSettings.logo_height || 'medium',
         logoLink: tenantSettings.logo_link || '',
