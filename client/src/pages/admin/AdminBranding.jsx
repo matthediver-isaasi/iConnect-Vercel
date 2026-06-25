@@ -3041,6 +3041,27 @@ export default function AdminBranding() {
                         />
                       </div>
 
+                      <div className="space-y-2">
+                        <Label className="text-slate-300">Base colour (behind image)</Label>
+                        <p className="text-xs text-slate-400">Shown beneath the image — use a transparent image on top for subtle effects.</p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Input
+                            type="color"
+                            value={pageBg.solidColor || '#f8fafc'}
+                            onChange={(e) => setPageBg({ solidColor: e.target.value })}
+                            className="w-12 h-9 p-1 bg-slate-900 border-slate-700"
+                            data-testid="input-portalpage-base-color"
+                          />
+                          <Input
+                            value={pageBg.solidColor || ''}
+                            placeholder="#f8fafc"
+                            onChange={(e) => setPageBg({ solidColor: e.target.value })}
+                            className="w-32 bg-slate-900 border-slate-700 text-white"
+                            data-testid="input-portalpage-base-color-hex"
+                          />
+                        </div>
+                      </div>
+
                       {pageBg.imageUrl && (
                         <div className="space-y-2">
                           <Label className="text-slate-300">Focal point</Label>

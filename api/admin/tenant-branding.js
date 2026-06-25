@@ -130,6 +130,12 @@ function validatePortalNav(portalNav) {
   const out = {};
   const bg = validatePortalNavBackground(portalNav.background);
   if (bg) out.background = bg;
+  // Authenticated-portal main content area background (solid/gradient/image).
+  // Reuses the nav-pane bg validator. Whitelisted explicitly so it is not
+  // dropped on save. For image type, solidColor is preserved as the base
+  // colour rendered beneath the (possibly transparent) image.
+  const pageBg = validatePortalNavBackground(portalNav.pageBackground);
+  if (pageBg) out.pageBackground = pageBg;
   for (const key of ['textColor', 'iconColor', 'activeBackgroundColor', 'activeTextColor', 'activeIconColor', 'hoverBackgroundColor', 'hoverTextColor']) {
     const c = normalizeHexColor(portalNav[key]);
     if (c) out[key] = c;

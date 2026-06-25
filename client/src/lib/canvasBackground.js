@@ -214,12 +214,17 @@ export function buildPortalNavBackgroundStyle(bg) {
     const fx = Number.isFinite(Number(fp.x)) ? Number(fp.x) : 50;
     const fy = Number.isFinite(Number(fp.y)) ? Number(fp.y) : 50;
     const url = String(bg.imageUrl).replace(/["\\\n\r]/g, '');
-    return {
+    const style = {
       backgroundImage: `${overlayLayer}, url("${url}")`,
       backgroundSize: 'cover',
       backgroundPosition: `${fx}% ${fy}%`,
       backgroundRepeat: 'no-repeat',
     };
+    // Base colour rendered beneath the image. background-color always paints
+    // below every background-image layer, so a transparent image blends over
+    // this colour for subtle effects.
+    if (bg.solidColor) style.backgroundColor = bg.solidColor;
+    return style;
   }
 
   // solid (default)
