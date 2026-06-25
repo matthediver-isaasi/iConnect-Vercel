@@ -3612,6 +3612,8 @@ function CardInspector({ block, update }) {
   })();
   const imageMode = c.imageDisplayMode === 'inline' ? 'inline' : 'full-bleed';
   const ctaEnabled = c.ctaEnabled !== false;
+  const [iconPickerOpen, setIconPickerOpen] = useState(false);
+  const iconClass = sanitizeFaIconClass(c.iconClass);
   return (
     <>
       <ImageField
@@ -3658,42 +3660,86 @@ function CardInspector({ block, update }) {
           />
         </>
       )}
-      <TextField
-        label="Icon class (Font Awesome, optional)"
-        value={c.iconClass}
-        onChange={(v) => set({ iconClass: v })}
-        placeholder="e.g. fa-solid fa-book-open"
-        testId="input-card-icon-class"
-      />
-      {sanitizeFaIconClass(c.iconClass) && (
-        <>
-          <NumberField
-            label="Icon size (px)"
-            value={c.iconSize == null ? 32 : c.iconSize}
-            onChange={(v) => set({ iconSize: v })}
-            min={8}
-            max={160}
-            testId="input-card-icon-size"
-          />
-          <SelectField
-            label="Icon alignment"
-            value={c.iconAlign || 'left'}
-            onChange={(v) => set({ iconAlign: v })}
-            options={[
-              { value: 'left', label: 'Left' },
-              { value: 'center', label: 'Center' },
-              { value: 'right', label: 'Right' },
-            ]}
-            testId="select-card-icon-align"
-          />
-          <ColorField
-            label="Icon colour (optional)"
-            value={c.iconColor}
-            onChange={(v) => set({ iconColor: v })}
-            testId="input-card-icon-color"
-          />
-        </>
-      )}
+      <div className="pt-1 border-t border-slate-100 space-y-2">
+        <div className="flex items-center gap-2">
+          <Label className="text-xs text-slate-600">Font Awesome icon</Label>
+          {iconClass ? (
+            <i
+              className={iconClass}
+              aria-hidden="true"
+              style={{ color: c.iconColor || undefined }}
+              data-testid="preview-card-icon"
+            />
+          ) : null}
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="w-full justify-start gap-2"
+          onClick={() => setIconPickerOpen(true)}
+          data-testid="button-browse-card-icon"
+        >
+          <Search className="w-4 h-4" />
+          {iconClass ? 'Change icon…' : 'Browse icons…'}
+        </Button>
+        <Suspense fallback={null}>
+          {iconPickerOpen ? (
+            <FontAwesomeIconPicker
+              open={iconPickerOpen}
+              onClose={() => setIconPickerOpen(false)}
+              onSelect={(cls) => set({ iconClass: cls })}
+              currentValue={c.iconClass}
+            />
+          ) : null}
+        </Suspense>
+        <TextField
+          label="Font Awesome class (advanced — or use the picker above)"
+          value={c.iconClass}
+          onChange={(v) => set({ iconClass: v })}
+          placeholder="e.g. fa-solid fa-book-open"
+          testId="input-card-icon-class"
+        />
+        {iconClass && (
+          <>
+            <NumberField
+              label="Icon size (px)"
+              value={c.iconSize == null ? 32 : c.iconSize}
+              onChange={(v) => set({ iconSize: v })}
+              min={8}
+              max={160}
+              testId="input-card-icon-size"
+            />
+            <SelectField
+              label="Icon alignment"
+              value={c.iconAlign || 'left'}
+              onChange={(v) => set({ iconAlign: v })}
+              options={[
+                { value: 'left', label: 'Left' },
+                { value: 'center', label: 'Center' },
+                { value: 'right', label: 'Right' },
+              ]}
+              testId="select-card-icon-align"
+            />
+            <ColorField
+              label="Icon colour (optional)"
+              value={c.iconColor}
+              onChange={(v) => set({ iconColor: v })}
+              testId="input-card-icon-color"
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start text-slate-500"
+              onClick={() => set({ iconClass: '', iconSize: 32, iconColor: '', iconAlign: 'left' })}
+              data-testid="button-remove-card-icon"
+            >
+              Remove icon
+            </Button>
+          </>
+        )}
+      </div>
       <TextField label="Heading" value={c.heading} onChange={(v) => set({ heading: v })} testId="input-card-heading" />
       <SelectField
         label="Heading level"
