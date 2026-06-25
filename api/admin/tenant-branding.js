@@ -129,7 +129,7 @@ function validatePortalNav(portalNav) {
   const out = {};
   const bg = validatePortalNavBackground(portalNav.background);
   if (bg) out.background = bg;
-  for (const key of ['textColor', 'iconColor', 'activeBackgroundColor', 'activeTextColor', 'activeIconColor']) {
+  for (const key of ['textColor', 'iconColor', 'activeBackgroundColor', 'activeTextColor', 'activeIconColor', 'hoverBackgroundColor', 'hoverTextColor']) {
     const c = normalizeHexColor(portalNav[key]);
     if (c) out[key] = c;
   }
