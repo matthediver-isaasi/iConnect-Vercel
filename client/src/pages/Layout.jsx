@@ -634,9 +634,11 @@ function SidebarFooterContent({ memberInfo, memberRole, handleLogout, portalNav 
             <Button
               variant="ghost"
               size="icon"
+              style={portalNavItemStyle(portalNav, false)}
+              className="nav-item-themed hover:bg-blue-50 hover:text-blue-700 transition-colors"
               onClick={handleLogout}
             >
-              <LogOut className="w-4 h-4" />
+              <LogOut className="w-4 h-4" style={portalNavIconStyle(portalNav, false)} />
             </Button>
           </TooltipTrigger>
           <TooltipContent side="right">Sign Out</TooltipContent>
@@ -683,11 +685,12 @@ function SidebarFooterContent({ memberInfo, memberRole, handleLogout, portalNav 
       )}
       <Button
         variant="ghost"
-        className="w-full justify-start text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+        style={portalNavItemStyle(portalNav, false)}
+        className="nav-item-themed w-full justify-start hover:bg-blue-50 hover:text-blue-700 transition-colors rounded-lg"
         onClick={handleLogout}
       >
-        <LogOut className="w-4 h-4 mr-2" />
-        Sign Out
+        <LogOut className="w-4 h-4 mr-2 shrink-0" style={portalNavIconStyle(portalNav, false)} />
+        <span>Sign Out</span>
       </Button>
     </div>
   );
@@ -2649,14 +2652,15 @@ useEffect(() => {
                       )}
                       <Button
                         variant="ghost"
-                        className="w-full justify-start text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+                        style={portalNavItemStyle(portalNav, false)}
+                        className="nav-item-themed w-full justify-start hover:bg-blue-50 hover:text-blue-700 transition-colors rounded-lg"
                         onClick={() => {
                           setMobileMenuOpen(false);
                           handleLogout();
                         }}
                       >
-                        <LogOut className="w-4 h-4 mr-2" />
-                        Sign Out
+                        <LogOut className="w-4 h-4 mr-2 shrink-0" style={portalNavIconStyle(portalNav, false)} />
+                        <span>Sign Out</span>
                       </Button>
                     </div>
                   )}
