@@ -583,10 +583,15 @@ function SidebarEdgeToggle() {
 }
 
 // Separate component for sidebar footer content to use useSidebar hook
-function SidebarFooterContent({ memberInfo, memberRole, handleLogout }) {
+function SidebarFooterContent({ memberInfo, memberRole, handleLogout, portalNav }) {
   const { state } = useSidebar();
   const isCollapsed = state === 'collapsed';
-  
+
+  const userCard = portalNav?.userCard;
+  const userCardBgStyle = userCard?.background ? buildPortalNavBackgroundStyle(userCard.background) : null;
+  const hasUserCardBg = !!(userCardBgStyle && Object.keys(userCardBgStyle).length);
+  const userCardTextStyle = userCard?.textColor ? { color: userCard.textColor } : undefined;
+
   if (!memberInfo) return null;
   
   if (isCollapsed) {
@@ -642,18 +647,21 @@ function SidebarFooterContent({ memberInfo, memberRole, handleLogout }) {
   // Full content when expanded
   return (
     <div className="space-y-3">
-      <div className="px-3 py-2 bg-slate-50 rounded-lg">
+      <div
+        className={`px-3 py-2 rounded-lg${hasUserCardBg ? '' : ' bg-slate-50'}`}
+        style={hasUserCardBg ? userCardBgStyle : undefined}
+      >
         <div className="flex items-center gap-2 mb-1">
           {memberInfo.google_id ? (
             <SiGoogle className="w-4 h-4 text-[#4285F4]" />
           ) : (
-            <User className="w-4 h-4 text-slate-500" />
+            <User className="w-4 h-4 text-slate-500" style={userCardTextStyle} />
           )}
-          <span className="text-sm font-medium text-slate-900">
+          <span className="text-sm font-medium text-slate-900" style={userCardTextStyle}>
             {memberInfo.first_name} {memberInfo.last_name}
           </span>
         </div>
-        <p className="text-xs text-slate-500 pl-6 truncate" title={memberInfo.email}>{memberInfo.email}</p>
+        <p className="text-xs text-slate-500 pl-6 truncate" title={memberInfo.email} style={userCardTextStyle}>{memberInfo.email}</p>
         {memberRole && (
           <div className="pl-6 mt-2">
             <Badge className="bg-purple-100 text-purple-700 text-xs">
@@ -858,6 +866,10 @@ export default function Layout({ children, currentPageName }) {
   const basePortalFont = tenantBranding?.branding?.brandingConfig?.basePortalFont || '';
   const portalNavBgStyle = portalNav?.background ? buildPortalNavBackgroundStyle(portalNav.background) : {};
   const hasPortalNavBg = Object.keys(portalNavBgStyle).length > 0;
+  // Current-user card branding (signed-in member box at the bottom of the nav).
+  const userCardBgStyle = portalNav?.userCard?.background ? buildPortalNavBackgroundStyle(portalNav.userCard.background) : null;
+  const hasUserCardBg = !!(userCardBgStyle && Object.keys(userCardBgStyle).length);
+  const userCardTextStyle = portalNav?.userCard?.textColor ? { color: portalNav.userCard.textColor } : undefined;
   // Shadcn's <Sidebar> paints its visible surface on an inner
   // [data-sidebar="sidebar"] div whose `bg-sidebar` background-color covers any
   // background-image set on the outer wrapper's `style` prop. So gradient/image
@@ -2351,6 +2363,7 @@ useEffect(() => {
                 memberInfo={memberInfo} 
                 memberRole={memberRole} 
                 handleLogout={handleLogout}
+                portalNav={portalNav}
               />
             </SidebarFooter>
           </Sidebar>
@@ -2594,18 +2607,21 @@ useEffect(() => {
                 <div className="border-t border-slate-200 p-4">
                   {memberInfo && (
                     <div className="space-y-3">
-                      <div className="px-3 py-2 bg-slate-50 rounded-lg">
+                      <div
+                        className={`px-3 py-2 rounded-lg${hasUserCardBg ? '' : ' bg-slate-50'}`}
+                        style={hasUserCardBg ? userCardBgStyle : undefined}
+                      >
                         <div className="flex items-center gap-2 mb-1">
                           {memberInfo.google_id ? (
                             <SiGoogle className="w-4 h-4 text-[#4285F4]" />
                           ) : (
-                            <User className="w-4 h-4 text-slate-500" />
+                            <User className="w-4 h-4 text-slate-500" style={userCardTextStyle} />
                           )}
-                          <span className="text-sm font-medium text-slate-900">
+                          <span className="text-sm font-medium text-slate-900" style={userCardTextStyle}>
                             {memberInfo.first_name} {memberInfo.last_name}
                           </span>
                         </div>
-                        <p className="text-xs text-slate-500 pl-6 truncate" title={memberInfo.email}>{memberInfo.email}</p>
+                        <p className="text-xs text-slate-500 pl-6 truncate" title={memberInfo.email} style={userCardTextStyle}>{memberInfo.email}</p>
                         {memberRole && (
                           <div className="pl-6 mt-2">
                             <Badge className="bg-purple-100 text-purple-700 text-xs">

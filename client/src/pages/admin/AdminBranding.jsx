@@ -645,7 +645,11 @@ export default function AdminBranding() {
     activeTextColor: '',
     activeIconColor: '',
     hoverBackgroundColor: '',
-    hoverTextColor: ''
+    hoverTextColor: '',
+    userCard: {
+      background: { type: 'solid', solidColor: '', gradientType: 'linear', gradientStops: DEFAULT_PORTAL_NAV_GRADIENT_STOPS, gradientAngle: 180 },
+      textColor: ''
+    }
   };
 
   // Merge a stored portalNav blob onto the full default shape so every control
@@ -683,7 +687,23 @@ export default function AdminBranding() {
       activeTextColor: s.activeTextColor || '',
       activeIconColor: s.activeIconColor || '',
       hoverBackgroundColor: s.hoverBackgroundColor || '',
-      hoverTextColor: s.hoverTextColor || ''
+      hoverTextColor: s.hoverTextColor || '',
+      userCard: (() => {
+        const uc = s.userCard && typeof s.userCard === 'object' ? s.userCard : {};
+        const ucBg = uc.background && typeof uc.background === 'object' ? uc.background : {};
+        return {
+          background: {
+            type: ['solid', 'gradient'].includes(ucBg.type) ? ucBg.type : 'solid',
+            solidColor: ucBg.solidColor || '',
+            gradientType: ucBg.gradientType === 'radial' ? 'radial' : 'linear',
+            gradientStops: (Array.isArray(ucBg.gradientStops) && ucBg.gradientStops.length >= 2)
+              ? ucBg.gradientStops
+              : DEFAULT_PORTAL_NAV_GRADIENT_STOPS,
+            gradientAngle: Number.isFinite(Number(ucBg.gradientAngle)) ? Number(ucBg.gradientAngle) : 180
+          },
+          textColor: uc.textColor || ''
+        };
+      })()
     };
   };
 
@@ -1073,6 +1093,45 @@ export default function AdminBranding() {
           portalNav: {
             ...pn,
             background: { ...(pn.background || DEFAULT_PORTAL_NAV.background), ...patch }
+          }
+        }
+      };
+    });
+  };
+
+  const userCard = portalNav.userCard || DEFAULT_PORTAL_NAV.userCard;
+  const userCardBg = userCard.background || DEFAULT_PORTAL_NAV.userCard.background;
+
+  const setUserCard = (patch) => {
+    setFormData(prev => {
+      const pn = prev.branding_config?.portalNav || DEFAULT_PORTAL_NAV;
+      return {
+        ...prev,
+        branding_config: {
+          ...prev.branding_config,
+          portalNav: {
+            ...pn,
+            userCard: { ...(pn.userCard || DEFAULT_PORTAL_NAV.userCard), ...patch }
+          }
+        }
+      };
+    });
+  };
+
+  const setUserCardBg = (patch) => {
+    setFormData(prev => {
+      const pn = prev.branding_config?.portalNav || DEFAULT_PORTAL_NAV;
+      const uc = pn.userCard || DEFAULT_PORTAL_NAV.userCard;
+      return {
+        ...prev,
+        branding_config: {
+          ...prev.branding_config,
+          portalNav: {
+            ...pn,
+            userCard: {
+              ...uc,
+              background: { ...(uc.background || DEFAULT_PORTAL_NAV.userCard.background), ...patch }
+            }
           }
         }
       };
@@ -2559,6 +2618,145 @@ export default function AdminBranding() {
                         </div>
                       </div>
                     ))}
+                  </div>
+
+                  {/* Current user card */}
+                  <div className="space-y-4 pt-2 border-t border-slate-700">
+                    <div>
+                      <Label className="text-slate-300">Current user card</Label>
+                      <p className="text-slate-500 text-xs">The signed-in member box at the bottom of the sidebar.</p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label className="text-slate-300">Background</Label>
+                      <div className="flex flex-wrap gap-2">
+                        {[
+                          { value: 'solid', label: 'Solid colour' },
+                          { value: 'gradient', label: 'Gradient' }
+                        ].map((opt) => (
+                          <Button
+                            key={opt.value}
+                            type="button"
+                            variant={(userCardBg.type || 'solid') === opt.value ? 'default' : 'outline'}
+                            size="sm"
+                            className={(userCardBg.type || 'solid') === opt.value ? '' : 'border-slate-600 text-slate-300'}
+                            onClick={() => setUserCardBg({ type: opt.value })}
+                            data-testid={`button-usercard-bgtype-${opt.value}`}
+                          >
+                            {opt.label}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {(userCardBg.type || 'solid') === 'solid' && (
+                      <div className="space-y-2">
+                        <Label className="text-slate-300">Background colour</Label>
+                        <div className="flex items-center gap-3">
+                          <input
+                            type="color"
+                            value={userCardBg.solidColor || '#f1f5f9'}
+                            onChange={(e) => setUserCardBg({ solidColor: e.target.value })}
+                            className="w-12 h-9 rounded cursor-pointer"
+                            data-testid="color-usercard-solid"
+                          />
+                          <Input
+                            value={userCardBg.solidColor || ''}
+                            placeholder="Default (light grey)"
+                            onChange={(e) => setUserCardBg({ solidColor: e.target.value })}
+                            className="bg-slate-900 border-slate-700 text-white font-mono"
+                            data-testid="input-usercard-solid"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {(userCardBg.type || 'solid') === 'gradient' && (
+                      <div className="space-y-3">
+                        <div className="space-y-2">
+                          <Label className="text-slate-300">Gradient type</Label>
+                          <div className="flex flex-wrap gap-2">
+                            {[
+                              { value: 'linear', label: 'Linear' },
+                              { value: 'radial', label: 'Radial' }
+                            ].map((opt) => (
+                              <Button
+                                key={opt.value}
+                                type="button"
+                                variant={(userCardBg.gradientType || 'linear') === opt.value ? 'default' : 'outline'}
+                                size="sm"
+                                className={(userCardBg.gradientType || 'linear') === opt.value ? '' : 'border-slate-600 text-slate-300'}
+                                onClick={() => setUserCardBg({ gradientType: opt.value })}
+                                data-testid={`button-usercard-gradient-${opt.value}`}
+                              >
+                                {opt.label}
+                              </Button>
+                            ))}
+                          </div>
+                        </div>
+                        {(userCardBg.gradientType || 'linear') === 'linear' && (
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <Label className="text-slate-300">Angle</Label>
+                              <span className="text-slate-400 text-sm">{userCardBg.gradientAngle ?? 180}°</span>
+                            </div>
+                            <input
+                              type="range"
+                              min="0"
+                              max="360"
+                              value={userCardBg.gradientAngle ?? 180}
+                              onChange={(e) => setUserCardBg({ gradientAngle: parseInt(e.target.value, 10) })}
+                              className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                              data-testid="slider-usercard-gradient-angle"
+                            />
+                          </div>
+                        )}
+                        <OpacityStopsEditor
+                          stops={userCardBg.gradientStops}
+                          onChange={(stops) => setUserCardBg({ gradientStops: stops })}
+                          testIdPrefix="usercard-gradient"
+                        />
+                      </div>
+                    )}
+
+                    <div className="space-y-2">
+                      <Label className="text-slate-300">Text colour</Label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={userCard.textColor || '#0f172a'}
+                          onChange={(e) => setUserCard({ textColor: e.target.value })}
+                          className="w-10 h-9 rounded cursor-pointer flex-shrink-0"
+                          data-testid="color-usercard-text"
+                        />
+                        <Input
+                          value={userCard.textColor || ''}
+                          placeholder="Default"
+                          onChange={(e) => setUserCard({ textColor: e.target.value })}
+                          className="bg-slate-900 border-slate-700 text-white font-mono"
+                          data-testid="input-usercard-text"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label className="text-slate-300">Card preview</Label>
+                      <div
+                        className="rounded-lg p-3 max-w-[260px]"
+                        style={
+                          Object.keys(buildPortalNavBackgroundStyle(userCardBg)).length
+                            ? buildPortalNavBackgroundStyle(userCardBg)
+                            : { backgroundColor: '#f1f5f9' }
+                        }
+                        data-testid="preview-usercard"
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          <User className="w-4 h-4" style={{ color: userCard.textColor || '#64748b' }} />
+                          <span className="text-sm font-medium" style={{ color: userCard.textColor || '#0f172a' }}>Jane Smith</span>
+                        </div>
+                        <p className="text-xs truncate" style={{ color: userCard.textColor || '#64748b' }}>jane@example.com</p>
+                      </div>
+                    </div>
                   </div>
 
                   {/* Base portal font */}

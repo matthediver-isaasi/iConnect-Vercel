@@ -133,6 +133,17 @@ function validatePortalNav(portalNav) {
     const c = normalizeHexColor(portalNav[key]);
     if (c) out[key] = c;
   }
+  // Current-user card (signed-in member box at the bottom of the sidebar):
+  // its own background (solid/gradient, reusing the nav-pane bg validator) and
+  // text colour. Whitelisted explicitly so it is not dropped on save.
+  if (portalNav.userCard && typeof portalNav.userCard === 'object') {
+    const uc = {};
+    const ucBg = validatePortalNavBackground(portalNav.userCard.background);
+    if (ucBg) uc.background = ucBg;
+    const ucText = normalizeHexColor(portalNav.userCard.textColor);
+    if (ucText) uc.textColor = ucText;
+    if (Object.keys(uc).length > 0) out.userCard = uc;
+  }
   return Object.keys(out).length > 0 ? out : null;
 }
 
