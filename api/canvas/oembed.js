@@ -5,10 +5,33 @@
 // CORS issues with YouTube), normalises the response, and host-allow-lists
 // the input URL so this endpoint can't be used as an open redirect/SSRF.
 
+// Extract the 11-char YouTube video ID from any common share/embed/copy form
+// (watch?v=, youtu.be/, /embed/, /v/, /shorts/). Returns null when no ID can
+// be found so callers can fail clearly instead of forwarding a URL that 404s.
+function youtubeVideoId(u) {
+  const host = u.hostname.toLowerCase().replace(/^www\./, '');
+  if (host === 'youtu.be') {
+    const id = u.pathname.split('/').filter(Boolean)[0];
+    return /^[\w-]{11}$/.test(id || '') ? id : null;
+  }
+  // youtube.com — try the ?v= query param first, then path forms.
+  const v = u.searchParams.get('v');
+  if (v && /^[\w-]{11}$/.test(v)) return v;
+  const m = u.pathname.match(/\/(?:embed|v|shorts)\/([\w-]{11})/);
+  return m ? m[1] : null;
+}
+
 const PROVIDERS = [
   {
     name: 'youtube',
     test: (u) => /(^|\.)youtube\.com$/i.test(u.hostname) || u.hostname.toLowerCase() === 'youtu.be',
+    // Normalise to a canonical watch URL before oEmbed lookup. YouTube's oEmbed
+    // endpoint only reliably resolves watch?v=ID / youtu.be/ID, and 404s on
+    // /embed/... paths or URLs carrying tracking params like ?si=.
+    normalize: (u) => {
+      const id = youtubeVideoId(u);
+      return id ? `https://www.youtube.com/watch?v=${id}` : null;
+    },
     endpoint: (url) => `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`,
   },
   {
@@ -44,8 +67,19 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Unsupported video provider' });
   }
 
+  // Normalise the URL to the provider's canonical form (if it has one) so the
+  // oEmbed endpoint receives a URL it can actually resolve.
+  let lookupUrl = parsed.toString();
+  if (provider.normalize) {
+    const canonical = provider.normalize(parsed);
+    if (!canonical) {
+      return res.status(400).json({ error: 'Could not extract a video ID from the URL' });
+    }
+    lookupUrl = canonical;
+  }
+
   try {
-    const upstream = await fetch(provider.endpoint(parsed.toString()), {
+    const upstream = await fetch(provider.endpoint(lookupUrl), {
       headers: { Accept: 'application/json' },
     });
     if (!upstream.ok) {
