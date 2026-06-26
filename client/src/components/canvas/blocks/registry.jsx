@@ -3453,6 +3453,11 @@ function CardRender({ block, asEditor, priority, breakpoint }) {
   const cardBoxShadow = shadowParts.length ? shadowParts.join(', ') : undefined;
 
   const iconClass = sanitizeFaIconClass(c.iconClass);
+  // null = "not set by author" → fall back to legacy per-element defaults
+  // (mb-2 for icon/inline image, no margin for full-bleed).
+  const headerSpacingPx = (c.headerSpacing != null && Number.isFinite(Number(c.headerSpacing)))
+    ? Number(c.headerSpacing)
+    : null;
 
   return (
     <div
@@ -3481,13 +3486,20 @@ function CardRender({ block, asEditor, priority, breakpoint }) {
               objectFit: 'cover',
               borderTopLeftRadius: cardRadius,
               borderTopRightRadius: cardRadius,
+              // Only apply when the author has explicitly set headerSpacing;
+              // full-bleed images previously had no bottom margin so we must
+              // not add one to legacy cards (where headerSpacing is null/undefined).
+              marginBottom: c.headerSpacing != null ? headerSpacingPx : undefined,
             }}
           />
         );
       })()}
       <div className="flex-1 flex flex-col min-h-0" style={{ padding: contentPadding }}>
         {iconClass && (
-          <div className="flex mb-2" style={{ justifyContent: alignToJustify(c.iconAlign) }}>
+          <div
+            className={`flex${headerSpacingPx == null ? ' mb-2' : ''}`}
+            style={{ justifyContent: alignToJustify(c.iconAlign), ...(headerSpacingPx != null ? { marginBottom: headerSpacingPx } : {}) }}
+          >
             <i
               className={iconClass}
               aria-hidden="true"
@@ -3503,7 +3515,10 @@ function CardRender({ block, asEditor, priority, breakpoint }) {
           const r = buildResponsiveImage(c.imageUrl, { sizes: '(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw' });
           const pct = Number.isFinite(Number(c.imageWidthPct)) ? Math.max(5, Math.min(100, Number(c.imageWidthPct))) : 100;
           return (
-            <div className="flex mb-2" style={{ justifyContent: alignToJustify(c.imageAlign) }}>
+            <div
+              className={`flex${headerSpacingPx == null ? ' mb-2' : ''}`}
+              style={{ justifyContent: alignToJustify(c.imageAlign), ...(headerSpacingPx != null ? { marginBottom: headerSpacingPx } : {}) }}
+            >
               <img
                 src={r.src}
                 srcSet={r.srcSet}
@@ -3779,6 +3794,14 @@ function CardInspector({ block, update }) {
         min={0}
         max={64}
         testId="input-card-content-padding"
+      />
+      <NumberField
+        label="Image / icon spacing (px)"
+        value={c.headerSpacing == null ? 8 : c.headerSpacing}
+        onChange={(v) => set({ headerSpacing: v })}
+        min={0}
+        max={120}
+        testId="input-card-header-spacing"
       />
       <ToggleField
         label="Show CTA"

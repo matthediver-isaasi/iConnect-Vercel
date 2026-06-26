@@ -499,6 +499,10 @@ export const BLOCK_DEFAULTS = {
       iconSize: 32,
       iconAlign: 'left',
       iconColor: '',
+      // Vertical gap (px) between the image/icon and the heading.
+      // null = "not set by author"; renderer falls back to the legacy
+      // per-element defaults (mb-2 for icon/inline, no margin for full-bleed).
+      headerSpacing: null,
       heading: 'Card heading',
       headingLevel: 3,
       body: '<p>A short description for this card.</p>',
