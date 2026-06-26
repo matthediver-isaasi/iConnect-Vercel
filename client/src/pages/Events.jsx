@@ -159,6 +159,7 @@ export default function EventsPage({
   const [sortBy, setSortBy] = useState("date");
   const [showPastEvents, setShowPastEvents] = useState(false);
   const [showDraftEvents, setShowDraftEvents] = useState(false);
+  const [memberGroupFilter, setMemberGroupFilter] = useState("all"); // "all" | "hide-group" | "only-group"
   const [showTour, setShowTour] = useState(false);
   const [showCreateEventModal, setShowCreateEventModal] = useState(false);
   const [tourAutoShow, setTourAutoShow] = useState(false);
@@ -579,13 +580,22 @@ export default function EventsPage({
     // Filter out past events unless showPastEvents is enabled
     const isPast = isEventPast(event);
     const matchesTimeFilter = showPastEvents || !isPast;
+
+    // Apply member group filter
+    const isGroupEvent = !!event.member_group_id;
+    let matchesMemberGroupFilter = true;
+    if (memberGroupFilter === "hide-group") {
+      matchesMemberGroupFilter = !isGroupEvent;
+    } else if (memberGroupFilter === "only-group") {
+      matchesMemberGroupFilter = isGroupEvent;
+    }
     
     // Debug log for each event
     if (!matchesTimeFilter || !matchesSearch || !matchesFilterTag || !matchesEventType || !matchesDeliveryMode) {
       console.log(`[Events] Filtered out: "${event.title}" - search:${matchesSearch}, filterTag:${matchesFilterTag}, eventType:${matchesEventType}, deliveryMode:${matchesDeliveryMode} (is_online: ${event.is_online}), time:${matchesTimeFilter}, isPast:${isPast}, start_date:${event.start_date}`);
     }
     
-    return matchesSearch && matchesFilterTag && matchesEventType && matchesDeliveryMode && matchesTimeFilter;
+    return matchesSearch && matchesFilterTag && matchesEventType && matchesDeliveryMode && matchesTimeFilter && matchesMemberGroupFilter;
   });
   
   console.log('[Events] Debug - filteredEvents count:', filteredEvents.length);
@@ -714,6 +724,9 @@ export default function EventsPage({
     
     return matchesSearch && matchesFilterTag && matchesEventType && matchesDeliveryMode;
   }).length : 0;
+
+  // Count accessible member group events (to conditionally show the group filter control)
+  const memberGroupEventsCount = accessibleEvents.filter(e => !!e.member_group_id).length;
 
   // Update member tour status via base44 client
   const updateMemberTourStatus = async (tourKey) => {
@@ -1577,8 +1590,8 @@ export default function EventsPage({
                 )}
               </div>
             
-            {/* Toggle Row for Past Events and Drafts */}
-            {(pastEventsCount > 0 || canToggleDrafts) && (
+            {/* Toggle Row for Past Events, Drafts, and Member Group filter */}
+            {(pastEventsCount > 0 || canToggleDrafts || memberGroupEventsCount > 0) && (
               <div className="flex flex-wrap items-center gap-6 mt-4 pt-4 border-t border-slate-200">
                 {/* Show Past Events Toggle */}
                 {pastEventsCount > 0 && (
@@ -1615,6 +1628,35 @@ export default function EventsPage({
                       <FileEdit className="w-4 h-4" />
                       Show drafts{draftEventsCount > 0 ? ` (${draftEventsCount})` : ''}
                     </Label>
+                  </div>
+                )}
+
+                {/* Member Group Event Filter - segmented control, only shown when group events exist */}
+                {memberGroupEventsCount > 0 && (
+                  <div className="flex items-center gap-2" data-testid="member-group-filter">
+                    <span className="text-sm text-slate-600">Group events:</span>
+                    <div className="flex rounded-md border border-slate-200 overflow-hidden text-sm">
+                      {[
+                        { value: "all", label: "Show all" },
+                        { value: "hide-group", label: "Hide group" },
+                        { value: "only-group", label: "Group only" },
+                      ].map(({ value, label }) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => setMemberGroupFilter(value)}
+                          data-testid={`member-group-filter-${value}`}
+                          className={[
+                            "px-3 py-1 transition-colors",
+                            memberGroupFilter === value
+                              ? "bg-slate-800 text-white"
+                              : "bg-white text-slate-600 hover:bg-slate-50",
+                          ].join(" ")}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
