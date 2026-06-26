@@ -2,7 +2,7 @@ import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import useEdgeAutoScroll from './useEdgeAutoScroll';
 import { Group as GroupIcon, Ungroup as UngroupIcon } from 'lucide-react';
-import { resolveBlockAtBreakpoint, blockIsFullWidthLike } from '@/lib/canvasDesign';
+import { resolveBlockAtBreakpoint, blockIsFullWidthLike, BLOCK_TYPES } from '@/lib/canvasDesign';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -10,6 +10,7 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import { getBlockDefinition } from './blocks/registry';
+import { AccordionReflowProvider, useAccordionReflow } from './AccordionReflowContext';
 
 const RESIZE_HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
 // Full-width blocks only allow vertical resize; horizontal handles are
@@ -165,6 +166,8 @@ function applyResize(handle, start, dx, dy) {
 function CanvasBlockView({
   block,
   geom,
+  reflowTopOffset,
+  reflowSectionGrowth,
   isSelected,
   isAnchor,
   breakpoint,
@@ -175,6 +178,7 @@ function CanvasBlockView({
   const { style, a11y } = block;
   const def = getBlockDefinition(block.type);
   const EditorComponent = def.Editor;
+  const isAutoHeight = !!def?.autoHeight;
   const fullWidth = blockIsFullWidthLike(block);
   const cursor = block.locked
     ? 'cursor-not-allowed'
@@ -187,6 +191,8 @@ function CanvasBlockView({
     : isSelected
       ? 'outline outline-2 outline-primary outline-offset-[-1px]'
       : '';
+  const topOff = reflowTopOffset || 0;
+  const sectionGrow = reflowSectionGrowth || 0;
   return (
     <div
       role={a11y.role || undefined}
@@ -195,9 +201,9 @@ function CanvasBlockView({
       data-full-width={fullWidth ? 'true' : undefined}
       style={{
         left: geom.x,
-        top: geom.y,
+        top: geom.y + topOff,
         width: geom.w,
-        height: geom.h,
+        height: isAutoHeight ? 'auto' : geom.h + sectionGrow,
         background: style.background,
         borderColor: style.borderColor,
         borderWidth: style.borderWidth,
@@ -220,7 +226,7 @@ function CanvasBlockView({
       data-anchor={isAnchor ? 'true' : undefined}
     >
       {EditorComponent && (
-        <div className="absolute inset-0 pointer-events-none" data-testid={`canvas-block-content-${block.id}`}>
+        <div className={isAutoHeight ? 'w-full pointer-events-none' : 'absolute inset-0 pointer-events-none'} data-testid={`canvas-block-content-${block.id}`}>
           <EditorComponent block={block} breakpoint={breakpoint} asEditor />
         </div>
       )}
@@ -258,7 +264,7 @@ function handleCursor(h) {
   return map[h] || 'pointer';
 }
 
-export default function CanvasStage({
+function CanvasStageInner({
   blocks,
   selectedIds,
   anchorId,
@@ -282,6 +288,7 @@ export default function CanvasStage({
   canUngroup = false,
   scrollContainerRef, // ref to the scrollable canvas viewport (the builder's <main>)
 }) {
+  const reflow = useAccordionReflow();
   // Default to identity when no group-expansion is supplied.
   const expand = useCallback(
     (ids) => (typeof expandSelection === 'function' ? expandSelection(ids) : ids),
@@ -598,11 +605,18 @@ export default function CanvasStage({
     backgroundSize: `${gridSize}px ${gridSize}px`,
   } : {};
 
+  // Adjust editor stage height symmetrically with signed reflow growth:
+  // - growth > 0: stage grows so expanded blocks below canvasHeight are visible
+  // - growth < 0: stage shrinks so there is no trailing whitespace after collapse
+  // The editor uses only minHeight (no CSS height), so signed adjustment suffices.
+  const reflowGrowth = reflow ? reflow.getTotalGrowth() : 0;
+  const effectiveMinHeight = Math.max(0, canvasHeight + reflowGrowth);
+
   return (
     <div
       ref={setRefs}
       className={`relative bg-white ${isOver ? 'ring-2 ring-primary ring-inset' : ''}`}
-      style={{ width: canvasWidth, minHeight: canvasHeight, ...gridStyle }}
+      style={{ width: canvasWidth, minHeight: effectiveMinHeight, ...gridStyle }}
       onPointerDown={handleStagePointerDown}
       data-testid="canvas-stage"
       data-breakpoint={breakpoint}
@@ -610,12 +624,21 @@ export default function CanvasStage({
       {resolvedBlocks.map(({ block, geom }, index) => {
         const preview = previewGeoms[block.id];
         const effective = preview ? { ...geom, ...preview } : geom;
+        // Use the stored (non-preview) y for reflow offset computation so that
+        // dragging an accordion doesn't confuse which blocks are "above" it.
+        const reflowTopOffset = reflow ? reflow.getOffset(block.id, geom.y) : 0;
+        // Section blocks grow/shrink by the net delta of accordions inside them.
+        const reflowSectionGrowth = (block.type === BLOCK_TYPES.SECTION && reflow)
+          ? reflow.getSectionGrowth(block, geom)
+          : 0;
         const blockIssues = issuesByBlock?.get?.(block.id) || [];
         const sev = blockIssues.some((i) => i.severity === 'error')
           ? 'error'
           : blockIssues.some((i) => i.severity === 'warning')
             ? 'warning'
             : null;
+        // Effective rendered top (used for overlay positioning)
+        const renderedTop = effective.y + reflowTopOffset;
         return (
           <div key={block.id} onContextMenu={() => handleContextMenuBlock(block.id)}>
             <ContextMenu>
@@ -624,6 +647,8 @@ export default function CanvasStage({
                   <CanvasBlockView
                     block={block}
                     geom={effective}
+                    reflowTopOffset={reflowTopOffset}
+                    reflowSectionGrowth={reflowSectionGrowth}
                     breakpoint={breakpoint}
                     isSelected={selectedIds.includes(block.id)}
                     isAnchor={anchorId === block.id}
@@ -656,7 +681,7 @@ export default function CanvasStage({
                 className="absolute pointer-events-none bg-pink-500 text-white rounded-md text-[10px] font-bold uppercase tracking-wide"
                 style={{
                   left: effective.x + 4,
-                  top: effective.y + effective.h + 4,
+                  top: renderedTop + effective.h + 4,
                   padding: '2px 6px',
                   zIndex: 9998,
                 }}
@@ -674,7 +699,7 @@ export default function CanvasStage({
                 }`}
                 style={{
                   left: effective.x + effective.w - 18,
-                  top: effective.y - 8,
+                  top: renderedTop - 8,
                   width: 16,
                   height: 16,
                   fontSize: 11,
@@ -694,7 +719,7 @@ export default function CanvasStage({
                 className="absolute pointer-events-none bg-primary text-primary-foreground rounded-md text-xs font-bold"
                 style={{
                   left: effective.x + 4,
-                  top: effective.y + 4,
+                  top: renderedTop + 4,
                   padding: '2px 6px',
                   zIndex: 9999,
                 }}
@@ -744,5 +769,23 @@ export default function CanvasStage({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Public-facing CanvasStage wraps the inner stage with AccordionReflowProvider
+ * so accordion blocks can report their rendered height and the stage can shift
+ * blocks below them down by the right delta — without mutating stored geometry.
+ */
+export default function CanvasStage(props) {
+  const { blocks, breakpoint, canvasWidth } = props;
+  const resolveGeom = useCallback(
+    (b) => resolveBlockAtBreakpoint(b, breakpoint, { canvasWidth }),
+    [breakpoint, canvasWidth],
+  );
+  return (
+    <AccordionReflowProvider blocks={blocks} resolveGeom={resolveGeom}>
+      <CanvasStageInner {...props} />
+    </AccordionReflowProvider>
   );
 }

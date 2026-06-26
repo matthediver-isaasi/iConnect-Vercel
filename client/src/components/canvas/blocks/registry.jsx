@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState, useEffect, useRef, lazy, Suspense } from 'react';
+import { Fragment, useMemo, useState, useEffect, useLayoutEffect, useRef, lazy, Suspense } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   Square,
@@ -82,6 +82,7 @@ import {
 } from '@/lib/tenantButtonStyle';
 import { useCanvasAnchors } from '../CanvasAnchorContext';
 import { useCanvasSymbols } from '../CanvasSymbolsContext';
+import { useAccordionReflow } from '../AccordionReflowContext';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import {
@@ -2978,9 +2979,39 @@ function AccordionRender({ block, asEditor }) {
       return isOpen ? prev.filter((i) => i !== idx) : [...prev, idx];
     });
   };
+
+  // Report our rendered height to the AccordionReflowContext so that the
+  // canvas renderers can shift blocks below us down by the right delta.
+  const reflow = useAccordionReflow();
+  const containerRef = useRef(null);
+
+  // Synchronous initial measurement before first paint so that blocks below
+  // are already at their correct positions on the first committed frame
+  // (avoids a visible layout jump when stored height != natural collapsed height).
+  useLayoutEffect(() => {
+    if (!reflow || !containerRef.current) return;
+    const h = containerRef.current.getBoundingClientRect().height;
+    if (h > 0) reflow.reportHeight(block.id, Math.round(h));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally mount-only; ResizeObserver below handles ongoing changes
+
+  // Ongoing measurement via ResizeObserver for expand / collapse events.
+  useEffect(() => {
+    if (!reflow || !containerRef.current) return;
+    const el = containerRef.current;
+    const report = () => {
+      const h = el.getBoundingClientRect().height;
+      if (h > 0) reflow.reportHeight(block.id, Math.round(h));
+    };
+    const observer = new ResizeObserver(report);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [reflow, block.id]);
+
   return (
     <div
-      className="w-full h-full overflow-auto flex flex-col"
+      ref={containerRef}
+      className="w-full flex flex-col"
       style={{ gap: `${itemGap}px` }}
       role="region"
       aria-label={block.a11y?.ariaLabel || 'Frequently asked questions'}
@@ -7349,7 +7380,7 @@ const REGISTRY = {
   [BLOCK_TYPES.COLUMNS]:      { label: 'Columns',        icon: Columns3,       category: 'layout',   Editor: ColumnsRender,      Renderer: ColumnsRender,      Inspector: ColumnsInspector },
   [BLOCK_TYPES.SPACER]:       { label: 'Spacer',         icon: Rows3,          category: 'layout',   Editor: SpacerRender,       Renderer: SpacerRender,       Inspector: SpacerInspector },
   [BLOCK_TYPES.DIVIDER]:      { label: 'Divider',        icon: Minus,          category: 'layout',   Editor: DividerRender,      Renderer: DividerRender,      Inspector: DividerInspector },
-  [BLOCK_TYPES.ACCORDION]:    { label: 'FAQ / Accordion',icon: HelpCircle,     category: 'content',  Editor: AccordionRender,    Renderer: AccordionRender,    Inspector: AccordionInspector },
+  [BLOCK_TYPES.ACCORDION]:    { label: 'FAQ / Accordion',icon: HelpCircle,     category: 'content',  Editor: AccordionRender,    Renderer: AccordionRender,    Inspector: AccordionInspector, allowOverflow: true, autoHeight: true },
   [BLOCK_TYPES.TESTIMONIALS]: { label: 'Testimonials',   icon: Quote,          category: 'content',  Editor: TestimonialsRender, Renderer: TestimonialsRender, Inspector: TestimonialsInspector },
   [BLOCK_TYPES.CUSTOM_HTML]:  { label: 'Custom HTML',    icon: Code2,          category: 'advanced', Editor: CustomHtmlRender,   Renderer: CustomHtmlRender,   Inspector: CustomHtmlInspector },
   [BLOCK_TYPES.ICON]:         { label: 'Icon',           icon: Star,           category: 'ui',       Editor: IconRender,         Renderer: IconRender,         Inspector: IconInspector },

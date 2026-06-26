@@ -7,10 +7,12 @@ import {
   getSectionLandmarkTag,
   resolveSymbolsInDesign,
   buildThemeCssVars,
+  stageHeightForBreakpoint,
   BLOCK_TYPES,
   blockSupportsFullBleed,
 } from "@/lib/canvasDesign";
 import { getBlockDefinition } from "./blocks/registry";
+import { AccordionReflowProvider, useAccordionReflow } from "./AccordionReflowContext";
 
 // Phase 7 — Hooks that fetch the tenant Canvas theme and any referenced
 // symbols. Both are best-effort; failures degrade to "no theme" and
@@ -111,6 +113,25 @@ function useForcedBreakpoint() {
   return bp;
 }
 
+// Detect the active CSS breakpoint from window width so that the reflow
+// context can resolve geometry correctly in non-forced-breakpoint mode.
+function useWindowBreakpoint() {
+  const get = () => {
+    if (typeof window === 'undefined') return 'desktop';
+    const w = window.innerWidth;
+    if (w < 640) return 'mobile';
+    if (w < 1024) return 'tablet';
+    return 'desktop';
+  };
+  const [bp, setBp] = useState(get);
+  useEffect(() => {
+    const handler = () => setBp(get());
+    window.addEventListener('resize', handler, { passive: true });
+    return () => window.removeEventListener('resize', handler);
+  }, []);
+  return bp;
+}
+
 function tagForBlock(block) {
   // Landmark elements are only emitted for section-type blocks — this
   // prevents invalid HTML and nested-<main> landmarks when a non-section
@@ -123,28 +144,42 @@ function tagForBlock(block) {
   return 'div';
 }
 
-function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint }) {
+function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint, windowBp }) {
   const def = getBlockDefinition(block.type);
   const Renderer = def?.Renderer;
   const { style, a11y } = block;
   const Tag = tagForBlock(block);
   const isSection = block.type === BLOCK_TYPES.SECTION;
   const isPriority = block.id === lcpBlockId;
+  const isAutoHeight = !!def?.autoHeight;
+
+  // Reflow: compute how far down this block should be pushed by accordions above it.
+  const reflow = useAccordionReflow();
+  // Resolve the stored geometry for the active breakpoint so we know storedY.
+  const activeBp = forcedBreakpoint || windowBp || 'desktop';
+  const storedGeom = resolveBlockAtBreakpoint(block, activeBp);
+  const topOffset = reflow ? reflow.getOffset(block.id, storedGeom.y) : 0;
+  // Section blocks also grow/shrink by the net delta of accordions they contain.
+  const sectionGrowth = isSection && reflow
+    ? reflow.getSectionGrowth(block, storedGeom)
+    : 0;
 
   // When the editor forces a breakpoint via `?_bp=`, resolve geometry in
   // JS and pin it inline so the static stylesheet is overridden.
   let forcedStyle = null;
   if (forcedBreakpoint) {
-    const g = resolveBlockAtBreakpoint(block, forcedBreakpoint);
+    const g = storedGeom;
     if (g.hidden) return null;
     const fullBleed = blockSupportsFullBleed(block.type) && !!(block.content && block.content.fullBleed);
     const fullWidth = !!block.fullWidth;
+    const top = g.y + topOffset;
+    const height = isAutoHeight ? 'auto' : g.h + sectionGrowth;
     if (fullBleed) {
-      forcedStyle = { position: 'absolute', left: '50%', transform: 'translateX(-50%)', width: '100vw', top: g.y, height: g.h };
+      forcedStyle = { position: 'absolute', left: '50%', transform: 'translateX(-50%)', width: '100vw', top, height };
     } else if (fullWidth) {
-      forcedStyle = { position: 'absolute', left: 0, top: g.y, width: '100%', height: g.h };
+      forcedStyle = { position: 'absolute', left: 0, top, width: '100%', height };
     } else {
-      forcedStyle = { position: 'absolute', left: g.x, top: g.y, width: g.w, height: g.h };
+      forcedStyle = { position: 'absolute', left: g.x, top, width: g.w, height };
     }
   }
 
@@ -153,6 +188,16 @@ function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint }) {
   // attribute so screen readers still receive the author's intent.
   const usedLandmark = getSectionLandmarkTag(block?.type, a11y?.role);
   const explicitRole = a11y?.role && !usedLandmark ? a11y.role : undefined;
+
+  // In CSS-layout mode (no forcedBreakpoint), positioning comes from the
+  // stylesheet. For reflow we override `top` via inline style when there is
+  // a push-down from an accordion above, force `height:auto` for accordion
+  // blocks, and extend the section height when contained accordions grow.
+  const cssReflowOverride = !forcedBreakpoint ? {
+    ...(topOffset !== 0 ? { top: storedGeom.y + topOffset } : {}),
+    ...(isAutoHeight ? { height: 'auto' } : {}),
+    ...(isSection && sectionGrowth !== 0 ? { height: storedGeom.h + sectionGrowth } : {}),
+  } : {};
 
   return (
     <Tag
@@ -165,6 +210,7 @@ function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint }) {
       data-full-bleed={blockSupportsFullBleed(block.type) && block.content?.fullBleed ? 'true' : undefined}
       style={{
         ...(forcedStyle || null),
+        ...cssReflowOverride,
         background: style.background,
         borderColor: style.borderColor,
         borderWidth: style.borderWidth,
@@ -359,6 +405,53 @@ function useAnchorSmoothScroll(containerRef, enabled) {
   }, [enabled, scrollToId]);
 }
 
+/**
+ * Inner stage element that lives inside AccordionReflowProvider so it can
+ * read getTotalGrowth() and extend the stage height when accordions expand.
+ * The CSS stylesheet sets an explicit `height:` on .canvas-stage; we override
+ * it via `minHeight` so blocks that are pushed down are never clipped.
+ */
+function CanvasPageStage({ children, lcpBlockId, forcedBreakpoint, windowBp, activeBp }) {
+  const reflow = useAccordionReflow();
+  const growth = reflow ? reflow.getTotalGrowth() : 0;
+  // Baseline stage height at the active breakpoint from stored geometry.
+  const baseHeight = useMemo(
+    () => stageHeightForBreakpoint(children, activeBp, { buffer: 0 }),
+    [children, activeBp],
+  );
+  // Adjust stage size symmetrically:
+  // - growth > 0: minHeight overrides the CSS `height` when larger (stage grows)
+  // - growth < 0: inline `height` overrides the CSS `height` (stage shrinks to remove gap)
+  // - growth = 0: no override (CSS height is authoritative)
+  const netHeight = baseHeight + growth;
+  const stageStyle =
+    growth > 0
+      ? { minHeight: netHeight }
+      : growth < 0
+        ? { height: Math.max(0, netHeight) }
+        : undefined;
+
+  return (
+    <main
+      id="canvas-main-content"
+      tabIndex={-1}
+      className="canvas-stage focus:outline-none"
+      style={stageStyle}
+      data-testid="canvas-page-stage"
+    >
+      {children.map((b) => (
+        <CanvasBlockRender
+          key={b.id}
+          block={b}
+          lcpBlockId={lcpBlockId}
+          forcedBreakpoint={forcedBreakpoint}
+          windowBp={windowBp}
+        />
+      ))}
+    </main>
+  );
+}
+
 export default function CanvasPageRenderer({ page, symbols }) {
   const baseDesign = useMemo(() => normalizeCanvasDesign(page?.canvas_design), [page?.canvas_design]);
   const symbolsById = useSymbolsForDesign(baseDesign, symbols);
@@ -387,6 +480,8 @@ export default function CanvasPageRenderer({ page, symbols }) {
     }
     return out;
   }, [design]);
+
+  const windowBp = useWindowBreakpoint();
   const hasBlocks = children.length > 0;
   const themeCss = useMemo(() => buildThemeCssVars(theme), [theme]);
 
@@ -534,21 +629,18 @@ export default function CanvasPageRenderer({ page, symbols }) {
         We promote the inner stage to <main id="canvas-main-content"> so the
         skip-to-content link has a valid target.
       */}
-      <main
-        id="canvas-main-content"
-        tabIndex={-1}
-        className="canvas-stage focus:outline-none"
-        data-testid="canvas-page-stage"
+      <AccordionReflowProvider
+        blocks={children}
+        resolveGeom={(b) => resolveBlockAtBreakpoint(b, forcedBreakpoint || windowBp || 'desktop')}
       >
-        {children.map((b) => (
-          <CanvasBlockRender
-            key={b.id}
-            block={b}
-            lcpBlockId={lcpBlockId}
-            forcedBreakpoint={forcedBreakpoint}
-          />
-        ))}
-      </main>
+        <CanvasPageStage
+          children={children}
+          lcpBlockId={lcpBlockId}
+          forcedBreakpoint={forcedBreakpoint}
+          windowBp={windowBp}
+          activeBp={forcedBreakpoint || windowBp || 'desktop'}
+        />
+      </AccordionReflowProvider>
     </div>
   );
 }
