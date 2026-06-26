@@ -2113,7 +2113,7 @@ function ButtonRender({ block, asEditor, breakpoint }) {
   // While the referenced style is still loading, hide the label rather than
   // flash the default text styling that will be replaced a moment later.
   const labelInline = labelStyleObj
-    ? buildTypographyInlineStyle(labelStyleObj)
+    ? buildTypographyInlineStyle(labelStyleObj, { omitMarginBottom: true })
     : (awaitingLabel ? { visibility: 'hidden' } : null);
   // Tenant button variants — when `variant` is `tenant-primary` or
   // `tenant-secondary` we render with inline styles derived from the
