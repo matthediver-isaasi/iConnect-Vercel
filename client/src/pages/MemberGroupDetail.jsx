@@ -126,8 +126,8 @@ function getInitials(name) {
 }
 
 const MEMBERS_PER_PAGE = 24;
-const EVENTS_PER_PAGE = 9;
-const RESOURCES_PER_PAGE = 9;
+const EVENTS_PER_PAGE = 3;
+const RESOURCES_PER_PAGE = 6;
 
 const EMPTY_RESOURCE_FORM = {
   title: "",
@@ -1257,6 +1257,7 @@ export default function MemberGroupDetailPage() {
   const [deliveryModeFilter, setDeliveryModeFilter] = useState("all");
   const [showPastEvents, setShowPastEvents] = useState(false);
   const [eventPage, setEventPage] = useState(1);
+  const [eventSort, setEventSort] = useState("date-asc");
 
   // Apply group-event audience rules: public group events for everyone,
   // group-only events only for admins or members of THIS group. Dormant
@@ -1306,12 +1307,20 @@ export default function MemberGroupDetailPage() {
         return matchesSearch && matchesType && matchesDelivery && matchesTime;
       })
       .sort((a, b) => {
+        if (eventSort === "name-asc") {
+          return (a.title || "").localeCompare(b.title || "");
+        }
+        if (eventSort === "name-desc") {
+          return (b.title || "").localeCompare(a.title || "");
+        }
         const aTbc = a.status === "tbc" || !a.start_date;
         const bTbc = b.status === "tbc" || !b.start_date;
         if (aTbc && !bTbc) return 1;
         if (!aTbc && bTbc) return -1;
         if (aTbc && bTbc) return (a.title || "").localeCompare(b.title || "");
-        return new Date(a.start_date).getTime() - new Date(b.start_date).getTime();
+        const diff =
+          new Date(a.start_date).getTime() - new Date(b.start_date).getTime();
+        return eventSort === "date-desc" ? -diff : diff;
       });
   }, [
     accessibleGroupEvents,
@@ -1319,6 +1328,7 @@ export default function MemberGroupDetailPage() {
     eventTypeFilter,
     deliveryModeFilter,
     showPastEvents,
+    eventSort,
   ]);
 
   const pastEventsCount = useMemo(
@@ -1328,7 +1338,7 @@ export default function MemberGroupDetailPage() {
 
   useEffect(() => {
     setEventPage(1);
-  }, [eventSearch, eventTypeFilter, deliveryModeFilter, showPastEvents, groupId]);
+  }, [eventSearch, eventTypeFilter, deliveryModeFilter, showPastEvents, eventSort, groupId]);
 
   const eventTotalPages = Math.max(
     1,
@@ -1427,6 +1437,7 @@ export default function MemberGroupDetailPage() {
 
   const [resourceSearch, setResourceSearch] = useState("");
   const [resourcePage, setResourcePage] = useState(1);
+  const [resourceSort, setResourceSort] = useState("date-desc");
   const [showResourceDialog, setShowResourceDialog] = useState(false);
   const [resourceForm, setResourceForm] = useState(EMPTY_RESOURCE_FORM);
   const [resourceFile, setResourceFile] = useState(null);
@@ -1462,15 +1473,21 @@ export default function MemberGroupDetailPage() {
         );
       })
       .sort((a, b) => {
+        if (resourceSort === "name-asc") {
+          return (a.title || "").localeCompare(b.title || "");
+        }
+        if (resourceSort === "name-desc") {
+          return (b.title || "").localeCompare(a.title || "");
+        }
         const aDate = new Date(a.published_date || a.created_date || 0).getTime();
         const bDate = new Date(b.published_date || b.created_date || 0).getTime();
-        return bDate - aDate;
+        return resourceSort === "date-asc" ? aDate - bDate : bDate - aDate;
       });
-  }, [visibleResources, resourceSearch]);
+  }, [visibleResources, resourceSearch, resourceSort]);
 
   useEffect(() => {
     setResourcePage(1);
-  }, [resourceSearch, groupId]);
+  }, [resourceSearch, resourceSort, groupId]);
 
   const resourceTotalPages = Math.max(
     1,
@@ -2414,6 +2431,23 @@ export default function MemberGroupDetailPage() {
                         <SelectItem value="offline">In-person</SelectItem>
                       </SelectContent>
                     </Select>
+                    <Select
+                      value={eventSort}
+                      onValueChange={setEventSort}
+                    >
+                      <SelectTrigger
+                        className="w-[180px]"
+                        data-testid="select-event-sort"
+                      >
+                        <SelectValue placeholder="Sort by" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="date-asc">Date (oldest first)</SelectItem>
+                        <SelectItem value="date-desc">Date (newest first)</SelectItem>
+                        <SelectItem value="name-asc">Name (A–Z)</SelectItem>
+                        <SelectItem value="name-desc">Name (Z–A)</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                   {pastEventsCount > 0 && (
                     <div className="flex items-center gap-2">
@@ -2565,6 +2599,23 @@ export default function MemberGroupDetailPage() {
                       data-testid="input-search-resources"
                     />
                   </div>
+                  <Select
+                    value={resourceSort}
+                    onValueChange={setResourceSort}
+                  >
+                    <SelectTrigger
+                      className="w-[180px]"
+                      data-testid="select-resource-sort"
+                    >
+                      <SelectValue placeholder="Sort by" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="date-desc">Date (newest first)</SelectItem>
+                      <SelectItem value="date-asc">Date (oldest first)</SelectItem>
+                      <SelectItem value="name-asc">Name (A–Z)</SelectItem>
+                      <SelectItem value="name-desc">Name (Z–A)</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 {filteredResources.length === 0 ? (
