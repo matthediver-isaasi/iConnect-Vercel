@@ -3656,6 +3656,33 @@ function ResourceListRender({ block, breakpoint, asEditor }) {
   const cols = columnsForBreakpoint(c, breakpoint);
   const layout = c.layout || 'grid';
   const effectiveCols = layout === 'list' ? 1 : cols;
+  const { styles: tenantStyles, resolved: stylesResolved } = useTenantTypographyStylesState();
+  const cardTitleStyleObj = resolveTenantStyle(c.cardTitleTypographyStyleId, tenantStyles);
+  const cardDescriptionStyleObj = resolveTenantStyle(c.cardDescriptionTypographyStyleId, tenantStyles);
+  const awaitingTitle = isAwaitingTypographyStyle(c.cardTitleTypographyStyleId, cardTitleStyleObj, stylesResolved);
+  const awaitingDescription = isAwaitingTypographyStyle(c.cardDescriptionTypographyStyleId, cardDescriptionStyleObj, stylesResolved);
+  const isPreview = breakpoint === 'desktop' || breakpoint === 'tablet' || breakpoint === 'mobile';
+  const bpForInline = isPreview ? breakpoint : 'desktop';
+  let cardTitleInline = cardTitleStyleObj
+    ? buildTypographyInlineStyle(cardTitleStyleObj, { breakpoint: bpForInline })
+    : null;
+  if (awaitingTitle) cardTitleInline = { ...(cardTitleInline || {}), visibility: 'hidden' };
+  let cardDescriptionInline = cardDescriptionStyleObj
+    ? buildTypographyInlineStyle(cardDescriptionStyleObj, { breakpoint: bpForInline })
+    : null;
+  if (awaitingDescription) cardDescriptionInline = { ...(cardDescriptionInline || {}), visibility: 'hidden' };
+  const safeBlockId = String(block.id || '').replace(/["\\]/g, '');
+  const responsiveCss = !isPreview
+    ? [
+        cardTitleStyleObj && hasResponsiveTypographyOverride(cardTitleStyleObj)
+          ? buildTenantTypographyResponsiveCss(`[data-cb="${safeBlockId}"] [data-tg-r="resource-title"]`, cardTitleStyleObj)
+          : null,
+        cardDescriptionStyleObj && hasResponsiveTypographyOverride(cardDescriptionStyleObj)
+          ? buildTenantTypographyResponsiveCss(`[data-cb="${safeBlockId}"] [data-tg-r="resource-description"]`, cardDescriptionStyleObj)
+          : null,
+      ].filter(Boolean).join('')
+    : '';
+
   const { data, isLoading, isError } = useQuery({
     queryKey: ['canvas', 'public-resources'],
     queryFn: () => publicClient.listResources(),
@@ -3687,6 +3714,7 @@ function ResourceListRender({ block, breakpoint, asEditor }) {
 
   return (
     <div className="w-full h-full overflow-auto" aria-label={block.a11y?.ariaLabel || c.title || 'Resources'}>
+      {responsiveCss ? <style dangerouslySetInnerHTML={{ __html: responsiveCss }} /> : null}
       {c.title ? <Heading level={c.headingLevel || 2}>{c.title}</Heading> : null}
       {isLoading ? (
         <ListSkeleton count={Math.min(c.limit || 6, 6)} columns={effectiveCols} gap={c.gap} />
@@ -3707,12 +3735,20 @@ function ResourceListRender({ block, breakpoint, asEditor }) {
                 </div>
               ) : null}
               <div className="p-3 flex-1 flex flex-col gap-1">
-                <h3 className="text-sm font-semibold text-slate-900 m-0">{r.title}</h3>
+                <h3
+                  className={cardTitleInline ? 'text-slate-900 m-0' : 'text-sm font-semibold text-slate-900 m-0'}
+                  style={cardTitleInline || undefined}
+                  data-tg-r="resource-title"
+                >{r.title}</h3>
                 {r.resource_type ? (
                   <div className="text-[10px] uppercase tracking-wide text-slate-500">{r.resource_type}</div>
                 ) : null}
                 {r.description ? (
-                  <p className="text-xs text-slate-600 line-clamp-3 mt-1">{r.description}</p>
+                  <p
+                    className={cardDescriptionInline ? 'text-slate-600 line-clamp-3 mt-1' : 'text-xs text-slate-600 line-clamp-3 mt-1'}
+                    style={cardDescriptionInline || undefined}
+                    data-tg-r="resource-description"
+                  >{r.description}</p>
                 ) : null}
                 {(() => {
                   const behavior = c.downloadBehavior || 'auto';
@@ -3794,6 +3830,18 @@ function ResourceListInspector({ block, update }) {
       <PerBreakpointColumns value={c.columns} onChange={(v) => set({ columns: v })} />
       <NumberField label="Gap (px)" min={0} value={c.gap || 16} onChange={(v) => set({ gap: Math.max(0, Number(v) || 0) })} testId="input-resource-list-gap" />
       <TextField label="Empty state text" value={c.emptyText} onChange={(v) => set({ emptyText: v })} testId="input-resource-list-empty" />
+      <TypographyStyleField
+        label="Card title style"
+        value={c.cardTitleTypographyStyleId}
+        onChange={(id) => set({ cardTitleTypographyStyleId: id })}
+        testId="select-resource-list-title-typography"
+      />
+      <TypographyStyleField
+        label="Card description style"
+        value={c.cardDescriptionTypographyStyleId}
+        onChange={(id) => set({ cardDescriptionTypographyStyleId: id })}
+        testId="select-resource-list-description-typography"
+      />
     </>
   );
 }

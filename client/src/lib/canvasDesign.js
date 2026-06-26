@@ -1008,6 +1008,8 @@ export const BLOCK_DEFAULTS = {
       columns: { desktop: 3, tablet: 2, mobile: 1 },
       gap: 16,
       emptyText: 'No resources available.',
+      cardTitleTypographyStyleId: '',
+      cardDescriptionTypographyStyleId: '',
     },
   },
   [BLOCK_TYPES.FORM_EMBED]: {
