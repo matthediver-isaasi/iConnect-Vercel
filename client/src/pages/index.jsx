@@ -221,6 +221,7 @@ import PortalNavigationManagement from "./PortalNavigationManagement";
 import CategoryManagement from "./CategoryManagement";
 
 import MemberGroupManagement from "./MemberGroupManagement";
+import MemberGroupSettings from "./MemberGroupSettings";
 
 import MemberGroups from "./MemberGroups";
 
@@ -618,6 +619,8 @@ const PAGES = {
     
     MemberGroupManagement: MemberGroupManagement,
     
+    MemberGroupSettings: MemberGroupSettings,
+    
     MemberGroups: MemberGroups,
     
     MemberGroupDetail: MemberGroupDetail,
@@ -1004,6 +1007,7 @@ function PagesContent() {
                 <Route path="/CategoryManagement" element={<CategoryManagement />} />
                 
                 <Route path="/MemberGroupManagement" element={<MemberGroupManagement />} />
+                <Route path="/MemberGroupSettings" element={<MemberGroupSettings />} />
                 
                 <Route path="/MemberGroups" element={<MemberGroups />} />
                 

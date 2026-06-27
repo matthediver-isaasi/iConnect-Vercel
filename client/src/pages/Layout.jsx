@@ -280,6 +280,12 @@ const adminNavigationItems = [
     featureId: "page_MemberDirectorySettings"
   },
   {
+    title: "Member Group Settings",
+    url: createPageUrl("MemberGroupSettings"),
+    icon: Users,
+    featureId: "membership.member-group-settings"
+  },
+  {
     title: "Discount Codes",
     url: createPageUrl("DiscountCodeManagement"),
     icon: Ticket,

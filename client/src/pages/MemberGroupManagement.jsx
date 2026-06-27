@@ -29,6 +29,7 @@ import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useMemberGroupSettings } from "@/hooks/useMemberGroupSettings";
 import { buildTermSnapshot } from "@/lib/memberGroupTermSnapshot";
 import { createPageUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
@@ -57,6 +58,7 @@ function isDuplicateGroupNameError(error) {
 
 export default function MemberGroupManagementPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { featureName } = useMemberGroupSettings();
   const [accessChecked, setAccessChecked] = useState(false);
   const [showGroupDialog, setShowGroupDialog] = useState(false);
   const [showAssignDialog, setShowAssignDialog] = useState(false);
@@ -1347,7 +1349,7 @@ export default function MemberGroupManagementPage() {
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">Member Groups</h1>
+              <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">{featureName}</h1>
               <p className="text-slate-600">Create and manage member groups with roles</p>
             </div>
             <div className="flex gap-2 flex-wrap">
@@ -1917,7 +1919,7 @@ export default function MemberGroupManagementPage() {
                   value={groupForm.header_image_url}
                   onChange={(url) => setGroupForm({ ...groupForm, header_image_url: url })}
                   label="Header Image"
-                  helpText="Optional: Shown on the Member Groups page when self-join is enabled"
+                  helpText={`Optional: Shown on the ${featureName} page when self-join is enabled`}
                 />
               </div>
 
@@ -1925,7 +1927,7 @@ export default function MemberGroupManagementPage() {
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex flex-col gap-1">
                     <Label htmlFor="allow_self_join" className="cursor-pointer">Allow members to self-join</Label>
-                    <span className="text-xs text-slate-500">Members will see this group on the Member Groups page and can join with one click</span>
+                    <span className="text-xs text-slate-500">Members will see this group on the {featureName} page and can join with one click</span>
                   </div>
                   <Switch
                     id="allow_self_join"

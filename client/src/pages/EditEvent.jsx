@@ -63,6 +63,7 @@ import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
 import EventSponsorSelector from "@/components/events/EventSponsorSelector";
 import { useSpeakerModuleName } from "@/hooks/useSpeakerModuleName";
 import { useEventTypes } from "@/hooks/useEventTypes";
+import { useMemberGroupSettings } from "@/hooks/useMemberGroupSettings";
 import { useServerAdminAuth } from "@/hooks/useServerAdminAuth";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
@@ -119,6 +120,7 @@ export default function EditEvent() {
   const queryClient = useQueryClient();
   const { singular: speakerSingular, plural: speakerPlural } = useSpeakerModuleName();
   const { eventTypes } = useEventTypes();
+  const { ticketTypeName: groupTicketTypeName, featureName: memberGroupFeatureName } = useMemberGroupSettings();
   const urlParams = new URLSearchParams(window.location.search);
   const eventId = urlParams.get('id');
 
@@ -189,6 +191,18 @@ export default function EditEvent() {
   // Ticket classes state for one-off events
   const [ticketClasses, setTicketClasses] = useState([createEmptyTicketClass(true)]);
   const [expandedTickets, setExpandedTickets] = useState({});
+
+  useEffect(() => {
+    if (!isGroupLimited) return;
+    if (!groupTicketTypeName || groupTicketTypeName === "Standard Ticket") return;
+    setTicketClasses((prev) => {
+      if (!prev.some((t) => t.is_default && t.name === "Standard Ticket")) return prev;
+      return prev.map((t) =>
+        t.is_default && t.name === "Standard Ticket" ? { ...t, name: groupTicketTypeName } : t
+      );
+    });
+  }, [isGroupLimited, groupTicketTypeName, ticketClasses]);
+
   const [allowGuestsToViewAllTickets, setAllowGuestsToViewAllTickets] = useState(false);
   const [collectThirdPartyConsent, setCollectThirdPartyConsent] = useState(false);
 
@@ -1087,7 +1101,7 @@ export default function EditEvent() {
             }
             return {
               id: tc.id || `ticket-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-              name: tc.name || "Standard Ticket",
+              name: tc.name || (isGroupLimited ? groupTicketTypeName : "Standard Ticket"),
               price: priceValue !== null ? String(priceValue) : "",
               is_free: priceValue === 0,
               role_ids: tc.role_ids || [],
@@ -1132,7 +1146,7 @@ export default function EditEvent() {
             ? Number(config.ticket_price) : null;
           const legacyTicket = {
             id: `ticket-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-            name: "Standard Ticket",
+            name: isGroupLimited ? groupTicketTypeName : "Standard Ticket",
             price: legacyPrice !== null ? String(legacyPrice) : "",
             is_free: legacyPrice === 0,
             role_ids: [],
@@ -3220,7 +3234,7 @@ export default function EditEvent() {
                         <div className="space-y-2">
                           <Label className="flex items-center gap-2">
                             <Users className="h-4 w-4 text-slate-500" />
-                            Available to Member Groups
+                            Available to {memberGroupFeatureName}
                           </Label>
                           <p className="text-xs text-slate-500 mb-2">
                             Select which member groups can purchase this ticket. Combined with roles using OR logic. Leave empty for no group restriction.

@@ -47,6 +47,10 @@ const PUBLIC_SETTINGS_WHITELIST = [
   'email_preferences_blank_page',
   'photo_gallery_max_upload_mb',
   'resource_max_upload_mb',
+  'member_group_events_per_page',
+  'member_group_resources_per_page',
+  'member_group_feature_name',
+  'member_group_ticket_type_name',
 ];
 
 export default async function handler(req, res) {

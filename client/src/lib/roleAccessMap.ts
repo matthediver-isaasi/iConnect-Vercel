@@ -222,6 +222,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
         label: "Member Groups"
       },
       {
+        id: "membership.member-group-settings",
+        label: "Member Group Settings"
+      },
+      {
         id: "membership.member-group-access",
         label: "Member Groups (Self-Join)"
       },

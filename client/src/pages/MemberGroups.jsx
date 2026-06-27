@@ -8,11 +8,13 @@ import { Input } from "@/components/ui/input";
 import { Users, Loader2, ImageIcon, ArrowRight, Wand2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useMemberGroupSettings } from "@/hooks/useMemberGroupSettings";
 import { createPageUrl } from "@/utils";
 import { sanitizeRichText } from "@/components/canvas/blocks/sanitize";
 
 export default function MemberGroupsPage() {
   const { memberInfo, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { featureName } = useMemberGroupSettings();
   const [accessChecked, setAccessChecked] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const navigate = useNavigate();
@@ -108,7 +110,7 @@ export default function MemberGroupsPage() {
       <div className="max-w-7xl mx-auto">
         <div className="mb-8">
           <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2" data-testid="text-page-title">
-            Member Groups
+            {featureName}
           </h1>
           <p className="text-slate-600">
             Browse and join groups that are open to all members

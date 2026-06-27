@@ -25,6 +25,7 @@ import { TimezoneAwareDateTimeInput } from "@/components/events/TimezoneAwareDat
 import DOMPurify from "dompurify";
 import { computeTimelineLayout } from "@/lib/timelineUtils";
 import { useEventTypes } from "@/hooks/useEventTypes";
+import { useMemberGroupSettings } from "@/hooks/useMemberGroupSettings";
 import { createFilterTagKey, parseFilterTagKey, normalizeFilterTags, parseEventTypes, serializeEventTypes } from "@/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -571,6 +572,7 @@ const createEmptyTicketClass = (isDefault = false, defaultVatRate = null) => ({
 export default function CreateComplexEvent() {
   const location = useLocation();
   const queryClient = useQueryClient();
+  const { ticketTypeName: groupTicketTypeName, featureName: memberGroupFeatureName } = useMemberGroupSettings();
   const params = new URLSearchParams(location.search);
   const editId = params.get("id");
   const isEditMode = !!editId;
@@ -1669,6 +1671,9 @@ export default function CreateComplexEvent() {
       newTicket.early_bird_enabled = false;
       newTicket.is_group_ticket = false;
       newTicket.offer_type = 'none';
+      if (newTicket.is_default && groupTicketTypeName) {
+        newTicket.name = groupTicketTypeName;
+      }
     }
     setTicketClasses(prev => [...prev, newTicket]);
     setExpandedTickets(prev => ({ ...prev, [newTicket._localId]: true }));
@@ -3697,7 +3702,7 @@ export default function CreateComplexEvent() {
                       <div className="space-y-2">
                         <Label className="flex items-center gap-2">
                           <Users className="h-4 w-4 text-slate-500" />
-                          Available to Member Groups
+                          Available to {memberGroupFeatureName}
                         </Label>
                         <p className="text-xs text-slate-500 mb-2">
                           Select which member groups can purchase this ticket. Combined with roles using OR logic. Leave empty for no group restriction.

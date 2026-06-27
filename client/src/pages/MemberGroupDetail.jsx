@@ -81,6 +81,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useMemberGroupSettings } from "@/hooks/useMemberGroupSettings";
 import { filterGroupEventVisibility } from "@/hooks/useEventsData";
 import { useEventTypes } from "@/hooks/useEventTypes";
 import { parseEventTypes } from "@/lib/utils";
@@ -126,8 +127,6 @@ function getInitials(name) {
 }
 
 const MEMBERS_PER_PAGE = 24;
-const EVENTS_PER_PAGE = 3;
-const RESOURCES_PER_PAGE = 6;
 
 const EMPTY_RESOURCE_FORM = {
   title: "",
@@ -427,6 +426,11 @@ function EditTermDialog({ target, open, onOpenChange, onSave, isSaving }) {
 
 export default function MemberGroupDetailPage() {
   const { memberInfo, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const {
+    eventsPerPage: EVENTS_PER_PAGE_CFG,
+    resourcesPerPage: RESOURCES_PER_PAGE_CFG,
+    featureName,
+  } = useMemberGroupSettings();
   const [accessChecked, setAccessChecked] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
@@ -1342,13 +1346,13 @@ export default function MemberGroupDetailPage() {
 
   const eventTotalPages = Math.max(
     1,
-    Math.ceil(filteredGroupEvents.length / EVENTS_PER_PAGE)
+    Math.ceil(filteredGroupEvents.length / EVENTS_PER_PAGE_CFG)
   );
   const currentEventPage = Math.min(eventPage, eventTotalPages);
   const pagedEvents = useMemo(() => {
-    const start = (currentEventPage - 1) * EVENTS_PER_PAGE;
-    return filteredGroupEvents.slice(start, start + EVENTS_PER_PAGE);
-  }, [filteredGroupEvents, currentEventPage]);
+    const start = (currentEventPage - 1) * EVENTS_PER_PAGE_CFG;
+    return filteredGroupEvents.slice(start, start + EVENTS_PER_PAGE_CFG);
+  }, [filteredGroupEvents, currentEventPage, EVENTS_PER_PAGE_CFG]);
 
   // --- Group resources section ---
   const { data: groupResources = [], isLoading: loadingResources } = useQuery({
@@ -1491,13 +1495,13 @@ export default function MemberGroupDetailPage() {
 
   const resourceTotalPages = Math.max(
     1,
-    Math.ceil(filteredResources.length / RESOURCES_PER_PAGE)
+    Math.ceil(filteredResources.length / RESOURCES_PER_PAGE_CFG)
   );
   const currentResourcePage = Math.min(resourcePage, resourceTotalPages);
   const pagedResources = useMemo(() => {
-    const start = (currentResourcePage - 1) * RESOURCES_PER_PAGE;
-    return filteredResources.slice(start, start + RESOURCES_PER_PAGE);
-  }, [filteredResources, currentResourcePage]);
+    const start = (currentResourcePage - 1) * RESOURCES_PER_PAGE_CFG;
+    return filteredResources.slice(start, start + RESOURCES_PER_PAGE_CFG);
+  }, [filteredResources, currentResourcePage, RESOURCES_PER_PAGE_CFG]);
 
   const createResourceMutation = useMutation({
     mutationFn: async (form) => {
@@ -1710,7 +1714,7 @@ export default function MemberGroupDetailPage() {
             <p className="text-slate-600 mb-4">No group id was provided.</p>
             <Link to={createPageUrl("MemberGroups")}>
               <Button variant="outline" data-testid="link-back-groups">
-                <ArrowLeft className="w-4 h-4 mr-2" /> Back to Member Groups
+                <ArrowLeft className="w-4 h-4 mr-2" /> Back to {featureName}
               </Button>
             </Link>
           </CardContent>
@@ -1750,7 +1754,7 @@ export default function MemberGroupDetailPage() {
             </p>
             <Link to={createPageUrl("MemberGroups")}>
               <Button variant="outline" data-testid="link-back-groups">
-                <ArrowLeft className="w-4 h-4 mr-2" /> Back to Member Groups
+                <ArrowLeft className="w-4 h-4 mr-2" /> Back to {featureName}
               </Button>
             </Link>
           </CardContent>
@@ -1765,7 +1769,7 @@ export default function MemberGroupDetailPage() {
         <div className="mb-4">
           <Link to={createPageUrl("MemberGroups")}>
             <Button variant="ghost" size="sm" data-testid="link-back-groups">
-              <ArrowLeft className="w-4 h-4 mr-2" /> Back to Member Groups
+              <ArrowLeft className="w-4 h-4 mr-2" /> Back to {featureName}
             </Button>
           </Link>
         </div>

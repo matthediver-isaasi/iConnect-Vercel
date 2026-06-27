@@ -53,6 +53,7 @@ import EventImageUpload from "@/components/events/EventImageUpload";
 import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
 import { useSpeakerModuleName } from "@/hooks/useSpeakerModuleName";
 import { useEventTypes } from "@/hooks/useEventTypes";
+import { useMemberGroupSettings } from "@/hooks/useMemberGroupSettings";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 
@@ -164,6 +165,18 @@ export default function CreateEvent() {
   
   // Ticket classes state for one-off events
   const [ticketClasses, setTicketClasses] = useState([createEmptyTicketClass(true)]);
+  const { ticketTypeName: groupTicketTypeName, featureName: memberGroupFeatureName } = useMemberGroupSettings();
+
+  useEffect(() => {
+    if (!isGroupLimited) return;
+    if (!groupTicketTypeName || groupTicketTypeName === "Standard Ticket") return;
+    setTicketClasses((prev) => {
+      if (!prev.some((t) => t.is_default && t.name === "Standard Ticket")) return prev;
+      return prev.map((t) =>
+        t.is_default && t.name === "Standard Ticket" ? { ...t, name: groupTicketTypeName } : t
+      );
+    });
+  }, [isGroupLimited, groupTicketTypeName]);
   const [expandedTickets, setExpandedTickets] = useState({});
   const [allowGuestsToViewAllTickets, setAllowGuestsToViewAllTickets] = useState(false);
   const [collectThirdPartyConsent, setCollectThirdPartyConsent] = useState(false);
@@ -2293,7 +2306,7 @@ export default function CreateEvent() {
                         <div className="space-y-2">
                           <Label className="flex items-center gap-2">
                             <Users className="h-4 w-4 text-slate-500" />
-                            Available to Member Groups
+                            Available to {memberGroupFeatureName}
                           </Label>
                           <p className="text-xs text-slate-500 mb-2">
                             Select which member groups can purchase this ticket. Combined with roles using OR logic. Leave empty for no group restriction.

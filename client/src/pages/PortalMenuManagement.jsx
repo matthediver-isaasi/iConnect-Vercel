@@ -120,6 +120,7 @@ const builtInPages = [
   { value: "MemberGroups", label: "Member Group Access" },
   { value: "MemberGroupGuestManagement", label: "Member Group Guest Management" },
   { value: "MemberGroupManagement", label: "Member Group Management" },
+  { value: "MemberGroupSettings", label: "Member Group Settings" },
   { value: "MemberHandleManagement", label: "Member Handle Management" },
   { value: "MembershipFees", label: "Membership Fees" },
   { value: "MembershipSettings", label: "Membership Settings" },
