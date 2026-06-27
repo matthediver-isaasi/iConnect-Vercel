@@ -58,7 +58,7 @@ function isDuplicateGroupNameError(error) {
 
 export default function MemberGroupManagementPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
-  const { featureName } = useMemberGroupSettings();
+  const { featureName, allowGroupTermsOverride, defaultTermsOfReference } = useMemberGroupSettings();
   const [accessChecked, setAccessChecked] = useState(false);
   const [showGroupDialog, setShowGroupDialog] = useState(false);
   const [showAssignDialog, setShowAssignDialog] = useState(false);
@@ -1605,14 +1605,29 @@ export default function MemberGroupManagementPage() {
                 </CollapsibleTrigger>
                 <CollapsibleContent>
                   <div className="pt-2">
-                    <SimpleRichTextEditor
-                      content={groupForm.terms_of_reference}
-                      onChange={(html) => setGroupForm({ ...groupForm, terms_of_reference: html })}
-                      placeholder="Terms of reference members must agree to before joining..."
-                      className="min-h-[260px] [&_.tiptap]:min-h-[220px]"
-                      data-testid="input-group-terms-of-reference"
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">Optional. When set, members must read and agree to this before they can join from the group's detail page.</p>
+                    {allowGroupTermsOverride ? (
+                      <>
+                        <SimpleRichTextEditor
+                          content={groupForm.terms_of_reference}
+                          onChange={(html) => setGroupForm({ ...groupForm, terms_of_reference: html })}
+                          placeholder="Terms of reference members must agree to before joining..."
+                          className="min-h-[260px] [&_.tiptap]:min-h-[220px]"
+                          data-testid="input-group-terms-of-reference"
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">Optional. When set, members must read and agree to this before they can join from the group's detail page.</p>
+                      </>
+                    ) : (
+                      <>
+                        <div
+                          className="min-h-[120px] rounded-md border border-input bg-muted/50 p-3 text-sm text-muted-foreground prose prose-sm max-w-none cursor-not-allowed"
+                          data-testid="input-group-terms-of-reference-readonly"
+                          dangerouslySetInnerHTML={{ __html: defaultTermsOfReference || '<p class="text-muted-foreground italic">No default terms of reference set.</p>' }}
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Terms of reference are controlled centrally in Member Group Settings. Individual groups cannot override them.
+                        </p>
+                      </>
+                    )}
                   </div>
                 </CollapsibleContent>
               </Collapsible>

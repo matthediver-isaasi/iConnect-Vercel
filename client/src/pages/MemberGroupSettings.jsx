@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Loader2, Save, Users } from "lucide-react";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -13,6 +14,7 @@ import {
   MEMBER_GROUP_SETTING_KEYS,
   MEMBER_GROUP_SETTING_DEFAULTS,
 } from "@/hooks/useMemberGroupSettings";
+import SimpleRichTextEditor from "@/components/SimpleRichTextEditor";
 
 const FEATURE_ID = "membership.member-group-settings";
 
@@ -32,6 +34,12 @@ export default function MemberGroupSettingsPage() {
   );
   const [ticketTypeName, setTicketTypeName] = useState(
     MEMBER_GROUP_SETTING_DEFAULTS.ticketTypeName
+  );
+  const [defaultTermsOfReference, setDefaultTermsOfReference] = useState(
+    MEMBER_GROUP_SETTING_DEFAULTS.defaultTermsOfReference
+  );
+  const [allowGroupTermsOverride, setAllowGroupTermsOverride] = useState(
+    MEMBER_GROUP_SETTING_DEFAULTS.allowGroupTermsOverride
   );
   const [isSaving, setIsSaving] = useState(false);
 
@@ -73,6 +81,20 @@ export default function MemberGroupSettingsPage() {
       (s) => s.setting_key === MEMBER_GROUP_SETTING_KEYS.ticketTypeName
     );
     if (ticketSetting?.setting_value) setTicketTypeName(ticketSetting.setting_value);
+
+    const torSetting = settings.find(
+      (s) => s.setting_key === MEMBER_GROUP_SETTING_KEYS.defaultTermsOfReference
+    );
+    if (torSetting !== undefined) {
+      setDefaultTermsOfReference(torSetting?.setting_value ?? "");
+    }
+
+    const overrideSetting = settings.find(
+      (s) => s.setting_key === MEMBER_GROUP_SETTING_KEYS.allowGroupTermsOverride
+    );
+    if (overrideSetting !== undefined) {
+      setAllowGroupTermsOverride(overrideSetting?.setting_value !== "false");
+    }
   }, [settings]);
 
   const upsertSetting = async (key, value, description) => {
@@ -128,6 +150,16 @@ export default function MemberGroupSettingsPage() {
         MEMBER_GROUP_SETTING_KEYS.ticketTypeName,
         trimmedTicket,
         "Default ticket type name used for member group events"
+      );
+      await upsertSetting(
+        MEMBER_GROUP_SETTING_KEYS.defaultTermsOfReference,
+        defaultTermsOfReference ?? "",
+        "Default terms of reference applied to all member groups"
+      );
+      await upsertSetting(
+        MEMBER_GROUP_SETTING_KEYS.allowGroupTermsOverride,
+        allowGroupTermsOverride ? "true" : "false",
+        "Whether individual member groups can override the default terms of reference"
       );
 
       await queryClient.invalidateQueries({ queryKey: ["system-settings"] });
@@ -238,6 +270,44 @@ export default function MemberGroupSettingsPage() {
               />
               <p className="text-xs text-slate-500">
                 Falls back to "{MEMBER_GROUP_SETTING_DEFAULTS.ticketTypeName}" when left blank.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Default Terms of Reference</CardTitle>
+            <CardDescription>
+              Set a default terms of reference that applies to all member groups. Groups without their own terms will use this text at join time.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="flex items-center justify-between gap-4">
+              <div className="space-y-0.5">
+                <Label htmlFor="allow-group-terms-override">Allow groups to override the default terms of reference</Label>
+                <p className="text-xs text-slate-500">
+                  When off, the default terms apply to every group and individual groups cannot set their own.
+                </p>
+              </div>
+              <Switch
+                id="allow-group-terms-override"
+                checked={allowGroupTermsOverride}
+                onCheckedChange={setAllowGroupTermsOverride}
+                data-testid="switch-allow-group-terms-override"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Default terms of reference</Label>
+              <SimpleRichTextEditor
+                content={defaultTermsOfReference}
+                onChange={(html) => setDefaultTermsOfReference(html)}
+                placeholder="Enter default terms of reference for member groups..."
+                className="min-h-[260px] [&_.tiptap]:min-h-[220px]"
+                data-testid="input-default-terms-of-reference"
+              />
+              <p className="text-xs text-slate-500">
+                Optional. Groups that have not set their own terms of reference will show this text to members at join time.
               </p>
             </div>
           </CardContent>

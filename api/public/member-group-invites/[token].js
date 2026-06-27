@@ -11,10 +11,52 @@ import { buildTermSnapshot, resolveRoleTermDefinition } from '../../_lib/memberG
 //         member_group_assignment with the invited role; decline just records
 //         the decision. Re-clicked / expired links return a friendly state.
 
+const SETTING_KEY_DEFAULT_TOR = 'member_group_default_terms_of_reference';
+const SETTING_KEY_ALLOW_OVERRIDE = 'member_group_allow_terms_override';
+
 function resolveRoleTermsUrl(group, role) {
   const map = group?.role_terms_url;
   const url = map && typeof map === 'object' ? map[role] : null;
   return url && String(url).trim() ? String(url).trim() : null;
+}
+
+function isHtmlEmpty(html) {
+  if (!html) return true;
+  return html
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .trim().length === 0;
+}
+
+async function resolveEffectiveTor(tenantId, group) {
+  if (!supabase) return { effective_terms_of_reference: null, has_terms_of_reference: false };
+
+  const { data: settings } = await supabase
+    .from('system_settings')
+    .select('setting_key, setting_value')
+    .eq('tenant_id', tenantId)
+    .in('setting_key', [SETTING_KEY_DEFAULT_TOR, SETTING_KEY_ALLOW_OVERRIDE]);
+
+  const findSetting = (key) => (settings || []).find((s) => s.setting_key === key)?.setting_value;
+
+  const defaultTor = findSetting(SETTING_KEY_DEFAULT_TOR) ?? '';
+  const allowOverrideRaw = findSetting(SETTING_KEY_ALLOW_OVERRIDE);
+  const allowOverride = allowOverrideRaw === 'false' ? false : true;
+
+  const groupTor = group?.terms_of_reference || '';
+  const groupTorHasContent = !isHtmlEmpty(groupTor);
+
+  let effectiveTor;
+  if (allowOverride && groupTorHasContent) {
+    effectiveTor = groupTor;
+  } else {
+    effectiveTor = defaultTor;
+  }
+
+  return {
+    effective_terms_of_reference: effectiveTor || null,
+    has_terms_of_reference: !isHtmlEmpty(effectiveTor),
+  };
 }
 
 function isExpired(row) {
@@ -26,7 +68,7 @@ function effectiveStatus(row) {
   return row.status;
 }
 
-function buildResponse({ row, member, group, tenant, extra }) {
+function buildResponse({ row, member, group, tenant, torInfo, extra }) {
   return {
     status: effectiveStatus(row),
     member: {
@@ -38,6 +80,8 @@ function buildResponse({ row, member, group, tenant, extra }) {
     },
     role: row.group_role,
     terms_url: group ? resolveRoleTermsUrl(group, row.group_role) : null,
+    effective_terms_of_reference: torInfo?.effective_terms_of_reference ?? null,
+    has_terms_of_reference: torInfo?.has_terms_of_reference ?? false,
     expires_at: row.expires_at || null,
     decided_at: row.decided_at || null,
     tenant: tenant
@@ -77,8 +121,10 @@ export default async function handler(req, res) {
     supabase.from('tenant').select('name, logo_url, primary_color').eq('id', row.tenant_id).maybeSingle(),
   ]);
 
+  const torInfo = await resolveEffectiveTor(row.tenant_id, group);
+
   if (req.method === 'GET') {
-    return res.json(buildResponse({ row, member, group, tenant }));
+    return res.json(buildResponse({ row, member, group, tenant, torInfo }));
   }
 
   if (req.method === 'POST') {
@@ -89,12 +135,12 @@ export default async function handler(req, res) {
 
     // Already handled — return the existing state.
     if (row.status !== 'pending') {
-      return res.json(buildResponse({ row, member, group, tenant, extra: { alreadyHandled: true } }));
+      return res.json(buildResponse({ row, member, group, tenant, torInfo, extra: { alreadyHandled: true } }));
     }
 
     // Expired pending invite — cannot be actioned.
     if (isExpired(row)) {
-      return res.json(buildResponse({ row, member, group, tenant, extra: { expired: true } }));
+      return res.json(buildResponse({ row, member, group, tenant, torInfo, extra: { expired: true } }));
     }
 
     const newStatus = action === 'accept' ? 'accepted' : 'declined';
@@ -173,6 +219,7 @@ export default async function handler(req, res) {
           member,
           group,
           tenant,
+          torInfo,
           extra: { warning: 'Your acceptance was recorded, but the role could not be applied automatically. Please contact the group administrator.' },
         }));
       }
@@ -190,6 +237,7 @@ export default async function handler(req, res) {
       member,
       group,
       tenant,
+      torInfo,
     }));
   }
 

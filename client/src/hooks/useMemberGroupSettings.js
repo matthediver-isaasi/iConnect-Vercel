@@ -8,6 +8,8 @@ export const MEMBER_GROUP_SETTING_KEYS = {
   resourcesPerPage: "member_group_resources_per_page",
   featureName: "member_group_feature_name",
   ticketTypeName: "member_group_ticket_type_name",
+  defaultTermsOfReference: "member_group_default_terms_of_reference",
+  allowGroupTermsOverride: "member_group_allow_terms_override",
 };
 
 export const MEMBER_GROUP_SETTING_DEFAULTS = {
@@ -15,6 +17,8 @@ export const MEMBER_GROUP_SETTING_DEFAULTS = {
   resourcesPerPage: 6,
   featureName: "Member Groups",
   ticketTypeName: "Standard Ticket",
+  defaultTermsOfReference: "",
+  allowGroupTermsOverride: true,
 };
 
 function parsePageSize(value, fallback) {
@@ -29,6 +33,13 @@ function parseName(value, fallback) {
   if (typeof value === "string" && value.trim().length > 0) {
     return value.trim();
   }
+  return fallback;
+}
+
+function parseBoolean(value, fallback) {
+  if (value === undefined || value === null) return fallback;
+  if (value === "false" || value === false) return false;
+  if (value === "true" || value === true) return true;
   return fallback;
 }
 
@@ -66,6 +77,11 @@ export function useMemberGroupSettings() {
     ticketTypeName: parseName(
       findValue(MEMBER_GROUP_SETTING_KEYS.ticketTypeName),
       MEMBER_GROUP_SETTING_DEFAULTS.ticketTypeName
+    ),
+    defaultTermsOfReference: findValue(MEMBER_GROUP_SETTING_KEYS.defaultTermsOfReference) ?? MEMBER_GROUP_SETTING_DEFAULTS.defaultTermsOfReference,
+    allowGroupTermsOverride: parseBoolean(
+      findValue(MEMBER_GROUP_SETTING_KEYS.allowGroupTermsOverride),
+      MEMBER_GROUP_SETTING_DEFAULTS.allowGroupTermsOverride
     ),
     isLoading,
   };

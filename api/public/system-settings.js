@@ -51,6 +51,8 @@ const PUBLIC_SETTINGS_WHITELIST = [
   'member_group_resources_per_page',
   'member_group_feature_name',
   'member_group_ticket_type_name',
+  'member_group_default_terms_of_reference',
+  'member_group_allow_terms_override',
 ];
 
 export default async function handler(req, res) {

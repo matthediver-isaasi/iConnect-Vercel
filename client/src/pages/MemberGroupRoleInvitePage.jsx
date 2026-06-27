@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import {
   Loader2, CheckCircle2, XCircle, AlertCircle, UserCheck, Users, BadgeCheck, CalendarClock
 } from "lucide-react";
+import DOMPurify from "dompurify";
 
 function formatExpiry(dateStr) {
   if (!dateStr) return 'No expiry';
@@ -146,22 +147,32 @@ export default function MemberGroupRoleInvitePage() {
                 </div>
               </div>
 
-              {termsUrl && (
+              {(termsUrl || data?.has_terms_of_reference) && (
                 <div className="space-y-2" data-testid="section-terms">
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Terms of reference</p>
-                  <div className="rounded-md border border-border p-4 text-sm text-foreground space-y-1">
-                    <p>By accepting this invite you are agreeing to the terms of reference which can be found here:</p>
-                    <a
-                      href={termsUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="break-all underline"
-                      style={{ color: primaryColor || 'hsl(var(--primary))' }}
-                      data-testid="link-terms"
-                    >
-                      {termsUrl}
-                    </a>
-                  </div>
+                  {termsUrl ? (
+                    <div className="rounded-md border border-border p-4 text-sm text-foreground space-y-1">
+                      <p>By accepting this invite you are agreeing to the terms of reference which can be found here:</p>
+                      <a
+                        href={termsUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="break-all underline"
+                        style={{ color: primaryColor || 'hsl(var(--primary))' }}
+                        data-testid="link-terms"
+                      >
+                        {termsUrl}
+                      </a>
+                    </div>
+                  ) : (
+                    <div
+                      className="max-h-[40vh] overflow-y-auto rounded-md border border-border bg-muted/30 p-4 text-sm text-foreground prose prose-sm max-w-none"
+                      data-testid="text-terms-of-reference"
+                      dangerouslySetInnerHTML={{
+                        __html: DOMPurify.sanitize(data.effective_terms_of_reference || ''),
+                      }}
+                    />
+                  )}
                 </div>
               )}
 

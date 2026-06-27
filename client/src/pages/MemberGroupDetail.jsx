@@ -430,6 +430,8 @@ export default function MemberGroupDetailPage() {
     eventsPerPage: EVENTS_PER_PAGE_CFG,
     resourcesPerPage: RESOURCES_PER_PAGE_CFG,
     featureName,
+    allowGroupTermsOverride,
+    defaultTermsOfReference,
   } = useMemberGroupSettings();
   const [accessChecked, setAccessChecked] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
@@ -646,15 +648,26 @@ export default function MemberGroupDetailPage() {
     }
   }, [soleAdminExpiry]);
 
+  const effectiveTermsOfReference = useMemo(() => {
+    const groupTor = group?.terms_of_reference;
+    const groupTorHasText = groupTor && groupTor
+      .replace(/<[^>]*>/g, "")
+      .replace(/&nbsp;|\u00A0/g, " ")
+      .trim().length > 0;
+    if (allowGroupTermsOverride && groupTorHasText) {
+      return groupTor;
+    }
+    return defaultTermsOfReference || "";
+  }, [group?.terms_of_reference, allowGroupTermsOverride, defaultTermsOfReference]);
+
   const hasTermsOfReference = useMemo(() => {
-    const raw = group?.terms_of_reference;
-    if (!raw) return false;
-    const text = raw
+    if (!effectiveTermsOfReference) return false;
+    const text = effectiveTermsOfReference
       .replace(/<[^>]*>/g, "")
       .replace(/&nbsp;|\u00A0/g, " ")
       .trim();
     return text.length > 0;
-  }, [group?.terms_of_reference]);
+  }, [effectiveTermsOfReference]);
 
   const { data: vacancies = [], isLoading: loadingVacancies } = useQuery({
     queryKey: ["group-vacancies", groupId],
@@ -3318,7 +3331,7 @@ export default function MemberGroupDetailPage() {
             className="max-h-[55vh] overflow-y-auto rounded-md border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 prose prose-sm max-w-none"
             data-testid="text-terms-of-reference"
             dangerouslySetInnerHTML={{
-              __html: DOMPurify.sanitize(group.terms_of_reference || ""),
+              __html: DOMPurify.sanitize(effectiveTermsOfReference || ""),
             }}
           />
           <label className="flex items-start gap-2 text-sm text-slate-700 cursor-pointer">
@@ -3372,7 +3385,7 @@ export default function MemberGroupDetailPage() {
             className="max-h-[55vh] overflow-y-auto rounded-md border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 prose prose-sm max-w-none"
             data-testid="text-view-terms-of-reference"
             dangerouslySetInnerHTML={{
-              __html: DOMPurify.sanitize(group.terms_of_reference || ""),
+              __html: DOMPurify.sanitize(effectiveTermsOfReference || ""),
             }}
           />
           <DialogFooter>
