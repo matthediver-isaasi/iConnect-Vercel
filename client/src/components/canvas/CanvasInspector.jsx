@@ -247,6 +247,7 @@ function ContentSection({ block, breakpoint, onUpdate, onUnlinkSymbol }) {
 
 function SingleBlockInspector({ block, breakpoint, blockIssues, onUpdate, onToggleLocked, onToggleHidden, onClearOverride, onReorder, onUnlinkSymbol, readingOrderIndex, readingOrderTotal }) {
   const geom = useMemo(() => resolveBlockAtBreakpoint(block, breakpoint), [block, breakpoint]);
+  const def = getBlockDefinition(block.type);
 
   const updateGeom = (field, value) => {
     if (value === null || value === undefined || Number.isNaN(value)) return;
