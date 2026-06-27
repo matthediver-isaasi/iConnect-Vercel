@@ -75,7 +75,7 @@ export default async function handler(req, res) {
       .eq('tenant_id', tenant.id)
       .eq('slug', slug)
       .eq('status', 'published')
-      .in('layout_type', ['public', 'hybrid'])
+      .in('layout_type', ['public', 'hybrid', 'public_no_chrome', 'public_header_only', 'public_footer_only'])
       .single();
 
     console.log('[Public Page Slug] Page lookup:', { 

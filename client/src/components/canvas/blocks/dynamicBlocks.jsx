@@ -4,7 +4,7 @@
 // using TanStack Query. The same renderer is used in the editor and on the
 // public page; in the editor we add `data-canvas-editor` to suppress link
 // navigation. Skeleton/empty states and accessibility metadata are baked in.
-import { useMemo, useState, useEffect, useRef } from 'react';
+import { useMemo, useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   Calendar, MapPin, FileText, Newspaper, Heart, Users, Layers,
@@ -5414,6 +5414,82 @@ function GalleryInspector({ block, update, breakpoint }) {
 }
 
 // ============================================================================
+// LOGIN FORM block
+// ============================================================================
+function LoginFormEditorPreview() {
+  return (
+    <div className="w-full h-full flex flex-col items-center justify-center p-4 bg-gradient-to-br from-blue-50 via-white to-indigo-50">
+      <div className="w-full max-w-sm bg-white rounded-lg border border-slate-200 shadow-lg p-6 space-y-4">
+        <div className="text-center space-y-1">
+          <div className="text-lg font-bold text-slate-900">Member Access</div>
+          <div className="text-xs text-slate-500">Enter your email and password to sign in</div>
+        </div>
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <div className="text-xs font-medium text-slate-700">Email</div>
+            <div className="h-9 rounded-md border border-slate-200 bg-slate-50 flex items-center px-3 gap-2">
+              <div className="w-3.5 h-3.5 bg-slate-300 rounded-sm shrink-0" />
+              <div className="h-2.5 bg-slate-200 rounded w-2/3" />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <div className="text-xs font-medium text-slate-700">Password</div>
+            <div className="h-9 rounded-md border border-slate-200 bg-slate-50 flex items-center px-3 gap-2">
+              <div className="w-3.5 h-3.5 bg-slate-300 rounded-sm shrink-0" />
+              <div className="h-2.5 bg-slate-200 rounded w-1/2" />
+            </div>
+          </div>
+          <div className="h-9 bg-slate-800 rounded-md flex items-center justify-center">
+            <div className="h-2.5 bg-slate-600 rounded w-1/3" />
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="h-px flex-1 bg-slate-200" />
+          <div className="text-[10px] text-slate-400 uppercase tracking-wide">or continue with</div>
+          <div className="h-px flex-1 bg-slate-200" />
+        </div>
+        <div className="h-9 rounded-md border border-slate-200 flex items-center justify-center gap-2">
+          <div className="w-3.5 h-3.5 bg-slate-300 rounded-sm" />
+          <div className="h-2.5 bg-slate-200 rounded w-1/3" />
+        </div>
+        <div className="flex justify-center">
+          <div className="h-2 bg-blue-200 rounded w-1/4" />
+        </div>
+      </div>
+      <div className="mt-3 flex items-center gap-1.5 text-xs text-slate-500 bg-white/80 rounded-full px-3 py-1 border border-slate-200">
+        <Lock className="w-3 h-3 text-slate-400" />
+        <span>Login form — fully functional on the live page</span>
+      </div>
+    </div>
+  );
+}
+
+function LoginFormInspector() {
+  return (
+    <div className="space-y-3 p-3">
+      <div className="rounded-md bg-blue-50 border border-blue-200 p-3 text-xs text-blue-700 space-y-1">
+        <p className="font-medium">Login Form block</p>
+        <p>This block renders the tenant's standard sign-in, set-password, and forgot-password forms. It is fixed in size; use the position controls to place it on your page.</p>
+      </div>
+    </div>
+  );
+}
+
+// Renderer lazily imports LoginForm so the heavy auth component is only
+// bundled on pages that actually use the login-form block.
+const LoginFormComponent = lazy(() => import('@/components/auth/LoginForm'));
+
+function LoginFormRendererLazy() {
+  return (
+    <div className="w-full h-full flex items-center justify-center p-4 bg-gradient-to-br from-blue-50 via-white to-indigo-50">
+      <Suspense fallback={<div className="w-full max-w-sm h-64 bg-white rounded-lg border border-slate-200 animate-pulse" />}>
+        <LoginFormComponent className="w-full max-w-sm" />
+      </Suspense>
+    </div>
+  );
+}
+
+// ============================================================================
 // Registry export
 // ============================================================================
 export const DYNAMIC_BLOCK_DEFINITIONS = {
@@ -5553,5 +5629,14 @@ export const DYNAMIC_BLOCK_DEFINITIONS = {
     Renderer: GalleryRender,
     Inspector: GalleryInspector,
     allowOverflow: true,
+  },
+  [BLOCK_TYPES.LOGIN_FORM]: {
+    label: 'Login Form',
+    icon: Lock,
+    category: 'advanced',
+    Editor: LoginFormEditorPreview,
+    Renderer: LoginFormRendererLazy,
+    Inspector: LoginFormInspector,
+    noResize: true,
   },
 };

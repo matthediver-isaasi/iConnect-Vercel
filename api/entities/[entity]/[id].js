@@ -505,6 +505,40 @@ export default async function handler(req, res) {
         }
       }
 
+      // SECURITY: Protect system canvas pages (slug='login') from slug/title mutation
+      // and enforce that publishing a login canvas page requires a login-form block.
+      if (entity === 'IEditPage') {
+        const needsSlugCheck = sanitizedBody.slug !== undefined || sanitizedBody.title !== undefined;
+        const isPublishing = sanitizedBody.status === 'published';
+        if (needsSlugCheck || isPublishing) {
+          const { data: existingPage } = await supabase
+            .from('i_edit_page')
+            .select('slug, title, canvas_design, builder_type')
+            .eq('id', id)
+            .maybeSingle();
+          if (existingPage?.slug === 'login') {
+            // Block slug/title edits
+            if (sanitizedBody.slug !== undefined && sanitizedBody.slug !== 'login') {
+              return res.status(403).json({ error: 'The login system page slug cannot be changed' });
+            }
+            delete sanitizedBody.slug;
+            delete sanitizedBody.title;
+            // Require a login-form block when publishing
+            if (isPublishing && existingPage.builder_type === 'canvas') {
+              const design = sanitizedBody.canvas_design || existingPage.canvas_design;
+              const blocks = (design?.root?.sections || []).flatMap(s => s.children || []);
+              const hasLoginBlock = blocks.some(b => b.type === 'login-form');
+              if (!hasLoginBlock) {
+                return res.status(422).json({
+                  error: 'Cannot publish the login page without a Login Form block. Add a Login Form block in CanvasBuilder first.',
+                  code: 'login_page_missing_login_block',
+                });
+              }
+            }
+          }
+        }
+      }
+
       // SECURITY: Protect system roles from being renamed or having is_system flag changed
       if (entityNormalized === 'role' && (sanitizedBody.name !== undefined || sanitizedBody.is_system !== undefined)) {
         const { data: existingRole } = await supabase
@@ -1090,6 +1124,18 @@ export default async function handler(req, res) {
 
     } else if (req.method === 'DELETE') {
       // Handle cascade deletion for entities with foreign key relationships
+
+      // SECURITY: Prevent deletion of system canvas pages (slug='login').
+      if (entity === 'IEditPage') {
+        const { data: pageToDelete } = await supabase
+          .from('i_edit_page')
+          .select('slug')
+          .eq('id', id)
+          .maybeSingle();
+        if (pageToDelete?.slug === 'login') {
+          return res.status(403).json({ error: 'The login system page cannot be deleted' });
+        }
+      }
 
       // Block the legacy unsafe Event / ComplexEvent delete path. Direct deletion
       // hard-deletes bookings without refunds, credit notes, voucher/training-fund

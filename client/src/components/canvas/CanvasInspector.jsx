@@ -336,26 +336,32 @@ function SingleBlockInspector({ block, breakpoint, blockIssues, onUpdate, onTogg
       <AnchorIdSection block={block} onUpdate={onUpdate} />
 
       <Section title={`Position (${breakpoint})`}>
-        <div className="flex items-center justify-between gap-2 mb-2">
-          <div className="flex items-center gap-1.5 text-xs text-slate-600">
-            <Maximize2 className="w-3.5 h-3.5" />
-            <span>Full width</span>
+        {def?.noResize ? (
+          <div className="rounded-md bg-blue-50 border border-blue-200 px-3 py-2 text-xs text-blue-700 mb-2">
+            This block has a fixed size. Use the X and Y fields to reposition it.
           </div>
-          <Button
-            size="sm"
-            variant={block.fullWidth ? 'default' : 'outline'}
-            onClick={toggleFullWidth}
-            className="toggle-elevate"
-            data-testid="button-toggle-full-width"
-            data-state={block.fullWidth ? 'on' : 'off'}
-            title={block.fullWidth
-              ? 'Disable full width (release horizontal pin)'
-              : 'Pin block to full canvas width at every breakpoint'}
-          >
-            {block.fullWidth ? 'On' : 'Off'}
-          </Button>
-        </div>
-        {block.fullWidth && (
+        ) : (
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <div className="flex items-center gap-1.5 text-xs text-slate-600">
+              <Maximize2 className="w-3.5 h-3.5" />
+              <span>Full width</span>
+            </div>
+            <Button
+              size="sm"
+              variant={block.fullWidth ? 'default' : 'outline'}
+              onClick={toggleFullWidth}
+              className="toggle-elevate"
+              data-testid="button-toggle-full-width"
+              data-state={block.fullWidth ? 'on' : 'off'}
+              title={block.fullWidth
+                ? 'Disable full width (release horizontal pin)'
+                : 'Pin block to full canvas width at every breakpoint'}
+            >
+              {block.fullWidth ? 'On' : 'Off'}
+            </Button>
+          </div>
+        )}
+        {block.fullWidth && !def?.noResize && (
           <p className="text-xs text-slate-500 mb-2" data-testid="text-full-width-hint">
             X and Width are pinned to the canvas at each breakpoint. Disable to edit horizontally.
           </p>
@@ -379,13 +385,14 @@ function SingleBlockInspector({ block, breakpoint, blockIssues, onUpdate, onTogg
             value={geom.w}
             onChange={(v) => updateGeom('w', v)}
             override={hasOverride(block, breakpoint, 'w')}
-            disabled={block.fullWidth}
+            disabled={block.fullWidth || def?.noResize}
           />
           <NumberField
             id="inp-h" label="Height" testId="input-h" min={10}
             value={geom.h}
             onChange={(v) => updateGeom('h', v)}
             override={hasOverride(block, breakpoint, 'h')}
+            disabled={def?.noResize}
           />
         </div>
         {breakpoint !== 'desktop' && (

@@ -102,6 +102,47 @@ export default function IEditPageManagementPage() {
     }
   });
 
+  const createLoginPageMutation = useMutation({
+    mutationFn: () => {
+      const defaultDesign = {
+        version: 1,
+        root: {
+          background: null,
+          sections: [{
+            id: 'root-section',
+            children: [{
+              id: 'lf-' + Date.now(),
+              type: 'login-form',
+              name: 'Login Form',
+              locked: false,
+              style: { background: 'transparent', borderWidth: 0, opacity: 1, zIndex: 1 },
+              a11y: { role: null, ariaLabel: null },
+              content: {},
+              bp: { desktop: { x: 376, y: 130, w: 448, h: 520 } },
+            }],
+          }],
+        },
+      };
+      return base44.entities.IEditPage.create({
+        title: 'Login',
+        slug: 'login',
+        description: 'Custom login page',
+        layout_type: 'public_no_chrome',
+        status: 'draft',
+        builder_type: 'canvas',
+        canvas_design: defaultDesign,
+      });
+    },
+    onSuccess: (created) => {
+      queryClient.invalidateQueries({ queryKey: ['iedit-pages'] });
+      toast.success('Login page created — add your design, then publish it');
+      navigate(createPageUrl('CanvasPageEditor') + `?pageId=${created.id}`);
+    },
+    onError: (error) => {
+      toast.error('Failed to create login page: ' + error.message);
+    },
+  });
+
   const deletePageMutation = useMutation({
     mutationFn: async (pageId) => {
       const allElements = await base44.entities.IEditPageElement.filter({ page_id: pageId });
@@ -186,6 +227,7 @@ export default function IEditPageManagementPage() {
 
   const handleRenameSubmit = async () => {
     if (!pageToRename) return;
+    if (pageToRename.slug === 'login') return;
     const title = (renameTitle || '').trim();
     const slug = (renameSlug || '').trim().toLowerCase();
     if (!title) { failRename('Title is required'); return; }
@@ -380,6 +422,26 @@ export default function IEditPageManagementPage() {
           </Button>
         </div>
 
+        {/* Custom login page prompt — shown when no canvas login page exists */}
+        {!isLoading && !pages.some(p => p.slug === 'login' && p.builder_type === 'canvas') && (
+          <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 mb-6 flex flex-wrap items-start gap-4">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-blue-900 mb-0.5">Customise your login page</p>
+              <p className="text-xs text-blue-700">
+                Design a branded <code>/login</code> page in CanvasBuilder. Members will see it instead of the default form once you publish it.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              onClick={() => createLoginPageMutation.mutate()}
+              disabled={createLoginPageMutation.isPending}
+              data-testid="button-create-login-page"
+            >
+              {createLoginPageMutation.isPending ? 'Creating…' : 'Create Login Page'}
+            </Button>
+          </div>
+        )}
+
         {/* Search */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-8">
           <div className="relative">
@@ -506,33 +568,37 @@ export default function IEditPageManagementPage() {
                         variant="outline"
                         size="sm"
                         onClick={() => openRenameDialog(page)}
-                        title="Rename / change slug"
+                        title={page.slug === 'login' ? 'System page — name and slug are locked' : 'Rename / change slug'}
                         data-testid={`button-rename-page-${page.id}`}
                       >
                         <Pencil className="w-3 h-3" />
                       </Button>
                     )}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => duplicatePageMutation.mutate(page)}
-                      disabled={duplicatePageMutation.isPending}
-                      title="Duplicate Page"
-                      data-testid={`button-duplicate-page-${page.id}`}
-                    >
-                      <Copy className="w-3 h-3" />
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setPageToDelete(page);
-                        setShowDeleteDialog(true);
-                      }}
-                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </Button>
+                    {page.slug !== 'login' && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => duplicatePageMutation.mutate(page)}
+                        disabled={duplicatePageMutation.isPending}
+                        title="Duplicate Page"
+                        data-testid={`button-duplicate-page-${page.id}`}
+                      >
+                        <Copy className="w-3 h-3" />
+                      </Button>
+                    )}
+                    {page.slug !== 'login' && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setPageToDelete(page);
+                          setShowDeleteDialog(true);
+                        }}
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </Button>
+                    )}
                   </div>
 
                   {/* Publish/Unpublish Toggle */}
@@ -720,12 +786,18 @@ export default function IEditPageManagementPage() {
               <DialogTitle>Edit page settings</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
+              {pageToRename?.slug === 'login' && (
+                <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+                  The <strong>Login</strong> page is a system page. Its name and URL (<code>/login</code>) are locked so members can always find the sign-in form.
+                </div>
+              )}
               <div>
                 <Label htmlFor="rename-list-title">Page Title *</Label>
                 <Input
                   id="rename-list-title"
                   value={renameTitle}
                   onChange={(e) => setRenameTitle(e.target.value)}
+                  disabled={pageToRename?.slug === 'login'}
                   data-testid="input-rename-list-title"
                 />
               </div>
@@ -735,45 +807,52 @@ export default function IEditPageManagementPage() {
                   id="rename-list-slug"
                   value={renameSlug}
                   onChange={(e) => setRenameSlug(e.target.value.toLowerCase())}
+                  disabled={pageToRename?.slug === 'login'}
                   data-testid="input-rename-list-slug"
                 />
-                <p className="text-xs text-slate-500 mt-1">
-                  Lowercase letters, numbers, and hyphens only
-                </p>
+                {pageToRename?.slug !== 'login' && (
+                  <p className="text-xs text-slate-500 mt-1">
+                    Lowercase letters, numbers, and hyphens only
+                  </p>
+                )}
               </div>
-              <div>
-                <Label htmlFor="rename-list-layout-type">View Type</Label>
-                <Select value={renameLayoutType} onValueChange={setRenameLayoutType}>
-                  <SelectTrigger id="rename-list-layout-type" data-testid="select-rename-list-layout-type">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="public">Public (Anyone can view, public layout)</SelectItem>
-                    <SelectItem value="member">Portal (Members only, with sidebar)</SelectItem>
-                    <SelectItem value="hybrid">Hybrid (Anyone can view, members see portal)</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-slate-500 mt-1">
-                  {renameLayoutType === 'public' && 'Accessible to everyone with public header/footer layout'}
-                  {renameLayoutType === 'member' && 'Only logged-in members can access, displayed within the portal sidebar'}
-                  {renameLayoutType === 'hybrid' && 'Anyone can view; logged-in members see it within the portal sidebar'}
-                </p>
-              </div>
+              {pageToRename?.slug !== 'login' && (
+                <div>
+                  <Label htmlFor="rename-list-layout-type">View Type</Label>
+                  <Select value={renameLayoutType} onValueChange={setRenameLayoutType}>
+                    <SelectTrigger id="rename-list-layout-type" data-testid="select-rename-list-layout-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="public">Public (Anyone can view, public layout)</SelectItem>
+                      <SelectItem value="member">Portal (Members only, with sidebar)</SelectItem>
+                      <SelectItem value="hybrid">Hybrid (Anyone can view, members see portal)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-slate-500 mt-1">
+                    {renameLayoutType === 'public' && 'Accessible to everyone with public header/footer layout'}
+                    {renameLayoutType === 'member' && 'Only logged-in members can access, displayed within the portal sidebar'}
+                    {renameLayoutType === 'hybrid' && 'Anyone can view; logged-in members see it within the portal sidebar'}
+                  </p>
+                </div>
+              )}
               {renameError && (
                 <p className="text-sm text-destructive" data-testid="text-rename-list-error">{renameError}</p>
               )}
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setPageToRename(null)} data-testid="button-rename-list-cancel">
-                Cancel
+                {pageToRename?.slug === 'login' ? 'Close' : 'Cancel'}
               </Button>
-              <Button
-                onClick={handleRenameSubmit}
-                disabled={renamePageMutation.isPending}
-                data-testid="button-rename-list-save"
-              >
-                {renamePageMutation.isPending ? 'Saving…' : 'Save'}
-              </Button>
+              {pageToRename?.slug !== 'login' && (
+                <Button
+                  onClick={handleRenameSubmit}
+                  disabled={renamePageMutation.isPending}
+                  data-testid="button-rename-list-save"
+                >
+                  {renamePageMutation.isPending ? 'Saving…' : 'Save'}
+                </Button>
+              )}
             </DialogFooter>
           </DialogContent>
         </Dialog>

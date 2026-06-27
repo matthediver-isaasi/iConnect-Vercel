@@ -180,10 +180,11 @@ function CanvasBlockView({
   const EditorComponent = def.Editor;
   const isAutoHeight = !!def?.autoHeight;
   const fullWidth = blockIsFullWidthLike(block);
+  const noResize = !!def?.noResize;
   const cursor = block.locked
     ? 'cursor-not-allowed'
     : (fullWidth ? 'cursor-ns-resize' : 'cursor-move');
-  const handles = fullWidth ? FULL_WIDTH_RESIZE_HANDLES : RESIZE_HANDLES;
+  const handles = noResize ? [] : (fullWidth ? FULL_WIDTH_RESIZE_HANDLES : RESIZE_HANDLES);
   // Anchor (align-to target) gets a thicker, pink outline so users can
   // visually distinguish which block other blocks will align to.
   const outlineClass = isAnchor

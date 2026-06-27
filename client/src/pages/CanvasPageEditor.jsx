@@ -474,6 +474,17 @@ export default function CanvasPageEditorPage() {
     if (!page) return;
     const newStatus = page.status === 'published' ? 'draft' : 'published';
 
+    // Guard: login system page must contain a login-form block before publishing.
+    if (newStatus === 'published' && page.slug === 'login') {
+      const designToCheck = canvasRef.current?.getDesign?.() || page.canvas_design;
+      const blocks = designToCheck?.root?.sections?.flatMap(s => s.children || []) || [];
+      const hasLoginBlock = blocks.some(b => b.type === 'login-form');
+      if (!hasLoginBlock) {
+        toast.error('Add a Login Form block to the canvas before publishing the login page.', { duration: 6000 });
+        return;
+      }
+    }
+
     // Block-validation errors (required fields) keep their existing hard
     // block. Only the accessibility gate has been softened.
     if (newStatus === 'published') {
@@ -1885,16 +1896,24 @@ export default function CanvasPageEditorPage() {
           <DialogHeader>
             <DialogTitle>Edit page settings</DialogTitle>
             <DialogDescription>
-              Update the page title, URL slug, and view type. Saving will reload the preview.
+              {page?.slug === 'login'
+                ? 'This is a system page. The title and URL slug are fixed and cannot be changed.'
+                : 'Update the page title, URL slug, and view type. Saving will reload the preview.'}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            {page?.slug === 'login' && (
+              <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+                The <strong>Login</strong> page is a system page. Its name and URL (<code>/login</code>) are locked so members can always find the sign-in form.
+              </div>
+            )}
             <div>
               <Label htmlFor="rename-title">Page Title *</Label>
               <Input
                 id="rename-title"
                 value={renameTitle}
                 onChange={(e) => setRenameTitle(e.target.value)}
+                disabled={page?.slug === 'login'}
                 data-testid="input-rename-title"
               />
             </div>
@@ -1904,46 +1923,53 @@ export default function CanvasPageEditorPage() {
                 id="rename-slug"
                 value={renameSlug}
                 onChange={(e) => setRenameSlug(e.target.value.toLowerCase())}
+                disabled={page?.slug === 'login'}
                 data-testid="input-rename-slug"
               />
-              <p className="text-xs text-slate-500 mt-1">
-                Lowercase letters, numbers, and hyphens only
-              </p>
+              {page?.slug !== 'login' && (
+                <p className="text-xs text-slate-500 mt-1">
+                  Lowercase letters, numbers, and hyphens only
+                </p>
+              )}
             </div>
-            <div>
-              <Label htmlFor="rename-layout-type">View Type</Label>
-              <Select value={renameViewType} onValueChange={setRenameViewType}>
-                <SelectTrigger id="rename-layout-type" data-testid="select-rename-layout-type">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="public">Public (Anyone can view, header &amp; footer)</SelectItem>
-                  <SelectItem value="public_no_chrome">Public — no header or footer</SelectItem>
-                  <SelectItem value="public_header_only">Public — header only</SelectItem>
-                  <SelectItem value="public_footer_only">Public — footer only</SelectItem>
-                  <SelectItem value="member">Portal (Members only, with sidebar)</SelectItem>
-                  <SelectItem value="hybrid">Hybrid (Anyone can view, members see portal)</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-slate-500 mt-1">
-                {VIEW_TYPE_HELP[renameViewType]}
-              </p>
-            </div>
+            {page?.slug !== 'login' && (
+              <div>
+                <Label htmlFor="rename-layout-type">View Type</Label>
+                <Select value={renameViewType} onValueChange={setRenameViewType}>
+                  <SelectTrigger id="rename-layout-type" data-testid="select-rename-layout-type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="public">Public (Anyone can view, header &amp; footer)</SelectItem>
+                    <SelectItem value="public_no_chrome">Public — no header or footer</SelectItem>
+                    <SelectItem value="public_header_only">Public — header only</SelectItem>
+                    <SelectItem value="public_footer_only">Public — footer only</SelectItem>
+                    <SelectItem value="member">Portal (Members only, with sidebar)</SelectItem>
+                    <SelectItem value="hybrid">Hybrid (Anyone can view, members see portal)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-slate-500 mt-1">
+                  {VIEW_TYPE_HELP[renameViewType]}
+                </p>
+              </div>
+            )}
             {renameError && (
               <p className="text-sm text-destructive" data-testid="text-rename-error">{renameError}</p>
             )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowRenameDialog(false)} data-testid="button-rename-cancel">
-              Cancel
+              {page?.slug === 'login' ? 'Close' : 'Cancel'}
             </Button>
-            <Button
-              onClick={handleRenameSubmit}
-              disabled={updatePageMetaMutation.isPending}
-              data-testid="button-rename-save"
-            >
-              {updatePageMetaMutation.isPending ? 'Saving…' : 'Save'}
-            </Button>
+            {page?.slug !== 'login' && (
+              <Button
+                onClick={handleRenameSubmit}
+                disabled={updatePageMetaMutation.isPending}
+                data-testid="button-rename-save"
+              >
+                {updatePageMetaMutation.isPending ? 'Saving…' : 'Save'}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

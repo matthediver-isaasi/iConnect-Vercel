@@ -378,11 +378,35 @@ import ExternalWriters from "./ExternalWriters";
 
 import PhotoGalleries from "./PhotoGalleries";
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 import { LayoutProvider } from '@/contexts/LayoutContext';
 import PlanQuotaDialog from '@/components/PlanQuotaDialog';
 import { ArticleUrlProvider } from '@/contexts/ArticleUrlContext';
+import { useQuery } from '@tanstack/react-query';
+import { publicClient } from '@/api/publicClient';
+const CanvasPageRenderer = lazy(() => import('@/components/canvas/CanvasPageRenderer'));
+
+function SmartLoginRoute() {
+    const { data, isLoading } = useQuery({
+        queryKey: ['public-canvas-login-page'],
+        queryFn: () => publicClient.getPage('login'),
+        staleTime: 60_000,
+        retry: false,
+    });
+    if (isLoading) return null;
+    const page = data?.page;
+    const blocks = (page?.canvas_design?.root?.sections || []).flatMap(s => s.children || []);
+    const hasLoginBlock = blocks.some(b => b.type === 'login-form');
+    if (page?.builder_type === 'canvas' && page?.status === 'published' && hasLoginBlock) {
+        return (
+            <Suspense fallback={null}>
+                <CanvasPageRenderer page={page} symbols={data?.symbols} />
+            </Suspense>
+        );
+    }
+    return <Login />;
+}
 
 // ScrollToTop component - scrolls to top on pathname changes, preserves anchor navigation
 function ScrollToTop() {
@@ -779,9 +803,9 @@ function PagesContent() {
                 {/* VerifyMagicLink route removed - using password auth */}
                 {/* TestLogin routes removed - no longer needed */}
                 
-                <Route path="/Login" element={<Login />} />
-                <Route path="/login" element={<Login />} />
-                <Route path="/auth/login" element={<Login />} />
+                <Route path="/Login" element={<SmartLoginRoute />} />
+                <Route path="/login" element={<SmartLoginRoute />} />
+                <Route path="/auth/login" element={<SmartLoginRoute />} />
                 
 {/* Signup routes moved outside Layout - see StandaloneRoutes */}
                 

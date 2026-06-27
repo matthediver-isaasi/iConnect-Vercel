@@ -178,6 +178,8 @@ export const BLOCK_TYPES = {
   // Reusable section symbols (Phase 7). A symbol block stores a `symbolId`
   // and is rendered by inlining the referenced canvas_symbol design.
   SYMBOL: 'symbol',
+  // System: tenant-customisable login form block (fixed size, position-only).
+  LOGIN_FORM: 'login-form',
 };
 
 // Block types that support the "full-bleed" treatment — a true 100vw
@@ -1187,6 +1189,14 @@ BLOCK_DEFAULTS[BLOCK_TYPES.SYMBOL] = {
   geom: { w: 600, h: 240 },
   style: { background: 'transparent', borderWidth: 0 },
   content: { symbolId: '', symbolName: '' },
+};
+
+// Login form block: fixed 448×520 card — position-only (no resize handles).
+BLOCK_DEFAULTS[BLOCK_TYPES.LOGIN_FORM] = {
+  name: 'Login Form',
+  geom: { w: 448, h: 520 },
+  style: { background: 'transparent', borderWidth: 0 },
+  content: {},
 };
 
 export function getBlockDefaults(type) {
