@@ -22,7 +22,8 @@ import {
 import { evaluateTermLimit } from "@/lib/memberGroupTermSnapshot";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Users, Plus, Pencil, Trash2, UserPlus, X, Copy, ListPlus, CheckSquare, Calendar, Loader2, Crown, Tag, Mail, Send, RotateCw, CheckCircle2, XCircle, Clock, AlertTriangle } from "lucide-react";
+import { Users, Plus, Pencil, Trash2, UserPlus, X, Copy, ListPlus, CheckSquare, Calendar, Loader2, Crown, Tag, Mail, Send, RotateCw, CheckCircle2, XCircle, Clock, AlertTriangle, ChevronDown } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { format } from "date-fns";
@@ -90,6 +91,7 @@ export default function MemberGroupManagementPage() {
   const [classificationName, setClassificationName] = useState('');
   const [classificationToDelete, setClassificationToDelete] = useState(null);
   const [membersModalGroupId, setMembersModalGroupId] = useState(null);
+  const [torOpen, setTorOpen] = useState(false);
   const [groupForm, setGroupForm] = useState({
     name: '',
     description: '',
@@ -496,10 +498,12 @@ export default function MemberGroupManagementPage() {
       decline_email_template_id: ''
     });
     setGroupSubcategorySearch('');
+    setTorOpen(false);
     setEditingGroup(null);
   };
 
   const handleEditGroup = (group) => {
+    setTorOpen(false);
     setEditingGroup(group);
     setGroupForm({
       name: group.name,
@@ -1556,7 +1560,7 @@ export default function MemberGroupManagementPage() {
         )}
 
         {/* Create/Edit Group Dialog */}
-        <Dialog open={showGroupDialog} onOpenChange={setShowGroupDialog}>
+        <Dialog open={showGroupDialog} onOpenChange={(open) => { setShowGroupDialog(open); if (!open) { setTorOpen(false); } }}>
           <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col">
             <DialogHeader>
               <DialogTitle>{editingGroup ? 'Edit Group' : 'Create New Group'}</DialogTitle>
@@ -1582,17 +1586,34 @@ export default function MemberGroupManagementPage() {
                 />
               </div>
 
-              <div>
-                <Label htmlFor="terms_of_reference">Terms of reference</Label>
-                <SimpleRichTextEditor
-                  content={groupForm.terms_of_reference}
-                  onChange={(html) => setGroupForm({ ...groupForm, terms_of_reference: html })}
-                  placeholder="Terms of reference members must agree to before joining..."
-                  className="min-h-[260px] [&_.tiptap]:min-h-[220px]"
-                  data-testid="input-group-terms-of-reference"
-                />
-                <p className="text-xs text-slate-500 mt-1">Optional. When set, members must read and agree to this before they can join from the group's detail page.</p>
-              </div>
+              <Collapsible open={torOpen} onOpenChange={setTorOpen}>
+                <CollapsibleTrigger asChild>
+                  <button
+                    type="button"
+                    aria-expanded={torOpen}
+                    className="flex w-full items-center justify-between rounded-md py-1 text-sm font-medium hover-elevate"
+                    data-testid="button-toggle-terms-of-reference"
+                  >
+                    <span>Terms of reference</span>
+                    <ChevronDown
+                      className="h-4 w-4 text-muted-foreground transition-transform duration-200"
+                      style={{ transform: torOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}
+                    />
+                  </button>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="pt-2">
+                    <SimpleRichTextEditor
+                      content={groupForm.terms_of_reference}
+                      onChange={(html) => setGroupForm({ ...groupForm, terms_of_reference: html })}
+                      placeholder="Terms of reference members must agree to before joining..."
+                      className="min-h-[260px] [&_.tiptap]:min-h-[220px]"
+                      data-testid="input-group-terms-of-reference"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">Optional. When set, members must read and agree to this before they can join from the group's detail page.</p>
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
 
               <div>
                 <Label htmlFor="linkedin_url">LinkedIn URL</Label>
