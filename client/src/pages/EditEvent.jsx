@@ -1478,7 +1478,7 @@ export default function EditEvent() {
       summary: formData.summary || null,
       description: formData.description || null,
       internal_reference: formData.internal_reference || null,
-      xero_account_code: formData.xero_account_code || null,
+      xero_account_code: isGroupLimited ? null : (formData.xero_account_code || null),
       event_type: serializeEventTypes(formData.event_type),
       // For one-off events, program_tag should be empty string; for program events, use the selected program
       // Visibility is determined by program_tag: empty = one-off event, non-empty = program event
@@ -2518,6 +2518,7 @@ export default function EditEvent() {
                 </div>
                 )}
 
+                {!isGroupLimited && (
                 <div className="space-y-2">
                   <Label htmlFor="xero_account_code">Xero Account Code</Label>
                   <Input
@@ -2536,6 +2537,7 @@ export default function EditEvent() {
                       : "Using default from Event Settings. Set a value here to override."}
                   </p>
                 </div>
+                )}
               </div>
 
               {eventTypes.length > 0 && !isGroupLimited && (
