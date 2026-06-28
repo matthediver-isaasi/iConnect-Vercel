@@ -366,6 +366,13 @@ export const BLOCK_DEFAULTS = {
       href: '',
       objectFit: 'cover', // cover | contain | fill | none | scale-down
       fullBleed: false,
+      // When full-bleed is on the block spans 100vw; heightMode controls how
+      // its height is resolved on published pages:
+      //   'auto' (default) — use the block geometry height (drag-to-resize)
+      //   'px'             — fixed pixel height from heightValue
+      //   'vh'             — viewport-relative height (heightValue + 'vh')
+      heightMode: 'auto',
+      heightValue: null,
       // Font Awesome icon (alternative to image)
       iconClass: '',
       iconSize: 64,
@@ -2148,8 +2155,24 @@ function fmtPx(n) {
   return `${Math.round(Number(n) || 0)}px`;
 }
 
-function geomRule(geom, { fullBleed, fullWidth } = {}) {
+// Resolve an explicit CSS height override for a block, or null to fall back to
+// the geometry height. Currently only the Image block supports this, and only
+// when full-bleed is on (see the Image block defaults). Returns a CSS length
+// string (e.g. '40vh', '300px') or null for the default 'auto' behaviour.
+export function resolveBlockHeightCss(block) {
+  const c = block && block.content;
+  if (!c) return null;
+  if (block.type !== BLOCK_TYPES.IMAGE || !c.fullBleed) return null;
+  const v = Number(c.heightValue);
+  if (!Number.isFinite(v) || v <= 0) return null;
+  if (c.heightMode === 'px') return fmtPx(v);
+  if (c.heightMode === 'vh') return `${v}vh`;
+  return null;
+}
+
+function geomRule(geom, { fullBleed, fullWidth, heightCss } = {}) {
   if (geom.hidden) return 'display:none;';
+  const h = heightCss || fmtPx(geom.h);
   if (fullBleed) {
     return [
       'display:block;',
@@ -2158,7 +2181,7 @@ function geomRule(geom, { fullBleed, fullWidth } = {}) {
       'transform:translateX(-50%);',
       'width:100vw;',
       `top:${fmtPx(geom.y)};`,
-      `height:${fmtPx(geom.h)};`,
+      `height:${h};`,
     ].join('');
   }
   if (fullWidth) {
@@ -2168,7 +2191,7 @@ function geomRule(geom, { fullBleed, fullWidth } = {}) {
       'left:0;',
       'width:100%;',
       `top:${fmtPx(geom.y)};`,
-      `height:${fmtPx(geom.h)};`,
+      `height:${h};`,
     ].join('');
   }
   return [
@@ -2297,8 +2320,9 @@ export function buildCanvasCss(blocks, scope) {
     const sel = `${sc} [data-cb="${id}"]`;
     const fullBleed = blockSupportsFullBleed(b.type) && !!(b.content && b.content.fullBleed);
     const fullWidth = !!b.fullWidth;
+    const heightCss = resolveBlockHeightCss(b);
     const dG = resolveBlockAtBreakpoint(b, 'desktop');
-    lines.push(`${sel}{${geomRule(dG, { fullBleed, fullWidth })}}`);
+    lines.push(`${sel}{${geomRule(dG, { fullBleed, fullWidth, heightCss })}}`);
   }
 
   // Task #972: per-block CSS variables for per-device text/icon sizes
@@ -2322,6 +2346,7 @@ export function buildCanvasCss(blocks, scope) {
     const sel = `${sc} [data-cb="${id}"]`;
     const fullBleed = blockSupportsFullBleed(b.type) && !!(b.content && b.content.fullBleed);
     const fullWidth = !!b.fullWidth;
+    const heightCss = resolveBlockHeightCss(b);
     const dG = resolveBlockAtBreakpoint(b, 'desktop');
     const tG = resolveBlockAtBreakpoint(b, 'tablet');
     // Full-width / full-bleed blocks have their x/w forced by geomRule
@@ -2333,7 +2358,7 @@ export function buildCanvasCss(blocks, scope) {
       ? (tG.y !== dG.y || tG.h !== dG.h || !!tG.hidden !== !!dG.hidden)
       : (tG.x !== dG.x || tG.y !== dG.y || tG.w !== dG.w || tG.h !== dG.h || !!tG.hidden !== !!dG.hidden);
     if (geomDiffers) {
-      tabletRules.push(`${sel}{${geomRule(tG, { fullBleed, fullWidth })}}`);
+      tabletRules.push(`${sel}{${geomRule(tG, { fullBleed, fullWidth, heightCss })}}`);
     }
   }
   // Task #972: tablet var diffs — only emit keys that differ from the
@@ -2366,6 +2391,7 @@ export function buildCanvasCss(blocks, scope) {
     const sel = `${sc} [data-cb="${id}"]`;
     const fullBleed = blockSupportsFullBleed(b.type) && !!(b.content && b.content.fullBleed);
     const fullWidth = !!b.fullWidth;
+    const heightCss = resolveBlockHeightCss(b);
     const tG = resolveBlockAtBreakpoint(b, 'tablet');
     const mG = resolveBlockAtBreakpoint(b, 'mobile');
     const fwLike = fullWidth || fullBleed;
@@ -2373,7 +2399,7 @@ export function buildCanvasCss(blocks, scope) {
       ? (mG.y !== tG.y || mG.h !== tG.h || !!mG.hidden !== !!tG.hidden)
       : (mG.x !== tG.x || mG.y !== tG.y || mG.w !== tG.w || mG.h !== tG.h || !!mG.hidden !== !!tG.hidden);
     if (geomDiffers) {
-      mobileRules.push(`${sel}{${geomRule(mG, { fullBleed, fullWidth })}}`);
+      mobileRules.push(`${sel}{${geomRule(mG, { fullBleed, fullWidth, heightCss })}}`);
     }
   }
   // Task #972: mobile var diffs — compare against tablet (which already

@@ -10,6 +10,7 @@ import {
   stageHeightForBreakpoint,
   BLOCK_TYPES,
   blockSupportsFullBleed,
+  resolveBlockHeightCss,
 } from "@/lib/canvasDesign";
 import { getBlockDefinition } from "./blocks/registry";
 import { AccordionReflowProvider, useAccordionReflow } from "./AccordionReflowContext";
@@ -173,7 +174,8 @@ function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint, windowBp }) {
     const fullBleed = blockSupportsFullBleed(block.type) && !!(block.content && block.content.fullBleed);
     const fullWidth = !!block.fullWidth;
     const top = g.y + topOffset;
-    const height = isAutoHeight ? 'auto' : g.h + sectionGrowth;
+    const heightOverride = resolveBlockHeightCss(block);
+    const height = heightOverride || (isAutoHeight ? 'auto' : g.h + sectionGrowth);
     if (fullBleed) {
       forcedStyle = { position: 'absolute', left: '50%', transform: 'translateX(-50%)', width: '100vw', top, height };
     } else if (fullWidth) {

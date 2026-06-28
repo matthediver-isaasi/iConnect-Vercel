@@ -2087,6 +2087,32 @@ function ImageInspector({ block, update }) {
         onChange={(v) => set({ fullBleed: v })}
         testId="toggle-image-full-bleed"
       />
+      {c.fullBleed && (
+        <>
+          <SelectField
+            label="Height mode"
+            value={c.heightMode || 'auto'}
+            onChange={(v) => set({ heightMode: v })}
+            options={[
+              { value: 'auto', label: 'Auto (drag to resize)' },
+              { value: 'px', label: 'Fixed (px)' },
+              { value: 'vh', label: 'Viewport height (vh)' },
+            ]}
+            testId="select-image-height-mode"
+          />
+          {(c.heightMode === 'px' || c.heightMode === 'vh') && (
+            <NumberField
+              label={c.heightMode === 'vh' ? 'Height (vh)' : 'Height (px)'}
+              value={Number.isFinite(c.heightValue) ? c.heightValue : (c.heightMode === 'vh' ? 40 : 300)}
+              onChange={(v) => set({ heightValue: Number.isFinite(v) ? v : null })}
+              min={1}
+              max={c.heightMode === 'vh' ? 100 : 2000}
+              step={1}
+              testId="input-image-height-value"
+            />
+          )}
+        </>
+      )}
       {!iconClass && (
         <SelectField
           label="Object fit"
