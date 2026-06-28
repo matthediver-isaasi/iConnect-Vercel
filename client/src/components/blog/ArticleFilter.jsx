@@ -4,6 +4,8 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Search, X, ChevronRight, ChevronDown } from "lucide-react";
 
+const DEFAULT_ARTICLE_CATEGORY_TITLE_COLOR = '#7e22ce';
+
 export default function ArticleFilter({ 
   categories,
   selectedSubcategories,
@@ -12,7 +14,8 @@ export default function ArticleFilter({
   onSearchChange,
   onClearSearch,
   isLoading = false,
-  displayName = 'Articles'
+  displayName = 'Articles',
+  categoryTitleColor = DEFAULT_ARTICLE_CATEGORY_TITLE_COLOR
 }) {
   const [openCategories, setOpenCategories] = React.useState({});
   const [expandedSubcategories, setExpandedSubcategories] = React.useState({});
@@ -186,7 +189,8 @@ export default function ArticleFilter({
             <div key={category.id} className="border-b border-slate-200 py-3">
               <button
                 onClick={() => toggleCategory(category.name)}
-                className="w-full flex items-center justify-between px-2 py-1.5 text-sm font-semibold rounded-md transition-colors text-left hover:bg-slate-100 text-purple-700"
+                className="w-full flex items-center justify-between px-2 py-1.5 text-sm font-semibold rounded-md transition-colors text-left hover:bg-slate-100"
+                style={{ color: categoryTitleColor }}
               >
                 <div className="flex items-center gap-2 flex-1">
                   <span className="break-words">{category.name}</span>

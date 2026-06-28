@@ -17,11 +17,16 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useBlogPostRealtime } from "@/hooks/useBlogPostRealtime";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 import { useLayoutContext } from "@/contexts/LayoutContext";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
+
+const DEFAULT_ARTICLE_CATEGORY_TITLE_COLOR = '#7e22ce';
 
 export default function ArticlesPage() {
   useBlogPostRealtime(['published-articles']);
   const { hasBanner, sessionValidated } = useLayoutContext();
   const { memberInfo, isFeatureExcluded } = useMemberAccess();
+  const tenantBranding = useTenantBranding()?.branding;
+  const categoryTitleColor = tenantBranding?.brandingConfig?.resourceCategoryTitleColor || DEFAULT_ARTICLE_CATEGORY_TITLE_COLOR;
   
   const isAuthenticated = sessionValidated && !!memberInfo;
   const { getArticleEditorUrl } = useArticleUrl();
@@ -645,6 +650,7 @@ export default function ArticlesPage() {
                 onClearSearch={() => setSearchQuery("")}
                 isLoading={categoriesLoading}
                 displayName={articleDisplayName}
+                categoryTitleColor={categoryTitleColor}
               />
 
               {memberInfo && hasUnsavedChanges && (
