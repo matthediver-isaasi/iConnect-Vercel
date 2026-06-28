@@ -374,6 +374,37 @@ function gridStyle(cols, gap) {
   };
 }
 
+// Renders a set of sponsor items as a row-by-row flex layout so that any
+// under-full row (including the last row of a multi-row dataset) is centered
+// independently. Each card keeps the same fixed width as in a normal `cols`-
+// column grid: calc((100% - (cols-1)*gap) / cols).
+function chunkedGrid(items, cols, gap, renderCard) {
+  const g = gap ?? 16;
+  const cardBasis = `calc((100% - ${Math.max(0, cols - 1) * g}px) / ${cols})`;
+  const rows = [];
+  for (let i = 0; i < items.length; i += cols) rows.push(items.slice(i, i + cols));
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: `${g}px` }}>
+      {rows.map((row, ri) => (
+        <div
+          key={ri}
+          style={{
+            display: 'flex',
+            gap: `${g}px`,
+            justifyContent: row.length < cols ? 'center' : undefined,
+          }}
+        >
+          {row.map((item) => (
+            <div key={item.id} style={{ flex: `0 0 ${cardBasis}`, minWidth: 0 }}>
+              {renderCard(item)}
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Heading({ level = 2, children }) {
   const H = `h${Math.max(1, Math.min(6, level))}`;
   return <H className="text-xl font-semibold mb-3 text-slate-900">{children}</H>;
@@ -2825,6 +2856,7 @@ function SponsorGridRender({ block, breakpoint, asEditor }) {
   const showHeadings = c.showCategoryHeadings !== false;
   const showDescription = c.showDescription !== false;
   const showSponsorDetail = c.showSponsorDetail === true;
+  const centerAlign = c.centerAlign === true;
 
   // Whether the block has an empty-category CTA configured.
   const hasEmptyCatContent = !!(c.emptyCatMessage || c.emptyCatCtaLabel);
@@ -2873,11 +2905,17 @@ function SponsorGridRender({ block, breakpoint, asEditor }) {
     }
     return (
       <div className="w-full h-full overflow-auto" aria-label={block.a11y?.ariaLabel || 'Sponsors'} data-testid="sponsor-grid">
-        <div style={gridStyle(cols, gap)}>
-          {all.map((s) => (
-            <SponsorCard key={s.id} sponsor={s} showDescription={showDescription} showSponsorDetail={showSponsorDetail} detail={detailById.get(String(s.id))} nameStyle={nameStyle} descStyle={descStyle} onClick={() => setSelected(s)} />
-          ))}
-        </div>
+        {centerAlign
+          ? chunkedGrid(all, cols, gap, (s) => (
+              <SponsorCard sponsor={s} showDescription={showDescription} showSponsorDetail={showSponsorDetail} detail={detailById.get(String(s.id))} nameStyle={nameStyle} descStyle={descStyle} onClick={() => setSelected(s)} />
+            ))
+          : (
+            <div style={gridStyle(cols, gap)}>
+              {all.map((s) => (
+                <SponsorCard key={s.id} sponsor={s} showDescription={showDescription} showSponsorDetail={showSponsorDetail} detail={detailById.get(String(s.id))} nameStyle={nameStyle} descStyle={descStyle} onClick={() => setSelected(s)} />
+              ))}
+            </div>
+          )}
 
         {/* Single-sponsor detail dialog */}
         <Dialog open={!!selected} onOpenChange={(o) => { if (!o) setSelected(null); }}>
@@ -2951,7 +2989,11 @@ function SponsorGridRender({ block, breakpoint, asEditor }) {
                   </TenantCtaButton>
                 ) : null}
               </div>
-            ) : (
+            ) : centerAlign
+              ? chunkedGrid(cat.sponsors, cols, gap, (s) => (
+                  <SponsorCard sponsor={s} showDescription={showDescription} showSponsorDetail={showSponsorDetail} detail={detailById.get(String(s.id))} nameStyle={nameStyle} descStyle={descStyle} onClick={() => setSelected(s)} />
+                ))
+              : (
               <div style={gridStyle(cols, gap)}>
                 {cat.sponsors.map((s) => (
                   <SponsorCard key={s.id} sponsor={s} showDescription={showDescription} showSponsorDetail={showSponsorDetail} detail={detailById.get(String(s.id))} nameStyle={nameStyle} descStyle={descStyle} onClick={() => setSelected(s)} />
@@ -3050,6 +3092,13 @@ function SponsorGridInspector({ block, update, breakpoint }) {
         value={c.showCategoryHeadings !== false}
         onChange={(v) => set({ showCategoryHeadings: v })}
         testId="toggle-sponsor-grid-headings"
+      />
+      <ToggleField
+        label="Center align"
+        value={c.centerAlign === true}
+        onChange={(v) => set({ centerAlign: v })}
+        testId="toggle-sponsor-grid-center-align"
+        hint="Centers rows that have fewer sponsors than the configured number of columns."
       />
       <TextField
         label="Empty state text"
@@ -3261,6 +3310,7 @@ function SponsorCarouselRender({ block, asEditor, breakpoint }) {
   const showIndicators = hasMany && c.showIndicators !== false;
   const showDescription = c.showDescription !== false;
   const showSponsorDetail = c.showSponsorDetail === true;
+  const centerAlign = c.centerAlign === true;
 
   // Responsive font sizing — inline px literal in forced-breakpoint preview,
   // CSS var (driven by buildCanvasCss @media rules) on real public pages.
@@ -3285,12 +3335,15 @@ function SponsorCarouselRender({ block, asEditor, breakpoint }) {
 
   const openSponsor = (s) => { setSelected(s); setAutoplayPausedAt(Date.now()); };
 
-  // Current page's sponsors; padded to `perView` so the last (short) page keeps
-  // equal-width slots instead of stretching the remaining cards.
+  // Current page's sponsors. When centerAlign is off, pad to `perView` so the
+  // last (short) page keeps equal-width slots. When centerAlign is on, use the
+  // real cards only so they can be centered without empty ghost columns.
   const pageSponsors = sponsors.slice(index * perView, index * perView + perView);
-  const pageSlice = perView > 1
-    ? Array.from({ length: perView }, (_, i) => pageSponsors[i] || null)
-    : pageSponsors;
+  const pageSlice = centerAlign
+    ? pageSponsors
+    : perView > 1
+      ? Array.from({ length: perView }, (_, i) => pageSponsors[i] || null)
+      : pageSponsors;
 
   return (
     <div
@@ -3314,9 +3367,16 @@ function SponsorCarouselRender({ block, asEditor, breakpoint }) {
           direction={direction}
           slideKey={index}
         >
-          <div className="w-full h-full flex items-stretch px-8 py-4" style={{ gap: `${gap}px` }}>
+          <div
+            className="w-full h-full flex items-stretch px-8 py-4"
+            style={{ gap: `${gap}px`, justifyContent: centerAlign && pageSlice.length < perView ? 'center' : undefined }}
+          >
             {pageSlice.map((s, i) => (
-              <div key={s ? s.id : `empty-${index}-${i}`} className="flex-1 min-w-0">
+              <div
+                key={s ? s.id : `empty-${index}-${i}`}
+                style={centerAlign ? { flex: `0 0 calc((100% - ${(perView - 1) * gap}px) / ${perView})`, minWidth: 0 } : undefined}
+                className={centerAlign ? undefined : 'flex-1 min-w-0'}
+              >
                 {s && s.__emptyCta ? (
                   <div
                     className="rounded-md border border-slate-200 bg-white overflow-hidden flex flex-col h-full items-center justify-center gap-3 p-6 text-center"
@@ -3524,6 +3584,13 @@ function SponsorCarouselInspector({ block, update, breakpoint }) {
         value={!!c.pauseOnHover}
         onChange={(v) => set({ pauseOnHover: v })}
         testId="toggle-sponsor-carousel-pause-hover"
+      />
+      <ToggleField
+        label="Center align"
+        value={c.centerAlign === true}
+        onChange={(v) => set({ centerAlign: v })}
+        testId="toggle-sponsor-carousel-center-align"
+        hint="Centers the last (short) page when it has fewer sponsors than the sponsors-per-page count."
       />
 
       <div className="pt-2 mt-2 border-t border-slate-200">
