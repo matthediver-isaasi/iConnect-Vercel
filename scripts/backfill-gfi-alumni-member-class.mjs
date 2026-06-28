@@ -263,7 +263,15 @@ async function collectAlumniMembers(tenantId, roleId) {
 
     if (mrErr) {
       // If the table doesn't exist or is inaccessible, warn and continue with primary results.
-      if (mrErr.code === '42P01' || mrErr.message?.includes('does not exist')) {
+      // Postgres reports a missing relation as 42P01 / "does not exist", while PostgREST
+      // (supabase-js) reports it as PGRST205 / "Could not find the table ... in the schema cache".
+      const isMissingTable =
+        mrErr.code === '42P01' ||
+        mrErr.code === 'PGRST205' ||
+        mrErr.message?.includes('does not exist') ||
+        mrErr.message?.includes('Could not find the table') ||
+        mrErr.message?.includes('schema cache');
+      if (isMissingTable) {
         console.log('  NOTE: member_role table not found — skipping multi-role association check.');
         break;
       }
