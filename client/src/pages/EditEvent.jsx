@@ -188,6 +188,28 @@ export default function EditEvent() {
     setEventTiming(newTiming);
   };
 
+  const { data: event, isLoading: loadingEvent, error: eventError } = useQuery({
+    queryKey: ['event', eventId],
+    queryFn: () => base44.entities.Event.get(eventId),
+    enabled: !!eventId
+  });
+
+  // Derived group-limited state (depends on the loaded event).
+  // Any event that belongs to a member group is edited in the reduced/gated
+  // group-event UI — including for tenant admins — so the client never offers
+  // options (paid tickets, Zoom, group switching) the server rejects for group
+  // events. The URL params keep entering directly from the group surfaces fast.
+  const groupId = groupIdParam || event?.member_group_id || null;
+  const isGroupLimited = (groupEventParam && !!groupIdParam) || !!event?.member_group_id;
+
+  // Resolve the locked group's name for the read-only banner.
+  const { data: limitedGroup } = useQuery({
+    queryKey: ['/api/entities/MemberGroup', groupId],
+    queryFn: () => base44.entities.MemberGroup.get(groupId),
+    enabled: isGroupLimited && !!groupId
+  });
+  const groupName = limitedGroup?.name || '';
+
   // Ticket classes state for one-off events
   const [ticketClasses, setTicketClasses] = useState([createEmptyTicketClass(true)]);
   const [expandedTickets, setExpandedTickets] = useState({});
@@ -269,28 +291,6 @@ export default function EditEvent() {
     zoom_meeting_id: null,
     online_meeting_url: ""
   });
-
-  const { data: event, isLoading: loadingEvent, error: eventError } = useQuery({
-    queryKey: ['event', eventId],
-    queryFn: () => base44.entities.Event.get(eventId),
-    enabled: !!eventId
-  });
-
-  // Derived group-limited state (depends on the loaded event).
-  // Any event that belongs to a member group is edited in the reduced/gated
-  // group-event UI — including for tenant admins — so the client never offers
-  // options (paid tickets, Zoom, group switching) the server rejects for group
-  // events. The URL params keep entering directly from the group surfaces fast.
-  const groupId = groupIdParam || event?.member_group_id || null;
-  const isGroupLimited = (groupEventParam && !!groupIdParam) || !!event?.member_group_id;
-
-  // Resolve the locked group's name for the read-only banner.
-  const { data: limitedGroup } = useQuery({
-    queryKey: ['/api/entities/MemberGroup', groupId],
-    queryFn: () => base44.entities.MemberGroup.get(groupId),
-    enabled: isGroupLimited && !!groupId
-  });
-  const groupName = limitedGroup?.name || '';
 
   // State to track if timezone fetch failed
   const [timezoneFetchFailed, setTimezoneFetchFailed] = useState(false);
