@@ -1,0 +1,53 @@
+index-DHa0yYw-.js:1517 [publicClient] Detected tenant from subdomain: bnms
+index-DHa0yYw-.js:1602 GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.93.3) 2026-06-28T08:27:59.875Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+K4 @ index-DHa0yYw-.js:1602
+index-DHa0yYw-.js:1910 [usePendingPurchaseOrders] memberInfo: null
+index-DHa0yYw-.js:1910 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DHa0yYw-.js:1915 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DHa0yYw-.js:1915 [Layout] currentPageName: EditEvent currentPortalPageId: null
+index-DHa0yYw-.js:1910 [usePendingPurchaseOrders] memberInfo: Object
+index-DHa0yYw-.js:1910 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DHa0yYw-.js:1915 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DHa0yYw-.js:1915 [Layout] currentPageName: EditEvent currentPortalPageId: null
+index-DHa0yYw-.js:1910 [usePendingPurchaseOrders] Query running, memberInfo.id: f42f03b5-5ed7-441b-aac5-972038427e59
+index-DHa0yYw-.js:1910 [usePendingPurchaseOrders] memberInfo: Object
+index-DHa0yYw-.js:1910 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DHa0yYw-.js:1915 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DHa0yYw-.js:1915 [Layout] currentPageName: EditEvent currentPortalPageId: null
+index-DHa0yYw-.js:1910 [usePendingPurchaseOrders] memberInfo: Object
+index-DHa0yYw-.js:1910 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DHa0yYw-.js:1915 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DHa0yYw-.js:1915 [Layout] currentPageName: EditEvent currentPortalPageId: null
+index-DHa0yYw-.js:1910 [usePendingPurchaseOrders] memberInfo: Object
+index-DHa0yYw-.js:1910 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DHa0yYw-.js:1915 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DHa0yYw-.js:1915 [Layout] currentPageName: EditEvent currentPortalPageId: null
+index-DHa0yYw-.js:1910 [usePendingPurchaseOrders] memberInfo: Object
+index-DHa0yYw-.js:1910 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DHa0yYw-.js:1915 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DHa0yYw-.js:1915 [Layout] currentPageName: EditEvent currentPortalPageId: null
+index-DHa0yYw-.js:41 ReferenceError: Cannot access 'Nt' before initialization
+    at iVe (index-DHa0yYw-.js:4502:171263)
+    at gZ (index-DHa0yYw-.js:39:17071)
+    at ske (index-DHa0yYw-.js:41:44253)
+    at ZSe (index-DHa0yYw-.js:41:39953)
+    at oGe (index-DHa0yYw-.js:41:39876)
+    at VI (index-DHa0yYw-.js:41:39725)
+    at RK (index-DHa0yYw-.js:41:36072)
+    at Mle (index-DHa0yYw-.js:41:36878)
+    at oj (index-DHa0yYw-.js:39:3302)
+    at index-DHa0yYw-.js:41:34389
+wK @ index-DHa0yYw-.js:41
+index-DHa0yYw-.js:39 Uncaught ReferenceError: Cannot access 'Nt' before initialization
+    at iVe (index-DHa0yYw-.js:4502:171263)
+    at gZ (index-DHa0yYw-.js:39:17071)
+    at ske (index-DHa0yYw-.js:41:44253)
+    at ZSe (index-DHa0yYw-.js:41:39953)
+    at oGe (index-DHa0yYw-.js:41:39876)
+    at VI (index-DHa0yYw-.js:41:39725)
+    at RK (index-DHa0yYw-.js:41:36072)
+    at Mle (index-DHa0yYw-.js:41:36878)
+    at oj (index-DHa0yYw-.js:39:3302)
+    at index-DHa0yYw-.js:41:34389
+index-DHa0yYw-.js:1910 [usePendingPurchaseOrders] Fetched bookings count: 0
+index-DHa0yYw-.js:1910 [usePendingPurchaseOrders] Pending PO bookings: 0
