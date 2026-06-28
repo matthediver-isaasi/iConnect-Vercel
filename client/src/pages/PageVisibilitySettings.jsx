@@ -41,6 +41,7 @@ const CONFIGURABLE_PAGES = [
   { id: "Team", name: "Team", category: "Account", description: "Team management" },
   { id: "Preferences", name: "Preferences", category: "Account", description: "User preferences" },
   { id: "Support", name: "Support", category: "Account", description: "Support requests" },
+  { id: "MemberGroups", name: "Member Groups", category: "Account", description: "Member group listings and self-join" },
   
   // Forms
   { id: "FormView", name: "Form View", category: "Forms", description: "Public/member form pages" },
