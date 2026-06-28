@@ -676,6 +676,10 @@ export const BLOCK_DEFAULTS = {
       attributionTypographyStyleId: '',
       columns: { desktop: 3, tablet: 2, mobile: 1 },
       gap: 16,
+      innerPaddingTop: 0,
+      innerPaddingRight: 0,
+      innerPaddingBottom: 0,
+      innerPaddingLeft: 0,
       items: [
         {
           quote: 'Switching saved us hours every single week. The team is happier and our members notice the difference.',

@@ -6042,10 +6042,17 @@ function TestimonialGridRender({ block, breakpoint }) {
       ].filter(Boolean).join('') || null
     : null;
   const previewCols = isPreview ? resolveColumns(c.columns, breakpoint) : null;
+  const innerPaddingStyle = {
+    paddingTop: c.innerPaddingTop ?? 0,
+    paddingRight: c.innerPaddingRight ?? 0,
+    paddingBottom: c.innerPaddingBottom ?? 0,
+    paddingLeft: c.innerPaddingLeft ?? 0,
+  };
   return (
     <div className="w-full h-full overflow-auto">
       {responsiveCss && <style dangerouslySetInnerHTML={{ __html: responsiveCss }} />}
       {typographyResponsiveCss && <style dangerouslySetInnerHTML={{ __html: typographyResponsiveCss }} />}
+      <div style={innerPaddingStyle}>
       {c.heading && (
         <Heading
           data-tg-r="tg-heading"
@@ -6133,6 +6140,7 @@ function TestimonialGridRender({ block, breakpoint }) {
           </figure>
         ))}
       </div>
+      </div>
     </div>
   );
 }
@@ -6181,6 +6189,40 @@ function TestimonialGridInspector({ block, update }) {
         <NumberField label="Cols (mobile)" min={1} max={4} value={resolveColumns(c.columns, 'mobile')} onChange={(v) => setColumns('mobile', v)} testId="input-testimonial-grid-cols-mobile" />
       </div>
       <NumberField label="Gap (px)" min={0} max={64} value={c.gap || 16} onChange={(v) => set({ gap: Number(v) || 0 })} testId="input-testimonial-grid-gap" />
+      <div className="pt-2 mt-2 border-t border-slate-200">
+        <div className="text-xs font-semibold text-slate-700">Internal padding</div>
+        <p className="text-xs text-slate-500 mt-0.5">Space between the block background and the grid content, in px.</p>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <NumberField
+          label="Top"
+          min={0}
+          value={c.innerPaddingTop ?? 0}
+          onChange={(v) => set({ innerPaddingTop: Math.max(0, Number(v) || 0) })}
+          testId="input-testimonial-grid-inner-padding-top"
+        />
+        <NumberField
+          label="Right"
+          min={0}
+          value={c.innerPaddingRight ?? 0}
+          onChange={(v) => set({ innerPaddingRight: Math.max(0, Number(v) || 0) })}
+          testId="input-testimonial-grid-inner-padding-right"
+        />
+        <NumberField
+          label="Bottom"
+          min={0}
+          value={c.innerPaddingBottom ?? 0}
+          onChange={(v) => set({ innerPaddingBottom: Math.max(0, Number(v) || 0) })}
+          testId="input-testimonial-grid-inner-padding-bottom"
+        />
+        <NumberField
+          label="Left"
+          min={0}
+          value={c.innerPaddingLeft ?? 0}
+          onChange={(v) => set({ innerPaddingLeft: Math.max(0, Number(v) || 0) })}
+          testId="input-testimonial-grid-inner-padding-left"
+        />
+      </div>
       <Field label="Testimonials">
         <ArrayList
           items={c.items || []}
