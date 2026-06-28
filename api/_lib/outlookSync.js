@@ -1,5 +1,5 @@
 import { supabase } from './database.js';
-import { getAgentEmailsForTenant, isAgentOnlyEmail } from './agentEmails.js';
+import { getAgentEmailsForTenant, isAgentOnlyEmail, getOrgMapForTenant, isIntraOrgEmail } from './agentEmails.js';
 
 const MICROSOFT_CLIENT_ID = process.env.MICROSOFT_CLIENT_ID;
 const MICROSOFT_CLIENT_SECRET = process.env.MICROSOFT_CLIENT_SECRET;
@@ -88,14 +88,18 @@ export async function syncEmailsForConnection(connection, tenantId, options = {}
   }
 
   if (memberList.length === 0) {
-    return { synced: 0, agentOnlySkipped: 0, errors: [] };
+    return { synced: 0, agentOnlySkipped: 0, intraOrgSkipped: 0, errors: [] };
   }
 
   let totalSynced = 0;
   let agentOnlySkipped = 0;
+  let intraOrgSkipped = 0;
   const syncErrors = [];
 
-  const agentEmails = await getAgentEmailsForTenant(tenantId);
+  const [agentEmails, orgMap] = await Promise.all([
+    getAgentEmailsForTenant(tenantId),
+    getOrgMapForTenant(tenantId)
+  ]);
 
   const processLimit = memberId ? memberList.length : Math.min(memberList.length, 50);
 
@@ -139,6 +143,11 @@ export async function syncEmailsForConnection(connection, tenantId, options = {}
 
         if (isAgentOnlyEmail(fromAddress, toAddresses, ccAddresses, agentEmails)) {
           agentOnlySkipped++;
+          continue;
+        }
+
+        if (isIntraOrgEmail(fromAddress, toAddresses, ccAddresses, orgMap)) {
+          intraOrgSkipped++;
           continue;
         }
 
@@ -199,5 +208,5 @@ export async function syncEmailsForConnection(connection, tenantId, options = {}
     })
     .eq('id', connection.id);
 
-  return { synced: totalSynced, agentOnlySkipped, errors: syncErrors };
+  return { synced: totalSynced, agentOnlySkipped, intraOrgSkipped, errors: syncErrors };
 }

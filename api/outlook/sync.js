@@ -55,13 +55,15 @@ export default async function handler(req, res) {
       identityId
     });
 
-    console.log(`[Outlook Sync] Synced ${result.synced} emails, skipped ${result.agentOnlySkipped} agent-only emails for tenant ${session.tenantId}`);
+    console.log(`[Outlook Sync] Synced ${result.synced} emails, skipped ${result.agentOnlySkipped} agent-only, ${result.intraOrgSkipped} intra-org for tenant ${session.tenantId}`);
 
+    const totalSkipped = (result.agentOnlySkipped || 0) + (result.intraOrgSkipped || 0);
     res.status(200).json({
       synced: result.synced,
       agentOnlySkipped: result.agentOnlySkipped,
+      intraOrgSkipped: result.intraOrgSkipped,
       errors: result.errors.length > 0 ? result.errors : undefined,
-      message: `Synced ${result.synced} emails${result.agentOnlySkipped > 0 ? ` (${result.agentOnlySkipped} internal emails excluded)` : ''}`
+      message: `Synced ${result.synced} emails${totalSkipped > 0 ? ` (${totalSkipped} internal emails excluded)` : ''}`
     });
   } catch (error) {
     console.error('[Outlook Sync] Error:', error);

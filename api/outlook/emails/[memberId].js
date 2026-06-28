@@ -1,6 +1,6 @@
 import { getSession } from '../../_lib/session.js';
 import { supabase } from '../../_lib/database.js';
-import { getAgentEmailsForTenant, isAgentOnlyEmail } from '../../_lib/agentEmails.js';
+import { getAgentEmailsForTenant, isAgentOnlyEmail, getOrgMapForTenant, isIntraOrgEmail } from '../../_lib/agentEmails.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -48,10 +48,13 @@ export default async function handler(req, res) {
     const limit = parseInt(req.query.limit) || 50;
     const offset = parseInt(req.query.offset) || 0;
 
-    const agentEmails = await getAgentEmailsForTenant(session.tenantId);
+    const [agentEmails, orgMap] = await Promise.all([
+      getAgentEmailsForTenant(session.tenantId),
+      getOrgMapForTenant(session.tenantId)
+    ]);
 
     // Fetch emails for this member with a reasonable max limit
-    // We filter agent-only emails in memory to handle JSONB recipient arrays
+    // We filter agent-only and intra-org emails in memory to handle JSONB recipient arrays
     // Max 1000 emails per member to prevent memory issues
     const MAX_EMAILS_PER_MEMBER = 1000;
     const { data: allEmails, error: emailsError } = await supabase
@@ -68,11 +71,14 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to fetch emails' });
     }
 
-    // Filter out agent-only emails
+    // Filter out agent-only and intra-org emails
     const filteredEmails = (allEmails || []).filter(email => {
       const toAddresses = email.to_addresses || [];
       const ccAddresses = email.cc_addresses || [];
-      return !isAgentOnlyEmail(email.from_address, toAddresses, ccAddresses, agentEmails);
+      return (
+        !isAgentOnlyEmail(email.from_address, toAddresses, ccAddresses, agentEmails) &&
+        !isIntraOrgEmail(email.from_address, toAddresses, ccAddresses, orgMap)
+      );
     });
 
     // Apply pagination to filtered results

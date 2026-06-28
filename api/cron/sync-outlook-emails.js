@@ -70,10 +70,11 @@ export default async function handler(req, res) {
           connectionId: connection.id,
           synced: syncResult.synced,
           agentOnlySkipped: syncResult.agentOnlySkipped,
+          intraOrgSkipped: syncResult.intraOrgSkipped,
           errors: syncResult.errors.length
         });
 
-        console.log(`[cron/sync-outlook-emails] Connection ${connection.id}: synced ${syncResult.synced} emails, skipped ${syncResult.agentOnlySkipped} agent-only`);
+        console.log(`[cron/sync-outlook-emails] Connection ${connection.id}: synced ${syncResult.synced} emails, skipped ${syncResult.agentOnlySkipped} agent-only, ${syncResult.intraOrgSkipped} intra-org`);
       } catch (err) {
         console.error(`[cron/sync-outlook-emails] Error syncing connection ${connection.id}:`, err.message);
         results.errors++;
