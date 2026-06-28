@@ -29,6 +29,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import TenantCtaButton from '@/components/common/TenantCtaButton';
 import { sanitizeRichText } from './sanitize';
 import { cardDescriptionToHtml } from '@/lib/cardDescriptionHtml';
 import {
@@ -2658,6 +2659,7 @@ function useEventSponsors(eventValue, categoryOrder) {
   return {
     hasEvent: !!value,
     groups,
+    allCategories: Array.isArray(data?.categories) ? data.categories : [],
     detailById,
     totalSponsors: Array.isArray(data?.sponsors) ? data.sponsors.length : 0,
     isLoading: resolvingEvent || loadingSponsors,
@@ -2778,7 +2780,7 @@ function SponsorCard({ sponsor, showDescription, showSponsorDetail, detail, name
 
 function SponsorGridRender({ block, breakpoint, asEditor }) {
   const c = block.content || {};
-  const { hasEvent, groups, detailById, totalSponsors, isLoading, isError } = useEventSponsors(c.eventId, c.categoryOrder);
+  const { hasEvent, groups, allCategories, detailById, totalSponsors, isLoading, isError } = useEventSponsors(c.eventId, c.categoryOrder);
   const cols = columnsForBreakpoint(c, breakpoint);
   const gap = c.gap ?? 16;
   const [selected, setSelected] = useState(null);
@@ -2824,25 +2826,42 @@ function SponsorGridRender({ block, breakpoint, asEditor }) {
   const showDescription = c.showDescription !== false;
   const showSponsorDetail = c.showSponsorDetail === true;
 
-  // Optional category filter. Empty selection => show every group (today's
-  // behaviour). When categories are selected, keep only those groups; the
-  // "Other" bucket (id '__none__') is itself a selectable option. Stale ids
-  // (e.g. a category removed after the event was changed) are dropped so they
-  // can never silently hide every sponsor.
-  const availableIds = new Set(groups.map((g) => String(g.id)));
+  // Whether the block has an empty-category CTA configured.
+  const hasEmptyCatContent = !!(c.emptyCatMessage || c.emptyCatCtaLabel);
+
+  // Optional category filter. Use allCategories (full list) for stale-id
+  // detection so empty categories aren't incorrectly dropped. The "Other"
+  // bucket (id '__none__') is handled separately via groups.
+  const allCatIds = new Set([
+    ...allCategories.map((cat) => String(cat.id)),
+    ...groups.map((g) => String(g.id)),
+  ]);
   const selectedCats = (Array.isArray(c.categoryIds) ? c.categoryIds.map(String) : [])
-    .filter((id) => availableIds.has(id));
+    .filter((id) => allCatIds.has(id));
+
+  // Groups that have sponsors, filtered by selection.
   const filteredGroups = selectedCats.length === 0
     ? groups
     : groups.filter((g) => selectedCats.includes(String(g.id)));
 
-  // A filter selection that matches no sponsors behaves like the empty state.
-  if (filteredGroups.length === 0) {
+  // Real categories (not __none__) that have no sponsors but are selected.
+  const groupById = new Map(groups.map((g) => [String(g.id), g]));
+  const emptySelectedCats = (selectedCats.length === 0
+    ? allCategories
+    : allCategories.filter((cat) => selectedCats.includes(String(cat.id)))
+  ).filter((cat) => !groupById.has(String(cat.id)));
+
+  // A filter selection that matches no sponsors AND no displayable empty cats
+  // behaves like the empty state.
+  const hasAnythingToShow = filteredGroups.length > 0 || (emptySelectedCats.length > 0 && hasEmptyCatContent);
+  if (!hasAnythingToShow) {
     if (!asEditor) return null;
     return <EmptyState icon={Building2} text="No sponsors match the selected categories." />;
   }
 
   if (!showHeadings) {
+    // When headings are off, collapse to a flat sponsor list. Empty categories
+    // have no visual slot to render their CTA into, so they are silently skipped.
     const seen = new Set();
     const all = [];
     for (const g of filteredGroups) {
@@ -2874,19 +2893,71 @@ function SponsorGridRender({ block, breakpoint, asEditor }) {
     );
   }
 
+  // Build the sorted merged list of categories (sponsor-bearing + empty-with-CTA).
+  const orderList = Array.isArray(c.categoryOrder) ? c.categoryOrder.map(String) : [];
+  const orderIndex = new Map(orderList.map((id, i) => [id, i]));
+
+  const mergedCats = [];
+  for (const g of filteredGroups) {
+    if (String(g.id) === '__none__') continue; // handled separately at end
+    mergedCats.push({ id: String(g.id), name: g.name, order: g.order, sponsors: g.sponsors, isEmpty: false });
+  }
+  if (hasEmptyCatContent) {
+    for (const cat of emptySelectedCats) {
+      mergedCats.push({
+        id: String(cat.id),
+        name: cat.name || '',
+        order: Number.isFinite(cat.display_order) ? cat.display_order : 9998,
+        sponsors: [],
+        isEmpty: true,
+      });
+    }
+  }
+  mergedCats.sort((a, b) => {
+    const ai = orderIndex.has(a.id) ? orderIndex.get(a.id) : Infinity;
+    const bi = orderIndex.has(b.id) ? orderIndex.get(b.id) : Infinity;
+    if (ai !== bi) return ai - bi;
+    return (a.order - b.order) || a.name.localeCompare(b.name);
+  });
+  // "Other" bucket always renders last.
+  const noneGroup = filteredGroups.find((g) => String(g.id) === '__none__');
+  if (noneGroup) {
+    mergedCats.push({ id: '__none__', name: noneGroup.name || 'Other', order: 9999, sponsors: noneGroup.sponsors, isEmpty: false });
+  }
+
   return (
     <div className="w-full h-full overflow-auto" aria-label={block.a11y?.ariaLabel || 'Sponsors'} data-testid="sponsor-grid">
       <div className="flex flex-col gap-6">
-        {filteredGroups.map((g) => (
-          <div key={g.id} data-testid={`sponsor-group-${g.id}`}>
-            {g.name ? (
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500 mb-3">{g.name}</h3>
+        {mergedCats.map((cat) => (
+          <div key={cat.id} data-testid={`sponsor-group-${cat.id}`}>
+            {cat.name ? (
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500 mb-3">{cat.name}</h3>
             ) : null}
-            <div style={gridStyle(cols, gap)}>
-              {g.sponsors.map((s) => (
-                <SponsorCard key={s.id} sponsor={s} showDescription={showDescription} showSponsorDetail={showSponsorDetail} detail={detailById.get(String(s.id))} nameStyle={nameStyle} descStyle={descStyle} onClick={() => setSelected(s)} />
-              ))}
-            </div>
+            {cat.isEmpty ? (
+              <div className="flex flex-col items-center gap-3 py-6 text-center" data-testid={`sponsor-group-empty-cta-${cat.id}`}>
+                {c.emptyCatMessage ? (
+                  <p className="text-sm text-slate-600 max-w-sm">{c.emptyCatMessage}</p>
+                ) : null}
+                {c.emptyCatCtaLabel ? (
+                  <TenantCtaButton
+                    as="a"
+                    href={asEditor ? undefined : (c.emptyCatCtaHref || undefined)}
+                    target={c.emptyCatCtaHref ? '_blank' : undefined}
+                    rel={c.emptyCatCtaHref ? 'noopener noreferrer' : undefined}
+                    fallbackVariant="default"
+                    data-testid={`button-sponsor-empty-cta-${cat.id}`}
+                  >
+                    {c.emptyCatCtaLabel}
+                  </TenantCtaButton>
+                ) : null}
+              </div>
+            ) : (
+              <div style={gridStyle(cols, gap)}>
+                {cat.sponsors.map((s) => (
+                  <SponsorCard key={s.id} sponsor={s} showDescription={showDescription} showSponsorDetail={showSponsorDetail} detail={detailById.get(String(s.id))} nameStyle={nameStyle} descStyle={descStyle} onClick={() => setSelected(s)} />
+                ))}
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -2908,13 +2979,23 @@ function SponsorGridRender({ block, breakpoint, asEditor }) {
 function SponsorGridInspector({ block, update, breakpoint }) {
   const c = block.content || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
-  // Derive category options from the same sponsor data the renderer loads,
-  // including the "Other" bucket (id '__none__') when present.
-  const { hasEvent, groups } = useEventSponsors(c.eventId);
-  const categoryOptions = groups.map((g) => ({
-    value: g.id,
-    label: g.id === '__none__' ? (g.name || 'Other') : (g.name || 'Untitled category'),
-  }));
+  // Derive category options from the full category list so empty categories
+  // (no sponsors assigned yet) are still selectable.
+  const { hasEvent, groups, allCategories } = useEventSponsors(c.eventId);
+  const groupById = new Map(groups.map((g) => [String(g.id), g]));
+  // Real categories from the API, marked as empty when they have no sponsors.
+  const categoryOptions = allCategories.map((cat) => {
+    const hasSponsors = groupById.has(String(cat.id));
+    return {
+      value: String(cat.id),
+      label: (cat.name || 'Untitled category') + (!hasSponsors ? ' (no sponsors)' : ''),
+    };
+  });
+  // Also include the synthetic "Other" bucket when it exists in groups.
+  const noneGroup = groups.find((g) => g.id === '__none__');
+  if (noneGroup) {
+    categoryOptions.push({ value: '__none__', label: noneGroup.name || 'Other' });
+  }
   // The "Other" bucket can't be reordered — it always renders last.
   const orderableOptions = categoryOptions.filter((o) => o.value !== '__none__');
   return (
@@ -2979,6 +3060,30 @@ function SponsorGridInspector({ block, update, breakpoint }) {
       />
 
       <div className="pt-2 mt-2 border-t border-slate-200">
+        <Label className="text-xs font-semibold text-slate-700">Empty category content</Label>
+        <p className="text-xs text-slate-500 mt-0.5">Shown when a selected category has no sponsors yet. Leave blank to silently skip empty categories.</p>
+      </div>
+      <TextField
+        label="Message"
+        value={c.emptyCatMessage || ''}
+        onChange={(v) => set({ emptyCatMessage: v })}
+        testId="input-sponsor-grid-empty-cat-message"
+        hint="Text shown in the empty category slot."
+      />
+      <TextField
+        label="CTA button label"
+        value={c.emptyCatCtaLabel || ''}
+        onChange={(v) => set({ emptyCatCtaLabel: v })}
+        testId="input-sponsor-grid-empty-cat-cta-label"
+      />
+      <LinkField
+        label="CTA link"
+        value={c.emptyCatCtaHref}
+        onChange={(v) => set({ emptyCatCtaHref: v })}
+        testId="input-sponsor-grid-empty-cat-cta-href"
+      />
+
+      <div className="pt-2 mt-2 border-t border-slate-200">
         <Label className="text-xs font-semibold text-slate-700">Sponsor name</Label>
       </div>
       <ResponsiveNumberField
@@ -3012,7 +3117,7 @@ function SponsorGridInspector({ block, update, breakpoint }) {
 // paged carousel shell modelled on the Speaker carousel.
 function SponsorCarouselRender({ block, asEditor, breakpoint }) {
   const c = block.content || {};
-  const { hasEvent, groups, detailById, totalSponsors, isLoading, isError } = useEventSponsors(c.eventId);
+  const { hasEvent, groups, allCategories, detailById, totalSponsors, isLoading, isError } = useEventSponsors(c.eventId);
 
   const [index, setIndex] = useState(0);
   const [direction, setDirection] = useState(1);
@@ -3024,12 +3129,28 @@ function SponsorCarouselRender({ block, asEditor, breakpoint }) {
   // Flatten the grouped sponsors into a single de-duplicated list, applying the
   // optional category filter (mirrors the Sponsor grid logic). The carousel
   // does not show category headings, so we always collapse to one list.
-  const availableIds = new Set(groups.map((g) => String(g.id)));
+  // Use allCategories for stale-id detection so empty categories aren't dropped.
+  const allCatIds = new Set([
+    ...allCategories.map((cat) => String(cat.id)),
+    ...groups.map((g) => String(g.id)),
+  ]);
   const selectedCats = (Array.isArray(c.categoryIds) ? c.categoryIds.map(String) : [])
-    .filter((id) => availableIds.has(id));
+    .filter((id) => allCatIds.has(id));
   const filteredGroups = selectedCats.length === 0
     ? groups
     : groups.filter((g) => selectedCats.includes(String(g.id)));
+
+  const hasEmptyCatContent = !!(c.emptyCatMessage || c.emptyCatCtaLabel);
+
+  // Empty categories that are selected (not in any sponsor group).
+  const groupById = new Map(groups.map((g) => [String(g.id), g]));
+  const emptySelectedCats = (selectedCats.length === 0
+    ? allCategories
+    : allCategories.filter((cat) => selectedCats.includes(String(cat.id)))
+  ).filter((cat) => !groupById.has(String(cat.id)));
+
+  // Build the flat carousel items list: real sponsors + synthetic CTA slides
+  // for empty selected categories (when content is configured).
   const sponsors = useMemo(() => {
     const seen = new Set();
     const all = [];
@@ -3040,8 +3161,14 @@ function SponsorCarouselRender({ block, asEditor, breakpoint }) {
         all.push(s);
       }
     }
+    if (hasEmptyCatContent) {
+      for (const cat of emptySelectedCats) {
+        // Inject a synthetic sentinel item for this empty category.
+        all.push({ __emptyCta: true, id: `__empty_${cat.id}`, catId: String(cat.id), catName: cat.name || '' });
+      }
+    }
     return all;
-  }, [filteredGroups]);
+  }, [filteredGroups, emptySelectedCats, hasEmptyCatContent]);
 
   const count = sponsors.length;
   const perView = Math.max(1, Number(c.sponsorsPerView) || 1);
@@ -3190,7 +3317,28 @@ function SponsorCarouselRender({ block, asEditor, breakpoint }) {
           <div className="w-full h-full flex items-stretch px-8 py-4" style={{ gap: `${gap}px` }}>
             {pageSlice.map((s, i) => (
               <div key={s ? s.id : `empty-${index}-${i}`} className="flex-1 min-w-0">
-                {s ? (
+                {s && s.__emptyCta ? (
+                  <div
+                    className="rounded-md border border-slate-200 bg-white overflow-hidden flex flex-col h-full items-center justify-center gap-3 p-6 text-center"
+                    data-testid={`sponsor-carousel-empty-cta-${s.catId}`}
+                  >
+                    {c.emptyCatMessage ? (
+                      <p className="text-sm text-slate-600">{c.emptyCatMessage}</p>
+                    ) : null}
+                    {c.emptyCatCtaLabel ? (
+                      <TenantCtaButton
+                        as="a"
+                        href={asEditor ? undefined : (c.emptyCatCtaHref || undefined)}
+                        target={c.emptyCatCtaHref ? '_blank' : undefined}
+                        rel={c.emptyCatCtaHref ? 'noopener noreferrer' : undefined}
+                        fallbackVariant="default"
+                        data-testid={`button-sponsor-carousel-empty-cta-${s.catId}`}
+                      >
+                        {c.emptyCatCtaLabel}
+                      </TenantCtaButton>
+                    ) : null}
+                  </div>
+                ) : s ? (
                   <SponsorCard
                     sponsor={s}
                     showDescription={showDescription}
@@ -3266,13 +3414,21 @@ function SponsorCarouselRender({ block, asEditor, breakpoint }) {
 function SponsorCarouselInspector({ block, update, breakpoint }) {
   const c = block.content || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
-  // Derive category options from the same sponsor data the renderer loads,
-  // including the "Other" bucket (id '__none__') when present.
-  const { hasEvent, groups } = useEventSponsors(c.eventId);
-  const categoryOptions = groups.map((g) => ({
-    value: g.id,
-    label: g.id === '__none__' ? (g.name || 'Other') : (g.name || 'Untitled category'),
-  }));
+  // Derive category options from the full category list so empty categories
+  // (no sponsors assigned yet) are still selectable.
+  const { hasEvent, groups, allCategories } = useEventSponsors(c.eventId);
+  const groupById = new Map(groups.map((g) => [String(g.id), g]));
+  const categoryOptions = allCategories.map((cat) => {
+    const hasSponsors = groupById.has(String(cat.id));
+    return {
+      value: String(cat.id),
+      label: (cat.name || 'Untitled category') + (!hasSponsors ? ' (no sponsors)' : ''),
+    };
+  });
+  const noneGroup = groups.find((g) => g.id === '__none__');
+  if (noneGroup) {
+    categoryOptions.push({ value: '__none__', label: noneGroup.name || 'Other' });
+  }
   return (
     <>
       <EventCarouselPickerRow
@@ -3400,6 +3556,30 @@ function SponsorCarouselInspector({ block, update, breakpoint }) {
         onChange={(v) => set({ emptyText: v })}
         testId="input-sponsor-carousel-empty-text"
         hint="Shown in the editor when no event or no sponsors are found."
+      />
+
+      <div className="pt-2 mt-2 border-t border-slate-200">
+        <Label className="text-xs font-semibold text-slate-700">Empty category content</Label>
+        <p className="text-xs text-slate-500 mt-0.5">A card/slide shown for each selected category with no sponsors. Leave blank to silently skip empty categories.</p>
+      </div>
+      <TextField
+        label="Message"
+        value={c.emptyCatMessage || ''}
+        onChange={(v) => set({ emptyCatMessage: v })}
+        testId="input-sponsor-carousel-empty-cat-message"
+        hint="Text shown on the empty category card."
+      />
+      <TextField
+        label="CTA button label"
+        value={c.emptyCatCtaLabel || ''}
+        onChange={(v) => set({ emptyCatCtaLabel: v })}
+        testId="input-sponsor-carousel-empty-cat-cta-label"
+      />
+      <LinkField
+        label="CTA link"
+        value={c.emptyCatCtaHref}
+        onChange={(v) => set({ emptyCatCtaHref: v })}
+        testId="input-sponsor-carousel-empty-cat-cta-href"
       />
     </>
   );

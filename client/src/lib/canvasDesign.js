@@ -957,6 +957,9 @@ export const BLOCK_DEFAULTS = {
       showSponsorDetail: false,
       showCategoryHeadings: true,
       emptyText: 'Pick an event with assigned sponsors in the inspector.',
+      emptyCatMessage: '',
+      emptyCatCtaLabel: '',
+      emptyCatCtaHref: '',
     },
   },
   [BLOCK_TYPES.SPONSOR_CAROUSEL]: {
@@ -978,6 +981,9 @@ export const BLOCK_DEFAULTS = {
       transitionMs: 400,
       pauseOnHover: false,
       emptyText: 'Pick an event with assigned sponsors in the inspector.',
+      emptyCatMessage: '',
+      emptyCatCtaLabel: '',
+      emptyCatCtaHref: '',
     },
   },
   [BLOCK_TYPES.ARTICLE_LIST]: {
