@@ -3368,8 +3368,15 @@ function SponsorCarouselRender({ block, asEditor, breakpoint }) {
           slideKey={index}
         >
           <div
-            className="w-full h-full flex items-stretch px-8 py-4"
-            style={{ gap: `${gap}px`, justifyContent: centerAlign && pageSlice.length < perView ? 'center' : undefined }}
+            className="w-full h-full flex items-stretch"
+            style={{
+              gap: `${gap}px`,
+              paddingTop: c.innerPaddingTop ?? 16,
+              paddingRight: c.innerPaddingRight ?? 32,
+              paddingBottom: c.innerPaddingBottom ?? 16,
+              paddingLeft: c.innerPaddingLeft ?? 32,
+              justifyContent: centerAlign && pageSlice.length < perView ? 'center' : undefined,
+            }}
           >
             {pageSlice.map((s, i) => (
               <div
@@ -3419,7 +3426,8 @@ function SponsorCarouselRender({ block, asEditor, breakpoint }) {
             <button
               type="button"
               onClick={() => { goPrev(); setAutoplayPausedAt(Date.now()); }}
-              className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white/80 hover:bg-white border border-slate-200 flex items-center justify-center shadow-sm"
+              className="absolute top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white/80 hover:bg-white border border-slate-200 flex items-center justify-center shadow-sm"
+              style={{ left: Math.max(8, (c.innerPaddingLeft ?? 32) - 24) }}
               aria-label="Previous sponsors"
               data-testid="button-sponsor-carousel-prev"
             >
@@ -3428,7 +3436,8 @@ function SponsorCarouselRender({ block, asEditor, breakpoint }) {
             <button
               type="button"
               onClick={() => { goNext(); setAutoplayPausedAt(Date.now()); }}
-              className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white/80 hover:bg-white border border-slate-200 flex items-center justify-center shadow-sm"
+              className="absolute top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white/80 hover:bg-white border border-slate-200 flex items-center justify-center shadow-sm"
+              style={{ right: Math.max(8, (c.innerPaddingRight ?? 32) - 24) }}
               aria-label="Next sponsors"
               data-testid="button-sponsor-carousel-next"
             >
@@ -3438,7 +3447,10 @@ function SponsorCarouselRender({ block, asEditor, breakpoint }) {
         ) : null}
 
         {showIndicators ? (
-          <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1.5">
+          <div
+            className="absolute left-1/2 -translate-x-1/2 flex items-center gap-1.5"
+            style={{ bottom: Math.max(4, (c.innerPaddingBottom ?? 16) - 8) }}
+          >
             {Array.from({ length: pageCount }).map((_, i) => {
               const active = i === index;
               return (
@@ -3521,6 +3533,42 @@ function SponsorCarouselInspector({ block, update, breakpoint }) {
         onChange={(v) => set({ gap: Math.max(0, Number(v) || 0) })}
         testId="input-sponsor-carousel-gap"
       />
+
+      <div className="pt-2 mt-2 border-t border-slate-200">
+        <Label className="text-xs font-semibold text-slate-700">Internal padding</Label>
+        <p className="text-xs text-slate-500 mt-0.5">Space between the block background and the carousel content, in px.</p>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <NumberField
+          label="Top"
+          min={0}
+          value={c.innerPaddingTop ?? 16}
+          onChange={(v) => set({ innerPaddingTop: Math.max(0, Number(v) || 0) })}
+          testId="input-sponsor-carousel-inner-padding-top"
+        />
+        <NumberField
+          label="Right"
+          min={0}
+          value={c.innerPaddingRight ?? 32}
+          onChange={(v) => set({ innerPaddingRight: Math.max(0, Number(v) || 0) })}
+          testId="input-sponsor-carousel-inner-padding-right"
+        />
+        <NumberField
+          label="Bottom"
+          min={0}
+          value={c.innerPaddingBottom ?? 16}
+          onChange={(v) => set({ innerPaddingBottom: Math.max(0, Number(v) || 0) })}
+          testId="input-sponsor-carousel-inner-padding-bottom"
+        />
+        <NumberField
+          label="Left"
+          min={0}
+          value={c.innerPaddingLeft ?? 32}
+          onChange={(v) => set({ innerPaddingLeft: Math.max(0, Number(v) || 0) })}
+          testId="input-sponsor-carousel-inner-padding-left"
+        />
+      </div>
+
       <ToggleField
         label="Show description"
         value={c.showDescription !== false}
