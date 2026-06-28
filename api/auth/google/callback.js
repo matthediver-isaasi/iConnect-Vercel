@@ -294,6 +294,10 @@ export default async function handler(req, res) {
       }
     }
 
+    if (tenantSlug && tenantSlug.toLowerCase() === 'gsf') {
+      landingPage = '/memberdemo';
+    }
+
     const finalPath = returnTo || landingPage;
     const finalRedirect = isProduction 
       ? `https://${tenantSlug}.iconn.app${finalPath}`

@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Mail, Loader2, CheckCircle2, AlertCircle, Lock, Eye, EyeOff, ArrowLeft } from "lucide-react";
 import { SiGoogle } from "react-icons/si";
 import { createPageUrl } from "@/utils";
+import { getTenantSlugFromLocation } from "@/api/publicClient";
 
 /**
  * Self-contained login/set-password/forgot-password form.
@@ -119,6 +120,10 @@ export default function LoginForm({ className }) {
         const userRole = allRoles.find(r => r.id === member.role_id);
         if (userRole?.default_landing_page) landingPage = userRole.default_landing_page;
       } catch {}
+    }
+    const slug = getTenantSlugFromLocation();
+    if (slug && slug.toLowerCase() === 'gsf') {
+      landingPage = 'MemberDemo';
     }
     window.location.href = createPageUrl(landingPage);
   };

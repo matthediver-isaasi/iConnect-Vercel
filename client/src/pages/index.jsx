@@ -376,6 +376,8 @@ import BriefDetail from "./BriefDetail";
 import BriefSettings from "./BriefSettings";
 import ExternalWriters from "./ExternalWriters";
 
+import MemberDemo from "./MemberDemo";
+
 import PhotoGalleries from "./PhotoGalleries";
 
 import { useEffect, useRef, lazy, Suspense } from 'react';
@@ -719,6 +721,8 @@ const PAGES = {
     BriefSettings: BriefSettings,
     ExternalWriters: ExternalWriters,
 
+    MemberDemo: MemberDemo,
+
     PhotoGalleries: PhotoGalleries,
     
     Forum: Forum,
@@ -816,6 +820,8 @@ function PagesContent() {
                 <Route path="/Balances" element={<Balances />} />
                 
                 <Route path="/Dashboard" element={<Dashboard />} />
+                
+                <Route path="/MemberDemo" element={<MemberDemo />} />
                 
                 <Route path="/UnpackedInternationalEmployability" element={<UnpackedInternationalEmployability />} />
                 
