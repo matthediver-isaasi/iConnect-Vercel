@@ -1688,6 +1688,25 @@ function TextRender({ block, breakpoint }) {
   const responsiveTenantCss = !isPreview && hasResponsiveOverrideForBlock
     ? buildTextResponsiveTypographyCss(block.id, tenantStyle)
     : null;
+  // When the author has set per-block line-height or character-spacing
+  // overrides, emit a stylesheet rule with !important that comes AFTER the
+  // tenant responsive CSS in the DOM. This guarantees the per-block value
+  // wins across every breakpoint even when the tenant responsive CSS has
+  // already emitted `line-height !important` / `letter-spacing !important`
+  // inside @media blocks (later source-order + !important beats earlier
+  // !important at the same specificity).
+  const blockSpacingOverrideCss = (() => {
+    const decls = [];
+    if (Number.isFinite(c.lineHeight)) {
+      decls.push(`line-height:${c.lineHeight} !important;`);
+    }
+    if (Number.isFinite(c.characterSpacing)) {
+      decls.push(`letter-spacing:${c.characterSpacing}px !important;`);
+    }
+    if (!decls.length || !block.id) return null;
+    const safeId = String(block.id).replace(/["\\]/g, '');
+    return `[data-cb="${safeId}"]{${decls.join('')}}`;
+  })();
   const tiptapResponsiveCss = buildTiptapFontSizeResponsiveCss(
     block.id,
     safeHtml,
@@ -1726,12 +1745,16 @@ function TextRender({ block, breakpoint }) {
       : textColorForRole(c.colorRole),
     ...(inlineTypography || {}),
   };
-  // Per-block line-spacing override (`content.lineHeight`, unitless).
-  // Applied last so it wins over any tenant-style line-height (including
-  // the responsive mobile pin) and over the default browser line-height
-  // on the legacy heading path.
+  // Per-block line-spacing and character-spacing overrides.
+  // On public pages the actual win comes from the `blockSpacingOverrideCss`
+  // <style> block emitted below with !important; keeping them on outerStyle
+  // here ensures the editor preview (which never emits the responsive tenant
+  // CSS) also reflects the override without needing a stylesheet.
   if (Number.isFinite(c.lineHeight)) {
     outerStyle.lineHeight = c.lineHeight;
+  }
+  if (Number.isFinite(c.characterSpacing)) {
+    outerStyle.letterSpacing = `${c.characterSpacing}px`;
   }
   // Hide the text until the referenced style resolves so the legacy default
   // is never visibly painted before snapping to the custom style.
@@ -1742,6 +1765,9 @@ function TextRender({ block, breakpoint }) {
     <>
       {responsiveTenantCss && (
         <style dangerouslySetInnerHTML={{ __html: responsiveTenantCss }} />
+      )}
+      {blockSpacingOverrideCss && (
+        <style dangerouslySetInnerHTML={{ __html: blockSpacingOverrideCss }} />
       )}
       {tiptapResponsiveCss && (
         <style dangerouslySetInnerHTML={{ __html: tiptapResponsiveCss }} />
@@ -1832,6 +1858,15 @@ function TextInspector({ block, update, breakpoint }) {
         max={4}
         step={0.1}
         testId="input-text-line-height"
+      />
+      <NumberField
+        label="Character spacing / px (leave blank for default)"
+        value={Number.isFinite(c.characterSpacing) ? c.characterSpacing : null}
+        onChange={(v) => set({ characterSpacing: Number.isFinite(v) ? v : undefined })}
+        min={-10}
+        max={50}
+        step={0.5}
+        testId="input-text-character-spacing"
       />
       <div className="pt-1 border-t border-slate-100 space-y-2">
         <div className="flex items-center gap-2">

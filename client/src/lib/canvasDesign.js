@@ -356,6 +356,9 @@ export const BLOCK_DEFAULTS = {
       bulletIconPadRight: null,
       bulletIconPadBottom: null,
       bulletIconPadLeft: null,
+      // Per-block character-spacing override (px number). null/undefined =
+      // inherit from the selected tenant typography style (or browser default).
+      characterSpacing: null,
     },
   },
   [BLOCK_TYPES.IMAGE]: {
