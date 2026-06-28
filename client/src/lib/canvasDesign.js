@@ -661,6 +661,9 @@ export const BLOCK_DEFAULTS = {
     content: {
       heading: 'What our customers say',
       headingLevel: 2,
+      headingTypographyStyleId: '',
+      quoteTypographyStyleId: '',
+      attributionTypographyStyleId: '',
       columns: { desktop: 3, tablet: 2, mobile: 1 },
       gap: 16,
       items: [

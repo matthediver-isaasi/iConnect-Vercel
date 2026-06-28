@@ -5969,18 +5969,56 @@ function PricingTableInspector({ block, update }) {
 function TestimonialGridRender({ block, breakpoint }) {
   const c = block.content || {};
   const items = Array.isArray(c.items) ? c.items : [];
-  const headingLevel = Math.max(1, Math.min(6, Number(c.headingLevel) || 2));
-  const Heading = `h${headingLevel}`;
+  const { styles: tenantStyles, resolved: stylesResolved } = useTenantTypographyStylesState();
+  const headingStyleObj = resolveTenantStyle(c.headingTypographyStyleId, tenantStyles);
+  const quoteStyleObj = resolveTenantStyle(c.quoteTypographyStyleId, tenantStyles);
+  const attributionStyleObj = resolveTenantStyle(c.attributionTypographyStyleId, tenantStyles);
+  const awaitingHeading = isAwaitingTypographyStyle(c.headingTypographyStyleId, headingStyleObj, stylesResolved);
+  const awaitingQuote = isAwaitingTypographyStyle(c.quoteTypographyStyleId, quoteStyleObj, stylesResolved);
+  const awaitingAttribution = isAwaitingTypographyStyle(c.attributionTypographyStyleId, attributionStyleObj, stylesResolved);
   const isPreview = breakpoint === 'desktop' || breakpoint === 'tablet' || breakpoint === 'mobile';
+  const bpForInline = isPreview ? breakpoint : 'desktop';
+  const headingLevel = Math.max(1, Math.min(6, Number(c.headingLevel) || 2));
+  const Heading = headingStyleObj
+    ? tagForTypographyStyleType(headingStyleObj.style_type)
+    : `h${headingLevel}`;
+  const headingInlineBase = headingStyleObj
+    ? { margin: '0 0 1rem', color: 'var(--cb-color-on-surface, #0f172a)', ...buildTypographyInlineStyle(headingStyleObj, { breakpoint: bpForInline }) }
+    : { margin: '0 0 1rem', fontSize: '1.5rem', fontWeight: 600, color: 'var(--cb-color-on-surface, #0f172a)' };
+  const headingInline = awaitingHeading ? { ...headingInlineBase, visibility: 'hidden' } : headingInlineBase;
+  let quoteInline = quoteStyleObj
+    ? buildTypographyInlineStyle(quoteStyleObj, { breakpoint: bpForInline })
+    : null;
+  if (awaitingQuote) quoteInline = { ...(quoteInline || {}), visibility: 'hidden' };
+  let attributionInline = attributionStyleObj
+    ? buildTypographyInlineStyle(attributionStyleObj, { breakpoint: bpForInline })
+    : null;
+  if (awaitingAttribution) attributionInline = { ...(attributionInline || {}), visibility: 'hidden' };
+  const safeBlockId = String(block.id || '').replace(/["\\]/g, '');
   const responsiveCss = !isPreview ? buildResponsiveColumnsCss(block.id, c.columns, c.gap) : null;
+  const typographyResponsiveCss = !isPreview
+    ? [
+        headingStyleObj && hasResponsiveTypographyOverride(headingStyleObj)
+          ? buildTenantTypographyResponsiveCss(`[data-cb="${safeBlockId}"] [data-tg-r="tg-heading"]`, headingStyleObj)
+          : null,
+        quoteStyleObj && hasResponsiveTypographyOverride(quoteStyleObj)
+          ? buildTenantTypographyResponsiveCss(`[data-cb="${safeBlockId}"] [data-tg-r="tg-quote"]`, quoteStyleObj)
+          : null,
+        attributionStyleObj && hasResponsiveTypographyOverride(attributionStyleObj)
+          ? buildTenantTypographyResponsiveCss(`[data-cb="${safeBlockId}"] [data-tg-r="tg-attribution"]`, attributionStyleObj)
+          : null,
+      ].filter(Boolean).join('') || null
+    : null;
   const previewCols = isPreview ? resolveColumns(c.columns, breakpoint) : null;
   return (
     <div className="w-full h-full overflow-auto">
       {responsiveCss && <style dangerouslySetInnerHTML={{ __html: responsiveCss }} />}
+      {typographyResponsiveCss && <style dangerouslySetInnerHTML={{ __html: typographyResponsiveCss }} />}
       {c.heading && (
         <Heading
-          className="mb-4 text-center"
-          style={{ margin: '0 0 1rem', fontSize: '1.5rem', fontWeight: 600, color: 'var(--cb-color-on-surface, #0f172a)' }}
+          data-tg-r="tg-heading"
+          className="text-center"
+          style={headingInline}
         >
           {c.heading}
         </Heading>
@@ -6013,18 +6051,22 @@ function TestimonialGridRender({ block, breakpoint }) {
               aria-hidden="true"
             />
             <blockquote
+              data-tg-r="tg-quote"
               style={{
                 margin: 0,
-                fontSize: '0.95rem',
-                lineHeight: 1.5,
                 color: 'var(--cb-color-on-surface, #0f172a)',
+                ...(quoteInline || { fontSize: '0.95rem', lineHeight: 1.5 }),
               }}
             >
               {t.quote}
             </blockquote>
             <figcaption
+              data-tg-r="tg-attribution"
               className="flex items-center gap-3 mt-auto"
-              style={{ color: 'var(--cb-color-on-surface-muted, #475569)', fontSize: '0.875rem' }}
+              style={{
+                color: 'var(--cb-color-on-surface-muted, #475569)',
+                ...(attributionInline || { fontSize: '0.875rem' }),
+              }}
             >
               {t.avatarUrl ? (
                 <img
@@ -6070,12 +6112,36 @@ function TestimonialGridInspector({ block, update }) {
   return (
     <>
       <TextField label="Heading" value={c.heading} onChange={(v) => set({ heading: v })} testId="input-testimonial-grid-heading" />
+      <TypographyStyleField
+        label="Title style"
+        value={c.headingTypographyStyleId}
+        onChange={(id, picked) => {
+          const fallback = fallbackHeadingAsForStyleType(picked && picked.style_type);
+          set({
+            headingTypographyStyleId: id,
+            ...(fallback ? { headingLevel: Number(fallback) } : {}),
+          });
+        }}
+        testId="select-testimonial-grid-heading-typography"
+      />
       <SelectField
         label="Heading level"
         value={String(c.headingLevel || 2)}
         onChange={(v) => set({ headingLevel: Number(v) })}
         options={[2, 3, 4, 5, 6].map((n) => ({ value: String(n), label: `H${n}` }))}
         testId="select-testimonial-grid-heading-level"
+      />
+      <TypographyStyleField
+        label="Quote style"
+        value={c.quoteTypographyStyleId}
+        onChange={(id) => set({ quoteTypographyStyleId: id })}
+        testId="select-testimonial-grid-quote-typography"
+      />
+      <TypographyStyleField
+        label="Attribution style"
+        value={c.attributionTypographyStyleId}
+        onChange={(id) => set({ attributionTypographyStyleId: id })}
+        testId="select-testimonial-grid-attribution-typography"
       />
       <div className="grid grid-cols-3 gap-2">
         <NumberField label="Cols (desktop)" min={1} max={4} value={resolveColumns(c.columns, 'desktop')} onChange={(v) => setColumns('desktop', v)} testId="input-testimonial-grid-cols-desktop" />
