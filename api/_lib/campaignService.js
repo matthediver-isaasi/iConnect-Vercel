@@ -2583,7 +2583,6 @@ function parseCampaignDesign(campaign) {
   let slotValues = null;
   let hiddenSlots = null;
   if (campaign.design_json) {
-    skipFooter = true;
     try {
       const designData = typeof campaign.design_json === 'string' ? JSON.parse(campaign.design_json) : campaign.design_json;
       if (designData?.globalStyles?.contentWidth) {
@@ -2612,6 +2611,11 @@ function parseCampaignDesign(campaign) {
         hasUnsubscribeBlock = checkForUnsubscribe(designData.blocks);
       }
     } catch (e) {}
+    // Skip the tenant footer only when the design already contains its own
+    // unsubscribe/footer block — not just because design_json is present.
+    // This ensures Visual Builder campaigns (including member-group campaigns,
+    // which are required to use the builder) receive the tenant footer.
+    skipFooter = hasUnsubscribeBlock;
   }
   return { skipFooter, hasUnsubscribeBlock, contentWidth, slotValues, hiddenSlots };
 }
