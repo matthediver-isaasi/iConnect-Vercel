@@ -196,6 +196,7 @@ export const FULL_BLEED_BLOCK_TYPES = new Set([
   BLOCK_TYPES.TESTIMONIALS,
   BLOCK_TYPES.FORM_EMBED,
   BLOCK_TYPES.SPONSOR_CAROUSEL,
+  BLOCK_TYPES.IMAGE,
 ]);
 
 export function blockSupportsFullBleed(type) {
@@ -364,6 +365,7 @@ export const BLOCK_DEFAULTS = {
       alt: '',
       href: '',
       objectFit: 'cover', // cover | contain | fill | none | scale-down
+      fullBleed: false,
       // Font Awesome icon (alternative to image)
       iconClass: '',
       iconSize: 64,

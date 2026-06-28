@@ -2081,6 +2081,12 @@ function ImageInspector({ block, update }) {
         )}
       </div>
       <LinkField label="Link (optional)" value={c.href} onChange={(v) => set({ href: v })} testId="input-image-href" />
+      <ToggleField
+        label="Full-bleed (span full screen width)"
+        value={!!c.fullBleed}
+        onChange={(v) => set({ fullBleed: v })}
+        testId="toggle-image-full-bleed"
+      />
       {!iconClass && (
         <SelectField
           label="Object fit"
