@@ -3345,6 +3345,13 @@ function SponsorCarouselRender({ block, asEditor, breakpoint }) {
       ? Array.from({ length: perView }, (_, i) => pageSponsors[i] || null)
       : pageSponsors;
 
+  // When full-bleed, the bar spans 100vw but its content should re-align to
+  // the page's centered content column. `--cb-content-width` is published by
+  // the stage stylesheet per breakpoint (1200/768/375); falls back to 1200.
+  const railStyle = c.fullBleed
+    ? { maxWidth: 'var(--cb-content-width, 1200px)', marginInline: 'auto' }
+    : undefined;
+
   return (
     <div
       className="relative w-full h-full overflow-hidden flex flex-col focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
@@ -3376,6 +3383,7 @@ function SponsorCarouselRender({ block, asEditor, breakpoint }) {
               paddingBottom: c.innerPaddingBottom ?? 16,
               paddingLeft: c.innerPaddingLeft ?? 32,
               justifyContent: centerAlign && pageSlice.length < perView ? 'center' : undefined,
+              ...railStyle,
             }}
           >
             {pageSlice.map((s, i) => (
@@ -3639,6 +3647,12 @@ function SponsorCarouselInspector({ block, update, breakpoint }) {
         onChange={(v) => set({ centerAlign: v })}
         testId="toggle-sponsor-carousel-center-align"
         hint="Centers the last (short) page when it has fewer sponsors than the sponsors-per-page count."
+      />
+      <ToggleField
+        label="Full-bleed (span full screen width)"
+        value={!!c.fullBleed}
+        onChange={(v) => set({ fullBleed: v })}
+        testId="toggle-sponsor-carousel-full-bleed"
       />
 
       <div className="pt-2 mt-2 border-t border-slate-200">

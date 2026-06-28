@@ -195,6 +195,7 @@ export const FULL_BLEED_BLOCK_TYPES = new Set([
   BLOCK_TYPES.WALL_OF_FAME,
   BLOCK_TYPES.TESTIMONIALS,
   BLOCK_TYPES.FORM_EMBED,
+  BLOCK_TYPES.SPONSOR_CAROUSEL,
 ]);
 
 export function blockSupportsFullBleed(type) {
@@ -989,6 +990,7 @@ export const BLOCK_DEFAULTS = {
       transitionMs: 400,
       pauseOnHover: false,
       centerAlign: false,
+      fullBleed: false,
       emptyText: 'Pick an event with assigned sponsors in the inspector.',
       emptyCatMessage: '',
       emptyCatCtaLabel: '',
