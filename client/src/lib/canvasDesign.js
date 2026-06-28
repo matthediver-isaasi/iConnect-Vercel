@@ -175,6 +175,7 @@ export const BLOCK_TYPES = {
   WALL_OF_FAME: 'wall-of-fame',
   GALLERY: 'gallery',
   CARD_FLIP_GRID: 'card-flip-grid',
+  HERO_CAROUSEL: 'hero-carousel',
   // Reusable section symbols (Phase 7). A symbol block stores a `symbolId`
   // and is rendered by inlining the referenced canvas_symbol design.
   SYMBOL: 'symbol',
@@ -190,6 +191,7 @@ export const BLOCK_TYPES = {
 export const FULL_BLEED_BLOCK_TYPES = new Set([
   BLOCK_TYPES.SECTION,
   BLOCK_TYPES.HERO,
+  BLOCK_TYPES.HERO_CAROUSEL,
   BLOCK_TYPES.NEWS_TICKER,
   BLOCK_TYPES.MEGA_MENU,
   BLOCK_TYPES.WALL_OF_FAME,
@@ -1229,6 +1231,65 @@ BLOCK_DEFAULTS[BLOCK_TYPES.LOGIN_FORM] = {
   content: {},
 };
 
+// Hero Carousel block: slide-based hero with per-slide backgrounds, overlays,
+// rich-text headings, CTA buttons, and configurable carousel playback.
+BLOCK_DEFAULTS[BLOCK_TYPES.HERO_CAROUSEL] = {
+  name: 'Hero Carousel',
+  geom: { w: 800, h: 500 },
+  style: { background: 'var(--cb-color-primary, #0f172a)', borderWidth: 0, borderRadius: 0 },
+  content: {
+    slides: [
+      {
+        id: 'slide-default-1',
+        headerText: '<p>Your Heading Here</p>',
+        subheadingText: '',
+        contentText: '',
+        ctaText: '',
+        ctaLink: '',
+        backgroundImage: '',
+        overlayColor: '#000000',
+        overlayOpacity: 40,
+        imageFit: 'cover',
+      },
+    ],
+    header_font_family: 'Poppins',
+    header_font_size: 48,
+    header_color: 'var(--cb-color-on-primary, #ffffff)',
+    header_font_weight: 700,
+    header_letter_spacing: 0,
+    header_line_height: 1.2,
+    subheading_font_family: 'Poppins',
+    subheading_font_size: 24,
+    subheading_color: 'var(--cb-color-on-primary, #ffffff)',
+    subheading_font_weight: 400,
+    subheading_letter_spacing: 0,
+    subheading_line_height: 1.5,
+    content_font_family: 'Poppins',
+    content_font_size: 16,
+    content_color: 'var(--cb-color-on-primary, #ffffff)',
+    content_font_weight: 400,
+    content_letter_spacing: 0,
+    content_line_height: 1.6,
+    text_alignment: 'center',
+    height_type: 'custom',
+    custom_height: 500,
+    auto_min_height: 400,
+    padding_vertical: 60,
+    padding_horizontal: 16,
+    text_offset_x: 0,
+    text_offset_y: 0,
+    mobile_text_offset_x: 0,
+    mobile_text_offset_y: 0,
+    autoplayInterval: 5,
+    transitionEffect: 'fade',
+    transitionDuration: 700,
+    pauseOnHover: true,
+    showArrows: true,
+    showDots: true,
+    fullBleed: false,
+  },
+};
+
 export function getBlockDefaults(type) {
   return BLOCK_DEFAULTS[type] || BLOCK_DEFAULTS[BLOCK_TYPES.BOX];
 }
@@ -2135,6 +2196,13 @@ export function validateBlock(block) {
       });
       break;
     }
+    case BLOCK_TYPES.HERO_CAROUSEL: {
+      const carouselSlides = Array.isArray(c.slides) ? c.slides : [];
+      if (carouselSlides.length === 0) {
+        errors.push('Hero Carousel has no slides.');
+      }
+      break;
+    }
     default:
       break;
   }
@@ -2447,6 +2515,7 @@ export function findLcpBlockId(blocks) {
       if (b.type === BLOCK_TYPES.HERO && c.bgType === 'image' && c.bgImageUrl) return true;
       if (b.type === BLOCK_TYPES.IMAGE && c.src) return true;
       if (b.type === BLOCK_TYPES.CARD && c.imageUrl) return true;
+      if (b.type === BLOCK_TYPES.HERO_CAROUSEL && (c.slides || []).some((s) => s.backgroundImage)) return true;
       return false;
     })
     .sort((a, b) => (a.g.y || 0) - (b.g.y || 0));

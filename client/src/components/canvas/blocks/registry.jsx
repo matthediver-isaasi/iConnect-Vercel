@@ -1,4 +1,20 @@
-import { Fragment, useMemo, useState, useEffect, useLayoutEffect, useRef, lazy, Suspense } from 'react';
+import { Fragment, useMemo, useState, useEffect, useLayoutEffect, useRef, lazy, Suspense, useCallback } from 'react';
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  useSortable,
+  arrayMove,
+  sortableKeyboardCoordinates,
+} from '@dnd-kit/sortable';
+import { CSS as DndCSS } from '@dnd-kit/utilities';
 import { useQuery } from '@tanstack/react-query';
 import {
   Square,
@@ -40,6 +56,9 @@ import {
   Trash2,
   Unlink,
   Search,
+  GalleryHorizontal,
+  GripVertical,
+  Copy,
 } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -7506,6 +7525,891 @@ function CardFlipGridInspector({ block, update }) {
   );
 }
 
+// HERO CAROUSEL ---------------------------------------------------------------
+
+const HERO_CAROUSEL_FONT_FAMILIES = [
+  'Poppins', 'Inter', 'Arial', 'Georgia', 'Times New Roman',
+  'Degular Medium', 'Degular Bold', 'Degular Semibold',
+];
+const HERO_CAROUSEL_FONT_WEIGHTS = [
+  { value: '300', label: 'Light' },
+  { value: '400', label: 'Regular' },
+  { value: '500', label: 'Medium' },
+  { value: '600', label: 'Semibold' },
+  { value: '700', label: 'Bold' },
+  { value: '800', label: 'Extra Bold' },
+];
+
+function HeroCarouselRender({ block, asEditor, breakpoint }) {
+  const c = block.content || {};
+  const slides = c.slides || [];
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [previousIndex, setPreviousIndex] = useState(null);
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const timerRef = useRef(null);
+
+  // Resolve tenant typography styles at render time — same pattern as Hero/Text
+  // blocks. When a style ID is set and resolvable, its properties override the
+  // manual content fields so future edits to the style propagate automatically.
+  const { styles: tenantStyles, resolved: tenantStylesResolved } = useTenantTypographyStylesState();
+  const headerStyleObj = resolveTenantStyle(c.header_typography_style_id, tenantStyles);
+  const subheadingStyleObj = resolveTenantStyle(c.subheading_typography_style_id, tenantStyles);
+  const contentStyleObj = resolveTenantStyle(c.content_typography_style_id, tenantStyles);
+  const bpForInline = breakpoint || 'desktop';
+
+  const isMobile = breakpoint === 'mobile';
+  const autoplayInterval = c.autoplayInterval ?? 5;
+  const transitionEffect = c.transitionEffect || 'fade';
+  const transitionDuration = Number(c.transitionDuration) || 700;
+  const pauseOnHover = c.pauseOnHover !== false;
+  const showArrows = c.showArrows !== false;
+  const showDots = c.showDots !== false;
+
+  // Manual fallback typography values (used when no tenant style is resolved)
+  const headerFontFamily = c.header_font_family || 'Poppins';
+  const headerFontSize = Number(c.header_font_size) || 48;
+  const headerColor = c.header_color || '#ffffff';
+  const headerFontWeight = Number(c.header_font_weight) || 700;
+  const headerLetterSpacing = c.header_letter_spacing ?? 0;
+  const headerLineHeight = c.header_line_height || 1.2;
+
+  const subheadingFontFamily = c.subheading_font_family || 'Poppins';
+  const subheadingFontSize = Number(c.subheading_font_size) || 24;
+  const subheadingColor = c.subheading_color || '#ffffff';
+  const subheadingFontWeight = Number(c.subheading_font_weight) || 400;
+  const subheadingLetterSpacing = c.subheading_letter_spacing ?? 0;
+  const subheadingLineHeight = c.subheading_line_height || 1.5;
+
+  const contentFontFamily = c.content_font_family || 'Poppins';
+  const contentFontSize = Number(c.content_font_size) || 16;
+  const contentColor = c.content_color || '#ffffff';
+  const contentFontWeight = Number(c.content_font_weight) || 400;
+  const contentLetterSpacing = c.content_letter_spacing ?? 0;
+  const contentLineHeight = c.content_line_height || 1.6;
+
+  const textAlignment = c.text_alignment || 'center';
+  const heightType = c.height_type || 'custom';
+  const customHeight = Number(c.custom_height) || 500;
+  const autoMinHeight = Number(c.auto_min_height) || 400;
+  const paddingVertical = Number(c.padding_vertical) ?? 60;
+  const paddingHorizontal = Number(c.padding_horizontal) ?? 16;
+  const textOffsetX = Number(c.text_offset_x) || 0;
+  const textOffsetY = Number(c.text_offset_y) || 0;
+
+  const mobileHeaderFS = Number(c.mobile_header_font_size) || Math.max(24, Math.round(headerFontSize * 0.6));
+  const mobileSubheadingFS = Number(c.mobile_subheading_font_size) || Math.max(16, Math.round(subheadingFontSize * 0.75));
+  const mobileContentFS = Number(c.mobile_content_font_size) || Math.max(14, Math.round(contentFontSize * 0.9));
+  const mobilePaddingV = Math.max(32, Math.round(paddingVertical * 0.5));
+  const mobilePaddingH = Math.max(16, paddingHorizontal);
+  const parsedMobileOffsetX = Number(c.mobile_text_offset_x) || 0;
+  const parsedMobileOffsetY = Number(c.mobile_text_offset_y) || 0;
+  const mobileOffsetX = parsedMobileOffsetX !== 0 ? parsedMobileOffsetX : Math.round(textOffsetX * 0.5);
+  const mobileOffsetY = parsedMobileOffsetY !== 0 ? parsedMobileOffsetY : Math.round(textOffsetY * 0.5);
+
+  const displayHeaderFS = isMobile ? mobileHeaderFS : headerFontSize;
+  const displaySubheadingFS = isMobile ? mobileSubheadingFS : subheadingFontSize;
+  const displayContentFS = isMobile ? mobileContentFS : contentFontSize;
+  const displayPaddingV = isMobile ? mobilePaddingV : paddingVertical;
+  const displayPaddingH = isMobile ? mobilePaddingH : paddingHorizontal;
+  const effOffsetX = isMobile ? mobileOffsetX : textOffsetX;
+  const effOffsetY = isMobile ? mobileOffsetY : textOffsetY;
+
+  // Build resolved inline styles; fall back to manual fields when no tenant
+  // style is set or has not yet loaded (consistent with HeroRender pattern).
+  const headerInlineStyle = headerStyleObj
+    ? { overflowWrap: 'break-word', color: headerColor, ...buildTypographyInlineStyle(headerStyleObj, { breakpoint: bpForInline }) }
+    : { fontFamily: headerFontFamily, fontSize: `${displayHeaderFS}px`, color: headerColor, fontWeight: headerFontWeight, letterSpacing: `${headerLetterSpacing}px`, lineHeight: headerLineHeight, overflowWrap: 'break-word' };
+  const subheadingInlineStyle = subheadingStyleObj
+    ? { overflowWrap: 'break-word', color: subheadingColor, marginTop: '16px', ...buildTypographyInlineStyle(subheadingStyleObj, { breakpoint: bpForInline }) }
+    : { fontFamily: subheadingFontFamily, fontSize: `${displaySubheadingFS}px`, color: subheadingColor, fontWeight: subheadingFontWeight, letterSpacing: `${subheadingLetterSpacing}px`, lineHeight: subheadingLineHeight, overflowWrap: 'break-word', marginTop: '16px' };
+  const contentInlineStyle = contentStyleObj
+    ? { overflowWrap: 'break-word', color: contentColor, marginTop: '16px', ...buildTypographyInlineStyle(contentStyleObj, { breakpoint: bpForInline }) }
+    : { fontFamily: contentFontFamily, fontSize: `${displayContentFS}px`, color: contentColor, fontWeight: contentFontWeight, letterSpacing: `${contentLetterSpacing}px`, lineHeight: contentLineHeight, overflowWrap: 'break-word', marginTop: '16px' };
+
+  const safeBlockId = `hcc-${String(block.id || '').replace(/[^a-zA-Z0-9]/g, '')}`;
+  const isPreview = !!breakpoint;
+
+  const getSlideTransitionStyle = (slideIndex) => {
+    const isActive = slideIndex === currentIndex;
+    const isPrev = slideIndex === previousIndex;
+    const dur = `${transitionDuration}ms`;
+    const base = { position: 'absolute', inset: 0 };
+
+    if (transitionEffect === 'fade') {
+      return {
+        ...base,
+        opacity: isActive ? 1 : 0,
+        transition: `opacity ${dur} ease-in-out`,
+        zIndex: isActive ? 2 : (isPrev ? 1 : 0),
+      };
+    }
+
+    const movingForward = previousIndex !== null && (
+      currentIndex > previousIndex ||
+      (currentIndex === 0 && previousIndex === slides.length - 1)
+    );
+
+    const exitMap = {
+      'slide-left': movingForward ? 'translateX(-100%)' : 'translateX(100%)',
+      'slide-right': movingForward ? 'translateX(100%)' : 'translateX(-100%)',
+      'slide-up': 'translateY(-100%)',
+    };
+    const enterMap = {
+      'slide-left': movingForward ? 'translateX(100%)' : 'translateX(-100%)',
+      'slide-right': movingForward ? 'translateX(-100%)' : 'translateX(100%)',
+      'slide-up': 'translateY(100%)',
+    };
+    const eff = exitMap[transitionEffect] ? transitionEffect : 'slide-left';
+
+    if (isActive) return { ...base, transform: 'translateX(0) translateY(0)', opacity: 1, transition: `transform ${dur} ease-in-out, opacity ${dur} ease-in-out`, zIndex: 2 };
+    if (isPrev) return { ...base, transform: exitMap[eff], opacity: 0, transition: `transform ${dur} ease-in-out, opacity ${dur} ease-in-out`, zIndex: 1 };
+    return { ...base, transform: enterMap[eff], opacity: 0, transition: 'none', zIndex: 0 };
+  };
+
+  const goToSlide = (newIndex) => {
+    if (isTransitioning || slides.length <= 1) return;
+    setIsTransitioning(true);
+    setPreviousIndex(currentIndex);
+    setCurrentIndex(newIndex);
+    setTimeout(() => { setIsTransitioning(false); setPreviousIndex(null); }, transitionDuration);
+  };
+
+  const goToNext = () => goToSlide((currentIndex + 1) % slides.length);
+  const goToPrevious = () => goToSlide((currentIndex - 1 + slides.length) % slides.length);
+
+  useEffect(() => {
+    if (slides.length <= 1 || !autoplayInterval || isPaused || asEditor) {
+      if (timerRef.current) clearInterval(timerRef.current);
+      return;
+    }
+    timerRef.current = setInterval(() => {
+      setIsTransitioning(true);
+      setCurrentIndex((prev) => {
+        setPreviousIndex(prev);
+        return (prev + 1) % slides.length;
+      });
+      setTimeout(() => { setIsTransitioning(false); setPreviousIndex(null); }, transitionDuration);
+    }, autoplayInterval * 1000);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [slides.length, autoplayInterval, isPaused, transitionDuration, asEditor]);
+
+  useEffect(() => {
+    if (slides.length > 0 && currentIndex >= slides.length) {
+      setCurrentIndex(slides.length - 1);
+    }
+  }, [slides.length, currentIndex]);
+
+  if (!slides.length) {
+    return (
+      <div className="absolute inset-0 bg-slate-800 flex items-center justify-center">
+        <p className="text-slate-300 text-sm text-center px-4">No slides configured — add slides in the inspector.</p>
+      </div>
+    );
+  }
+
+  const textBoxStyle = {};
+  if (effOffsetX !== 0 || effOffsetY !== 0) {
+    textBoxStyle.transform = `translate(${effOffsetX}px, ${effOffsetY}px)`;
+  }
+
+  // Always compute container height so the block renders at the configured
+  // height both in CanvasBuilder preview/editor and on published pages.
+  // For 'full' or 'custom' the block geometry will usually already match;
+  // for 'auto' the min-height prevents the carousel from collapsing when
+  // content is short.
+  const containerStyle =
+    heightType === 'full'
+      ? { height: '100vh' }
+      : heightType === 'custom'
+        ? { height: `${customHeight}px` }
+        : { minHeight: `${autoMinHeight}px` };
+
+  return (
+    <div
+      data-hcc={safeBlockId}
+      className="absolute inset-0 overflow-hidden"
+      style={containerStyle}
+      onMouseEnter={pauseOnHover ? () => setIsPaused(true) : undefined}
+      onMouseLeave={pauseOnHover ? () => setIsPaused(false) : undefined}
+    >
+      {!isPreview && (
+        <style dangerouslySetInnerHTML={{ __html: [
+          `@media(max-width:767px){`,
+          `[data-hcc="${safeBlockId}"]{`,
+          heightType === 'custom'
+            ? `height:${Math.round(customHeight * 0.6)}px;`
+            : heightType === 'full'
+              ? `height:100vh;`
+              : `min-height:${Math.round(autoMinHeight * 0.6)}px;`,
+          `}`,
+          !headerStyleObj ? `[data-hcc="${safeBlockId}"] .hcc-title{font-size:${mobileHeaderFS}px!important;}` : '',
+          !subheadingStyleObj ? `[data-hcc="${safeBlockId}"] .hcc-subheading{font-size:${mobileSubheadingFS}px!important;}` : '',
+          !contentStyleObj ? `[data-hcc="${safeBlockId}"] .hcc-body{font-size:${mobileContentFS}px!important;}` : '',
+          headerStyleObj && hasResponsiveTypographyOverride(headerStyleObj) ? buildTenantTypographyResponsiveCss(`[data-hcc="${safeBlockId}"] .hcc-title`, headerStyleObj) : '',
+          subheadingStyleObj && hasResponsiveTypographyOverride(subheadingStyleObj) ? buildTenantTypographyResponsiveCss(`[data-hcc="${safeBlockId}"] .hcc-subheading`, subheadingStyleObj) : '',
+          contentStyleObj && hasResponsiveTypographyOverride(contentStyleObj) ? buildTenantTypographyResponsiveCss(`[data-hcc="${safeBlockId}"] .hcc-body`, contentStyleObj) : '',
+          `[data-hcc="${safeBlockId}"] .hcc-content-wrap{padding:${mobilePaddingV}px ${mobilePaddingH}px!important;}`,
+          `[data-hcc="${safeBlockId}"] .hcc-text-box{transform:translate(${mobileOffsetX}px,${mobileOffsetY}px)!important;}`,
+          `}`,
+        ].join('') }} />
+      )}
+
+      {slides.map((slide, index) => (
+        <div key={slide.id || index} style={getSlideTransitionStyle(index)}>
+          <div className="absolute inset-0">
+            {slide.backgroundImage ? (
+              <img
+                src={slide.backgroundImage}
+                alt=""
+                aria-hidden="true"
+                loading="lazy"
+                decoding="async"
+                className="absolute inset-0 w-full h-full"
+                style={{ objectFit: slide.imageFit === 'original' ? 'none' : (slide.imageFit || 'cover'), objectPosition: 'center' }}
+              />
+            ) : (
+              <div
+                className="absolute inset-0"
+                style={{ background: 'linear-gradient(135deg,#1e3a5f 0%,#3b82f6 100%)' }}
+              />
+            )}
+            <div
+              className="absolute inset-0"
+              aria-hidden="true"
+              style={{
+                backgroundColor: slide.overlayColor || '#000000',
+                opacity: (slide.overlayOpacity ?? 40) / 100,
+              }}
+            />
+          </div>
+
+          <div
+            className="hcc-content-wrap relative h-full flex items-center z-10 max-w-7xl mx-auto"
+            style={{
+              textAlign: textAlignment,
+              paddingLeft: `${displayPaddingH}px`,
+              paddingRight: `${displayPaddingH}px`,
+              paddingTop: `${displayPaddingV}px`,
+              paddingBottom: `${displayPaddingV}px`,
+            }}
+          >
+            <div className="hcc-text-box max-w-2xl mx-auto" style={textBoxStyle}>
+              {slide.headerText && (
+                <div
+                  className="hcc-title"
+                  style={headerInlineStyle}
+                  dangerouslySetInnerHTML={{ __html: sanitizeRichText(slide.headerText) }}
+                />
+              )}
+              {slide.subheadingText && (
+                <div
+                  className="hcc-subheading"
+                  style={subheadingInlineStyle}
+                  dangerouslySetInnerHTML={{ __html: sanitizeRichText(slide.subheadingText) }}
+                />
+              )}
+              {slide.contentText && (
+                <div
+                  className="hcc-body"
+                  style={contentInlineStyle}
+                  dangerouslySetInnerHTML={{ __html: sanitizeRichText(slide.contentText) }}
+                />
+              )}
+              {slide.ctaText && slide.ctaLink && (
+                <div style={{ marginTop: '24px' }}>
+                  <a
+                    href={asEditor ? undefined : slide.ctaLink}
+                    onClick={asEditor ? (e) => e.preventDefault() : undefined}
+                    className="inline-block bg-white text-slate-900 font-semibold rounded-lg hover:bg-slate-100 transition-colors shadow-lg"
+                    style={{ padding: '14px 28px' }}
+                  >
+                    {slide.ctaText}
+                  </a>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      ))}
+
+      {showArrows && slides.length > 1 && (
+        <>
+          <button
+            type="button"
+            onClick={asEditor ? undefined : goToPrevious}
+            className="absolute left-4 top-1/2 -translate-y-1/2 rounded-full bg-white/20 hover:bg-white/30 backdrop-blur-sm flex items-center justify-center transition-colors"
+            style={{ width: 48, height: 48, zIndex: 10 }}
+            aria-label="Previous slide"
+            data-testid="button-herocarousel-prev"
+          >
+            <ChevronLeft className="w-6 h-6 text-white" />
+          </button>
+          <button
+            type="button"
+            onClick={asEditor ? undefined : goToNext}
+            className="absolute right-4 top-1/2 -translate-y-1/2 rounded-full bg-white/20 hover:bg-white/30 backdrop-blur-sm flex items-center justify-center transition-colors"
+            style={{ width: 48, height: 48, zIndex: 10 }}
+            aria-label="Next slide"
+            data-testid="button-herocarousel-next"
+          >
+            <ChevronRight className="w-6 h-6 text-white" />
+          </button>
+        </>
+      )}
+
+      {showDots && slides.length > 1 && (
+        <div
+          className="absolute bottom-8 left-1/2 -translate-x-1/2 flex gap-2"
+          style={{ zIndex: 10 }}
+        >
+          {slides.map((_, index) => (
+            <button
+              key={index}
+              type="button"
+              onClick={asEditor ? undefined : () => goToSlide(index)}
+              className={`h-3 rounded-full transition-all ${
+                index === currentIndex ? 'bg-white w-8' : 'bg-white/50 hover:bg-white/70 w-3'
+              }`}
+              aria-label={`Go to slide ${index + 1}`}
+              data-testid={`button-herocarousel-dot-${index}`}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Sortable slide item for the Hero Carousel inspector drag-reorder list.
+function SortableSlideItem({ id, title, isExpanded, onToggle, onRemove, onDuplicate, children }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style = {
+    transform: DndCSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 10 : undefined,
+  };
+  return (
+    <div ref={setNodeRef} style={style} className="border border-slate-200 rounded-md mb-2 bg-white">
+      <div className="flex items-center gap-1 px-2 py-1.5 bg-slate-50 rounded-t-md select-none">
+        <button
+          {...attributes}
+          {...listeners}
+          type="button"
+          className="cursor-grab text-slate-400 hover:text-slate-600 flex-shrink-0"
+          title="Drag to reorder"
+          aria-label="Drag handle"
+        >
+          <GripVertical size={14} />
+        </button>
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex-1 text-left text-xs font-medium text-slate-700 truncate py-0.5 min-w-0"
+        >
+          {title}
+        </button>
+        <button
+          type="button"
+          onClick={onDuplicate}
+          className="flex-shrink-0 text-slate-400 hover:text-slate-600 px-1"
+          title="Duplicate slide"
+          aria-label="Duplicate slide"
+        >
+          <Copy size={12} />
+        </button>
+        <button
+          type="button"
+          onClick={onRemove}
+          className="flex-shrink-0 text-slate-400 hover:text-red-500 text-xs px-1"
+          title="Remove slide"
+        >
+          ×
+        </button>
+      </div>
+      {isExpanded && (
+        <div className="p-2 space-y-2">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// DnD-sortable slide list used in HeroCarouselInspector.
+function SlideDndList({ slides, onChange, breakpoint }) {
+  const [expanded, setExpanded] = useState(() => slides.map((_, i) => i === 0));
+
+  useEffect(() => {
+    setExpanded((prev) => {
+      if (prev.length === slides.length) return prev;
+      return slides.map((_, i) => (i < prev.length ? prev[i] : true));
+    });
+  }, [slides.length]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const handleDragEnd = (event) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = slides.findIndex((s) => s.id === active.id);
+    const newIndex = slides.findIndex((s) => s.id === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+    onChange(arrayMove(slides, oldIndex, newIndex));
+    setExpanded((prev) => arrayMove(prev, oldIndex, newIndex));
+  };
+
+  const patchSlide = (idx, patch) => {
+    const next = [...slides];
+    next[idx] = { ...next[idx], ...patch };
+    onChange(next);
+  };
+
+  const removeSlide = (idx) => {
+    setExpanded((prev) => prev.filter((_, i) => i !== idx));
+    onChange(slides.filter((_, i) => i !== idx));
+  };
+
+  const duplicateSlide = (idx) => {
+    const dupe = { ...slides[idx], id: `slide-${Date.now()}` };
+    const next = [...slides];
+    next.splice(idx + 1, 0, dupe);
+    setExpanded((prev) => {
+      const e = [...prev];
+      e.splice(idx + 1, 0, true);
+      return e;
+    });
+    onChange(next);
+  };
+
+  const addSlide = () => {
+    setExpanded((prev) => [...prev, true]);
+    onChange([
+      ...slides,
+      {
+        id: `slide-${Date.now()}`,
+        headerText: '',
+        subheadingText: '',
+        contentText: '',
+        ctaText: '',
+        ctaLink: '',
+        backgroundImage: '',
+        overlayColor: '#000000',
+        overlayOpacity: 40,
+        imageFit: 'cover',
+      },
+    ]);
+  };
+
+  return (
+    <div>
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <SortableContext items={slides.map((s) => s.id)} strategy={verticalListSortingStrategy}>
+          {slides.map((slide, idx) => (
+            <SortableSlideItem
+              key={slide.id}
+              id={slide.id}
+              title={`Slide ${idx + 1}${slide.headerText ? ` — ${slide.headerText.replace(/<[^>]*>/g, '').substring(0, 28)}` : ''}`}
+              isExpanded={!!expanded[idx]}
+              onToggle={() => setExpanded((prev) => prev.map((e, i) => (i === idx ? !e : e)))}
+              onRemove={() => removeSlide(idx)}
+              onDuplicate={() => duplicateSlide(idx)}
+            >
+              <ImageField
+                label="Background image"
+                value={slide.backgroundImage}
+                onChangeSrc={(v) => patchSlide(idx, { backgroundImage: v })}
+                testId={`hcc-slide-${idx}-image`}
+              />
+              <SelectField
+                label="Image display"
+                value={slide.imageFit || 'cover'}
+                onChange={(v) => patchSlide(idx, { imageFit: v })}
+                options={[
+                  { value: 'cover', label: 'Cover (fill & crop)' },
+                  { value: 'contain', label: 'Contain (fit within)' },
+                  { value: 'original', label: 'Original (natural size)' },
+                ]}
+                testId={`hcc-slide-${idx}-image-fit`}
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <ColorField
+                  label="Overlay color"
+                  value={slide.overlayColor || '#000000'}
+                  onChange={(v) => patchSlide(idx, { overlayColor: v })}
+                />
+                <NumberField
+                  label="Overlay opacity (%)"
+                  value={slide.overlayOpacity ?? 40}
+                  min={0} max={100}
+                  onChange={(v) => patchSlide(idx, { overlayOpacity: v ?? 40 })}
+                  testId={`hcc-slide-${idx}-overlay-opacity`}
+                />
+              </div>
+              <RichTextField
+                label="Header"
+                value={slide.headerText || ''}
+                onChange={(v) => patchSlide(idx, { headerText: v })}
+                testId={`hcc-slide-${idx}-header`}
+                breakpoint={breakpoint}
+              />
+              <RichTextField
+                label="Subheading"
+                value={slide.subheadingText || ''}
+                onChange={(v) => patchSlide(idx, { subheadingText: v })}
+                testId={`hcc-slide-${idx}-subheading`}
+                breakpoint={breakpoint}
+              />
+              <RichTextField
+                label="Content"
+                value={slide.contentText || ''}
+                onChange={(v) => patchSlide(idx, { contentText: v })}
+                testId={`hcc-slide-${idx}-content`}
+                breakpoint={breakpoint}
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <TextField
+                  label="CTA button text"
+                  value={slide.ctaText || ''}
+                  onChange={(v) => patchSlide(idx, { ctaText: v })}
+                  testId={`hcc-slide-${idx}-cta-text`}
+                />
+                <TextField
+                  label="CTA link"
+                  value={slide.ctaLink || ''}
+                  onChange={(v) => patchSlide(idx, { ctaLink: v })}
+                  testId={`hcc-slide-${idx}-cta-link`}
+                />
+              </div>
+            </SortableSlideItem>
+          ))}
+        </SortableContext>
+      </DndContext>
+      <Button
+        size="sm"
+        variant="outline"
+        type="button"
+        onClick={addSlide}
+        data-testid="hcc-add-slide"
+        className="w-full mt-1"
+      >
+        <Plus size={14} className="mr-1" />
+        Add slide
+      </Button>
+    </div>
+  );
+}
+
+function HeroCarouselInspector({ block, update, breakpoint }) {
+  const c = block.content || {};
+  const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+
+  const makeTypographyControls = (prefix, defaultSize) => (
+    <details className="mt-1">
+      <summary className="cursor-pointer text-[11px] text-slate-500 hover:text-slate-700 py-1 select-none">
+        Manual font settings
+      </summary>
+      <div className="mt-2 space-y-2 pl-1">
+        <Field label="Font family">
+          <Select
+            value={c[`${prefix}_font_family`] || 'Poppins'}
+            onValueChange={(v) => set({ [`${prefix}_font_family`]: v })}
+          >
+            <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {HERO_CAROUSEL_FONT_FAMILIES.map((f) => (
+                <SelectItem key={f} value={f}>{f}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+        <div className="grid grid-cols-2 gap-2">
+          <NumberField
+            label="Desktop size (px)"
+            value={Number(c[`${prefix}_font_size`]) || defaultSize}
+            min={10} max={120}
+            onChange={(v) => set({ [`${prefix}_font_size`]: v ?? defaultSize })}
+          />
+          <NumberField
+            label="Mobile size (px)"
+            value={c[`mobile_${prefix}_font_size`] || null}
+            min={10} max={120}
+            onChange={(v) => set({ [`mobile_${prefix}_font_size`]: v })}
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Font weight">
+            <Select
+              value={String(c[`${prefix}_font_weight`] || '400')}
+              onValueChange={(v) => set({ [`${prefix}_font_weight`]: Number(v) })}
+            >
+              <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {HERO_CAROUSEL_FONT_WEIGHTS.map((w) => (
+                  <SelectItem key={w.value} value={w.value}>{w.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <ColorField
+            label="Color"
+            value={c[`${prefix}_color`] || '#ffffff'}
+            onChange={(v) => set({ [`${prefix}_color`]: v })}
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <NumberField
+            label="Letter spacing (px)"
+            value={c[`${prefix}_letter_spacing`] ?? 0}
+            step={0.5} min={-2} max={10}
+            onChange={(v) => set({ [`${prefix}_letter_spacing`]: v ?? 0 })}
+          />
+          <NumberField
+            label="Line height"
+            value={c[`${prefix}_line_height`] || (prefix === 'header' ? 1.2 : prefix === 'subheading' ? 1.5 : 1.6)}
+            step={0.1} min={0.8} max={3}
+            onChange={(v) => set({ [`${prefix}_line_height`]: v })}
+          />
+        </div>
+      </div>
+    </details>
+  );
+
+  return (
+    <>
+      <Field label="Slides (drag to reorder)">
+        <SlideDndList
+          slides={c.slides || []}
+          onChange={(next) => set({ slides: next })}
+          breakpoint={breakpoint}
+        />
+      </Field>
+
+      <details>
+        <summary className="cursor-pointer text-xs font-medium text-slate-700 py-2 select-none border-t border-slate-100 mt-1">
+          Typography &amp; Colors
+        </summary>
+        <div className="mt-2 space-y-3">
+          <div>
+            <TypographyStyleField
+              label="Header typography style"
+              value={c.header_typography_style_id}
+              onChange={(id, picked) => {
+                const patch = { header_typography_style_id: id };
+                if (picked) {
+                  if (picked.font_family) patch.header_font_family = picked.font_family;
+                  if (picked.font_size) patch.header_font_size = Number(picked.font_size);
+                  if (picked.font_weight) patch.header_font_weight = Number(picked.font_weight);
+                  if (picked.line_height) patch.header_line_height = Number(picked.line_height);
+                  if (picked.letter_spacing != null) patch.header_letter_spacing = Number(picked.letter_spacing);
+                  if (picked.color) patch.header_color = picked.color;
+                }
+                set(patch);
+              }}
+              testId="select-hcc-header-typography"
+            />
+            {makeTypographyControls('header', 48)}
+          </div>
+          <div className="border-t border-slate-100 pt-3">
+            <TypographyStyleField
+              label="Subheading typography style"
+              value={c.subheading_typography_style_id}
+              onChange={(id, picked) => {
+                const patch = { subheading_typography_style_id: id };
+                if (picked) {
+                  if (picked.font_family) patch.subheading_font_family = picked.font_family;
+                  if (picked.font_size) patch.subheading_font_size = Number(picked.font_size);
+                  if (picked.font_weight) patch.subheading_font_weight = Number(picked.font_weight);
+                  if (picked.line_height) patch.subheading_line_height = Number(picked.line_height);
+                  if (picked.letter_spacing != null) patch.subheading_letter_spacing = Number(picked.letter_spacing);
+                  if (picked.color) patch.subheading_color = picked.color;
+                }
+                set(patch);
+              }}
+              testId="select-hcc-subheading-typography"
+            />
+            {makeTypographyControls('subheading', 24)}
+          </div>
+          <div className="border-t border-slate-100 pt-3">
+            <TypographyStyleField
+              label="Content typography style"
+              value={c.content_typography_style_id}
+              onChange={(id, picked) => {
+                const patch = { content_typography_style_id: id };
+                if (picked) {
+                  if (picked.font_family) patch.content_font_family = picked.font_family;
+                  if (picked.font_size) patch.content_font_size = Number(picked.font_size);
+                  if (picked.font_weight) patch.content_font_weight = Number(picked.font_weight);
+                  if (picked.line_height) patch.content_line_height = Number(picked.line_height);
+                  if (picked.letter_spacing != null) patch.content_letter_spacing = Number(picked.letter_spacing);
+                  if (picked.color) patch.content_color = picked.color;
+                }
+                set(patch);
+              }}
+              testId="select-hcc-content-typography"
+            />
+            {makeTypographyControls('content', 16)}
+          </div>
+          <div className="border-t border-slate-100 pt-3">
+            <SelectField
+              label="Text alignment"
+              value={c.text_alignment || 'center'}
+              onChange={(v) => set({ text_alignment: v })}
+              options={[
+                { value: 'left', label: 'Left' },
+                { value: 'center', label: 'Center' },
+                { value: 'right', label: 'Right' },
+              ]}
+              testId="select-hcc-text-alignment"
+            />
+          </div>
+        </div>
+      </details>
+
+      <details>
+        <summary className="cursor-pointer text-xs font-medium text-slate-700 py-2 select-none border-t border-slate-100 mt-1">
+          Layout &amp; Height
+        </summary>
+        <div className="mt-2 space-y-3">
+          <SelectField
+            label="Container height"
+            value={c.height_type || 'custom'}
+            onChange={(v) => set({ height_type: v })}
+            options={[
+              { value: 'auto', label: 'Auto (min height)' },
+              { value: 'full', label: 'Full viewport' },
+              { value: 'custom', label: 'Custom' },
+            ]}
+            testId="select-hcc-height"
+          />
+          {(c.height_type === 'auto') && (
+            <NumberField
+              label="Minimum height (px)"
+              value={c.auto_min_height ?? 400}
+              min={100}
+              onChange={(v) => set({ auto_min_height: v ?? 400 })}
+              testId="input-hcc-auto-min-height"
+            />
+          )}
+          {(!c.height_type || c.height_type === 'custom') && (
+            <NumberField
+              label="Custom height (px)"
+              value={c.custom_height ?? 500}
+              min={200}
+              onChange={(v) => set({ custom_height: v ?? 500 })}
+              testId="input-hcc-custom-height"
+            />
+          )}
+          <div className="grid grid-cols-2 gap-2">
+            <NumberField
+              label="Padding vertical (px)"
+              value={c.padding_vertical ?? 60}
+              min={0}
+              onChange={(v) => set({ padding_vertical: v ?? 60 })}
+            />
+            <NumberField
+              label="Padding horizontal (px)"
+              value={c.padding_horizontal ?? 16}
+              min={0}
+              onChange={(v) => set({ padding_horizontal: v ?? 16 })}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <NumberField
+              label="Text offset X (px)"
+              value={c.text_offset_x ?? 0}
+              onChange={(v) => set({ text_offset_x: v ?? 0 })}
+              testId="input-hcc-offset-x"
+            />
+            <NumberField
+              label="Text offset Y (px)"
+              value={c.text_offset_y ?? 0}
+              onChange={(v) => set({ text_offset_y: v ?? 0 })}
+              testId="input-hcc-offset-y"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <NumberField
+              label="Mobile text X (px)"
+              value={c.mobile_text_offset_x ?? 0}
+              onChange={(v) => set({ mobile_text_offset_x: v ?? 0 })}
+              testId="input-hcc-mobile-offset-x"
+            />
+            <NumberField
+              label="Mobile text Y (px)"
+              value={c.mobile_text_offset_y ?? 0}
+              onChange={(v) => set({ mobile_text_offset_y: v ?? 0 })}
+              testId="input-hcc-mobile-offset-y"
+            />
+          </div>
+        </div>
+      </details>
+
+      <details>
+        <summary className="cursor-pointer text-xs font-medium text-slate-700 py-2 select-none border-t border-slate-100 mt-1">
+          Carousel Settings
+        </summary>
+        <div className="mt-2 space-y-3">
+          <NumberField
+            label="Autoplay interval (seconds, 0 to disable)"
+            value={c.autoplayInterval ?? 5}
+            min={0}
+            onChange={(v) => set({ autoplayInterval: v ?? 0 })}
+            testId="input-hcc-autoplay"
+          />
+          <SelectField
+            label="Transition effect"
+            value={c.transitionEffect || 'fade'}
+            onChange={(v) => set({ transitionEffect: v })}
+            options={[
+              { value: 'fade', label: 'Fade' },
+              { value: 'slide-left', label: 'Slide left' },
+              { value: 'slide-right', label: 'Slide right' },
+              { value: 'slide-up', label: 'Slide up' },
+            ]}
+            testId="select-hcc-transition"
+          />
+          <NumberField
+            label="Transition duration (ms)"
+            value={c.transitionDuration ?? 700}
+            min={100} max={3000} step={100}
+            onChange={(v) => set({ transitionDuration: v ?? 700 })}
+            testId="input-hcc-duration"
+          />
+          <ToggleField
+            label="Pause on hover"
+            value={c.pauseOnHover !== false}
+            onChange={(v) => set({ pauseOnHover: v })}
+            testId="toggle-hcc-pause-hover"
+          />
+          <ToggleField
+            label="Show navigation arrows"
+            value={c.showArrows !== false}
+            onChange={(v) => set({ showArrows: v })}
+            testId="toggle-hcc-show-arrows"
+          />
+          <ToggleField
+            label="Show dot indicators"
+            value={c.showDots !== false}
+            onChange={(v) => set({ showDots: v })}
+            testId="toggle-hcc-show-dots"
+          />
+          <ToggleField
+            label="Full-bleed (span full screen width)"
+            value={!!c.fullBleed}
+            onChange={(v) => set({ fullBleed: v })}
+            testId="toggle-hcc-full-bleed"
+          />
+        </div>
+      </details>
+    </>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
@@ -7534,6 +8438,7 @@ const REGISTRY = {
   [BLOCK_TYPES.MEGA_MENU]:        { label: 'Mega Menu',       icon: Menu,              category: 'content',  Editor: MegaMenuRender,        Renderer: MegaMenuRender,        Inspector: MegaMenuInspector, allowOverflow: true },
   [BLOCK_TYPES.COUNTDOWN]:        { label: 'Countdown',       icon: Clock,             category: 'content',  Editor: CountdownRender,       Renderer: CountdownRender,       Inspector: CountdownInspector },
   [BLOCK_TYPES.CARD_FLIP_GRID]:   { label: 'Card Flip Grid',  icon: Grid2x2,           category: 'content',  Editor: CardFlipGridRender,    Renderer: CardFlipGridRender,    Inspector: CardFlipGridInspector },
+  [BLOCK_TYPES.HERO_CAROUSEL]:    { label: 'Hero Carousel',   icon: GalleryHorizontal, category: 'content',  Editor: HeroCarouselRender,    Renderer: HeroCarouselRender,    Inspector: HeroCarouselInspector, absoluteFill: true, allowOverflow: true },
   [BLOCK_TYPES.BOX]:          { label: 'Box',            icon: Square,         category: 'layout',   Editor: BoxRender,          Renderer: BoxRender,          Inspector: BoxInspector, paletteHidden: false },
   [BLOCK_TYPES.SYMBOL]:       { label: 'Symbol',         icon: ComponentIcon,  category: 'advanced', Editor: SymbolRender,       Renderer: SymbolRender,       Inspector: SymbolInspector, paletteHidden: true, allowOverflow: true },
   ...DYNAMIC_BLOCK_DEFINITIONS,
