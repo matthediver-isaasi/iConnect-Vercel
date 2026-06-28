@@ -1620,7 +1620,12 @@ useEffect(() => {
           }
           return;
         }
-        // No stored member but server says session invalid - still mark auth as resolved
+        // No stored member but server says session invalid
+        // For portal pages, redirect guests to Home instead of rendering broken content
+        if (visibility !== 'hybrid') {
+          window.location.href = createPageUrl('Home');
+          return;
+        }
         setAuthResolved(true);
       }
       
