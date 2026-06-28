@@ -7713,6 +7713,14 @@ function HeroCarouselRender({ block, asEditor, breakpoint }) {
     textBoxStyle.transform = `translate(${effOffsetX}px, ${effOffsetY}px)`;
   }
 
+  // When full-bleed, the background spans 100vw but the text content should
+  // re-align to the page's centered content column. `--cb-content-width` is
+  // published by the stage stylesheet per breakpoint (1200/768/375); falls
+  // back to 1200. No-op when full-bleed is off (preserves today's appearance).
+  const railStyle = c.fullBleed
+    ? { maxWidth: 'var(--cb-content-width, 1200px)', marginInline: 'auto' }
+    : undefined;
+
   // Always compute container height so the block renders at the configured
   // height both in CanvasBuilder preview/editor and on published pages.
   // For 'full' or 'custom' the block geometry will usually already match;
@@ -7785,13 +7793,14 @@ function HeroCarouselRender({ block, asEditor, breakpoint }) {
           </div>
 
           <div
-            className="hcc-content-wrap relative h-full flex items-center z-10 max-w-7xl mx-auto"
+            className={`hcc-content-wrap relative h-full flex items-center z-10${c.fullBleed ? '' : ' max-w-7xl mx-auto'}`}
             style={{
               textAlign: textAlignment,
               paddingLeft: `${displayPaddingH}px`,
               paddingRight: `${displayPaddingH}px`,
               paddingTop: `${displayPaddingV}px`,
               paddingBottom: `${displayPaddingV}px`,
+              ...(railStyle || {}),
             }}
           >
             <div className="hcc-text-box max-w-2xl mx-auto" style={textBoxStyle}>
