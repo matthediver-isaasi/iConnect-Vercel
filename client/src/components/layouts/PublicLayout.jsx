@@ -52,9 +52,12 @@ const pageToPortalPageMap = {
 export default function PublicLayout({ children, currentPageName }) {
   // Per-page public chrome control (set by DynamicPage / ViewPage from the
   // page's `public_chrome` field). Defaults to showing both header and footer.
-  const { publicChrome } = useLayoutContext();
-  const showHeader = publicChrome === 'both' || publicChrome === 'header';
-  const showFooter = publicChrome === 'both' || publicChrome === 'footer';
+  // `chromeReady` is false while the page query is in-flight; we suppress
+  // header/footer until we know the correct value to prevent a flicker where
+  // the default 'both' paints for one frame before being hidden.
+  const { publicChrome, chromeReady } = useLayoutContext();
+  const showHeader = chromeReady && (publicChrome === 'both' || publicChrome === 'header');
+  const showFooter = chromeReady && (publicChrome === 'both' || publicChrome === 'footer');
   const { getPublicArticlesUrl, articleDisplayName, urlSlug, publicSlug, isCustomSlug, isLoading: articleUrlLoading } = useArticleUrl();
   const { branding, hasBranding } = useTenantBranding();
   const [banners, setBanners] = useState([]);

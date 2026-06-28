@@ -297,8 +297,12 @@ export default function DynamicPage() {
     // to release the chrome gate as soon as the route is resolved — otherwise
     // Layout keeps the children wrapped in `visibility: hidden` forever.
     if (dynamicArticleRoute) {
+      // Article routes always show full chrome — resolve before opening the gate.
+      setPublicChrome('both');
       setChromeReady(true);
-      return;
+      return () => {
+        setPublicChrome('both');
+      };
     }
     if (pageLoading) return;
     // Release the chrome gate as soon as the page query has resolved, even
@@ -308,9 +312,22 @@ export default function DynamicPage() {
     if (page?.hide_chrome) {
       setForcePublicLayout(false);
       setForceBlankLayout(true);
+      setChromeReady(true);
+      return () => {
+        setPublicChrome('both');
+      };
     }
+    // Resolve the per-page chrome value *synchronously* before opening the
+    // gate so PublicLayout never paints header/footer with the stale default
+    // ('both') and then hides them — that one-frame mismatch causes the
+    // visible flicker on hide-chrome Canvas pages.
+    const shouldForcePublic = forcePublicPreview || isPublicPage || (isHybridPage && !isLoggedIn);
+    setPublicChrome(shouldForcePublic ? (page?.public_chrome || 'both') : 'both');
     setChromeReady(true);
-  }, [page, pageLoading, dynamicArticleRoute, setForceBlankLayout, setForcePublicLayout, setChromeReady]);
+    return () => {
+      setPublicChrome('both');
+    };
+  }, [page, pageLoading, dynamicArticleRoute, forcePublicPreview, isPublicPage, isHybridPage, isLoggedIn, setForceBlankLayout, setForcePublicLayout, setChromeReady, setPublicChrome]);
 
   useEffect(() => {
     if (page?.hide_chrome) return;
