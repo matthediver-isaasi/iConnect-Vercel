@@ -1,25 +1,37 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Users, Loader2, ImageIcon, ArrowRight, Wand2 } from "lucide-react";
+import { Users, Loader2, ImageIcon, ArrowRight, Wand2, Lock } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useMemberGroupSettings } from "@/hooks/useMemberGroupSettings";
 import { createPageUrl } from "@/utils";
 import { sanitizeRichText } from "@/components/canvas/blocks/sanitize";
 
 export default function MemberGroupsPage() {
   const { memberInfo, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { authResolved, sessionValidated } = useLayoutContext();
   const { featureName } = useMemberGroupSettings();
   const [accessChecked, setAccessChecked] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const navigate = useNavigate();
 
+  const isAuthenticated = authResolved && sessionValidated && !!memberInfo?.id;
+
   useEffect(() => {
+    if (!authResolved) return;
+
+    if (!isAuthenticated) {
+      setAccessChecked(true);
+      return;
+    }
+
     if (isAccessReady) {
       if (isFeatureExcluded('membership.member-group-access')) {
         window.location.href = createPageUrl('Events');
@@ -27,12 +39,20 @@ export default function MemberGroupsPage() {
         setAccessChecked(true);
       }
     }
-  }, [isAccessReady, isFeatureExcluded]);
+  }, [authResolved, isAuthenticated, isAccessReady, isFeatureExcluded]);
 
-  const { data: groups = [], isLoading: loadingGroups } = useQuery({
+  const { data: publicGroups = [], isLoading: publicGroupsLoading } = useQuery({
+    queryKey: ['public-member-groups'],
+    queryFn: () => publicClient.listMemberGroups(),
+    enabled: authResolved && !isAuthenticated,
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
+  const { data: authenticatedGroups = [], isLoading: authenticatedGroupsLoading } = useQuery({
     queryKey: ['member-groups-self-join'],
     queryFn: () => base44.entities.MemberGroup.list(),
-    enabled: accessChecked,
+    enabled: isAuthenticated && accessChecked,
     staleTime: 0,
     refetchOnMount: true,
   });
@@ -40,7 +60,7 @@ export default function MemberGroupsPage() {
   const { data: openVacancies = [] } = useQuery({
     queryKey: ['member-groups-open-vacancies'],
     queryFn: () => base44.entities.Vacancy.filter({ status: 'open' }),
-    enabled: accessChecked,
+    enabled: isAuthenticated && accessChecked,
     staleTime: 0,
     refetchOnMount: true,
   });
@@ -51,10 +71,13 @@ export default function MemberGroupsPage() {
       if (!memberInfo?.id) return [];
       return base44.entities.MemberGroupAssignment.filter({ member_id: memberInfo.id });
     },
-    enabled: accessChecked && !!memberInfo?.id,
+    enabled: isAuthenticated && accessChecked && !!memberInfo?.id,
     staleTime: 0,
     refetchOnMount: true,
   });
+
+  const groups = isAuthenticated ? authenticatedGroups : publicGroups;
+  const loadingGroups = isAuthenticated ? authenticatedGroupsLoading : publicGroupsLoading;
 
   const assignmentByGroup = useMemo(() => {
     const map = {};
@@ -90,6 +113,11 @@ export default function MemberGroupsPage() {
       .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   }, [groups, searchQuery]);
 
+  const handleGuestGroupClick = (groupId) => {
+    const detailPath = createPageUrl('MemberGroupDetail');
+    window.location.href = `/login?returnTo=${encodeURIComponent(detailPath)}&groupId=${encodeURIComponent(groupId)}`;
+  };
+
   const isLoading = !accessChecked || loadingGroups;
 
   if (isLoading) {
@@ -110,7 +138,7 @@ export default function MemberGroupsPage() {
       <div className="max-w-7xl mx-auto">
         <div className="mb-8">
           <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2" data-testid="text-page-title">
-            {featureName}
+            {featureName || 'Member Groups'}
           </h1>
           <p className="text-slate-600">
             Browse and join groups that are open to all members
@@ -152,23 +180,32 @@ export default function MemberGroupsPage() {
                 myAssignment.is_group_admin === true &&
                 (!myAssignment.expires_at ||
                   new Date(myAssignment.expires_at).toISOString() > new Date().toISOString());
+
+              const handleCardClick = () => {
+                if (!isAuthenticated) {
+                  handleGuestGroupClick(group.id);
+                } else {
+                  navigate(`${createPageUrl('MemberGroupDetail')}?id=${group.id}`);
+                }
+              };
+
               return (
                 <Card
                   key={group.id}
                   className="overflow-hidden flex flex-col cursor-pointer hover-elevate"
-                  onClick={() => navigate(`${createPageUrl('MemberGroupDetail')}?id=${group.id}`)}
+                  onClick={handleCardClick}
                   role="link"
                   tabIndex={0}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
-                      navigate(`${createPageUrl('MemberGroupDetail')}?id=${group.id}`);
+                      handleCardClick();
                     }
                   }}
                   data-testid={`card-group-${group.id}`}
                 >
                   <div className="relative w-full aspect-[5/2] bg-slate-100">
-                    {openVacancyCountByGroup[group.id] > 0 && (
+                    {isAuthenticated && openVacancyCountByGroup[group.id] > 0 && (
                       <div className="absolute top-2 right-2 z-10">
                         <Badge
                           className="bg-green-100 text-green-700 text-xs"
@@ -210,7 +247,7 @@ export default function MemberGroupsPage() {
                         dangerouslySetInnerHTML={{ __html: sanitizeRichText(group.description) }}
                       />
                     )}
-                    {isGroupAdmin && (
+                    {isAuthenticated && isGroupAdmin && (
                       <div className="mb-3">
                         <Wand2
                           className="h-4 w-4 text-purple-700"
@@ -218,7 +255,7 @@ export default function MemberGroupsPage() {
                         />
                       </div>
                     )}
-                    {isJoined ? (
+                    {isAuthenticated && isJoined ? (
                       <div className="mb-3" data-testid={`text-joined-role-${group.id}`}>
                         <span className="text-xs text-slate-500">You have joined the group as </span>
                         <Badge className="bg-green-100 text-green-700 text-xs">
@@ -226,7 +263,7 @@ export default function MemberGroupsPage() {
                         </Badge>
                       </div>
                     ) : (
-                      group.default_self_join_role && (
+                      isAuthenticated && group.default_self_join_role && (
                         <div className="mb-3" data-testid={`text-join-as-${group.id}`}>
                           <span className="text-xs text-slate-500">You'll join as: </span>
                           <Badge className="bg-blue-100 text-blue-700 text-xs">
@@ -236,18 +273,33 @@ export default function MemberGroupsPage() {
                       )
                     )}
                     <div className="mt-auto pt-3" onClick={(e) => e.stopPropagation()}>
-                      <Button
-                        variant="outline"
-                        className="w-full"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          navigate(`${createPageUrl('MemberGroupDetail')}?id=${group.id}`);
-                        }}
-                        data-testid={`button-find-out-more-${group.id}`}
-                      >
-                        Find out more
-                        <ArrowRight className="w-4 h-4 ml-2" />
-                      </Button>
+                      {!isAuthenticated ? (
+                        <Button
+                          variant="outline"
+                          className="w-full"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleGuestGroupClick(group.id);
+                          }}
+                          data-testid={`button-login-required-${group.id}`}
+                        >
+                          <Lock className="w-4 h-4 mr-2" />
+                          Member only content - Click to login
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          className="w-full"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`${createPageUrl('MemberGroupDetail')}?id=${group.id}`);
+                          }}
+                          data-testid={`button-find-out-more-${group.id}`}
+                        >
+                          Find out more
+                          <ArrowRight className="w-4 h-4 ml-2" />
+                        </Button>
+                      )}
                     </div>
                   </CardContent>
                 </Card>

@@ -611,6 +611,11 @@ class PublicClient {
       body: JSON.stringify(data)
     });
   }
+
+  // Member Groups (self-join, active groups only — no auth required)
+  async listMemberGroups() {
+    return this._fetch('/api/public/member-groups');
+  }
 }
 
 // Export singleton instance

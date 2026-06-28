@@ -33,6 +33,7 @@ export default function LoginForm({ className }) {
   const urlParams = new URLSearchParams(window.location.search);
   const returnTo = urlParams.get('returnTo');
   const resourceId = urlParams.get('resourceId');
+  const groupId = urlParams.get('groupId');
   const oauthError = urlParams.get('error');
   const urlMode = urlParams.get('mode');
   const urlToken = urlParams.get('token');
@@ -102,7 +103,13 @@ export default function LoginForm({ className }) {
     const sessionExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
     localStorage.setItem('agcas_member', JSON.stringify({ ...member, sessionExpiry }));
     if (returnTo) {
-      window.location.href = resourceId ? `${returnTo}?resourceId=${resourceId}` : returnTo;
+      if (resourceId) {
+        window.location.href = `${returnTo}?resourceId=${resourceId}`;
+      } else if (groupId) {
+        window.location.href = `${returnTo}?id=${groupId}`;
+      } else {
+        window.location.href = returnTo;
+      }
       return;
     }
     let landingPage = 'Preferences';
