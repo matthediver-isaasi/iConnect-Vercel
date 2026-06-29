@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { createPageUrl } from "@/utils";
 import { useBookmarks } from "@/hooks/useBookmarks";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { format } from "date-fns";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
@@ -314,6 +315,11 @@ function SortableBookmarkItem({ item, section, onOpenChange, onRemoveBookmark })
 
 export default function BookmarkDrawer({ open, onOpenChange }) {
   const { grouped, categoryOrder, toggleBookmark, reorderCategories, reorderItems, refetchEnriched, isLoading, totalCount } = useBookmarks();
+  const tenantBranding = useTenantBranding();
+  const basePortalFont = tenantBranding?.branding?.brandingConfig?.basePortalFont || '';
+  const portalRootFont = basePortalFont
+    ? `${basePortalFont}, Poppins, sans-serif`
+    : 'Poppins, sans-serif';
   const [expandedSections, setExpandedSections] = useState(
     Object.keys(SECTION_MAP).reduce((acc, key) => ({ ...acc, [key]: true }), {})
   );
@@ -375,7 +381,7 @@ export default function BookmarkDrawer({ open, onOpenChange }) {
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" hideClose className="!max-w-[360px] sm:!max-w-[420px] w-[360px] sm:w-[420px] p-0 flex flex-col !rounded-none" style={{ borderRadius: 0 }}>
+      <SheetContent side="right" hideClose className="!max-w-[360px] sm:!max-w-[420px] w-[360px] sm:w-[420px] p-0 flex flex-col !rounded-none" style={{ borderRadius: 0, fontFamily: portalRootFont }}>
         <SheetHeader className="border-b p-4">
           <SheetTitle className="flex items-center gap-2">
             <Bookmark className="w-5 h-5" />
