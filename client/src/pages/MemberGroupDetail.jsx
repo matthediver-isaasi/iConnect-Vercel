@@ -1906,18 +1906,6 @@ export default function MemberGroupDetailPage() {
                   </Tooltip>
                 </TooltipProvider>
               )}
-              {isGroupAdmin &&
-                !isFeatureExcluded("membership.member-group-email") && (
-                <Button
-                  variant="outline"
-                  className="ml-auto"
-                  onClick={() => navigate(`/GroupEmail?group_id=${groupId}`)}
-                  data-testid="button-send-group-email"
-                >
-                  <Mail className="w-4 h-4 mr-2" />
-                  Send group email
-                </Button>
-              )}
             </div>
           </CardContent>
         </Card>
