@@ -6102,11 +6102,14 @@ function TestimonialGridRender({ block, breakpoint }) {
     paddingBottom: c.innerPaddingBottom ?? 0,
     paddingLeft: c.innerPaddingLeft ?? 0,
   };
+  const railStyle = c.fullBleed
+    ? { maxWidth: 'var(--cb-content-width, 1200px)', marginInline: 'auto' }
+    : undefined;
   return (
     <div className="w-full h-full overflow-auto">
       {responsiveCss && <style dangerouslySetInnerHTML={{ __html: responsiveCss }} />}
       {typographyResponsiveCss && <style dangerouslySetInnerHTML={{ __html: typographyResponsiveCss }} />}
-      <div style={innerPaddingStyle}>
+      <div style={{ ...innerPaddingStyle, ...railStyle }}>
       {c.heading && (
         <Heading
           data-tg-r="tg-heading"
@@ -6243,6 +6246,12 @@ function TestimonialGridInspector({ block, update }) {
         <NumberField label="Cols (mobile)" min={1} max={4} value={resolveColumns(c.columns, 'mobile')} onChange={(v) => setColumns('mobile', v)} testId="input-testimonial-grid-cols-mobile" />
       </div>
       <NumberField label="Gap (px)" min={0} max={64} value={c.gap || 16} onChange={(v) => set({ gap: Number(v) || 0 })} testId="input-testimonial-grid-gap" />
+      <ToggleField
+        label="Full-bleed (span full screen width)"
+        value={!!c.fullBleed}
+        onChange={(v) => set({ fullBleed: v })}
+        testId="toggle-testimonial-grid-full-bleed"
+      />
       <div className="pt-2 mt-2 border-t border-slate-200">
         <div className="text-xs font-semibold text-slate-700">Internal padding</div>
         <p className="text-xs text-slate-500 mt-0.5">Space between the block background and the grid content, in px.</p>
