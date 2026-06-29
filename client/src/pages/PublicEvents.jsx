@@ -10,6 +10,7 @@ import { publicClient } from "@/api/publicClient";
 import { getFocalPointStyle } from "@/components/FocalPointPicker";
 import { parseEventTypes } from "@/lib/utils";
 import { Link } from "react-router-dom";
+import TenantCtaButton from "@/components/common/TenantCtaButton";
 
 const DEFAULT_TIMEZONE = "Europe/London";
 
@@ -278,19 +279,17 @@ export default function PublicEventsPage() {
                         )}
 
                         <div className="pt-3 border-t border-slate-100">
-                          {isExternalDetailUrl ? (
-                            <a href={detailUrl} rel="noopener noreferrer">
-                              <Button className="w-full" data-testid={`button-featured-view-event-${event.id}`}>
-                                View Details
-                              </Button>
-                            </a>
-                          ) : (
-                            <Link to={detailUrl}>
-                              <Button className="w-full" data-testid={`button-featured-view-event-${event.id}`}>
-                                View Details
-                              </Button>
-                            </Link>
-                          )}
+                          <TenantCtaButton
+                            as={isExternalDetailUrl ? "a" : "link"}
+                            href={isExternalDetailUrl ? detailUrl : undefined}
+                            to={isExternalDetailUrl ? undefined : detailUrl}
+                            rel={isExternalDetailUrl ? "noopener noreferrer" : undefined}
+                            className="w-full"
+                            fallbackVariant="default"
+                            data-testid={`button-featured-view-event-${event.id}`}
+                          >
+                            View Details
+                          </TenantCtaButton>
                         </div>
                       </CardContent>
                     </Card>
@@ -399,19 +398,17 @@ export default function PublicEventsPage() {
                     )}
 
                     <div className="pt-3 border-t border-slate-100">
-                      {isExternalDetailUrl ? (
-                        <a href={detailUrl} rel="noopener noreferrer">
-                          <Button className="w-full" data-testid={`button-view-event-${event.id}`}>
-                            View Details
-                          </Button>
-                        </a>
-                      ) : (
-                        <Link to={detailUrl}>
-                          <Button className="w-full" data-testid={`button-view-event-${event.id}`}>
-                            View Details
-                          </Button>
-                        </Link>
-                      )}
+                      <TenantCtaButton
+                        as={isExternalDetailUrl ? "a" : "link"}
+                        href={isExternalDetailUrl ? detailUrl : undefined}
+                        to={isExternalDetailUrl ? undefined : detailUrl}
+                        rel={isExternalDetailUrl ? "noopener noreferrer" : undefined}
+                        className="w-full"
+                        fallbackVariant="default"
+                        data-testid={`button-view-event-${event.id}`}
+                      >
+                        View Details
+                      </TenantCtaButton>
                     </div>
                   </CardContent>
                 </Card>

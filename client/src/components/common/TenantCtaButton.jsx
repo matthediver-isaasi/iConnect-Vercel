@@ -22,6 +22,8 @@ import {
 //     `w-full`, `flex-1`, fixed square sizing).
 //   - `applySize={false}` keeps the caller's own padding/sizing (square icon
 //     buttons) while still applying the tenant colour/border/radius.
+//   - `size` is forwarded to the fallback <Button> only; it is NOT passed to
+//     native elements in the tenant-styled path to avoid invalid DOM props.
 export default function TenantCtaButton({
   as = 'button',
   to,
@@ -32,6 +34,7 @@ export default function TenantCtaButton({
   fallbackVariant,
   applySize = true,
   disabled = false,
+  size,
   children,
   ...rest
 }) {
@@ -43,31 +46,40 @@ export default function TenantCtaButton({
   if (!style || disabled) {
     if (as === 'link') {
       return (
-        <Link
-          to={to}
-          onClick={onClick}
+        <Button
+          variant={fallbackVariant}
+          size={size}
+          disabled={disabled}
           className={cn(className, fallbackClassName)}
+          asChild
           {...rest}
         >
-          {children}
-        </Link>
+          <Link to={to} onClick={onClick}>
+            {children}
+          </Link>
+        </Button>
       );
     }
     if (as === 'a') {
       return (
-        <a
-          href={href}
-          onClick={onClick}
+        <Button
+          variant={fallbackVariant}
+          size={size}
+          disabled={disabled}
           className={cn(className, fallbackClassName)}
+          asChild
           {...rest}
         >
-          {children}
-        </a>
+          <a href={href} onClick={onClick}>
+            {children}
+          </a>
+        </Button>
       );
     }
     return (
       <Button
         variant={fallbackVariant}
+        size={size}
         onClick={onClick}
         disabled={disabled}
         className={cn(className, fallbackClassName)}

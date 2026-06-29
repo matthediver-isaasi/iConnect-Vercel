@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import TenantCtaButton from "@/components/common/TenantCtaButton";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   Calendar,
@@ -285,17 +286,16 @@ export default function MemberDemo() {
               low- and middle-income countries.
             </p>
             <div className="flex flex-wrap gap-3">
-              <Button
-                variant="secondary"
+              <TenantCtaButton
+                as="link"
+                to={createPageUrl("Events")}
                 size="lg"
-                asChild
+                fallbackVariant="secondary"
                 data-testid="button-hero-events"
               >
-                <Link to={createPageUrl("Events")}>
-                  <Calendar className="w-4 h-4 mr-2" />
-                  Browse Events
-                </Link>
-              </Button>
+                <Calendar className="w-4 h-4 mr-2" />
+                Browse Events
+              </TenantCtaButton>
               <Button
                 variant="outline"
                 size="lg"
@@ -383,13 +383,15 @@ export default function MemberDemo() {
                     </div>
                   </div>
                   <div className="mt-auto pt-2">
-                    <Button
+                    <TenantCtaButton
+                      as="link"
+                      to={createPageUrl("Events")}
                       className="w-full"
-                      asChild
+                      fallbackVariant="default"
                       data-testid={`button-event-register-${event.id}`}
                     >
-                      <Link to={createPageUrl("Events")}>Register</Link>
-                    </Button>
+                      Register
+                    </TenantCtaButton>
                   </div>
                 </CardContent>
               </Card>
@@ -438,17 +440,16 @@ export default function MemberDemo() {
                   </p>
                   <div className="mt-auto flex items-center justify-between gap-2">
                     <span className="text-xs text-muted-foreground">{res.date}</span>
-                    <Button
+                    <TenantCtaButton
+                      as="link"
+                      to={createPageUrl("Resources")}
                       size="sm"
-                      variant="outline"
-                      asChild
+                      fallbackVariant="outline"
                       data-testid={`button-resource-access-${res.id}`}
                     >
-                      <Link to={createPageUrl("Resources")}>
-                        <ResourceLabel type={res.type} />
-                        <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
-                      </Link>
-                    </Button>
+                      <ResourceLabel type={res.type} />
+                      <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
+                    </TenantCtaButton>
                   </div>
                 </CardContent>
               </Card>
@@ -499,17 +500,16 @@ export default function MemberDemo() {
                     <span className="text-xs text-muted-foreground">
                       {article.author} · {article.date}
                     </span>
-                    <Button
+                    <TenantCtaButton
+                      as="link"
+                      to={createPageUrl("Articles")}
                       size="sm"
-                      variant="ghost"
-                      asChild
+                      fallbackVariant="ghost"
                       data-testid={`button-article-read-${article.id}`}
                     >
-                      <Link to={createPageUrl("Articles")}>
-                        Read
-                        <ArrowRight className="w-3.5 h-3.5 ml-1" />
-                      </Link>
-                    </Button>
+                      Read
+                      <ArrowRight className="w-3.5 h-3.5 ml-1" />
+                    </TenantCtaButton>
                   </div>
                 </CardContent>
               </Card>
@@ -620,15 +620,15 @@ export default function MemberDemo() {
             >
               <Link to={createPageUrl("Preferences")}>My Profile</Link>
             </Button>
-            <Button
-              asChild
+            <TenantCtaButton
+              as="link"
+              to={createPageUrl("Events")}
+              fallbackVariant="default"
               data-testid="button-footer-events"
             >
-              <Link to={createPageUrl("Events")}>
-                Browse Events
-                <ArrowRight className="w-4 h-4 ml-2" />
-              </Link>
-            </Button>
+              Browse Events
+              <ArrowRight className="w-4 h-4 ml-2" />
+            </TenantCtaButton>
           </div>
         </div>
       </section>
