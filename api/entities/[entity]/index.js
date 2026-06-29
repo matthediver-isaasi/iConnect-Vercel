@@ -1403,14 +1403,33 @@ export default async function handler(req, res) {
             return res.status(403).json({ error: 'You must agree to the terms of reference to join this group' });
           }
 
-          const { data: existingAssignment } = await supabase
+        }
+
+        // Duplicate-assignment guard: runs for ALL callers (admin and non-admin)
+        // so the admin assign UI cannot create a second assignment for the same
+        // member or guest in the same group. The DB unique indexes are the final
+        // backstop; this check gives a cleaner 409 before the insert.
+        if (sanitizedBody.group_id) {
+          let dupQuery = supabase
             .from('member_group_assignment')
             .select('id')
             .eq('group_id', sanitizedBody.group_id)
-            .eq('member_id', tenantCtx.memberId)
             .limit(1);
-          if (existingAssignment && existingAssignment.length > 0) {
-            return res.status(409).json({ error: 'You are already a member of this group' });
+
+          if (sanitizedBody.guest_id) {
+            dupQuery = dupQuery.eq('guest_id', sanitizedBody.guest_id);
+          } else if (sanitizedBody.member_id) {
+            dupQuery = dupQuery.eq('member_id', sanitizedBody.member_id);
+          }
+
+          if (sanitizedBody.guest_id || sanitizedBody.member_id) {
+            const { data: dupRows } = await dupQuery;
+            if (dupRows && dupRows.length > 0) {
+              const msg = isAdmin
+                ? 'This member is already assigned to this group'
+                : 'You are already a member of this group';
+              return res.status(409).json({ error: msg });
+            }
           }
         }
       }
@@ -1460,6 +1479,18 @@ export default async function handler(req, res) {
         
         // Handle unique constraint violations with user-friendly messages
         if (error.code === '23505') {
+          // Race-safe backstop: two concurrent admin assigns beat the app-level
+          // duplicate check; the DB partial unique indexes catch it here.
+          if (
+            error.message?.includes('uq_member_group_assignment_member') ||
+            error.message?.includes('uq_member_group_assignment_guest') ||
+            tableName === 'member_group_assignment'
+          ) {
+            return res.status(409).json({
+              error: 'This member is already assigned to this group',
+              code: 'DUPLICATE_ASSIGNMENT',
+            });
+          }
           // Check if it's the member email uniqueness constraint
           if (error.message?.includes('member_email_tenant_unique') || 
               (tableName === 'member' && error.message?.includes('email'))) {
