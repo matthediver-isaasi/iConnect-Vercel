@@ -45,6 +45,8 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { base44 } from "@/api/base44Client";
 import { format } from "date-fns";
 import { TimezoneAwareDateTimeInput } from "@/components/events/TimezoneAwareDateTimeInput";
+import EventClashWarningDialog from "@/components/events/EventClashWarningDialog";
+import { checkEventClashes } from "@/lib/eventClash";
 import { createPageUrl, getEventUrl } from "@/utils";
 import EventDocumentsManager from "@/components/events/EventDocumentsManager";
 import EventOptionListsEditor from "@/components/events/EventOptionListsEditor";
@@ -652,9 +654,28 @@ export default function CreateEvent() {
     }
   });
 
-  const handleSubmit = (e) => {
+  const [clashDialog, setClashDialog] = useState({ open: false, clashes: [] });
+  const [pendingSubmit, setPendingSubmit] = useState(null);
+  const [checkingClashes, setCheckingClashes] = useState(false);
+
+  const handleClashConfirm = () => {
+    setClashDialog({ open: false, clashes: [] });
+    const fn = pendingSubmit;
+    setPendingSubmit(null);
+    if (fn) fn();
+  };
+
+  const handleClashCancel = () => {
+    setClashDialog({ open: false, clashes: [] });
+    setPendingSubmit(null);
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
+    // Guard against double-submit while a clash check is already running.
+    if (checkingClashes) return;
+
     // Collect all validation errors
     const errors = [];
     
@@ -908,7 +929,34 @@ export default function CreateEvent() {
 
 
     console.log('[CreateEvent] All validation passed, calling mutation with eventData:', JSON.stringify(eventData, null, 2));
-    createEventMutation.mutate(eventData);
+
+    const submitCreate = () => createEventMutation.mutate(eventData);
+
+    // Advisory time-clash check (never blocks saving). Skip for TBC / no dates.
+    if (eventData.start_date && eventData.end_date) {
+      setCheckingClashes(true);
+      try {
+        const { hasClashes, clashes } = await checkEventClashes({
+          windows: [{
+            start: eventData.start_date,
+            end: eventData.end_date,
+            timezone: formData.timezone || 'Europe/London',
+            label: formData.title || null,
+          }],
+        });
+        if (hasClashes) {
+          setPendingSubmit(() => submitCreate);
+          setClashDialog({ open: true, clashes });
+          setCheckingClashes(false);
+          return;
+        }
+      } catch (err) {
+        // Never block saving on a clash-check failure.
+      }
+      setCheckingClashes(false);
+    }
+
+    submitCreate();
   };
 
   const handleInputChange = (field, value) => {
@@ -2976,6 +3024,14 @@ export default function CreateEvent() {
           </div>
         </form>
       </div>
+
+      <EventClashWarningDialog
+        open={clashDialog.open}
+        clashes={clashDialog.clashes}
+        onConfirm={handleClashConfirm}
+        onCancel={handleClashCancel}
+        isSaving={createEventMutation.isPending}
+      />
 
       {/* Validation Error Dialog */}
       <Dialog open={showValidationDialog} onOpenChange={setShowValidationDialog}>

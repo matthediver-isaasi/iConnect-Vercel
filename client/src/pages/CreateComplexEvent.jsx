@@ -22,6 +22,8 @@ import {
 import { format, parseISO } from "date-fns";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { TimezoneAwareDateTimeInput } from "@/components/events/TimezoneAwareDateTimeInput";
+import EventClashWarningDialog from "@/components/events/EventClashWarningDialog";
+import { checkEventClashes } from "@/lib/eventClash";
 import DOMPurify from "dompurify";
 import { computeTimelineLayout } from "@/lib/timelineUtils";
 import { useEventTypes } from "@/hooks/useEventTypes";
@@ -582,6 +584,8 @@ export default function CreateComplexEvent() {
 
   const [activeSection, setActiveSection] = useState("details");
   const [saving, setSaving] = useState(false);
+  const [clashDialog, setClashDialog] = useState({ open: false, clashes: [] });
+  const [checkingClashes, setCheckingClashes] = useState(false);
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
   const [slugError, setSlugError] = useState(null);
   const [checkingSlug, setCheckingSlug] = useState(false);
@@ -1754,7 +1758,7 @@ export default function CreateComplexEvent() {
     }));
   };
 
-  const handleSave = async () => {
+  const handleSave = async (skipClashCheck = false) => {
     if (!formData.title.trim()) {
       toast.error("Event title is required");
       return;
@@ -1778,6 +1782,36 @@ export default function CreateComplexEvent() {
       if (!formData.available_seats || isNaN(seats) || seats < 1) {
         toast.error('Please enter a valid number of seats (or enable "Unlimited")');
         return;
+      }
+    }
+
+    // Advisory time-clash check (never blocks saving). Compare per session, not
+    // the whole multi-day span. Skip for TBC events / sessions without times.
+    if (!skipClashCheck && formData.status !== 'tbc') {
+      const windows = sessions
+        .filter((s) => s.start_time && s.end_time)
+        .map((s) => ({
+          start: s.start_time,
+          end: s.end_time,
+          timezone: formData.timezone || 'Europe/London',
+          label: s.title || null,
+        }));
+      if (windows.length > 0) {
+        setCheckingClashes(true);
+        try {
+          const { hasClashes, clashes } = await checkEventClashes({
+            windows,
+            excludeComplexEventId: isEditMode ? editId : null,
+          });
+          if (hasClashes) {
+            setClashDialog({ open: true, clashes });
+            setCheckingClashes(false);
+            return;
+          }
+        } catch (err) {
+          // Never block saving on a clash-check failure.
+        }
+        setCheckingClashes(false);
       }
     }
 
@@ -2093,6 +2127,15 @@ export default function CreateComplexEvent() {
     }
   };
 
+  const handleClashConfirm = () => {
+    setClashDialog({ open: false, clashes: [] });
+    handleSave(true);
+  };
+
+  const handleClashCancel = () => {
+    setClashDialog({ open: false, clashes: [] });
+  };
+
   if (isEditMode && (loadingEvent || loadingTracks || loadingSessions || loadingTicketClasses)) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -2130,7 +2173,7 @@ export default function CreateComplexEvent() {
               {isEditMode ? "Edit Complex Event" : "Create Complex Event"}
             </h1>
           </div>
-          <Button onClick={handleSave} disabled={saving || !isDirty} data-testid="button-save">
+          <Button onClick={() => handleSave()} disabled={saving || checkingClashes || !isDirty} data-testid="button-save">
             {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
             {isEditMode ? "Save Changes" : "Create Event"}
           </Button>
@@ -4852,6 +4895,13 @@ export default function CreateComplexEvent() {
         }}
       />
       </div>
+      <EventClashWarningDialog
+        open={clashDialog.open}
+        clashes={clashDialog.clashes}
+        onConfirm={handleClashConfirm}
+        onCancel={handleClashCancel}
+        isSaving={saving || checkingClashes}
+      />
     </div>
   );
 }

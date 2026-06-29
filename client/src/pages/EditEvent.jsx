@@ -53,6 +53,8 @@ import { base44 } from "@/api/base44Client";
 import { format } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import { TimezoneAwareDateTimeInput } from "@/components/events/TimezoneAwareDateTimeInput";
+import EventClashWarningDialog from "@/components/events/EventClashWarningDialog";
+import { checkEventClashes } from "@/lib/eventClash";
 import { createPageUrl, getEventUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
 import EventDocumentsManager from "@/components/events/EventDocumentsManager";
@@ -1335,9 +1337,28 @@ export default function EditEvent() {
   // One-off event is when isProgramEvent is false
   const isOneOffEvent = !isProgramEvent;
 
-  const handleSubmit = (e) => {
+  const [clashDialog, setClashDialog] = useState({ open: false, clashes: [] });
+  const [pendingSubmit, setPendingSubmit] = useState(null);
+  const [checkingClashes, setCheckingClashes] = useState(false);
+
+  const handleClashConfirm = () => {
+    setClashDialog({ open: false, clashes: [] });
+    const fn = pendingSubmit;
+    setPendingSubmit(null);
+    if (fn) fn();
+  };
+
+  const handleClashCancel = () => {
+    setClashDialog({ open: false, clashes: [] });
+    setPendingSubmit(null);
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
+    // Guard against double-submit while a clash check is already running.
+    if (checkingClashes) return;
+
     // Only require program_tag for program events
     if (!isOneOffEvent && !formData.program_tag) {
       toast.error('Please select a program');
@@ -1604,7 +1625,7 @@ export default function EditEvent() {
     }
 
 
-    updateEventMutation.mutate(eventData, {
+    const submitUpdate = () => updateEventMutation.mutate(eventData, {
       onSuccess: async () => {
         // Save sponsor assignments
         try {
@@ -1651,6 +1672,33 @@ export default function EditEvent() {
         }, 500);
       }
     });
+
+    // Advisory time-clash check (never blocks saving). Skip for TBC / no dates.
+    if (eventData.start_date && eventData.end_date) {
+      setCheckingClashes(true);
+      try {
+        const { hasClashes, clashes } = await checkEventClashes({
+          windows: [{
+            start: eventData.start_date,
+            end: eventData.end_date,
+            timezone: formData.timezone || 'Europe/London',
+            label: formData.title || null,
+          }],
+          excludeEventId: eventId,
+        });
+        if (hasClashes) {
+          setPendingSubmit(() => submitUpdate);
+          setClashDialog({ open: true, clashes });
+          setCheckingClashes(false);
+          return;
+        }
+      } catch (err) {
+        // Never block saving on a clash-check failure.
+      }
+      setCheckingClashes(false);
+    }
+
+    submitUpdate();
   };
 
   const handleInputChange = (field, value) => {
@@ -4549,6 +4597,13 @@ export default function EditEvent() {
   return (
     <div className="min-h-screen p-4 md:p-8">
       {renderContent()}
+      <EventClashWarningDialog
+        open={clashDialog.open}
+        clashes={clashDialog.clashes}
+        onConfirm={handleClashConfirm}
+        onCancel={handleClashCancel}
+        isSaving={updateEventMutation.isPending}
+      />
     </div>
   );
 }
