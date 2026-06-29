@@ -1243,7 +1243,29 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
         };
       });
   } else if (targetType === 'event_attendees' && targetIds.length > 0) {
-    const collectBookings = async (table) => {
+    // Per-event ticket-type selection: { [eventId]: 'all' | [{id, name}] }
+    // When a specific selection exists for an event, only include bookings whose
+    // ticket class matches. Absent or 'all' means include all confirmed attendees.
+    const ticketTypeSel = (segmentData && segmentData.ticket_type_selection) || null;
+
+    const shouldKeepBooking = (row, isComplex) => {
+      if (!ticketTypeSel) return true;
+      const sel = ticketTypeSel[row.event_id];
+      if (!sel || sel === 'all' || !Array.isArray(sel) || sel.length === 0) return true;
+      if (isComplex) {
+        const selectedIds = sel.map(tc => tc.id).filter(Boolean);
+        const selectedNames = sel.map(tc => tc.name).filter(Boolean);
+        if (row.ticket_class_id && selectedIds.includes(row.ticket_class_id)) return true;
+        if (row.ticket_class_name && selectedNames.includes(row.ticket_class_name)) return true;
+        return false;
+      } else {
+        const selectedNames = sel.map(tc => tc.name).filter(Boolean);
+        if (row.ticket_class_name && selectedNames.includes(row.ticket_class_name)) return true;
+        return false;
+      }
+    };
+
+    const collectBookings = async (table, isComplex) => {
       const rows = [];
       const idBatchSize = 200;
       for (let i = 0; i < targetIds.length; i += idBatchSize) {
@@ -1254,7 +1276,7 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
         while (hasMore) {
           const { data, error } = await supabase
             .from(table)
-            .select('attendee_email, attendee_first_name, attendee_last_name, member_id')
+            .select('event_id, ticket_class_id, ticket_class_name, attendee_email, attendee_first_name, attendee_last_name, member_id')
             .eq('tenant_id', tenantId)
             .eq('status', 'confirmed')
             .in('event_id', idBatch)
@@ -1264,7 +1286,8 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
             break;
           }
           if (data && data.length > 0) {
-            rows.push(...data);
+            const kept = ticketTypeSel ? data.filter(row => shouldKeepBooking(row, isComplex)) : data;
+            rows.push(...kept);
             offset += data.length;
             hasMore = data.length === pageSize;
           } else {
@@ -1276,8 +1299,8 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
     };
 
     const [regularBookings, complexBookings] = await Promise.all([
-      collectBookings('booking'),
-      collectBookings('complex_event_booking'),
+      collectBookings('booking', false),
+      collectBookings('complex_event_booking', true),
     ]);
     const bookingRows = [...regularBookings, ...complexBookings];
 

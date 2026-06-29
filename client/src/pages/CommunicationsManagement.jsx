@@ -57,6 +57,9 @@ export default function CommunicationsManagementPage() {
   const [indSelectedMembers, setIndSelectedMembers] = useState([]);
   const [eventSearchInput, setEventSearchInput] = useState('');
   const [selectedEvents, setSelectedEvents] = useState([]);
+  const [eventTicketTypesCache, setEventTicketTypesCache] = useState({});
+  const [eventTicketTypesLoading, setEventTicketTypesLoading] = useState({});
+  const [eventTicketTypeSelections, setEventTicketTypeSelections] = useState({});
   const [eventFormSearchInput, setEventFormSearchInput] = useState('');
   const [selectedEventForm, setSelectedEventForm] = useState(null);
   const [addListEventFormReceived, setAddListEventFormReceived] = useState(true);
@@ -427,8 +430,15 @@ export default function CommunicationsManagementPage() {
     }
     if (segment.type === 'event_attendees') {
       const lookup = segment.names || {};
-      const names = (segment.ids || []).map(id => lookup[id] || eventLookup[id]).filter(Boolean);
-      return names.length > 0 ? `${label}: ${names.join(', ')}` : `${label} (${count})`;
+      const ticketSel = segment.ticket_type_selection || {};
+      const eventSummaries = (segment.ids || []).map(id => {
+        const evName = lookup[id] || eventLookup[id] || id;
+        const sel = ticketSel[id];
+        if (!sel || sel === 'all' || !Array.isArray(sel) || sel.length === 0) return evName;
+        const tcNames = sel.map(tc => tc.name).filter(Boolean).join(', ');
+        return `${evName} (${tcNames})`;
+      }).filter(Boolean);
+      return eventSummaries.length > 0 ? `${label}: ${eventSummaries.join('; ')}` : `${label} (${count})`;
     }
     if (segment.type === 'event_form') {
       const formId = (segment.ids || [])[0];
@@ -509,6 +519,26 @@ export default function CommunicationsManagementPage() {
   const isMultiSelectDataType = (dataType) =>
     dataType === 'list' || dataType === 'multiselect' || dataType === 'multi_select' || dataType === 'countries' || dataType === 'country';
 
+  const fetchEventTicketTypes = async (eventId) => {
+    if (eventTicketTypesCache[eventId] !== undefined || eventTicketTypesLoading[eventId]) return;
+    setEventTicketTypesLoading(prev => ({ ...prev, [eventId]: true }));
+    try {
+      const res = await fetch(`/api/audience-lists/event-ticket-types?eventId=${encodeURIComponent(eventId)}`, {
+        credentials: 'include',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setEventTicketTypesCache(prev => ({ ...prev, [eventId]: data.ticketTypes || [] }));
+      } else {
+        setEventTicketTypesCache(prev => ({ ...prev, [eventId]: [] }));
+      }
+    } catch {
+      setEventTicketTypesCache(prev => ({ ...prev, [eventId]: [] }));
+    } finally {
+      setEventTicketTypesLoading(prev => ({ ...prev, [eventId]: false }));
+    }
+  };
+
   const resetIndMemberSearch = () => {
     setIndMemberSearchInput('');
     setIndMemberSearchResults([]);
@@ -516,6 +546,9 @@ export default function CommunicationsManagementPage() {
     setIndSelectedMembers([]);
     setEventSearchInput('');
     setSelectedEvents([]);
+    setEventTicketTypesCache({});
+    setEventTicketTypesLoading({});
+    setEventTicketTypeSelections({});
   };
 
   const formatEventDate = (dateStr) => {
@@ -2743,6 +2776,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                   setSelectedEvents(prev => [...prev, ev]);
                                   setAddListSegmentIds(prev => [...prev, ev.id]);
                                   setEventSearchInput('');
+                                  fetchEventTicketTypes(ev.id);
                                 }}
                                 data-testid={`event-result-${ev.id}`}
                               >
@@ -2761,28 +2795,91 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                           )}
                         </div>
                         {selectedEvents.length > 0 && (
-                          <div className="space-y-0.5 border-t pt-1">
-                            {selectedEvents.map(ev => (
-                              <div key={ev.id} className="flex items-center justify-between gap-2 p-1 text-sm" data-testid={`event-selected-${ev.id}`}>
-                                <span className="truncate flex items-center gap-1.5">
-                                  <span className="truncate">{ev.title}</span>
-                                  {ev.status && <Badge variant="secondary" className="text-[10px] shrink-0">{ev.status}</Badge>}
-                                  {ev.start_date && <span className="text-xs text-muted-foreground shrink-0">({formatEventDate(ev.start_date)})</span>}
-                                </span>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-5 w-5 shrink-0"
-                                  onClick={() => {
-                                    setSelectedEvents(prev => prev.filter(s => s.id !== ev.id));
-                                    setAddListSegmentIds(prev => prev.filter(i => i !== ev.id));
-                                  }}
-                                  data-testid={`button-remove-event-${ev.id}`}
-                                >
-                                  <X className="w-3 h-3" />
-                                </Button>
-                              </div>
-                            ))}
+                          <div className="space-y-1.5 border-t pt-1.5">
+                            {selectedEvents.map(ev => {
+                              const ticketTypes = eventTicketTypesCache[ev.id] || [];
+                              const isLoadingTt = eventTicketTypesLoading[ev.id];
+                              const currentSel = eventTicketTypeSelections[ev.id];
+                              const selectedIds = Array.isArray(currentSel) ? currentSel.map(tc => tc.id) : [];
+
+                              const toggleTicketType = (tc) => {
+                                setEventTicketTypeSelections(prev => {
+                                  const cur = Array.isArray(prev[ev.id]) ? prev[ev.id] : [];
+                                  const exists = cur.some(s => s.id === tc.id);
+                                  if (exists) {
+                                    const next = cur.filter(s => s.id !== tc.id);
+                                    return { ...prev, [ev.id]: next.length === 0 ? 'all' : next };
+                                  }
+                                  return { ...prev, [ev.id]: [...cur, tc] };
+                                });
+                              };
+
+                              const setAllTicketTypes = () => {
+                                setEventTicketTypeSelections(prev => ({ ...prev, [ev.id]: 'all' }));
+                              };
+
+                              return (
+                                <div key={ev.id} className="rounded-md border bg-muted/20 p-1.5 space-y-1" data-testid={`event-selected-${ev.id}`}>
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="text-sm truncate flex items-center gap-1.5">
+                                      <span className="truncate">{ev.title}</span>
+                                      {ev.status && <Badge variant="secondary" className="text-[10px] shrink-0">{ev.status}</Badge>}
+                                      {ev.start_date && <span className="text-xs text-muted-foreground shrink-0">({formatEventDate(ev.start_date)})</span>}
+                                    </span>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-5 w-5 shrink-0"
+                                      onClick={() => {
+                                        setSelectedEvents(prev => prev.filter(s => s.id !== ev.id));
+                                        setAddListSegmentIds(prev => prev.filter(i => i !== ev.id));
+                                        setEventTicketTypeSelections(prev => { const n = { ...prev }; delete n[ev.id]; return n; });
+                                      }}
+                                      data-testid={`button-remove-event-${ev.id}`}
+                                    >
+                                      <X className="w-3 h-3" />
+                                    </Button>
+                                  </div>
+                                  {isLoadingTt && (
+                                    <div className="text-xs text-muted-foreground px-1 flex items-center gap-1">
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                      Loading ticket types...
+                                    </div>
+                                  )}
+                                  {!isLoadingTt && ticketTypes.length > 0 && (
+                                    <div className="pl-1 space-y-0.5" data-testid={`event-ticket-types-${ev.id}`}>
+                                      <div
+                                        className="flex items-center gap-1.5 cursor-pointer"
+                                        onClick={setAllTicketTypes}
+                                        data-testid={`ticket-type-all-${ev.id}`}
+                                      >
+                                        <Checkbox
+                                          checked={!currentSel || currentSel === 'all' || selectedIds.length === 0}
+                                          onCheckedChange={setAllTicketTypes}
+                                          className="h-3 w-3"
+                                        />
+                                        <span className="text-xs text-muted-foreground">All ticket types</span>
+                                      </div>
+                                      {ticketTypes.map(tc => (
+                                        <div
+                                          key={tc.id}
+                                          className="flex items-center gap-1.5 cursor-pointer"
+                                          onClick={() => toggleTicketType(tc)}
+                                          data-testid={`ticket-type-${ev.id}-${tc.id}`}
+                                        >
+                                          <Checkbox
+                                            checked={selectedIds.includes(tc.id)}
+                                            onCheckedChange={() => toggleTicketType(tc)}
+                                            className="h-3 w-3"
+                                          />
+                                          <span className="text-xs">{tc.name}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                       </div>
@@ -3369,21 +3466,43 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                           } else if (addListSegmentType === 'event_attendees' && selectedEvents.length > 0) {
                             const newNames = {};
                             selectedEvents.forEach(ev => { newNames[ev.id] = ev.title; });
+                            const newTicketSel = {};
+                            selectedEvents.forEach(ev => {
+                              const sel = eventTicketTypeSelections[ev.id];
+                              if (Array.isArray(sel) && sel.length > 0) {
+                                newTicketSel[ev.id] = sel;
+                              }
+                            });
                             const existingIdx = editListAudiences.findIndex(a => a.type === 'event_attendees');
                             if (existingIdx >= 0) {
                               setEditListAudiences(prev => {
                                 const updated = [...prev];
                                 const existing = new Set(updated[existingIdx].ids || []);
                                 const existingNames = { ...(updated[existingIdx].names || {}) };
+                                const existingTicketSel = { ...(updated[existingIdx].ticket_type_selection || {}) };
                                 selectedEvents.forEach(ev => {
                                   existing.add(ev.id);
                                   existingNames[ev.id] = ev.title;
+                                  const sel = eventTicketTypeSelections[ev.id];
+                                  if (Array.isArray(sel) && sel.length > 0) {
+                                    existingTicketSel[ev.id] = sel;
+                                  } else {
+                                    delete existingTicketSel[ev.id];
+                                  }
                                 });
-                                updated[existingIdx] = { ...updated[existingIdx], ids: [...existing], names: existingNames };
+                                const updatedSeg = { ...updated[existingIdx], ids: [...existing], names: existingNames };
+                                if (Object.keys(existingTicketSel).length > 0) {
+                                  updatedSeg.ticket_type_selection = existingTicketSel;
+                                } else {
+                                  delete updatedSeg.ticket_type_selection;
+                                }
+                                updated[existingIdx] = updatedSeg;
                                 return updated;
                               });
                             } else {
-                              setEditListAudiences(prev => [...prev, { type: 'event_attendees', ids: selectedEvents.map(ev => ev.id), names: newNames }]);
+                              const seg = { type: 'event_attendees', ids: selectedEvents.map(ev => ev.id), names: newNames };
+                              if (Object.keys(newTicketSel).length > 0) seg.ticket_type_selection = newTicketSel;
+                              setEditListAudiences(prev => [...prev, seg]);
                             }
                           } else if (addListSegmentType === 'event_form' && selectedEventForm) {
                             setEditListAudiences(prev => [
