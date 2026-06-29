@@ -23,6 +23,16 @@ function formatRange(start, end, tz) {
   }
 }
 
+function clashTypeLabel(clash) {
+  if (clash.type === "complex_session") {
+    return `Complex event session — ${clash.parentTitle || "Untitled event"}`;
+  }
+  if (clash.member_group_id) {
+    return `Member group event — ${clash.groupName || "Group"}`;
+  }
+  return "Event";
+}
+
 export default function EventClashWarningDialog({
   open,
   clashes = [],
@@ -60,17 +70,15 @@ export default function EventClashWarningDialog({
                   ? `${clash.parentTitle}: ${clash.title}`
                   : clash.title}
               </div>
+              <div className="mt-0.5 text-xs text-muted-foreground" data-testid={`text-clash-type-${clash.id}`}>
+                {clashTypeLabel(clash)}
+              </div>
               <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Clock className="h-3 w-3 shrink-0" />
                 <span data-testid={`text-clash-time-${clash.id}`}>
                   {formatRange(clash.start, clash.end, clash.timezone)}
                 </span>
               </div>
-              {clash.groupName && (
-                <div className="mt-0.5 text-xs text-muted-foreground">
-                  Group: {clash.groupName}
-                </div>
-              )}
             </div>
           ))}
         </div>

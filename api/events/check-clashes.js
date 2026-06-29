@@ -134,11 +134,14 @@ export default async function handler(req, res) {
     }
 
     // --- Complex events: compare per SESSION, not the overall span ---
+    // Mirror the simple-event filters: legacy rows may carry the draft signal in
+    // `status` rather than `event_state`, so exclude both representations.
     let ceQuery = supabase
       .from('complex_event')
       .select('id, title, timezone, member_group_id, event_state, status')
       .eq('tenant_id', tenantId)
       .neq('event_state', 'draft')
+      .neq('status', 'draft')
       .neq('status', 'tbc');
     if (excludeComplexEventId) {
       ceQuery = ceQuery.neq('id', excludeComplexEventId);
