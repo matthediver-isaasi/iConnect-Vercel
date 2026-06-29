@@ -80,6 +80,15 @@
         },
         "default": [],
         "description": "Resource subcategory names linked to this group. The group's Resources card surfaces tenant resources tagged with any of these subcategories; group-created resources are auto-tagged with them; and such auto-tagged group resources become visible tenant-wide on /Resources under the matching filter."
+      },
+      "self_join_closed": {
+        "type": "boolean",
+        "default": false,
+        "description": "When true, the group remains visible on the Member Groups page but new self-join registrations are blocked. Use self_join_closed_label to customise the button text shown to members."
+      },
+      "self_join_closed_label": {
+        "type": "string",
+        "description": "Custom label shown on the disabled CTA button when self_join_closed is true. Defaults to 'Registrations closed' if left blank."
       }
     },
     "required": [

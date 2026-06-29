@@ -39,7 +39,9 @@ export default async function handler(req, res) {
         header_image_url,
         allow_self_join,
         is_active,
-        default_self_join_role
+        default_self_join_role,
+        self_join_closed,
+        self_join_closed_label
       `)
       .eq('tenant_id', tenant.id)
       .eq('allow_self_join', true)

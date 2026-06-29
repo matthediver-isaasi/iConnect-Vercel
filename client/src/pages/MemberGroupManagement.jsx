@@ -117,7 +117,9 @@ export default function MemberGroupManagementPage() {
     role_term_definitions: {},
     resource_subcategories: [],
     approval_email_template_id: '',
-    decline_email_template_id: ''
+    decline_email_template_id: '',
+    self_join_closed: false,
+    self_join_closed_label: ''
   });
   const [groupSubcategorySearch, setGroupSubcategorySearch] = useState('');
   const [assignForm, setAssignForm] = useState({
@@ -497,7 +499,9 @@ export default function MemberGroupManagementPage() {
       role_term_definitions: {},
       resource_subcategories: [],
       approval_email_template_id: '',
-      decline_email_template_id: ''
+      decline_email_template_id: '',
+      self_join_closed: false,
+      self_join_closed_label: ''
     });
     setGroupSubcategorySearch('');
     setTorOpen(false);
@@ -530,7 +534,9 @@ export default function MemberGroupManagementPage() {
       role_term_definitions: (group.role_term_definitions && typeof group.role_term_definitions === 'object') ? { ...group.role_term_definitions } : {},
       resource_subcategories: Array.isArray(group.resource_subcategories) ? [...group.resource_subcategories] : [],
       approval_email_template_id: group.approval_email_template_id || '',
-      decline_email_template_id: group.decline_email_template_id || ''
+      decline_email_template_id: group.decline_email_template_id || '',
+      self_join_closed: !!group.self_join_closed,
+      self_join_closed_label: group.self_join_closed_label || ''
     });
     setGroupSubcategorySearch('');
     setShowGroupDialog(true);
@@ -561,7 +567,9 @@ export default function MemberGroupManagementPage() {
       role_term_definitions: (group.role_term_definitions && typeof group.role_term_definitions === 'object') ? { ...group.role_term_definitions } : {},
       resource_subcategories: Array.isArray(group.resource_subcategories) ? [...group.resource_subcategories] : [],
       approval_email_template_id: group.approval_email_template_id || '',
-      decline_email_template_id: group.decline_email_template_id || ''
+      decline_email_template_id: group.decline_email_template_id || '',
+      self_join_closed: false,
+      self_join_closed_label: ''
     });
     setGroupSubcategorySearch('');
     setShowGroupDialog(true);
@@ -1975,6 +1983,37 @@ export default function MemberGroupManagementPage() {
                           ))}
                         </SelectContent>
                       </Select>
+                    )}
+                  </div>
+                )}
+
+                {groupForm.allow_self_join && (
+                  <div className="pt-2 border-t border-slate-100 space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex flex-col gap-1">
+                        <Label htmlFor="self_join_closed" className="cursor-pointer">Close registrations</Label>
+                        <span className="text-xs text-slate-500">Group stays visible but new members cannot self-join</span>
+                      </div>
+                      <Switch
+                        id="self_join_closed"
+                        checked={!!groupForm.self_join_closed}
+                        onCheckedChange={(checked) => setGroupForm({ ...groupForm, self_join_closed: checked })}
+                        data-testid="switch-self-join-closed"
+                      />
+                    </div>
+                    {groupForm.self_join_closed && (
+                      <div className="flex flex-col gap-1.5">
+                        <Label htmlFor="self_join_closed_label">Closed button label</Label>
+                        <Input
+                          id="self_join_closed_label"
+                          value={groupForm.self_join_closed_label}
+                          onChange={(e) => setGroupForm({ ...groupForm, self_join_closed_label: e.target.value })}
+                          placeholder="Registrations closed"
+                          maxLength={80}
+                          data-testid="input-self-join-closed-label"
+                        />
+                        <span className="text-xs text-slate-500">Text shown on the group card and detail page. Defaults to "Registrations closed" if left blank.</span>
+                      </div>
                     )}
                   </div>
                 )}

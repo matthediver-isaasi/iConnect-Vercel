@@ -337,17 +337,37 @@ export default function MemberGroupsPage() {
                     )}
                     <div className="mt-auto pt-3" onClick={(e) => e.stopPropagation()}>
                       {!isAuthenticated ? (
+                        group.self_join_closed ? (
+                          <Button
+                            variant="outline"
+                            className="w-full"
+                            disabled
+                            data-testid={`button-closed-${group.id}`}
+                          >
+                            {group.self_join_closed_label?.trim() || 'Registrations closed'}
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            className="w-full"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleGuestGroupClick(group.id);
+                            }}
+                            data-testid={`button-login-required-${group.id}`}
+                          >
+                            <Lock className="w-4 h-4 mr-2" />
+                            Member only content - Click to login
+                          </Button>
+                        )
+                      ) : group.self_join_closed ? (
                         <Button
                           variant="outline"
                           className="w-full"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleGuestGroupClick(group.id);
-                          }}
-                          data-testid={`button-login-required-${group.id}`}
+                          disabled
+                          data-testid={`button-closed-${group.id}`}
                         >
-                          <Lock className="w-4 h-4 mr-2" />
-                          Member only content - Click to login
+                          {group.self_join_closed_label?.trim() || 'Registrations closed'}
                         </Button>
                       ) : (
                         <Button

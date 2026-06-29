@@ -1752,6 +1752,9 @@ export default function MemberGroupDetailPage() {
   const groupUnavailable =
     !group || groupError || !group.allow_self_join || group.is_active === false;
 
+  const selfJoinClosed = !!group?.self_join_closed;
+  const selfJoinClosedLabel = group?.self_join_closed_label?.trim() || 'Registrations closed';
+
   if (groupUnavailable) {
     return (
       <div className="min-h-screen p-8 flex items-center justify-center">
@@ -1834,7 +1837,7 @@ export default function MemberGroupDetailPage() {
                 LinkedIn
               </a>
             )}
-            {group.default_self_join_role && !isJoined && (
+            {group.default_self_join_role && !isJoined && !selfJoinClosed && (
               <div className="mb-4">
                 <span className="text-sm text-slate-500">You'll join as: </span>
                 <Badge className="bg-blue-100 text-blue-700">
@@ -1861,6 +1864,14 @@ export default function MemberGroupDetailPage() {
                     Leave Group
                   </Button>
                 </>
+              ) : selfJoinClosed ? (
+                <Button
+                  variant="outline"
+                  disabled
+                  data-testid="button-join-closed"
+                >
+                  {selfJoinClosedLabel}
+                </Button>
               ) : (
                 <Button
                   className="bg-blue-600 hover:bg-blue-700"

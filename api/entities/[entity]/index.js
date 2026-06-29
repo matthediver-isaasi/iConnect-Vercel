@@ -1374,7 +1374,7 @@ export default async function handler(req, res) {
           const effectiveTenantId = tenantCtx.effectiveTenantId || tenantCtx.tenantId;
           const { data: group, error: groupErr } = await supabase
             .from('member_group')
-            .select('id, tenant_id, is_active, allow_self_join, default_self_join_role, roles, terms_of_reference')
+            .select('id, tenant_id, is_active, allow_self_join, self_join_closed, default_self_join_role, roles, terms_of_reference')
             .eq('id', sanitizedBody.group_id)
             .single();
 
@@ -1389,6 +1389,9 @@ export default async function handler(req, res) {
           }
           if (!group.allow_self_join) {
             return res.status(403).json({ error: 'This group is not open for self-join' });
+          }
+          if (group.self_join_closed === true) {
+            return res.status(403).json({ error: 'Self-join registrations for this group are currently closed' });
           }
           if (!group.default_self_join_role) {
             return res.status(403).json({ error: 'This group has no default self-join role configured' });
