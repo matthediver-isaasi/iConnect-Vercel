@@ -491,7 +491,7 @@ export default function MemberGroupManagementPage() {
       forum_enabled_roles: [],
       classification_id: '',
       linkedin_url: '',
-      terms_of_reference: '',
+      terms_of_reference: allowGroupTermsOverride ? (defaultTermsOfReference || '') : '',
       role_terms_of_reference: {},
       role_terms_url: {},
       role_term_definitions: {},
@@ -524,7 +524,7 @@ export default function MemberGroupManagementPage() {
       forum_enabled_roles: Array.isArray(group.forum_enabled_roles) ? group.forum_enabled_roles : [],
       classification_id: group.classification_id || '',
       linkedin_url: group.linkedin_url || '',
-      terms_of_reference: group.terms_of_reference || '',
+      terms_of_reference: group.terms_of_reference || (allowGroupTermsOverride ? (defaultTermsOfReference || '') : ''),
       role_terms_of_reference: (group.role_terms_of_reference && typeof group.role_terms_of_reference === 'object') ? { ...group.role_terms_of_reference } : {},
       role_terms_url: (group.role_terms_url && typeof group.role_terms_url === 'object') ? { ...group.role_terms_url } : {},
       role_term_definitions: (group.role_term_definitions && typeof group.role_term_definitions === 'object') ? { ...group.role_term_definitions } : {},
@@ -555,7 +555,7 @@ export default function MemberGroupManagementPage() {
       forum_enabled_roles: Array.isArray(group.forum_enabled_roles) ? [...group.forum_enabled_roles] : [],
       classification_id: group.classification_id || '',
       linkedin_url: group.linkedin_url || '',
-      terms_of_reference: group.terms_of_reference || '',
+      terms_of_reference: group.terms_of_reference || (allowGroupTermsOverride ? (defaultTermsOfReference || '') : ''),
       role_terms_of_reference: (group.role_terms_of_reference && typeof group.role_terms_of_reference === 'object') ? { ...group.role_terms_of_reference } : {},
       role_terms_url: (group.role_terms_url && typeof group.role_terms_url === 'object') ? { ...group.role_terms_url } : {},
       role_term_definitions: (group.role_term_definitions && typeof group.role_term_definitions === 'object') ? { ...group.role_term_definitions } : {},
@@ -1365,7 +1365,7 @@ export default function MemberGroupManagementPage() {
                 <ListPlus className="w-4 h-4 mr-2" />
                 Bulk Create
               </Button>
-              <Button onClick={() => setShowGroupDialog(true)} className="bg-blue-600 hover:bg-blue-700">
+              <Button onClick={() => { resetGroupForm(); setShowGroupDialog(true); }} className="bg-blue-600 hover:bg-blue-700">
                 <Plus className="w-4 h-4 mr-2" />
                 New Group
               </Button>
@@ -1484,7 +1484,7 @@ export default function MemberGroupManagementPage() {
               <Users className="w-16 h-16 text-slate-300 mx-auto mb-4" />
               <h3 className="text-xl font-semibold text-slate-900 mb-2">No Groups Yet</h3>
               <p className="text-slate-600 mb-6">Create your first member group to get started</p>
-              <Button onClick={() => setShowGroupDialog(true)} className="bg-blue-600 hover:bg-blue-700">
+              <Button onClick={() => { resetGroupForm(); setShowGroupDialog(true); }} className="bg-blue-600 hover:bg-blue-700">
                 <Plus className="w-4 h-4 mr-2" />
                 Create First Group
               </Button>
