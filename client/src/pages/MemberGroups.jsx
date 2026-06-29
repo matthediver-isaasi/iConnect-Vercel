@@ -118,11 +118,13 @@ export default function MemberGroupsPage() {
   }, [myAssignments]);
 
   const visibleGroups = useMemo(() => {
+    const onlyManaged = isAuthenticated && showAdminGroups;
     return groups
       .filter((g) => {
-        const passesBaseGate = g.allow_self_join && g.is_active !== false;
-        const memberIsAdmin = isAuthenticated && showAdminGroups && isAdminOfGroup.has(g.id);
-        return passesBaseGate || memberIsAdmin;
+        if (onlyManaged) {
+          return isAdminOfGroup.has(g.id);
+        }
+        return g.allow_self_join && g.is_active !== false;
       })
       .filter((g) => {
         if (!isAuthenticated || !showOnlyJoined) return true;
@@ -207,7 +209,7 @@ export default function MemberGroupsPage() {
                     data-testid="toggle-admin-groups"
                   />
                   <Label htmlFor="toggle-admin-groups" className="cursor-pointer select-none text-sm">
-                    Include groups I manage
+                    Only groups I manage
                   </Label>
                 </div>
               </div>
@@ -223,9 +225,11 @@ export default function MemberGroupsPage() {
               <p className="text-slate-600">
                 {searchQuery
                   ? 'No groups match your search criteria'
-                  : showOnlyJoined
-                    ? "You haven't joined any groups yet."
-                    : 'There are no member groups open for self-join right now.'}
+                  : showAdminGroups
+                    ? "You don't manage any groups."
+                    : showOnlyJoined
+                      ? "You haven't joined any groups yet."
+                      : 'There are no member groups open for self-join right now.'}
               </p>
             </CardContent>
           </Card>
