@@ -12,6 +12,7 @@ import { handleMemberGroupForumChange, filterForumReadRows } from '../../_lib/me
 import { handleMemberGroupFilesChange } from '../../_lib/memberGroupFilesAccess.js';
 import { dispatchWpWebhook } from '../../_lib/wpWebhook.js';
 import { sendBriefNotification } from '../../article-briefs/notify.js';
+import { sendSupportNotification } from '../../support/notify.js';
 import { rebuildSearchTextForEntity } from '../../_lib/searchTextBuilder.js';
 import { syncBlogPostAuthors } from '../../_lib/blogPostAuthors.js';
 import { checkMemberQuota, checkEventQuota } from '../../_lib/planQuota.js';
@@ -1621,6 +1622,49 @@ export default async function handler(req, res) {
           metadata: { comment_preview: (data.comment_text || '').substring(0, 200) },
         }).catch(err => {
           console.error('[Entity POST] Brief comment notification error:', err);
+        });
+      }
+
+      // Support ticket notifications
+      if (entityNorm === 'supportticket' && data && data.tenant_id) {
+        sendSupportNotification({
+          tenantId: data.tenant_id,
+          ticketId: data.id,
+          eventType: 'new_ticket',
+          performedByMemberId: tenantCtx.memberId || null,
+          metadata: {},
+        }).catch(err => {
+          console.error('[Entity POST] SupportTicket notification error:', err);
+        });
+      }
+
+      if (entityNorm === 'supportticketresponse' && data && data.ticket_id) {
+        // Resolve tenant_id for the response (stored on the ticket, not the response row)
+        const resolveAndNotify = async () => {
+          let responseTenantId = data.tenant_id || null;
+          if (!responseTenantId) {
+            const { data: ticket } = await supabase
+              .from('support_ticket')
+              .select('tenant_id')
+              .eq('id', data.ticket_id)
+              .maybeSingle();
+            responseTenantId = ticket?.tenant_id || null;
+          }
+          if (!responseTenantId) return;
+
+          const isAdminResponse = data.is_admin_response === true;
+          const replyExcerpt = (data.message || '').substring(0, 300);
+
+          await sendSupportNotification({
+            tenantId: responseTenantId,
+            ticketId: data.ticket_id,
+            eventType: isAdminResponse ? 'admin_reply' : 'user_reply',
+            performedByMemberId: tenantCtx.memberId || null,
+            metadata: { reply_excerpt: replyExcerpt, responder_name: data.responder_name || '' },
+          });
+        };
+        resolveAndNotify().catch(err => {
+          console.error('[Entity POST] SupportTicketResponse notification error:', err);
         });
       }
 

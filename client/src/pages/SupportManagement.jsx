@@ -9,11 +9,13 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Bug, Lightbulb, HelpCircle, Mail, Search, Clock, CheckCircle, Upload, Loader2 } from "lucide-react";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Bug, Lightbulb, HelpCircle, Mail, Search, Clock, CheckCircle, Upload, Loader2, Bell, MessageSquare, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import { showUploadErrorToast } from "@/lib/planQuotaError";
-import { format } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 const typeIcons = {
@@ -37,19 +39,33 @@ const statusColors = {
   closed: "bg-slate-100 text-slate-800"
 };
 
-const priorityColors = {
-  low: "bg-slate-100 text-slate-700",
-  medium: "bg-blue-100 text-blue-700",
-  high: "bg-warning/10 text-warning",
-  urgent: "bg-red-100 text-red-700"
-};
-
 const severityColors = {
   minor: "bg-green-100 text-green-700",
   moderate: "bg-warning/10 text-warning",
   major: "bg-warning/10 text-warning",
   critical: "bg-red-100 text-red-700"
 };
+
+const EVENT_TYPE_LABELS = {
+  new_ticket: "New ticket submitted",
+  user_reply: "Member replied",
+  admin_reply: "Admin reply sent",
+};
+
+const EVENT_TYPE_ICONS = {
+  new_ticket: MessageSquare,
+  user_reply: MessageSquare,
+  admin_reply: CheckCircle,
+};
+
+function formatRelative(dateString) {
+  if (!dateString) return "";
+  try {
+    return formatDistanceToNow(new Date(dateString), { addSuffix: true });
+  } catch {
+    return "";
+  }
+}
 
 export default function SupportManagementPage() {
   const { isAdmin, memberInfo, isAccessReady } = useMemberAccess();
@@ -61,6 +77,7 @@ export default function SupportManagementPage() {
   const [updateData, setUpdateData] = useState({});
   const [uploadingImages, setUploadingImages] = useState(false);
   const [responseAttachments, setResponseAttachments] = useState([]);
+  const [inboxOpen, setInboxOpen] = useState(false);
 
   const queryClient = useQueryClient();
 
@@ -79,6 +96,33 @@ export default function SupportManagementPage() {
       return allResponses.filter(r => r.ticket_id === selectedTicket?.id);
     },
     enabled: !!selectedTicket
+  });
+
+  const { data: inboxData = { items: [], unread_count: 0 }, isLoading: inboxLoading } = useQuery({
+    queryKey: ['support-inbox'],
+    queryFn: async () => {
+      const res = await fetch('/api/support/inbox', { credentials: 'include' });
+      if (!res.ok) return { items: [], unread_count: 0 };
+      return res.json();
+    },
+    enabled: hasAccess && isAccessReady,
+    refetchInterval: 60000,
+  });
+
+  const markReadMutation = useMutation({
+    mutationFn: async ({ item_ids, mark_all_read }) => {
+      const res = await fetch('/api/support/inbox', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(item_ids ? { item_ids } : { mark_all_read: true }),
+      });
+      if (!res.ok) throw new Error('Failed to mark as read');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['support-inbox'] });
+    },
   });
 
   const updateTicketMutation = useMutation({
@@ -154,6 +198,19 @@ export default function SupportManagementPage() {
     setResponseAttachments(prev => prev.filter(u => u !== url));
   };
 
+  const handleInboxItemClick = (item) => {
+    // Mark the item as read
+    if (!item.read_at) {
+      markReadMutation.mutate({ item_ids: [item.id] });
+    }
+    // Open the related ticket
+    const ticket = tickets.find(t => t.id === item.ticket_id);
+    if (ticket) {
+      setSelectedTicket(ticket);
+      setInboxOpen(false);
+    }
+  };
+
   if (!hasAccess) {
     return (
       <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
@@ -179,12 +236,31 @@ export default function SupportManagementPage() {
     return tickets.filter(t => t.status === status).length;
   };
 
+  const unreadCount = inboxData.unread_count || 0;
+  const inboxItems = inboxData.items || [];
+
   return (
     <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
-        <div className="mb-8">
-          <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">Support Management</h1>
-          <p className="text-slate-600">Manage and respond to support tickets</p>
+        <div className="mb-8 flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">Support Management</h1>
+            <p className="text-slate-600">Manage and respond to support tickets</p>
+          </div>
+          <Button
+            variant="outline"
+            className="relative"
+            onClick={() => setInboxOpen(true)}
+            data-testid="button-support-inbox"
+          >
+            <Bell className="w-4 h-4 mr-2" />
+            Notifications
+            {unreadCount > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-blue-600 text-white text-xs font-bold" data-testid="text-unread-count">
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </span>
+            )}
+          </Button>
         </div>
 
         {/* Stats */}
@@ -274,6 +350,7 @@ export default function SupportManagementPage() {
                   key={ticket.id}
                   className="border-slate-200 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
                   onClick={() => setSelectedTicket(ticket)}
+                  data-testid={`card-ticket-${ticket.id}`}
                 >
                   <CardContent className="p-4">
                     <div className="flex items-start justify-between gap-4">
@@ -528,6 +605,103 @@ export default function SupportManagementPage() {
             )}
           </DialogContent>
         </Dialog>
+
+        {/* Notifications Inbox Sheet */}
+        <Sheet open={inboxOpen} onOpenChange={setInboxOpen}>
+          <SheetContent className="w-full sm:max-w-md flex flex-col">
+            <SheetHeader className="flex-shrink-0">
+              <div className="flex items-center justify-between gap-2">
+                <SheetTitle className="flex items-center gap-2">
+                  <Bell className="w-5 h-5" />
+                  Notifications
+                  {unreadCount > 0 && (
+                    <Badge className="bg-blue-600 text-white" data-testid="text-inbox-unread-badge">
+                      {unreadCount}
+                    </Badge>
+                  )}
+                </SheetTitle>
+                {unreadCount > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => markReadMutation.mutate({ mark_all_read: true })}
+                    disabled={markReadMutation.isPending}
+                    data-testid="button-mark-all-read"
+                  >
+                    Mark all read
+                  </Button>
+                )}
+              </div>
+            </SheetHeader>
+
+            <div className="flex-1 overflow-hidden mt-4">
+              {inboxLoading ? (
+                <div className="space-y-3 p-1">
+                  {[0, 1, 2].map(i => (
+                    <div key={i} className="flex items-start gap-3 p-3 rounded-md border">
+                      <Skeleton className="w-8 h-8 rounded-md flex-shrink-0" />
+                      <div className="flex-1 space-y-2">
+                        <Skeleton className="h-4 w-3/4" />
+                        <Skeleton className="h-3 w-1/2" />
+                        <Skeleton className="h-3 w-1/3" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : inboxItems.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-48 text-center px-4">
+                  <Bell className="w-10 h-10 text-slate-300 mb-3" />
+                  <p className="text-sm text-muted-foreground">No notifications yet</p>
+                  <p className="text-xs text-muted-foreground mt-1">You'll be notified when new tickets arrive or members reply</p>
+                </div>
+              ) : (
+                <ScrollArea className="h-full pr-1">
+                  <div className="flex flex-col gap-2">
+                    {inboxItems.map(item => {
+                      const isUnread = !item.read_at;
+                      const EventIcon = EVENT_TYPE_ICONS[item.event_type] || MessageSquare;
+                      const eventLabel = EVENT_TYPE_LABELS[item.event_type] || item.event_type;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => handleInboxItemClick(item)}
+                          className={`w-full text-left flex items-start gap-3 p-3 rounded-md border hover-elevate transition-colors ${
+                            isUnread ? 'bg-primary/5 border-primary/30' : 'bg-background'
+                          }`}
+                          data-testid={`inbox-item-${item.id}`}
+                        >
+                          <div className="mt-0.5 flex-shrink-0">
+                            <EventIcon className={`w-4 h-4 ${isUnread ? 'text-primary' : 'text-muted-foreground'}`} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-0.5">
+                              <span className={`text-sm truncate ${isUnread ? 'font-semibold' : 'font-medium'}`}>
+                                {item.ticket_subject || item.metadata?.ticket_subject || 'Support ticket'}
+                              </span>
+                              {isUnread && (
+                                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" aria-label="Unread" />
+                              )}
+                            </div>
+                            <div className="text-xs text-muted-foreground">{eventLabel}</div>
+                            {item.metadata?.submitter_name && (
+                              <div className="text-xs text-muted-foreground truncate">
+                                From: {item.metadata.submitter_name}
+                              </div>
+                            )}
+                            <div className="text-xs text-muted-foreground/70 mt-1">
+                              {formatRelative(item.created_at)}
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </ScrollArea>
+              )}
+            </div>
+          </SheetContent>
+        </Sheet>
       </div>
     </div>
   );
