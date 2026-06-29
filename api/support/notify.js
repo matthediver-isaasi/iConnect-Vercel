@@ -164,6 +164,47 @@ export async function sendSupportNotification({ tenantId, ticketId, eventType, p
 }
 
 /**
+ * Window (ms) within which an identical notification for the same recipient + ticket
+ * + event_type is treated as a duplicate and suppressed. Guards against double-submits,
+ * network retries, and accidental double-clicks firing the entity POST twice in quick
+ * succession, while still allowing genuinely repeated events (e.g. a second reply
+ * minutes/days later) to notify.
+ */
+const DEDUP_WINDOW_MS = 60 * 1000;
+
+/**
+ * Returns true if an identical inbox item (same tenant + ticket + recipient + event_type)
+ * was already created within DEDUP_WINDOW_MS. Only applies to registered members, since
+ * email-only recipients have no persisted row to compare against.
+ * Fails open (returns false) on any error so a check failure never silently drops a
+ * legitimate notification.
+ */
+async function isRecentDuplicate({ tenantId, ticketId, recipientMemberId, eventType }) {
+  if (!recipientMemberId) return false;
+  try {
+    const sinceIso = new Date(Date.now() - DEDUP_WINDOW_MS).toISOString();
+    const { data, error } = await supabase
+      .from('support_inbox_item')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('ticket_id', ticketId)
+      .eq('recipient_member_id', recipientMemberId)
+      .eq('event_type', eventType)
+      .gte('created_at', sinceIso)
+      .limit(1);
+
+    if (error) {
+      console.error('[SupportNotify] Dedup check failed (failing open):', error.message);
+      return false;
+    }
+    return Array.isArray(data) && data.length > 0;
+  } catch (err) {
+    console.error('[SupportNotify] Dedup check error (failing open):', err);
+    return false;
+  }
+}
+
+/**
  * Fan out inbox items + emails to a list of recipients.
  * Returns an array of { email, reason } for any failed deliveries.
  */
@@ -177,6 +218,22 @@ async function fanOutNotifications({ tenantId, ticket, eventType, recipients, pe
       continue;
     }
     if (!recipient.email) continue;
+
+    // Idempotency guard: suppress duplicate inbox item + email when the same event
+    // for the same recipient fired within the dedup window (double-submit / retry).
+    if (
+      await isRecentDuplicate({
+        tenantId,
+        ticketId: ticket.id,
+        recipientMemberId: recipient.id,
+        eventType,
+      })
+    ) {
+      console.log(
+        `[SupportNotify] Skipping duplicate ${eventType} for member ${recipient.id} on ticket ${ticket.id} (within ${DEDUP_WINDOW_MS}ms window)`
+      );
+      continue;
+    }
 
     // Create in-app inbox item (only for registered members)
     if (recipient.id) {
