@@ -68,7 +68,7 @@ function formatRelative(dateString) {
 }
 
 export default function SupportManagementPage() {
-  const { isAdmin, memberInfo, isAccessReady } = useMemberAccess();
+  const { isAdmin, memberInfo, isAccessReady, isFeatureExcluded } = useMemberAccess();
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
@@ -81,7 +81,7 @@ export default function SupportManagementPage() {
 
   const queryClient = useQueryClient();
 
-  const hasAccess = memberInfo?.email?.includes('isaasi.co.uk') || memberInfo?.email === 'sharon@onlinem.co.uk';
+  const hasAccess = isAccessReady && !isFeatureExcluded('support.management');
 
   const { data: tickets = [], isLoading } = useQuery({
     queryKey: ['all-support-tickets'],
@@ -216,7 +216,7 @@ export default function SupportManagementPage() {
       <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <Card className="border-red-200">
           <CardContent className="p-8 text-center">
-            <p className="text-red-600">Access restricted to isaasi.co.uk team members</p>
+            <p className="text-red-600">You don't have permission to access support management.</p>
           </CardContent>
         </Card>
       </div>
