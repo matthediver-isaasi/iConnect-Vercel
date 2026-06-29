@@ -451,6 +451,9 @@ export default async function handler(req, res) {
         result.due_diligence.form_name || result.due_diligence.id;
     }
 
+    // Vacancy decision email static samples (not fetched from DB).
+    result.member_group_name = 'Example Group';
+
     const hasAnyData =
       Object.keys(result.sources).length > 0 ||
       result.members.length > 0 ||

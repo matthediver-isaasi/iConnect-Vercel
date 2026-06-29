@@ -79,7 +79,7 @@ export default async function handler(req, res) {
   // Load the group (tenant-scoped) for its template ids + term definitions.
   const { data: group, error: groupErr } = await supabase
     .from('member_group')
-    .select('id, tenant_id, role_term_definitions, approval_email_template_id, decline_email_template_id')
+    .select('id, name, tenant_id, role_term_definitions, approval_email_template_id, decline_email_template_id')
     .eq('id', group_id)
     .maybeSingle();
   if (groupErr) {
@@ -172,12 +172,20 @@ export default async function handler(req, res) {
     last_name: resolvedMember?.last_name || '',
     email: toEmail,
     role_title: role,
+    member_group_name: (group.name || '').trim(),
   };
-  const subject = replacePlaceholders(template.subject || '', 'member', placeholderData, { tenantId }).trim()
+  let subject = replacePlaceholders(template.subject || '', 'member', placeholderData, { tenantId }).trim()
     || (decision_type === 'approval' ? 'Your application' : 'Your application');
   // The body already carries the admin's edits + injected greeting; still run it
   // through the placeholder pipeline so any remaining tokens resolve.
-  const html = replacePlaceholders(body_html, 'member', placeholderData, { tenantId });
+  let html = replacePlaceholders(body_html, 'member', placeholderData, { tenantId });
+
+  // Ensure member_group_name never leaks as a raw token when the group name is
+  // empty: replacePlaceholders returns the raw match for falsy values, so we
+  // do an explicit final sweep that always resolves this token (to '' if unset).
+  const groupName = placeholderData.member_group_name;
+  subject = subject.replace(/\{\{member_group_name\}\}/gi, groupName);
+  html = html.replace(/\{\{member_group_name\}\}/gi, groupName);
 
   // For an approval, perform the award logic BEFORE sending so we never email an
   // approval we couldn't record.
