@@ -6,6 +6,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { Users, Loader2, ImageIcon, ArrowRight, Wand2, Lock } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -20,6 +22,8 @@ export default function MemberGroupsPage() {
   const { featureName } = useMemberGroupSettings();
   const [accessChecked, setAccessChecked] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showOnlyJoined, setShowOnlyJoined] = useState(false);
+  const [showAdminGroups, setShowAdminGroups] = useState(false);
   const navigate = useNavigate();
 
   const isAuthenticated = authResolved && sessionValidated && !!memberInfo?.id;
@@ -99,9 +103,31 @@ export default function MemberGroupsPage() {
     return map;
   }, [openVacancies]);
 
+  const isAdminOfGroup = useMemo(() => {
+    const set = new Set();
+    for (const a of myAssignments) {
+      if (
+        a.group_id &&
+        a.is_group_admin === true &&
+        (!a.expires_at || new Date(a.expires_at) > new Date())
+      ) {
+        set.add(a.group_id);
+      }
+    }
+    return set;
+  }, [myAssignments]);
+
   const visibleGroups = useMemo(() => {
     return groups
-      .filter((g) => g.allow_self_join && g.is_active !== false)
+      .filter((g) => {
+        const passesBaseGate = g.allow_self_join && g.is_active !== false;
+        const memberIsAdmin = isAuthenticated && showAdminGroups && isAdminOfGroup.has(g.id);
+        return passesBaseGate || memberIsAdmin;
+      })
+      .filter((g) => {
+        if (!isAuthenticated || !showOnlyJoined) return true;
+        return !!assignmentByGroup[g.id];
+      })
       .filter((g) => {
         if (!searchQuery.trim()) return true;
         const q = searchQuery.toLowerCase();
@@ -111,7 +137,7 @@ export default function MemberGroupsPage() {
         );
       })
       .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-  }, [groups, searchQuery]);
+  }, [groups, searchQuery, showOnlyJoined, showAdminGroups, isAuthenticated, assignmentByGroup, isAdminOfGroup]);
 
   const handleGuestGroupClick = (groupId) => {
     const detailPath = createPageUrl('MemberGroupDetail');
@@ -146,7 +172,7 @@ export default function MemberGroupsPage() {
         </div>
 
         {groups.filter((g) => g.allow_self_join && g.is_active !== false).length > 0 && (
-          <Card className="mb-6">
+          <Card className="mb-4">
             <CardContent className="p-4">
               <Input
                 placeholder="Search groups..."
@@ -154,6 +180,37 @@ export default function MemberGroupsPage() {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 data-testid="input-search-groups"
               />
+            </CardContent>
+          </Card>
+        )}
+
+        {isAuthenticated && (
+          <Card className="mb-6">
+            <CardContent className="p-4">
+              <div className="flex flex-wrap gap-6">
+                <div className="flex items-center gap-3">
+                  <Switch
+                    id="toggle-only-joined"
+                    checked={showOnlyJoined}
+                    onCheckedChange={setShowOnlyJoined}
+                    data-testid="toggle-only-joined"
+                  />
+                  <Label htmlFor="toggle-only-joined" className="cursor-pointer select-none text-sm">
+                    Only groups I&apos;ve joined
+                  </Label>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Switch
+                    id="toggle-admin-groups"
+                    checked={showAdminGroups}
+                    onCheckedChange={setShowAdminGroups}
+                    data-testid="toggle-admin-groups"
+                  />
+                  <Label htmlFor="toggle-admin-groups" className="cursor-pointer select-none text-sm">
+                    Include groups I manage
+                  </Label>
+                </div>
+              </div>
             </CardContent>
           </Card>
         )}
@@ -166,7 +223,9 @@ export default function MemberGroupsPage() {
               <p className="text-slate-600">
                 {searchQuery
                   ? 'No groups match your search criteria'
-                  : 'There are no member groups open for self-join right now.'}
+                  : showOnlyJoined
+                    ? "You haven't joined any groups yet."
+                    : 'There are no member groups open for self-join right now.'}
               </p>
             </CardContent>
           </Card>
