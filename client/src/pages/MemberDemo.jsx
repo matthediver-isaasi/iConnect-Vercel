@@ -26,35 +26,35 @@ import { createPageUrl } from "@/utils";
 const SAMPLE_EVENTS = [
   {
     id: "e1",
-    title: "Annual Employability Conference 2026",
-    date: "15 Jul 2026",
-    location: "Birmingham, UK",
+    title: "Global Schools Forum Annual Summit 2026",
+    date: "14 Jul 2026",
+    location: "Nairobi, Kenya",
     type: "Conference",
     typeBg: "#dbeafe",
     typeColor: "#1d4ed8",
-    spotsLeft: 24,
+    spotsLeft: 38,
     image: "https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=600&q=80",
   },
   {
     id: "e2",
-    title: "International Student Transitions Workshop",
-    date: "22 Jul 2026",
+    title: "School Network Governance in LMICs: Practical Approaches",
+    date: "24 Jul 2026",
     location: "Online",
     type: "Workshop",
     typeBg: "#d1fae5",
     typeColor: "#065f46",
-    spotsLeft: 60,
+    spotsLeft: 75,
     image: "https://images.unsplash.com/photo-1591115765373-5207764f72e7?w=600&q=80",
   },
   {
     id: "e3",
-    title: "Careers in STEM Networking Evening",
-    date: "5 Aug 2026",
-    location: "Manchester, UK",
+    title: "EdTech for Underserved Communities: Peer Exchange",
+    date: "6 Aug 2026",
+    location: "Accra, Ghana",
     type: "Networking",
     typeBg: "#ede9fe",
     typeColor: "#5b21b6",
-    spotsLeft: 12,
+    spotsLeft: 20,
     image: "https://images.unsplash.com/photo-1515187029135-18ee286d815b?w=600&q=80",
   },
 ];
@@ -62,27 +62,27 @@ const SAMPLE_EVENTS = [
 const SAMPLE_RESOURCES = [
   {
     id: "r1",
-    title: "Graduate Employability Framework 2026",
+    title: "School Network Quality Framework: LMIC Edition",
     description:
-      "A comprehensive guide to understanding and applying the latest employability benchmarks across UK universities.",
+      "A practical framework for non-state school networks in low- and middle-income countries to assess, benchmark, and improve educational quality.",
     type: "download",
     category: "Frameworks",
     date: "Jun 2026",
   },
   {
     id: "r2",
-    title: "Inclusive Careers Practice Toolkit",
+    title: "Scaling Non-State Education: A Governance Toolkit",
     description:
-      "Practical resources to help careers teams build more inclusive and equitable services for all students.",
+      "Tools and templates to help school network leaders build governance structures that support sustainable growth and deepen community impact.",
     type: "external_link",
     category: "Toolkits",
     date: "May 2026",
   },
   {
     id: "r3",
-    title: "AI in Career Services: A Practitioner's Guide",
+    title: "EdTech Adoption in Low-Income Schools: Lessons from the Field",
     description:
-      "Explore how artificial intelligence is transforming careers advice, from CV screening to personalised coaching.",
+      "A video series exploring how school networks across Sub-Saharan Africa and South Asia are implementing technology to improve learning outcomes.",
     type: "video",
     category: "Guides",
     date: "Apr 2026",
@@ -92,32 +92,32 @@ const SAMPLE_RESOURCES = [
 const SAMPLE_ARTICLES = [
   {
     id: "a1",
-    title: "How Micro-Credentials Are Reshaping Graduate Employability",
+    title: "From Fragile to Resilient: How School Networks Weather Crisis in LMICs",
     summary:
-      "Universities are racing to offer industry-aligned micro-credentials. We explore what this means for careers services and how to advise students effectively.",
-    author: "Dr. Sarah Okafor",
+      "GSF members from Uganda, Bangladesh, and Colombia share how network structures helped their schools stay open and maintain learning continuity during recent disruptions.",
+    author: "Dr. Amara Diallo",
     date: "20 Jun 2026",
-    category: "Trends",
+    category: "Resilience",
     image: "https://images.unsplash.com/photo-1523240795612-9a054b0db644?w=600&q=80",
   },
   {
     id: "a2",
-    title: "Building Belonging: Supporting Disabled Graduates Into Work",
+    title: "Girls' Education at Scale: Lessons from East Africa's Leading Networks",
     summary:
-      "A deep dive into evidence-based strategies careers professionals can use to improve outcomes for disabled students.",
-    author: "James Whitfield",
+      "A closer look at evidence-based strategies that non-state school networks are deploying to close gender gaps in enrolment, retention, and learning outcomes.",
+    author: "Priya Nambiar",
     date: "10 Jun 2026",
     category: "Inclusion",
     image: "https://images.unsplash.com/photo-1531482615713-2afd69097998?w=600&q=80",
   },
   {
     id: "a3",
-    title: "Employer Engagement in a Post-Pandemic Landscape",
+    title: "Blended Funding Models: Sustaining Non-State Schools Without Aid Dependency",
     summary:
-      "How have employer partnerships evolved since 2020? GSF members share insights on what's working and what's changed.",
-    author: "Maya Patel",
+      "How are GSF member networks combining government partnerships, social enterprise, and philanthropic capital to build long-term financial sustainability?",
+    author: "Samuel Osei",
     date: "1 Jun 2026",
-    category: "Partnerships",
+    category: "Funding",
     image: "https://images.unsplash.com/photo-1556761175-5973dc0f32e7?w=600&q=80",
   },
 ];
@@ -125,37 +125,37 @@ const SAMPLE_ARTICLES = [
 const SAMPLE_THREADS = [
   {
     id: "t1",
-    title: "Best practices for tracking destination data in 2026 — what's your approach?",
-    author: "R. Collins",
-    replies: 18,
-    views: 142,
+    title: "Cross-country learning visits: how is your network organising them in 2026?",
+    author: "F. Mensah",
+    replies: 22,
+    views: 178,
     lastActivity: "2h ago",
     pinned: true,
   },
   {
     id: "t2",
-    title: "Integrating ChatGPT tools into career coaching sessions — share your experience",
-    author: "A. Sharma",
-    replies: 11,
-    views: 98,
+    title: "Government relations strategies — what works when advocating for non-state schools?",
+    author: "R. Krishnamurthy",
+    replies: 14,
+    views: 110,
     lastActivity: "5h ago",
     pinned: false,
   },
   {
     id: "t3",
-    title: "AGCAS standards update — what changes are you making to your service?",
-    author: "P. Davies",
-    replies: 7,
-    views: 64,
+    title: "Low-cost private schools and fee affordability — sharing your pricing models",
+    author: "C. Abubakar",
+    replies: 9,
+    views: 73,
     lastActivity: "1d ago",
     pinned: false,
   },
   {
     id: "t4",
-    title: "Running careers fairs on a tight budget — tips and tricks",
-    author: "L. Nguyen",
-    replies: 23,
-    views: 215,
+    title: "Impact measurement frameworks for school networks — what are members using?",
+    author: "T. Nakamura",
+    replies: 31,
+    views: 264,
     lastActivity: "2d ago",
     pinned: false,
   },
@@ -251,8 +251,19 @@ export default function MemberDemo() {
         className="relative overflow-hidden"
         data-testid="section-hero"
       >
+        {/* Video background */}
+        <video
+          className="absolute inset-0 w-full h-full object-cover"
+          src="https://www.globalschoolsforum.org/wp-content/themes/global-schools-forum/images/gsf-video.mp4"
+          autoPlay
+          loop
+          muted
+          playsInline
+          aria-hidden="true"
+        />
+        {/* Dark wash overlay for text legibility */}
         <div
-          className="absolute inset-0 bg-gradient-to-br from-primary/90 to-primary/60"
+          className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/50 to-black/70"
           aria-hidden="true"
         />
         <div className="relative max-w-6xl mx-auto px-6 py-16 md:py-24">
@@ -268,9 +279,10 @@ export default function MemberDemo() {
               Welcome to {tenantName}
             </h1>
             <p className="text-white/80 text-lg md:text-xl leading-relaxed mb-8">
-              Connect with careers professionals across the UK, access expert
-              resources, register for events, and join the conversation in our
-              member community.
+              Connect with non-state school networks across the globe, access
+              practical resources, join peer-learning events, and share
+              knowledge to innovate, deepen impact, and achieve scale in
+              low- and middle-income countries.
             </p>
             <div className="flex flex-wrap gap-3">
               <Button
@@ -299,16 +311,6 @@ export default function MemberDemo() {
             </div>
           </div>
         </div>
-
-        {/* Decorative shapes */}
-        <div
-          className="absolute right-0 top-0 w-72 h-72 rounded-full bg-white/5 -translate-y-1/2 translate-x-1/3"
-          aria-hidden="true"
-        />
-        <div
-          className="absolute right-16 bottom-0 w-48 h-48 rounded-full bg-white/5 translate-y-1/2"
-          aria-hidden="true"
-        />
       </section>
 
       {/* ── Stats strip ───────────────────────────────────── */}
@@ -316,10 +318,10 @@ export default function MemberDemo() {
         <div className="max-w-6xl mx-auto px-6 py-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
             {[
-              { label: "Member Institutions", value: "180+" },
-              { label: "Events This Year", value: "94" },
-              { label: "Resources Available", value: "350+" },
-              { label: "Community Posts", value: "1,200+" },
+              { label: "Member Organisations", value: "90+" },
+              { label: "Countries Represented", value: "50+" },
+              { label: "Resources Available", value: "420+" },
+              { label: "Community Posts", value: "1,800+" },
             ].map(({ label, value }) => (
               <div key={label} data-testid={`stat-${label.toLowerCase().replace(/\s+/g, "-")}`}>
                 <p className="text-2xl font-bold text-foreground">{value}</p>
