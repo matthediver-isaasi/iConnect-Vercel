@@ -53,6 +53,8 @@ const PUBLIC_SETTINGS_WHITELIST = [
   'member_group_ticket_type_name',
   'member_group_default_terms_of_reference',
   'member_group_allow_terms_override',
+  'support_levels',
+  'support_ticket_instructions',
 ];
 
 export default async function handler(req, res) {

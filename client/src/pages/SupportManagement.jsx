@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,11 +12,20 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Bug, Lightbulb, HelpCircle, Mail, Search, Clock, CheckCircle, Upload, Loader2, Bell, MessageSquare, AlertCircle } from "lucide-react";
+import { Bug, Lightbulb, HelpCircle, Mail, Search, Clock, CheckCircle, Upload, Loader2, Bell, MessageSquare, AlertCircle, Settings, Plus, Trash2, ArrowUp, ArrowDown } from "lucide-react";
 import { toast } from "sonner";
 import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { format, formatDistanceToNow } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import {
+  SUPPORT_LEVELS_KEY,
+  SUPPORT_INSTRUCTIONS_KEY,
+  resolveSupportLevels,
+  resolveSupportInstructions,
+  getDefaultSeverity,
+  getSeverityLabel,
+  getSeverityBadgeClass,
+} from "@/lib/supportLevels";
 
 const typeIcons = {
   bug: Bug,
@@ -37,13 +46,6 @@ const statusColors = {
   in_progress: "bg-warning/10 text-warning",
   resolved: "bg-green-100 text-green-800",
   closed: "bg-slate-100 text-slate-800"
-};
-
-const severityColors = {
-  minor: "bg-green-100 text-green-700",
-  moderate: "bg-warning/10 text-warning",
-  major: "bg-warning/10 text-warning",
-  critical: "bg-red-100 text-red-700"
 };
 
 const EVENT_TYPE_LABELS = {
@@ -78,10 +80,21 @@ export default function SupportManagementPage() {
   const [uploadingImages, setUploadingImages] = useState(false);
   const [responseAttachments, setResponseAttachments] = useState([]);
   const [inboxOpen, setInboxOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [levelsDraft, setLevelsDraft] = useState([]);
+  const [instructionsDraft, setInstructionsDraft] = useState("");
 
   const queryClient = useQueryClient();
 
   const hasAccess = isAccessReady && !isFeatureExcluded('support.management');
+
+  const { data: settings = [] } = useQuery({
+    queryKey: ['support-system-settings'],
+    queryFn: () => base44.entities.SystemSettings.list(),
+    enabled: hasAccess && isAccessReady,
+  });
+
+  const supportLevels = useMemo(() => resolveSupportLevels(settings), [settings]);
 
   const { data: tickets = [], isLoading } = useQuery({
     queryKey: ['all-support-tickets'],
@@ -144,6 +157,106 @@ export default function SupportManagementPage() {
     },
     onError: () => toast.error('Failed to add response')
   });
+
+  const upsertSetting = async (key, value) => {
+    const existing = settings.find((s) => s.setting_key === key);
+    if (existing) {
+      return base44.entities.SystemSettings.update(existing.id, { setting_value: value });
+    }
+    return base44.entities.SystemSettings.create({ setting_key: key, setting_value: value });
+  };
+
+  const saveSettingsMutation = useMutation({
+    mutationFn: async ({ levels, instructions }) => {
+      await upsertSetting(SUPPORT_LEVELS_KEY, JSON.stringify(levels));
+      await upsertSetting(SUPPORT_INSTRUCTIONS_KEY, instructions);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['support-system-settings'] });
+      queryClient.invalidateQueries({ queryKey: ['public-support-settings'] });
+      toast.success('Support settings saved');
+      setSettingsOpen(false);
+    },
+    onError: () => toast.error('Failed to save support settings'),
+  });
+
+  const openSettings = () => {
+    setLevelsDraft(resolveSupportLevels(settings).map((lvl) => ({ ...lvl })));
+    setInstructionsDraft(resolveSupportInstructions(settings));
+    setSettingsOpen(true);
+  };
+
+  const slugifyLevelValue = (label) =>
+    label
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+
+  const updateLevelLabel = (index, label) => {
+    setLevelsDraft((prev) => prev.map((lvl, i) => {
+      if (i !== index) return lvl;
+      // Keep a stable value once set; only derive a value when blank (new rows).
+      const value = lvl.value && lvl.value.trim() !== '' ? lvl.value : slugifyLevelValue(label);
+      return { ...lvl, label, value };
+    }));
+  };
+
+  const setLevelDefault = (index) => {
+    setLevelsDraft((prev) => prev.map((lvl, i) => ({ ...lvl, isDefault: i === index })));
+  };
+
+  const removeLevel = (index) => {
+    setLevelsDraft((prev) => {
+      const next = prev.filter((_, i) => i !== index);
+      // Ensure at least one default remains.
+      if (next.length > 0 && !next.some((lvl) => lvl.isDefault)) {
+        next[0] = { ...next[0], isDefault: true };
+      }
+      return next;
+    });
+  };
+
+  const moveLevel = (index, direction) => {
+    setLevelsDraft((prev) => {
+      const target = index + direction;
+      if (target < 0 || target >= prev.length) return prev;
+      const next = [...prev];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  };
+
+  const addLevel = () => {
+    setLevelsDraft((prev) => [...prev, { value: '', label: '', isDefault: prev.length === 0 }]);
+  };
+
+  const handleSaveSettings = () => {
+    const cleaned = levelsDraft
+      .map((lvl) => ({
+        value: (lvl.value && lvl.value.trim() !== '' ? lvl.value : slugifyLevelValue(lvl.label || '')).trim(),
+        label: (lvl.label || '').trim(),
+        isDefault: !!lvl.isDefault,
+      }))
+      .filter((lvl) => lvl.label !== '' && lvl.value !== '');
+
+    if (cleaned.length === 0) {
+      toast.error('Add at least one support level');
+      return;
+    }
+
+    const values = cleaned.map((lvl) => lvl.value);
+    if (new Set(values).size !== values.length) {
+      toast.error('Support level names must be unique');
+      return;
+    }
+
+    if (!cleaned.some((lvl) => lvl.isDefault)) {
+      cleaned[0].isDefault = true;
+    }
+
+    saveSettingsMutation.mutate({ levels: cleaned, instructions: instructionsDraft.trim() });
+  };
 
   if (!isAccessReady) {
     return (
@@ -247,20 +360,30 @@ export default function SupportManagementPage() {
             <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">Support Management</h1>
             <p className="text-slate-600">Manage and respond to support tickets</p>
           </div>
-          <Button
-            variant="outline"
-            className="relative"
-            onClick={() => setInboxOpen(true)}
-            data-testid="button-support-inbox"
-          >
-            <Bell className="w-4 h-4 mr-2" />
-            Notifications
-            {unreadCount > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-blue-600 text-white text-xs font-bold" data-testid="text-unread-count">
-                {unreadCount > 99 ? '99+' : unreadCount}
-              </span>
-            )}
-          </Button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              onClick={openSettings}
+              data-testid="button-support-settings"
+            >
+              <Settings className="w-4 h-4 mr-2" />
+              Settings
+            </Button>
+            <Button
+              variant="outline"
+              className="relative"
+              onClick={() => setInboxOpen(true)}
+              data-testid="button-support-inbox"
+            >
+              <Bell className="w-4 h-4 mr-2" />
+              Notifications
+              {unreadCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-blue-600 text-white text-xs font-bold" data-testid="text-unread-count">
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              )}
+            </Button>
+          </div>
         </div>
 
         {/* Stats */}
@@ -360,7 +483,7 @@ export default function SupportManagementPage() {
                           <Badge variant="outline" className="text-xs">{typeLabels[ticket.type]}</Badge>
                           <Badge className={statusColors[ticket.status]}>{ticket.status.replace('_', ' ')}</Badge>
                           {ticket.severity && (
-                            <Badge className={severityColors[ticket.severity]}>{ticket.severity}</Badge>
+                            <Badge className={getSeverityBadgeClass(ticket.severity)}>{getSeverityLabel(supportLevels, ticket.severity)}</Badge>
                           )}
                         </div>
                         <h3 className="font-semibold text-lg text-slate-900 mb-1">{ticket.subject}</h3>
@@ -409,17 +532,19 @@ export default function SupportManagementPage() {
                           </SelectContent>
                         </Select>
                         <Select
-                          value={selectedTicket.severity || "moderate"}
+                          value={selectedTicket.severity || getDefaultSeverity(supportLevels)}
                           onValueChange={(value) => handleUpdateTicket({ severity: value })}
                         >
                           <SelectTrigger className="w-32 h-7 text-xs">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="minor">Minor</SelectItem>
-                            <SelectItem value="moderate">Moderate</SelectItem>
-                            <SelectItem value="major">Major</SelectItem>
-                            <SelectItem value="critical">Critical</SelectItem>
+                            {supportLevels.map((level) => (
+                              <SelectItem key={level.value} value={level.value}>{level.label}</SelectItem>
+                            ))}
+                            {selectedTicket.severity && !supportLevels.some((l) => l.value === selectedTicket.severity) && (
+                              <SelectItem value={selectedTicket.severity}>{selectedTicket.severity}</SelectItem>
+                            )}
                           </SelectContent>
                         </Select>
                       </div>
@@ -603,6 +728,107 @@ export default function SupportManagementPage() {
                 </div>
               </>
             )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Support Settings Dialog */}
+        <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Support Settings</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-6">
+              <div className="space-y-2">
+                <Label>Support levels</Label>
+                <p className="text-sm text-slate-500">
+                  These appear in the Severity dropdown when members create a ticket. Set one as the default selection.
+                </p>
+                <div className="space-y-2">
+                  {levelsDraft.map((level, index) => (
+                    <div key={index} className="flex items-center gap-2" data-testid={`row-support-level-${index}`}>
+                      <Input
+                        value={level.label}
+                        placeholder="Level name"
+                        onChange={(e) => updateLevelLabel(index, e.target.value)}
+                        data-testid={`input-support-level-${index}`}
+                      />
+                      <Button
+                        type="button"
+                        variant={level.isDefault ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setLevelDefault(index)}
+                        data-testid={`button-set-default-${index}`}
+                      >
+                        {level.isDefault ? "Default" : "Set default"}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => moveLevel(index, -1)}
+                        disabled={index === 0}
+                        data-testid={`button-move-up-${index}`}
+                      >
+                        <ArrowUp className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => moveLevel(index, 1)}
+                        disabled={index === levelsDraft.length - 1}
+                        data-testid={`button-move-down-${index}`}
+                      >
+                        <ArrowDown className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => removeLevel(index)}
+                        data-testid={`button-remove-level-${index}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={addLevel}
+                  data-testid="button-add-support-level"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add level
+                </Button>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Create ticket instructions</Label>
+                <p className="text-sm text-slate-500">
+                  Shown at the top of the Create Support Ticket form. Leave blank to hide it.
+                </p>
+                <Textarea
+                  rows={4}
+                  value={instructionsDraft}
+                  placeholder="e.g. Before submitting, please check our help centre. Include screenshots where possible."
+                  onChange={(e) => setInstructionsDraft(e.target.value)}
+                  data-testid="input-support-instructions"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setSettingsOpen(false)}>Cancel</Button>
+              <Button
+                onClick={handleSaveSettings}
+                disabled={saveSettingsMutation.isPending}
+                data-testid="button-save-support-settings"
+              >
+                {saveSettingsMutation.isPending ? "Saving..." : "Save Settings"}
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
 

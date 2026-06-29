@@ -1,5 +1,13 @@
-import React, { useState } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
+import {
+  resolveSupportLevels,
+  resolveSupportInstructions,
+  getDefaultSeverity,
+  getSeverityLabel,
+  getSeverityBadgeClass,
+} from "@/lib/supportLevels";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -46,13 +54,6 @@ const priorityColors = {
   urgent: "bg-red-100 text-red-700"
 };
 
-const severityColors = {
-  minor: "bg-green-100 text-green-700",
-  moderate: "bg-warning/10 text-warning",
-  major: "bg-warning/10 text-warning",
-  critical: "bg-red-100 text-red-700"
-};
-
 function formatRelative(dateString) {
   if (!dateString) return "";
   try {
@@ -78,6 +79,32 @@ export default function SupportPage() {
   const [inboxOpen, setInboxOpen] = useState(false);
 
   const queryClient = useQueryClient();
+
+  const { data: supportSettings = [] } = useQuery({
+    queryKey: ['public-support-settings'],
+    queryFn: () => publicClient.listSystemSettings(),
+    staleTime: 30000,
+  });
+
+  const supportLevels = useMemo(() => resolveSupportLevels(supportSettings), [supportSettings]);
+  const supportInstructions = useMemo(() => resolveSupportInstructions(supportSettings), [supportSettings]);
+  const defaultSeverity = useMemo(() => getDefaultSeverity(supportLevels), [supportLevels]);
+
+  const openNewTicket = () => {
+    setNewTicket({ type: "general", subject: "", description: "", severity: defaultSeverity, attachments: [] });
+    setShowNewTicket(true);
+  };
+
+  // If the modal is opened before tenant support settings finish loading, sync the
+  // pre-selected severity to the tenant default once it resolves (unless the user
+  // already picked a value that exists in the configured levels).
+  useEffect(() => {
+    if (!showNewTicket) return;
+    const isValid = supportLevels.some((lvl) => lvl.value === newTicket.severity);
+    if (!isValid && newTicket.severity !== defaultSeverity) {
+      setNewTicket((prev) => ({ ...prev, severity: defaultSeverity }));
+    }
+  }, [showNewTicket, supportLevels, defaultSeverity]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { data: tickets = [], isLoading } = useQuery({
     queryKey: ['support-tickets', memberInfo?.email],
@@ -138,7 +165,7 @@ export default function SupportPage() {
       queryClient.invalidateQueries({ queryKey: ['support-tickets'] });
       toast.success('Support ticket submitted successfully');
       setShowNewTicket(false);
-      setNewTicket({ type: "general", subject: "", description: "", severity: "moderate", attachments: [] });
+      setNewTicket({ type: "general", subject: "", description: "", severity: defaultSeverity, attachments: [] });
     },
     onError: () => toast.error('Failed to submit ticket')
   });
@@ -251,7 +278,7 @@ export default function SupportPage() {
                 )}
               </Button>
             )}
-            <Button onClick={() => setShowNewTicket(true)} className="bg-blue-600 hover:bg-blue-700">
+            <Button onClick={openNewTicket} className="bg-blue-600 hover:bg-blue-700">
               <Plus className="w-4 h-4 mr-2" />
               New Ticket
             </Button>
@@ -266,7 +293,7 @@ export default function SupportPage() {
               <MessageSquare className="w-16 h-16 text-slate-300 mx-auto mb-4" />
               <h3 className="text-xl font-semibold text-slate-900 mb-2">No Support Tickets Yet</h3>
               <p className="text-slate-600 mb-6">Submit your first ticket to get help from our team</p>
-              <Button onClick={() => setShowNewTicket(true)} className="bg-blue-600 hover:bg-blue-700">
+              <Button onClick={openNewTicket} className="bg-blue-600 hover:bg-blue-700">
                 <Plus className="w-4 h-4 mr-2" />
                 Create First Ticket
               </Button>
@@ -315,8 +342,8 @@ export default function SupportPage() {
                       </div>
                       <div className="flex items-center gap-2">
                         {ticket.severity && (
-                          <Badge className={severityColors[ticket.severity]} variant="outline">
-                            {ticket.severity}
+                          <Badge className={getSeverityBadgeClass(ticket.severity)} variant="outline">
+                            {getSeverityLabel(supportLevels, ticket.severity)}
                           </Badge>
                         )}
                       </div>
@@ -335,6 +362,14 @@ export default function SupportPage() {
               <DialogTitle>Create Support Ticket</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
+              {supportInstructions && (
+                <div
+                  className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900 whitespace-pre-wrap"
+                  data-testid="text-support-instructions"
+                >
+                  {supportInstructions}
+                </div>
+              )}
               <div className="grid md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Type</Label>
@@ -353,14 +388,13 @@ export default function SupportPage() {
                 <div className="space-y-2">
                   <Label>Severity</Label>
                   <Select value={newTicket.severity} onValueChange={(value) => setNewTicket({ ...newTicket, severity: value })}>
-                    <SelectTrigger>
+                    <SelectTrigger data-testid="select-severity">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="minor">Minor</SelectItem>
-                      <SelectItem value="moderate">Moderate</SelectItem>
-                      <SelectItem value="major">Major</SelectItem>
-                      <SelectItem value="critical">Critical</SelectItem>
+                      {supportLevels.map((level) => (
+                        <SelectItem key={level.value} value={level.value}>{level.label}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -453,8 +487,8 @@ export default function SupportPage() {
                           {selectedTicket.status.replace('_', ' ')}
                         </Badge>
                         {selectedTicket.severity && (
-                          <Badge className={severityColors[selectedTicket.severity]}>
-                            {selectedTicket.severity}
+                          <Badge className={getSeverityBadgeClass(selectedTicket.severity)}>
+                            {getSeverityLabel(supportLevels, selectedTicket.severity)}
                           </Badge>
                         )}
                       </div>
