@@ -126,6 +126,7 @@ export const FIXTURE_SAMPLE_DATA = {
     invitee_email: 'newmember@example.com',
   },
   job_posting: { status: 'Published' },
+  member_group_name: 'Example Group',
   socials: {
     linkedin_url: 'https://www.linkedin.com/company/iconnect',
     twitter_url: 'https://twitter.com/iconnect',
@@ -404,6 +405,9 @@ function buildResolverMap(s) {
       placeholder('Submitted value for the field with that label (e.g. "Investment Banking")'),
     'record.<field>':
       placeholder('Value of <field> on the workflow trigger record (e.g. "Approved")'),
+
+    // Member Groups & Vacancies
+    member_group_name: text(s.member_group_name),
 
     // Workflow Triggers & Invites
     invite_link: text(s.invite.link),

@@ -47,6 +47,7 @@ export const PLACEHOLDER_CATEGORIES = [
   'Form Submissions',
   'Article Briefs',
   'Membership Fees',
+  'Member Groups & Vacancies',
   'Workflow Triggers & Invites',
   'System & Links',
   'Footer & Socials',
@@ -66,6 +67,7 @@ export const PLACEHOLDER_CONTEXTS = [
   'Purchase Order Reminders',
   'Article Brief Forms',
   'Membership Fee Link',
+  'Vacancy Application Decisions',
   'Email Footer (all emails)',
 ];
 
@@ -1384,6 +1386,16 @@ export const EMAIL_PLACEHOLDERS = [
     'Name of the membership organisation issuing the fee (the tenant).',
     ['Membership Fee Link'],
     'api/_lib/membershipFeeTokenEmail.js',
+  ),
+
+  // --- Member Groups & Vacancies ---
+  entry(
+    '{{member_group_name}}',
+    PLACEHOLDER_SYNTAX.CURLY,
+    'Member Groups & Vacancies',
+    'The name of the member group associated with a vacancy application. Resolves to the group\'s display name in approval and decline decision emails sent to applicants.',
+    ['Vacancy Application Decisions'],
+    'api/admin/email-placeholder-samples.js, api/_lib/emailService.js',
   ),
 ];
 
