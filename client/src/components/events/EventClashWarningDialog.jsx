@@ -39,8 +39,14 @@ export default function EventClashWarningDialog({
   onConfirm,
   onCancel,
   isSaving = false,
+  redacted = false,
+  clashCount = null,
 }) {
-  const count = clashes.length;
+  // Redacted mode (group admins): we only know HOW MANY clashes exist, never
+  // any details, so render a single summary line and no per-item list.
+  const count = redacted
+    ? (typeof clashCount === "number" ? clashCount : 0)
+    : clashes.length;
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onCancel?.(); }}>
@@ -58,6 +64,7 @@ export default function EventClashWarningDialog({
           </DialogDescription>
         </DialogHeader>
 
+        {!redacted && (
         <div className="max-h-72 overflow-y-auto space-y-2 py-1" data-testid="list-event-clashes">
           {clashes.map((clash) => (
             <div
@@ -82,6 +89,7 @@ export default function EventClashWarningDialog({
             </div>
           ))}
         </div>
+        )}
 
         <DialogFooter className="gap-2">
           <Button

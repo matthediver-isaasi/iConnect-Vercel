@@ -10,15 +10,19 @@ export async function checkEventClashes({ windows, excludeEventId = null, exclud
       body: JSON.stringify({ windows, excludeEventId, excludeComplexEventId }),
     });
     if (!resp.ok) {
-      return { hasClashes: false, clashes: [], error: true };
+      return { hasClashes: false, clashes: [], redacted: false, clashCount: 0, error: true };
     }
     const data = await resp.json();
+    const clashes = Array.isArray(data?.clashes) ? data.clashes : [];
     return {
       hasClashes: data?.hasClashes === true,
-      clashes: Array.isArray(data?.clashes) ? data.clashes : [],
+      clashes,
+      // Group admins get a redacted result: a clash count only, no details.
+      redacted: data?.redacted === true,
+      clashCount: typeof data?.clashCount === 'number' ? data.clashCount : clashes.length,
     };
   } catch (err) {
     console.error('[checkEventClashes] failed:', err);
-    return { hasClashes: false, clashes: [], error: true };
+    return { hasClashes: false, clashes: [], redacted: false, clashCount: 0, error: true };
   }
 }

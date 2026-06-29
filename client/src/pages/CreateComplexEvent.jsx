@@ -584,7 +584,7 @@ export default function CreateComplexEvent() {
 
   const [activeSection, setActiveSection] = useState("details");
   const [saving, setSaving] = useState(false);
-  const [clashDialog, setClashDialog] = useState({ open: false, clashes: [] });
+  const [clashDialog, setClashDialog] = useState({ open: false, clashes: [], redacted: false, clashCount: 0 });
   const [checkingClashes, setCheckingClashes] = useState(false);
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
   const [slugError, setSlugError] = useState(null);
@@ -1799,12 +1799,12 @@ export default function CreateComplexEvent() {
       if (windows.length > 0) {
         setCheckingClashes(true);
         try {
-          const { hasClashes, clashes } = await checkEventClashes({
+          const { hasClashes, clashes, redacted, clashCount } = await checkEventClashes({
             windows,
             excludeComplexEventId: isEditMode ? editId : null,
           });
           if (hasClashes) {
-            setClashDialog({ open: true, clashes });
+            setClashDialog({ open: true, clashes, redacted: !!redacted, clashCount: clashCount ?? 0 });
             setCheckingClashes(false);
             return;
           }
@@ -2128,12 +2128,12 @@ export default function CreateComplexEvent() {
   };
 
   const handleClashConfirm = () => {
-    setClashDialog({ open: false, clashes: [] });
+    setClashDialog({ open: false, clashes: [], redacted: false, clashCount: 0 });
     handleSave(true);
   };
 
   const handleClashCancel = () => {
-    setClashDialog({ open: false, clashes: [] });
+    setClashDialog({ open: false, clashes: [], redacted: false, clashCount: 0 });
   };
 
   if (isEditMode && (loadingEvent || loadingTracks || loadingSessions || loadingTicketClasses)) {
@@ -4898,6 +4898,8 @@ export default function CreateComplexEvent() {
       <EventClashWarningDialog
         open={clashDialog.open}
         clashes={clashDialog.clashes}
+        redacted={clashDialog.redacted}
+        clashCount={clashDialog.clashCount}
         onConfirm={handleClashConfirm}
         onCancel={handleClashCancel}
         isSaving={saving || checkingClashes}

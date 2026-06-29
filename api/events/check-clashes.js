@@ -1,5 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
+import { getCallerGroupEventsAccess } from '../_lib/memberGroupEventsAccess.js';
 import { fromZonedTime } from 'date-fns-tz';
 import { parseISO } from 'date-fns';
 
@@ -47,12 +48,21 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Authentication required' });
   }
 
-  // Clash results expose other events' titles/times (incl. group-private events),
-  // so gate to admin access. Non-admins (e.g. group admins) get 403; the client
-  // helper treats that as "no clashes" so their save is never blocked.
+  // Clash results expose other events' titles/times (incl. group-private events).
+  // Tenant admins get the full detailed list. Group admins (members carrying the
+  // per-assignment is_group_admin flag on an events-enabled group) are warned
+  // that a clash exists but get NO identifying details — a redacted count only.
+  // Everyone else gets 403; the client helper treats that as "no clashes" so
+  // their save is never blocked.
   const isAdmin = await hasAdminAccess(context);
+  let redacted = false;
   if (!isAdmin) {
-    return res.status(403).json({ error: 'Admin access required' });
+    const access = await getCallerGroupEventsAccess(req);
+    const isGroupAdmin = !access?.error && Array.isArray(access?.groups) && access.groups.length > 0;
+    if (!isGroupAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    redacted = true;
   }
 
   const tenantId = context.tenantId;
@@ -75,6 +85,9 @@ export default async function handler(req, res) {
     }
 
     if (ranges.length === 0) {
+      if (redacted) {
+        return res.json({ hasClashes: false, redacted: true, clashCount: 0, clashes: [] });
+      }
       return res.json({ hasClashes: false, clashes: [] });
     }
 
@@ -213,6 +226,17 @@ export default async function handler(req, res) {
     }
 
     clashes.sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
+
+    // Redacted callers (group admins) only learn THAT a clash exists and how
+    // many — never any titles, times, or group identities.
+    if (redacted) {
+      return res.json({
+        hasClashes: clashes.length > 0,
+        redacted: true,
+        clashCount: clashes.length,
+        clashes: [],
+      });
+    }
 
     return res.json({ hasClashes: clashes.length > 0, clashes });
   } catch (err) {

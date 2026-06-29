@@ -654,19 +654,19 @@ export default function CreateEvent() {
     }
   });
 
-  const [clashDialog, setClashDialog] = useState({ open: false, clashes: [] });
+  const [clashDialog, setClashDialog] = useState({ open: false, clashes: [], redacted: false, clashCount: 0 });
   const [pendingSubmit, setPendingSubmit] = useState(null);
   const [checkingClashes, setCheckingClashes] = useState(false);
 
   const handleClashConfirm = () => {
-    setClashDialog({ open: false, clashes: [] });
+    setClashDialog({ open: false, clashes: [], redacted: false, clashCount: 0 });
     const fn = pendingSubmit;
     setPendingSubmit(null);
     if (fn) fn();
   };
 
   const handleClashCancel = () => {
-    setClashDialog({ open: false, clashes: [] });
+    setClashDialog({ open: false, clashes: [], redacted: false, clashCount: 0 });
     setPendingSubmit(null);
   };
 
@@ -936,7 +936,7 @@ export default function CreateEvent() {
     if (eventData.start_date && eventData.end_date) {
       setCheckingClashes(true);
       try {
-        const { hasClashes, clashes } = await checkEventClashes({
+        const { hasClashes, clashes, redacted, clashCount } = await checkEventClashes({
           windows: [{
             start: eventData.start_date,
             end: eventData.end_date,
@@ -946,7 +946,7 @@ export default function CreateEvent() {
         });
         if (hasClashes) {
           setPendingSubmit(() => submitCreate);
-          setClashDialog({ open: true, clashes });
+          setClashDialog({ open: true, clashes, redacted: !!redacted, clashCount: clashCount ?? 0 });
           setCheckingClashes(false);
           return;
         }
@@ -3028,6 +3028,8 @@ export default function CreateEvent() {
       <EventClashWarningDialog
         open={clashDialog.open}
         clashes={clashDialog.clashes}
+        redacted={clashDialog.redacted}
+        clashCount={clashDialog.clashCount}
         onConfirm={handleClashConfirm}
         onCancel={handleClashCancel}
         isSaving={createEventMutation.isPending}
