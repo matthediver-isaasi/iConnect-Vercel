@@ -67,7 +67,7 @@ export default function EventCheckInDashboard() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all"); // "all" | "checked-in"
+  const [statusFilter, setStatusFilter] = useState("all"); // "all" | "checked-in" | "not-checked-in"
   const [page, setPage] = useState(1);
   const [trackFilter, setTrackFilter] = useState("all");
   const [sessionFilter, setSessionFilter] = useState("all");
@@ -135,6 +135,7 @@ export default function EventCheckInDashboard() {
   // realtime update reduces how many rows match the current filters).
   const matchingCount = (data?.attendees || []).filter((a) => {
     if (statusFilter === "checked-in" && !a.checked_in_at) return false;
+    if (statusFilter === "not-checked-in" && !!a.checked_in_at) return false;
     if (ticketTypeFilter.length > 0 && !ticketTypeFilter.includes(a.ticket_class_name || NO_TICKET_TYPE)) return false;
     if (buddyFilter !== "all" && !!a.buddy !== (buddyFilter === "yes")) return false;
     if (badgeFilter !== "all" && (a.badge !== false) !== (badgeFilter === "yes")) return false;
@@ -288,6 +289,7 @@ export default function EventCheckInDashboard() {
   const term = search.trim().toLowerCase();
   const filteredAttendees = allAttendees.filter((a) => {
     if (statusFilter === "checked-in" && !a.checked_in_at) return false;
+    if (statusFilter === "not-checked-in" && !!a.checked_in_at) return false;
     if (ticketTypeFilter.length > 0 && !ticketTypeFilter.includes(a.ticket_class_name || NO_TICKET_TYPE)) return false;
     if (buddyFilter !== "all" && !!a.buddy !== (buddyFilter === "yes")) return false;
     if (badgeFilter !== "all" && (a.badge !== false) !== (badgeFilter === "yes")) return false;
@@ -450,6 +452,14 @@ export default function EventCheckInDashboard() {
                   data-testid="button-filter-checked-in"
                 >
                   Checked in
+                </Button>
+                <Button
+                  size="sm"
+                  variant={statusFilter === "not-checked-in" ? "secondary" : "ghost"}
+                  onClick={() => setStatusFilter("not-checked-in")}
+                  data-testid="button-filter-not-checked-in"
+                >
+                  Not checked in
                 </Button>
               </div>
 
