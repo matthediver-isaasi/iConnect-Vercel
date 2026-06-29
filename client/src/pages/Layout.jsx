@@ -1509,7 +1509,7 @@ useEffect(() => {
   }, [memberInfo, setContextRefreshOrganizationInfo]);
 
   // Get layout context for dynamic pages that need to force public layout
-  const { forcePublicLayout, forceBlankLayout, chromeReady } = useLayoutContext();
+  const { forcePublicLayout, forceBlankLayout, chromeReady, authResolved } = useLayoutContext();
 
   // Check if page is truly public (not hybrid with member logged in)
   const isPublicPage = () => {
@@ -1596,6 +1596,15 @@ useEffect(() => {
         return;
       }
 
+      // For portal pages: reset auth resolution so the flash-prevention render gate
+      // re-fires on each navigation. Without this, authResolved stays true from a
+      // previous public/portal page and the gate is bypassed on subsequent navigations.
+      // Authenticated users are unaffected: the gate checks localStorage and skips
+      // hiding their content even while authResolved is momentarily false.
+      if (visibility !== 'hybrid') {
+        setAuthResolved(false);
+      }
+
       // Try server session first (for password-based auth with cross-tab persistence)
       const sessionResult = await checkServerSession();
       
@@ -1614,16 +1623,16 @@ useEffect(() => {
           // SECURITY: Mark auth resolution complete (session is now known to be invalid)
           setAuthResolved(true);
           
-          // For non-public pages, redirect to login
+          // For portal pages, redirect to login with return path so user lands back here after login
           if (visibility !== 'hybrid') {
-            window.location.href = createPageUrl('Home');
+            window.location.href = `/login?returnTo=${encodeURIComponent(location.pathname)}`;
           }
           return;
         }
         // No stored member but server says session invalid
-        // For portal pages, redirect guests to Home instead of rendering broken content
+        // For portal pages, redirect guests to login with return path
         if (visibility !== 'hybrid') {
-          window.location.href = createPageUrl('Home');
+          window.location.href = `/login?returnTo=${encodeURIComponent(location.pathname)}`;
           return;
         }
         setAuthResolved(true);
@@ -1651,7 +1660,7 @@ useEffect(() => {
       if (!sessionResult.serverResponded) {
         const storedMember = localStorage.getItem('agcas_member');
         if (!storedMember) {
-          window.location.href = createPageUrl('Home');
+          window.location.href = `/login?returnTo=${encodeURIComponent(location.pathname)}`;
           return;
         }
 
@@ -1659,7 +1668,7 @@ useEffect(() => {
 
         if (member.sessionExpiry && new Date(member.sessionExpiry) < new Date()) {
           localStorage.removeItem('agcas_member');
-          window.location.href = createPageUrl('Home');
+          window.location.href = `/login?returnTo=${encodeURIComponent(location.pathname)}`;
           return;
         }
 
@@ -2072,6 +2081,26 @@ useEffect(() => {
         <div className="animate-pulse text-slate-400">Loading...</div>
       </div>
     );
+  }
+
+  // Suppress portal page content until auth has resolved to prevent a flash of
+  // portal content (spinners, empty fields, sidebar-less render) before a guest
+  // redirect fires. Conditions for gating:
+  //   1. Auth hasn't resolved for this navigation (authResolved is reset at the
+  //      start of each handleAuth run for portal pages, so this re-fires on
+  //      every in-app navigation to a portal page, not just first load).
+  //   2. No localStorage member data — authenticated users (who have cached auth)
+  //      are never gated so they see portal content immediately without blank delay.
+  //   3. The current page is portal-only (not public/hybrid/forcePublicLayout).
+  // Public and hybrid pages are unaffected; forceBlankLayout is also exempt.
+  if (!authResolved && !forceBlankLayout && !forcePublicLayout) {
+    const pendingVisibility = getPageVisibility(currentPageName);
+    if (pendingVisibility !== 'public' && pendingVisibility !== 'hybrid') {
+      const hasLocalAuth = !!localStorage.getItem('agcas_member');
+      if (!hasLocalAuth) {
+        return <div style={{ visibility: 'hidden' }}>{children}</div>;
+      }
+    }
   }
 
   // Resolve effective page name for dynamic article routes and public page variants
