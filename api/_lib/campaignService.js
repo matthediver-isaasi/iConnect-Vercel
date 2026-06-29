@@ -252,6 +252,11 @@ export async function assertVisualTemplateForCampaign(templateId, tenantId) {
  * client. This is the server-side lock for the template-driven flow:
  *   - email_template_id is REQUIRED (a member campaign cannot be freeform).
  *   - the template must be a visual-builder template (editor_type='visual').
+ *   - the template must be opted in for member-group use (member_group_opt_in=true).
+ *   - if the template has a non-empty member_group_classification_ids allowlist,
+ *     the group's classification_id must appear in it. A group with no
+ *     classification_id (null / undefined) is ONLY permitted for templates whose
+ *     allowlist is empty (= "all classifications").
  *   - html_content is pinned to the template body (client-supplied HTML is
  *     ignored — layout cannot be altered outside slot values).
  *   - design_json is pinned to the template design; the only client-controlled
@@ -259,8 +264,16 @@ export async function assertVisualTemplateForCampaign(templateId, tenantId) {
  *     actually declared by the template's Dynamic Text blocks.
  * Returns { ok, html_content, design_json, email_template_id } on success,
  * else { ok:false, error }.
+ *
+ * @param {object} opts
+ * @param {string}        opts.templateId
+ * @param {string}        opts.tenantId
+ * @param {object}        [opts.requestedSlotValues]
+ * @param {string[]}      [opts.requestedHiddenSlots]
+ * @param {string|null}   [opts.groupClassificationId]  - classification_id of the
+ *   member group that owns this campaign. Pass null/undefined for unclassified groups.
  */
-export async function resolveMemberCampaignTemplateContent({ templateId, tenantId, requestedSlotValues, requestedHiddenSlots } = {}) {
+export async function resolveMemberCampaignTemplateContent({ templateId, tenantId, requestedSlotValues, requestedHiddenSlots, groupClassificationId } = {}) {
   if (!templateId || templateId === 'none' || templateId === '') {
     return { ok: false, error: 'A visual email template is required.' };
   }
@@ -268,7 +281,7 @@ export async function resolveMemberCampaignTemplateContent({ templateId, tenantI
   try {
     const { data, error } = await supabase
       .from('email_template')
-      .select('id, editor_type, design_json, body')
+      .select('id, editor_type, design_json, body, member_group_opt_in, member_group_classification_ids')
       .eq('id', templateId)
       .eq('tenant_id', tenantId)
       .single();
@@ -276,6 +289,23 @@ export async function resolveMemberCampaignTemplateContent({ templateId, tenantI
     if (!isVisualTemplateRecord(data)) {
       return { ok: false, error: 'Group emails can only use visual-builder templates.' };
     }
+
+    // Opt-in check: template must explicitly allow member-group use.
+    if (!data.member_group_opt_in) {
+      return { ok: false, error: 'The selected template is not available for member group emails.' };
+    }
+
+    // Classification check: empty allowlist = all; non-empty = only listed IDs.
+    const allowedClassifications = Array.isArray(data.member_group_classification_ids)
+      ? data.member_group_classification_ids.filter(Boolean)
+      : [];
+    if (allowedClassifications.length > 0) {
+      // Non-empty allowlist: group must have a classification that's in the list.
+      if (!groupClassificationId || !allowedClassifications.includes(String(groupClassificationId))) {
+        return { ok: false, error: 'The selected template is not available for this group\'s classification.' };
+      }
+    }
+    // Empty allowlist + opt-in true = available to all classifications (including no-classification groups).
 
     const design = normalizeDesignJson(data.design_json) || {};
     const tokens = extractDynamicSlotTokens(design);

@@ -59,7 +59,7 @@ export async function getCallerEmsAccess(req) {
 
   const { data: groupRows, error: groupErr } = await supabase
     .from('member_group')
-    .select('id, name, is_active, roles, tenant_id')
+    .select('id, name, is_active, roles, tenant_id, classification_id')
     .eq('tenant_id', tenantContext.tenantId)
     .in('id', groupIds);
 
@@ -90,6 +90,7 @@ export async function getCallerEmsAccess(req) {
       groupName: g.name,
       role: a.group_role,
       allRoles: Array.isArray(g.roles) ? g.roles : [],
+      classificationId: g.classification_id || null,
     });
   }
 

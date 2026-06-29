@@ -80,6 +80,7 @@ export default async function handler(req, res) {
       tenantId: access.tenantContext.tenantId,
       requestedSlotValues,
       requestedHiddenSlots,
+      groupClassificationId: group.classificationId || null,
     });
     if (!resolved.ok) {
       return res.status(400).json({ error: resolved.error });

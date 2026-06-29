@@ -29,6 +29,7 @@ export default async function handler(req, res) {
       name: g.groupName,
       callerRole: g.role,
       roles: g.allRoles,
+      classificationId: g.classificationId || null,
     })),
   });
 }

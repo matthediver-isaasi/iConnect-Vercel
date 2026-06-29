@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
@@ -265,6 +266,8 @@ const emptyTemplate = {
   placeholders: [],
   design_json: null,
   editor_type: 'html',
+  member_group_opt_in: false,
+  member_group_classification_ids: [],
 };
 
 const quillModules = {
@@ -495,6 +498,16 @@ export default function EmailTemplateManagement() {
     staleTime: 0,
   });
 
+  // Fetch member-group classifications for the opt-in picker
+  const { data: memberGroupClassifications = [] } = useQuery({
+    queryKey: ['member-group-classifications'],
+    queryFn: async () => {
+      const list = await base44.entities.MemberGroupClassification.list('name');
+      return Array.isArray(list) ? list.filter(c => c.is_active !== false) : [];
+    },
+    enabled: editorOpen,
+  });
+
   // Fetch email footer setting
   const { data: footerSetting } = useQuery({
     queryKey: ['email-footer-setting'],
@@ -631,6 +644,10 @@ export default function EmailTemplateManagement() {
         placeholders: template.placeholders || [],
         design_json: parsedDesign,
         editor_type: parsedDesign ? 'visual' : (template.editor_type || 'html'),
+        member_group_opt_in: template.member_group_opt_in === true,
+        member_group_classification_ids: Array.isArray(template.member_group_classification_ids)
+          ? template.member_group_classification_ids
+          : [],
       });
       // Legacy plain-HTML templates (no design_json) open in ReactQuill.
       setEditorMode(parsedDesign ? 'visual' : 'html');
@@ -1448,6 +1465,78 @@ export default function EmailTemplateManagement() {
                 />
                 <Label htmlFor="is_active">Active</Label>
               </div>
+
+              {/* Member group opt-in — only meaningful for visual-builder templates */}
+              {editorMode === 'visual' && (
+                <div className="space-y-3 p-4 border rounded-md bg-muted/30">
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id="member_group_opt_in"
+                      checked={!!formData.member_group_opt_in}
+                      onCheckedChange={(checked) => setFormData(prev => ({
+                        ...prev,
+                        member_group_opt_in: checked,
+                        member_group_classification_ids: checked ? prev.member_group_classification_ids : [],
+                      }))}
+                      data-testid="switch-member-group-opt-in"
+                    />
+                    <Label htmlFor="member_group_opt_in" className="cursor-pointer">
+                      Available to member groups
+                    </Label>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    When enabled, group admins can use this template to send emails to their member group.
+                  </p>
+
+                  {formData.member_group_opt_in && (
+                    <div className="space-y-2 pt-1">
+                      <Label className="text-sm">Allowed classifications</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Choose which group classifications may use this template. Leave all unchecked to allow every classification (including groups with no classification).
+                      </p>
+                      {memberGroupClassifications.length === 0 ? (
+                        <p className="text-xs text-muted-foreground italic">No classifications defined yet.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {memberGroupClassifications.map((cls) => {
+                            const isChecked = (formData.member_group_classification_ids || []).includes(cls.id);
+                            return (
+                              <div key={cls.id} className="flex items-center gap-2">
+                                <Checkbox
+                                  id={`cls-${cls.id}`}
+                                  checked={isChecked}
+                                  onCheckedChange={(checked) => {
+                                    setFormData(prev => {
+                                      const current = Array.isArray(prev.member_group_classification_ids)
+                                        ? prev.member_group_classification_ids
+                                        : [];
+                                      return {
+                                        ...prev,
+                                        member_group_classification_ids: checked
+                                          ? [...current, cls.id]
+                                          : current.filter(id => id !== cls.id),
+                                      };
+                                    });
+                                  }}
+                                  data-testid={`checkbox-classification-${cls.id}`}
+                                />
+                                <Label htmlFor={`cls-${cls.id}`} className="cursor-pointer text-sm font-normal">
+                                  {cls.name}
+                                </Label>
+                              </div>
+                            );
+                          })}
+                          {(formData.member_group_classification_ids || []).length === 0 && (
+                            <p className="text-xs text-muted-foreground italic pt-1">
+                              No classifications selected — all groups may use this template.
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <DialogFooter>

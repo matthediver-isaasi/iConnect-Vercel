@@ -64,7 +64,7 @@ export default async function handler(req, res) {
   // Verify ownership of the stored campaign.
   const { data: row, error: rowErr } = await supabase
     .from('email_campaign')
-    .select('id, tenant_id, created_by_member_id, member_group_id, status')
+    .select('id, tenant_id, created_by_member_id, member_group_id, status, email_template_id')
     .eq('id', campaignId)
     .eq('tenant_id', access.tenantContext.tenantId)
     .single();
@@ -72,6 +72,31 @@ export default async function handler(req, res) {
   if (row.created_by_member_id !== access.memberId) return res.status(404).json({ error: 'Campaign not found' });
   const ownedGroup = requireGroupAccess(access.groups, row.member_group_id);
   if (!ownedGroup) return res.status(403).json({ error: 'You do not have access to this campaign.' });
+
+  // Revalidate template opt-in eligibility at send/preview/schedule time.
+  // This catches the case where the template policy changed after the draft was saved.
+  if (row.email_template_id) {
+    const { data: tpl } = await supabase
+      .from('email_template')
+      .select('id, member_group_opt_in, member_group_classification_ids')
+      .eq('id', row.email_template_id)
+      .eq('tenant_id', access.tenantContext.tenantId)
+      .single();
+
+    if (!tpl || !tpl.member_group_opt_in) {
+      return res.status(403).json({ error: 'The template used by this campaign is no longer available for member group use.' });
+    }
+
+    const allowedClassIds = Array.isArray(tpl.member_group_classification_ids)
+      ? tpl.member_group_classification_ids.filter(Boolean)
+      : [];
+    if (allowedClassIds.length > 0) {
+      const groupClassId = ownedGroup.classificationId ? String(ownedGroup.classificationId) : null;
+      if (!groupClassId || !allowedClassIds.includes(groupClassId)) {
+        return res.status(403).json({ error: 'The template used by this campaign is not permitted for this group.' });
+      }
+    }
+  }
 
   // ---- Preview a stored campaign ----
   if (preview === true) {

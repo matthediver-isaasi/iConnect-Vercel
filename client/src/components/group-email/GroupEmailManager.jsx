@@ -74,6 +74,31 @@ function isVisualTemplate(tpl) {
   return !!(design && Array.isArray(design.blocks));
 }
 
+/**
+ * Returns true when the template is opted in for member-group use AND is
+ * permitted for the given group classification.
+ *
+ * Semantics:
+ *  - member_group_opt_in must be true.
+ *  - member_group_classification_ids empty (or absent) = all classifications
+ *    (including groups with no classification).
+ *  - member_group_classification_ids non-empty = only those classification IDs;
+ *    a group with no classification_id never matches a non-empty list.
+ *
+ * @param {object}      tpl               - EmailTemplate row
+ * @param {string|null} groupClassId      - the group's classification_id (or null)
+ */
+function isTemplatePermittedForGroup(tpl, groupClassId) {
+  if (!tpl) return false;
+  if (!tpl.member_group_opt_in) return false;
+  const allowed = Array.isArray(tpl.member_group_classification_ids)
+    ? tpl.member_group_classification_ids.filter(Boolean)
+    : [];
+  if (allowed.length === 0) return true; // all classifications
+  if (!groupClassId) return false; // non-empty list but group has no classification
+  return allowed.includes(String(groupClassId));
+}
+
 // Replace every {{token}} occurrence in an HTML/text string with its slot value.
 // Mirrors applyDynamicSlotValues in api/_lib/campaignService.js for client preview.
 function fillDynamicSlots(input, slotValues) {
@@ -182,11 +207,13 @@ export default function GroupEmailManager({ group, heading = "Email campaigns", 
     enabled: composeOpen,
   });
 
-  // Group Email only composes against visual-builder templates: editor_type
-  // 'visual' AND a usable design_json with blocks. Legacy plain-HTML templates
-  // are intentionally excluded from the picker (they have no fill-in slots and
-  // belong to the ReactQuill flow in EmailTemplateManagement).
-  const visualTemplates = emailTemplates.filter(isVisualTemplate);
+  // Group Email only composes against visual-builder templates that have been
+  // explicitly opted in for member-group use AND are permitted for this group's
+  // classification. Legacy plain-HTML templates are excluded regardless.
+  const groupClassificationId = activeGroup?.classificationId || null;
+  const visualTemplates = emailTemplates.filter(
+    (tpl) => isVisualTemplate(tpl) && isTemplatePermittedForGroup(tpl, groupClassificationId)
+  );
 
   const applyTemplateToCompose = (templateId) => {
     if (!templateId) {
