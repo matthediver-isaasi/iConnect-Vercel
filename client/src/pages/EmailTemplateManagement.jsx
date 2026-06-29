@@ -196,6 +196,12 @@ const PLACEHOLDER_GROUPS = [
     placeholders: buildMembershipPlaceholders(),
   },
   {
+    label: 'Member Groups & Vacancies',
+    placeholders: [
+      { value: '{{member_group_name}}', label: 'Member Group Name' },
+    ]
+  },
+  {
     label: 'System',
     placeholders: [
       { value: '{{set_password_url}}', label: 'Set Password URL' },
