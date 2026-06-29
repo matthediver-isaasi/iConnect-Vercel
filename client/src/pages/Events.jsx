@@ -13,6 +13,7 @@ import { parseISO, format } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import { Link, useSearchParams } from "react-router-dom";
 import { getFocalPointStyle } from "@/components/FocalPointPicker";
+import TenantCtaButton from "@/components/common/TenantCtaButton";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -1962,19 +1963,37 @@ export default function EventsPage({
                                       const isSoldOut = !hasUnlimitedCapacity && event.available_seats === 0;
                                       const buttonLabel = isRegistrationClosed ? "Registration Closed" : (isSoldOut ? "Sold Out" : ctaConfig.label);
                                       const isGradient = ctaConfig.style === 'gradient';
+                                      const isActiveCta = !isRegistrationClosed && !isSoldOut;
+
+                                      if (!isActiveCta) {
+                                        return (
+                                          <Link to={detailUrl}>
+                                            <Button 
+                                              variant={isRegistrationClosed ? "secondary" : "default"}
+                                              className={`w-full ${!isRegistrationClosed && isGradient 
+                                                ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 text-white shadow-lg' 
+                                                : !isRegistrationClosed ? 'bg-blue-600' : ''}`}
+                                              disabled={isSoldOut}
+                                              data-testid={`button-register-event-${event.id}`}
+                                            >
+                                              {buttonLabel}
+                                            </Button>
+                                          </Link>
+                                        );
+                                      }
+
                                       return (
-                                        <Link to={detailUrl}>
-                                          <Button 
-                                            variant={isRegistrationClosed ? "secondary" : "default"}
-                                            className={`w-full ${!isRegistrationClosed && isGradient 
-                                              ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 text-white shadow-lg' 
-                                              : !isRegistrationClosed ? 'bg-blue-600' : ''}`}
-                                            disabled={isSoldOut}
-                                            data-testid={`button-register-event-${event.id}`}
-                                          >
-                                            {buttonLabel}
-                                          </Button>
-                                        </Link>
+                                        <TenantCtaButton
+                                          as="link"
+                                          to={detailUrl}
+                                          className="w-full"
+                                          fallbackClassName={isGradient
+                                            ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 text-white shadow-lg'
+                                            : 'bg-blue-600'}
+                                          data-testid={`button-register-event-${event.id}`}
+                                        >
+                                          {buttonLabel}
+                                        </TenantCtaButton>
                                       );
                                     })()}
                                   </>
@@ -2232,20 +2251,37 @@ export default function EventsPage({
                                   const isSoldOut = !hasUnlimitedCapacity && event.available_seats === 0;
                                   const buttonLabel = isRegistrationClosed ? "Registration Closed" : (isSoldOut ? "Sold Out" : ctaConfig.label);
                                   const isGradient = ctaConfig.style === 'gradient';
-                                  
+                                  const isActiveCta = !isRegistrationClosed && !isSoldOut;
+
+                                  if (!isActiveCta) {
+                                    return (
+                                      <Link to={detailUrl}>
+                                        <Button 
+                                          variant={isRegistrationClosed ? "secondary" : "default"}
+                                          className={`w-full ${!isRegistrationClosed && isGradient 
+                                            ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 text-white shadow-lg' 
+                                            : !isRegistrationClosed ? 'bg-blue-600' : ''}`}
+                                          disabled={isSoldOut}
+                                          data-testid={`button-register-event-${event.id}`}
+                                        >
+                                          {buttonLabel}
+                                        </Button>
+                                      </Link>
+                                    );
+                                  }
+
                                   return (
-                                    <Link to={detailUrl}>
-                                      <Button 
-                                        variant={isRegistrationClosed ? "secondary" : "default"}
-                                        className={`w-full ${!isRegistrationClosed && isGradient 
-                                          ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 text-white shadow-lg' 
-                                          : !isRegistrationClosed ? 'bg-blue-600' : ''}`}
-                                        disabled={isSoldOut}
-                                        data-testid={`button-register-event-${event.id}`}
-                                      >
-                                        {buttonLabel}
-                                      </Button>
-                                    </Link>
+                                    <TenantCtaButton
+                                      as="link"
+                                      to={detailUrl}
+                                      className="w-full"
+                                      fallbackClassName={isGradient
+                                        ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 text-white shadow-lg'
+                                        : 'bg-blue-600'}
+                                      data-testid={`button-register-event-${event.id}`}
+                                    >
+                                      {buttonLabel}
+                                    </TenantCtaButton>
                                   );
                                 })()}
                               </>
