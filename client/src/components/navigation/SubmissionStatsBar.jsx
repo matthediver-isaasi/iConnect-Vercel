@@ -23,7 +23,7 @@ function resolveCardStyle(cardStyles, key) {
   const customTextColor = typeof config.textColor === "string" ? config.textColor.trim() : "";
   const label = (typeof config.label === "string" && config.label.trim())
     ? config.label.trim()
-    : DEFAULT_CARD_LABELS[key];
+    : null;
 
   if (!colour && !customTextColor) {
     return { label, style: null, hasBackground: false, textColor: undefined, iconColor: undefined };
@@ -145,7 +145,7 @@ export default function SubmissionStatsBar() {
           >
             <FileText className={`w-4 h-4 ${submissionsCard.iconColor ? '' : 'text-blue-600'}`} style={submissionsCard.iconColor ? { color: submissionsCard.iconColor } : undefined} />
             <span className={`text-base font-bold ${submissionsCard.textColor ? '' : 'text-blue-700'}`} data-testid="text-new-submissions-count">{newSubmissions}</span>
-            <span className={`text-[10px] font-medium leading-tight text-center ${submissionsCard.textColor ? '' : 'text-blue-700'}`} data-testid="text-new-submissions-label">{submissionsCard.label}</span>
+            {submissionsCard.label && <span className={`text-[10px] font-medium leading-tight text-center ${submissionsCard.textColor ? '' : 'text-blue-700'}`} data-testid="text-new-submissions-label">{submissionsCard.label}</span>}
           </div>
           
           {/* Pending Jobs Card */}
@@ -160,7 +160,7 @@ export default function SubmissionStatsBar() {
           >
             <Briefcase className={`w-4 h-4 ${jobsCard.iconColor ? '' : 'text-warning'}`} style={jobsCard.iconColor ? { color: jobsCard.iconColor } : undefined} />
             <span className={`text-base font-bold ${jobsCard.textColor ? '' : 'text-warning'}`} data-testid="text-pending-jobs-count">{pendingJobs}</span>
-            <span className={`text-[10px] font-medium leading-tight text-center ${jobsCard.textColor ? '' : 'text-warning'}`} data-testid="text-pending-jobs-label">{jobsCard.label}</span>
+            {jobsCard.label && <span className={`text-[10px] font-medium leading-tight text-center ${jobsCard.textColor ? '' : 'text-warning'}`} data-testid="text-pending-jobs-label">{jobsCard.label}</span>}
           </div>
 
           {/* Pending Cancellations / Transfers Card */}
@@ -175,7 +175,7 @@ export default function SubmissionStatsBar() {
           >
             <XCircle className={`w-4 h-4 ${cancellationsCard.iconColor ? '' : 'text-rose-600'}`} style={cancellationsCard.iconColor ? { color: cancellationsCard.iconColor } : undefined} />
             <span className={`text-base font-bold ${cancellationsCard.textColor ? '' : 'text-rose-700'}`} data-testid="text-pending-cancellations-transfers-count">{pendingCancellationsTransfers}</span>
-            <span className={`text-[10px] font-medium leading-tight text-center ${cancellationsCard.textColor ? '' : 'text-rose-700'}`} data-testid="text-pending-cancellations-transfers-label">{cancellationsCard.label}</span>
+            {cancellationsCard.label && <span className={`text-[10px] font-medium leading-tight text-center ${cancellationsCard.textColor ? '' : 'text-rose-700'}`} data-testid="text-pending-cancellations-transfers-label">{cancellationsCard.label}</span>}
           </div>
         </div>
       </div>

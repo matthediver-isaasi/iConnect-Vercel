@@ -474,7 +474,7 @@ export default function FormSettingsPage() {
               const textColor = (typeof config.textColor === 'string' && config.textColor) ? config.textColor : '';
               const label = (typeof config.label === 'string') ? config.label : '';
               const previewColour = colour || card.defaultColour;
-              const previewLabel = label.trim() || card.defaultLabel;
+              const previewLabel = label.trim() || null;
               const previewTextColor = textColor || getReadableTextColor(previewColour);
               const isCustomised = !!colour || !!textColor || !!label.trim();
               return (
@@ -525,7 +525,7 @@ export default function FormSettingsPage() {
                     >
                       <card.Icon className="w-3.5 h-3.5" style={{ color: previewTextColor }} />
                       <span className="text-base font-bold leading-none">0</span>
-                      <span className="text-[10px] font-medium leading-tight text-center px-1 truncate max-w-full">{previewLabel}</span>
+                      {previewLabel && <span className="text-[10px] font-medium leading-tight text-center px-1 truncate max-w-full">{previewLabel}</span>}
                     </div>
                   </div>
                   <div className="space-y-1">
