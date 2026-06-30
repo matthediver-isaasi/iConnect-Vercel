@@ -25,6 +25,8 @@ import {
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/use-toast";
+import { setActiveTenantId } from "@/api/base44Client";
+import { adminFetch } from "@/lib/adminFetch";
 import { useResolvedSocialIcons } from "@/hooks/useResolvedSocialIcons";
 import UnfurlPreview from "@/components/UnfurlPreview";
 import { publicClient } from "@/api/publicClient";
@@ -913,12 +915,13 @@ export default function AdminBranding() {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const response = await fetch('/api/auth/tenant-user-me', { credentials: 'include' });
+        const response = await adminFetch('/api/auth/tenant-user-me', { credentials: 'include' });
         if (response.ok) {
           const data = await response.json();
           if (data.authenticated && data.tenantUser) {
             setTenantUser(data.tenantUser);
             setTenant(data.tenant);
+            setActiveTenantId(data.tenant?.id);
             
             const t = data.tenant;
             setFormData({
@@ -1058,7 +1061,7 @@ export default function AdminBranding() {
             
             // Also fetch platform defaults
             try {
-              const defaultsRes = await fetch('/api/public/platform-defaults');
+              const defaultsRes = await adminFetch('/api/public/platform-defaults');
               if (defaultsRes.ok) {
                 const defaultsData = await defaultsRes.json();
                 setPlatformDefaults(prev => ({
@@ -1208,7 +1211,7 @@ export default function AdminBranding() {
     uploadFormData.append('file', file);
     uploadFormData.append('folder', 'branding');
     try {
-      const response = await fetch('/api/integrations/upload-file', {
+      const response = await adminFetch('/api/integrations/upload-file', {
         method: 'POST',
         credentials: 'include',
         body: uploadFormData
@@ -1235,7 +1238,7 @@ export default function AdminBranding() {
     uploadFormData.append('file', file);
     uploadFormData.append('folder', 'branding');
     try {
-      const response = await fetch('/api/integrations/upload-file', {
+      const response = await adminFetch('/api/integrations/upload-file', {
         method: 'POST',
         credentials: 'include',
         body: uploadFormData
@@ -1259,7 +1262,7 @@ export default function AdminBranding() {
     setSaving(true);
 
     try {
-      const response = await fetch('/api/admin/tenant-branding', {
+      const response = await adminFetch('/api/admin/tenant-branding', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -1296,7 +1299,7 @@ export default function AdminBranding() {
     uploadFormData.append('folder', 'branding');
     
     try {
-      const response = await fetch('/api/integrations/upload-file', {
+      const response = await adminFetch('/api/integrations/upload-file', {
         method: 'POST',
         credentials: 'include',
         body: uploadFormData
@@ -1308,7 +1311,7 @@ export default function AdminBranding() {
         setFormData(prev => ({ ...prev, logo_url: newLogoUrl }));
         
         // Auto-save the logo to database
-        const saveResponse = await fetch('/api/admin/tenant-branding', {
+        const saveResponse = await adminFetch('/api/admin/tenant-branding', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
@@ -1378,7 +1381,7 @@ export default function AdminBranding() {
     uploadFormData.append('folder', 'branding');
 
     try {
-      const response = await fetch('/api/integrations/upload-file', {
+      const response = await adminFetch('/api/integrations/upload-file', {
         method: 'POST',
         credentials: 'include',
         body: uploadFormData
@@ -1389,7 +1392,7 @@ export default function AdminBranding() {
         const newUrl = data.file_url;
         setFormData(prev => ({ ...prev, social_image_url: newUrl }));
 
-        const saveResponse = await fetch('/api/admin/tenant-branding', {
+        const saveResponse = await adminFetch('/api/admin/tenant-branding', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
@@ -1427,7 +1430,7 @@ export default function AdminBranding() {
     setFormData(prev => ({ ...prev, social_image_url: '' }));
     setSocialImageDimWarning('');
     try {
-      const response = await fetch('/api/admin/tenant-branding', {
+      const response = await adminFetch('/api/admin/tenant-branding', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -1479,7 +1482,7 @@ export default function AdminBranding() {
     uploadFormData.append('folder', 'branding');
 
     try {
-      const response = await fetch('/api/integrations/upload-file', {
+      const response = await adminFetch('/api/integrations/upload-file', {
         method: 'POST',
         credentials: 'include',
         body: uploadFormData
@@ -1493,7 +1496,7 @@ export default function AdminBranding() {
       const nextBrandingConfig = { ...formData.branding_config, socialIconCustomSvgs: nextSvgs };
       setFormData(prev => ({ ...prev, branding_config: nextBrandingConfig }));
 
-      const saveResponse = await fetch('/api/admin/tenant-branding', {
+      const saveResponse = await adminFetch('/api/admin/tenant-branding', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -1532,7 +1535,7 @@ export default function AdminBranding() {
     setFormData(prev => ({ ...prev, branding_config: nextBrandingConfig }));
 
     try {
-      const response = await fetch('/api/admin/tenant-branding', {
+      const response = await adminFetch('/api/admin/tenant-branding', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -1569,7 +1572,7 @@ export default function AdminBranding() {
     uploadFormData.append('folder', 'branding');
     
     try {
-      const response = await fetch('/api/integrations/upload-file', {
+      const response = await adminFetch('/api/integrations/upload-file', {
         method: 'POST',
         credentials: 'include',
         body: uploadFormData
@@ -1581,7 +1584,7 @@ export default function AdminBranding() {
         setFormData(prev => ({ ...prev, header_logo_url: newLogoUrl }));
         
         // Auto-save the header logo to database
-        const saveResponse = await fetch('/api/admin/tenant-branding', {
+        const saveResponse = await adminFetch('/api/admin/tenant-branding', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',

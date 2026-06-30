@@ -19,7 +19,7 @@
  * - MEMBER: Individual people associated with organizations
  */
 
-import { getSessionMember, getSessionTenantUser } from './session.js';
+import { getSessionMember, getSessionTenantUser, getSession } from './session.js';
 import { supabase } from './database.js';
 import { isResourceExcluded } from './roleVisibility.js';
 
@@ -222,6 +222,48 @@ export async function getTenantContext(req) {
     tenantFromHost = await resolveTenantFromRequest(req);
   } catch (err) {
     // Tenant resolver may not be available in all contexts
+  }
+
+  // -------------------------------------------------------------------------
+  // Stale-tab / cross-tenant mismatch guard
+  // When the session's stored tenant differs from the "intended" tenant for
+  // this request (derived from hostname on subdomains, or from the
+  // X-Tenant-Id request header on the shared admin host), reject the request
+  // with a machine-readable sentinel so the frontend can lock the stale tab.
+  //
+  // Exemptions:
+  //   - Unauthenticated / no session
+  //   - Bearer / mobile sessions  (authMethod === 'bearer')
+  //   - No intended tenant can be determined (public host with no header)
+  // -------------------------------------------------------------------------
+  try {
+    const rawSession = await getSession(req);
+    if (rawSession?.data && rawSession.data.authMethod !== 'bearer') {
+      const sessionTenantId = rawSession.data.tenantId || null;
+
+      // Intended tenant: hostname wins for subdomain/custom-domain requests;
+      // fall back to the X-Tenant-Id header for the shared admin host.
+      let intendedTenantId = tenantFromHost?.id || null;
+      if (!intendedTenantId) {
+        intendedTenantId = (req.headers?.['x-tenant-id']) || null;
+      }
+
+      if (sessionTenantId && intendedTenantId && sessionTenantId !== intendedTenantId) {
+        console.log(`[TenantContext] Mismatch: session tenant ${sessionTenantId} != intended ${intendedTenantId}`);
+        return {
+          tenantMismatch: true,
+          tenantId: sessionTenantId,
+          organizationId: null,
+          memberId: null,
+          isAuthenticated: true,
+          isSuperAdmin: false,
+          tenantFromHost,
+        };
+      }
+    }
+  } catch (err) {
+    // Mismatch check must never break normal request handling
+    console.warn('[TenantContext] Mismatch guard error (skipped):', err.message);
   }
 
   // Check for tenant_user session first (admin dashboard users)

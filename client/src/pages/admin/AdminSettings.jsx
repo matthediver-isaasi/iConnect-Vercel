@@ -33,7 +33,8 @@ import { format } from "date-fns";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import OutlookConnection from "@/components/OutlookConnection";
-import { base44 } from "@/api/base44Client";
+import { base44, setActiveTenantId } from "@/api/base44Client";
+import { adminFetch } from "@/lib/adminFetch";
 
 const DATE_FORMAT_OPTIONS = [
   { value: 'dd/MM/yyyy', label: 'DD/MM/YYYY (31/12/2024)' },
@@ -103,12 +104,13 @@ export default function AdminSettings() {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const response = await fetch('/api/auth/tenant-user-me', { credentials: 'include' });
+        const response = await adminFetch('/api/auth/tenant-user-me', { credentials: 'include' });
         if (response.ok) {
           const data = await response.json();
           if (data.authenticated && data.tenantUser) {
             setTenantUser(data.tenantUser);
             setTenant(data.tenant);
+            setActiveTenantId(data.tenant?.id);
             const settings = data.tenant?.settings || {};
             const emailDomain = settings.email_domain || {};
             setFormData({
@@ -181,7 +183,7 @@ export default function AdminSettings() {
 
   const fetchXeroTokens = async (tenantId) => {
     try {
-      const response = await fetch(`/api/admin/xero-status?tenant_id=${tenantId}`, { credentials: 'include' });
+      const response = await adminFetch(`/api/admin/xero-status?tenant_id=${tenantId}`);
       if (response.ok) {
         const data = await response.json();
         setXeroTokens(data.tokens || []);
@@ -227,7 +229,7 @@ export default function AdminSettings() {
       const formDataUpload = new FormData();
       formDataUpload.append('file', file);
       
-      const response = await fetch('/api/integrations/upload-file', {
+      const response = await adminFetch('/api/integrations/upload-file', {
         method: 'POST',
         credentials: 'include',
         body: formDataUpload
@@ -265,7 +267,7 @@ export default function AdminSettings() {
     setSaving(true);
 
     try {
-      const response = await fetch('/api/admin/tenant', {
+      const response = await adminFetch('/api/admin/tenant', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -372,7 +374,7 @@ export default function AdminSettings() {
   const handleXeroAuthenticate = async () => {
     setXeroLoading(true);
     try {
-      const response = await fetch('/api/xero/auth-url', {
+      const response = await adminFetch('/api/xero/auth-url', {
         method: 'POST',
         credentials: 'include'
       });
@@ -404,7 +406,7 @@ export default function AdminSettings() {
       ? '/api/quickbooks/sync-vat-rates'
       : '/api/xero/sync-vat-rates';
     try {
-      const response = await fetch(url, {
+      const response = await adminFetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include'
@@ -427,7 +429,7 @@ export default function AdminSettings() {
     setBackfillLoading(true);
     setBackfillResult(null);
     try {
-      const response = await fetch('/api/admin/backfill-organization-dates', {
+      const response = await adminFetch('/api/admin/backfill-organization-dates', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -451,7 +453,7 @@ export default function AdminSettings() {
     setFixBlogHandlesLoading(true);
     setFixBlogHandlesResult(null);
     try {
-      const response = await fetch('/api/admin/fix-blog-handles', {
+      const response = await adminFetch('/api/admin/fix-blog-handles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include'
@@ -474,7 +476,7 @@ export default function AdminSettings() {
     setNavDiagnosticsLoading(true);
     setNavDiagnosticsResult(null);
     try {
-      const response = await fetch('/api/admin/navigation-diagnostics', {
+      const response = await adminFetch('/api/admin/navigation-diagnostics', {
         method: 'GET',
         credentials: 'include'
       });
@@ -501,7 +503,7 @@ export default function AdminSettings() {
     setNavBackfillLoading(true);
     setNavBackfillResult(null);
     try {
-      const response = await fetch('/api/admin/backfill-tenant-navigation', {
+      const response = await adminFetch('/api/admin/backfill-tenant-navigation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -524,7 +526,7 @@ export default function AdminSettings() {
 
   const handleLogout = async () => {
     try {
-      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+      await adminFetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
     } catch (err) {}
     localStorage.removeItem('saas_admin');
     navigate('/admin/login');

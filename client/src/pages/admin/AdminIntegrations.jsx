@@ -40,7 +40,8 @@ import {
   SelectValue
 } from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
-import { base44 } from "@/api/base44Client";
+import { base44, setActiveTenantId } from "@/api/base44Client";
+import { adminFetch } from "@/lib/adminFetch";
 
 function StripeTestCardForm({ onReady }) {
   const [ready, setReady] = useState(false);
@@ -209,12 +210,13 @@ export default function AdminIntegrations() {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const response = await fetch('/api/auth/tenant-user-me', { credentials: 'include' });
+        const response = await adminFetch('/api/auth/tenant-user-me', { credentials: 'include' });
         if (response.ok) {
           const data = await response.json();
           if (data.authenticated && data.tenantUser) {
             setTenantUser(data.tenantUser);
             setTenant(data.tenant);
+            setActiveTenantId(data.tenant?.id);
             const settings = data.tenant?.settings || {};
             const savedGa4 = settings.ga4_measurement_id || '';
             setGa4MeasurementId(savedGa4);
@@ -238,7 +240,7 @@ export default function AdminIntegrations() {
 
   const fetchZohoStatus = async () => {
     try {
-      const response = await fetch('/api/zoho-campaigns/oauth?action=status', { credentials: 'include' });
+      const response = await adminFetch('/api/zoho-campaigns/oauth?action=status');
       if (response.ok) {
         const data = await response.json();
         setZohoConnected(data.connected === true);
@@ -254,7 +256,7 @@ export default function AdminIntegrations() {
 
   const fetchXeroStatus = async () => {
     try {
-      const response = await fetch('/api/admin/xero-status', { credentials: 'include' });
+      const response = await adminFetch('/api/admin/xero-status');
       if (response.ok) {
         const data = await response.json();
         const hasValidToken = data.tokens && data.tokens.length > 0 && 
@@ -298,7 +300,7 @@ export default function AdminIntegrations() {
 
   const fetchZohoWebhookUrl = async () => {
     try {
-      const response = await fetch('/api/zoho-campaigns/webhook-url', { credentials: 'include' });
+      const response = await adminFetch('/api/zoho-campaigns/webhook-url');
       if (response.ok) {
         const data = await response.json();
         if (data.webhookUrl) {
@@ -312,7 +314,7 @@ export default function AdminIntegrations() {
 
   const fetchIntegrations = async () => {
     try {
-      const response = await fetch('/api/admin/integrations', { credentials: 'include' });
+      const response = await adminFetch('/api/admin/integrations', { credentials: 'include' });
       if (response.ok) {
         const data = await response.json();
         setIntegrations(data.integrations || []);
@@ -400,7 +402,7 @@ export default function AdminIntegrations() {
 
   const fetchWpSyncSettings = async () => {
     try {
-      const response = await fetch('/api/admin/wp-sync-settings', { credentials: 'include' });
+      const response = await adminFetch('/api/admin/wp-sync-settings', { credentials: 'include' });
       if (response.ok) {
         const data = await response.json();
         setWpWebhookUrl(data.webhook_url || '');
@@ -415,7 +417,7 @@ export default function AdminIntegrations() {
   const handleSaveWpSync = async () => {
     setWpSaving(true);
     try {
-      const response = await fetch('/api/admin/wp-sync-settings', {
+      const response = await adminFetch('/api/admin/wp-sync-settings', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -447,7 +449,7 @@ export default function AdminIntegrations() {
 
     setGa4Saving(true);
     try {
-      const response = await fetch('/api/admin/tenant', {
+      const response = await adminFetch('/api/admin/tenant', {
         method: 'PATCH',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -473,7 +475,7 @@ export default function AdminIntegrations() {
     setWpTesting(true);
     setWpTestResult(null);
     try {
-      const response = await fetch('/api/admin/wp-sync-settings', {
+      const response = await adminFetch('/api/admin/wp-sync-settings', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -490,7 +492,7 @@ export default function AdminIntegrations() {
 
   const fetchOutlookSyncSettings = async () => {
     try {
-      const response = await fetch('/api/admin/outlook-sync-settings', { credentials: 'include' });
+      const response = await adminFetch('/api/admin/outlook-sync-settings', { credentials: 'include' });
       if (response.ok) {
         const data = await response.json();
         setOutlookSyncFrequency(data.frequency_minutes || 15);
@@ -505,7 +507,7 @@ export default function AdminIntegrations() {
   const handleSaveOutlookSync = async () => {
     setOutlookSyncSaving(true);
     try {
-      const response = await fetch('/api/admin/outlook-sync-settings', {
+      const response = await adminFetch('/api/admin/outlook-sync-settings', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -527,7 +529,7 @@ export default function AdminIntegrations() {
   const handleConnectZoho = async () => {
     setZohoConnecting(true);
     try {
-      const response = await fetch('/api/zoho-campaigns/oauth?action=auth-url', {
+      const response = await adminFetch('/api/zoho-campaigns/oauth?action=auth-url', {
         credentials: 'include'
       });
       if (!response.ok) throw new Error('Failed to get auth URL');
@@ -545,7 +547,7 @@ export default function AdminIntegrations() {
 
   const handleLogout = async () => {
     try {
-      await fetch('/api/auth/logout', { 
+      await adminFetch('/api/auth/logout', { 
         method: 'POST', 
         credentials: 'include' 
       });
@@ -561,7 +563,7 @@ export default function AdminIntegrations() {
     setZoomTestResult(null);
     
     try {
-      const response = await fetch('/api/admin/integrations', {
+      const response = await adminFetch('/api/admin/integrations', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -604,7 +606,7 @@ export default function AdminIntegrations() {
     setZoomTestResult(null);
     
     try {
-      const response = await fetch('/api/admin/integrations/test-zoom', {
+      const response = await adminFetch('/api/admin/integrations/test-zoom', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' }
@@ -641,7 +643,7 @@ export default function AdminIntegrations() {
     setZoomEnabled(enabled);
     
     try {
-      await fetch('/api/admin/integrations', {
+      await adminFetch('/api/admin/integrations', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -660,7 +662,7 @@ export default function AdminIntegrations() {
     
     try {
       const selectedRegion = ZOHO_REGIONS.find(r => r.value === zohoForm.region);
-      const response = await fetch('/api/admin/integrations', {
+      const response = await adminFetch('/api/admin/integrations', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -708,7 +710,7 @@ export default function AdminIntegrations() {
     setZohoEnabled(enabled);
     
     try {
-      await fetch('/api/admin/integrations', {
+      await adminFetch('/api/admin/integrations', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -726,7 +728,7 @@ export default function AdminIntegrations() {
     setXeroSaving(true);
     
     try {
-      const response = await fetch('/api/admin/integrations', {
+      const response = await adminFetch('/api/admin/integrations', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -771,7 +773,7 @@ export default function AdminIntegrations() {
     setXeroEnabled(enabled);
     
     try {
-      await fetch('/api/admin/integrations', {
+      await adminFetch('/api/admin/integrations', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -788,7 +790,7 @@ export default function AdminIntegrations() {
   const handleConnectXero = async () => {
     setXeroConnecting(true);
     try {
-      const response = await fetch('/api/xero/auth-url', {
+      const response = await adminFetch('/api/xero/auth-url', {
         method: 'POST',
         credentials: 'include'
       });
@@ -827,7 +829,7 @@ export default function AdminIntegrations() {
 
   const handleDisconnectXero = async () => {
     try {
-      const response = await fetch('/api/xero/disconnect', {
+      const response = await adminFetch('/api/xero/disconnect', {
         method: 'POST',
         credentials: 'include'
       });
@@ -852,7 +854,7 @@ export default function AdminIntegrations() {
   const handleSaveQuickBooks = async () => {
     setQbSaving(true);
     try {
-      const response = await fetch('/api/admin/integrations', {
+      const response = await adminFetch('/api/admin/integrations', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -884,7 +886,7 @@ export default function AdminIntegrations() {
   const handleToggleQuickBooks = async (enabled) => {
     setQbEnabled(enabled);
     try {
-      await fetch('/api/admin/integrations', {
+      await adminFetch('/api/admin/integrations', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -898,7 +900,7 @@ export default function AdminIntegrations() {
   const handleConnectQuickBooks = async () => {
     setQbConnecting(true);
     try {
-      const response = await fetch('/api/quickbooks/auth-url', {
+      const response = await adminFetch('/api/quickbooks/auth-url', {
         method: 'POST',
         credentials: 'include'
       });
@@ -935,7 +937,7 @@ export default function AdminIntegrations() {
 
   const handleDisconnectQuickBooks = async () => {
     try {
-      const response = await fetch('/api/quickbooks/disconnect', {
+      const response = await adminFetch('/api/quickbooks/disconnect', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -1088,7 +1090,7 @@ export default function AdminIntegrations() {
   const handleDisconnectZoho = async () => {
     setZohoDisconnecting(true);
     try {
-      const response = await fetch('/api/zoho-campaigns/disconnect', {
+      const response = await adminFetch('/api/zoho-campaigns/disconnect', {
         method: 'POST',
         credentials: 'include'
       });
@@ -1118,7 +1120,7 @@ export default function AdminIntegrations() {
     setStripeSaving(true);
     
     try {
-      const response = await fetch('/api/admin/integrations', {
+      const response = await adminFetch('/api/admin/integrations', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -1166,7 +1168,7 @@ export default function AdminIntegrations() {
     setStripeEnabled(enabled);
     
     try {
-      await fetch('/api/admin/integrations', {
+      await adminFetch('/api/admin/integrations', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },

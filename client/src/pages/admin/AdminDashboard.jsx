@@ -32,6 +32,8 @@ import {
   BarChart3
 } from "lucide-react";
 import OnboardingChecklist from "@/components/dashboard/OnboardingChecklist";
+import { setActiveTenantId } from "@/api/base44Client";
+import { adminFetch } from "@/lib/adminFetch";
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -48,7 +50,7 @@ export default function AdminDashboard() {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const response = await fetch('/api/auth/tenant-user-me', { credentials: 'include' });
+        const response = await adminFetch('/api/auth/tenant-user-me', { credentials: 'include' });
         if (response.ok) {
           const data = await response.json();
           if (data.authenticated && data.tenantUser) {
@@ -62,6 +64,7 @@ export default function AdminDashboard() {
             }
             setTenantUser(data.tenantUser);
             setTenant(data.tenant);
+            setActiveTenantId(data.tenant?.id);
             
             // Always check for available tenants (unified identity may have multiple)
             fetchAvailableTenants();
@@ -82,7 +85,7 @@ export default function AdminDashboard() {
 
   const fetchAvailableTenants = async () => {
     try {
-      const response = await fetch('/api/auth/tenant-list', { credentials: 'include' });
+      const response = await adminFetch('/api/auth/tenant-list', { credentials: 'include' });
       if (response.ok) {
         const data = await response.json();
         if (data.success && data.tenants?.length > 1) {
@@ -100,7 +103,7 @@ export default function AdminDashboard() {
     
     setSwitchingTenant(true);
     try {
-      const response = await fetch('/api/auth/tenant-switch', {
+      const response = await adminFetch('/api/auth/tenant-switch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -138,7 +141,7 @@ export default function AdminDashboard() {
 
   const handleLogout = async () => {
     try {
-      await fetch('/api/auth/logout', { 
+      await adminFetch('/api/auth/logout', { 
         method: 'POST', 
         credentials: 'include' 
       });
@@ -152,7 +155,7 @@ export default function AdminDashboard() {
   const handleAccessPortal = async () => {
     setPortalLoading(true);
     try {
-      const response = await fetch('/api/admin/portal-session', {
+      const response = await adminFetch('/api/admin/portal-session', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' }

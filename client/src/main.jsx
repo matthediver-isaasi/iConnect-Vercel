@@ -5,8 +5,12 @@ import '@/index.css'
 // web fonts are available in both the CanvasBuilder editor and the
 // public/SSR-rendered canvas pages (used for custom bullet-list icons).
 import '@fortawesome/fontawesome-free/css/all.min.css'
-
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { installFetchInterceptor } from '@/lib/fetchInterceptor'
+
+// Install global fetch interceptor immediately so every /api/ request with
+// credentials automatically carries X-Tenant-Id and handles 409 TENANT_CONTEXT_CHANGED.
+installFetchInterceptor()
 
 const queryClient = new QueryClient({
   defaultOptions: {

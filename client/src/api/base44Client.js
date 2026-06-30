@@ -4,6 +4,24 @@
 
 import { throwUploadHttpError } from '@/lib/planQuotaError.js';
 
+// The currently-displayed tenant ID in the admin dashboard.
+// Set via setActiveTenantId() after auth resolves and after tenant switches.
+// Sent as X-Tenant-Id on every authenticated request so the server can detect
+// stale-tab / cross-tenant mismatches on the shared admin host.
+let _activeTenantId = null;
+
+/**
+ * Declare which tenant the current tab is displaying.
+ * Called by AdminDashboard after auth resolves and after tenant switch.
+ */
+export function setActiveTenantId(id) {
+  _activeTenantId = id || null;
+}
+
+export function getActiveTenantId() {
+  return _activeTenantId;
+}
+
 class EntityProxy {
   constructor(entityName, apiRequest) {
     this.entityName = entityName;
@@ -505,11 +523,19 @@ class Base44Client {
   async _apiRequest(url, options = {}) {
     const method = (options.method || 'GET').toUpperCase();
     try {
+      // Declare the currently-displayed tenant so the server can detect
+      // stale-tab mismatches on the shared admin host (iconn.app).
+      const extraHeaders = {};
+      if (_activeTenantId) {
+        extraHeaders['X-Tenant-Id'] = _activeTenantId;
+      }
+
       const response = await fetch(url, {
         ...options,
         credentials: 'include',
         headers: {
           ...options.headers,
+          ...extraHeaders,
         }
       });
 
@@ -536,6 +562,21 @@ class Base44Client {
           err.path = url;
           err.code = 'PLAN_QUOTA_EXCEEDED';
           err.quota = errorJson.quota;
+          err.body = errorJson;
+          throw err;
+        }
+        if (errorJson && errorJson.code === 'TENANT_CONTEXT_CHANGED') {
+          try {
+            const { emitTenantContextChanged } = await import('../lib/queryClient.js');
+            emitTenantContextChanged();
+          } catch {
+            // no-op
+          }
+          const err = new Error(`API Error (${response.status}): ${errorMessage}`);
+          err.status = response.status;
+          err.method = method;
+          err.path = url;
+          err.code = 'TENANT_CONTEXT_CHANGED';
           err.body = errorJson;
           throw err;
         }

@@ -1,3 +1,12 @@
+export function emitTenantContextChanged() {
+  if (typeof window === 'undefined') return;
+  try {
+    window.dispatchEvent(new CustomEvent('tenant-context-changed', {}));
+  } catch {
+    // no-op
+  }
+}
+
 export function maybeEmitPlanQuotaFromBody(errorBody) {
   if (errorBody && errorBody.code === 'PLAN_QUOTA_EXCEEDED') {
     emitPlanQuotaExceeded(errorBody.quota, errorBody.error || '');
@@ -43,6 +52,9 @@ export async function apiRequest(method, url, data) {
     if (errorData.code === 'PLAN_QUOTA_EXCEEDED') {
       err.quota = errorData.quota;
       emitPlanQuotaExceeded(errorData.quota, message);
+    }
+    if (errorData.code === 'TENANT_CONTEXT_CHANGED') {
+      emitTenantContextChanged();
     }
     throw err;
   }

@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useToast } from "@/components/ui/use-toast";
+import { setActiveTenantId } from "@/api/base44Client";
+import { adminFetch } from "@/lib/adminFetch";
 import {
   Select,
   SelectContent,
@@ -60,6 +62,7 @@ export default function AdminScheduledTasks() {
           const data = await response.json();
           if (data.authenticated && data.tenantUser) {
             setTenant(data.tenant);
+            setActiveTenantId(data.tenant?.id);
           } else {
             navigate('/admin/login');
           }
@@ -82,7 +85,7 @@ export default function AdminScheduledTasks() {
       if (taskFilter && taskFilter !== 'all') {
         params.append('task_name', taskFilter);
       }
-      const response = await fetch(`/api/admin/scheduled-task-logs?${params.toString()}`, { 
+      const response = await adminFetch(`/api/admin/scheduled-task-logs?${params.toString()}`, { 
         credentials: 'include' 
       });
       if (!response.ok) throw new Error('Failed to fetch logs');
@@ -94,7 +97,7 @@ export default function AdminScheduledTasks() {
   const { data: pendingData, isLoading: pendingLoading, refetch: refetchPending } = useQuery({
     queryKey: ['/api/admin/pending-scheduled-jobs'],
     queryFn: async () => {
-      const response = await fetch('/api/admin/pending-scheduled-jobs', { 
+      const response = await adminFetch('/api/admin/pending-scheduled-jobs', { 
         credentials: 'include' 
       });
       if (!response.ok) throw new Error('Failed to fetch pending jobs');

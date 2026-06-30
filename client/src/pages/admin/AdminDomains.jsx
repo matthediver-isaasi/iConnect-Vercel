@@ -25,11 +25,12 @@ import {
   Webhook
 } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
+import { setActiveTenantId } from "@/api/base44Client";
+import { adminFetch } from "@/lib/adminFetch";
 
 async function apiRequest(url, options = {}) {
-  const response = await fetch(url, {
+  const response = await adminFetch(url, {
     ...options,
-    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...options.headers,
@@ -66,6 +67,7 @@ export default function AdminDomains() {
           if (data.authenticated && data.tenantUser) {
             setTenantUser(data.tenantUser);
             setTenant(data.tenant);
+            setActiveTenantId(data.tenant?.id);
             fetchDomainData();
           } else {
             navigate('/admin/login');

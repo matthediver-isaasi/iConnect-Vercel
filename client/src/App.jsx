@@ -6,6 +6,7 @@ import { Toaster as SonnerToaster } from "@/components/ui/sonner"
 import CookieConsent from "@/components/CookieConsent"
 import { TenantBrandingProvider } from "@/contexts/TenantBrandingContext"
 import SubdomainRedirect from "@/components/SubdomainRedirect"
+import StaleTenantOverlay from "@/components/StaleTenantOverlay"
 import { Analytics } from '@vercel/analytics/react'
 
 function App() {
@@ -15,6 +16,21 @@ function App() {
     if (typeof document !== 'undefined' && !document.documentElement.getAttribute('lang')) {
       document.documentElement.setAttribute('lang', 'en')
     }
+  }, [])
+
+  // Global tenant-intent bootstrap.
+  // Fires once on app mount so that _activeTenantId is always initialised,
+  // even for admin pages (AdminTeam, PlanUsage, OnboardingWizard, etc.) that
+  // do NOT call /api/auth/tenant-user-me themselves.
+  // The global fetch interceptor (fetchInterceptor.js) listens for this
+  // response and calls setActiveTenantId(tenant.id) automatically.
+  // This fire-and-forget call is safe for portal/unauthenticated contexts:
+  // - Unauthenticated → returns { authenticated: false } → interceptor no-ops
+  // - Member session → no tenant.id → interceptor no-ops
+  // - Tenant admin → interceptor sets _activeTenantId so all subsequent
+  //   /api/* mutations carry the correct X-Tenant-Id header
+  useEffect(() => {
+    fetch('/api/auth/tenant-user-me', { credentials: 'include' }).catch(() => {})
   }, [])
 
   // Dev-only axe-core integration. Lazy-loaded so it never ships to prod.
@@ -44,6 +60,7 @@ function App() {
       <SonnerToaster position="top-right" richColors />
       <CookieConsent />
       <Analytics />
+      <StaleTenantOverlay />
     </TenantBrandingProvider>
   )
 }

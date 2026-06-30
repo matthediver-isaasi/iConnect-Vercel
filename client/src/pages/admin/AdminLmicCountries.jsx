@@ -6,6 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/use-toast";
+import { setActiveTenantId } from "@/api/base44Client";
+import { adminFetch } from "@/lib/adminFetch";
 import { ArrowLeft, Loader2, Save, RotateCcw, Globe, ExternalLink } from "lucide-react";
 import { COUNTRIES } from "@/data/countries";
 import { WORLD_BANK_LMIC_SOURCE } from "@shared/lmicCountries.js";
@@ -42,7 +44,8 @@ export default function AdminLmicCountries() {
           navigate("/admin/login");
           return;
         }
-        const res = await fetch("/api/admin/settings/lmic-countries", { credentials: "include" });
+        setActiveTenantId(authData.tenant?.id);
+        const res = await adminFetch("/api/admin/settings/lmic-countries");
         if (!res.ok) throw new Error(`Failed to load LMIC settings (${res.status})`);
         const data = await res.json();
         if (cancelled) return;
@@ -100,7 +103,7 @@ export default function AdminLmicCountries() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const res = await fetch("/api/admin/settings/lmic-countries", {
+      const res = await adminFetch("/api/admin/settings/lmic-countries", {
         method: "PUT",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -124,7 +127,7 @@ export default function AdminLmicCountries() {
     if (!window.confirm("Replace your LMIC list with the World Bank default?")) return;
     setResetting(true);
     try {
-      const res = await fetch("/api/admin/settings/lmic-countries?action=reset", {
+      const res = await adminFetch("/api/admin/settings/lmic-countries?action=reset", {
         method: "POST",
         credentials: "include",
       });

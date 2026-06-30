@@ -337,6 +337,15 @@ export default async function handler(req, res) {
 
   // Get tenant context from session
   const tenantCtx = await getTenantContext(req);
+
+  // Stale-tab guard: session tenant differs from the intended tenant for this request
+  if (tenantCtx.tenantMismatch) {
+    return res.status(409).json({
+      error: 'Your browser session has switched to a different organisation. Reload this tab to continue.',
+      code: 'TENANT_CONTEXT_CHANGED',
+    });
+  }
+
   const tenantScope = getEntityTenantScope(entity);
   
   // Determine if tenant filtering should be applied

@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useToast } from "@/components/ui/use-toast";
+import { setActiveTenantId } from "@/api/base44Client";
+import { adminFetch } from "@/lib/adminFetch";
 import {
   Select,
   SelectContent,
@@ -49,6 +51,7 @@ export default function AdminEmailLogs() {
           const data = await response.json();
           if (data.authenticated && data.tenantUser) {
             setTenant(data.tenant);
+            setActiveTenantId(data.tenant?.id);
           } else {
             navigate('/admin/login');
           }
@@ -67,7 +70,7 @@ export default function AdminEmailLogs() {
   const { data: statsData, isLoading: statsLoading, refetch: refetchStats } = useQuery({
     queryKey: ['/api/tenant/email-logs'],
     queryFn: async () => {
-      const response = await fetch('/api/tenant/email-logs', { 
+      const response = await adminFetch('/api/tenant/email-logs', { 
         credentials: 'include' 
       });
       if (!response.ok) throw new Error('Failed to fetch stats');
@@ -83,7 +86,7 @@ export default function AdminEmailLogs() {
       if (eventFilter && eventFilter !== 'all') {
         params.append('event', eventFilter);
       }
-      const response = await fetch(`/api/tenant/email-logs?${params.toString()}`, { 
+      const response = await adminFetch(`/api/tenant/email-logs?${params.toString()}`, { 
         credentials: 'include' 
       });
       if (!response.ok) throw new Error('Failed to fetch events');

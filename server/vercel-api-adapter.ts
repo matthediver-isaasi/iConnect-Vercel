@@ -153,7 +153,12 @@ export function registerVercelApiRoutes(app: Express) {
       
       // Adapt the request to include route params in query
       const adaptedReq = adaptRequest(req, params);
-      
+
+      // Stale-tab / cross-tenant mismatch guard — runs before every handler
+      // so ALL endpoints are protected, not just the entity API.
+      const { checkStaleTenantMismatch } = await import("../api/_lib/staleTenantCheck.js");
+      if (await checkStaleTenantMismatch(adaptedReq, res)) return;
+
       // Call the Vercel handler
       await handler(adaptedReq, res);
     } catch (error) {
