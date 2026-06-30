@@ -12,7 +12,7 @@ import { handleMemberGroupForumChange, filterForumReadRows } from '../../_lib/me
 import { handleMemberGroupFilesChange } from '../../_lib/memberGroupFilesAccess.js';
 import { dispatchWpWebhook } from '../../_lib/wpWebhook.js';
 import { sendBriefNotification } from '../../article-briefs/notify.js';
-import { sendSupportNotification } from '../../support/notify.js';
+import { sendSupportNotification, resolveAreaAssignee } from '../../support/notify.js';
 import { rebuildSearchTextForEntity } from '../../_lib/searchTextBuilder.js';
 import { syncBlogPostAuthors } from '../../_lib/blogPostAuthors.js';
 import { checkMemberQuota, checkEventQuota } from '../../_lib/planQuota.js';
@@ -1632,16 +1632,38 @@ export default async function handler(req, res) {
         });
       }
 
-      // Support ticket notifications
+      // Support ticket: auto-assign from area config, then notify
       if (entityNorm === 'supportticket' && data && data.tenant_id) {
-        sendSupportNotification({
-          tenantId: data.tenant_id,
-          ticketId: data.id,
-          eventType: 'new_ticket',
-          performedByMemberId: tenantCtx.memberId || null,
-          metadata: {},
-        }).catch(err => {
-          console.error('[Entity POST] SupportTicket notification error:', err);
+        const autoAssignAndNotify = async () => {
+          // Only auto-assign when the ticket has an area and no explicit assignee
+          if (data.area && !data.assigned_to) {
+            try {
+              const assigneeId = await resolveAreaAssignee(data.tenant_id, data.area);
+              if (assigneeId) {
+                const { error: updateErr } = await supabase
+                  .from('support_ticket')
+                  .update({ assigned_to: assigneeId })
+                  .eq('id', data.id);
+                if (updateErr) {
+                  console.error('[Entity POST] SupportTicket auto-assign update failed:', updateErr.message);
+                } else {
+                  console.log(`[Entity POST] SupportTicket ${data.id} auto-assigned to member ${assigneeId} via area "${data.area}"`);
+                }
+              }
+            } catch (err) {
+              console.error('[Entity POST] SupportTicket auto-assign error:', err);
+            }
+          }
+          await sendSupportNotification({
+            tenantId: data.tenant_id,
+            ticketId: data.id,
+            eventType: 'new_ticket',
+            performedByMemberId: tenantCtx.memberId || null,
+            metadata: {},
+          });
+        };
+        autoAssignAndNotify().catch(err => {
+          console.error('[Entity POST] SupportTicket auto-assign/notification error:', err);
         });
       }
 

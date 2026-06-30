@@ -65,6 +65,48 @@ async function resolveAreaRecipients(tenantId, area) {
   }
 }
 
+/**
+ * Resolve the agent to auto-assign for a given area: the first support-eligible
+ * configured member in the area's `memberIds` order, or null if none.
+ * Reuses resolveAreaRecipients so eligibility logic stays in one place.
+ *
+ * @param {string} tenantId
+ * @param {string} area
+ * @returns {Promise<string|null>} member id of the assignee, or null
+ */
+export async function resolveAreaAssignee(tenantId, area) {
+  if (!area || !tenantId) return null;
+  try {
+    // resolveAreaRecipients returns members ordered by the area's memberIds array
+    // (filter preserves insertion order relative to supportEligible, not memberIds order).
+    // To honour memberIds order we need to re-sort by the configured order.
+    const { data: setting } = await supabase
+      .from('system_settings')
+      .select('setting_value')
+      .eq('tenant_id', tenantId)
+      .eq('setting_key', SUPPORT_AREAS_KEY)
+      .maybeSingle();
+
+    const areas = parseSupportAreas(setting?.setting_value);
+    const matched = areas.find((a) => a.value === area);
+    if (!matched || matched.memberIds.length === 0) return null;
+
+    const supportEligible = await resolveSupportRecipients(tenantId);
+    const eligibleIdSet = new Set(supportEligible.map((m) => m.id));
+
+    // Walk memberIds in config order — return the first one that is still eligible
+    for (const memberId of matched.memberIds) {
+      if (eligibleIdSet.has(memberId)) {
+        return memberId;
+      }
+    }
+    return null;
+  } catch (err) {
+    console.error('[SupportNotify] resolveAreaAssignee error:', err);
+    return null;
+  }
+}
+
 function escapeHtml(str) {
   if (!str) return '';
   return String(str)
