@@ -55,6 +55,7 @@ const PUBLIC_SETTINGS_WHITELIST = [
   'member_group_allow_terms_override',
   'support_levels',
   'support_ticket_instructions',
+  'support_areas',
 ];
 
 export default async function handler(req, res) {
