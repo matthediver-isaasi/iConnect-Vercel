@@ -1817,13 +1817,40 @@ export default function MemberGroupDetailPage() {
               {group.name}
             </h1>
             {group.description && (
-              <div
-                className="text-slate-700 mb-4 prose prose-sm max-w-none"
-                data-testid="text-group-description"
-                dangerouslySetInnerHTML={{
-                  __html: DOMPurify.sanitize(group.description || ""),
-                }}
-              />
+              <>
+                <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-1">Purpose</h2>
+                <div
+                  className="text-slate-700 mb-4 prose prose-sm max-w-none"
+                  data-testid="text-group-description"
+                  dangerouslySetInnerHTML={{
+                    __html: DOMPurify.sanitize(group.description || ""),
+                  }}
+                />
+              </>
+            )}
+            {group.who_is_it_for && (
+              <>
+                <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-1">Who the group is for</h2>
+                <div
+                  className="text-slate-700 mb-4 prose prose-sm max-w-none"
+                  data-testid="text-group-who-is-it-for"
+                  dangerouslySetInnerHTML={{
+                    __html: DOMPurify.sanitize(group.who_is_it_for || ""),
+                  }}
+                />
+              </>
+            )}
+            {group.about_the_group && (
+              <>
+                <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-1">About the group</h2>
+                <div
+                  className="text-slate-700 mb-4 prose prose-sm max-w-none"
+                  data-testid="text-group-about"
+                  dangerouslySetInnerHTML={{
+                    __html: DOMPurify.sanitize(group.about_the_group || ""),
+                  }}
+                />
+              </>
             )}
             {group.linkedin_url && (
               <a

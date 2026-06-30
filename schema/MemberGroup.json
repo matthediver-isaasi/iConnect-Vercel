@@ -8,7 +8,15 @@
       },
       "description": {
         "type": "string",
-        "description": "Description of the group"
+        "description": "Purpose of the group"
+      },
+      "who_is_it_for": {
+        "type": "string",
+        "description": "Who the group is for (optional rich text)"
+      },
+      "about_the_group": {
+        "type": "string",
+        "description": "About the group (optional rich text)"
       },
       "roles": {
         "type": "array",

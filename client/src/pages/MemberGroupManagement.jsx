@@ -479,6 +479,8 @@ export default function MemberGroupManagementPage() {
     setGroupForm({
       name: '',
       description: '',
+      who_is_it_for: '',
+      about_the_group: '',
       roles: [],
       leadership_roles: [],
       is_active: true,
@@ -514,6 +516,8 @@ export default function MemberGroupManagementPage() {
     setGroupForm({
       name: group.name,
       description: group.description || '',
+      who_is_it_for: group.who_is_it_for || '',
+      about_the_group: group.about_the_group || '',
       roles: group.roles || [],
       leadership_roles: Array.isArray(group.leadership_roles) ? group.leadership_roles : [],
       is_active: group.is_active,
@@ -547,6 +551,8 @@ export default function MemberGroupManagementPage() {
     setGroupForm({
       name: `${group.name} (Copy)`,
       description: group.description || '',
+      who_is_it_for: group.who_is_it_for || '',
+      about_the_group: group.about_the_group || '',
       roles: [...(group.roles || [])],
       leadership_roles: Array.isArray(group.leadership_roles) ? [...group.leadership_roles] : [],
       is_active: group.is_active,
@@ -685,7 +691,7 @@ export default function MemberGroupManagementPage() {
       .trim().length > 0;
     const trimmedTerms = termsHasText ? rawTerms : '';
 
-    // Normalise the description (rich text / HTML): trim, treat visually-empty
+    // Normalise the description/purpose (rich text / HTML): trim, treat visually-empty
     // content as empty, and sanitise the markup before it is saved. Legacy
     // plain-text values pass through sanitisation unchanged.
     const rawDescription = (groupForm.description || '').trim();
@@ -694,6 +700,22 @@ export default function MemberGroupManagementPage() {
       .replace(/&nbsp;|\u00A0/g, ' ')
       .trim().length > 0;
     const sanitizedDescription = descriptionHasText ? sanitizeRichText(rawDescription) : '';
+
+    // Normalise the optional "Who the group is for" rich text field.
+    const rawWhoIsItFor = (groupForm.who_is_it_for || '').trim();
+    const whoIsItForHasText = rawWhoIsItFor
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;|\u00A0/g, ' ')
+      .trim().length > 0;
+    const sanitizedWhoIsItFor = whoIsItForHasText ? sanitizeRichText(rawWhoIsItFor) : null;
+
+    // Normalise the optional "About the group" rich text field.
+    const rawAboutTheGroup = (groupForm.about_the_group || '').trim();
+    const aboutTheGroupHasText = rawAboutTheGroup
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;|\u00A0/g, ' ')
+      .trim().length > 0;
+    const sanitizedAboutTheGroup = aboutTheGroupHasText ? sanitizeRichText(rawAboutTheGroup) : null;
 
     // Prune leadership_roles / projects_enabled_roles to only roles still on the group.
     const validRoles = new Set(groupForm.roles || []);
@@ -753,6 +775,8 @@ export default function MemberGroupManagementPage() {
     const payload = {
       ...groupForm,
       description: sanitizedDescription,
+      who_is_it_for: sanitizedWhoIsItFor,
+      about_the_group: sanitizedAboutTheGroup,
       default_self_join_role: groupForm.allow_self_join ? groupForm.default_self_join_role : null,
       leadership_roles: prunedLeadership,
       projects_enabled: !!groupForm.projects_enabled,
@@ -1587,12 +1611,32 @@ export default function MemberGroupManagementPage() {
               </div>
 
               <div>
-                <Label htmlFor="description">Description</Label>
+                <Label htmlFor="description">Purpose</Label>
                 <SimpleRichTextEditor
                   content={groupForm.description}
                   onChange={(html) => setGroupForm({ ...groupForm, description: html })}
-                  placeholder="Description of this group..."
+                  placeholder="What is the purpose of this group?"
                   data-testid="input-group-description"
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="who_is_it_for">Who the group is for</Label>
+                <SimpleRichTextEditor
+                  content={groupForm.who_is_it_for}
+                  onChange={(html) => setGroupForm({ ...groupForm, who_is_it_for: html })}
+                  placeholder="Who is this group aimed at? (optional)"
+                  data-testid="input-group-who-is-it-for"
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="about_the_group">About the group</Label>
+                <SimpleRichTextEditor
+                  content={groupForm.about_the_group}
+                  onChange={(html) => setGroupForm({ ...groupForm, about_the_group: html })}
+                  placeholder="Tell members more about this group... (optional)"
+                  data-testid="input-group-about"
                 />
               </div>
 

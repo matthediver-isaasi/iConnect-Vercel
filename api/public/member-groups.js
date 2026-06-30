@@ -36,6 +36,8 @@ export default async function handler(req, res) {
         id,
         name,
         description,
+        who_is_it_for,
+        about_the_group,
         header_image_url,
         allow_self_join,
         is_active,
