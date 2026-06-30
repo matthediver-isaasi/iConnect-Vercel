@@ -1066,6 +1066,12 @@ export default async function handler(req, res) {
         }
       }
 
+      // SupportTicket: ensure created_date is always populated at creation time
+      // so the card on SupportManagement never shows "Date not recorded".
+      if (entityNorm === 'supportticket' && !sanitizedBody.created_date) {
+        sanitizedBody.created_date = new Date().toISOString();
+      }
+
       // Resource (Task #1701): auto-tag a group-created resource with its
       // group's linked subcategories when the caller didn't supply any, so it
       // surfaces tenant-wide under the matching filter.

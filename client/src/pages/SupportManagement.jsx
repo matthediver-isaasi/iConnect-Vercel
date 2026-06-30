@@ -147,6 +147,22 @@ export default function SupportManagementPage() {
       ),
   });
 
+  // Build a fast lookup from member ID or email → full name for resolving assigned_to
+  const agentNameMap = useMemo(() => {
+    const map = new Map();
+    for (const m of eligibleMembers) {
+      const fullName = [m.first_name, m.last_name].filter(Boolean).join(' ') || m.email;
+      if (m.id) map.set(m.id, fullName);
+      if (m.email) map.set(m.email.toLowerCase(), fullName);
+    }
+    return map;
+  }, [eligibleMembers]);
+
+  const resolveAgentName = (assignedTo) => {
+    if (!assignedTo) return null;
+    return agentNameMap.get(assignedTo) || agentNameMap.get(assignedTo.toLowerCase()) || null;
+  };
+
   const { data: tickets = [], isLoading } = useQuery({
     queryKey: ['all-support-tickets'],
     queryFn: () => base44.entities.SupportTicket.list("-created_date"),
@@ -612,6 +628,11 @@ export default function SupportManagementPage() {
                               ? format(new Date(ticket.created_date), 'MMM d, yyyy h:mm a')
                               : 'Date not recorded'}
                           </div>
+                          <span data-testid={`text-assigned-${ticket.id}`}>
+                            {ticket.assigned_to && resolveAgentName(ticket.assigned_to)
+                              ? `Assigned to: ${resolveAgentName(ticket.assigned_to)}`
+                              : 'Unassigned'}
+                          </span>
                         </div>
                       </div>
                     </div>

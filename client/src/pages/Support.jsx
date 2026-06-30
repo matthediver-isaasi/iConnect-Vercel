@@ -219,7 +219,8 @@ export default function SupportPage() {
     createTicketMutation.mutate({
       ...newTicket,
       submitter_email: memberInfo.email,
-      submitter_name: `${memberInfo.first_name} ${memberInfo.last_name}`
+      submitter_name: `${memberInfo.first_name} ${memberInfo.last_name}`,
+      created_date: new Date().toISOString()
     });
   };
 
