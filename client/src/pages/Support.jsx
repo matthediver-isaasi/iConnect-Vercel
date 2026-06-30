@@ -8,6 +8,11 @@ import {
   getSeverityLabel,
   getSeverityBadgeClass,
 } from "@/lib/supportLevels";
+import {
+  resolveSupportAreas,
+  getAreaLabel,
+  AREA_BADGE_CLASS,
+} from "@/lib/supportAreas";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -72,6 +77,7 @@ export default function SupportPage() {
     subject: "",
     description: "",
     severity: "moderate",
+    area: "",
     attachments: []
   });
   const [replyMessage, setReplyMessage] = useState("");
@@ -87,11 +93,12 @@ export default function SupportPage() {
   });
 
   const supportLevels = useMemo(() => resolveSupportLevels(supportSettings), [supportSettings]);
+  const supportAreas = useMemo(() => resolveSupportAreas(supportSettings), [supportSettings]);
   const supportInstructions = useMemo(() => resolveSupportInstructions(supportSettings), [supportSettings]);
   const defaultSeverity = useMemo(() => getDefaultSeverity(supportLevels), [supportLevels]);
 
   const openNewTicket = () => {
-    setNewTicket({ type: "general", subject: "", description: "", severity: defaultSeverity, attachments: [] });
+    setNewTicket({ type: "general", subject: "", description: "", severity: defaultSeverity, area: "", attachments: [] });
     setShowNewTicket(true);
   };
 
@@ -165,7 +172,7 @@ export default function SupportPage() {
       queryClient.invalidateQueries({ queryKey: ['support-tickets'] });
       toast.success('Support ticket submitted successfully');
       setShowNewTicket(false);
-      setNewTicket({ type: "general", subject: "", description: "", severity: defaultSeverity, attachments: [] });
+      setNewTicket({ type: "general", subject: "", description: "", severity: defaultSeverity, area: "", attachments: [] });
     },
     onError: () => toast.error('Failed to submit ticket')
   });
@@ -346,6 +353,11 @@ export default function SupportPage() {
                             {getSeverityLabel(supportLevels, ticket.severity)}
                           </Badge>
                         )}
+                        {ticket.area && (
+                          <Badge className={AREA_BADGE_CLASS} data-testid={`badge-area-${ticket.id}`}>
+                            {getAreaLabel(supportAreas, ticket.area)}
+                          </Badge>
+                        )}
                       </div>
                     </div>
                   </CardContent>
@@ -399,6 +411,22 @@ export default function SupportPage() {
                   </Select>
                 </div>
               </div>
+              {supportAreas.length > 0 && (
+                <div className="space-y-2">
+                  <Label>Area</Label>
+                  <Select value={newTicket.area || "none"} onValueChange={(value) => setNewTicket({ ...newTicket, area: value === "none" ? "" : value })}>
+                    <SelectTrigger data-testid="select-area">
+                      <SelectValue placeholder="Select area (optional)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No specific area</SelectItem>
+                      {supportAreas.map((area) => (
+                        <SelectItem key={area.value} value={area.value}>{area.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div className="space-y-2">
                 <Label>Subject</Label>
                 <Input
@@ -489,6 +517,11 @@ export default function SupportPage() {
                         {selectedTicket.severity && (
                           <Badge className={getSeverityBadgeClass(selectedTicket.severity)}>
                             {getSeverityLabel(supportLevels, selectedTicket.severity)}
+                          </Badge>
+                        )}
+                        {selectedTicket.area && (
+                          <Badge className={AREA_BADGE_CLASS}>
+                            {getAreaLabel(supportAreas, selectedTicket.area)}
                           </Badge>
                         )}
                       </div>

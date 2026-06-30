@@ -26,6 +26,12 @@ import {
   getSeverityLabel,
   getSeverityBadgeClass,
 } from "@/lib/supportLevels";
+import {
+  SUPPORT_AREAS_KEY,
+  resolveSupportAreas,
+  getAreaLabel,
+  AREA_BADGE_CLASS,
+} from "@/lib/supportAreas";
 
 const typeIcons = {
   bug: Bug,
@@ -74,6 +80,8 @@ export default function SupportManagementPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
+  const [severityFilter, setSeverityFilter] = useState("all");
+  const [areaFilter, setAreaFilter] = useState("all");
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [replyMessage, setReplyMessage] = useState("");
   const [updateData, setUpdateData] = useState({});
@@ -83,6 +91,7 @@ export default function SupportManagementPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [levelsDraft, setLevelsDraft] = useState([]);
   const [instructionsDraft, setInstructionsDraft] = useState("");
+  const [areasDraft, setAreasDraft] = useState([]);
 
   const queryClient = useQueryClient();
 
@@ -95,6 +104,44 @@ export default function SupportManagementPage() {
   });
 
   const supportLevels = useMemo(() => resolveSupportLevels(settings), [settings]);
+  const supportAreas = useMemo(() => resolveSupportAreas(settings), [settings]);
+
+  // Load roles so we can restrict the area assignee picker to support-eligible members.
+  const { data: allRoles = [] } = useQuery({
+    queryKey: ['support-roles'],
+    queryFn: () => base44.entities.Role.list(),
+    enabled: hasAccess && isAccessReady,
+  });
+
+  // Role IDs that grant support management or tenant-admin access
+  // (matches the server-side resolveSupportRecipients logic in api/support/notify.js)
+  const supportEligibleRoleIds = useMemo(() => {
+    const eligible = new Set();
+    for (const role of allRoles) {
+      const excluded = Array.isArray(role.excluded_features) ? role.excluded_features : [];
+      const hasSupportAccess = !excluded.includes('support.management');
+      const hasAdminAccess = !excluded.includes('admin.role-management');
+      if (hasSupportAccess || hasAdminAccess) {
+        eligible.add(role.id);
+      }
+    }
+    return eligible;
+  }, [allRoles]);
+
+  // Load ALL members then filter client-side to support-eligible roles only
+  const { data: eligibleMembers = [] } = useQuery({
+    queryKey: ['support-eligible-members'],
+    queryFn: () => base44.entities.Member.list(),
+    enabled: hasAccess && isAccessReady,
+    select: (members) =>
+      members.filter(
+        (m) =>
+          m.email &&
+          !m.email.startsWith('deleted_') &&
+          m.role_id &&
+          supportEligibleRoleIds.has(m.role_id)
+      ),
+  });
 
   const { data: tickets = [], isLoading } = useQuery({
     queryKey: ['all-support-tickets'],
@@ -167,9 +214,10 @@ export default function SupportManagementPage() {
   };
 
   const saveSettingsMutation = useMutation({
-    mutationFn: async ({ levels, instructions }) => {
+    mutationFn: async ({ levels, instructions, areas }) => {
       await upsertSetting(SUPPORT_LEVELS_KEY, JSON.stringify(levels));
       await upsertSetting(SUPPORT_INSTRUCTIONS_KEY, instructions);
+      await upsertSetting(SUPPORT_AREAS_KEY, JSON.stringify(areas));
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['support-system-settings'] });
@@ -183,6 +231,7 @@ export default function SupportManagementPage() {
   const openSettings = () => {
     setLevelsDraft(resolveSupportLevels(settings).map((lvl) => ({ ...lvl })));
     setInstructionsDraft(resolveSupportInstructions(settings));
+    setAreasDraft(resolveSupportAreas(settings).map((a) => ({ ...a, memberIds: [...(a.memberIds || [])] })));
     setSettingsOpen(true);
   };
 
@@ -255,7 +304,21 @@ export default function SupportManagementPage() {
       cleaned[0].isDefault = true;
     }
 
-    saveSettingsMutation.mutate({ levels: cleaned, instructions: instructionsDraft.trim() });
+    const cleanedAreas = areasDraft
+      .map((a) => ({
+        value: (a.value && a.value.trim() !== '' ? a.value : slugifyLevelValue(a.label || '')).trim(),
+        label: (a.label || '').trim(),
+        memberIds: Array.isArray(a.memberIds) ? a.memberIds.filter(Boolean) : [],
+      }))
+      .filter((a) => a.label !== '' && a.value !== '');
+
+    const areaValues = cleanedAreas.map((a) => a.value);
+    if (new Set(areaValues).size !== areaValues.length) {
+      toast.error('Support area names must be unique');
+      return;
+    }
+
+    saveSettingsMutation.mutate({ levels: cleaned, instructions: instructionsDraft.trim(), areas: cleanedAreas });
   };
 
   if (!isAccessReady) {
@@ -342,8 +405,17 @@ export default function SupportManagementPage() {
                          ticket.submitter_name.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === "all" || ticket.status === statusFilter;
     const matchesType = typeFilter === "all" || ticket.type === typeFilter;
-    return matchesSearch && matchesStatus && matchesType;
+    const matchesSeverity = severityFilter === "all" || ticket.severity === severityFilter;
+    const matchesArea = areaFilter === "all" || ticket.area === areaFilter;
+    return matchesSearch && matchesStatus && matchesType && matchesSeverity && matchesArea;
   });
+
+  // Per-member ticket indicator (plain derivation — no hook, safe after early return)
+  const myMemberId = memberInfo?.id;
+  const myAssignedTickets = myMemberId
+    ? tickets.filter(t => t.assigned_to === myMemberId || t.assigned_to === memberInfo?.email)
+    : [];
+  const myOpenTickets = myAssignedTickets.filter(t => t.status === 'open' || t.status === 'in_progress');
 
   const getTicketCounts = (status) => {
     return tickets.filter(t => t.status === status).length;
@@ -385,6 +457,19 @@ export default function SupportManagementPage() {
             </Button>
           </div>
         </div>
+
+        {/* Per-member indicator */}
+        {myMemberId && myAssignedTickets.length > 0 && (
+          <div className="mb-4 flex items-center gap-2 p-3 rounded-md border bg-blue-50 border-blue-200 text-sm text-blue-800" data-testid="my-tickets-indicator">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            <span>
+              You are assigned to <strong>{myAssignedTickets.length}</strong> ticket{myAssignedTickets.length !== 1 ? 's' : ''}
+              {myOpenTickets.length > 0 && (
+                <> — <strong>{myOpenTickets.length}</strong> open/in-progress</>
+              )}
+            </span>
+          </div>
+        )}
 
         {/* Stats */}
         <div className="grid md:grid-cols-4 gap-4 mb-6">
@@ -451,6 +536,30 @@ export default function SupportManagementPage() {
                   <SelectItem value="general">General Message</SelectItem>
                 </SelectContent>
               </Select>
+              <Select value={severityFilter} onValueChange={setSeverityFilter} data-testid="select-severity-filter">
+                <SelectTrigger className="w-full md:w-40">
+                  <SelectValue placeholder="All Severities" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Severities</SelectItem>
+                  {supportLevels.map((lvl) => (
+                    <SelectItem key={lvl.value} value={lvl.value}>{lvl.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {supportAreas.length > 0 && (
+                <Select value={areaFilter} onValueChange={setAreaFilter} data-testid="select-area-filter">
+                  <SelectTrigger className="w-full md:w-40">
+                    <SelectValue placeholder="All Areas" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Areas</SelectItem>
+                    {supportAreas.map((area) => (
+                      <SelectItem key={area.value} value={area.value}>{area.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -484,6 +593,9 @@ export default function SupportManagementPage() {
                           <Badge className={statusColors[ticket.status]}>{ticket.status.replace('_', ' ')}</Badge>
                           {ticket.severity && (
                             <Badge className={getSeverityBadgeClass(ticket.severity)}>{getSeverityLabel(supportLevels, ticket.severity)}</Badge>
+                          )}
+                          {ticket.area && (
+                            <Badge className={AREA_BADGE_CLASS} data-testid={`badge-area-${ticket.id}`}>{getAreaLabel(supportAreas, ticket.area)}</Badge>
                           )}
                         </div>
                         <h3 className="font-semibold text-lg text-slate-900 mb-1">{ticket.subject}</h3>
@@ -547,6 +659,22 @@ export default function SupportManagementPage() {
                             )}
                           </SelectContent>
                         </Select>
+                        {supportAreas.length > 0 && (
+                          <Select
+                            value={selectedTicket.area || "none"}
+                            onValueChange={(value) => handleUpdateTicket({ area: value === "none" ? null : value })}
+                          >
+                            <SelectTrigger className="w-36 h-7 text-xs" data-testid="select-ticket-area">
+                              <SelectValue placeholder="No area" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">No area</SelectItem>
+                              {supportAreas.map((area) => (
+                                <SelectItem key={area.value} value={area.value}>{area.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
                       </div>
                       <DialogTitle className="text-2xl">{selectedTicket.subject}</DialogTitle>
                       <p className="text-sm text-slate-500 mt-2">
@@ -817,6 +945,120 @@ export default function SupportManagementPage() {
                   onChange={(e) => setInstructionsDraft(e.target.value)}
                   data-testid="input-support-instructions"
                 />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Support Areas</Label>
+                <p className="text-sm text-slate-500">
+                  Categorise tickets by team or topic. Assign support members to each area — new tickets are routed to the assigned members; areas with no assignees fall back to notifying all support members.
+                </p>
+                <div className="space-y-3">
+                  {areasDraft.map((area, index) => (
+                    <div key={index} className="space-y-2 p-3 border rounded-md" data-testid={`row-support-area-${index}`}>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          value={area.label}
+                          placeholder="Area name (e.g. Finance)"
+                          onChange={(e) => {
+                            const label = e.target.value;
+                            setAreasDraft((prev) => prev.map((a, i) => {
+                              if (i !== index) return a;
+                              const value = a.value && a.value.trim() !== '' ? a.value : slugifyLevelValue(label);
+                              return { ...a, label, value };
+                            }));
+                          }}
+                          data-testid={`input-area-label-${index}`}
+                        />
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => setAreasDraft((prev) => {
+                            const target = index - 1;
+                            if (target < 0) return prev;
+                            const next = [...prev];
+                            [next[index], next[target]] = [next[target], next[index]];
+                            return next;
+                          })}
+                          disabled={index === 0}
+                          data-testid={`button-area-up-${index}`}
+                        >
+                          <ArrowUp className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => setAreasDraft((prev) => {
+                            const target = index + 1;
+                            if (target >= prev.length) return prev;
+                            const next = [...prev];
+                            [next[index], next[target]] = [next[target], next[index]];
+                            return next;
+                          })}
+                          disabled={index === areasDraft.length - 1}
+                          data-testid={`button-area-down-${index}`}
+                        >
+                          <ArrowDown className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => setAreasDraft((prev) => prev.filter((_, i) => i !== index))}
+                          data-testid={`button-area-remove-${index}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs text-slate-500">Assigned support members (notified for new tickets in this area):</p>
+                        <div className="flex flex-wrap gap-2">
+                          {eligibleMembers.map((member) => {
+                            const isSelected = (area.memberIds || []).includes(member.id);
+                            return (
+                              <button
+                                key={member.id}
+                                type="button"
+                                onClick={() => {
+                                  setAreasDraft((prev) => prev.map((a, i) => {
+                                    if (i !== index) return a;
+                                    const ids = a.memberIds || [];
+                                    return {
+                                      ...a,
+                                      memberIds: isSelected ? ids.filter((id) => id !== member.id) : [...ids, member.id],
+                                    };
+                                  }));
+                                }}
+                                className={`text-xs px-2 py-1 rounded-md border transition-colors ${
+                                  isSelected
+                                    ? 'bg-blue-600 text-white border-blue-600'
+                                    : 'bg-white text-slate-700 border-slate-300 hover:border-slate-400'
+                                }`}
+                                data-testid={`toggle-area-member-${index}-${member.id}`}
+                              >
+                                {member.first_name} {member.last_name}
+                              </button>
+                            );
+                          })}
+                          {eligibleMembers.length === 0 && (
+                            <span className="text-xs text-slate-400">No members available</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setAreasDraft((prev) => [...prev, { value: '', label: '', memberIds: [] }])}
+                  data-testid="button-add-support-area"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add area
+                </Button>
               </div>
             </div>
             <DialogFooter>

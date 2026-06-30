@@ -2,6 +2,69 @@ import { supabase } from '../_lib/database.js';
 import { sendEmail } from '../_lib/emailService.js';
 import { isResourceExcluded } from '../_lib/roleVisibility.js';
 
+const SUPPORT_AREAS_KEY = 'support_areas';
+
+/**
+ * Parse a raw support_areas setting value (JSON string) into an array of
+ * { value, label, memberIds: string[] }.  Returns [] on any error.
+ */
+function parseSupportAreas(settingValue) {
+  if (!settingValue) return [];
+  try {
+    const parsed = JSON.parse(settingValue);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((a) => a && typeof a.value === 'string' && a.value.trim() !== '')
+      .map((a) => ({
+        value: a.value.trim(),
+        label: typeof a.label === 'string' ? a.label.trim() : a.value.trim(),
+        memberIds: Array.isArray(a.memberIds) ? a.memberIds.filter(Boolean) : [],
+      }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Attempt to resolve area-specific recipients for a new_ticket notification.
+ * Returns null if the ticket has no area, the area has no configured assignees,
+ * or any lookup error occurs (caller must fall back to resolveSupportRecipients).
+ */
+async function resolveAreaRecipients(tenantId, area) {
+  if (!area || !tenantId || !supabase) return null;
+  try {
+    const { data: setting } = await supabase
+      .from('system_settings')
+      .select('setting_value')
+      .eq('tenant_id', tenantId)
+      .eq('setting_key', SUPPORT_AREAS_KEY)
+      .maybeSingle();
+
+    const areas = parseSupportAreas(setting?.setting_value);
+    const matched = areas.find((a) => a.value === area);
+    if (!matched || matched.memberIds.length === 0) return null;
+
+    // Intersect configured memberIds with support-eligible recipients to prevent
+    // notifying members who no longer have support.management / admin access.
+    const supportEligible = await resolveSupportRecipients(tenantId);
+    const eligibleIdSet = new Set(supportEligible.map((m) => m.id));
+    const eligibleAreaIds = matched.memberIds.filter((id) => eligibleIdSet.has(id));
+
+    if (eligibleAreaIds.length === 0) {
+      console.log(`[SupportNotify] Area "${area}" has no support-eligible assignees after role check`);
+      return null;
+    }
+
+    // Return the already-fetched eligible records that match the area's member list
+    // (avoids a second DB round-trip since resolveSupportRecipients already queried members)
+    const result = supportEligible.filter((m) => eligibleAreaIds.includes(m.id));
+    return result.length > 0 ? result : null;
+  } catch (err) {
+    console.error('[SupportNotify] resolveAreaRecipients error:', err);
+    return null;
+  }
+}
+
 function escapeHtml(str) {
   if (!str) return '';
   return String(str)
@@ -112,7 +175,7 @@ export async function sendSupportNotification({ tenantId, ticketId, eventType, p
   try {
     const { data: ticket, error: ticketErr } = await supabase
       .from('support_ticket')
-      .select('id, subject, description, type, severity, status, submitter_name, submitter_email')
+      .select('id, subject, description, type, severity, area, status, submitter_name, submitter_email')
       .eq('id', ticketId)
       .maybeSingle();
 
@@ -142,8 +205,19 @@ export async function sendSupportNotification({ tenantId, ticketId, eventType, p
         }
         return;
       }
+    } else if (eventType === 'new_ticket' && ticket.area) {
+      // Area-aware routing: notify members assigned to the ticket's area.
+      // Falls back to all support/admin members when the area has no assignees.
+      const areaRecipients = await resolveAreaRecipients(tenantId, ticket.area);
+      if (areaRecipients && areaRecipients.length > 0) {
+        recipients = areaRecipients;
+        console.log(`[SupportNotify] Routing new_ticket to ${recipients.length} area-assigned member(s) for area "${ticket.area}"`);
+      } else {
+        console.log(`[SupportNotify] Area "${ticket.area}" has no assignees — falling back to all support/admin members`);
+        recipients = await resolveSupportRecipients(tenantId);
+      }
     } else {
-      // new_ticket or user_reply: notify support-management + admin members
+      // new_ticket (no area) or user_reply: notify support-management + admin members
       recipients = await resolveSupportRecipients(tenantId);
     }
 
