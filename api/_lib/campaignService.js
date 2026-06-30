@@ -1248,18 +1248,28 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
     // ticket class matches. Absent or 'all' means include all confirmed attendees.
     const ticketTypeSel = (segmentData && segmentData.ticket_type_selection) || null;
 
+    const NO_TICKET_TYPE_SENTINEL = '__no_ticket_type__';
+
     const shouldKeepBooking = (row, isComplex) => {
       if (!ticketTypeSel) return true;
       const sel = ticketTypeSel[row.event_id];
       if (!sel || sel === 'all' || !Array.isArray(sel) || sel.length === 0) return true;
+
+      // "No ticket type" sentinel: bookings with neither a ticket class id nor name
+      const hasNoTicketType = !row.ticket_class_id && !row.ticket_class_name;
+      const sentinelSelected = sel.some(tc => tc.id === NO_TICKET_TYPE_SENTINEL);
+      if (hasNoTicketType && sentinelSelected) return true;
+
+      // Named-tier matching — exclude the sentinel so it doesn't pollute id/name lists
+      const namedSel = sel.filter(tc => tc.id !== NO_TICKET_TYPE_SENTINEL);
       if (isComplex) {
-        const selectedIds = sel.map(tc => tc.id).filter(Boolean);
-        const selectedNames = sel.map(tc => tc.name).filter(Boolean);
+        const selectedIds = namedSel.map(tc => tc.id).filter(Boolean);
+        const selectedNames = namedSel.map(tc => tc.name).filter(Boolean);
         if (row.ticket_class_id && selectedIds.includes(row.ticket_class_id)) return true;
         if (row.ticket_class_name && selectedNames.includes(row.ticket_class_name)) return true;
         return false;
       } else {
-        const selectedNames = sel.map(tc => tc.name).filter(Boolean);
+        const selectedNames = namedSel.map(tc => tc.name).filter(Boolean);
         if (row.ticket_class_name && selectedNames.includes(row.ticket_class_name)) return true;
         return false;
       }
