@@ -5,6 +5,11 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  // Prevent the browser and any intermediate cache from storing this response.
+  // The refocus stale-tab check must always hit the network so it reflects the
+  // live session tenant; a cached 200 from the previous org would make the
+  // mismatch comparison see "old === old" and silently skip the lock.
+  res.setHeader('Cache-Control', 'no-store');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();

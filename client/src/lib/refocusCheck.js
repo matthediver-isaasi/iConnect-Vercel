@@ -17,12 +17,23 @@
  *    handoff) reload the page, resetting _activeTenantId to null, so the
  *    check is naturally skipped in those windows.
  *
- * Critical ordering note:
+ * Heal-race prevention:
  *  The global fetch interceptor (fetchInterceptor.js) auto-overwrites
  *  _activeTenantId from every successful /api/auth/tenant-user-me response.
- *  To avoid silently "healing" the stale state, we capture the pinned tenant
- *  id BEFORE the fetch call and compare against that snapshot — not against
- *  getActiveTenantId() after the call returns.
+ *  A concurrent tenant-user-me response during the 400 ms debounce window
+ *  could update _activeTenantId to the NEW tenant before checkStaleTenant
+ *  reads it — making "old === new" and silently hiding the mismatch.
+ *
+ *  To prevent this, scheduleCheck() captures pinnedTenantId SYNCHRONOUSLY
+ *  at the moment the focus event fires (before any debounce delay) and passes
+ *  it as an argument to the async check. The interceptor cannot retroactively
+ *  change a value that has already been snapshotted into a local variable.
+ *
+ * Cache-proof fetch:
+ *  The refocus fetch uses `cache: 'no-store'` and a timestamp query parameter
+ *  so the browser always goes to the network even if a prior tenant-user-me
+ *  response is still cached. The server endpoint also returns Cache-Control:
+ *  no-store so subsequent checks are never served from an HTTP cache.
  */
 
 import { getActiveTenantId } from '@/api/base44Client';
@@ -32,22 +43,24 @@ let _overlayVisible = false;
 let _debounceTimer = null;
 const DEBOUNCE_MS = 400;
 
-async function checkStaleTenant() {
-  // Skip when no tenant is pinned: unauthenticated, public pages,
-  // bearer/mobile sessions, and platform-owner sessions all leave
+async function checkStaleTenant(pinnedTenantId) {
+  // Skip when no tenant was pinned at focus time: unauthenticated, public
+  // pages, bearer/mobile sessions, and platform-owner sessions all leave
   // _activeTenantId null so this guard covers all of those cases.
-  const pinnedTenantId = getActiveTenantId();
   if (!pinnedTenantId) return;
 
   // Skip if the overlay is already showing — tab is already locked.
   if (_overlayVisible) return;
 
   try {
-    // Capture pinnedTenantId BEFORE the request. The fetch interceptor will
-    // call setActiveTenantId() from the response body, overwriting
-    // _activeTenantId. We must compare against the pre-call snapshot or the
-    // mismatch would be silently healed instead of triggering the lock.
-    const res = await fetch('/api/auth/tenant-user-me', { credentials: 'include' });
+    // Use cache: 'no-store' plus a timestamp cache-buster so the browser
+    // always fetches from the network. Without this the browser may serve
+    // the previous (stale-org) response from its HTTP cache, making the
+    // comparison see "old === old" and miss the mismatch entirely.
+    const res = await fetch(`/api/auth/tenant-user-me?_ts=${Date.now()}`, {
+      credentials: 'include',
+      cache: 'no-store',
+    });
 
     // A non-200 response (network error, 401, 500) means we can't confirm
     // staleness — leave the tab usable and rely on the reactive 409 path.
@@ -66,6 +79,10 @@ async function checkStaleTenant() {
     // session (no per-tenant context). Don't lock.
     if (!sessionTenantId) return;
 
+    // Compare the live session tenant against the value captured synchronously
+    // at focus time. The fetch interceptor may have already updated
+    // _activeTenantId during this async window; we intentionally ignore that
+    // and use the snapshot to detect a mismatch correctly.
     if (sessionTenantId !== pinnedTenantId) {
       emitTenantContextChanged();
     }
@@ -75,8 +92,15 @@ async function checkStaleTenant() {
 }
 
 function scheduleCheck() {
+  // Capture pinnedTenantId SYNCHRONOUSLY here, at focus-event time, before
+  // the debounce delay begins. The fetch interceptor can overwrite
+  // _activeTenantId during the 400 ms window (e.g. from a concurrent
+  // tenant-user-me response triggered by another part of the app), so
+  // snapshotting now prevents the heal race from hiding a real mismatch.
+  const pinnedTenantId = getActiveTenantId();
+
   if (_debounceTimer) clearTimeout(_debounceTimer);
-  _debounceTimer = setTimeout(checkStaleTenant, DEBOUNCE_MS);
+  _debounceTimer = setTimeout(() => checkStaleTenant(pinnedTenantId), DEBOUNCE_MS);
 }
 
 /**
