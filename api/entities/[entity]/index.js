@@ -1202,7 +1202,8 @@ export default async function handler(req, res) {
             'ExternalWriter', 'ExternalWriterDocument',
             'CrmTagColor',
             'Vacancy', 'VacancyApplication', 'VacancyAward', 'VacancyDecline', 'VacancyDecisionEmail',
-            'Gallery', 'GalleryPhoto', 'CardDeck'
+            'Gallery', 'GalleryPhoto', 'CardDeck',
+            'SupportTicket', 'SupportTicketResponse'
           ];
           if (!entitiesWithoutOrgId.includes(entity)) {
             const entitiesWithExplicitOrgId = ['Member', 'Voucher', 'VoucherTransaction', 'TrainingFundTransaction'];
