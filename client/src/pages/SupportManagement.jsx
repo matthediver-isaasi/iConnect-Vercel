@@ -32,6 +32,7 @@ import {
   getAreaLabel,
   AREA_BADGE_CLASS,
 } from "@/lib/supportAreas";
+import { isResourceExcluded } from "@/lib/roleVisibility";
 
 const typeIcons = {
   bug: Bug,
@@ -113,14 +114,17 @@ export default function SupportManagementPage() {
     enabled: hasAccess && isAccessReady,
   });
 
-  // Role IDs that grant support management or tenant-admin access
-  // (matches the server-side resolveSupportRecipients logic in api/support/notify.js)
+  // Role IDs that grant support management or tenant-admin access.
+  // Uses isResourceExcluded (not a naive array includes) so that a role which
+  // excludes a parent page or module — e.g. the whole `admin` module, which
+  // covers `admin.role-management` — is correctly treated as excluded. This
+  // matches the server-side resolveSupportRecipients logic in api/support/notify.js.
   const supportEligibleRoleIds = useMemo(() => {
     const eligible = new Set();
     for (const role of allRoles) {
       const excluded = Array.isArray(role.excluded_features) ? role.excluded_features : [];
-      const hasSupportAccess = !excluded.includes('support.management');
-      const hasAdminAccess = !excluded.includes('admin.role-management');
+      const hasSupportAccess = !isResourceExcluded(excluded, 'support.management');
+      const hasAdminAccess = !isResourceExcluded(excluded, 'admin.role-management');
       if (hasSupportAccess || hasAdminAccess) {
         eligible.add(role.id);
       }
