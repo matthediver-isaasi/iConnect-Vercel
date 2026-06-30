@@ -7,10 +7,15 @@ import '@/index.css'
 import '@fortawesome/fontawesome-free/css/all.min.css'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { installFetchInterceptor } from '@/lib/fetchInterceptor'
+import { installRefocusCheck } from '@/lib/refocusCheck'
 
 // Install global fetch interceptor immediately so every /api/ request with
 // credentials automatically carries X-Tenant-Id and handles 409 TENANT_CONTEXT_CHANGED.
 installFetchInterceptor()
+
+// Install proactive stale-tab detection: checks session tenant on refocus
+// before any API call is made, so the lock overlay appears immediately.
+installRefocusCheck()
 
 const queryClient = new QueryClient({
   defaultOptions: {
