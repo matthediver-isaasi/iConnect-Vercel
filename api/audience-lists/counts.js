@@ -17,7 +17,7 @@ export default async function handler(req, res) {
   try {
     const { data: lists, error } = await supabase
       .from('audience_list')
-      .select('id, target_audiences')
+      .select('id, target_audiences, ignore_opt_outs')
       .eq('tenant_id', tenantId);
 
     if (error) {
@@ -29,7 +29,10 @@ export default async function handler(req, res) {
 
     await Promise.all((lists || []).map(async (list) => {
       try {
-        const fakeCampaign = { target_audiences: list.target_audiences || [] };
+        const fakeCampaign = {
+          target_audiences: list.target_audiences || [],
+          ignore_opt_outs: list.ignore_opt_outs === true,
+        };
         const result = await getTargetRecipients(fakeCampaign, tenantId, true, false);
         if (result.success) {
           counts[list.id] = result.count;

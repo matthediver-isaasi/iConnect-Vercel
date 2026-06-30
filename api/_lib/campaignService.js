@@ -1264,13 +1264,13 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
       const namedSel = sel.filter(tc => tc.id !== NO_TICKET_TYPE_SENTINEL);
       if (isComplex) {
         const selectedIds = namedSel.map(tc => tc.id).filter(Boolean);
-        const selectedNames = namedSel.map(tc => tc.name).filter(Boolean);
+        const selectedNamesLower = namedSel.map(tc => tc.name).filter(Boolean).map(n => n.toLowerCase());
         if (row.ticket_class_id && selectedIds.includes(row.ticket_class_id)) return true;
-        if (row.ticket_class_name && selectedNames.includes(row.ticket_class_name)) return true;
+        if (row.ticket_class_name && selectedNamesLower.includes(row.ticket_class_name.toLowerCase())) return true;
         return false;
       } else {
-        const selectedNames = namedSel.map(tc => tc.name).filter(Boolean);
-        if (row.ticket_class_name && selectedNames.includes(row.ticket_class_name)) return true;
+        const selectedNamesLower = namedSel.map(tc => tc.name).filter(Boolean).map(n => n.toLowerCase());
+        if (row.ticket_class_name && selectedNamesLower.includes(row.ticket_class_name.toLowerCase())) return true;
         return false;
       }
     };
@@ -2172,6 +2172,12 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false,
 
     const deletedPattern = /^deleted_.*@deleted\.local$/i;
     allRecipients = allRecipients.filter(r => !deletedPattern.test(r.email));
+
+    // If the campaign / audience list is configured to ignore opt-outs, mark
+    // every resolved recipient so the suppression steps below skip them.
+    if (campaign.ignore_opt_outs === true) {
+      for (const r of allRecipients) r.bypass_opt_out = true;
+    }
 
     const totalAudience = allRecipients.length;
     const rawAudienceList = detailedLists ? allRecipients.map(r => ({ email: r.email, first_name: r.first_name, last_name: r.last_name })) : null;
