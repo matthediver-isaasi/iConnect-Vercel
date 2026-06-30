@@ -25,7 +25,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, MessageSquare, Bug, Lightbulb, HelpCircle, Mail, Clock, CheckCircle, AlertCircle, Upload, X, Loader2, Bell } from "lucide-react";
+import { Plus, MessageSquare, Bug, Lightbulb, HelpCircle, Mail, Clock, CheckCircle, AlertCircle, Upload, X, Loader2, Bell, Search, LayoutGrid, List, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
 import { toast } from "sonner";
 import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { format, formatDistanceToNow } from "date-fns";
@@ -83,6 +83,13 @@ export default function SupportPage() {
   const [replyMessage, setReplyMessage] = useState("");
   const [uploadingFile, setUploadingFile] = useState(false);
   const [inboxOpen, setInboxOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [severityFilter, setSeverityFilter] = useState("all");
+  const [areaFilter, setAreaFilter] = useState("all");
+  const [viewMode, setViewMode] = useState("card");
+  const [currentPage, setCurrentPage] = useState(1);
 
   const queryClient = useQueryClient();
 
@@ -247,6 +254,57 @@ export default function SupportPage() {
     }
   };
 
+  const PAGE_SIZE = 12;
+
+  const filteredTickets = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return tickets.filter((ticket) => {
+      const matchesSearch =
+        q === "" ||
+        (ticket.subject || "").toLowerCase().includes(q) ||
+        (ticket.description || "").toLowerCase().includes(q);
+      const matchesStatus = statusFilter === "all" || ticket.status === statusFilter;
+      const matchesType = typeFilter === "all" || ticket.type === typeFilter;
+      const matchesSeverity = severityFilter === "all" || ticket.severity === severityFilter;
+      const matchesArea = areaFilter === "all" || ticket.area === areaFilter;
+      return matchesSearch && matchesStatus && matchesType && matchesSeverity && matchesArea;
+    });
+  }, [tickets, searchQuery, statusFilter, typeFilter, severityFilter, areaFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredTickets.length / PAGE_SIZE));
+  const safePage = Math.max(1, Math.min(currentPage, totalPages));
+  const pagedTickets = useMemo(
+    () => filteredTickets.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
+    [filteredTickets, safePage]
+  );
+
+  // Reset to first page when the filters/search change the result set size below
+  // the current page, or when the user changes a filter.
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, statusFilter, typeFilter, severityFilter, areaFilter]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  const hasActiveFilters =
+    searchQuery.trim() !== "" ||
+    statusFilter !== "all" ||
+    typeFilter !== "all" ||
+    severityFilter !== "all" ||
+    areaFilter !== "all";
+
+  const clearFilters = () => {
+    setSearchQuery("");
+    setStatusFilter("all");
+    setTypeFilter("all");
+    setSeverityFilter("all");
+    setAreaFilter("all");
+  };
+
   if (!memberInfo) {
     return (
       <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
@@ -308,64 +366,279 @@ export default function SupportPage() {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {tickets.map((ticket) => {
-              const TypeIcon = typeIcons[ticket.type];
-              // Count unread admin replies for this ticket
-              const ticketUnread = inboxItems.filter(i => i.ticket_id === ticket.id && !i.read_at).length;
-              return (
-                <Card
-                  key={ticket.id}
-                  className="border-slate-200 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
-                  onClick={() => setSelectedTicket(ticket)}
-                  data-testid={`card-ticket-${ticket.id}`}
-                >
-                  <CardHeader className="border-b border-slate-200">
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <div className="flex items-center gap-2">
-                        <TypeIcon className="w-5 h-5 text-blue-600" />
-                        <Badge variant="outline" className="text-xs">
-                          {typeLabels[ticket.type]}
-                        </Badge>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Badge className={statusColors[ticket.status]}>
-                          {ticket.status.replace('_', ' ')}
-                        </Badge>
-                        {ticketUnread > 0 && (
-                          <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-blue-600 text-white text-xs font-bold" data-testid={`unread-badge-${ticket.id}`}>
-                            {ticketUnread}
-                          </span>
-                        )}
-                      </div>
+          <>
+            {/* Search, filters and view toggle */}
+            <Card className="border-slate-200 shadow-sm mb-6">
+              <CardContent className="p-4">
+                <div className="flex flex-col lg:flex-row gap-4">
+                  <div className="flex-1 relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
+                    <Input
+                      placeholder="Search my tickets..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="pl-10"
+                      data-testid="input-search-tickets"
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-3">
+                    <Select value={statusFilter} onValueChange={setStatusFilter}>
+                      <SelectTrigger className="w-full sm:w-40" data-testid="select-status-filter">
+                        <SelectValue placeholder="All Statuses" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Statuses</SelectItem>
+                        <SelectItem value="open">Open</SelectItem>
+                        <SelectItem value="in_progress">In Progress</SelectItem>
+                        <SelectItem value="resolved">Resolved</SelectItem>
+                        <SelectItem value="closed">Closed</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select value={typeFilter} onValueChange={setTypeFilter}>
+                      <SelectTrigger className="w-full sm:w-44" data-testid="select-type-filter">
+                        <SelectValue placeholder="All Types" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Types</SelectItem>
+                        <SelectItem value="bug">Bug Report</SelectItem>
+                        <SelectItem value="feature_request">Feature Request</SelectItem>
+                        <SelectItem value="how_to">How-To Question</SelectItem>
+                        <SelectItem value="general">General Message</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {supportLevels.length > 0 && (
+                      <Select value={severityFilter} onValueChange={setSeverityFilter}>
+                        <SelectTrigger className="w-full sm:w-40" data-testid="select-severity-filter">
+                          <SelectValue placeholder="All Severities" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Severities</SelectItem>
+                          {supportLevels.map((lvl) => (
+                            <SelectItem key={lvl.value} value={lvl.value}>{lvl.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                    {supportAreas.length > 0 && (
+                      <Select value={areaFilter} onValueChange={setAreaFilter}>
+                        <SelectTrigger className="w-full sm:w-40" data-testid="select-area-filter">
+                          <SelectValue placeholder="All Areas" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Areas</SelectItem>
+                          {supportAreas.map((area) => (
+                            <SelectItem key={area.value} value={area.value}>{area.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                    <div className="flex items-center gap-1 rounded-md border border-slate-200 p-1">
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className={`toggle-elevate ${viewMode === 'card' ? 'toggle-elevated' : ''}`}
+                        onClick={() => setViewMode('card')}
+                        aria-label="Card view"
+                        data-testid="button-view-card"
+                      >
+                        <LayoutGrid className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className={`toggle-elevate ${viewMode === 'list' ? 'toggle-elevated' : ''}`}
+                        onClick={() => setViewMode('list')}
+                        aria-label="List view"
+                        data-testid="button-view-list"
+                      >
+                        <List className="w-4 h-4" />
+                      </Button>
                     </div>
-                    <CardTitle className="text-lg">{ticket.subject}</CardTitle>
-                  </CardHeader>
-                  <CardContent className="pt-4">
-                    <p className="text-sm text-slate-600 mb-4 line-clamp-2">{ticket.description}</p>
-                    <div className="flex items-center justify-between text-xs text-slate-500">
-                      <div className="flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
-                        {format(new Date(ticket.created_date), 'MMM d, yyyy')}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {ticket.severity && (
-                          <Badge className={getSeverityBadgeClass(ticket.severity)} variant="outline">
-                            {getSeverityLabel(supportLevels, ticket.severity)}
-                          </Badge>
-                        )}
-                        {ticket.area && (
-                          <Badge className={AREA_BADGE_CLASS} data-testid={`badge-area-${ticket.id}`}>
-                            {getAreaLabel(supportAreas, ticket.area)}
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {filteredTickets.length === 0 ? (
+              <Card className="border-slate-200 shadow-sm">
+                <CardContent className="p-12 text-center">
+                  <Search className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+                  <h3 className="text-lg font-semibold text-slate-900 mb-2">No tickets match your filters</h3>
+                  <p className="text-slate-600 mb-6">Try adjusting your search or filters to see more results</p>
+                  {hasActiveFilters && (
+                    <Button variant="outline" onClick={clearFilters} data-testid="button-clear-filters">
+                      Clear filters
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+            ) : viewMode === 'card' ? (
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {pagedTickets.map((ticket) => {
+                  const TypeIcon = typeIcons[ticket.type];
+                  const ticketUnread = inboxItems.filter(i => i.ticket_id === ticket.id && !i.read_at).length;
+                  return (
+                    <Card
+                      key={ticket.id}
+                      className="border-slate-200 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+                      onClick={() => setSelectedTicket(ticket)}
+                      data-testid={`card-ticket-${ticket.id}`}
+                    >
+                      <CardHeader className="border-b border-slate-200">
+                        <div className="flex items-start justify-between gap-2 mb-2">
+                          <div className="flex items-center gap-2">
+                            <TypeIcon className="w-5 h-5 text-blue-600" />
+                            <Badge variant="outline" className="text-xs">
+                              {typeLabels[ticket.type]}
+                            </Badge>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge className={statusColors[ticket.status]}>
+                              {ticket.status.replace('_', ' ')}
+                            </Badge>
+                            {ticketUnread > 0 && (
+                              <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-blue-600 text-white text-xs font-bold" data-testid={`unread-badge-${ticket.id}`}>
+                                {ticketUnread}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <CardTitle className="text-lg">{ticket.subject}</CardTitle>
+                      </CardHeader>
+                      <CardContent className="pt-4">
+                        <p className="text-sm text-slate-600 mb-4 line-clamp-2">{ticket.description}</p>
+                        <div className="flex items-center justify-between text-xs text-slate-500">
+                          <div className="flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            {format(new Date(ticket.created_date), 'MMM d, yyyy')}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {ticket.severity && (
+                              <Badge className={getSeverityBadgeClass(ticket.severity)} variant="outline">
+                                {getSeverityLabel(supportLevels, ticket.severity)}
+                              </Badge>
+                            )}
+                            {ticket.area && (
+                              <Badge className={AREA_BADGE_CLASS} data-testid={`badge-area-${ticket.id}`}>
+                                {getAreaLabel(supportAreas, ticket.area)}
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {pagedTickets.map((ticket) => {
+                  const TypeIcon = typeIcons[ticket.type];
+                  const ticketUnread = inboxItems.filter(i => i.ticket_id === ticket.id && !i.read_at).length;
+                  return (
+                    <Card
+                      key={ticket.id}
+                      className="border-slate-200 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+                      onClick={() => setSelectedTicket(ticket)}
+                      data-testid={`row-ticket-${ticket.id}`}
+                    >
+                      <CardContent className="p-4">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-2 flex-wrap">
+                              <TypeIcon className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                              <Badge variant="outline" className="text-xs">
+                                {typeLabels[ticket.type]}
+                              </Badge>
+                              <Badge className={statusColors[ticket.status]}>
+                                {ticket.status.replace('_', ' ')}
+                              </Badge>
+                              {ticket.severity && (
+                                <Badge className={getSeverityBadgeClass(ticket.severity)} variant="outline">
+                                  {getSeverityLabel(supportLevels, ticket.severity)}
+                                </Badge>
+                              )}
+                              {ticket.area && (
+                                <Badge className={AREA_BADGE_CLASS} data-testid={`badge-area-${ticket.id}`}>
+                                  {getAreaLabel(supportAreas, ticket.area)}
+                                </Badge>
+                              )}
+                              {ticketUnread > 0 && (
+                                <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-blue-600 text-white text-xs font-bold" data-testid={`unread-badge-${ticket.id}`}>
+                                  {ticketUnread}
+                                </span>
+                              )}
+                            </div>
+                            <h3 className="font-semibold text-slate-900 truncate">{ticket.subject}</h3>
+                            <p className="text-sm text-slate-600 line-clamp-1">{ticket.description}</p>
+                          </div>
+                          <div className="flex items-center gap-1 text-xs text-slate-500 flex-shrink-0 whitespace-nowrap">
+                            <Clock className="w-3 h-3" />
+                            {format(new Date(ticket.created_date), 'MMM d, yyyy')}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
+
+            {filteredTickets.length > PAGE_SIZE && (
+              <div className="flex items-center justify-between gap-4 mt-6 flex-wrap" data-testid="tickets-pagination">
+                <p className="text-sm text-slate-600" data-testid="text-pagination-range">
+                  Showing {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, filteredTickets.length)} of {filteredTickets.length}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setCurrentPage(1)}
+                    disabled={safePage === 1}
+                    aria-label="First page"
+                    data-testid="button-page-first"
+                  >
+                    <ChevronsLeft className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={safePage === 1}
+                    aria-label="Previous page"
+                    data-testid="button-page-prev"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </Button>
+                  <span className="text-sm text-slate-600 px-2" data-testid="text-pagination-page">
+                    Page {safePage} of {totalPages}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={safePage === totalPages}
+                    aria-label="Next page"
+                    data-testid="button-page-next"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setCurrentPage(totalPages)}
+                    disabled={safePage === totalPages}
+                    aria-label="Last page"
+                    data-testid="button-page-last"
+                  >
+                    <ChevronsRight className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
         )}
 
         {/* New Ticket Dialog */}
