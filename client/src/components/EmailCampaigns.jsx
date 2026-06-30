@@ -12,7 +12,7 @@ import {
   Mail, Plus, Pencil, Trash2, Send, Eye, BarChart3, Copy,
   Loader2, Calendar, Clock, Users, MousePointerClick,
   CheckCircle2, TrendingUp, TestTube2, Target, MailOpen, Link2, Search,
-  ChevronDown, ChevronRight, ExternalLink, Download, Square, AlertTriangle,
+  ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Download, Square, AlertTriangle,
   RefreshCw, Monitor, Smartphone, Reply, Forward, Archive, MoreHorizontal, Star, Paperclip,
   Flame, Pause, Play
 } from "lucide-react";
@@ -65,6 +65,9 @@ export default function EmailCampaigns() {
   const [emailPreviewFooter, setEmailPreviewFooter] = useState(null);
   const [emailPreviewHeatmap, setEmailPreviewHeatmap] = useState(null);
   const heatmapPreviewRef = useRef(null);
+
+  const PAGE_SIZE = 20;
+  const [currentPage, setCurrentPage] = useState(1);
 
   const { data: campaigns = [], isLoading: campaignsLoading } = useQuery({
     queryKey: ['email-campaigns'],
@@ -981,7 +984,16 @@ export default function EmailCampaigns() {
     });
   };
 
-  const recentCampaigns = campaigns.slice(0, 10);
+  const totalPages = Math.max(1, Math.ceil(campaigns.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
+  const pagedCampaigns = campaigns.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  useEffect(() => {
+    setCurrentPage(prev => {
+      const max = Math.max(1, Math.ceil(campaigns.length / PAGE_SIZE));
+      return prev > max ? 1 : prev;
+    });
+  }, [campaigns.length]);
 
   return (
     <div className="space-y-6">
@@ -1059,9 +1071,9 @@ export default function EmailCampaigns() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-4">
           <div>
-            <CardTitle>Recent Campaigns</CardTitle>
+            <CardTitle>All Campaigns</CardTitle>
             <p className="text-sm text-muted-foreground mt-1">
-              Your most recent email campaigns and their performance
+              Your email campaigns and their performance
             </p>
           </div>
         </CardHeader>
@@ -1086,6 +1098,7 @@ export default function EmailCampaigns() {
               </Button>
             </div>
           ) : (
+            <>
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
@@ -1100,7 +1113,7 @@ export default function EmailCampaigns() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {recentCampaigns.map((campaign) => {
+                  {pagedCampaigns.map((campaign) => {
                     const openRate = campaign.sent_count > 0 
                       ? ((campaign.opened_count || 0) / campaign.sent_count * 100).toFixed(1)
                       : 0;
@@ -1354,6 +1367,59 @@ export default function EmailCampaigns() {
                 </TableBody>
               </Table>
             </div>
+            {campaigns.length > PAGE_SIZE && (
+              <div className="flex items-center justify-between pt-4 gap-2 flex-wrap" data-testid="campaigns-pagination">
+                <p className="text-sm text-muted-foreground" data-testid="text-pagination-range">
+                  Showing {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, campaigns.length)} of {campaigns.length}
+                </p>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setCurrentPage(1)}
+                    disabled={safePage === 1}
+                    data-testid="button-pagination-first"
+                    title="First page"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={safePage === 1}
+                    data-testid="button-pagination-prev"
+                    title="Previous page"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </Button>
+                  <span className="text-sm px-2" data-testid="text-pagination-page">
+                    Page {safePage} of {totalPages}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={safePage === totalPages}
+                    data-testid="button-pagination-next"
+                    title="Next page"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setCurrentPage(totalPages)}
+                    disabled={safePage === totalPages}
+                    data-testid="button-pagination-last"
+                    title="Last page"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+            </>
           )}
         </CardContent>
       </Card>
