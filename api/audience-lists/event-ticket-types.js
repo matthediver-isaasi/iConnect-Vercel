@@ -4,16 +4,19 @@ import { supabase } from '../_lib/database.js';
 export const NO_TICKET_TYPE_SENTINEL = '__no_ticket_type__';
 
 /**
- * Paginates through a booking table and collects the distinct ticket types
- * present on confirmed bookings for the given event.
+ * Paginates through a booking table and collects the distinct ticket-type
+ * names present on confirmed bookings for the given event.
+ *
+ * Deduplication is by case-insensitive NAME (not by ticket_class_id), so
+ * that every distinct name a ticket class has ever carried appears as its
+ * own selectable option — even when several historical names share one id.
  *
  * Returns:
- *   byId   – Map<ticket_class_id, {id, name}>  (rows that have an id)
- *   byName – Map<lowercaseName, {id, name}>     (rows with name only)
- *   hasNoTicketType – true if any row has BOTH id and name empty/null
+ *   byName – Map<lowercaseName, {id, name}>
+ *             id = ticket_class_id when present, otherwise the name itself
+ *   hasNoTicketType – true if any confirmed booking has neither id nor name
  */
 async function collectBookingTicketTypes(table, eventId, tenantId) {
-  const byId = new Map();
   const byName = new Map();
   let hasNoTicketType = false;
 
@@ -37,17 +40,14 @@ async function collectBookingTicketTypes(table, eventId, tenantId) {
     for (const row of data) {
       if (!row.ticket_class_id && !row.ticket_class_name) {
         hasNoTicketType = true;
-      } else if (row.ticket_class_id) {
-        if (!byId.has(row.ticket_class_id)) {
-          byId.set(row.ticket_class_id, {
-            id: row.ticket_class_id,
-            name: row.ticket_class_name || row.ticket_class_id,
-          });
-        }
       } else {
-        const key = row.ticket_class_name.toLowerCase();
+        const name = row.ticket_class_name || row.ticket_class_id;
+        const key = name.toLowerCase();
         if (!byName.has(key)) {
-          byName.set(key, { id: row.ticket_class_name, name: row.ticket_class_name });
+          byName.set(key, {
+            id: row.ticket_class_id || name,
+            name,
+          });
         }
       }
     }
@@ -56,7 +56,7 @@ async function collectBookingTicketTypes(table, eventId, tenantId) {
     hasMore = data.length === pageSize;
   }
 
-  return { byId, byName, hasNoTicketType };
+  return { byName, hasNoTicketType };
 }
 
 export default async function handler(req, res) {
@@ -96,7 +96,8 @@ export default async function handler(req, res) {
 
     if (simpleEvent) {
       // Simple events: deduplicate by case-insensitive name.
-      // Configured tiers are the primary source; booking names fill in the gaps.
+      // Configured tiers are the primary source; booking names fill in the gaps
+      // (including historical names that no longer match any configured tier).
       const byName = new Map();
 
       for (const tc of simpleEvent.pricing_config?.ticket_classes || []) {
@@ -105,15 +106,10 @@ export default async function handler(req, res) {
         }
       }
 
-      // Union booking entries from both tables (by name)
+      // Union all booking names from both tables
       for (const src of [regResult, complexResult]) {
         for (const [key, tc] of src.byName) {
           if (!byName.has(key)) byName.set(key, tc);
-        }
-        // id-keyed rows from booking tables: check by name to avoid duplication
-        for (const [, tc] of src.byId) {
-          const key = tc.name.toLowerCase();
-          if (!byName.has(key)) byName.set(key, { id: tc.id, name: tc.name });
         }
       }
 
@@ -125,8 +121,10 @@ export default async function handler(req, res) {
     }
 
     // Complex event: ticket types are rows in complex_event_ticket_class.
-    // Deduplicate primarily by id; fall back to case-insensitive name for
-    // legacy rows that have a name but no id.
+    // Deduplicate by case-insensitive name. Configured tiers are the primary
+    // source; historical booking names not covered by any configured tier name
+    // are added with their real ticket_class_id preserved, so existing
+    // id-based recipient matching in campaignService continues to work.
     const { data: complexTicketClasses, error: complexErr } = await supabase
       .from('complex_event_ticket_class')
       .select('id, name')
@@ -139,29 +137,20 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: complexErr.message });
     }
 
-    const byId = new Map();
+    const complexByName = new Map();
     for (const tc of complexTicketClasses || []) {
-      if (tc.name) byId.set(tc.id, { id: tc.id, name: tc.name });
+      if (tc.name) complexByName.set(tc.name.toLowerCase(), { id: tc.id, name: tc.name });
     }
 
-    // Union id-keyed booking entries from both tables
+    // Union booking names from both tables; add any name not already covered
+    // by a configured tier, keeping the real ticket_class_id from the booking.
     for (const src of [regResult, complexResult]) {
-      for (const [id, tc] of src.byId) {
-        if (!byId.has(id)) byId.set(id, tc);
-      }
-      // Name-only booking rows: check whether the name is already covered
-      for (const [, tc] of src.byName) {
-        const alreadyCovered = [...byId.values()].some(
-          existing => existing.name.toLowerCase() === tc.name.toLowerCase()
-        );
-        if (!alreadyCovered) {
-          const syntheticId = `name:${tc.name}`;
-          byId.set(syntheticId, { id: syntheticId, name: tc.name });
-        }
+      for (const [key, tc] of src.byName) {
+        if (!complexByName.has(key)) complexByName.set(key, { id: tc.id, name: tc.name });
       }
     }
 
-    const ticketTypes = [...byId.values()];
+    const ticketTypes = [...complexByName.values()];
     if (hasNoTicketType) {
       ticketTypes.push({ id: NO_TICKET_TYPE_SENTINEL, name: 'No ticket type' });
     }

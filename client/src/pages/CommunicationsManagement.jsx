@@ -2800,14 +2800,14 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                               const ticketTypes = eventTicketTypesCache[ev.id] || [];
                               const isLoadingTt = eventTicketTypesLoading[ev.id];
                               const currentSel = eventTicketTypeSelections[ev.id];
-                              const selectedIds = Array.isArray(currentSel) ? currentSel.map(tc => tc.id) : [];
+                              const selectedNames = Array.isArray(currentSel) ? currentSel.map(tc => tc.name) : [];
 
                               const toggleTicketType = (tc) => {
                                 setEventTicketTypeSelections(prev => {
                                   const cur = Array.isArray(prev[ev.id]) ? prev[ev.id] : [];
-                                  const exists = cur.some(s => s.id === tc.id);
+                                  const exists = cur.some(s => s.name === tc.name);
                                   if (exists) {
-                                    const next = cur.filter(s => s.id !== tc.id);
+                                    const next = cur.filter(s => s.name !== tc.name);
                                     return { ...prev, [ev.id]: next.length === 0 ? 'all' : next };
                                   }
                                   return { ...prev, [ev.id]: [...cur, tc] };
@@ -2854,7 +2854,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                         data-testid={`ticket-type-all-${ev.id}`}
                                       >
                                         <Checkbox
-                                          checked={!currentSel || currentSel === 'all' || selectedIds.length === 0}
+                                          checked={!currentSel || currentSel === 'all' || selectedNames.length === 0}
                                           onCheckedChange={setAllTicketTypes}
                                           className="h-3 w-3"
                                         />
@@ -2862,13 +2862,13 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                       </div>
                                       {ticketTypes.map(tc => (
                                         <div
-                                          key={tc.id}
+                                          key={tc.name}
                                           className="flex items-center gap-1.5 cursor-pointer"
                                           onClick={() => toggleTicketType(tc)}
                                           data-testid={`ticket-type-${ev.id}-${tc.id}`}
                                         >
                                           <Checkbox
-                                            checked={selectedIds.includes(tc.id)}
+                                            checked={selectedNames.includes(tc.name)}
                                             onCheckedChange={() => toggleTicketType(tc)}
                                             className="h-3 w-3"
                                           />
