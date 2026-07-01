@@ -177,6 +177,13 @@ export default function MemberGroupManagementPage() {
     refetchOnMount: true,
   });
 
+  // Set of member IDs that back a provisioned guest — used for de-duplication
+  // and to identify guest assignments made via member_id (new flow).
+  const guestMemberIds = React.useMemo(
+    () => new Set(guests.filter((g) => g.member_id).map((g) => g.member_id)),
+    [guests]
+  );
+
   const { data: classifications = [], isLoading: loadingClassifications } = useQuery({
     queryKey: ['member-group-classifications'],
     queryFn: () => base44.entities.MemberGroupClassification.list(),
@@ -1034,7 +1041,11 @@ export default function MemberGroupManagementPage() {
   };
 
   const isAssignmentGuest = (assignment) => {
-    return !!assignment.guest_id;
+    // Legacy: explicit guest_id set on the row
+    if (assignment.guest_id) return true;
+    // New flow: guest assigned via their provisioned member_id
+    if (assignment.member_id && guestMemberIds.has(assignment.member_id)) return true;
+    return false;
   };
 
   // Filter and sort groups
@@ -2455,25 +2466,36 @@ export default function MemberGroupManagementPage() {
                               guest.organisation?.toLowerCase().includes(searchLower)
                             );
                           })
-                          .map((guest) => (
-                            <button
-                              key={`guest-${guest.id}`}
-                              type="button"
-                              onClick={() => setAssignForm({ ...assignForm, guest_id: guest.id, member_id: '' })}
-                              className={`w-full text-left px-3 py-2 hover:bg-slate-50 transition-colors border-b border-slate-100 last:border-b-0 ${
-                                assignForm.guest_id === guest.id ? 'bg-purple-50 border-l-4 border-l-purple-600' : ''
-                              }`}
-                            >
-                              <div className="font-medium text-slate-900 flex items-center gap-2">
-                                {guest.first_name} {guest.last_name}
-                                <Badge className="bg-purple-100 text-purple-700 text-[10px]">Guest</Badge>
-                              </div>
-                              <div className="text-xs text-slate-500">{guest.email}</div>
-                              {guest.organisation && (
-                                <div className="text-xs text-slate-400">{guest.organisation}</div>
-                              )}
-                            </button>
-                          ))}
+                          .map((guest) => {
+                            // New flow: provisioned guests use member_id on the assignment.
+                            // Legacy (no member_id) fall back to guest_id.
+                            const isSelected = guest.member_id
+                              ? assignForm.member_id === guest.member_id
+                              : assignForm.guest_id === guest.id;
+                            return (
+                              <button
+                                key={`guest-${guest.id}`}
+                                type="button"
+                                onClick={() =>
+                                  guest.member_id
+                                    ? setAssignForm({ ...assignForm, member_id: guest.member_id, guest_id: '' })
+                                    : setAssignForm({ ...assignForm, guest_id: guest.id, member_id: '' })
+                                }
+                                className={`w-full text-left px-3 py-2 hover:bg-slate-50 transition-colors border-b border-slate-100 last:border-b-0 ${
+                                  isSelected ? 'bg-purple-50 border-l-4 border-l-purple-600' : ''
+                                }`}
+                              >
+                                <div className="font-medium text-slate-900 flex items-center gap-2">
+                                  {guest.first_name} {guest.last_name}
+                                  <Badge className="bg-purple-100 text-purple-700 text-[10px]">Guest</Badge>
+                                </div>
+                                <div className="text-xs text-slate-500">{guest.email}</div>
+                                {guest.organisation && (
+                                  <div className="text-xs text-slate-400">{guest.organisation}</div>
+                                )}
+                              </button>
+                            );
+                          })}
                         {guests.filter(guest => {
                           if (guest.is_active === false) return false;
                           const searchLower = memberSearchQuery.toLowerCase();
@@ -2500,6 +2522,8 @@ export default function MemberGroupManagementPage() {
                           <>
                             {filteredMembers
                               .filter(member => {
+                                // Exclude provisioned guest members from the regular member list
+                                if (guestMemberIds.has(member.id)) return false;
                                 const searchLower = memberSearchQuery.toLowerCase();
                                 return (
                                   member.first_name?.toLowerCase().includes(searchLower) ||
@@ -2523,6 +2547,7 @@ export default function MemberGroupManagementPage() {
                                 </button>
                               ))}
                             {filteredMembers.filter(member => {
+                              if (guestMemberIds.has(member.id)) return false;
                               const searchLower = memberSearchQuery.toLowerCase();
                               return (
                                 member.first_name?.toLowerCase().includes(searchLower) ||
@@ -2562,12 +2587,12 @@ export default function MemberGroupManagementPage() {
                       <div className="px-3 py-4 text-center text-sm text-slate-500">
                         Searching members...
                       </div>
-                    ) : memberSearchResults.length === 0 ? (
+                    ) : memberSearchResults.filter((m) => !guestMemberIds.has(m.id)).length === 0 ? (
                       <div className="px-3 py-4 text-center text-sm text-slate-500">
                         No members found
                       </div>
                     ) : (
-                      memberSearchResults.map((member) => (
+                      memberSearchResults.filter((m) => !guestMemberIds.has(m.id)).map((member) => (
                         <button
                           key={`member-search-${member.id}`}
                           type="button"
