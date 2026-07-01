@@ -159,6 +159,9 @@ export default function MembersListPage() {
   const [filterOrder, setFilterOrder] = useState(DEFAULT_MEMBER_FILTER_ORDER);
   const [hiddenFilterIds, setHiddenFilterIds] = useState([]);
   const [draggedFilterId, setDraggedFilterId] = useState(null);
+  const [filterSearchQuery, setFilterSearchQuery] = useState('');
+  const [filterSearchOpen, setFilterSearchOpen] = useState(false);
+  const filterSearchRef = useRef(null);
 
   const handleSort = useCallback((field) => {
     if (!field) return;
@@ -740,6 +743,38 @@ export default function MembersListPage() {
     });
   }, [clearMemberFilterValue]);
 
+  const filterSearchMatches = useMemo(() => {
+    if (!filterSearchQuery.trim()) return [];
+    const q = filterSearchQuery.toLowerCase();
+    return orderedFilterIds.filter(id =>
+      getMemberFilterLabel(id).toLowerCase().includes(q)
+    );
+  }, [filterSearchQuery, orderedFilterIds, getMemberFilterLabel]);
+
+  const handleFilterSearchSelect = useCallback((id) => {
+    setFilterSearchQuery('');
+    setFilterSearchOpen(false);
+    if (hiddenFilterSet.has(id)) {
+      toggleMemberFilterHidden(id);
+      setTimeout(() => {
+        document.querySelector(`[data-filter-id="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 100);
+    } else {
+      document.querySelector(`[data-filter-id="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [hiddenFilterSet, toggleMemberFilterHidden]);
+
+  useEffect(() => {
+    if (!filterSearchOpen) return;
+    const handler = (e) => {
+      if (filterSearchRef.current && !filterSearchRef.current.contains(e.target)) {
+        setFilterSearchOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [filterSearchOpen]);
+
   const handleFilterDragStart = (e, id) => {
     setDraggedFilterId(id);
     e.dataTransfer.effectAllowed = 'move';
@@ -1206,6 +1241,37 @@ export default function MembersListPage() {
                 data-testid="input-search-members"
               />
             </div>
+            <div className="relative mt-2" ref={filterSearchRef}>
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+              <Input
+                placeholder="Search filters..."
+                value={filterSearchQuery}
+                onChange={(e) => { setFilterSearchQuery(e.target.value); setFilterSearchOpen(true); }}
+                onFocus={() => { if (filterSearchQuery) setFilterSearchOpen(true); }}
+                className="pl-8 h-8 text-xs"
+                data-testid="input-filter-search-members"
+              />
+              {filterSearchOpen && filterSearchQuery.trim() && (
+                <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-md shadow-lg max-h-52 overflow-y-auto">
+                  {filterSearchMatches.length > 0 ? (
+                    filterSearchMatches.map(id => (
+                      <button
+                        key={id}
+                        type="button"
+                        className="w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 flex items-center justify-between gap-2"
+                        onMouseDown={(e) => { e.preventDefault(); handleFilterSearchSelect(id); }}
+                        data-testid={`filter-search-result-member-${id}`}
+                      >
+                        <span>{getMemberFilterLabel(id)}</span>
+                        {hiddenFilterSet.has(id) && <span className="text-slate-400 text-[10px] shrink-0">hidden</span>}
+                      </button>
+                    ))
+                  ) : (
+                    <div className="px-3 py-2 text-xs text-slate-400">No matching filters</div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           <ScrollArea className="flex-1 p-4 min-w-[288px]">
@@ -1219,6 +1285,7 @@ export default function MembersListPage() {
                     onDragOver={(e) => handleFilterDragOver(e, id)}
                     className={`flex items-center gap-1.5 rounded-md ${draggedFilterId === id ? 'opacity-50' : ''}`}
                     data-testid={`member-filter-row-${id}`}
+                    data-filter-id={id}
                   >
                     <div
                       draggable
@@ -1261,6 +1328,7 @@ export default function MembersListPage() {
                       key={id}
                       className="flex items-center gap-1.5 rounded-md"
                       data-testid={`member-hidden-filter-row-${id}`}
+                      data-filter-id={id}
                     >
                       <Button
                         variant="ghost"
