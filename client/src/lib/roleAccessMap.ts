@@ -353,6 +353,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
         ]
       },
       {
+        id: "content.brief-settings",
+        label: "Brief Settings"
+      },
+      {
         id: "content.gallery",
         label: "Photo Galleries",
         features: [
@@ -1066,7 +1070,6 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_BookingAgentsManagement": "calendar.agents",
   "page_AboutMe": "user.about-me",
   "page_Preferences_new": "user.about-me",
-  "communication.preferences": "user.about-me",
   "membership.my-organisation": "organisation.my-organisation",
   "membership.organisation-preferences": "organisation.field-permissions",
   "page_CRMOrganisations": "crm.organisations",
