@@ -182,7 +182,7 @@ export default async function handler(req, res) {
         while (true) {
           const { data: pvData, error: pvError } = await supabase
             .from('member_preference_value')
-            .select('member_id, field_id, preference_field_id, value')
+            .select('member_id, field_id, value')
             .in('member_id', batch)
             .range(from, from + pageSize - 1);
           if (pvError) {
@@ -190,7 +190,7 @@ export default async function handler(req, res) {
           }
           if (pvData && pvData.length > 0) {
             for (const pv of pvData) {
-              const fieldIdKey = pv.field_id || pv.preference_field_id;
+              const fieldIdKey = pv.field_id;
               if (!fieldIdKey) continue;
               if (!pagePrefMap[pv.member_id]) pagePrefMap[pv.member_id] = {};
               pagePrefMap[pv.member_id][fieldIdKey] = pv.value;
