@@ -828,6 +828,15 @@ export default function OrganisationsListPage() {
     );
   }, [filterSearchQuery, orderedFilterIds, getOrgFilterLabel]);
 
+  const highlightFilterEl = useCallback((id) => {
+    const el = document.querySelector(`[data-filter-id="${id}"]`);
+    if (!el) return;
+    el.classList.remove('filter-highlight-active');
+    void el.offsetWidth;
+    el.classList.add('filter-highlight-active');
+    setTimeout(() => el.classList.remove('filter-highlight-active'), 1600);
+  }, []);
+
   const handleFilterSearchSelect = useCallback((id) => {
     setFilterSearchQuery('');
     setFilterSearchOpen(false);
@@ -835,11 +844,13 @@ export default function OrganisationsListPage() {
       toggleOrgFilterHidden(id);
       setTimeout(() => {
         document.querySelector(`[data-filter-id="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        highlightFilterEl(id);
       }, 100);
     } else {
       document.querySelector(`[data-filter-id="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      highlightFilterEl(id);
     }
-  }, [hiddenFilterSet, toggleOrgFilterHidden]);
+  }, [hiddenFilterSet, toggleOrgFilterHidden, highlightFilterEl]);
 
   useEffect(() => {
     if (!filterSearchOpen) return;

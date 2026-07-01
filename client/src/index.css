@@ -750,3 +750,14 @@
 .prose h4 {
   color: inherit;
 }
+
+@keyframes filter-highlight-pulse {
+  0%   { box-shadow: 0 0 0 2px hsl(var(--destructive)); }
+  60%  { box-shadow: 0 0 0 2px hsl(var(--destructive)); }
+  100% { box-shadow: 0 0 0 0px hsl(var(--destructive) / 0); }
+}
+
+.filter-highlight-active {
+  animation: filter-highlight-pulse 1.5s ease-out forwards;
+  border-radius: var(--radius);
+}
