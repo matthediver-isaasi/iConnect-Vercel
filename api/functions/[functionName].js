@@ -5104,27 +5104,83 @@ const functionHandlers = {
       return { success: false, error: 'Both oldSubcategoryName and newSubcategoryName are required' };
     }
 
+    if (!categoryId) {
+      return { success: false, error: 'categoryId is required' };
+    }
+
     const tenantContext = await getTenantContext(req);
     const tenantId = tenantContext?.tenantId;
     if (!tenantId) {
       return { success: false, error: 'Unable to determine tenant context' };
     }
 
+    // Step 1: Rename in the canonical subcategories array on the parent category.
+    const { data: category, error: catError } = await supabase
+      .from('resource_category')
+      .select('id, subcategories')
+      .eq('id', categoryId)
+      .eq('tenant_id', tenantId)
+      .single();
+
+    if (catError || !category) {
+      return { success: false, error: 'Resource category not found' };
+    }
+
+    const currentSubs = Array.isArray(category.subcategories) ? category.subcategories : [];
+    if (!currentSubs.includes(oldSubcategoryName)) {
+      return { success: false, error: 'Subcategory not found in category' };
+    }
+
+    const updatedSubs = currentSubs.map((s) => (s === oldSubcategoryName ? newSubcategoryName : s));
+    const { error: catUpdateError } = await supabase
+      .from('resource_category')
+      .update({ subcategories: updatedSubs })
+      .eq('id', categoryId)
+      .eq('tenant_id', tenantId);
+
+    if (catUpdateError) {
+      return { success: false, error: 'Failed to update category subcategories: ' + catUpdateError.message };
+    }
+
+    // Step 2: Migrate resource rows that reference the old subcategory name (best-effort).
     const { data: resources } = await supabase
       .from('resource')
       .select('id')
       .eq('subcategory', oldSubcategoryName)
       .eq('tenant_id', tenantId);
 
-    if (!resources || resources.length === 0) {
-      return { success: true, message: 'No resources found with that subcategory', updated: 0 };
+    const resourceCount = resources?.length || 0;
+    if (resourceCount > 0) {
+      for (const resource of resources) {
+        await supabase.from('resource').update({ subcategory: newSubcategoryName }).eq('id', resource.id).eq('tenant_id', tenantId);
+      }
     }
 
-    for (const resource of resources) {
-      await supabase.from('resource').update({ subcategory: newSubcategoryName }).eq('id', resource.id).eq('tenant_id', tenantId);
+    // Step 3: Update member_group.resource_subcategories arrays that reference the old name.
+    const { data: groups } = await supabase
+      .from('member_group')
+      .select('id, resource_subcategories')
+      .eq('tenant_id', tenantId);
+
+    if (Array.isArray(groups)) {
+      for (const group of groups) {
+        const linked = Array.isArray(group.resource_subcategories) ? group.resource_subcategories : [];
+        if (linked.includes(oldSubcategoryName)) {
+          const updatedLinked = linked.map((s) => (s === oldSubcategoryName ? newSubcategoryName : s));
+          await supabase
+            .from('member_group')
+            .update({ resource_subcategories: updatedLinked })
+            .eq('id', group.id)
+            .eq('tenant_id', tenantId);
+        }
+      }
     }
 
-    return { success: true, updated: resources.length, message: `Subcategory renamed successfully (${resources.length} resource${resources.length !== 1 ? 's' : ''} updated)` };
+    const message = resourceCount > 0
+      ? `Subcategory renamed successfully (${resourceCount} resource${resourceCount !== 1 ? 's' : ''} updated)`
+      : 'Subcategory renamed successfully';
+
+    return { success: true, updated: resourceCount, message };
   },
 
   async handleJobPostingPaymentWebhook(params, req) {

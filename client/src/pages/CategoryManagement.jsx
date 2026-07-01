@@ -96,12 +96,15 @@ export default function CategoryManagementPage() {
 
   const renameMutation = useMutation({
     mutationFn: async ({ categoryId, oldName, newName }) => {
-      const response = await renameResourceSubcategory({ 
+      const data = await renameResourceSubcategory({ 
         categoryId, 
         oldSubcategoryName: oldName, 
         newSubcategoryName: newName 
       });
-      return response.data;
+      if (!data?.success) {
+        throw new Error(data?.error || 'Failed to rename subcategory');
+      }
+      return data;
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['resource-categories'] });
