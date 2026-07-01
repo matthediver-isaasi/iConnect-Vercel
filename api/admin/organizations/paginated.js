@@ -1,5 +1,6 @@
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext } from '../../_lib/tenantContext.js';
+import { getCountryByName } from '../../../shared/countries.js';
 
 const DELETED_EMAIL_PATTERN = 'deleted_%@deleted.local';
 
@@ -95,6 +96,23 @@ export default async function handler(req, res) {
           } else {
             query = query.or('value.eq.No,value.eq.false', { foreignTable: alias });
           }
+        } else if (value.startsWith('__country__:')) {
+          const countryName = value.slice('__country__:'.length);
+          const countryRecord = getCountryByName(countryName);
+          const isoCode = countryRecord?.code;
+          // Match single-select (stored as name or legacy ISO-2 code) and
+          // multi-select (stored as JSON array containing the name or code).
+          // Surrounding the name with quotes in the ilike pattern prevents
+          // substring false-positives (e.g. "Niger" vs "Nigeria") in JSON arrays.
+          const conditions = [
+            `value.eq.${countryName}`,
+            `value.ilike.*"${countryName}"*`,
+          ];
+          if (isoCode) {
+            conditions.push(`value.eq.${isoCode}`);
+            conditions.push(`value.ilike.*"${isoCode}"*`);
+          }
+          query = query.or(conditions.join(','), { foreignTable: alias });
         } else {
           query = query.eq(`${alias}.value`, value);
         }

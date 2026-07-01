@@ -1,4 +1,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { cn } from "@/lib/utils";
+import { COUNTRIES } from "@/data/countries";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { useSearchParams, useNavigate, useParams } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -40,7 +43,9 @@ import {
   Trash2,
   AlertTriangle,
   ShieldCheck,
-  Download
+  Download,
+  ChevronsUpDown,
+  Check
 } from "lucide-react";
 import {
   Dialog,
@@ -115,6 +120,62 @@ const saveLocalColumns = (columns, tenantSlug) => {
   } catch {}
 };
 
+
+function CountryFilterCombobox({ label, fieldId, selectedName, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const filtered = search
+    ? COUNTRIES.filter(c => c.name.toLowerCase().includes(search.toLowerCase()))
+    : COUNTRIES;
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-[11px] text-slate-600 break-words leading-tight">{label}</Label>
+      <Popover open={open} onOpenChange={(v) => { setOpen(v); if (!v) setSearch(''); }}>
+        <PopoverTrigger asChild>
+          <Button
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            className="w-full justify-between h-8 text-xs font-normal"
+            data-testid={`select-filter-country-${fieldId}`}
+          >
+            <span className="truncate">{selectedName || 'All'}</span>
+            <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-[220px] p-0" align="start">
+          <Command shouldFilter={false}>
+            <CommandInput placeholder="Search countries..." value={search} onValueChange={setSearch} className="text-xs h-8" />
+            <CommandList>
+              <CommandEmpty className="text-xs py-2 text-center">No country found.</CommandEmpty>
+              <CommandGroup>
+                <CommandItem
+                  value="all"
+                  onSelect={() => { onChange(''); setOpen(false); setSearch(''); }}
+                  className="text-xs"
+                >
+                  <Check className={cn("mr-2 h-3 w-3", !selectedName ? "opacity-100" : "opacity-0")} />
+                  All
+                </CommandItem>
+                {filtered.map(c => (
+                  <CommandItem
+                    key={c.code}
+                    value={c.name}
+                    onSelect={() => { onChange(c.name); setOpen(false); setSearch(''); }}
+                    className="text-xs"
+                  >
+                    <Check className={cn("mr-2 h-3 w-3", selectedName === c.name ? "opacity-100" : "opacity-0")} />
+                    {c.name}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
 
 export default function OrganisationsListPage() {
   const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
@@ -976,6 +1037,25 @@ export default function OrganisationsListPage() {
                 </SelectContent>
               </Select>
             </div>
+          );
+        }
+        if (field.field_type === 'country' || field.field_type === 'countries') {
+          const rawVal = customFieldFilters[field.id] || '';
+          const selectedName = rawVal.startsWith('__country__:') ? rawVal.slice('__country__:'.length) : '';
+          return (
+            <CountryFilterCombobox
+              key={field.id}
+              label={field.label}
+              fieldId={field.id}
+              selectedName={selectedName}
+              onChange={(name) => {
+                setCustomFieldFilters(prev => ({
+                  ...prev,
+                  [field.id]: name ? `__country__:${name}` : ''
+                }));
+                setCurrentPage(1);
+              }}
+            />
           );
         }
         const validOptions = (field.options || []).filter(opt =>
