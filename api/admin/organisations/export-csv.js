@@ -121,47 +121,61 @@ export default async function handler(req, res) {
       customFieldFilters: customFieldFiltersParam = ''
     } = req.query;
 
-    let query = supabase
-      .from('organization')
-      .select('*')
-      .eq('tenant_id', tenantId);
-
+    let idList = null;
     if (ids) {
-      const idList = ids.split(',').map(id => id.trim()).filter(Boolean);
+      idList = ids.split(',').map(id => id.trim()).filter(Boolean);
       if (idList.length === 0) {
         return res.status(400).json({ error: 'No valid IDs provided' });
       }
-      query = query.in('id', idList);
-    } else {
-      if (search && search.trim()) {
-        const searchTerm = `%${search.trim().toLowerCase()}%`;
-        query = query.or(`name.ilike.${searchTerm},invoicing_email.ilike.${searchTerm},phone.ilike.${searchTerm},website_url.ilike.${searchTerm}`);
-      }
-
-      if (phone && phone.trim()) {
-        query = query.ilike('phone', `%${phone.trim()}%`);
-      }
-      if (website_url && website_url.trim()) {
-        query = query.ilike('website_url', `%${website_url.trim()}%`);
-      }
-      if (invoicing_email && invoicing_email.trim()) {
-        query = query.ilike('invoicing_email', `%${invoicing_email.trim()}%`);
-      }
-      if (invoicing_address && invoicing_address.trim()) {
-        query = query.ilike('invoicing_address', `%${invoicing_address.trim()}%`);
-      }
     }
 
-    if (excludePrimary === 'true') {
-      query = query.neq('is_primary', true);
-    }
+    const buildOrgQuery = (from, pageSize) => {
+      let q = supabase
+        .from('organization')
+        .select('*')
+        .eq('tenant_id', tenantId);
 
-    query = query.order('name', { ascending: true });
+      if (idList) {
+        q = q.in('id', idList);
+      } else {
+        if (search && search.trim()) {
+          const searchTerm = `%${search.trim().toLowerCase()}%`;
+          q = q.or(`name.ilike.${searchTerm},invoicing_email.ilike.${searchTerm},phone.ilike.${searchTerm},website_url.ilike.${searchTerm}`);
+        }
 
-    const { data: organizations, error } = await query;
-    if (error) {
-      console.error('[OrgExportCSV] Query error:', error);
-      return res.status(500).json({ error: 'Failed to fetch organisations' });
+        if (phone && phone.trim()) {
+          q = q.ilike('phone', `%${phone.trim()}%`);
+        }
+        if (website_url && website_url.trim()) {
+          q = q.ilike('website_url', `%${website_url.trim()}%`);
+        }
+        if (invoicing_email && invoicing_email.trim()) {
+          q = q.ilike('invoicing_email', `%${invoicing_email.trim()}%`);
+        }
+        if (invoicing_address && invoicing_address.trim()) {
+          q = q.ilike('invoicing_address', `%${invoicing_address.trim()}%`);
+        }
+      }
+
+      if (excludePrimary === 'true') {
+        q = q.neq('is_primary', true);
+      }
+
+      return q.order('name', { ascending: true }).range(from, from + pageSize - 1);
+    };
+
+    const organizations = [];
+    const PAGE_SIZE = 1000;
+    let pageFrom = 0;
+    while (true) {
+      const { data: pageData, error } = await buildOrgQuery(pageFrom, PAGE_SIZE);
+      if (error) {
+        console.error('[OrgExportCSV] Query error:', error);
+        return res.status(500).json({ error: 'Failed to fetch organisations' });
+      }
+      if (pageData && pageData.length > 0) organizations.push(...pageData);
+      if (!pageData || pageData.length < PAGE_SIZE) break;
+      pageFrom += PAGE_SIZE;
     }
     
 

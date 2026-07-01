@@ -98,49 +98,63 @@ export default async function handler(req, res) {
       status = 'all'
     } = req.query;
 
-    let query = supabase
-      .from('member')
-      .select(`
-        id, first_name, last_name, email, handle, job_title, biography,
-        mobile, landline, login_enabled, show_in_directory, status,
-        last_activity, role_effective_from, created_on,
-        organization_id, role_id,
-        organization (id, name),
-        role (id, name)
-      `)
-      .eq('tenant_id', tenantId)
-      .not('email', 'like', 'deleted_%@deleted.local');
-
+    let idList = null;
     if (ids) {
-      const idList = ids.split(',').map(id => id.trim()).filter(Boolean);
+      idList = ids.split(',').map(id => id.trim()).filter(Boolean);
       if (idList.length === 0) {
         return res.status(400).json({ error: 'No valid IDs provided' });
       }
-      query = query.in('id', idList);
-    } else {
-      if (search && search.trim()) {
-        const searchTerm = `%${search.trim().toLowerCase()}%`;
-        query = query.or(`first_name.ilike.${searchTerm},last_name.ilike.${searchTerm},email.ilike.${searchTerm},mobile.ilike.${searchTerm},job_title.ilike.${searchTerm}`);
-      }
-      if (organizationId && organizationId !== 'all') {
-        query = query.eq('organization_id', organizationId);
-      }
-      if (roleId && roleId !== 'all') {
-        query = query.eq('role_id', roleId);
-      }
-      if (status === 'active') {
-        query = query.eq('login_enabled', true);
-      } else if (status === 'disabled') {
-        query = query.eq('login_enabled', false);
-      }
     }
 
-    query = query.order('last_name', { ascending: true });
+    const buildMemberQuery = (from, pageSize) => {
+      let q = supabase
+        .from('member')
+        .select(`
+          id, first_name, last_name, email, handle, job_title, biography,
+          mobile, landline, login_enabled, show_in_directory, status,
+          last_activity, role_effective_from, created_on,
+          organization_id, role_id,
+          organization (id, name),
+          role (id, name)
+        `)
+        .eq('tenant_id', tenantId)
+        .not('email', 'like', 'deleted_%@deleted.local');
 
-    const { data: members, error } = await query;
-    if (error) {
-      console.error('[MemberExportCSV] Query error:', error);
-      return res.status(500).json({ error: 'Failed to fetch members' });
+      if (idList) {
+        q = q.in('id', idList);
+      } else {
+        if (search && search.trim()) {
+          const searchTerm = `%${search.trim().toLowerCase()}%`;
+          q = q.or(`first_name.ilike.${searchTerm},last_name.ilike.${searchTerm},email.ilike.${searchTerm},mobile.ilike.${searchTerm},job_title.ilike.${searchTerm}`);
+        }
+        if (organizationId && organizationId !== 'all') {
+          q = q.eq('organization_id', organizationId);
+        }
+        if (roleId && roleId !== 'all') {
+          q = q.eq('role_id', roleId);
+        }
+        if (status === 'active') {
+          q = q.eq('login_enabled', true);
+        } else if (status === 'disabled') {
+          q = q.eq('login_enabled', false);
+        }
+      }
+
+      return q.order('last_name', { ascending: true }).range(from, from + pageSize - 1);
+    };
+
+    const members = [];
+    const PAGE_SIZE = 1000;
+    let pageFrom = 0;
+    while (true) {
+      const { data: pageData, error } = await buildMemberQuery(pageFrom, PAGE_SIZE);
+      if (error) {
+        console.error('[MemberExportCSV] Query error:', error);
+        return res.status(500).json({ error: 'Failed to fetch members' });
+      }
+      if (pageData && pageData.length > 0) members.push(...pageData);
+      if (!pageData || pageData.length < PAGE_SIZE) break;
+      pageFrom += PAGE_SIZE;
     }
     
 
