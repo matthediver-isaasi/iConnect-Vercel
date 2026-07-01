@@ -5095,26 +5095,36 @@ const functionHandlers = {
     return { success: true, message: 'Invitation sent successfully' };
   },
 
-  async renameResourceSubcategory(params) {
+  async renameResourceSubcategory(params, req) {
     if (!supabase) throw new Error('Supabase not configured');
-    
-    const { oldName, newName, category } = params;
 
-    if (!oldName || !newName) {
-      return { success: false, error: 'Both oldName and newName are required' };
+    const { oldSubcategoryName, newSubcategoryName, categoryId } = params;
+
+    if (!oldSubcategoryName || !newSubcategoryName) {
+      return { success: false, error: 'Both oldSubcategoryName and newSubcategoryName are required' };
     }
 
-    const { data: resources } = await supabase.from('resource').select('*').eq('subcategory', oldName);
+    const tenantContext = await getTenantContext(req);
+    const tenantId = tenantContext?.tenantId;
+    if (!tenantId) {
+      return { success: false, error: 'Unable to determine tenant context' };
+    }
+
+    const { data: resources } = await supabase
+      .from('resource')
+      .select('id')
+      .eq('subcategory', oldSubcategoryName)
+      .eq('tenant_id', tenantId);
 
     if (!resources || resources.length === 0) {
       return { success: true, message: 'No resources found with that subcategory', updated: 0 };
     }
 
     for (const resource of resources) {
-      await supabase.from('resource').update({ subcategory: newName }).eq('id', resource.id);
+      await supabase.from('resource').update({ subcategory: newSubcategoryName }).eq('id', resource.id).eq('tenant_id', tenantId);
     }
 
-    return { success: true, updated: resources.length };
+    return { success: true, updated: resources.length, message: `Subcategory renamed successfully (${resources.length} resource${resources.length !== 1 ? 's' : ''} updated)` };
   },
 
   async handleJobPostingPaymentWebhook(params, req) {
