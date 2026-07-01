@@ -182,7 +182,7 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
 
   // Button: Only use custom mobile values if mobile_custom_button is true
   const mobileButtonTopMargin = mobile_custom_button && mobile_button_top_margin !== undefined ? mobile_button_top_margin : defaultMobileButtonMargin;
-  const mobileButtonAlign = mobile_custom_button && mobile_button_align ? mobile_button_align : text_align;
+  const mobileButtonAlign = mobile_custom_button && mobile_button_align ? mobile_button_align : (content.button_align || text_align);
   
   const mobileUnderlineWidth = Math.min(heading_underline_width, 80);
 
@@ -212,9 +212,7 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
     isHtmlEmpty(content.heading) &&
     isHtmlEmpty(content.subheading) &&
     isHtmlEmpty(content_text);
-  const buttonWrapperStyle = allTextEmpty
-    ? { marginBottom: 0, marginTop: 0 }
-    : { marginBottom: 0 };
+  const buttonWrapperStyle = { marginBottom: 0 };
 
   const getHeightStyle = () => {
     if (height_type === 'full') return { minHeight: '100vh' };
