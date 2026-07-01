@@ -95,6 +95,13 @@ export default async function handler(req, res) {
       if (value.startsWith('__text__:')) {
         const substr = value.slice('__text__:'.length);
         query = query.ilike(`${alias}.value`, `%${substr}%`);
+      } else if (value.startsWith('__bool__:')) {
+        const boolLabel = value.slice('__bool__:'.length);
+        if (boolLabel === 'Yes') {
+          query = query.or('value.eq.Yes,value.eq.true', { foreignTable: alias });
+        } else {
+          query = query.or('value.eq.No,value.eq.false', { foreignTable: alias });
+        }
       } else {
         query = query.eq(`${alias}.value`, value);
       }

@@ -854,6 +854,29 @@ export default function MembersListPage() {
       default: {
         const field = memberFilterFields.find(f => f.id === id);
         if (!field) return null;
+        if (field.field_type === 'boolean') {
+          return (
+            <div className="space-y-1.5">
+              <Label className="text-[11px] text-slate-600 break-words leading-tight">{field.label}</Label>
+              <Select
+                value={customFieldFilters[field.id] || 'all'}
+                onValueChange={(v) => {
+                  setCustomFieldFilters(prev => ({ ...prev, [field.id]: v === 'all' ? '' : v }));
+                  setCurrentPage(1);
+                }}
+              >
+                <SelectTrigger className="h-8 text-xs" data-testid={`select-member-filter-bool-${field.id}`}>
+                  <SelectValue placeholder="All" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all" className="text-xs">All</SelectItem>
+                  <SelectItem value="__bool__:Yes" className="text-xs">Yes</SelectItem>
+                  <SelectItem value="__bool__:No" className="text-xs">No</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          );
+        }
         const validOptions = (field.options || []).filter(opt =>
           !opt.is_title && opt.value && opt.value.trim() !== ''
         );
