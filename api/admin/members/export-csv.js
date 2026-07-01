@@ -143,21 +143,8 @@ export default async function handler(req, res) {
       return q.order('last_name', { ascending: true }).range(from, from + pageSize - 1);
     };
 
-    const members = [];
-    const PAGE_SIZE = 1000;
-    let pageFrom = 0;
-    while (true) {
-      const { data: pageData, error } = await buildMemberQuery(pageFrom, PAGE_SIZE);
-      if (error) {
-        console.error('[MemberExportCSV] Query error:', error);
-        return res.status(500).json({ error: 'Failed to fetch members' });
-      }
-      if (pageData && pageData.length > 0) members.push(...pageData);
-      if (!pageData || pageData.length < PAGE_SIZE) break;
-      pageFrom += PAGE_SIZE;
-    }
-    
-
+    // Custom preference fields drive the extra CSV columns; fetch their
+    // definitions up front so the header row can be emitted before any data.
     const { data: prefFields } = await supabase
       .from('preference_field')
       .select('*')
@@ -167,42 +154,6 @@ export default async function handler(req, res) {
       .order('display_order', { ascending: true });
 
     const customFields = prefFields || [];
-
-    let prefValues = [];
-    if (customFields.length > 0 && members.length > 0) {
-      const memberIds = members.map(m => m.id);
-      const batchSize = 50;
-      for (let i = 0; i < memberIds.length; i += batchSize) {
-        const batch = memberIds.slice(i, i + batchSize);
-        let from = 0;
-        const pageSize = 1000;
-        while (true) {
-          const { data: pvData, error: pvError } = await supabase
-            .from('member_preference_value')
-            .select('*')
-            .in('member_id', batch)
-            .range(from, from + pageSize - 1);
-          if (pvError) {
-            console.error('[MemberExportCSV] Preference values query error:', pvError);
-            break;
-          }
-          if (pvData && pvData.length > 0) {
-            prefValues.push(...pvData);
-          }
-          if (!pvData || pvData.length < pageSize) break;
-          from += pageSize;
-        }
-      }
-      
-    }
-
-    const memberPrefMap = {};
-    prefValues.forEach(pv => {
-      if (!memberPrefMap[pv.member_id]) memberPrefMap[pv.member_id] = {};
-      const fieldIdKey = pv.field_id || pv.preference_field_id;
-      if (!fieldIdKey) return;
-      memberPrefMap[pv.member_id][fieldIdKey] = pv.value;
-    });
 
     const coreHeaders = [
       'first_name', 'last_name', 'email', 'handle', 'job_title',
@@ -214,10 +165,45 @@ export default async function handler(req, res) {
 
     const customHeaders = customFields.map(f => f.label);
     const allHeaders = [...coreHeaders, ...customHeaders];
-
     const headerRow = allHeaders.map(escapeCSV).join(',');
 
-    const dataRows = members.map(member => {
+    const PAGE_SIZE = 1000;
+    const PREF_BATCH_SIZE = 200;
+
+    // Load preference values for a single page of members at a time so memory
+    // stays bounded to one page regardless of tenant size.
+    const loadPrefValuesForMembers = async (memberIds) => {
+      const pagePrefMap = {};
+      if (customFields.length === 0 || memberIds.length === 0) return pagePrefMap;
+      for (let i = 0; i < memberIds.length; i += PREF_BATCH_SIZE) {
+        const batch = memberIds.slice(i, i + PREF_BATCH_SIZE);
+        let from = 0;
+        const pageSize = 1000;
+        while (true) {
+          const { data: pvData, error: pvError } = await supabase
+            .from('member_preference_value')
+            .select('member_id, field_id, preference_field_id, value')
+            .in('member_id', batch)
+            .range(from, from + pageSize - 1);
+          if (pvError) {
+            throw new Error(`Preference values query failed: ${pvError.message}`);
+          }
+          if (pvData && pvData.length > 0) {
+            for (const pv of pvData) {
+              const fieldIdKey = pv.field_id || pv.preference_field_id;
+              if (!fieldIdKey) continue;
+              if (!pagePrefMap[pv.member_id]) pagePrefMap[pv.member_id] = {};
+              pagePrefMap[pv.member_id][fieldIdKey] = pv.value;
+            }
+          }
+          if (!pvData || pvData.length < pageSize) break;
+          from += pageSize;
+        }
+      }
+      return pagePrefMap;
+    };
+
+    const buildMemberRow = (member, pagePrefMap) => {
       const coreValues = coreHeaders.map(field => {
         if (field === 'organisation_name') {
           return member.organization?.name || '';
@@ -235,19 +221,16 @@ export default async function handler(req, res) {
       });
 
       const customValues = customFields.map(f => {
-        let rawValue = memberPrefMap[member.id]?.[f.id];
+        let rawValue = pagePrefMap[member.id]?.[f.id];
         if (rawValue === null || rawValue === undefined) return '';
+        if (f.field_type === 'picklist' || f.field_type === 'dropdown' || f.field_type === 'list') {
+          return resolvePicklistValue(rawValue, f);
+        }
         if (typeof rawValue === 'string') {
           const trimmed = rawValue.trim();
           if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
             try { rawValue = JSON.parse(trimmed); } catch {}
           }
-        }
-        if (f.field_type === 'picklist' || f.field_type === 'dropdown' || f.field_type === 'list') {
-          const originalValue = prefValues.find(
-            pv => pv.member_id === member.id && (pv.field_id === f.id || pv.preference_field_id === f.id)
-          )?.value;
-          return resolvePicklistValue(originalValue || '', f);
         }
         rawValue = normalizePreferenceValue(rawValue);
         if (Array.isArray(rawValue)) return rawValue.join(', ');
@@ -255,18 +238,65 @@ export default async function handler(req, res) {
       });
 
       return [...coreValues, ...customValues].map(escapeCSV).join(',');
-    });
+    };
 
-    const csv = [headerRow, ...dataRows].join('\n');
+    // Fetch the first page before committing to a streamed 200 response so any
+    // query error still surfaces as a proper HTTP error status.
+    const firstPage = await buildMemberQuery(0, PAGE_SIZE);
+    if (firstPage.error) {
+      console.error('[MemberExportCSV] Query error:', firstPage.error);
+      return res.status(500).json({ error: 'Failed to fetch members' });
+    }
 
     const today = new Date().toISOString().split('T')[0];
     const filename = `members_export_${today}.csv`;
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    return res.status(200).send(csv);
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Accel-Buffering', 'no');
+    if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+    res.write(headerRow);
+
+    try {
+      let pageData = firstPage.data || [];
+      let pageFrom = 0;
+      while (true) {
+        if (pageData.length > 0) {
+          const memberIds = pageData.map(m => m.id);
+          const pagePrefMap = await loadPrefValuesForMembers(memberIds);
+          let chunk = '';
+          for (const member of pageData) {
+            chunk += '\n' + buildMemberRow(member, pagePrefMap);
+          }
+          res.write(chunk);
+          // Yield to the event loop so the buffered chunk flushes to the network.
+          await new Promise(resolve => setImmediate(resolve));
+        }
+        if (pageData.length < PAGE_SIZE) break;
+        pageFrom += PAGE_SIZE;
+        const next = await buildMemberQuery(pageFrom, PAGE_SIZE);
+        if (next.error) {
+          throw new Error(`Members query failed: ${next.error.message}`);
+        }
+        pageData = next.data || [];
+      }
+      return res.end();
+    } catch (streamErr) {
+      // The response is already streaming, so we cannot switch to a 500.
+      // Abort the connection so the client sees a failed download rather than
+      // silently receiving a truncated CSV.
+      console.error('[MemberExportCSV] Streaming error:', streamErr);
+      try { res.destroy(streamErr); } catch { /* ignore */ }
+      return;
+    }
   } catch (err) {
     console.error('[MemberExportCSV] Error:', err);
+    if (res.headersSent) {
+      try { res.destroy(err); } catch { /* ignore */ }
+      return;
+    }
     return res.status(500).json({ error: 'Internal server error' });
   }
 }

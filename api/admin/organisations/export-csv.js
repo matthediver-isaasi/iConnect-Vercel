@@ -164,21 +164,8 @@ export default async function handler(req, res) {
       return q.order('name', { ascending: true }).range(from, from + pageSize - 1);
     };
 
-    const organizations = [];
-    const PAGE_SIZE = 1000;
-    let pageFrom = 0;
-    while (true) {
-      const { data: pageData, error } = await buildOrgQuery(pageFrom, PAGE_SIZE);
-      if (error) {
-        console.error('[OrgExportCSV] Query error:', error);
-        return res.status(500).json({ error: 'Failed to fetch organisations' });
-      }
-      if (pageData && pageData.length > 0) organizations.push(...pageData);
-      if (!pageData || pageData.length < PAGE_SIZE) break;
-      pageFrom += PAGE_SIZE;
-    }
-    
-
+    // Custom preference fields drive the extra CSV columns; fetch their
+    // definitions up front so the header row can be emitted before any data.
     const { data: prefFields } = await supabase
       .from('preference_field')
       .select('*')
@@ -189,71 +176,15 @@ export default async function handler(req, res) {
 
     const customFields = prefFields || [];
 
-    let prefValues = [];
-    if (organizations.length > 0) {
-      const orgIds = organizations.map(o => o.id);
-      const batchSize = 50;
-      for (let i = 0; i < orgIds.length; i += batchSize) {
-        const batch = orgIds.slice(i, i + batchSize);
-        let from = 0;
-        const pageSize = 1000;
-        while (true) {
-          const { data: pvData, error: pvError } = await supabase
-            .from('organization_preference_value')
-            .select('*')
-            .in('organization_id', batch)
-            .range(from, from + pageSize - 1);
-          if (pvError) {
-            console.error('[OrgExportCSV] Preference values query error:', pvError);
-            break;
-          }
-          if (pvData && pvData.length > 0) {
-            prefValues.push(...pvData);
-          }
-          if (!pvData || pvData.length < pageSize) break;
-          from += pageSize;
-        }
-      }
-      
-    }
-
-    const orgPrefMap = {};
-    prefValues.forEach(pv => {
-      if (!orgPrefMap[pv.organization_id]) orgPrefMap[pv.organization_id] = {};
-      const fieldIdKey = pv.field_id || pv.preference_field_id;
-      if (!fieldIdKey) return;
-      let normalizedValue = pv.value;
-      if (typeof pv.value === 'string') {
-        const trimmed = pv.value.trim();
-        if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
-          try { normalizedValue = JSON.parse(trimmed); } catch {}
-        }
-      }
-      normalizedValue = normalizePreferenceValue(normalizedValue);
-      orgPrefMap[pv.organization_id][fieldIdKey] = normalizedValue;
-    });
-
     let customFilterMap = {};
     if (customFieldFiltersParam) {
       try {
         customFilterMap = JSON.parse(customFieldFiltersParam);
       } catch {}
     }
-
-    let filteredOrgs = organizations;
     const hasCustomFilters = Object.entries(customFilterMap).some(
       ([, v]) => v && v !== 'all' && v.trim() !== ''
     );
-
-    if (hasCustomFilters) {
-      filteredOrgs = organizations.filter(org => {
-        return Object.entries(customFilterMap).every(([fieldId, filterValue]) => {
-          if (!filterValue || filterValue === 'all' || filterValue.trim() === '') return true;
-          const orgFieldValue = orgPrefMap[org.id]?.[fieldId];
-          return matchesCustomFieldFilter(orgFieldValue, filterValue);
-        });
-      });
-    }
 
     const coreHeaders = [
       'name', 'slug', 'description', 'website_url', 'logo_url',
@@ -266,10 +197,59 @@ export default async function handler(req, res) {
 
     const customHeaders = customFields.map(f => f.label);
     const allHeaders = [...coreHeaders, ...customHeaders];
-
     const headerRow = allHeaders.map(escapeCSV).join(',');
 
-    const dataRows = filteredOrgs.map(org => {
+    const PAGE_SIZE = 1000;
+    const PREF_BATCH_SIZE = 200;
+
+    // Load preference values for a single page of organisations at a time so
+    // memory stays bounded to one page regardless of tenant size. Keeps both a
+    // normalised map (for filtering / plain display) and the raw value (needed
+    // to resolve picklist labels).
+    const loadPrefValuesForOrgs = async (orgIds) => {
+      const pagePrefMap = {};
+      const pageRawMap = {};
+      if (orgIds.length === 0) return { pagePrefMap, pageRawMap };
+      for (let i = 0; i < orgIds.length; i += PREF_BATCH_SIZE) {
+        const batch = orgIds.slice(i, i + PREF_BATCH_SIZE);
+        let from = 0;
+        const pageSize = 1000;
+        while (true) {
+          const { data: pvData, error: pvError } = await supabase
+            .from('organization_preference_value')
+            .select('organization_id, field_id, preference_field_id, value')
+            .in('organization_id', batch)
+            .range(from, from + pageSize - 1);
+          if (pvError) {
+            throw new Error(`Preference values query failed: ${pvError.message}`);
+          }
+          if (pvData && pvData.length > 0) {
+            for (const pv of pvData) {
+              const fieldIdKey = pv.field_id || pv.preference_field_id;
+              if (!fieldIdKey) continue;
+              if (!pageRawMap[pv.organization_id]) pageRawMap[pv.organization_id] = {};
+              pageRawMap[pv.organization_id][fieldIdKey] = pv.value;
+
+              let normalizedValue = pv.value;
+              if (typeof pv.value === 'string') {
+                const trimmed = pv.value.trim();
+                if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+                  try { normalizedValue = JSON.parse(trimmed); } catch {}
+                }
+              }
+              normalizedValue = normalizePreferenceValue(normalizedValue);
+              if (!pagePrefMap[pv.organization_id]) pagePrefMap[pv.organization_id] = {};
+              pagePrefMap[pv.organization_id][fieldIdKey] = normalizedValue;
+            }
+          }
+          if (!pvData || pvData.length < pageSize) break;
+          from += pageSize;
+        }
+      }
+      return { pagePrefMap, pageRawMap };
+    };
+
+    const buildOrgRow = (org, pagePrefMap, pageRawMap) => {
       const coreValues = coreHeaders.map(field => {
         if (field === 'created_at' || field === 'updated_at') {
           return formatDate(org[field]);
@@ -302,12 +282,10 @@ export default async function handler(req, res) {
       });
 
       const customValues = customFields.map(f => {
-        const rawValue = orgPrefMap[org.id]?.[f.id];
+        const rawValue = pagePrefMap[org.id]?.[f.id];
         if (rawValue === null || rawValue === undefined) return '';
         if (f.field_type === 'picklist' || f.field_type === 'dropdown' || f.field_type === 'list') {
-          const originalValue = prefValues.find(
-            pv => pv.organization_id === org.id && (pv.field_id === f.id || pv.preference_field_id === f.id)
-          )?.value;
+          const originalValue = pageRawMap[org.id]?.[f.id];
           return resolvePicklistValue(originalValue || '', f);
         }
         if (Array.isArray(rawValue)) return rawValue.join(', ');
@@ -315,18 +293,75 @@ export default async function handler(req, res) {
       });
 
       return [...coreValues, ...customValues].map(escapeCSV).join(',');
-    });
+    };
 
-    const csv = [headerRow, ...dataRows].join('\n');
+    // Fetch the first page before committing to a streamed 200 response so any
+    // query error still surfaces as a proper HTTP error status.
+    const firstPage = await buildOrgQuery(0, PAGE_SIZE);
+    if (firstPage.error) {
+      console.error('[OrgExportCSV] Query error:', firstPage.error);
+      return res.status(500).json({ error: 'Failed to fetch organisations' });
+    }
 
     const today = new Date().toISOString().split('T')[0];
     const filename = `organisations_export_${today}.csv`;
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    return res.status(200).send(csv);
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Accel-Buffering', 'no');
+    if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+    res.write(headerRow);
+
+    try {
+      let pageData = firstPage.data || [];
+      let pageFrom = 0;
+      while (true) {
+        if (pageData.length > 0) {
+          const orgIds = pageData.map(o => o.id);
+          const { pagePrefMap, pageRawMap } = await loadPrefValuesForOrgs(orgIds);
+          let chunk = '';
+          for (const org of pageData) {
+            if (hasCustomFilters) {
+              const passes = Object.entries(customFilterMap).every(([fieldId, filterValue]) => {
+                if (!filterValue || filterValue === 'all' || filterValue.trim() === '') return true;
+                const orgFieldValue = pagePrefMap[org.id]?.[fieldId];
+                return matchesCustomFieldFilter(orgFieldValue, filterValue);
+              });
+              if (!passes) continue;
+            }
+            chunk += '\n' + buildOrgRow(org, pagePrefMap, pageRawMap);
+          }
+          if (chunk) {
+            res.write(chunk);
+            // Yield so the buffered chunk flushes to the network.
+            await new Promise(resolve => setImmediate(resolve));
+          }
+        }
+        if (pageData.length < PAGE_SIZE) break;
+        pageFrom += PAGE_SIZE;
+        const next = await buildOrgQuery(pageFrom, PAGE_SIZE);
+        if (next.error) {
+          throw new Error(`Organisations query failed: ${next.error.message}`);
+        }
+        pageData = next.data || [];
+      }
+      return res.end();
+    } catch (streamErr) {
+      // The response is already streaming, so we cannot switch to a 500.
+      // Abort the connection so the client sees a failed download rather than
+      // silently receiving a truncated CSV.
+      console.error('[OrgExportCSV] Streaming error:', streamErr);
+      try { res.destroy(streamErr); } catch { /* ignore */ }
+      return;
+    }
   } catch (err) {
     console.error('[OrgExportCSV] Error:', err);
+    if (res.headersSent) {
+      try { res.destroy(err); } catch { /* ignore */ }
+      return;
+    }
     return res.status(500).json({ error: 'Internal server error' });
   }
 }
