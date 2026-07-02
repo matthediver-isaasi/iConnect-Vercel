@@ -58,7 +58,9 @@ import {
   Copy,
   Check,
   Wallet,
-  Tag
+  Tag,
+  UserPlus,
+  UserMinus
 } from "lucide-react";
 import { format } from "date-fns";
 import {
@@ -408,6 +410,19 @@ export default function MemberDetailView({
     }
   });
 
+  const { data: groupActivityEvents = [], isLoading: groupActivityLoading } = useQuery({
+    queryKey: ['member-detail-view-group-activity', member?.id],
+    enabled: !!member?.id && activeTab === 'activity',
+    queryFn: async () => {
+      try {
+        return await base44.entities.MemberGroupActivity.list({ filter: { member_id: member.id } });
+      } catch (err) {
+        console.error('[MemberDetailView] member-detail-view-group-activity query failed', err);
+        return [];
+      }
+    }
+  });
+
   const unifiedBookings = useMemo(() => {
     const simpleItems = (memberBookings || []).map(b => {
       const event = events.find(e => e.id === b.event_id);
@@ -437,6 +452,15 @@ export default function MemberDetailView({
         isAttendeeOnly: !isBuyer && isAttendee,
       };
     });
+
+    const groupItems = (groupActivityEvents || []).map(ev => ({
+      key: `group-activity-${ev.id}`,
+      id: ev.id,
+      source: 'group_activity',
+      action: ev.action,
+      groupName: ev.group_name || '(unknown group)',
+      date: ev.created_at || null,
+    }));
 
     // Simple-event check-ins derived from live booking state. Reversed
     // (deregistered) check-ins null checked_in_at and therefore drop out here.
@@ -470,12 +494,12 @@ export default function MemberDetailView({
         };
       });
 
-    return [...simpleItems, ...complexItems, ...simpleCheckinItems, ...complexCheckinItems]
+    return [...simpleItems, ...complexItems, ...groupItems, ...simpleCheckinItems, ...complexCheckinItems]
       .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
-      .slice(0, 20);
-  }, [memberBookings, complexBookings, events, complexEvents, member?.id, memberEmailLower, complexCheckins, checkinSessions]);
+      .slice(0, 50);
+  }, [memberBookings, complexBookings, events, complexEvents, member?.id, memberEmailLower, groupActivityEvents, complexCheckins, checkinSessions]);
 
-  const anyBookingsLoading = bookingsLoading || complexBookingsLoading || complexCheckinsLoading;
+  const anyBookingsLoading = bookingsLoading || complexBookingsLoading || groupActivityLoading || complexCheckinsLoading;
 
   const { data: resourceCategories = [], isLoading: categoriesLoading } = useQuery({
     queryKey: ['resource-categories-for-member-detail'],
@@ -1939,6 +1963,42 @@ export default function MemberDetailView({
                 ) : (
                   <div className="space-y-3">
                     {unifiedBookings.map(item => {
+                      if (item.source === 'group_activity') {
+                        const isJoined = item.action === 'joined';
+                        return (
+                          <div
+                            key={item.key}
+                            className="flex items-center justify-between gap-3 p-3 bg-slate-50 rounded-lg"
+                            data-testid={`row-group-activity-${item.id}`}
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${isJoined ? 'bg-green-100' : 'bg-slate-100'}`}>
+                                {isJoined
+                                  ? <UserPlus className="w-5 h-5 text-green-600" />
+                                  : <UserMinus className="w-5 h-5 text-slate-500" />
+                                }
+                              </div>
+                              <div className="min-w-0">
+                                <p className="font-medium text-sm truncate" data-testid={`text-group-activity-label-${item.id}`}>
+                                  {isJoined ? 'Joined group' : 'Left group'}{' '}
+                                  <span className="font-semibold">{item.groupName}</span>
+                                </p>
+                                <p className="text-xs text-slate-500" data-testid={`text-group-activity-date-${item.id}`}>
+                                  {item.date ? formatDate(item.date) : '—'}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="shrink-0">
+                              <Badge
+                                variant={isJoined ? 'outline' : 'secondary'}
+                                data-testid={`badge-group-activity-action-${item.id}`}
+                              >
+                                {isJoined ? 'Joined' : 'Left'}
+                              </Badge>
+                            </div>
+                          </div>
+                        );
+                      }
                       if (item.source === 'checkin') {
                         return (
                           <div
