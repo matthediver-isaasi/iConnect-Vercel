@@ -51,6 +51,7 @@ export default function CommunicationsManagementPage() {
   const [showAddListSegment, setShowAddListSegment] = useState(false);
   const [addListSegmentType, setAddListSegmentType] = useState('');
   const [addListSegmentIds, setAddListSegmentIds] = useState([]);
+  const [addListSegmentRoles, setAddListSegmentRoles] = useState([]);
   const [indMemberSearchInput, setIndMemberSearchInput] = useState('');
   const [indMemberSearchResults, setIndMemberSearchResults] = useState([]);
   const [indMemberSearchLoading, setIndMemberSearchLoading] = useState(false);
@@ -297,6 +298,19 @@ export default function CommunicationsManagementPage() {
     staleTime: 60000,
   });
 
+  // Union of roles defined across the currently-selected groups in the segment
+  // builder. Used to render the optional per-group role narrowing selector.
+  const availableGroupRoles = useMemo(() => {
+    if (addListSegmentType !== 'member_group' || addListSegmentIds.length === 0) return [];
+    const roleSet = new Set();
+    memberGroups.forEach(g => {
+      if (addListSegmentIds.includes(g.id) && Array.isArray(g.roles)) {
+        g.roles.forEach(r => { if (r) roleSet.add(r); });
+      }
+    });
+    return [...roleSet].sort((a, b) => a.localeCompare(b));
+  }, [addListSegmentType, addListSegmentIds, memberGroups]);
+
   const { data: formsWithCategory = [] } = useQuery({
     queryKey: ['forms-with-category'],
     queryFn: async () => {
@@ -409,7 +423,9 @@ export default function CommunicationsManagementPage() {
     }
     if (segment.type === 'member_group') {
       const names = (segment.ids || []).map(id => memberGroups.find(g => g.id === id)?.name).filter(Boolean);
-      return names.length > 0 ? `${label}: ${names.join(', ')}` : `${label} (${count})`;
+      const base = names.length > 0 ? `${label}: ${names.join(', ')}` : `${label} (${count})`;
+      const roleNames = Array.isArray(segment.roles) ? segment.roles.filter(Boolean) : [];
+      return roleNames.length > 0 ? `${base} — Roles: ${roleNames.join(', ')}` : base;
     }
     if (segment.type === 'communication_category') {
       const names = (segment.ids || []).map(id => categories.find(c => c.id === id)?.name).filter(Boolean);
@@ -568,6 +584,7 @@ export default function CommunicationsManagementPage() {
     setShowAddListSegment(false);
     setAddListSegmentType('');
     setAddListSegmentIds([]);
+    setAddListSegmentRoles([]);
     resetIndMemberSearch();
     setShowEditListDialog(true);
   };
@@ -580,6 +597,7 @@ export default function CommunicationsManagementPage() {
     setShowAddListSegment(false);
     setAddListSegmentType('');
     setAddListSegmentIds([]);
+    setAddListSegmentRoles([]);
     resetIndMemberSearch();
     setShowEditListDialog(true);
   };
@@ -2639,6 +2657,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                     onClick={() => {
                       setAddListSegmentType('');
                       setAddListSegmentIds([]);
+                      setAddListSegmentRoles([]);
                       setShowAddListSegment(true);
                     }}
                     className="w-full"
@@ -2655,7 +2674,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                         <X className="w-3.5 h-3.5" />
                       </Button>
                     </div>
-                    <Select value={addListSegmentType} onValueChange={(v) => { setAddListSegmentType(v); setAddListSegmentIds([]); resetIndMemberSearch(); setFieldFilterGroups([{ conditions: [{ entity_scope: 'member', field_key: '', field_type: '', data_type: '', operator: '', value: '', field_label: '' }] }]); }}>
+                    <Select value={addListSegmentType} onValueChange={(v) => { setAddListSegmentType(v); setAddListSegmentIds([]); setAddListSegmentRoles([]); resetIndMemberSearch(); setFieldFilterGroups([{ conditions: [{ entity_scope: 'member', field_key: '', field_type: '', data_type: '', operator: '', value: '', field_label: '' }] }]); }}>
                       <SelectTrigger data-testid="select-add-list-segment-type">
                         <SelectValue placeholder="Select type" />
                       </SelectTrigger>
@@ -3375,9 +3394,18 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                           <label key={group.id} className="flex items-center gap-2 cursor-pointer">
                             <input type="checkbox" checked={addListSegmentIds.includes(group.id)}
                               onChange={(e) => {
-                                if (e.target.checked) setAddListSegmentIds(prev => [...prev, group.id]);
-                                else setAddListSegmentIds(prev => prev.filter(i => i !== group.id));
-                              }} className="rounded" />
+                                const newIds = e.target.checked
+                                  ? [...addListSegmentIds, group.id]
+                                  : addListSegmentIds.filter(i => i !== group.id);
+                                setAddListSegmentIds(newIds);
+                                // Drop any selected roles no longer offered by the remaining groups.
+                                const stillAvailable = new Set(
+                                  memberGroups
+                                    .filter(g => newIds.includes(g.id) && Array.isArray(g.roles))
+                                    .flatMap(g => g.roles)
+                                );
+                                setAddListSegmentRoles(prev => prev.filter(r => stillAvailable.has(r)));
+                              }} className="rounded" data-testid={`checkbox-group-${group.id}`} />
                             <span className="text-sm">{group.name}</span>
                           </label>
                         ))}
@@ -3444,6 +3472,24 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                             </>
                           )
                         )}
+                      </div>
+                    )}
+
+                    {addListSegmentType === 'member_group' && addListSegmentIds.length > 0 && availableGroupRoles.length > 0 && (
+                      <div className="space-y-1">
+                        <Label className="text-xs font-medium text-muted-foreground">Roles (optional — leave empty to include everyone in the selected groups)</Label>
+                        <div className="border rounded-md p-2 max-h-32 overflow-y-auto space-y-1 bg-background">
+                          {availableGroupRoles.map(roleName => (
+                            <label key={roleName} className="flex items-center gap-2 cursor-pointer">
+                              <input type="checkbox" checked={addListSegmentRoles.includes(roleName)}
+                                onChange={(e) => {
+                                  if (e.target.checked) setAddListSegmentRoles(prev => [...prev, roleName]);
+                                  else setAddListSegmentRoles(prev => prev.filter(r => r !== roleName));
+                                }} className="rounded" data-testid={`checkbox-group-role-${roleName}`} />
+                              <span className="text-sm">{roleName}</span>
+                            </label>
+                          ))}
+                        </div>
                       </div>
                     )}
 
@@ -3533,6 +3579,25 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                             } else {
                               setEditListAudiences(prev => [...prev, { type: 'individual_members', ids: indSelectedMembers.map(m => m.id), names: newNames }]);
                             }
+                          } else if (addListSegmentType === 'member_group' && addListSegmentIds.length > 0) {
+                            const rolesToSave = addListSegmentRoles.filter(r => availableGroupRoles.includes(r));
+                            const existingIdx = editListAudiences.findIndex(a => a.type === 'member_group');
+                            if (existingIdx >= 0) {
+                              setEditListAudiences(prev => {
+                                const updated = [...prev];
+                                const existing = new Set(updated[existingIdx].ids || []);
+                                addListSegmentIds.forEach(id => existing.add(id));
+                                const seg = { ...updated[existingIdx], ids: [...existing] };
+                                if (rolesToSave.length > 0) seg.roles = rolesToSave;
+                                else delete seg.roles;
+                                updated[existingIdx] = seg;
+                                return updated;
+                              });
+                            } else {
+                              const seg = { type: 'member_group', ids: addListSegmentIds };
+                              if (rolesToSave.length > 0) seg.roles = rolesToSave;
+                              setEditListAudiences(prev => [...prev, seg]);
+                            }
                           } else if (addListSegmentIds.length > 0) {
                             const existingIdx = editListAudiences.findIndex(a => a.type === addListSegmentType);
                             if (existingIdx >= 0) {
@@ -3550,6 +3615,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                           setShowAddListSegment(false);
                           setAddListSegmentType('');
                           setAddListSegmentIds([]);
+                          setAddListSegmentRoles([]);
                           resetIndMemberSearch();
                           setSelectedEvents([]);
                           setEventSearchInput('');
