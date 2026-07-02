@@ -153,11 +153,16 @@ export default function EventsPage({
   const queryClient = useQueryClient();
   const { eventTypes } = useEventTypes();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [searchQuery, setSearchQuery] = useState("");
+  // Seed search + sort from the URL so filtered/sorted event views are shareable
+  // and bookmarkable (category + type are already URL-backed via searchParams).
+  const [searchQuery, setSearchQuery] = useState(() => searchParams.get("search") || "");
   const [complexDeleteTarget, setComplexDeleteTarget] = useState(null);
   const [complexDeleteConfirmText, setComplexDeleteConfirmText] = useState("");
   const [selectedDeliveryMode, setSelectedDeliveryMode] = useState("all");
-  const [sortBy, setSortBy] = useState("date");
+  const [sortBy, setSortBy] = useState(() => {
+    const s = searchParams.get("sort");
+    return ["date", "price_asc", "price_desc"].includes(s) ? s : "date";
+  });
   const [showPastEvents, setShowPastEvents] = useState(false);
   const [showDraftEvents, setShowDraftEvents] = useState(false);
   const [memberGroupFilter, setMemberGroupFilter] = useState("all"); // "all" | "hide-group" | "only-group"
@@ -544,6 +549,24 @@ export default function EventsPage({
   const clearFilterTags = useCallback(() => {
     updateFilterParams((next) => next.delete("category"));
   }, [updateFilterParams]);
+
+  // Keep the search text and sort order in the URL so the current link always
+  // reflects the visible view. Default sort ("date") is omitted to keep URLs
+  // clean; empty search is removed. Uses replace so it never floods history.
+  useEffect(() => {
+    updateFilterParams((next) => {
+      if (searchQuery.trim()) {
+        next.set("search", searchQuery);
+      } else {
+        next.delete("search");
+      }
+      if (sortBy && sortBy !== "date") {
+        next.set("sort", sortBy);
+      } else {
+        next.delete("sort");
+      }
+    });
+  }, [searchQuery, sortBy, updateFilterParams]);
 
   let filteredEvents = accessibleEvents.filter((event) => {
     const matchesSearch =

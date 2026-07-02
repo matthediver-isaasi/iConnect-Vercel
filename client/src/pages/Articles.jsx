@@ -20,6 +20,8 @@ import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 
 const DEFAULT_ARTICLE_CATEGORY_TITLE_COLOR = '#7e22ce';
+const VALID_ARTICLE_SORT_VALUES = ['newest', 'oldest', 'title-asc', 'title-desc', 'most-viewed', 'most-liked'];
+const DEFAULT_ARTICLE_SORT_VALUE = 'newest';
 
 export default function ArticlesPage() {
   useBlogPostRealtime(['published-articles']);
@@ -37,10 +39,28 @@ export default function ArticlesPage() {
 
   const hasAdminEditPermission = !isFeatureExcluded('content.articles.edit');
   const hasAdminDeletePermission = !isFeatureExcluded('content.articles.delete');
-  const [searchQuery, setSearchQuery] = useState("");
-  const [selectedSubcategories, setSelectedSubcategories] = useState([]);
+  // Parse shareable filter params from the URL (subcategories, search, sort) so
+  // deep-links open the blog pre-filtered. Mirrors the Resources page behaviour.
+  const articleUrlParams = new URLSearchParams(window.location.search);
+  const articleSearchFromUrl = articleUrlParams.get('search') || '';
+  const articleSortFromUrlRaw = articleUrlParams.get('sort');
+  const articleSortFromUrl = VALID_ARTICLE_SORT_VALUES.includes(articleSortFromUrlRaw) ? articleSortFromUrlRaw : null;
+  const articleSubcategoriesFromUrl = (articleUrlParams.get('subcategories') || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+  // Track (once) whether the initial URL supplied filter params so they win over
+  // a logged-in member's saved category preferences.
+  const hasUrlFilterParamsRef = React.useRef(
+    articleSearchFromUrl.length > 0 || articleSortFromUrl !== null || articleSubcategoriesFromUrl.length > 0
+  );
+  const hasUrlSubcategoriesRef = React.useRef(articleSubcategoriesFromUrl.length > 0);
+  const hasValidatedUrlSubcategoriesRef = React.useRef(false);
+
+  const [searchQuery, setSearchQuery] = useState(articleSearchFromUrl);
+  const [selectedSubcategories, setSelectedSubcategories] = useState(articleSubcategoriesFromUrl);
   const [currentPage, setCurrentPage] = useState(1);
-  const [sortBy, setSortBy] = useState("newest");
+  const [sortBy, setSortBy] = useState(articleSortFromUrl || DEFAULT_ARTICLE_SORT_VALUE);
   const [itemsPerPage, setItemsPerPage] = useState(6);
   const [hasLoadedPreferences, setHasLoadedPreferences] = useState(false);
   const [showMyArticlesOnly, setShowMyArticlesOnly] = useState(false);
@@ -321,12 +341,60 @@ export default function ArticlesPage() {
 
   // Load saved preferences once
   React.useEffect(() => {
-    if (currentUser?.preferences?.resources && !hasLoadedPreferences) {
+    if (hasLoadedPreferences) return;
+    // URL filter params take precedence over the member's saved preferences so a
+    // shared link is honoured rather than overridden by the recipient's defaults.
+    if (hasUrlFilterParamsRef.current) {
+      setHasLoadedPreferences(true);
+      return;
+    }
+    if (currentUser?.preferences?.resources) {
       const savedSubcategories = currentUser.preferences.resources.selectedSubcategories || [];
       setSelectedSubcategories(savedSubcategories);
       setHasLoadedPreferences(true);
     }
   }, [currentUser, hasLoadedPreferences]);
+
+  // Once categories load, drop any URL-seeded subcategory names that don't exist
+  // for this tenant (malformed/unknown params are ignored gracefully).
+  React.useEffect(() => {
+    if (hasValidatedUrlSubcategoriesRef.current) return;
+    if (!hasUrlSubcategoriesRef.current) {
+      hasValidatedUrlSubcategoriesRef.current = true;
+      return;
+    }
+    if (!categories || categories.length === 0) return; // wait for categories
+    const validSubcategories = new Set();
+    categories.forEach(cat => {
+      (cat.subcategories || []).forEach(sub => validSubcategories.add(sub));
+    });
+    setSelectedSubcategories(prev => prev.filter(sub => validSubcategories.has(sub)));
+    hasValidatedUrlSubcategoriesRef.current = true;
+  }, [categories]);
+
+  // Keep the URL query string in sync with the active filters so the current
+  // link always reflects the visible view (in-place, no reload/history entry).
+  // Preserves the current pathname (e.g. author listing pages).
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (searchQuery.trim()) {
+      params.set('search', searchQuery);
+    } else {
+      params.delete('search');
+    }
+    if (selectedSubcategories.length > 0) {
+      params.set('subcategories', selectedSubcategories.join(','));
+    } else {
+      params.delete('subcategories');
+    }
+    if (sortBy && sortBy !== DEFAULT_ARTICLE_SORT_VALUE) {
+      params.set('sort', sortBy);
+    } else {
+      params.delete('sort');
+    }
+    const qs = params.toString();
+    window.history.replaceState({}, '', qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
+  }, [searchQuery, selectedSubcategories, sortBy]);
 
   // Save preferences mutation
   const savePreferencesMutation = useMutation({

@@ -4,7 +4,7 @@ import { publicClient } from "@/api/publicClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileQuestion, ChevronLeft, ChevronRight, SlidersHorizontal, Sparkles, Save, X, ArrowLeft } from "lucide-react";
+import { FileQuestion, ChevronLeft, ChevronRight, SlidersHorizontal, Sparkles, Save, X, ArrowLeft, Link2 } from "lucide-react";
 import ResourceFilter from "../components/resources/ResourceFilter";
 import ResourceCard from "../components/resources/ResourceCard";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -16,6 +16,8 @@ import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { resolveTenantButtonStyle, resolveTenantButtonStyleValues } from "@/lib/tenantButtonStyle";
 
 const DEFAULT_RESOURCE_CATEGORY_TITLE_COLOR = '#7e22ce';
+const VALID_SORT_VALUES = ['newest', 'oldest', 'title-asc', 'title-desc'];
+const DEFAULT_SORT_VALUE = 'newest';
 
 export default function ResourcesPage() {
   const { memberInfo, memberRole, isAdmin, isFeatureExcluded } = useMemberAccess();
@@ -33,7 +35,24 @@ export default function ResourcesPage() {
   // Get resourceId from URL query params (used when redirecting back from login)
   const urlParams = new URLSearchParams(window.location.search);
   const resourceIdFromUrl = urlParams.get('resourceId');
-  
+
+  // Parse shareable filter params from the URL (subcategories, search, sort).
+  // These seed the initial filter state so deep-links open pre-filtered.
+  const searchFromUrl = urlParams.get('search') || '';
+  const sortFromUrlRaw = urlParams.get('sort');
+  const sortFromUrl = VALID_SORT_VALUES.includes(sortFromUrlRaw) ? sortFromUrlRaw : null;
+  const subcategoriesFromUrl = (urlParams.get('subcategories') || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  // Track (once) whether the initial URL supplied any filter params. When it did,
+  // these must win over a logged-in member's saved category preferences.
+  const hasUrlFilterParamsRef = useRef(
+    searchFromUrl.length > 0 || sortFromUrl !== null || subcategoriesFromUrl.length > 0
+  );
+  const hasUrlSubcategoriesRef = useRef(subcategoriesFromUrl.length > 0);
+
   // State for filtering to a specific resource (e.g., after login redirect)
   const [filteredResourceId, setFilteredResourceId] = useState(resourceIdFromUrl || null);
   
@@ -44,18 +63,20 @@ export default function ResourcesPage() {
     }
   }, [resourceIdFromUrl]);
   
-  // Clear the filter and remove the query param from URL
+  // Clear the single-resource filter, preserving any other filter params in the URL
   const clearResourceFilter = () => {
     setFilteredResourceId(null);
-    // Remove the query param from URL without reload
-    window.history.replaceState({}, '', '/resources');
+    const params = new URLSearchParams(window.location.search);
+    params.delete('resourceId');
+    const qs = params.toString();
+    window.history.replaceState({}, '', qs ? `/resources?${qs}` : '/resources');
   };
   
   
-  const [searchQuery, setSearchQuery] = useState("");
-  const [selectedSubcategories, setSelectedSubcategories] = useState([]);
+  const [searchQuery, setSearchQuery] = useState(searchFromUrl);
+  const [selectedSubcategories, setSelectedSubcategories] = useState(subcategoriesFromUrl);
   const [currentPage, setCurrentPage] = useState(1);
-  const [sortBy, setSortBy] = useState("newest");
+  const [sortBy, setSortBy] = useState(sortFromUrl || DEFAULT_SORT_VALUE);
   const [itemsPerPage, setItemsPerPage] = useState(12);
   const [hasLoadedPreferences, setHasLoadedPreferences] = useState(false);
 
@@ -372,6 +393,14 @@ export default function ResourcesPage() {
   // Priority: Database-backed category preferences > legacy UI preferences
   React.useEffect(() => {
     if (hasLoadedPreferences) return;
+
+    // URL filter params take precedence over the member's saved preferences:
+    // if a shared link supplied any filter params, honour it rather than
+    // overriding with the recipient's defaults.
+    if (hasUrlFilterParamsRef.current) {
+      setHasLoadedPreferences(true);
+      return;
+    }
     
     // Wait for member category query to resolve if member is authenticated
     if (memberInfo?.id && memberCategoriesLoading) return;
@@ -401,6 +430,53 @@ export default function ResourcesPage() {
       setHasLoadedPreferences(true);
     }
   }, [memberCategoryPreferences, memberCategoriesLoading, memberInfo?.id, currentUser, hasLoadedPreferences]);
+
+  // Once categories load, drop any URL-seeded subcategory names that don't exist
+  // for this tenant (malformed/unknown params are ignored gracefully).
+  const hasValidatedUrlSubcategoriesRef = useRef(false);
+  React.useEffect(() => {
+    if (hasValidatedUrlSubcategoriesRef.current) return;
+    if (!hasUrlSubcategoriesRef.current) {
+      hasValidatedUrlSubcategoriesRef.current = true;
+      return;
+    }
+    if (!categories || categories.length === 0) return; // wait for categories
+
+    const validSubcategories = new Set();
+    categories.forEach(cat => {
+      (cat.subcategories || []).forEach(sub => validSubcategories.add(sub));
+    });
+    setSelectedSubcategories(prev => prev.filter(sub => validSubcategories.has(sub)));
+    hasValidatedUrlSubcategoriesRef.current = true;
+  }, [categories]);
+
+  // Keep the URL query string in sync with the active filters so the current
+  // link always reflects the visible view (in-place, no reload/history entry).
+  // Preserves the existing resourceId param when present.
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+
+    if (searchQuery.trim()) {
+      params.set('search', searchQuery);
+    } else {
+      params.delete('search');
+    }
+
+    if (selectedSubcategories.length > 0) {
+      params.set('subcategories', selectedSubcategories.join(','));
+    } else {
+      params.delete('subcategories');
+    }
+
+    if (sortBy && sortBy !== DEFAULT_SORT_VALUE) {
+      params.set('sort', sortBy);
+    } else {
+      params.delete('sort');
+    }
+
+    const qs = params.toString();
+    window.history.replaceState({}, '', qs ? `/resources?${qs}` : '/resources');
+  }, [searchQuery, selectedSubcategories, sortBy]);
 
   // Save preferences mutation - saves to member_resource_category table
   const savePreferencesMutation = useMutation({
@@ -553,6 +629,17 @@ export default function ResourcesPage() {
 
   const handleSaveAsDefault = () => {
     savePreferencesMutation.mutate();
+  };
+
+  // Copy the current URL (with active filter params) so members can share the
+  // exact filtered view they're looking at.
+  const handleCopyShareLink = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      toast.success('Link copied to clipboard');
+    } catch (err) {
+      toast.error('Could not copy link');
+    }
   };
 
   const isLoading = resourcesLoading || categoriesLoading;
@@ -717,18 +804,30 @@ export default function ResourcesPage() {
                     Showing {startIndex + 1}-{Math.min(endIndex, sortedResources.length)} of {sortedResources.length} resources
                   </div>
                   
-                  <Select value={sortBy} onValueChange={setSortBy}>
-                    <SelectTrigger className="w-48 rounded-none">
-                      <SlidersHorizontal className="w-4 h-4 mr-2" />
-                      <SelectValue placeholder="Sort By" />
-                    </SelectTrigger>
-                    <SelectContent className="rounded-none">
-                      <SelectItem value="newest">Newest First</SelectItem>
-                      <SelectItem value="oldest">Oldest First</SelectItem>
-                      <SelectItem value="title-asc">Title A-Z</SelectItem>
-                      <SelectItem value="title-desc">Title Z-A</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Button
+                      variant="outline"
+                      onClick={handleCopyShareLink}
+                      className="gap-2 rounded-none"
+                      data-testid="button-copy-share-link"
+                    >
+                      <Link2 className="w-4 h-4" />
+                      Copy link
+                    </Button>
+
+                    <Select value={sortBy} onValueChange={setSortBy}>
+                      <SelectTrigger className="w-48 rounded-none">
+                        <SlidersHorizontal className="w-4 h-4 mr-2" />
+                        <SelectValue placeholder="Sort By" />
+                      </SelectTrigger>
+                      <SelectContent className="rounded-none">
+                        <SelectItem value="newest">Newest First</SelectItem>
+                        <SelectItem value="oldest">Oldest First</SelectItem>
+                        <SelectItem value="title-asc">Title A-Z</SelectItem>
+                        <SelectItem value="title-desc">Title Z-A</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
 
                 <div className="grid xl:grid-cols-2 gap-6 mb-8">
