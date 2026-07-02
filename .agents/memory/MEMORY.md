@@ -43,3 +43,4 @@
 - [Redacted group-admin data surfaces](redacted-group-admin-surfaces.md) — give group admins a tenant-wide signal (count/boolean) by branching the RESPONSE not just auth; redact every success branch so other groups private details never leak.
 - [portal_menu legacy duplicates](portal-menu-legacy-duplicates.md) — base44-migrated tenants have dup nav rows (legacy feature_id + orphaned base44 parent); dedupe via scripts/dedupe-portal-menu.mjs.
 - [member_group_assignment has no join timestamp](member-group-assignment-no-timestamp.md) — table has no created/joined column; activity "joined" backfills must use now(), true historical dates unrecoverable.
+- [Import idempotency & the 1000-row cap](import-idempotency-1000-cap.md) — resource import scripts match existing rows by target_url, but the existing-rows fetch is capped at 1000 by PostgREST; on tenants with >1000 rows you MUST paginate or re-runs duplicate.
