@@ -564,8 +564,9 @@ class PublicClient {
   }
 
   // Single shareable gallery by URL handle (task #1456). Public galleries
-  // return their photos; private galleries return a locked response with a
-  // login_redirect_url for anonymous viewers.
+  // return their photos plus a resolved `cover_photo` (from cover_photo_id,
+  // falling back to the first photo by display order); private galleries
+  // return a locked response with a login_redirect_url for anonymous viewers.
   async getGallery(slug, page = 1, limit = 24) {
     if (!slug) return null;
     const params = new URLSearchParams({ page: String(page), limit: String(limit) });

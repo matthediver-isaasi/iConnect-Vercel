@@ -99,11 +99,44 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to fetch photos' });
     }
 
+    // Resolve the gallery's cover photo so a consumer (e.g. the CanvasBuilder
+    // "cover image only" display mode) can render it without loading the page
+    // that hosts the gallery. Prefer the explicitly-set cover_photo_id; fall
+    // back to the first photo by display order. Only resolved for public
+    // galleries — private ones already returned above without any photos.
+    let cover_photo = null;
+    if (gallery.cover_photo_id) {
+      cover_photo =
+        (photos || []).find((p) => p.id === gallery.cover_photo_id) || null;
+      if (!cover_photo) {
+        const { data: coverRow } = await supabase
+          .from('gallery_photo')
+          .select(PUBLIC_PHOTO_COLUMNS)
+          .eq('gallery_id', gallery.id)
+          .eq('id', gallery.cover_photo_id)
+          .maybeSingle();
+        cover_photo = coverRow || null;
+      }
+    }
+    if (!cover_photo) {
+      // First-photo fallback (documented): the earliest photo by display order.
+      const { data: firstRow } = await supabase
+        .from('gallery_photo')
+        .select(PUBLIC_PHOTO_COLUMNS)
+        .eq('gallery_id', gallery.id)
+        .order('display_order', { ascending: true })
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      cover_photo = firstRow || null;
+    }
+
     return res.json({
       ...base,
       is_locked: false,
       photos: photos || [],
       total_photos: count ?? 0,
+      cover_photo,
     });
   } catch (err) {
     console.error('[Public Gallery API] Error:', err);

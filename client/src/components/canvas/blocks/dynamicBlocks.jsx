@@ -5742,10 +5742,12 @@ function galleryPageNumbers(current, totalPages) {
 
 function GalleryRender({ block, breakpoint, asEditor }) {
   const c = block.content || {};
+  const displayMode = c.displayMode === 'cover' ? 'cover' : 'grid';
   const cols = columnsForBreakpoint(c, breakpoint);
   const pageSize = Math.max(1, Math.min(48, c.pageSize || 12));
   const [page, setPage] = useState(1);
   const [lightboxIndex, setLightboxIndex] = useState(null);
+  const [popupOpen, setPopupOpen] = useState(false);
 
   const { data, isLoading, isError, isFetching } = useQuery({
     queryKey: ['canvas', 'public-gallery', c.gallerySlug, page, pageSize],
@@ -5806,9 +5808,14 @@ function GalleryRender({ block, breakpoint, asEditor }) {
     }
   };
 
-  return (
-    <div className="w-full h-full flex flex-col gap-4 overflow-auto" aria-label={block.a11y?.ariaLabel || c.heading || data.title || 'Photo gallery'}>
-      {(c.heading || data.title) ? <Heading level={c.headingLevel || 2}>{c.heading || data.title}</Heading> : null}
+  const headingEl = (c.heading || data.title)
+    ? <Heading level={c.headingLevel || 2}>{c.heading || data.title}</Heading>
+    : null;
+
+  // Grid + pagination markup, shared by grid mode (rendered inline) and cover
+  // mode (rendered inside the popup dialog). Photo clicks open the Lightbox.
+  const photoGrid = (
+    <>
       <div style={gridStyle(cols, c.gap ?? 16)} aria-busy={isFetching ? 'true' : undefined}>
         {photos.map((photo, i) => {
           const { alt, role } = resolveAlt(photo, data.title, false);
@@ -5868,16 +5875,78 @@ function GalleryRender({ block, breakpoint, asEditor }) {
           </Button>
         </nav>
       ) : null}
+    </>
+  );
 
-      {!asEditor && lightboxIndex !== null ? (
-        <Lightbox
-          gallery={{ title: c.heading || data.title, photos }}
-          activeIndex={lightboxIndex}
-          onIndexChange={setLightboxIndex}
-          onClose={() => setLightboxIndex(null)}
-          srOptimised={false}
-        />
-      ) : null}
+  const lightboxEl = !asEditor && lightboxIndex !== null ? (
+    <Lightbox
+      gallery={{ title: c.heading || data.title, photos }}
+      activeIndex={lightboxIndex}
+      onIndexChange={setLightboxIndex}
+      onClose={() => setLightboxIndex(null)}
+      srOptimised={false}
+    />
+  ) : null;
+
+  // Cover-image-only mode: show just the gallery's cover photo as a clickable
+  // affordance that opens the full paginated grid in a popup dialog.
+  if (displayMode === 'cover') {
+    const cover = data.cover_photo || photos[0] || null;
+    const { alt: coverAlt, role: coverRole } = resolveAlt(cover, data.title, false);
+    const countLabel = `${total} photo${total === 1 ? '' : 's'}`;
+    const popupTitle = c.heading || data.title || 'Photo gallery';
+    return (
+      <div
+        className="w-full h-full flex flex-col gap-3"
+        aria-label={block.a11y?.ariaLabel || c.heading || data.title || 'Photo gallery'}
+      >
+        {headingEl}
+        <button
+          type="button"
+          className="relative block w-full flex-1 min-h-[160px] bg-slate-100 rounded-md overflow-hidden hover-elevate active-elevate-2 group text-left"
+          onClick={() => { if (asEditor) return; setPopupOpen(true); }}
+          aria-label={`Open ${popupTitle} — ${countLabel}`}
+          aria-haspopup="dialog"
+          data-testid="button-gallery-cover"
+        >
+          {cover ? (
+            <GalleryImage photo={cover} className="w-full h-full object-cover" alt={coverAlt} role={coverRole} />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center">
+              <Images className="w-10 h-10 text-slate-300" aria-hidden="true" />
+            </div>
+          )}
+          <span className="absolute inset-x-0 bottom-0 flex items-center gap-2 bg-gradient-to-t from-black/70 to-transparent px-4 pb-3 pt-8 text-sm font-medium text-white">
+            <Images className="w-4 h-4 shrink-0" aria-hidden="true" />
+            <span>View gallery — {countLabel}</span>
+          </span>
+        </button>
+
+        <Dialog open={popupOpen} onOpenChange={setPopupOpen}>
+          <DialogContent
+            className="max-w-[95vw] w-[95vw] sm:max-w-5xl max-h-[90vh] overflow-y-auto"
+            data-testid="dialog-gallery-cover-popup"
+          >
+            <DialogHeader>
+              <DialogTitle data-testid="text-gallery-popup-title">{popupTitle}</DialogTitle>
+              <DialogDescription className="sr-only">{countLabel}</DialogDescription>
+            </DialogHeader>
+            <div className="flex flex-col gap-4">
+              {photoGrid}
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {lightboxEl}
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full h-full flex flex-col gap-4 overflow-auto" aria-label={block.a11y?.ariaLabel || c.heading || data.title || 'Photo gallery'}>
+      {headingEl}
+      {photoGrid}
+      {lightboxEl}
     </div>
   );
 }
@@ -5915,6 +5984,16 @@ function GalleryInspector({ block, update, breakpoint }) {
     <>
       <GalleryPickerField value={c.gallerySlug} onChange={(v) => set({ gallerySlug: v })} testId="select-gallery-slug" />
       <TextField label="Heading" value={c.heading} onChange={(v) => set({ heading: v })} testId="input-gallery-heading" />
+      <SelectField
+        label="Display mode"
+        value={c.displayMode === 'cover' ? 'cover' : 'grid'}
+        onChange={(v) => set({ displayMode: v })}
+        options={[
+          { value: 'grid', label: 'Grid (all photos)' },
+          { value: 'cover', label: 'Cover image only' },
+        ]}
+        testId="select-gallery-display-mode"
+      />
       <PerBreakpointColumns value={c.columns} onChange={(v) => set({ columns: v })} />
       <NumberField
         label="Photos per page"

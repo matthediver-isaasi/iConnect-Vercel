@@ -1172,6 +1172,7 @@ export const BLOCK_DEFAULTS = {
       gallerySlug: '',
       heading: '',
       headingLevel: 2,
+      displayMode: 'grid',
       columns: { desktop: 3, tablet: 2, mobile: 1 },
       gap: 16,
       pageSize: 12,
