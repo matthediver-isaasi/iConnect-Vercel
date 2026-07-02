@@ -149,7 +149,7 @@ const navigationItems = [
     title: "Volunteer Board",
     url: createPageUrl("VolunteerBoard"),
     icon: UserPlus,
-    featureId: "membership.volunteer-board"
+    featureId: "jobs.volunteer-board"
   },
   {
     title: "Forum",

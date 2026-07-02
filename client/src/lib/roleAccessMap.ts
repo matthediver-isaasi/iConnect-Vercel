@@ -230,10 +230,6 @@ export const ROLE_ACCESS_MAP: Module[] = [
         label: "Member Groups (Self-Join)"
       },
       {
-        id: "membership.volunteer-board",
-        label: "Volunteer Board"
-      },
-      {
         id: "membership.member-group-email",
         label: "Group Email"
       },
@@ -467,6 +463,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
       {
         id: "jobs.job-settings",
         label: "Job Board Settings"
+      },
+      {
+        id: "jobs.volunteer-board",
+        label: "Volunteer Board"
       }
     ]
   },
@@ -1105,7 +1105,8 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_admin_BriefDetail": "content.briefs",
   "page_admin_BriefSettings": "content.brief-settings",
   "page_PhotoGalleries": "content.gallery",
-  "page_admin_PhotoGalleries": "content.gallery"
+  "page_admin_PhotoGalleries": "content.gallery",
+  "membership.volunteer-board": "jobs.volunteer-board"
 };
 
 export function migrateLegacyFeatureId(legacyId: string): string {

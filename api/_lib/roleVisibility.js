@@ -181,7 +181,8 @@ const LEGACY_TO_NEW_MAPPING = {
   "page_AIReports": "admin.ai-reports",
   "page_admin_AIReports": "admin.ai-reports",
   "page_AccessibilityAudits": "admin.accessibility-audits",
-  "page_admin_AccessibilityAudits": "admin.accessibility-audits"
+  "page_admin_AccessibilityAudits": "admin.accessibility-audits",
+  "membership.volunteer-board": "jobs.volunteer-board"
 };
 
 function migrateLegacyFeatureId(legacyId) {

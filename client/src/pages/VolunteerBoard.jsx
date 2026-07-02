@@ -53,7 +53,7 @@ export default function VolunteerBoardPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (isFeatureExcluded("membership.volunteer-board")) {
+      if (isFeatureExcluded("jobs.volunteer-board")) {
         window.location.href = createPageUrl("Events");
       } else {
         setAccessChecked(true);
