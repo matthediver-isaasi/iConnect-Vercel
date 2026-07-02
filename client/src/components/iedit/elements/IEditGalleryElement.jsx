@@ -143,7 +143,13 @@ export function IEditGalleryElementRenderer({ element, memberInfo }) {
     queryFn: async () => {
       if (isMember) {
         const list = (await base44.entities.Gallery.list("display_order")) || [];
-        const photoList = (await base44.entities.GalleryPhoto.list("display_order")) || [];
+        // Page through every photo (listAll) rather than a single list() call.
+        // A plain list() is subject to PostgREST's ~1000-row cap, so on tenants
+        // with many gallery photos the galleries near the end of the list would
+        // open a Lightbox missing photos and show an under-counted photo total.
+        const photoList = (await base44.entities.GalleryPhoto.listAll({
+          sort: { display_order: "asc", created_at: "asc" },
+        })) || [];
         const photosByGallery = new Map();
         for (const p of photoList) {
           if (!photosByGallery.has(p.gallery_id)) photosByGallery.set(p.gallery_id, []);
