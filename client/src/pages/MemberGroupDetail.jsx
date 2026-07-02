@@ -1226,20 +1226,27 @@ export default function MemberGroupDetailPage() {
     [group]
   );
 
-  const leadershipMembers = useMemo(() => {
-    if (leadershipRoleSet.size === 0) return [];
-    return sortedMembers
-      .map((m) => ({ ...m, __role: memberRoleByMemberId.get(m.id) || null }))
-      .filter((m) => m.__role && leadershipRoleSet.has(m.__role));
+  const orderedMembers = useMemo(() => {
+    const withRole = sortedMembers.map((m) => {
+      const role = memberRoleByMemberId.get(m.id) || null;
+      return {
+        ...m,
+        __role: role,
+        __isLeader: Boolean(role && leadershipRoleSet.has(role)),
+      };
+    });
+    const leaders = withRole.filter((m) => m.__isLeader);
+    const others = withRole.filter((m) => !m.__isLeader);
+    return [...leaders, ...others];
   }, [sortedMembers, memberRoleByMemberId, leadershipRoleSet]);
 
   const filteredMembers = useMemo(() => {
     const q = memberSearch.trim().toLowerCase();
-    if (!q) return sortedMembers;
-    return sortedMembers.filter((m) =>
+    if (!q) return orderedMembers;
+    return orderedMembers.filter((m) =>
       m.__display.displayName.toLowerCase().includes(q)
     );
-  }, [sortedMembers, memberSearch]);
+  }, [orderedMembers, memberSearch]);
 
   useEffect(() => {
     setMemberPage(1);
@@ -1973,102 +1980,6 @@ export default function MemberGroupDetailPage() {
           </Alert>
         )}
 
-        {leadershipMembers.length > 0 && (
-          <Card className="mb-6" data-testid="card-leadership-section">
-            <CardContent className="p-6">
-              <div className="flex items-center gap-2 mb-4">
-                <Crown className="w-5 h-5 text-amber-600 fill-current" />
-                <h2
-                  className="text-lg font-semibold text-slate-900"
-                  data-testid="text-leadership-heading"
-                >
-                  Leadership ({leadershipMembers.length})
-                </h2>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                {leadershipMembers.map((m) => {
-                  const { displayName, showAvatarImage, anonymised } = m.__display;
-                  const interactive = !anonymised;
-                  const handleOpen = () => {
-                    if (interactive) setSelectedMemberId(m.id);
-                  };
-                  return (
-                    <Card
-                      key={`leader-${m.id}`}
-                      className={`overflow-hidden ${interactive ? "cursor-pointer hover-elevate active-elevate-2" : ""}`}
-                      onClick={interactive ? handleOpen : undefined}
-                      onKeyDown={
-                        interactive
-                          ? (e) => {
-                              if (e.key === "Enter" || e.key === " ") {
-                                e.preventDefault();
-                                handleOpen();
-                              }
-                            }
-                          : undefined
-                      }
-                      role={interactive ? "button" : undefined}
-                      tabIndex={interactive ? 0 : undefined}
-                      data-testid={`card-leader-${m.id}`}
-                    >
-                      <CardContent className="p-3 flex items-center gap-3">
-                        <Avatar className="h-10 w-10 flex-shrink-0">
-                          {showAvatarImage && m.profile_photo_url ? (
-                            <AvatarImage src={m.profile_photo_url} alt={displayName} />
-                          ) : null}
-                          <AvatarFallback className="bg-amber-100 text-amber-800">
-                            {getInitials(displayName)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="min-w-0 flex-1">
-                          <div
-                            className="font-medium text-sm text-slate-900 truncate"
-                            data-testid={`text-leader-name-${m.id}`}
-                            title={displayName}
-                          >
-                            {displayName}
-                          </div>
-                          <div
-                            className="text-xs text-amber-700 truncate flex items-center gap-1"
-                            data-testid={`text-leader-role-${m.id}`}
-                            title={m.__role}
-                          >
-                            <Crown className="w-3 h-3 fill-current flex-shrink-0" />
-                            {m.__role}
-                          </div>
-                          {isGroupAdmin && (
-                            <TermDetails
-                              assignment={m.__assignment}
-                              testIdSuffix={m.id}
-                              onEdit={() => setEditTermTarget(m)}
-                            />
-                          )}
-                        </div>
-                        {anonymised && (
-                          <TooltipProvider delayDuration={100}>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <EyeOff
-                                  className="h-4 w-4 text-slate-400 flex-shrink-0"
-                                  aria-label="Hidden from member directory"
-                                  data-testid={`icon-hidden-leader-${m.id}`}
-                                />
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>Hidden from member directory</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        )}
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center gap-2 mb-4">
@@ -2110,6 +2021,7 @@ export default function MemberGroupDetailPage() {
                       {pagedMembers.map((m) => {
                         const { displayName, showAvatarImage, anonymised } = m.__display;
                         const interactive = !anonymised;
+                        const isLeader = m.__isLeader;
                         const handleOpen = () => {
                           if (interactive) setSelectedMemberId(m.id);
                         };
@@ -2137,7 +2049,13 @@ export default function MemberGroupDetailPage() {
                                 {showAvatarImage && m.profile_photo_url ? (
                                   <AvatarImage src={m.profile_photo_url} alt={displayName} />
                                 ) : null}
-                                <AvatarFallback className="bg-blue-100 text-blue-700">
+                                <AvatarFallback
+                                  className={
+                                    isLeader
+                                      ? "bg-amber-100 text-amber-800"
+                                      : "bg-blue-100 text-blue-700"
+                                  }
+                                >
                                   {getInitials(displayName)}
                                 </AvatarFallback>
                               </Avatar>
@@ -2149,6 +2067,16 @@ export default function MemberGroupDetailPage() {
                                 >
                                   {displayName}
                                 </div>
+                                {isLeader && (
+                                  <div
+                                    className="text-xs text-amber-700 truncate flex items-center gap-1"
+                                    data-testid={`text-leader-role-${m.id}`}
+                                    title={m.__role}
+                                  >
+                                    <Crown className="w-3 h-3 fill-current flex-shrink-0" />
+                                    {m.__role}
+                                  </div>
+                                )}
                                 {isGroupAdmin && (
                                   <TermDetails
                                     assignment={m.__assignment}
