@@ -18,13 +18,17 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
       console.log('[VoucherSelector] Fetching vouchers for org:', organizationId);
       
       // Fetch ALL vouchers, then filter in JavaScript
-      const allVouchers = await base44.entities.Voucher.list();
+      const allVouchers = await base44.entities.Voucher.list() || [];
       
       console.log('[VoucherSelector] All vouchers fetched:', allVouchers.length);
       
-      // Filter for this organization and active status ONLY - no sorting here
+      // Filter for this organization, active status, and not expired - no sorting here
+      const now = new Date();
       const activeVouchers = allVouchers.filter(v => 
-        v.organization_id === organizationId && v.status === 'active'
+        v.organization_id === organizationId && 
+        v.status === 'active' &&
+        // Exclude expired vouchers
+        (!v.expires_at || new Date(v.expires_at) > now)
       );
       
       console.log('[VoucherSelector] Active vouchers for this org:', activeVouchers.length);
@@ -154,10 +158,10 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
 
   if (!organizationId) {
     return (
-      <div className="p-4 rounded-lg border border-amber-200 bg-amber-50">
-        <div className="flex items-start gap-2 text-sm text-amber-600">
+      <div className="p-4 rounded-lg border border-warning/30 bg-warning/10">
+        <div className="flex items-start gap-2 text-sm text-warning">
           <AlertCircle className="w-4 h-4 mt-0.5" />
-          <span>Organization information not available</span>
+          <span>Organisation information not available</span>
         </div>
       </div>
     );
@@ -199,7 +203,7 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
           if (isSelected && isFullyUsed) {
             bgColor = 'bg-green-50';
           } else if (isSelected && showRemainingValue) {
-            bgColor = 'bg-yellow-50';
+            bgColor = 'bg-warning/10';
           } else if (isSelected) {
             bgColor = 'bg-blue-50';
           }
@@ -209,7 +213,7 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
           if (isSelected && isFullyUsed) {
             borderColor = 'border-green-300';
           } else if (isSelected && showRemainingValue) {
-            borderColor = 'border-yellow-300';
+            borderColor = 'border-warning/30';
           } else if (isSelected) {
             borderColor = 'border-blue-500';
           }
@@ -219,7 +223,7 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
           if (isSelected && isFullyUsed) {
             iconColor = 'text-green-600';
           } else if (isSelected && showRemainingValue) {
-            iconColor = 'text-yellow-600';
+            iconColor = 'text-warning';
           } else if (isSelected) {
             iconColor = 'text-blue-600';
           }
@@ -245,15 +249,15 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
                   
                   <div className="flex items-center gap-1 text-xs">
                     <Calendar className="w-3 h-3 text-slate-400" />
-                    <span className={isExpiringSoon ? 'text-amber-600 font-medium' : 'text-slate-500'}>
+                    <span className={isExpiringSoon ? 'text-warning font-medium' : 'text-slate-500'}>
                       Expires {format(expiryDate, 'MMM d, yyyy')}
                       {isExpiringSoon && ` (${daysUntilExpiry} days)`}
                     </span>
                   </div>
                   
                   {showRemainingValue && (
-                    <div className="mt-2 pt-2 border-t border-yellow-200">
-                      <p className="text-xs text-yellow-700 font-medium">
+                    <div className="mt-2 pt-2 border-t border-warning/30">
+                      <p className="text-xs text-warning font-medium">
                         Remaining balance after purchase: £{remainingValue.toFixed(2)}
                       </p>
                     </div>

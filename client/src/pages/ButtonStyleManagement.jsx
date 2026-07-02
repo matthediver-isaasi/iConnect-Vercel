@@ -23,23 +23,23 @@ const iconMap = {
 };
 
 export default function ButtonStyleManagementPage() {
-  const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const queryClient = useQueryClient();
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_ButtonStyleManagement')) {
+      if (isFeatureExcluded('page_ButtonStyleManagement')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: buttonStyles = [], isLoading } = useQuery({
     queryKey: ['buttonStyles'],
-    queryFn: () => base44.entities.ButtonStyle.list('-created_date'),
+    queryFn: () => base44.entities.ButtonStyle.list('-created_at'),
   });
 
   const deleteMutation = useMutation({
@@ -55,7 +55,7 @@ export default function ButtonStyleManagementPage() {
 
   if (!accessChecked) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
       </div>
     );
@@ -209,7 +209,7 @@ export default function ButtonStyleManagementPage() {
   );
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-6xl mx-auto">
         <div className="flex items-center justify-between mb-8">
           <div>

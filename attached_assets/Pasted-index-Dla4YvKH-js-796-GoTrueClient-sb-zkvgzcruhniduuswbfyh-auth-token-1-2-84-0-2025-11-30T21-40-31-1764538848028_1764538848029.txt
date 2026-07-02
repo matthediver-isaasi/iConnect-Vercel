@@ -1,0 +1,52 @@
+index-Dla4YvKH.js:796 GoTrueClient@sb-zkvgzcruhniduuswbfyh-auth-token:1 (2.84.0) 2025-11-30T21:40:31.771Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+np @ index-Dla4YvKH.js:796
+ise @ index-Dla4YvKH.js:797
+_initSupabaseAuthClient @ index-Dla4YvKH.js:797
+lse @ index-Dla4YvKH.js:797
+KF @ index-Dla4YvKH.js:797
+(anonymous) @ index-Dla4YvKH.js:887
+(anonymous) @ index-Dla4YvKH.js:1
+(anonymous) @ index-Dla4YvKH.js:1230
+index-Dla4YvKH.js:40 Error: Minified React error #300; visit https://reactjs.org/docs/error-decoder.html?invariant=300 for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+    at hS (index-Dla4YvKH.js:38:17223)
+    at dN (index-Dla4YvKH.js:40:3139)
+    at v5 (index-Dla4YvKH.js:40:44833)
+    at p5 (index-Dla4YvKH.js:40:39790)
+    at LH (index-Dla4YvKH.js:40:39718)
+    at T0 (index-Dla4YvKH.js:40:39570)
+    at jN (index-Dla4YvKH.js:40:35934)
+    at h5 (index-Dla4YvKH.js:40:34883)
+    at N (index-Dla4YvKH.js:25:1535)
+    at MessagePort.P (index-Dla4YvKH.js:25:1894)
+cN @ index-Dla4YvKH.js:40
+JR.n.callback @ index-Dla4YvKH.js:40
+KE @ index-Dla4YvKH.js:38
+cP @ index-Dla4YvKH.js:40
+u5 @ index-Dla4YvKH.js:40
+RH @ index-Dla4YvKH.js:40
+$H @ index-Dla4YvKH.js:40
+Fc @ index-Dla4YvKH.js:40
+h5 @ index-Dla4YvKH.js:40
+N @ index-Dla4YvKH.js:25
+P @ index-Dla4YvKH.js:25
+index-Dla4YvKH.js:38 Uncaught Error: Minified React error #300; visit https://reactjs.org/docs/error-decoder.html?invariant=300 for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+    at hS (index-Dla4YvKH.js:38:17223)
+    at dN (index-Dla4YvKH.js:40:3139)
+    at v5 (index-Dla4YvKH.js:40:44833)
+    at p5 (index-Dla4YvKH.js:40:39790)
+    at LH (index-Dla4YvKH.js:40:39718)
+    at T0 (index-Dla4YvKH.js:40:39570)
+    at jN (index-Dla4YvKH.js:40:35934)
+    at h5 (index-Dla4YvKH.js:40:34883)
+    at N (index-Dla4YvKH.js:25:1535)
+    at MessagePort.P (index-Dla4YvKH.js:25:1894)
+hS @ index-Dla4YvKH.js:38
+dN @ index-Dla4YvKH.js:40
+v5 @ index-Dla4YvKH.js:40
+p5 @ index-Dla4YvKH.js:40
+LH @ index-Dla4YvKH.js:40
+T0 @ index-Dla4YvKH.js:40
+jN @ index-Dla4YvKH.js:40
+h5 @ index-Dla4YvKH.js:40
+N @ index-Dla4YvKH.js:25
+P @ index-Dla4YvKH.js:25

@@ -76,6 +76,10 @@
       "resolution_notes": {
         "type": "string",
         "description": "Final resolution notes when ticket is closed"
+      },
+      "area": {
+        "type": "string",
+        "description": "Support area this ticket belongs to (tenant-configured)"
       }
     },
     "required": [

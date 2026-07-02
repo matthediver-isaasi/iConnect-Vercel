@@ -1,0 +1,98 @@
+index-CW0hzF3P.js:1246 [publicClient] Detected tenant from subdomain: gfi
+index-CW0hzF3P.js:1331 GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.93.3) 2026-03-17T20:26:19.985Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+HN @ index-CW0hzF3P.js:1331
+index-CW0hzF3P.js:1650 [usePendingPurchaseOrders] memberInfo: null
+index-CW0hzF3P.js:1650 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CW0hzF3P.js:1654 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CW0hzF3P.js:1654 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-CW0hzF3P.js:1650 [usePendingPurchaseOrders] memberInfo: Object
+index-CW0hzF3P.js:1650 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CW0hzF3P.js:1654 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CW0hzF3P.js:1654 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-CW0hzF3P.js:1650 [usePendingPurchaseOrders] Query running, memberInfo.id: 9ac39222-22b8-457e-a5df-dfca45a99eb6
+index-CW0hzF3P.js:1650 [usePendingPurchaseOrders] memberInfo: Object
+index-CW0hzF3P.js:1650 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CW0hzF3P.js:1654 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CW0hzF3P.js:1654 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-CW0hzF3P.js:1650 [usePendingPurchaseOrders] memberInfo: Object
+index-CW0hzF3P.js:1650 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CW0hzF3P.js:1654 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CW0hzF3P.js:1654 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-CW0hzF3P.js:1650 [usePendingPurchaseOrders] memberInfo: Object
+index-CW0hzF3P.js:1650 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CW0hzF3P.js:1654 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CW0hzF3P.js:1654 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-CW0hzF3P.js:1650 [usePendingPurchaseOrders] memberInfo: Object
+index-CW0hzF3P.js:1650 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CW0hzF3P.js:1654 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CW0hzF3P.js:1654 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-CW0hzF3P.js:1650 [usePendingPurchaseOrders] memberInfo: Object
+index-CW0hzF3P.js:1650 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CW0hzF3P.js:1654 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CW0hzF3P.js:1654 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-CW0hzF3P.js:1650 [usePendingPurchaseOrders] memberInfo: Object
+index-CW0hzF3P.js:1650 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CW0hzF3P.js:1654 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CW0hzF3P.js:1654 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-CW0hzF3P.js:1650 [usePendingPurchaseOrders] memberInfo: Object
+index-CW0hzF3P.js:1650 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CW0hzF3P.js:1654 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CW0hzF3P.js:1654 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-CW0hzF3P.js:1650 [usePendingPurchaseOrders] memberInfo: Object
+index-CW0hzF3P.js:1650 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CW0hzF3P.js:1654 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CW0hzF3P.js:1654 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-CW0hzF3P.js:1650 [usePendingPurchaseOrders] Fetched bookings count: 4
+index-CW0hzF3P.js:1650 [usePendingPurchaseOrders] Pending PO bookings: 1
+index-CW0hzF3P.js:1650 [usePendingPurchaseOrders] memberInfo: Object
+index-CW0hzF3P.js:1650 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-CW0hzF3P.js:1654 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-CW0hzF3P.js:1654 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-CW0hzF3P.js:1654 [Layout] Server session found: sharon@onlinem.co.uk
+index-CW0hzF3P.js:1650 [usePendingPurchaseOrders] memberInfo: Object
+index-CW0hzF3P.js:1650 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-CW0hzF3P.js:1654 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-CW0hzF3P.js:1654 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-CW0hzF3P.js:1650 [usePendingPurchaseOrders] memberInfo: Object
+index-CW0hzF3P.js:1650 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-CW0hzF3P.js:1654 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-CW0hzF3P.js:1654 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-CW0hzF3P.js:1650 [usePendingPurchaseOrders] memberInfo: Object
+index-CW0hzF3P.js:1650 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-CW0hzF3P.js:1654 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-CW0hzF3P.js:1654 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-CW0hzF3P.js:40 ReferenceError: formData is not defined
+    at index-CW0hzF3P.js:2739:183868
+    at Array.map (<anonymous>)
+    at children (index-CW0hzF3P.js:2739:183751)
+    at eQe (index-CW0hzF3P.js:1848:21349)
+    at eL (index-CW0hzF3P.js:38:17050)
+    at CF (index-CW0hzF3P.js:40:3150)
+    at fse (index-CW0hzF3P.js:40:44967)
+    at mse (index-CW0hzF3P.js:40:39894)
+    at Vwe (index-CW0hzF3P.js:40:39817)
+    at Pk (index-CW0hzF3P.js:40:39666)
+SF @ index-CW0hzF3P.js:40
+index-CW0hzF3P.js:40 ReferenceError: formData is not defined
+    at index-CW0hzF3P.js:2739:183868
+    at Array.map (<anonymous>)
+    at children (index-CW0hzF3P.js:2739:183751)
+    at eQe (index-CW0hzF3P.js:1848:21349)
+    at eL (index-CW0hzF3P.js:38:17050)
+    at CF (index-CW0hzF3P.js:40:3150)
+    at fse (index-CW0hzF3P.js:40:44967)
+    at mse (index-CW0hzF3P.js:40:39894)
+    at Vwe (index-CW0hzF3P.js:40:39817)
+    at Pk (index-CW0hzF3P.js:40:39666)
+SF @ index-CW0hzF3P.js:40
+index-CW0hzF3P.js:38 Uncaught ReferenceError: formData is not defined
+    at index-CW0hzF3P.js:2739:183868
+    at Array.map (<anonymous>)
+    at children (index-CW0hzF3P.js:2739:183751)
+    at eQe (index-CW0hzF3P.js:1848:21349)
+    at eL (index-CW0hzF3P.js:38:17050)
+    at CF (index-CW0hzF3P.js:40:3150)
+    at fse (index-CW0hzF3P.js:40:44967)
+    at mse (index-CW0hzF3P.js:40:39894)
+    at Vwe (index-CW0hzF3P.js:40:39817)
+    at Pk (index-CW0hzF3P.js:40:39666)

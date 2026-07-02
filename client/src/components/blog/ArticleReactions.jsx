@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { ThumbsUp, ThumbsDown } from "lucide-react";
@@ -9,8 +10,10 @@ import { useArticleReactionRealtime } from "@/hooks/useArticleReactionRealtime";
 export default function ArticleReactions({ articleId, memberInfo, showThumbsUp = true, showThumbsDown = true }) {
   const [userIdentifier, setUserIdentifier] = useState("");
   const queryClient = useQueryClient();
+  const isAuthenticated = !!memberInfo;
   
-  useArticleReactionRealtime(articleId, userIdentifier);
+  // Only use realtime for authenticated users
+  useArticleReactionRealtime(isAuthenticated ? articleId : null, userIdentifier);
 
   // Generate or retrieve user identifier
   useEffect(() => {
@@ -26,63 +29,103 @@ export default function ArticleReactions({ articleId, memberInfo, showThumbsUp =
     }
   }, [memberInfo]);
 
-  // Fetch all reactions for this article
+  // Single query to fetch all reactions for this article - use public API for unauthenticated users
   const { data: allReactions = [] } = useQuery({
-    queryKey: ['article-reactions', articleId],
+    queryKey: ['article-reactions', articleId, isAuthenticated],
     queryFn: async () => {
-      const reactions = await base44.entities.ArticleReaction.list();
-      return reactions.filter(r => r.article_id === articleId);
+      if (isAuthenticated) {
+        const reactions = await base44.entities.ArticleReaction.list() || [];
+        return reactions.filter(r => r.article_id === articleId);
+      } else {
+        const result = await publicClient.getArticleReactions(articleId);
+        return result.reactions || [];
+      }
     },
     enabled: !!articleId,
   });
 
-  // Fetch user's reaction
-  const { data: userReaction } = useQuery({
-    queryKey: ['user-article-reaction', articleId, userIdentifier],
-    queryFn: async () => {
-      if (!userIdentifier) return null;
-      const reactions = await base44.entities.ArticleReaction.list();
-      return reactions.find(r => r.article_id === articleId && r.user_identifier === userIdentifier);
-    },
-    enabled: !!articleId && !!userIdentifier,
-  });
+  // Derive user reaction from allReactions (no separate fetch)
+  const userReaction = userIdentifier 
+    ? allReactions.find(r => r.user_identifier === userIdentifier)
+    : null;
 
   // Calculate counts
   const thumbsUpCount = allReactions.filter(r => r.reaction_type === 'up').length;
   const thumbsDownCount = allReactions.filter(r => r.reaction_type === 'down').length;
 
-  // Reaction mutation
+  // Reaction mutation with optimistic updates - use public API for unauthenticated users
   const reactionMutation = useMutation({
     mutationFn: async (reactionType) => {
-      // If user already has this reaction, remove it
-      if (userReaction && userReaction.reaction_type === reactionType) {
-        await base44.entities.ArticleReaction.delete(userReaction.id);
-        return { action: 'removed' };
-      }
+      if (isAuthenticated) {
+        // Use base44 API for authenticated users
+        const currentUserReaction = userReaction;
 
-      // If user has opposite reaction, update it
-      if (userReaction && userReaction.reaction_type !== reactionType) {
-        await base44.entities.ArticleReaction.update(userReaction.id, {
-          reaction_type: reactionType
+        if (currentUserReaction && currentUserReaction.reaction_type === reactionType) {
+          await base44.entities.ArticleReaction.delete(currentUserReaction.id);
+          return { action: 'removed', reactionType };
+        }
+
+        if (currentUserReaction && currentUserReaction.reaction_type !== reactionType) {
+          await base44.entities.ArticleReaction.update(currentUserReaction.id, {
+            reaction_type: reactionType
+          });
+          return { action: 'switched', reactionType };
+        }
+
+        await base44.entities.ArticleReaction.create({
+          article_id: articleId,
+          reaction_type: reactionType,
+          user_identifier: userIdentifier,
+          is_member: true
         });
-        return { action: 'switched' };
+        return { action: 'added', reactionType };
+      } else {
+        // Use public API for unauthenticated users
+        const result = await publicClient.postArticleReaction(articleId, {
+          reaction_type: reactionType,
+          user_identifier: userIdentifier,
+          is_member: false
+        });
+        return result;
       }
-
-      // Add new reaction
-      await base44.entities.ArticleReaction.create({
-        article_id: articleId,
-        reaction_type: reactionType,
-        user_identifier: userIdentifier,
-        is_member: !!memberInfo
+    },
+    onMutate: async (reactionType) => {
+      // Cancel outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ['article-reactions', articleId, isAuthenticated] });
+      
+      // Snapshot previous value
+      const previousReactions = queryClient.getQueryData(['article-reactions', articleId, isAuthenticated]);
+      
+      // Optimistically update
+      queryClient.setQueryData(['article-reactions', articleId, isAuthenticated], (old) => {
+        if (!old) return old;
+        const existing = old.find(r => r.user_identifier === userIdentifier);
+        
+        if (existing && existing.reaction_type === reactionType) {
+          return old.filter(r => r.id !== existing.id);
+        } else if (existing) {
+          return old.map(r => r.id === existing.id ? { ...r, reaction_type: reactionType } : r);
+        } else {
+          return [...old, { 
+            id: `temp-${Date.now()}`, 
+            article_id: articleId, 
+            reaction_type: reactionType, 
+            user_identifier: userIdentifier,
+            is_member: isAuthenticated
+          }];
+        }
       });
-      return { action: 'added' };
+      
+      return { previousReactions };
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['article-reactions', articleId] });
-      queryClient.invalidateQueries({ queryKey: ['user-article-reaction', articleId, userIdentifier] });
-    },
-    onError: () => {
+    onError: (err, reactionType, context) => {
+      if (context?.previousReactions) {
+        queryClient.setQueryData(['article-reactions', articleId, isAuthenticated], context.previousReactions);
+      }
       toast.error('Failed to update reaction');
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['article-reactions', articleId, isAuthenticated] });
     },
   });
 

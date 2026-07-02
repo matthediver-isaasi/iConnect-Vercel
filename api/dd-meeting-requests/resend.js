@@ -1,0 +1,185 @@
+import { supabase } from '../_lib/database.js';
+import { getTenantContext } from '../_lib/tenantContext.js';
+import { sendEmail, replacePlaceholders } from '../_lib/emailService.js';
+
+export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+    const tenantContext = await getTenantContext(req);
+    if (!tenantContext || !tenantContext.isAuthenticated) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    const tenantId = tenantContext.tenantId;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'Tenant context required' });
+    }
+
+    const { meetingRequestId } = req.body;
+    if (!meetingRequestId) {
+      return res.status(400).json({ error: 'meetingRequestId is required' });
+    }
+
+    const { data: meetingRequest, error: mrError } = await supabase
+      .from('dd_meeting_request')
+      .select(`
+        *,
+        meeting_template:meeting_template_id (
+          id, name, slug, duration_minutes, meeting_type, email_template_id
+        ),
+        agent:agent_identity_id (
+          id, first_name, last_name, email
+        )
+      `)
+      .eq('id', meetingRequestId)
+      .eq('tenant_id', tenantId)
+      .single();
+
+    if (mrError || !meetingRequest) {
+      return res.status(404).json({ error: 'Meeting request not found' });
+    }
+
+    if (meetingRequest.status === 'booked') {
+      return res.status(400).json({ error: 'Cannot resend - meeting already booked' });
+    }
+
+    const template = meetingRequest.meeting_template;
+    if (!template?.email_template_id) {
+      return res.status(400).json({ error: 'No email template configured for this meeting type' });
+    }
+
+    const { data: emailTemplate, error: templateError } = await supabase
+      .from('email_template')
+      .select('*')
+      .eq('id', template.email_template_id)
+      .eq('tenant_id', tenantId)
+      .single();
+
+    if (templateError || !emailTemplate) {
+      return res.status(400).json({ error: 'Email template not found' });
+    }
+
+    const { data: tenant } = await supabase
+      .from('tenant')
+      .select('slug')
+      .eq('id', tenantId)
+      .single();
+
+    const baseUrl = `https://${tenant?.slug || 'app'}.iconn.app`;
+
+    // Get the member's handle via tenant_membership - the booking API looks up by member.handle
+    // Note: We do two queries because there's no FK relationship for PostgREST join
+    const { data: agentMembership } = await supabase
+      .from('tenant_membership')
+      .select('member_id')
+      .eq('identity_id', meetingRequest.agent_identity_id)
+      .eq('tenant_id', tenantId)
+      .single();
+
+    if (!agentMembership?.member_id) {
+      return res.status(400).json({ error: 'Agent has no membership configured' });
+    }
+
+    const { data: agentMember } = await supabase
+      .from('member')
+      .select('id, handle, first_name, last_name, email, organization_id')
+      .eq('id', agentMembership.member_id)
+      .single();
+
+    let agentOrganization = null;
+    if (agentMember?.organization_id) {
+      const { data: orgRow } = await supabase
+        .from('organization')
+        .select('id, name, invoicing_email, phone')
+        .eq('id', agentMember.organization_id)
+        .maybeSingle();
+      agentOrganization = orgRow || null;
+    }
+
+    const agentHandle = agentMember?.handle;
+    if (!agentHandle) {
+      return res.status(400).json({ error: 'Agent has no booking handle configured' });
+    }
+
+    const bookingUrl = `${baseUrl}/book/${encodeURIComponent(agentHandle)}?meeting=${encodeURIComponent(template.slug)}&dd_request=${encodeURIComponent(meetingRequestId)}`;
+    const agentName = [meetingRequest.agent?.first_name, meetingRequest.agent?.last_name].filter(Boolean).join(' ') || 'Team Member';
+    const recipientName = meetingRequest.recipient_first_name || 'there';
+
+    let subject = emailTemplate.subject || 'Meeting Invitation';
+    let body = emailTemplate.body || '';
+
+    subject = subject
+      .replace(/\{\{recipient_name\}\}/gi, recipientName)
+      .replace(/\{\{recipient_email\}\}/gi, meetingRequest.recipient_email)
+      .replace(/\{\{meeting_type\}\}/gi, template.name)
+      .replace(/\{\{duration\}\}/gi, `${template.duration_minutes} minutes`)
+      .replace(/\{\{agent_name\}\}/gi, agentName)
+      .replace(/\{\{booking_url\}\}/gi, bookingUrl)
+      .replace(/\{\{booking_link\}\}/gi, `<a href="${bookingUrl}">Book a meeting</a>`);
+
+    body = body
+      .replace(/\{\{recipient_name\}\}/gi, recipientName)
+      .replace(/\{\{recipient_email\}\}/gi, meetingRequest.recipient_email)
+      .replace(/\{\{meeting_type\}\}/gi, template.name)
+      .replace(/\{\{duration\}\}/gi, `${template.duration_minutes} minutes`)
+      .replace(/\{\{agent_name\}\}/gi, agentName)
+      .replace(/\{\{booking_url\}\}/gi, bookingUrl)
+      .replace(/\{\{booking_link\}\}/gi, `<a href="${bookingUrl}">Book a meeting</a>`);
+
+    // Run agent's member + org row through the generic placeholder helper
+    // so any [[member.*]] / [[organization.*]] tokens (e.g. signature blocks
+    // the agent has set up referencing themselves or their org) resolve in
+    // the template body and subject. Underscore aliases (member_first_name,
+    // organization_name, etc.) are added explicitly so that prefix-less
+    // tokens like [[member_first_name]] also resolve via the helper's
+    // direct-lookup fallback path.
+    const agentMemberContext = {
+      id: agentMember?.id || '',
+      first_name: agentMember?.first_name || '',
+      last_name: agentMember?.last_name || '',
+      email: agentMember?.email || meetingRequest.agent?.email || '',
+      member_id: agentMember?.id || '',
+      member_first_name: agentMember?.first_name || '',
+      member_last_name: agentMember?.last_name || '',
+      member_full_name: `${agentMember?.first_name || ''} ${agentMember?.last_name || ''}`.trim(),
+      member_email: agentMember?.email || meetingRequest.agent?.email || '',
+      organization_id: agentOrganization?.id || '',
+      organization_name: agentOrganization?.name || '',
+      organization_invoicing_email: agentOrganization?.invoicing_email || '',
+      organization_phone: agentOrganization?.phone || '',
+    };
+    subject = replacePlaceholders(subject, 'member', agentMemberContext, { tenantId, memberId: agentMember?.id || null });
+    body = replacePlaceholders(body, 'member', agentMemberContext, { tenantId, memberId: agentMember?.id || null });
+
+    await sendEmail({
+      to: meetingRequest.recipient_email,
+      subject,
+      html: body,
+      from: emailTemplate.from_email,
+      replyTo: emailTemplate.reply_to,
+      tenantId
+    });
+
+    const { error: updateError } = await supabase
+      .from('dd_meeting_request')
+      .update({
+        last_resent_at: new Date().toISOString(),
+        resend_count: (meetingRequest.resend_count || 0) + 1,
+        booking_url: bookingUrl
+      })
+      .eq('id', meetingRequestId)
+      .eq('tenant_id', tenantId);
+
+    if (updateError) {
+      console.error('[DD Meeting Requests] Failed to update resend info:', updateError);
+    }
+
+    return res.status(200).json({ success: true, message: 'Meeting invitation resent successfully' });
+  } catch (error) {
+    console.error('[DD Meeting Requests] Resend error:', error);
+    return res.status(500).json({ error: 'Failed to resend meeting invitation' });
+  }
+}

@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>svg mask test</title>
+<style>
+  body { background:#0b3d91; padding:24px; font-family:sans-serif; }
+  .row { display:flex; align-items:center; gap:16px; margin-bottom:16px; color:#fff; }
+  .glyph { display:inline-block; width:32px; height:32px; }
+</style>
+</head>
+<body>
+<div id="out"></div>
+<script>
+const raw = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>';
+
+function dataUri(svg){ return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg); }
+
+const cases = [
+  ['1. mask, raw (current code)', maskSpan(dataUri(raw))],
+  ['2. mask, currentColor->black', maskSpan(dataUri(raw.replace(/currentColor/g,'black')))],
+  ['3. mask, currentColor->black + fill=black', maskSpan(dataUri(raw.replace('fill="none"','fill="black"').replace(/currentColor/g,'black')))],
+  ['4. img tag, raw', imgSpan(dataUri(raw))],
+  ['5. mask, base64 data uri', maskSpan(b64(raw))],
+  ['6. mask, plain (no ;utf8)', maskSpan('data:image/svg+xml,' + encodeURIComponent(raw))],
+];
+
+function b64(svg){ return 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg))); }
+
+function maskSpan(uri){
+  const s = document.createElement('span');
+  s.className='glyph';
+  s.style.backgroundColor='#ffcc00';
+  s.style.webkitMaskImage='url("'+uri+'")';
+  s.style.maskImage='url("'+uri+'")';
+  s.style.webkitMaskRepeat='no-repeat'; s.style.maskRepeat='no-repeat';
+  s.style.webkitMaskPosition='center'; s.style.maskPosition='center';
+  s.style.webkitMaskSize='contain'; s.style.maskSize='contain';
+  return s;
+}
+function imgSpan(uri){ const i=document.createElement('img'); i.className='glyph'; i.src=uri; return i; }
+
+const out=document.getElementById('out');
+for(const [label,el] of cases){
+  const row=document.createElement('div'); row.className='row';
+  const lbl=document.createElement('div'); lbl.textContent=label; lbl.style.width='280px';
+  row.appendChild(lbl); row.appendChild(el); out.appendChild(row);
+}
+</script>
+</body>
+</html>

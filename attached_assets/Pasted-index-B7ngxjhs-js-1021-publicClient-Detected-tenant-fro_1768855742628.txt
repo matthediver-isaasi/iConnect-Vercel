@@ -1,0 +1,139 @@
+index-B7ngxjhs.js:1021 [publicClient] Detected tenant from subdomain: gsf
+index-B7ngxjhs.js:1106 GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.84.0) 2026-01-19T20:46:43.838Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+$g @ index-B7ngxjhs.js:1106
+_oe @ index-B7ngxjhs.js:1107
+_initSupabaseAuthClient @ index-B7ngxjhs.js:1107
+Noe @ index-B7ngxjhs.js:1107
+$z @ index-B7ngxjhs.js:1107
+(anonymous) @ index-B7ngxjhs.js:2089
+(anonymous) @ index-B7ngxjhs.js:1
+(anonymous) @ index-B7ngxjhs.js:2502
+index-B7ngxjhs.js:1410 [usePendingPurchaseOrders] memberInfo: null
+index-B7ngxjhs.js:1410 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-B7ngxjhs.js:1410 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-B7ngxjhs.js:1410 [Layout] currentPageName: FormView currentPortalPageId: null
+index-B7ngxjhs.js:1410 [usePendingPurchaseOrders] memberInfo: null
+index-B7ngxjhs.js:1410 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-B7ngxjhs.js:1410 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-B7ngxjhs.js:1410 [Layout] currentPageName: FormView currentPortalPageId: null
+index-B7ngxjhs.js:1410 [usePendingPurchaseOrders] memberInfo: null
+index-B7ngxjhs.js:1410 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-B7ngxjhs.js:1410 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-B7ngxjhs.js:1410 [Layout] currentPageName: FormView currentPortalPageId: null
+index-B7ngxjhs.js:1410 [usePendingPurchaseOrders] memberInfo: null
+index-B7ngxjhs.js:1410 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-B7ngxjhs.js:1410 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-B7ngxjhs.js:1410 [Layout] currentPageName: FormView currentPortalPageId: null
+index-B7ngxjhs.js:1410 [usePendingPurchaseOrders] memberInfo: null
+index-B7ngxjhs.js:1410 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-B7ngxjhs.js:1410 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-B7ngxjhs.js:1410 [Layout] currentPageName: FormView currentPortalPageId: null
+index-B7ngxjhs.js:1410 [usePendingPurchaseOrders] memberInfo: null
+index-B7ngxjhs.js:1410 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-B7ngxjhs.js:1410 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-B7ngxjhs.js:1410 [Layout] currentPageName: FormView currentPortalPageId: null
+index-B7ngxjhs.js:2396 [FormView] entity_pipelines.members: undefined
+index-B7ngxjhs.js:2396 [FormView] First member object (full): none
+index-B7ngxjhs.js:2396 [FormView] primaryMember: undefined
+index-B7ngxjhs.js:2396 [FormView] Extracted primaryMemberRoleId: null
+index-B7ngxjhs.js:2396 [FormView] Using prefillOrgId for capacity: 77783bc9-7c4b-4cbb-bd8b-b7e976dfe9ee
+index-B7ngxjhs.js:2396 [FormView] Capacity check state: {primaryMemberRoleId: null, isCheckingCapacity: false, roleCapacity: undefined, prefillOrgName: null, effectiveOrgIdForCapacity: '77783bc9-7c4b-4cbb-bd8b-b7e976dfe9ee', …}
+index-B7ngxjhs.js:2396 [FormView DEBUG] Org Custom Fields Query Setup: {formPrefillSource: undefined, prefillOrgId: '77783bc9-7c4b-4cbb-bd8b-b7e976dfe9ee', prefillMemberOrgId: undefined, effectiveOrgIdForCustomFields: undefined, queryEnabled: false}
+index-B7ngxjhs.js:2396 [FormView DEBUG] Org Custom Values State: {prefillOrgCustomValues: Array(0), orgCustomValuesLoading: false, orgCustomValuesError: undefined}
+index-B7ngxjhs.js:2396 [FormView Init] Initial hidden fields from starts_hidden: []
+index-B7ngxjhs.js:2396 [FormView Init] All fields with starts_hidden property: undefined
+index-B7ngxjhs.js:1107 [useNavigationRealtime] Setting up realtime subscription for navigation_item table
+index-B7ngxjhs.js:1021 [publicClient] Detected tenant from subdomain: gsf
+index-B7ngxjhs.js:2396 [FormView] Capacity check state: {primaryMemberRoleId: null, isCheckingCapacity: false, roleCapacity: undefined, prefillOrgName: null, effectiveOrgIdForCapacity: '77783bc9-7c4b-4cbb-bd8b-b7e976dfe9ee', …}
+index-B7ngxjhs.js:2396 [FormView DEBUG] Org Custom Fields Query Setup: {formPrefillSource: undefined, prefillOrgId: '77783bc9-7c4b-4cbb-bd8b-b7e976dfe9ee', prefillMemberOrgId: undefined, effectiveOrgIdForCustomFields: undefined, queryEnabled: false}
+index-B7ngxjhs.js:2396 [FormView DEBUG] Org Custom Values State: {prefillOrgCustomValues: Array(0), orgCustomValuesLoading: false, orgCustomValuesError: undefined}
+index-B7ngxjhs.js:1107 [useNavigationRealtime] Subscription status: SUBSCRIBED
+index-B7ngxjhs.js:1410 [Layout] Server returned null for /api/auth/me - member deleted or disabled
+index-B7ngxjhs.js:1410 [usePendingPurchaseOrders] memberInfo: null
+index-B7ngxjhs.js:1410 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-B7ngxjhs.js:1410 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-B7ngxjhs.js:1410 [Layout] currentPageName: FormView currentPortalPageId: null
+index-B7ngxjhs.js:2396 [FormView] Capacity check state: {primaryMemberRoleId: null, isCheckingCapacity: false, roleCapacity: undefined, prefillOrgName: null, effectiveOrgIdForCapacity: '77783bc9-7c4b-4cbb-bd8b-b7e976dfe9ee', …}
+index-B7ngxjhs.js:2396 [FormView DEBUG] Org Custom Fields Query Setup: {formPrefillSource: undefined, prefillOrgId: '77783bc9-7c4b-4cbb-bd8b-b7e976dfe9ee', prefillMemberOrgId: undefined, effectiveOrgIdForCustomFields: undefined, queryEnabled: false}
+index-B7ngxjhs.js:2396 [FormView DEBUG] Org Custom Values State: {prefillOrgCustomValues: Array(0), orgCustomValuesLoading: false, orgCustomValuesError: undefined}
+index-B7ngxjhs.js:2396 [FormView] Capacity check state: {primaryMemberRoleId: null, isCheckingCapacity: false, roleCapacity: undefined, prefillOrgName: null, effectiveOrgIdForCapacity: '77783bc9-7c4b-4cbb-bd8b-b7e976dfe9ee', …}
+index-B7ngxjhs.js:2396 [FormView DEBUG] Org Custom Fields Query Setup: {formPrefillSource: undefined, prefillOrgId: '77783bc9-7c4b-4cbb-bd8b-b7e976dfe9ee', prefillMemberOrgId: undefined, effectiveOrgIdForCustomFields: undefined, queryEnabled: false}
+index-B7ngxjhs.js:2396 [FormView DEBUG] Org Custom Values State: {prefillOrgCustomValues: Array(0), orgCustomValuesLoading: false, orgCustomValuesError: undefined}
+index-B7ngxjhs.js:1376 [PublicLayout] Fetching banners for page: FormView portalPageId: null isCustomSlug: false urlSlug: Articles
+index-B7ngxjhs.js:1376 [PublicLayout] All banners found: 15
+index-B7ngxjhs.js:1376 [PublicLayout] pageToPortalPageMap keys: (26) ['Events', 'PublicEvents', 'Bookings', 'MyTickets', 'BuyProgramTickets', 'MemberDirectory', 'OrganisationDirectory', 'Resources', 'PublicResources', 'Articles', 'PublicArticles', 'Team', 'Balances', 'History', 'Profile', 'MyOrganisation', 'JobBoard', 'PublicJobBoard', 'News', 'PublicNews', 'NewsView', 'MyJobPostings', 'Preferences', 'about-me', 'Support', 'Dashboard']
+index-B7ngxjhs.js:1376 [PublicLayout] Matched banners: 0
+index-B7ngxjhs.js:2396 [FormView] Capacity check state: {primaryMemberRoleId: null, isCheckingCapacity: false, roleCapacity: undefined, prefillOrgName: 'testorga', effectiveOrgIdForCapacity: '77783bc9-7c4b-4cbb-bd8b-b7e976dfe9ee', …}
+index-B7ngxjhs.js:2396 [FormView DEBUG] Org Custom Fields Query Setup: {formPrefillSource: undefined, prefillOrgId: '77783bc9-7c4b-4cbb-bd8b-b7e976dfe9ee', prefillMemberOrgId: undefined, effectiveOrgIdForCustomFields: undefined, queryEnabled: false}
+index-B7ngxjhs.js:2396 [FormView DEBUG] Org Custom Values State: {prefillOrgCustomValues: Array(0), orgCustomValuesLoading: false, orgCustomValuesError: undefined}
+index-B7ngxjhs.js:2396 [FormView] Capacity check state: {primaryMemberRoleId: null, isCheckingCapacity: false, roleCapacity: undefined, prefillOrgName: 'testorga', effectiveOrgIdForCapacity: '77783bc9-7c4b-4cbb-bd8b-b7e976dfe9ee', …}
+index-B7ngxjhs.js:2396 [FormView DEBUG] Org Custom Fields Query Setup: {formPrefillSource: undefined, prefillOrgId: '77783bc9-7c4b-4cbb-bd8b-b7e976dfe9ee', prefillMemberOrgId: undefined, effectiveOrgIdForCustomFields: undefined, queryEnabled: false}
+index-B7ngxjhs.js:2396 [FormView DEBUG] Org Custom Values State: {prefillOrgCustomValues: Array(0), orgCustomValuesLoading: false, orgCustomValuesError: undefined}
+index-B7ngxjhs.js:2396 [FormView] entity_pipelines.members: []
+index-B7ngxjhs.js:2396 [FormView] First member object (full): none
+index-B7ngxjhs.js:2396 [FormView] primaryMember: undefined
+index-B7ngxjhs.js:2396 [FormView] Extracted primaryMemberRoleId: null
+index-B7ngxjhs.js:2396 [FormView] Capacity check state: {primaryMemberRoleId: null, isCheckingCapacity: false, roleCapacity: undefined, prefillOrgName: 'testorga', effectiveOrgIdForCapacity: '77783bc9-7c4b-4cbb-bd8b-b7e976dfe9ee', …}
+index-B7ngxjhs.js:2396 [FormView DEBUG] Org Custom Fields Query Setup: {formPrefillSource: 'organization', prefillOrgId: '77783bc9-7c4b-4cbb-bd8b-b7e976dfe9ee', prefillMemberOrgId: undefined, effectiveOrgIdForCustomFields: '77783bc9-7c4b-4cbb-bd8b-b7e976dfe9ee', queryEnabled: true}
+index-B7ngxjhs.js:2396 [FormView DEBUG] Org Custom Values State: {prefillOrgCustomValues: Array(0), orgCustomValuesLoading: true, orgCustomValuesError: undefined}
+index-B7ngxjhs.js:2396 [FormView Init] Field "CEO first name" (field_1768822633632) has starts_hidden=true, adding to initial hidden
+index-B7ngxjhs.js:2396 [FormView Init] Field "CEO last name" (field_1768822653764) has starts_hidden=true, adding to initial hidden
+index-B7ngxjhs.js:2396 [FormView Init] Field "Email of CEO" (field_1768822667197) has starts_hidden=true, adding to initial hidden
+index-B7ngxjhs.js:2396 [FormView Init] Field "If you are not registered in any of the countries, please tell us why?" (field_1768823830032) has starts_hidden=true, adding to initial hidden
+index-B7ngxjhs.js:2396 [FormView Init] Field "Describe your engagement with the government" (field_1768828450327) has starts_hidden=true, adding to initial hidden
+index-B7ngxjhs.js:2396 [FormView Init] Field "Child Safety Policy Help" (field_1768828550914) has starts_hidden=true, adding to initial hidden
+index-B7ngxjhs.js:2396 [FormView Init] Initial hidden fields from starts_hidden: (6) ['field_1768822633632', 'field_1768822653764', 'field_1768822667197', 'field_1768823830032', 'field_1768828450327', 'field_1768828550914']
+index-B7ngxjhs.js:2396 [FormView Init] All fields with starts_hidden property: (63) [{…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}]
+index-B7ngxjhs.js:2396 [FormView Visibility] Evaluating visibility rules, fieldVisibility: {field_1768828550914: {…}, field_1768822633632: {…}, field_1768822653764: {…}, field_1768822667197: {…}, field_1768822749231: {…}, …}
+index-B7ngxjhs.js:2396 [FormView Visibility] Final hidden set: (6) ['field_1768822633632', 'field_1768822653764', 'field_1768822667197', 'field_1768823830032', 'field_1768828450327', 'field_1768828550914']
+index-B7ngxjhs.js:2396 [FormView] Capacity block decision: {primaryMemberRoleId: null, roleCapacity: undefined, hasCapacity: undefined, prefillOrgId: '77783bc9-7c4b-4cbb-bd8b-b7e976dfe9ee', prefillOrgName: 'testorga', …}
+index-B7ngxjhs.js:2396 [FormView DEBUG] Fetching org custom values for org: 77783bc9-7c4b-4cbb-bd8b-b7e976dfe9ee
+index-B7ngxjhs.js:2396 [FormView Init] Hidden field "CEO first name" (field_1768822633632) initialized with empty string (no default_value)
+index-B7ngxjhs.js:2396 [FormView Init] Hidden field "CEO last name" (field_1768822653764) initialized with empty string (no default_value)
+index-B7ngxjhs.js:2396 [FormView Init] Hidden field "Email of CEO" (field_1768822667197) initialized with empty string (no default_value)
+index-B7ngxjhs.js:2396 [FormView Init] Hidden field "If you are not registered in any of the countries, please tell us why?" (field_1768823830032) initialized with empty string (no default_value)
+index-B7ngxjhs.js:2396 [FormView Init] Hidden field "Describe your engagement with the government" (field_1768828450327) initialized with empty string (no default_value)
+index-B7ngxjhs.js:2396 [FormView Init] Hidden field "Child Safety Policy Help" (field_1768828550914) initialized with empty string (no default_value)
+index-B7ngxjhs.js:2396 [FormView Init] Field "Would you like to receive communication from GSF?" (field_1768830616942) initialized with default_value: (2) ['Community newsletter (Snapshot)', 'Event Updates']
+index-B7ngxjhs.js:2396 [FormView] Capacity check state: {primaryMemberRoleId: null, isCheckingCapacity: false, roleCapacity: undefined, prefillOrgName: 'testorga', effectiveOrgIdForCapacity: '77783bc9-7c4b-4cbb-bd8b-b7e976dfe9ee', …}
+index-B7ngxjhs.js:2396 [FormView DEBUG] Org Custom Fields Query Setup: {formPrefillSource: 'organization', prefillOrgId: '77783bc9-7c4b-4cbb-bd8b-b7e976dfe9ee', prefillMemberOrgId: undefined, effectiveOrgIdForCustomFields: '77783bc9-7c4b-4cbb-bd8b-b7e976dfe9ee', queryEnabled: true}
+index-B7ngxjhs.js:2396 [FormView DEBUG] Org Custom Values State: {prefillOrgCustomValues: Array(0), orgCustomValuesLoading: true, orgCustomValuesError: undefined}
+index-B7ngxjhs.js:2396 [FormView Visibility] Evaluating visibility rules, fieldVisibility: {field_1768828550914: {…}, field_1768822633632: {…}, field_1768822653764: {…}, field_1768822667197: {…}, field_1768822749231: {…}, …}
+index-B7ngxjhs.js:2396 [FormView Visibility] Final hidden set: (6) ['field_1768822633632', 'field_1768822653764', 'field_1768822667197', 'field_1768823830032', 'field_1768828450327', 'field_1768828550914']
+index-B7ngxjhs.js:2396 [FormView] Capacity block decision: {primaryMemberRoleId: null, roleCapacity: undefined, hasCapacity: undefined, prefillOrgId: '77783bc9-7c4b-4cbb-bd8b-b7e976dfe9ee', prefillOrgName: 'testorga', …}
+index-B7ngxjhs.js:2396 [FormView Prefill] ========== PREFILL DEBUG START ==========
+index-B7ngxjhs.js:2396 [FormView Prefill] Form prefill_source: organization
+index-B7ngxjhs.js:2396 [FormView Prefill] Member entity: undefined
+index-B7ngxjhs.js:2396 [FormView Prefill] Org entity: {id: '77783bc9-7c4b-4cbb-bd8b-b7e976dfe9ee', name: 'testorga', logo_url: null, program_ticket_balances: {…}, phone: null, …}
+index-B7ngxjhs.js:2396 [FormView Prefill] prefillMemberCustomValues: []
+index-B7ngxjhs.js:2396 [FormView Prefill] prefillOrgCustomValues: []
+index-B7ngxjhs.js:2396 [FormView Prefill] Fields with prefill_field configured: (5) [{…}, {…}, {…}, {…}, {…}]
+index-B7ngxjhs.js:2396 [FormView Prefill DEBUG] Looking for org_custom field_id: "8f08906a-80b5-47bc-8d98-ee217d307b7d"
+index-B7ngxjhs.js:2396 [FormView Prefill DEBUG] Available prefillOrgCustomValues: []
+index-B7ngxjhs.js:2396 [FormView Prefill DEBUG] Found match: undefined
+index-B7ngxjhs.js:2396 [FormView Prefill] Applicant first name: org_custom:8f08906a-80b5-47bc-8d98-ee217d307b7d = "null"
+index-B7ngxjhs.js:2396 [FormView Prefill DEBUG] Looking for org_custom field_id: "268300dd-6e22-4f10-b3bd-213c0ee0f424"
+index-B7ngxjhs.js:2396 [FormView Prefill DEBUG] Available prefillOrgCustomValues: []
+index-B7ngxjhs.js:2396 [FormView Prefill DEBUG] Found match: undefined
+index-B7ngxjhs.js:2396 [FormView Prefill] Applicant last name: org_custom:268300dd-6e22-4f10-b3bd-213c0ee0f424 = "null"
+index-B7ngxjhs.js:2396 [FormView Prefill DEBUG] Looking for org_custom field_id: "1833e681-6bb7-4ccc-a953-70dda8cc4920"
+index-B7ngxjhs.js:2396 [FormView Prefill DEBUG] Available prefillOrgCustomValues: []
+index-B7ngxjhs.js:2396 [FormView Prefill DEBUG] Found match: undefined
+index-B7ngxjhs.js:2396 [FormView Prefill] Job title: org_custom:1833e681-6bb7-4ccc-a953-70dda8cc4920 = "null"
+index-B7ngxjhs.js:2396 [FormView Prefill DEBUG] Looking for org_custom field_id: "df161bcf-c88f-400f-a8e3-0873117b938c"
+index-B7ngxjhs.js:2396 [FormView Prefill DEBUG] Available prefillOrgCustomValues: []
+index-B7ngxjhs.js:2396 [FormView Prefill DEBUG] Found match: undefined
+index-B7ngxjhs.js:2396 [FormView Prefill] Applicant email: org_custom:df161bcf-c88f-400f-a8e3-0873117b938c = "null"
+index-B7ngxjhs.js:2396 [FormView Prefill] Total newValues to apply: 1 {field_1768821340361: '77783bc9-7c4b-4cbb-bd8b-b7e976dfe9ee'}
+index-B7ngxjhs.js:2396 [FormView Prefill] Merged formValues: {field_1768822633632: '', field_1768822653764: '', field_1768822667197: '', field_1768823830032: '', field_1768828450327: '', …}
+index-B7ngxjhs.js:2396 [FormView] Capacity check state: {primaryMemberRoleId: null, isCheckingCapacity: false, roleCapacity: undefined, prefillOrgName: 'testorga', effectiveOrgIdForCapacity: '77783bc9-7c4b-4cbb-bd8b-b7e976dfe9ee', …}
+index-B7ngxjhs.js:2396 [FormView DEBUG] Org Custom Fields Query Setup: {formPrefillSource: 'organization', prefillOrgId: '77783bc9-7c4b-4cbb-bd8b-b7e976dfe9ee', prefillMemberOrgId: undefined, effectiveOrgIdForCustomFields: '77783bc9-7c4b-4cbb-bd8b-b7e976dfe9ee', queryEnabled: true}
+index-B7ngxjhs.js:2396 [FormView DEBUG] Org Custom Values State: {prefillOrgCustomValues: Array(0), orgCustomValuesLoading: true, orgCustomValuesError: undefined}
+index-B7ngxjhs.js:2396 [FormView Visibility] Evaluating visibility rules, fieldVisibility: {field_1768828550914: {…}, field_1768822633632: {…}, field_1768822653764: {…}, field_1768822667197: {…}, field_1768822749231: {…}, …}
+index-B7ngxjhs.js:2396 [FormView Visibility] Final hidden set: (6) ['field_1768822633632', 'field_1768822653764', 'field_1768822667197', 'field_1768823830032', 'field_1768828450327', 'field_1768828550914']
+index-B7ngxjhs.js:2396 [FormView] Capacity block decision: {primaryMemberRoleId: null, roleCapacity: undefined, hasCapacity: undefined, prefillOrgId: '77783bc9-7c4b-4cbb-bd8b-b7e976dfe9ee', prefillOrgName: 'testorga', …}
+index-B7ngxjhs.js:2396 [FormView DEBUG] Org custom values API response: (6) [{…}, {…}, {…}, {…}, {…}, {…}]
+index-B7ngxjhs.js:2396 [FormView] Capacity check state: {primaryMemberRoleId: null, isCheckingCapacity: false, roleCapacity: undefined, prefillOrgName: 'testorga', effectiveOrgIdForCapacity: '77783bc9-7c4b-4cbb-bd8b-b7e976dfe9ee', …}
+index-B7ngxjhs.js:2396 [FormView DEBUG] Org Custom Fields Query Setup: {formPrefillSource: 'organization', prefillOrgId: '77783bc9-7c4b-4cbb-bd8b-b7e976dfe9ee', prefillMemberOrgId: undefined, effectiveOrgIdForCustomFields: '77783bc9-7c4b-4cbb-bd8b-b7e976dfe9ee', queryEnabled: true}
+index-B7ngxjhs.js:2396 [FormView DEBUG] Org Custom Values State: {prefillOrgCustomValues: Array(6), orgCustomValuesLoading: false, orgCustomValuesError: undefined}
+index-B7ngxjhs.js:2396 [FormView] Capacity block decision: {primaryMemberRoleId: null, roleCapacity: undefined, hasCapacity: undefined, prefillOrgId: '77783bc9-7c4b-4cbb-bd8b-b7e976dfe9ee', prefillOrgName: 'testorga', …}

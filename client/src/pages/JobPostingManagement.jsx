@@ -1,20 +1,22 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
+
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Search, CheckCircle, XCircle, Briefcase, MapPin, Building2, Clock, Star, AlertCircle, Pencil, Trash2, FileText, Upload, X, Loader2, ChevronLeft, ChevronRight } from "lucide-react";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Search, CheckCircle, XCircle, Briefcase, MapPin, Building2, Clock, Globe, AlertCircle, Pencil, Trash2, FileText, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { format, differenceInDays } from "date-fns";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
+import { parseJobClosingDate, startOfLocalToday } from "@/lib/jobDate";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import DOMPurify from 'dompurify';
 
 export default function JobPostingManagementPage() {
   const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -22,29 +24,27 @@ export default function JobPostingManagementPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedJob, setSelectedJob] = useState(null);
   const [showDialog, setShowDialog] = useState(false);
-  const [showEditDialog, setShowEditDialog] = useState(false);
-  const [editingJob, setEditingJob] = useState(null);
   const [activeTab, setActiveTab] = useState("pending");
-  const [uploadingFiles, setUploadingFiles] = useState(false);
   const [organizationFilter, setOrganizationFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(6);
+  const [confirmAction, setConfirmAction] = useState(null);
   
   const queryClient = useQueryClient();
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_JobPostingManagement')) {
+      if (isFeatureExcluded('page_JobPostingManagement')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady, isFeatureExcluded]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: jobs = [], isLoading } = useQuery({
     queryKey: ['admin-job-postings'],
-    queryFn: () => base44.entities.JobPosting.list('-created_date'),
+    queryFn: () => base44.entities.JobPosting.list(),
     staleTime: 0,
     refetchOnMount: true,
   });
@@ -121,8 +121,6 @@ export default function JobPostingManagementPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-job-postings'] });
       toast.success('Job posting updated successfully');
-      setShowEditDialog(false);
-      setEditingJob(null);
     },
     onError: (error) => {
       toast.error('Failed to update job posting: ' + error.message);
@@ -141,15 +139,51 @@ export default function JobPostingManagementPage() {
     }
   });
 
-  const getStatusBadge = (status) => {
+  const toggleFeaturedMutation = useMutation({
+    mutationFn: async (jobId) => {
+      // First, unfeatured any currently featured job
+      const currentFeatured = jobs.find(j => j.featured && j.id !== jobId);
+      if (currentFeatured) {
+        await base44.entities.JobPosting.update(currentFeatured.id, { featured: false });
+      }
+      // Then toggle the selected job
+      const job = jobs.find(j => j.id === jobId);
+      const newFeaturedState = !job?.featured;
+      return base44.entities.JobPosting.update(jobId, { featured: newFeaturedState });
+    },
+    onSuccess: (_, jobId) => {
+      queryClient.invalidateQueries({ queryKey: ['admin-job-postings'] });
+      const job = jobs.find(j => j.id === jobId);
+      if (job?.featured) {
+        toast.success('Job removed from web feature');
+      } else {
+        toast.success('Job is now featured on web');
+      }
+    },
+    onError: (error) => {
+      toast.error('Failed to update web feature status: ' + error.message);
+    }
+  });
+
+  const isJobExpired = useCallback((job) => {
+    if (!job.closing_date) return false;
+    const closing = parseJobClosingDate(job.closing_date);
+    if (!closing) return false;
+    return closing < startOfLocalToday();
+  }, []);
+
+  const getStatusBadge = (status, job) => {
     const styles = {
-      pending_approval: 'bg-yellow-100 text-yellow-700',
+      pending_approval: 'bg-warning/10 text-warning',
       active: 'bg-green-100 text-green-700',
       expired: 'bg-slate-100 text-slate-700',
       rejected: 'bg-red-100 text-red-700',
-      pending_payment: 'bg-blue-100 text-blue-700'
+      pending_payment: 'bg-blue-100 text-blue-700',
+      paused: 'bg-warning/10 text-warning',
+      archived: 'bg-slate-200 text-slate-600'
     };
-    return <Badge className={styles[status]}>{status.replace(/_/g, ' ')}</Badge>;
+    const displayStatus = (status === 'active' && job && isJobExpired(job)) ? 'expired' : status;
+    return <Badge className={styles[displayStatus] || 'bg-slate-100 text-slate-700'}>{displayStatus?.replace(/_/g, ' ') || 'unknown'}</Badge>;
   };
 
   const filteredJobs = useMemo(() => {
@@ -158,9 +192,15 @@ export default function JobPostingManagementPage() {
         job.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         job.company_name?.toLowerCase().includes(searchQuery.toLowerCase());
       
+      const expired = isJobExpired(job);
+      const isEffectivelyArchived = job.status === 'archived' || (job.status === 'active' && expired);
+      const isEffectivelyActive = job.status === 'active' && !expired;
+
       const matchesTab = 
         (activeTab === 'pending' && job.status === 'pending_approval') ||
-        (activeTab === 'active' && job.status === 'active') ||
+        (activeTab === 'active' && isEffectivelyActive) ||
+        (activeTab === 'paused' && job.status === 'paused') ||
+        (activeTab === 'archived' && isEffectivelyArchived) ||
         (activeTab === 'rejected' && job.status === 'rejected') ||
         (activeTab === 'all');
 
@@ -171,7 +211,7 @@ export default function JobPostingManagementPage() {
 
       return matchesSearch && matchesTab && matchesOrganization;
     });
-  }, [jobs, searchQuery, activeTab, organizationFilter]);
+  }, [jobs, searchQuery, activeTab, organizationFilter, isJobExpired]);
 
   // Pagination calculations
   const totalPages = Math.ceil(filteredJobs.length / itemsPerPage);
@@ -219,84 +259,14 @@ export default function JobPostingManagementPage() {
   };
 
   const handleEdit = (job) => {
-    setEditingJob({ 
-      ...job,
-      attachment_urls: job.attachment_urls || [],
-      attachment_names: job.attachment_names || []
-    });
-    setShowEditDialog(true);
-  };
-
-  const handleFileUpload = async (e) => {
-    const files = Array.from(e.target.files);
-    if (files.length === 0) return;
-
-    const allowedTypes = [
-      'application/pdf',
-      'application/msword',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'application/vnd.ms-excel',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    ];
-
-    const invalidFiles = files.filter(file => !allowedTypes.includes(file.type));
-    if (invalidFiles.length > 0) {
-      toast.error('Only PDF, Word, and Excel documents are allowed');
-      return;
-    }
-
-    const oversizedFiles = files.filter(file => file.size > 10 * 1024 * 1024);
-    if (oversizedFiles.length > 0) {
-      toast.error('Files must be smaller than 10MB');
-      return;
-    }
-
-    setUploadingFiles(true);
-
-    try {
-      const uploadPromises = files.map(async (file) => {
-        const response = await base44.integrations.Core.UploadFile({ file });
-        return {
-          url: response.file_url,
-          name: file.name
-        };
-      });
-
-      const uploadedFiles = await Promise.all(uploadPromises);
-
-      setEditingJob(prev => ({
-        ...prev,
-        attachment_urls: [...(prev.attachment_urls || []), ...uploadedFiles.map(f => f.url)],
-        attachment_names: [...(prev.attachment_names || []), ...uploadedFiles.map(f => f.name)]
-      }));
-
-      toast.success(`${files.length} ${files.length === 1 ? 'file' : 'files'} uploaded successfully`);
-    } catch (error) {
-      toast.error('Failed to upload files. Please try again.');
-    } finally {
-      setUploadingFiles(false);
-    }
-  };
-
-  const handleRemoveAttachment = (index) => {
-    setEditingJob(prev => ({
-      ...prev,
-      attachment_urls: prev.attachment_urls.filter((_, i) => i !== index),
-      attachment_names: prev.attachment_names.filter((_, i) => i !== index)
-    }));
-  };
-
-  const handleSaveEdit = () => {
-    if (!editingJob.title || !editingJob.company_name || !editingJob.closing_date) {
-      toast.error('Please fill in all required fields');
-      return;
-    }
-    updateJobMutation.mutate({ id: editingJob.id, data: editingJob });
+    window.location.href = `${createPageUrl('PostJob')}?editJobId=${job.id}&from=JobPostingManagement`;
   };
 
   const isClosingSoon = (closingDate) => {
     if (!closingDate) return false;
-    const daysUntilClosing = differenceInDays(new Date(closingDate), new Date());
+    const parsed = parseJobClosingDate(closingDate);
+    if (!parsed) return false;
+    const daysUntilClosing = differenceInDays(parsed, startOfLocalToday());
     return daysUntilClosing >= 0 && daysUntilClosing <= 7;
   };
 
@@ -308,14 +278,14 @@ export default function JobPostingManagementPage() {
 
   if (!accessChecked) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         <div className="mb-8">
           <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">
@@ -341,10 +311,10 @@ export default function JobPostingManagementPage() {
               </div>
               <Select value={organizationFilter} onValueChange={setOrganizationFilter}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Filter by organization" />
+                  <SelectValue placeholder="Filter by organisation" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Organizations</SelectItem>
+                  <SelectItem value="all">All Organisations</SelectItem>
                   <SelectItem value="non-member">Non-Member Posts</SelectItem>
                   {organizationsWithJobs.map(org => (
                     <SelectItem key={org.id} value={org.id}>{org.name}</SelectItem>
@@ -356,12 +326,18 @@ export default function JobPostingManagementPage() {
         </Card>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="mb-6">
+          <TabsList className="mb-6 flex-wrap">
             <TabsTrigger value="pending">
               Pending ({jobs.filter(j => j.status === 'pending_approval').length})
             </TabsTrigger>
             <TabsTrigger value="active">
-              Active ({jobs.filter(j => j.status === 'active').length})
+              Active ({jobs.filter(j => j.status === 'active' && !isJobExpired(j)).length})
+            </TabsTrigger>
+            <TabsTrigger value="paused">
+              Paused ({jobs.filter(j => j.status === 'paused').length})
+            </TabsTrigger>
+            <TabsTrigger value="archived">
+              Archived ({jobs.filter(j => j.status === 'archived' || (j.status === 'active' && isJobExpired(j))).length})
             </TabsTrigger>
             <TabsTrigger value="rejected">
               Rejected ({jobs.filter(j => j.status === 'rejected').length})
@@ -399,7 +375,8 @@ export default function JobPostingManagementPage() {
                 <div className="grid md:grid-cols-2 gap-6 mb-8">
                   {paginatedJobs.map((job) => {
                     const closingSoon = job.closing_date && isClosingSoon(job.closing_date);
-                    const daysUntilClosing = job.closing_date ? differenceInDays(new Date(job.closing_date), new Date()) : null;
+                    const closingDateParsed = parseJobClosingDate(job.closing_date);
+                    const daysUntilClosing = closingDateParsed ? differenceInDays(closingDateParsed, startOfLocalToday()) : null;
                     const hasAttachments = job.attachment_urls && job.attachment_urls.length > 0;
 
                     return (
@@ -411,9 +388,9 @@ export default function JobPostingManagementPage() {
                       >
                         <CardContent className="p-6">
                           {closingSoon && (
-                            <div className="mb-4 -mx-6 -mt-6 px-6 py-2 bg-gradient-to-r from-amber-50 to-orange-50 border-b border-amber-200 flex items-center gap-2">
-                              <AlertCircle className="w-4 h-4 text-amber-600" />
-                              <span className="text-sm font-medium text-amber-900">
+                            <div className="mb-4 -mx-6 -mt-6 px-6 py-2 bg-gradient-to-r from-amber-50 to-orange-50 border-b border-warning/30 flex items-center gap-2">
+                              <AlertCircle className="w-4 h-4 text-warning" />
+                              <span className="text-sm font-medium text-warning">
                                 Closing {daysUntilClosing === 0 ? 'today' : `in ${daysUntilClosing} ${daysUntilClosing === 1 ? 'day' : 'days'}`}
                               </span>
                             </div>
@@ -439,15 +416,28 @@ export default function JobPostingManagementPage() {
                               </h3>
                               <p className="text-sm font-medium text-slate-700">{job.company_name}</p>
                             </div>
-                            <div className="flex flex-col gap-2">
-                              {job.featured && (
-                                <Star className="w-5 h-5 text-amber-500 fill-amber-500" />
-                              )}
-                            </div>
+                            {job.status === 'active' && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleFeaturedMutation.mutate(job.id);
+                                }}
+                                disabled={toggleFeaturedMutation.isPending}
+                                className={`p-2 rounded-full transition-all ${
+                                  job.featured 
+                                    ? 'bg-blue-100 text-blue-600 hover:bg-blue-200' 
+                                    : 'bg-slate-100 text-slate-400 hover:bg-slate-200 hover:text-slate-600'
+                                }`}
+                                title={job.featured ? 'Featured on web - click to remove' : 'Click to feature on web'}
+                                data-testid={`button-web-featured-job-${job.id}`}
+                              >
+                                <Globe className={`w-5 h-5 ${job.featured ? 'fill-blue-100' : ''}`} />
+                              </button>
+                            )}
                           </div>
 
                           <div className="flex flex-wrap gap-2 mb-4">
-                            {getStatusBadge(job.status)}
+                            {getStatusBadge(job.status, job)}
                             {job.is_member_post ? (
                               <Badge className="bg-purple-100 text-purple-700">
                                 Member: {job.contact_email}
@@ -484,8 +474,8 @@ export default function JobPostingManagementPage() {
                             {job.closing_date && (
                               <div className="flex items-center gap-2 text-sm">
                                 <Clock className="w-4 h-4 flex-shrink-0 text-slate-600" />
-                                <span className={closingSoon ? 'font-semibold text-amber-700' : 'text-slate-600'}>
-                                  Closes {format(new Date(job.closing_date), 'MMM d, yyyy')}
+                                <span className={closingSoon ? 'font-semibold text-warning' : 'text-slate-600'}>
+                                  Closes {format(closingDateParsed, 'MMM d, yyyy')}
                                 </span>
                               </div>
                             )}
@@ -501,7 +491,7 @@ export default function JobPostingManagementPage() {
                           </div>
 
                           <p className="text-sm text-slate-600 line-clamp-2 leading-relaxed mb-4">
-                            {job.description?.substring(0, 150)}...
+                            {job.description?.replace(/<[^>]*>/g, '').substring(0, 150)}...
                           </p>
 
                           <div className="flex gap-2 pt-4 border-t border-slate-200">
@@ -516,12 +506,13 @@ export default function JobPostingManagementPage() {
                             >
                               View Details
                             </Button>
-                            {job.status === 'active' && (
+                            {['active', 'paused', 'archived'].includes(job.status) && (
                               <Button
                                 variant="outline"
                                 size="sm"
                                 onClick={() => handleEdit(job)}
                                 className="text-blue-600 hover:text-blue-700"
+                                data-testid={`button-edit-job-${job.id}`}
                               >
                                 <Pencil className="w-4 h-4" />
                               </Button>
@@ -620,7 +611,7 @@ export default function JobPostingManagementPage() {
                   <h3 className="text-2xl font-bold text-slate-900 mb-2">{selectedJob.title}</h3>
                   <p className="text-slate-600 mb-4">{selectedJob.company_name}</p>
                   <div className="flex gap-2 mb-4 flex-wrap">
-                    {getStatusBadge(selectedJob.status)}
+                    {getStatusBadge(selectedJob.status, selectedJob)}
                     {selectedJob.is_member_post ? (
                       <Badge className="bg-purple-100 text-purple-700">
                         Member: {selectedJob.contact_email}
@@ -656,7 +647,7 @@ export default function JobPostingManagementPage() {
                   {selectedJob.closing_date && (
                     <div>
                       <p className="text-sm text-slate-500">Closing Date</p>
-                      <p className="font-medium">{format(new Date(selectedJob.closing_date), 'MMM d, yyyy')}</p>
+                      <p className="font-medium">{format(parseJobClosingDate(selectedJob.closing_date), 'MMM d, yyyy')}</p>
                     </div>
                   )}
                   <div>
@@ -673,7 +664,7 @@ export default function JobPostingManagementPage() {
                   </div>
                   {selectedJob.posted_by_organization_name && (
                     <div className="md:col-span-2">
-                      <p className="text-sm text-slate-500">Member Organization</p>
+                      <p className="text-sm text-slate-500">Member Organisation</p>
                       <p className="font-medium">{selectedJob.posted_by_organization_name}</p>
                     </div>
                   )}
@@ -681,9 +672,10 @@ export default function JobPostingManagementPage() {
 
                 <div>
                   <h4 className="font-semibold text-slate-900 mb-2">Job Description</h4>
-                  <div className="prose prose-slate max-w-none bg-slate-50 p-4 rounded-lg">
-                    <div className="whitespace-pre-wrap">{selectedJob.description}</div>
-                  </div>
+                  <div 
+                    className="prose prose-slate max-w-none bg-slate-50 p-4 rounded-lg"
+                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(selectedJob.description || '') }}
+                  />
                 </div>
 
                 {selectedJob.attachment_urls && selectedJob.attachment_urls.length > 0 && (
@@ -733,29 +725,38 @@ export default function JobPostingManagementPage() {
                 </>
               )}
               {selectedJob?.status === 'active' && (
-                <>
-                  <Button
-                    variant="outline"
-                    onClick={() => handleEdit(selectedJob)}
-                    className="text-blue-600 hover:text-blue-700"
-                  >
-                    <Pencil className="w-4 h-4 mr-2" />
-                    Edit
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      if (confirm('Are you sure you want to delete this job posting?')) {
-                        deleteJobMutation.mutate(selectedJob.id);
-                      }
-                    }}
-                    disabled={deleteJobMutation.isPending}
-                    className="text-red-600 hover:text-red-700"
-                  >
-                    <Trash2 className="w-4 h-4 mr-2" />
-                    Delete
-                  </Button>
-                </>
+                <Button
+                  variant={selectedJob?.featured ? "default" : "outline"}
+                  onClick={() => toggleFeaturedMutation.mutate(selectedJob.id)}
+                  disabled={toggleFeaturedMutation.isPending}
+                  className={selectedJob?.featured ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'text-blue-600 hover:text-blue-700'}
+                  data-testid="button-toggle-featured-dialog"
+                >
+                  <Globe className={`w-4 h-4 mr-2 ${selectedJob?.featured ? 'fill-blue-200' : ''}`} />
+                  {selectedJob?.featured ? 'Featured on Web' : 'Feature on Web'}
+                </Button>
+              )}
+              {['active', 'paused', 'archived'].includes(selectedJob?.status) && (
+                <Button
+                  variant="outline"
+                  onClick={() => handleEdit(selectedJob)}
+                  className="text-blue-600 hover:text-blue-700"
+                >
+                  <Pencil className="w-4 h-4 mr-2" />
+                  Edit
+                </Button>
+              )}
+              {selectedJob && (
+                <Button
+                  variant="outline"
+                  onClick={() => setConfirmAction({ type: 'delete', jobId: selectedJob.id, fromViewDialog: true })}
+                  disabled={deleteJobMutation.isPending}
+                  className="text-red-600 hover:text-red-700"
+                  data-testid="button-delete-job-view"
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Delete
+                </Button>
               )}
               <Button variant="outline" onClick={() => setShowDialog(false)}>
                 Close
@@ -764,202 +765,61 @@ export default function JobPostingManagementPage() {
           </DialogContent>
         </Dialog>
 
-        {/* Edit Dialog */}
-        <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
-          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Edit Job Posting</DialogTitle>
-            </DialogHeader>
-            {editingJob && (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="title">Job Title *</Label>
-                  <Input
-                    id="title"
-                    value={editingJob.title}
-                    onChange={(e) => setEditingJob({ ...editingJob, title: e.target.value })}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="company_name">Company Name *</Label>
-                  <Input
-                    id="company_name"
-                    value={editingJob.company_name}
-                    onChange={(e) => setEditingJob({ ...editingJob, company_name: e.target.value })}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="location">Location *</Label>
-                  <Input
-                    id="location"
-                    value={editingJob.location}
-                    onChange={(e) => setEditingJob({ ...editingJob, location: e.target.value })}
-                  />
-                </div>
-
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="job_type">Job Type</Label>
-                    <select
-                      id="job_type"
-                      value={editingJob.job_type || ''}
-                      onChange={(e) => setEditingJob({ ...editingJob, job_type: e.target.value })}
-                      className="w-full h-10 px-3 rounded-md border border-slate-200"
-                    >
-                      <option value="">Select...</option>
-                      {jobTypeSettings.map(type => (
-                        <option key={type} value={type}>{type}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="hours">Hours</Label>
-                    <select
-                      id="hours"
-                      value={editingJob.hours || ''}
-                      onChange={(e) => setEditingJob({ ...editingJob, hours: e.target.value })}
-                      className="w-full h-10 px-3 rounded-md border border-slate-200"
-                    >
-                      <option value="">Select...</option>
-                      {hoursSettings.map(hour => (
-                        <option key={hour} value={hour}>{hour}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="salary_range">Salary Range</Label>
-                  <Input
-                    id="salary_range"
-                    value={editingJob.salary_range || ''}
-                    onChange={(e) => setEditingJob({ ...editingJob, salary_range: e.target.value })}
-                    placeholder="e.g., £30,000 - £40,000"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="closing_date">Closing Date *</Label>
-                  <Input
-                    id="closing_date"
-                    type="date"
-                    value={editingJob.closing_date ? editingJob.closing_date.split('T')[0] : ''}
-                    onChange={(e) => setEditingJob({ ...editingJob, closing_date: e.target.value + 'T23:59:59Z' })}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="company_logo_url">Company Logo URL</Label>
-                  <Input
-                    id="company_logo_url"
-                    value={editingJob.company_logo_url || ''}
-                    onChange={(e) => setEditingJob({ ...editingJob, company_logo_url: e.target.value })}
-                    placeholder="https://..."
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="description">Job Description *</Label>
-                  <Textarea
-                    id="description"
-                    value={editingJob.description}
-                    onChange={(e) => setEditingJob({ ...editingJob, description: e.target.value })}
-                    rows={10}
-                  />
-                </div>
-
-                <div className="space-y-4 p-4 bg-slate-50 rounded-lg">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="font-semibold text-slate-900">Additional Documents</h3>
-                      <p className="text-sm text-slate-600">Upload or remove job-related documents</p>
-                    </div>
-                    <Label htmlFor="edit-file-upload" className="cursor-pointer">
-                      <div className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
-                        <Upload className="w-4 h-4" />
-                        <span className="text-sm font-medium">Upload</span>
-                      </div>
-                      <input
-                        id="edit-file-upload"
-                        type="file"
-                        multiple
-                        accept=".pdf,.doc,.docx,.xls,.xlsx"
-                        onChange={handleFileUpload}
-                        className="hidden"
-                        disabled={uploadingFiles}
-                      />
-                    </Label>
-                  </div>
-
-                  {uploadingFiles && (
-                    <div className="flex items-center gap-2 text-sm text-slate-600">
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Uploading files...</span>
-                    </div>
-                  )}
-
-                  {editingJob.attachment_urls && editingJob.attachment_urls.length > 0 && (
-                    <div className="space-y-2">
-                      {editingJob.attachment_names.map((name, index) => (
-                        <div key={index} className="flex items-center justify-between p-3 bg-white rounded-lg border border-slate-200">
-                          <div className="flex items-center gap-2">
-                            <FileText className="w-4 h-4 text-blue-600" />
-                            <span className="text-sm font-medium text-slate-700">{name}</span>
-                          </div>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleRemoveAttachment(index)}
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                          >
-                            <X className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {(!editingJob.attachment_urls || editingJob.attachment_urls.length === 0) && !uploadingFiles && (
-                    <p className="text-sm text-slate-500 text-center py-4">No documents attached</p>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="featured"
-                    checked={editingJob.featured || false}
-                    onChange={(e) => setEditingJob({ ...editingJob, featured: e.target.checked })}
-                    className="rounded border-slate-300"
-                  />
-                  <Label htmlFor="featured">Featured Position</Label>
-                </div>
-              </div>
-            )}
-            <DialogFooter>
-              <Button
-                variant="outline"
+        {/* Confirmation Dialog */}
+        <AlertDialog open={!!confirmAction} onOpenChange={(open) => !open && setConfirmAction(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {confirmAction?.type === 'pause' && 'Pause Job Posting'}
+                {confirmAction?.type === 'reactivate' && 'Reactivate Job Posting'}
+                {confirmAction?.type === 'archive' && 'Archive Job Posting'}
+                {confirmAction?.type === 'delete' && 'Delete Job Posting'}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {confirmAction?.type === 'pause' && 'Are you sure you want to pause this job posting? It will no longer be visible to job seekers until reactivated.'}
+                {confirmAction?.type === 'reactivate' && 'Are you sure you want to reactivate this job posting? It will become visible to job seekers again.'}
+                {confirmAction?.type === 'archive' && 'Are you sure you want to archive this job posting? It will be moved to the archived section and no longer visible to job seekers.'}
+                {confirmAction?.type === 'delete' && 'Are you sure you want to permanently delete this job posting? This action cannot be undone.'}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel data-testid="button-cancel-confirm">Cancel</AlertDialogCancel>
+              <AlertDialogAction
                 onClick={() => {
-                  setShowEditDialog(false);
-                  setEditingJob(null);
+                  if (confirmAction?.type === 'pause') {
+                    updateJobMutation.mutate({ id: confirmAction.jobId, data: { status: 'paused' } });
+                  } else if (confirmAction?.type === 'reactivate') {
+                    updateJobMutation.mutate({ id: confirmAction.jobId, data: { status: 'active' } });
+                  } else if (confirmAction?.type === 'archive') {
+                    updateJobMutation.mutate({ id: confirmAction.jobId, data: { status: 'archived' } });
+                  } else if (confirmAction?.type === 'delete') {
+                    deleteJobMutation.mutate(confirmAction.jobId);
+                    if (confirmAction.fromViewDialog) {
+                      setShowDialog(false);
+                      setSelectedJob(null);
+                    }
+                  }
+                  setConfirmAction(null);
                 }}
+                className={
+                  confirmAction?.type === 'delete' 
+                    ? 'bg-red-600 hover:bg-red-700 text-white' 
+                    : confirmAction?.type === 'pause'
+                    ? 'bg-warning hover:bg-warning/90 text-warning-foreground'
+                    : confirmAction?.type === 'reactivate'
+                    ? 'bg-green-600 hover:bg-green-700 text-white'
+                    : 'bg-slate-600 hover:bg-slate-700 text-white'
+                }
+                data-testid="button-confirm-action"
               >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleSaveEdit}
-                disabled={updateJobMutation.isPending || uploadingFiles}
-                className="bg-blue-600 hover:bg-blue-700"
-              >
-                {updateJobMutation.isPending ? 'Saving...' : 'Save Changes'}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+                {confirmAction?.type === 'pause' && 'Pause'}
+                {confirmAction?.type === 'reactivate' && 'Reactivate'}
+                {confirmAction?.type === 'archive' && 'Archive'}
+                {confirmAction?.type === 'delete' && 'Delete'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </div>
   );

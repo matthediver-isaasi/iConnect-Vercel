@@ -1,27 +1,76 @@
 import React, { useState, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
+import { apiRequest } from "@/lib/queryClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileQuestion, ChevronLeft, ChevronRight, SlidersHorizontal, Save } from "lucide-react";
+import { FileQuestion, ChevronLeft, ChevronRight, SlidersHorizontal, Save, User, Plus, ArrowLeft } from "lucide-react";
+import { Link, useParams, useNavigate } from "react-router-dom";
 import ArticleFilter from "../components/blog/ArticleFilter";
 import ArticleCard from "../components/blog/ArticleCard";
+import FollowedAuthorsCard from "../components/blog/FollowedAuthorsCard";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useBlogPostRealtime } from "@/hooks/useBlogPostRealtime";
+import { useArticleUrl } from "@/contexts/ArticleUrlContext";
+import { useLayoutContext } from "@/contexts/LayoutContext";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
+
+const DEFAULT_ARTICLE_CATEGORY_TITLE_COLOR = '#7e22ce';
 
 export default function ArticlesPage() {
   useBlogPostRealtime(['published-articles']);
-  const { memberInfo, memberRole } = useMemberAccess();
+  const { hasBanner, sessionValidated } = useLayoutContext();
+  const { memberInfo, isFeatureExcluded } = useMemberAccess();
+  const tenantBranding = useTenantBranding()?.branding;
+  const categoryTitleColor = tenantBranding?.brandingConfig?.resourceCategoryTitleColor || DEFAULT_ARTICLE_CATEGORY_TITLE_COLOR;
+  
+  const isAuthenticated = sessionValidated && !!memberInfo;
+  const { getArticleEditorUrl } = useArticleUrl();
+  const { authorHandle } = useParams();
+  const navigate = useNavigate();
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [articleToDelete, setArticleToDelete] = useState(null);
+
+  const hasAdminEditPermission = !isFeatureExcluded('content.articles.edit');
+  const hasAdminDeletePermission = !isFeatureExcluded('content.articles.delete');
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSubcategories, setSelectedSubcategories] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [sortBy, setSortBy] = useState("newest");
   const [itemsPerPage, setItemsPerPage] = useState(6);
   const [hasLoadedPreferences, setHasLoadedPreferences] = useState(false);
+  const [showMyArticlesOnly, setShowMyArticlesOnly] = useState(false);
 
   const queryClient = useQueryClient();
+  
+  // Lookup author by handle using server-side API (works in both dev and Vercel)
+  const { data: authorInfo, isLoading: authorLoading, isError: authorNotFound } = useQuery({
+    queryKey: ['author-by-handle', authorHandle],
+    queryFn: async () => {
+      console.log('[Articles] Author lookup - calling API for handle:', authorHandle);
+      
+      const response = await fetch(`/api/articles/lookup-author?handle=${encodeURIComponent(authorHandle)}`);
+      
+      if (response.status === 404) {
+        throw new Error('Author not found');
+      }
+      
+      if (!response.ok) {
+        throw new Error('Failed to lookup author');
+      }
+      
+      const data = await response.json();
+      console.log('[Articles] Author lookup - API response:', data);
+      return data;
+    },
+    enabled: !!authorHandle,
+    staleTime: 60000,
+    retry: false, // Don't retry if author not found
+  });
 
   // Fetch current user's preferences
   const { data: currentUser } = useQuery({
@@ -33,20 +82,106 @@ export default function ArticlesPage() {
     enabled: !!memberInfo
   });
 
-  const { data: articles = [], isLoading: articlesLoading } = useQuery({
-    queryKey: ['published-articles'],
+  // Use memberInfo.id directly for author comparison - no need to look up by email
+  // This ensures consistency with how articles are created (using memberInfo.id as author_id)
+  const currentMemberId = memberInfo?.id;
+
+  // Fetch published articles - use public API for unauthenticated, authenticated API for logged in users
+  const { data: publishedArticlesData = { articles: [], authors: {}, guestWriters: {} }, isLoading: publishedLoading } = useQuery({
+    queryKey: ['published-articles', isAuthenticated],
+    queryFn: async () => {
+      console.log('[Articles] Fetching articles, isAuthenticated:', isAuthenticated);
+      if (isAuthenticated) {
+        const allArticles = await base44.entities.BlogPost.list('-published_date');
+        const filtered = allArticles.filter(article => article.status === 'published');
+        return { articles: filtered, authors: {}, guestWriters: {} };
+      } else {
+        console.log('[Articles] Calling publicClient.listArticles()');
+        const result = await publicClient.listArticles();
+        console.log('[Articles] publicClient.listArticles() returned:', result);
+        console.log('[Articles] Authors from API:', result?.authors);
+        return result;
+      }
+    },
+    staleTime: 0,
+  });
+  
+  const publishedArticles = publishedArticlesData.articles || [];
+  const publicAuthors = publishedArticlesData.authors || {};
+  const publicGuestWriters = publishedArticlesData.guestWriters || {};
+
+  // Fetch user's own articles (including drafts) when "My Blogs" is active
+  const { data: myArticles = [], isLoading: myArticlesLoading } = useQuery({
+    queryKey: ['my-articles', currentMemberId],
     queryFn: async () => {
       const allArticles = await base44.entities.BlogPost.list('-published_date');
-      return allArticles.filter(article => article.status === 'published');
+      // Get all articles by this author OR where they are the original author (for guest writer articles)
+      return allArticles.filter(article => 
+        String(article.author_id) === String(currentMemberId) ||
+        String(article.original_author_id) === String(currentMemberId)
+      );
     },
-    staleTime: 0, // Always fetch fresh content for articles feed
+    enabled: !!currentMemberId && showMyArticlesOnly,
+    staleTime: 0,
   });
 
-  const { data: categories = [], isLoading: categoriesLoading } = useQuery({
-    queryKey: ['resourceCategories-articles'], // Updated queryKey
+  // Task #1225: post ids the looked-up author CO-authored (appears in the
+  // blog_post_author join table but may not be the primary author), so the
+  // author listing page also surfaces co-authored articles.
+  const { data: coAuthoredPostIdsData, isFetched: coAuthoredPostIdsFetched } = useQuery({
+    queryKey: ['co-authored-post-ids', authorInfo?.type, authorInfo?.id],
     queryFn: async () => {
-      const cats = await base44.entities.ResourceCategory.list();
-      // Filter to only show categories that apply to Articles
+      const r = await fetch(`/api/articles/co-authored-post-ids?type=${encodeURIComponent(authorInfo.type)}&id=${encodeURIComponent(authorInfo.id)}`);
+      if (!r.ok) return { postIds: [] };
+      return r.json();
+    },
+    enabled: !!authorHandle && !!authorInfo?.id,
+    staleTime: 60000,
+  });
+  const coAuthoredPostIdsKey = (coAuthoredPostIdsData?.postIds || []).slice().sort().join(',');
+
+  // Fetch articles by specific author when filtering by author handle
+  const { data: authorArticles = [], isLoading: authorArticlesLoading } = useQuery({
+    queryKey: ['articles-by-author', authorHandle, authorInfo?.id, authorInfo?.type, coAuthoredPostIdsKey],
+    queryFn: async () => {
+      const allArticles = await base44.entities.BlogPost.list('-published_date');
+      const coAuthoredSet = new Set(coAuthoredPostIdsData?.postIds || []);
+      // Filter by author - only published articles. Include primary-authored AND
+      // co-authored posts (primary author behaviour stays unchanged).
+      return allArticles.filter(article => {
+        if (article.status !== 'published') return false;
+        if (coAuthoredSet.has(article.id)) return true;
+        if (authorInfo?.type === 'member') {
+          return String(article.author_id) === String(authorInfo.id);
+        } else if (authorInfo?.type === 'guest_writer') {
+          return String(article.guest_writer_id) === String(authorInfo.id);
+        }
+        return false;
+      });
+    },
+    // Wait until the co-authored ids have resolved so the list isn't missing
+    // co-authored posts on first paint.
+    enabled: !!authorHandle && !!authorInfo && coAuthoredPostIdsFetched,
+    staleTime: 0,
+  });
+
+  // Use the appropriate article list based on filter mode
+  const articles = authorHandle && authorInfo 
+    ? authorArticles 
+    : (showMyArticlesOnly ? myArticles : publishedArticles);
+  const articlesLoading = authorHandle 
+    ? (authorLoading || authorArticlesLoading)
+    : (showMyArticlesOnly ? myArticlesLoading : publishedLoading);
+
+  const { data: categories = [], isLoading: categoriesLoading } = useQuery({
+    queryKey: ['resourceCategories-articles', isAuthenticated],
+    queryFn: async () => {
+      let cats;
+      if (isAuthenticated) {
+        cats = await base44.entities.ResourceCategory.list();
+      } else {
+        cats = await publicClient.listResourceCategories();
+      }
       const articleCategories = cats.filter(c =>
         c.is_active &&
         c.applies_to_content_types &&
@@ -57,40 +192,132 @@ export default function ArticlesPage() {
     refetchOnWindowFocus: true
   });
 
-  // Fetch all views for sorting
-  const { data: allViews = [] } = useQuery({
-    queryKey: ['all-article-views'],
-    queryFn: async () => {
-      return await base44.entities.ArticleView.list();
-    }
+  // Fetch unique view counts per article from dedicated endpoint
+  const { data: viewCountsData } = useQuery({
+    queryKey: ['/api/reports/article-view-counts'],
+    queryFn: () => apiRequest('GET', '/api/reports/article-view-counts'),
+    enabled: isAuthenticated,
+    staleTime: 60000
   });
+  const viewCounts = viewCountsData?.counts || {};
 
-  // Fetch all reactions for sorting
+  // Fetch all reactions for sorting - only for authenticated users
   const { data: allReactions = [] } = useQuery({
     queryKey: ['all-article-reactions'],
     queryFn: async () => {
       return await base44.entities.ArticleReaction.list();
-    }
+    },
+    enabled: isAuthenticated
   });
 
   // Fetch button styles once at page level
   const { data: buttonStyles = [] } = useQuery({
-    queryKey: ['buttonStyles-articles'],
+    queryKey: ['buttonStyles-articles', isAuthenticated],
     queryFn: async () => {
-      const styles = await base44.entities.ButtonStyle.list();
+      let styles;
+      if (isAuthenticated) {
+        styles = await base44.entities.ButtonStyle.list();
+      } else {
+        styles = await publicClient.listButtonStyles();
+      }
       return styles.filter(s => s.card_type === 'article' && s.is_active);
     },
     refetchOnWindowFocus: true
   });
 
-  const { data: articleDisplayName, isLoading: displayNameLoading } = useQuery({
-    queryKey: ['article-display-name'],
+  // Build author data for article URL construction and author names
+  // For unauthenticated users, derive directly from public API response (synchronous)
+  // For authenticated users, fetch via separate API calls
+  const publicAuthorData = React.useMemo(() => {
+    if (isAuthenticated) return null; // Will use authenticated query instead
+    
+    const handles = {};
+    const names = {};
+    
+    // Build handles and names from public API response
+    Object.entries(publicAuthors).forEach(([id, data]) => {
+      if (data.handle) handles[String(id)] = data.handle;
+      if (data.name) names[String(id)] = data.name;
+    });
+    
+    Object.entries(publicGuestWriters).forEach(([id, data]) => {
+      if (data.name) names[`guest_${id}`] = data.name;
+    });
+    
+    return { handles, names };
+  }, [isAuthenticated, publicAuthors, publicGuestWriters]);
+  
+  // For authenticated users, fetch author data via API
+  const { data: authenticatedAuthorData = { handles: {}, names: {} } } = useQuery({
+    queryKey: ['author-data-for-articles-authenticated', articles?.map(a => a.author_id).filter(Boolean).join(',')],
     queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list();
-      const setting = allSettings.find(s => s.setting_key === 'article_display_name');
-      return setting?.setting_value || 'Articles';
+      const uniqueAuthorIds = [...new Set(articles.filter(a => a.author_id).map(a => a.author_id))];
+      console.log('[Articles] Fetching author data for', uniqueAuthorIds.length, 'unique authors');
+      
+      const handles = {};
+      const names = {};
+      await Promise.all(uniqueAuthorIds.map(async (authorId) => {
+        try {
+          const member = await base44.entities.Member.get(authorId);
+          if (member) {
+            const memberHandle = member.handle || member.blog_handle;
+            if (memberHandle) {
+              handles[String(authorId)] = memberHandle;
+            }
+            const fullName = `${member.first_name || ''} ${member.last_name || ''}`.trim();
+            if (fullName) {
+              names[String(authorId)] = fullName;
+            }
+          }
+        } catch (e) {
+          // Member not found, skip
+        }
+      }));
+      
+      // Also fetch guest writer names
+      const guestWriterIds = [...new Set(articles.filter(a => a.guest_writer_id).map(a => a.guest_writer_id))];
+      if (guestWriterIds.length > 0) {
+        const guestWriters = await base44.entities.GuestWriter.list();
+        guestWriterIds.forEach(gwId => {
+          const gw = guestWriters.find(w => w.id === gwId);
+          if (gw) {
+            names[`guest_${gwId}`] = gw.full_name;
+          }
+        });
+      }
+      
+      console.log('[Articles] authorData built with', Object.keys(handles).length, 'handles and', Object.keys(names).length, 'names');
+      return { handles, names };
+    },
+    enabled: isAuthenticated && !!articles?.length,
+    staleTime: 60000 // Cache for 1 minute
+  });
+  
+  // Use the appropriate author data based on auth state
+  const authorData = isAuthenticated ? authenticatedAuthorData : (publicAuthorData || { handles: {}, names: {} });
+  
+  // Backwards compatibility
+  const authorHandles = authorData.handles;
+  const authorNames = authorData.names;
+
+  const { data: articleDisplayNameData, isLoading: displayNameLoading } = useQuery({
+    queryKey: ['article-display-name', isAuthenticated],
+    queryFn: async () => {
+      if (isAuthenticated) {
+        const allSettings = await base44.entities.SystemSettings.list();
+        const setting = allSettings.find(s => s.setting_key === 'article_display_name');
+        return setting?.setting_value || 'Articles';
+      } else {
+        const setting = await publicClient.getSystemSetting('article_display_name');
+        return setting?.setting_value || 'Articles';
+      }
     }
   });
+  // Always use a safe string so downstream `.endsWith` / `.toLowerCase` calls
+  // never throw if the query errored (data: undefined while isLoading is false).
+  const articleDisplayName = (typeof articleDisplayNameData === 'string' && articleDisplayNameData)
+    ? articleDisplayNameData
+    : 'Articles';
 
   // Load saved preferences once
   React.useEffect(() => {
@@ -122,17 +349,48 @@ export default function ArticlesPage() {
     }
   });
 
+  // Delete article mutation
+  const deleteArticleMutation = useMutation({
+    mutationFn: async (articleId) => {
+      await base44.entities.BlogPost.delete(articleId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['published-articles'] });
+      setDeleteDialogOpen(false);
+      setArticleToDelete(null);
+      toast.success('Article deleted successfully');
+    },
+    onError: (error) => {
+      toast.error('Failed to delete article: ' + error.message);
+    }
+  });
+
+  const handleEditArticle = (article) => {
+    window.location.href = getArticleEditorUrl(article.id);
+  };
+
+  const handleDeleteArticle = (article) => {
+    setArticleToDelete(article);
+    setDeleteDialogOpen(true);
+  };
+
+  const confirmDelete = () => {
+    if (articleToDelete) {
+      deleteArticleMutation.mutate(articleToDelete.id);
+    }
+  };
+
   // Calculate view and like counts per article
   const articleStats = useMemo(() => {
     const stats = {};
     articles.forEach(article => {
       stats[article.id] = {
-        viewCount: allViews.filter(v => v.article_id === article.id).length,
+        viewCount: viewCounts[article.id] || 0,
         likeCount: allReactions.filter(r => r.article_id === article.id && r.reaction_type === 'up').length
       };
     });
     return stats;
-  }, [articles, allViews, allReactions]);
+  }, [articles, viewCounts, allReactions]);
 
   const filteredArticles = useMemo(() => {
     return articles.filter(article => {
@@ -142,6 +400,9 @@ export default function ArticlesPage() {
 
       const matchesSubcategory = selectedSubcategories.length === 0 ||
         (article.subcategories && article.subcategories.some(sub => selectedSubcategories.includes(sub)));
+
+      // Note: author filtering is now handled by the separate myArticles query
+      // so we don't need to filter by author here anymore
 
       return matchesSearch && matchesSubcategory;
     });
@@ -157,10 +418,10 @@ export default function ArticlesPage() {
         sorted.sort((a, b) => new Date(a.published_date || a.created_date) - new Date(b.published_date || a.created_date));
         break;
       case 'title-asc':
-        sorted.sort((a, b) => a.title.localeCompare(b.title));
+        sorted.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
         break;
       case 'title-desc':
-        sorted.sort((a, b) => b.title.localeCompare(a.title));
+        sorted.sort((a, b) => (b.title || '').localeCompare(a.title || ''));
         break;
       case 'most-viewed':
         sorted.sort((a, b) => (articleStats[b.id]?.viewCount || 0) - (articleStats[a.id]?.viewCount || 0));
@@ -178,6 +439,28 @@ export default function ArticlesPage() {
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
   const paginatedArticles = sortedArticles.slice(startIndex, endIndex);
+
+  // Task #1225: fetch ordered author lists for the visible cards so co-authors
+  // can be shown alongside the primary author.
+  const visibleArticleIdsKey = paginatedArticles.map(a => a.id).join(',');
+  const { data: cardCoAuthorsData } = useQuery({
+    queryKey: ['card-co-authors', visibleArticleIdsKey],
+    queryFn: async () => {
+      if (!visibleArticleIdsKey) return { authors: {} };
+      const r = await fetch(`/api/articles/co-authors?ids=${encodeURIComponent(visibleArticleIdsKey)}`);
+      if (!r.ok) return { authors: {} };
+      return r.json();
+    },
+    enabled: !!visibleArticleIdsKey,
+    staleTime: 60000,
+  });
+  const getCoAuthorsForArticle = (article) => {
+    const list = cardCoAuthorsData?.authors?.[article.id] || [];
+    return list.filter(a =>
+      !(a.type === 'member' && String(a.author_id) === String(article.author_id)) &&
+      !(a.type === 'guest' && String(a.guest_writer_id) === String(article.guest_writer_id))
+    );
+  };
 
   const getPageNumbers = () => {
     const pages = [];
@@ -209,7 +492,14 @@ export default function ArticlesPage() {
 
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [selectedSubcategories, searchQuery, sortBy, itemsPerPage]);
+  }, [selectedSubcategories, searchQuery, sortBy, itemsPerPage, showMyArticlesOnly]);
+
+  // Reset sortBy to valid option if user becomes unauthenticated
+  React.useEffect(() => {
+    if (!isAuthenticated && (sortBy === 'most-viewed' || sortBy === 'most-liked')) {
+      setSortBy('newest');
+    }
+  }, [isAuthenticated, sortBy]);
 
   const handleSubcategoryToggle = (subcategory) => {
     setSelectedSubcategories(prev => {
@@ -245,9 +535,9 @@ export default function ArticlesPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+      <div className="min-h-screen p-4 md:p-8">
         <div className="max-w-7xl mx-auto">
-          <div className="grid md:grid-cols-2 gap-6">
+          <div className="grid xl:grid-cols-2 gap-6">
             {Array(6).fill(0).map((_, i) => (
               <Card key={i} className="animate-pulse border-slate-200">
                 <div className="h-48 bg-slate-200" />
@@ -263,17 +553,90 @@ export default function ArticlesPage() {
     );
   }
 
+  // Derive singular display name for header card
+  const singularDisplayName = articleDisplayName.endsWith('s') 
+    ? articleDisplayName.slice(0, -1) 
+    : articleDisplayName;
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
-        <div className="mb-8">
-          <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">
-            {articleDisplayName}
-          </h1>
-          <p className="text-slate-600">
-            Explore {articleDisplayName.toLowerCase()} shared by our community
-          </p>
-        </div>
+        {/* My Articles header - shown when viewing own articles */}
+        {showMyArticlesOnly && (
+          <>
+            <button
+              type="button"
+              onClick={() => setShowMyArticlesOnly(false)}
+              className="inline-flex items-center gap-2 text-slate-600 hover:text-slate-900 mb-4"
+              data-testid="button-back-to-all-articles"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Back to All {articleDisplayName}
+            </button>
+            <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <h2 className="text-lg font-semibold text-blue-900 flex items-center gap-2">
+                <User className="w-5 h-5" />
+                My {articleDisplayName}
+              </h2>
+              <p className="text-sm text-blue-700 mt-1">Viewing your authored {articleDisplayName.toLowerCase()} including drafts</p>
+            </div>
+          </>
+        )}
+
+        {/* Author filter header - shown when viewing articles by specific author */}
+        {authorHandle && (
+          <>
+            <button
+              type="button"
+              onClick={() => navigate('/Articles')}
+              className="inline-flex items-center gap-2 text-slate-600 hover:text-slate-900 mb-4"
+              data-testid="button-back-to-all-articles-from-author"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Back to All {articleDisplayName}
+            </button>
+            {authorNotFound ? (
+              <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+                <h2 className="text-lg font-semibold text-red-900 flex items-center gap-2">
+                  <FileQuestion className="w-5 h-5" />
+                  Author Not Found
+                </h2>
+                <p className="text-sm text-red-700 mt-1">
+                  No author with the handle "{authorHandle}" was found.
+                </p>
+              </div>
+            ) : authorLoading ? (
+              <div className="mb-4 p-4 bg-slate-50 border border-slate-200 rounded-lg animate-pulse">
+                <div className="h-6 bg-slate-200 rounded w-1/3 mb-2" />
+                <div className="h-4 bg-slate-200 rounded w-1/4" />
+              </div>
+            ) : authorInfo ? (
+              <div className="mb-4 p-4 bg-slate-50 border border-slate-200 rounded-lg">
+                <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+                  <User className="w-5 h-5" />
+                  {articleDisplayName} by {authorInfo.name}
+                </h2>
+                {authorInfo.organization && (
+                  <p className="text-sm text-slate-600 mt-1">{authorInfo.organization}</p>
+                )}
+                <p className="text-sm text-slate-500 mt-1">
+                  {authorArticles.length} {authorArticles.length === 1 ? singularDisplayName.toLowerCase() : articleDisplayName.toLowerCase()} published
+                </p>
+              </div>
+            ) : null}
+          </>
+        )}
+
+        {!hasBanner && !showMyArticlesOnly && !authorHandle && (
+          <div className="mb-8">
+            <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">
+              {articleDisplayName}
+            </h1>
+            <p className="text-slate-600">
+              Explore {articleDisplayName.toLowerCase()} shared by our community
+            </p>
+          </div>
+        )}
 
         <div className="flex flex-col lg:flex-row gap-8">
           <div className="lg:w-64 flex-shrink-0">
@@ -287,6 +650,7 @@ export default function ArticlesPage() {
                 onClearSearch={() => setSearchQuery("")}
                 isLoading={categoriesLoading}
                 displayName={articleDisplayName}
+                categoryTitleColor={categoryTitleColor}
               />
 
               {memberInfo && hasUnsavedChanges && (
@@ -315,10 +679,71 @@ export default function ArticlesPage() {
                   </p>
                 </div>
               )}
+              
+              <FollowedAuthorsCard 
+                memberInfo={memberInfo} 
+                articleDisplayName={articleDisplayName}
+              />
             </div>
           </div>
 
           <div className="flex-1">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 gap-3">
+              <div className="text-sm text-slate-600">
+                {sortedArticles.length > 0 
+                  ? `Showing ${startIndex + 1}-${Math.min(endIndex, sortedArticles.length)} of ${sortedArticles.length} ${articleDisplayName.toLowerCase()}`
+                  : `0 ${articleDisplayName.toLowerCase()}`
+                }
+              </div>
+
+              <div className="flex items-center gap-2">
+                {memberInfo && !isFeatureExcluded('content.my-articles') && (
+                  <Button
+                    variant={showMyArticlesOnly ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setShowMyArticlesOnly(!showMyArticlesOnly)}
+                    className="gap-2"
+                    data-testid="button-my-articles-filter"
+                  >
+                    <User className="w-4 h-4" />
+                    My {articleDisplayName}
+                  </Button>
+                )}
+                
+                {showMyArticlesOnly && (
+                  <Link to={getArticleEditorUrl()}>
+                    <Button
+                      size="sm"
+                      className="gap-2 bg-blue-600 hover:bg-blue-700"
+                      data-testid="button-add-article"
+                    >
+                      <Plus className="w-4 h-4" />
+                      New {articleDisplayName?.replace(/s$/i, '') || 'Article'}
+                    </Button>
+                  </Link>
+                )}
+                
+                <Select value={sortBy} onValueChange={setSortBy}>
+                  <SelectTrigger className="w-48">
+                    <SlidersHorizontal className="w-4 h-4 mr-2" />
+                    <SelectValue placeholder="Sort By" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="newest">Newest First</SelectItem>
+                    <SelectItem value="oldest">Oldest First</SelectItem>
+                    {isAuthenticated && (
+                      <>
+                        <SelectItem value="most-viewed">Most Viewed</SelectItem>
+                        <SelectItem value="most-liked">Most Liked</SelectItem>
+                      </>
+                    )}
+                    <SelectItem value="title-asc">Title A-Z</SelectItem>
+                    <SelectItem value="title-desc">Title Z-A</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
             {sortedArticles.length === 0 ? (
               <Card className="border-slate-200 shadow-sm">
                 <CardContent className="p-12 text-center">
@@ -327,42 +752,42 @@ export default function ArticlesPage() {
                     No {articleDisplayName.toLowerCase()} found
                   </h3>
                   <p className="text-slate-600">
-                    {searchQuery || selectedSubcategories.length > 0
-                      ? 'Try adjusting your search or filters'
-                      : 'Check back later for new content'}
+                    {showMyArticlesOnly
+                      ? `You haven't authored any ${articleDisplayName.toLowerCase()} yet`
+                      : searchQuery || selectedSubcategories.length > 0
+                        ? 'Try adjusting your search or filters'
+                        : 'Check back later for new content'}
                   </p>
+                  {showMyArticlesOnly && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowMyArticlesOnly(false)}
+                      className="mt-4"
+                      data-testid="button-show-all-articles"
+                    >
+                      Show all {articleDisplayName.toLowerCase()}
+                    </Button>
+                  )}
                 </CardContent>
               </Card>
             ) : (
               <>
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 gap-3">
-                  <div className="text-sm text-slate-600">
-                    Showing {startIndex + 1}-{Math.min(endIndex, sortedArticles.length)} of {sortedArticles.length} {articleDisplayName.toLowerCase()}
-                  </div>
-
-                  <Select value={sortBy} onValueChange={setSortBy}>
-                    <SelectTrigger className="w-48">
-                      <SlidersHorizontal className="w-4 h-4 mr-2" />
-                      <SelectValue placeholder="Sort By" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="newest">Newest First</SelectItem>
-                      <SelectItem value="oldest">Oldest First</SelectItem>
-                      <SelectItem value="most-viewed">Most Viewed</SelectItem>
-                      <SelectItem value="most-liked">Most Liked</SelectItem>
-                      <SelectItem value="title-asc">Title A-Z</SelectItem>
-                      <SelectItem value="title-desc">Title Z-A</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="grid md:grid-cols-2 gap-6 mb-8">
+                <div className="grid xl:grid-cols-2 gap-6 mb-8">
                   {paginatedArticles.map(article => (
                     <ArticleCard 
                       key={article.id} 
                       article={article}
-                      buttonStyles={buttonStyles}
                       displayName={articleDisplayName}
+                      hasAdminEditPermission={memberInfo ? hasAdminEditPermission : false}
+                      hasAdminDeletePermission={memberInfo ? hasAdminDeletePermission : false}
+                      currentMemberId={currentMemberId}
+                      onEdit={handleEditArticle}
+                      onDelete={handleDeleteArticle}
+                      authorHandles={authorHandles}
+                      authorNames={authorNames}
+                      coAuthors={getCoAuthorsForArticle(article)}
+                      viewCount={isAuthenticated && !isFeatureExcluded('content.articles.show-count') ? (articleStats[article.id]?.viewCount || 0) : null}
                     />
                   ))}
                 </div>
@@ -412,7 +837,7 @@ export default function ArticlesPage() {
                                   variant={currentPage === page ? "default" : "outline"}
                                   size="sm"
                                   onClick={() => handlePageChange(page)}
-                                  className={currentPage === page ? "bg-blue-600 hover:bg-blue-700" : ""}
+                                  className="min-w-[40px]"
                                 >
                                   {page}
                                 </Button>
@@ -438,6 +863,34 @@ export default function ArticlesPage() {
           </div>
         </div>
       </div>
+
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Article</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete "{articleToDelete?.title}"? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => setDeleteDialogOpen(false)}
+              data-testid="button-cancel-delete"
+            >
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive" 
+              onClick={confirmDelete}
+              disabled={deleteArticleMutation.isPending}
+              data-testid="button-confirm-delete"
+            >
+              {deleteArticleMutation.isPending ? 'Deleting...' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -10,14 +10,14 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 
 export default function MemberHandleManagementPage() {
-  const { isAdmin, memberInfo, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, memberInfo, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [generationResult, setGenerationResult] = useState(null);
 
   const { data: membersWithoutHandles = [], isLoading, refetch } = useQuery({
     queryKey: ['members-without-handles'],
     queryFn: async () => {
-      const members = await base44.entities.Member.list();
+      const members = await base44.entities.Member.listAll();
       return members.filter(m => !m.handle);
     },
     enabled: accessChecked
@@ -50,17 +50,17 @@ export default function MemberHandleManagementPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin) {
+      if (isFeatureExcluded('admin.member-handle-management')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   if (!accessChecked) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
       </div>
     );
@@ -78,7 +78,7 @@ export default function MemberHandleManagementPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-6xl mx-auto">
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-2">
@@ -172,7 +172,7 @@ export default function MemberHandleManagementPage() {
                       </p>
                       <p className="text-sm text-slate-600">{member.email}</p>
                     </div>
-                    <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+                    <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30">
                       No Handle
                     </Badge>
                   </div>

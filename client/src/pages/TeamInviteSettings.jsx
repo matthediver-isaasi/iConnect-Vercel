@@ -12,7 +12,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 
 export default function TeamInviteSettingsPage() {
-  const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [webhookUrl, setWebhookUrl] = useState("");
   const [hasLoaded, setHasLoaded] = useState(false);
@@ -21,13 +21,13 @@ export default function TeamInviteSettingsPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_TeamInviteSettings')) {
+      if (isFeatureExcluded('page_TeamInviteSettings')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: settings, isLoading } = useQuery({
     queryKey: ['teamInviteSettings'],
@@ -69,14 +69,14 @@ export default function TeamInviteSettingsPage() {
 
   if (!accessChecked || isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <div className="text-slate-600">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-3xl mx-auto">
         <div className="mb-8">
           <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">
@@ -117,21 +117,21 @@ export default function TeamInviteSettingsPage() {
               <Label className="text-xs text-slate-600 mb-2 block">Example Webhook Payload</Label>
               <pre className="text-xs text-slate-700 overflow-x-auto">
 {`{
-  "email": "newmember@organization.com",
+  "email": "newmember@organisation.com",
   "inviterName": "John Doe",
-  "inviterEmail": "john@organization.com",
+  "inviterEmail": "john@organisation.com",
   "timestamp": "2025-01-17T10:30:00.000Z"
 }`}
               </pre>
             </div>
 
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex gap-3">
-              <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-              <div className="text-sm text-amber-900">
+            <div className="bg-warning/10 border border-warning/30 rounded-lg p-4 flex gap-3">
+              <AlertCircle className="w-5 h-5 text-warning flex-shrink-0 mt-0.5" />
+              <div className="text-sm text-warning">
                 <p className="font-medium mb-1">Important Notes:</p>
-                <ul className="list-disc list-inside space-y-1 text-amber-800">
+                <ul className="list-disc list-inside space-y-1 text-warning">
                   <li>The webhook must accept POST requests with JSON body</li>
-                  <li>Invitations can only be sent to email addresses matching the organization's domain</li>
+                  <li>Invitations can only be sent to email addresses matching the organisation's domain</li>
                   <li>The webhook is responsible for sending the actual invitation email</li>
                 </ul>
               </div>

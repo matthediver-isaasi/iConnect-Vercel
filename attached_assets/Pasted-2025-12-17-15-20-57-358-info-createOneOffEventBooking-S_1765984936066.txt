@@ -1,0 +1,29 @@
+2025-12-17 15:20:57.358 [info] [createOneOffEventBooking] Starting booking: {
+  eventId: '8c909888-5b71-4261-9635-9c9b6c21925a',
+  memberEmail: 'mat@isaasi.co.uk',
+  ticketsRequired: 1,
+  totalCost: 0,
+  paymentMethod: 'fully_covered',
+  ticketClassId: 'ticket-1765979821510-xo9v2',
+  ticketClassName: 'Standard Ticket',
+  attendeesReceived: 1,
+  attendeesData: '[{"email":"mat@isaasi.co.uk","first_name":"Matt","last_name":"Henderson","isValid":true,"isSelf":true}]',
+  isGuestBooking: false,
+  guestInfo: null
+}
+2025-12-17 15:20:57.509 [info] [createOneOffEventBooking] Member found: 48b25075-51da-437f-af20-17836a892bfe mat@isaasi.co.uk
+2025-12-17 15:20:57.792 [info] [createOneOffEventBooking] About to create bookings for 1 attendees (isGuestBooking: false )
+2025-12-17 15:20:57.792 [info] [createOneOffEventBooking] Processing attendee 1/1: mat@isaasi.co.uk
+2025-12-17 15:20:57.792 [info] [createOneOffEventBooking] Inserting booking: {"event_id":"8c909888-5b71-4261-9635-9c9b6c21925a","member_id":"48b25075-51da-437f-af20-17836a892bfe","organization_id":"55a86410-7f60-4451-a45c-5760d93ccf1a","booking_reference":"OOE-1765984857791-QQJ4T","booking_group_reference":"OOE-1765984857791-QQJ4T","attendee_email":"mat@isaasi.co.uk","attendee_first_name":"Matt","attendee_last_name":"Henderson","status":"confirmed","payment_method":"fully_covered","ticket_price":0,"total_cost":0,"voucher_amount":0,"training_fund_amount":0,"account_amount":0,"purchase_order_number":"","po_to_follow":false,"stripe_payment_intent_id":null,"is_one_off_event":true,"ticket_class_id":"ticket-1765979821510-xo9v2","ticket_class_name":"Standard Ticket","is_guest_booking":false}
+2025-12-17 15:20:57.948 [info] [createOneOffEventBooking] Booking created: fcadcfee-291b-483b-9ce0-88cb66d8f77c
+2025-12-17 15:20:58.097 [info] [createOneOffEventBooking] Found Zoom meeting, sending confirmation emails...
+2025-12-17 15:20:58.120 [info] [Email Service] Sending email to: mat@isaasi.co.uk
+2025-12-17 15:20:58.120 [info] [Email Service] Subject: Your Zoom Meeting Link: CRON Test3
+2025-12-17 15:20:58.403 [info] [scheduleBookingReminderEmails] Found 2 reminder emails to process
+2025-12-17 15:20:58.403 [info] [scheduleBookingReminderEmails] Event start: 2025-12-18T13:55:00+00:00, now: 2025-12-17T15:20:58.402Z
+2025-12-17 15:20:58.403 [info] [scheduleBookingReminderEmails] Processing email 1/2: id=078dd6b3-be02-4b22-9512-0dbaf9b33d72, timing_type=6_hours_before
+2025-12-17 15:20:58.433 [info] [Email Service] Email sent successfully. Message ID: <20251217152058.dcaa5b94cb3b0955@agcas.isaasi.co.uk>
+2025-12-17 15:20:58.433 [info] [sendZoomEventConfirmationEmail] Email sent to mat@isaasi.co.uk: {
+  success: true,
+  messageId: '<20251217152058.dcaa5b94cb3b0955@agcas.isaasi.co.uk>'
+}

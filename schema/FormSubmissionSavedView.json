@@ -1,0 +1,21 @@
+{
+    "name": "FormSubmissionSavedView",
+    "type": "object",
+    "properties": {
+      "member_id": {
+        "type": "string",
+        "description": "Member id of the owner of this saved view (set server-side from session)"
+      },
+      "name": {
+        "type": "string",
+        "description": "User-chosen label for the saved view"
+      },
+      "filters": {
+        "type": "object",
+        "description": "Snapshot of the filter set: { q, form, status, dateFrom, dateTo, tab }"
+      }
+    },
+    "required": [
+      "name"
+    ]
+  }

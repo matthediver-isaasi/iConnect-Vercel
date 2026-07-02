@@ -1,0 +1,249 @@
+index-BkrcfEtu.js:1016 [publicClient] Detected tenant from subdomain: bnms
+index-BkrcfEtu.js:1101 GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.84.0) 2026-01-16T21:48:59.633Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+Tg @ index-BkrcfEtu.js:1101
+Yle @ index-BkrcfEtu.js:1102
+_initSupabaseAuthClient @ index-BkrcfEtu.js:1102
+Jle @ index-BkrcfEtu.js:1102
+rE @ index-BkrcfEtu.js:1102
+(anonymous) @ index-BkrcfEtu.js:2084
+(anonymous) @ index-BkrcfEtu.js:1
+(anonymous) @ index-BkrcfEtu.js:2524
+index-BkrcfEtu.js:1101 GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:2 (2.84.0) 2026-01-16T21:48:59.636Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+Tg @ index-BkrcfEtu.js:1101
+Yle @ index-BkrcfEtu.js:1102
+_initSupabaseAuthClient @ index-BkrcfEtu.js:1102
+Jle @ index-BkrcfEtu.js:1102
+rE @ index-BkrcfEtu.js:1102
+(anonymous) @ index-BkrcfEtu.js:2470
+(anonymous) @ index-BkrcfEtu.js:1
+(anonymous) @ index-BkrcfEtu.js:2524
+index-BkrcfEtu.js:1405 [usePendingPurchaseOrders] memberInfo: null
+index-BkrcfEtu.js:1405 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BkrcfEtu.js:1405 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BkrcfEtu.js:1405 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-BkrcfEtu.js:1405 [usePendingPurchaseOrders] memberInfo: null
+index-BkrcfEtu.js:1405 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BkrcfEtu.js:1405 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BkrcfEtu.js:1405 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-BkrcfEtu.js:1405 [usePendingPurchaseOrders] memberInfo: null
+index-BkrcfEtu.js:1405 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BkrcfEtu.js:1405 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BkrcfEtu.js:1405 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-BkrcfEtu.js:1016  GET https://bnms.iconn.app/api/entities/PortalMenu?sort=%7B%22display_order%22%3A%22asc%22%7D 401 (Unauthorized)
+_apiRequest @ index-BkrcfEtu.js:1016
+list @ index-BkrcfEtu.js:1016
+queryFn @ index-BkrcfEtu.js:1405
+i @ index-BkrcfEtu.js:1016
+v @ index-BkrcfEtu.js:1016
+start @ index-BkrcfEtu.js:1016
+fetch @ index-BkrcfEtu.js:1016
+wf @ index-BkrcfEtu.js:1016
+onSubscribe @ index-BkrcfEtu.js:1016
+subscribe @ index-BkrcfEtu.js:1016
+(anonymous) @ index-BkrcfEtu.js:1016
+qR @ index-BkrcfEtu.js:38
+Aj @ index-BkrcfEtu.js:40
+Bh @ index-BkrcfEtu.js:40
+(anonymous) @ index-BkrcfEtu.js:40
+N @ index-BkrcfEtu.js:25
+w @ index-BkrcfEtu.js:25
+index-BkrcfEtu.js:1405 Error loading PortalMenu: Error: API Error (401): Authentication required
+    at qee._apiRequest (index-BkrcfEtu.js:1016:50455)
+    at async Dee.list (index-BkrcfEtu.js:1016:41048)
+    at async queryFn (index-BkrcfEtu.js:1405:53040)
+queryFn @ index-BkrcfEtu.js:1405
+await in queryFn
+i @ index-BkrcfEtu.js:1016
+v @ index-BkrcfEtu.js:1016
+start @ index-BkrcfEtu.js:1016
+fetch @ index-BkrcfEtu.js:1016
+wf @ index-BkrcfEtu.js:1016
+onSubscribe @ index-BkrcfEtu.js:1016
+subscribe @ index-BkrcfEtu.js:1016
+(anonymous) @ index-BkrcfEtu.js:1016
+qR @ index-BkrcfEtu.js:38
+Aj @ index-BkrcfEtu.js:40
+Bh @ index-BkrcfEtu.js:40
+(anonymous) @ index-BkrcfEtu.js:40
+N @ index-BkrcfEtu.js:25
+w @ index-BkrcfEtu.js:25
+index-BkrcfEtu.js:1405 [usePendingPurchaseOrders] memberInfo: null
+index-BkrcfEtu.js:1405 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BkrcfEtu.js:1405 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BkrcfEtu.js:1405 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-BkrcfEtu.js:1405 [usePendingPurchaseOrders] memberInfo: null
+index-BkrcfEtu.js:1405 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BkrcfEtu.js:1405 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BkrcfEtu.js:1405 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-BkrcfEtu.js:2116 [ArticleView] Component initialized
+index-BkrcfEtu.js:2116 [ArticleView] Route params - authorHandle: mat-henderson articleSlug: test-blog-bnms
+index-BkrcfEtu.js:2116 [ArticleView] window.location.pathname: /blogs/mat-henderson/test-blog-bnms
+index-BkrcfEtu.js:2116 [ArticleView] isAuthenticated: false
+index-BkrcfEtu.js:2116 [ArticleView] Resolved - authorHandle: mat-henderson slug: test-blog-bnms
+index-BkrcfEtu.js:2116 [ArticleView] isPreviewMode: false
+index-BkrcfEtu.js:2116 [ArticleView] Query state - orgLoading: false orgError: false authorOrganization: undefined
+index-BkrcfEtu.js:1102 [useNavigationRealtime] Setting up realtime subscription for navigation_item table
+index-BkrcfEtu.js:2116 [ArticleView] Fetching article for authorHandle: mat-henderson slug: test-blog-bnms isAuthenticated: false
+index-BkrcfEtu.js:2116 [ArticleView] Using public API for article fetch
+index-BkrcfEtu.js:2116 [ArticleView] Component initialized
+index-BkrcfEtu.js:2116 [ArticleView] Route params - authorHandle: mat-henderson articleSlug: test-blog-bnms
+index-BkrcfEtu.js:2116 [ArticleView] window.location.pathname: /blogs/mat-henderson/test-blog-bnms
+index-BkrcfEtu.js:2116 [ArticleView] isAuthenticated: false
+index-BkrcfEtu.js:2116 [ArticleView] Resolved - authorHandle: mat-henderson slug: test-blog-bnms
+index-BkrcfEtu.js:2116 [ArticleView] isPreviewMode: false
+index-BkrcfEtu.js:2116 [ArticleView] Query state - orgLoading: false orgError: false authorOrganization: undefined
+index-BkrcfEtu.js:2116 [ArticleView] Component initialized
+index-BkrcfEtu.js:2116 [ArticleView] Route params - authorHandle: mat-henderson articleSlug: test-blog-bnms
+index-BkrcfEtu.js:2116 [ArticleView] window.location.pathname: /blogs/mat-henderson/test-blog-bnms
+index-BkrcfEtu.js:2116 [ArticleView] isAuthenticated: false
+index-BkrcfEtu.js:2116 [ArticleView] Resolved - authorHandle: mat-henderson slug: test-blog-bnms
+index-BkrcfEtu.js:2116 [ArticleView] isPreviewMode: false
+index-BkrcfEtu.js:2116 [ArticleView] Query state - orgLoading: false orgError: false authorOrganization: undefined
+index-BkrcfEtu.js:1405 [usePendingPurchaseOrders] memberInfo: null
+index-BkrcfEtu.js:1405 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BkrcfEtu.js:1405 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BkrcfEtu.js:1405 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-BkrcfEtu.js:2116 [ArticleView] Component initialized
+index-BkrcfEtu.js:2116 [ArticleView] Route params - authorHandle: mat-henderson articleSlug: test-blog-bnms
+index-BkrcfEtu.js:2116 [ArticleView] window.location.pathname: /blogs/mat-henderson/test-blog-bnms
+index-BkrcfEtu.js:2116 [ArticleView] isAuthenticated: false
+index-BkrcfEtu.js:2116 [ArticleView] Resolved - authorHandle: mat-henderson slug: test-blog-bnms
+index-BkrcfEtu.js:2116 [ArticleView] isPreviewMode: false
+index-BkrcfEtu.js:2116 [ArticleView] Query state - orgLoading: false orgError: false authorOrganization: undefined
+index-BkrcfEtu.js:1405 [Layout] Server returned null for /api/auth/me - member deleted or disabled
+index-BkrcfEtu.js:1102 [useNavigationRealtime] Subscription status: SUBSCRIBED
+index-BkrcfEtu.js:1371 [PublicLayout] Fetching banners for page: _DynamicPage portalPageId: null isCustomSlug: true urlSlug: blogs
+index-BkrcfEtu.js:1371 [PublicLayout] All banners found: 14
+index-BkrcfEtu.js:1371 [PublicLayout] pageToPortalPageMap keys: (26) ['Events', 'PublicEvents', 'Bookings', 'MyTickets', 'BuyProgramTickets', 'MemberDirectory', 'OrganisationDirectory', 'Resources', 'PublicResources', 'Articles', 'PublicArticles', 'Team', 'Balances', 'History', 'Profile', 'MyOrganisation', 'JobBoard', 'PublicJobBoard', 'News', 'PublicNews', 'NewsView', 'MyJobPostings', 'Preferences', 'about-me', 'Support', 'Dashboard']
+index-BkrcfEtu.js:1371 [PublicLayout] Matched banners: 0
+index-BkrcfEtu.js:1016  GET https://bnms.iconn.app/api/public/article?slug=test-blog-bnms&authorHandle=mat-henderson&tenant=bnms 404 (Not Found)
+Qee @ index-BkrcfEtu.js:1016
+_fetch @ index-BkrcfEtu.js:1016
+getArticle @ index-BkrcfEtu.js:1016
+queryFn @ index-BkrcfEtu.js:2116
+i @ index-BkrcfEtu.js:1016
+v @ index-BkrcfEtu.js:1016
+start @ index-BkrcfEtu.js:1016
+fetch @ index-BkrcfEtu.js:1016
+wf @ index-BkrcfEtu.js:1016
+onSubscribe @ index-BkrcfEtu.js:1016
+subscribe @ index-BkrcfEtu.js:1016
+(anonymous) @ index-BkrcfEtu.js:1016
+qR @ index-BkrcfEtu.js:38
+Aj @ index-BkrcfEtu.js:40
+Bh @ index-BkrcfEtu.js:40
+WQ @ index-BkrcfEtu.js:40
+Lu @ index-BkrcfEtu.js:40
+U5 @ index-BkrcfEtu.js:40
+bu @ index-BkrcfEtu.js:38
+(anonymous) @ index-BkrcfEtu.js:40
+setTimeout
+r @ index-BkrcfEtu.js:1016
+l @ index-BkrcfEtu.js:1016
+batch @ index-BkrcfEtu.js:1016
+yc @ index-BkrcfEtu.js:1016
+setData @ index-BkrcfEtu.js:1016
+onSuccess @ index-BkrcfEtu.js:1016
+u @ index-BkrcfEtu.js:1016
+Promise.then
+v @ index-BkrcfEtu.js:1016
+start @ index-BkrcfEtu.js:1016
+fetch @ index-BkrcfEtu.js:1016
+wf @ index-BkrcfEtu.js:1016
+onSubscribe @ index-BkrcfEtu.js:1016
+subscribe @ index-BkrcfEtu.js:1016
+(anonymous) @ index-BkrcfEtu.js:1016
+qR @ index-BkrcfEtu.js:38
+Aj @ index-BkrcfEtu.js:40
+Bh @ index-BkrcfEtu.js:40
+(anonymous) @ index-BkrcfEtu.js:40
+N @ index-BkrcfEtu.js:25
+w @ index-BkrcfEtu.js:25
+index-BkrcfEtu.js:2116 [ArticleView] Public API error: Error: Public API Error (404): Article not found
+    at Qee (index-BkrcfEtu.js:1016:76313)
+    at async queryFn (index-BkrcfEtu.js:2116:12567)
+index-BkrcfEtu.js:2116 [ArticleView] Component initialized
+index-BkrcfEtu.js:2116 [ArticleView] Route params - authorHandle: mat-henderson articleSlug: test-blog-bnms
+index-BkrcfEtu.js:2116 [ArticleView] window.location.pathname: /blogs/mat-henderson/test-blog-bnms
+index-BkrcfEtu.js:2116 [ArticleView] isAuthenticated: false
+index-BkrcfEtu.js:2116 [ArticleView] Resolved - authorHandle: mat-henderson slug: test-blog-bnms
+index-BkrcfEtu.js:2116 [ArticleView] isPreviewMode: false
+index-BkrcfEtu.js:2116 [ArticleView] Query state - orgLoading: false orgError: false authorOrganization: undefined
+index-BkrcfEtu.js:2116 [ArticleView] Component initialized
+index-BkrcfEtu.js:2116 [ArticleView] Route params - authorHandle: mat-henderson articleSlug: test-blog-bnms
+index-BkrcfEtu.js:2116 [ArticleView] window.location.pathname: /blogs/mat-henderson/test-blog-bnms
+index-BkrcfEtu.js:2116 [ArticleView] isAuthenticated: false
+index-BkrcfEtu.js:2116 [ArticleView] Resolved - authorHandle: mat-henderson slug: test-blog-bnms
+index-BkrcfEtu.js:2116 [ArticleView] isPreviewMode: false
+index-BkrcfEtu.js:2116 [ArticleView] Query state - orgLoading: false orgError: false authorOrganization: undefined
+index-BkrcfEtu.js:1016  GET https://bnms.iconn.app/api/public/form/d11afd07-df3c-4187-b627-ea8e3a692907?tenant=bnms 404 (Not Found)
+Qee @ index-BkrcfEtu.js:1016
+_fetch @ index-BkrcfEtu.js:1016
+getForm @ index-BkrcfEtu.js:1016
+(anonymous) @ index-BkrcfEtu.js:1371
+await in (anonymous)
+(anonymous) @ index-BkrcfEtu.js:1371
+Aj @ index-BkrcfEtu.js:40
+Bh @ index-BkrcfEtu.js:40
+WQ @ index-BkrcfEtu.js:40
+Lu @ index-BkrcfEtu.js:40
+U5 @ index-BkrcfEtu.js:40
+bu @ index-BkrcfEtu.js:38
+(anonymous) @ index-BkrcfEtu.js:40
+setTimeout
+r @ index-BkrcfEtu.js:1016
+l @ index-BkrcfEtu.js:1016
+batch @ index-BkrcfEtu.js:1016
+yc @ index-BkrcfEtu.js:1016
+setData @ index-BkrcfEtu.js:1016
+onSuccess @ index-BkrcfEtu.js:1016
+u @ index-BkrcfEtu.js:1016
+Promise.then
+v @ index-BkrcfEtu.js:1016
+start @ index-BkrcfEtu.js:1016
+fetch @ index-BkrcfEtu.js:1016
+wf @ index-BkrcfEtu.js:1016
+onSubscribe @ index-BkrcfEtu.js:1016
+subscribe @ index-BkrcfEtu.js:1016
+(anonymous) @ index-BkrcfEtu.js:1016
+qR @ index-BkrcfEtu.js:38
+Aj @ index-BkrcfEtu.js:40
+Bh @ index-BkrcfEtu.js:40
+(anonymous) @ index-BkrcfEtu.js:40
+N @ index-BkrcfEtu.js:25
+w @ index-BkrcfEtu.js:25
+index-BkrcfEtu.js:1371 Failed to fetch newsletter form: Error: Public API Error (404): Form not found or inactive
+    at Qee (index-BkrcfEtu.js:1016:76313)
+    at async index-BkrcfEtu.js:1371:221090
+(anonymous) @ index-BkrcfEtu.js:1371
+await in (anonymous)
+(anonymous) @ index-BkrcfEtu.js:1371
+Aj @ index-BkrcfEtu.js:40
+Bh @ index-BkrcfEtu.js:40
+WQ @ index-BkrcfEtu.js:40
+Lu @ index-BkrcfEtu.js:40
+U5 @ index-BkrcfEtu.js:40
+bu @ index-BkrcfEtu.js:38
+(anonymous) @ index-BkrcfEtu.js:40
+setTimeout
+r @ index-BkrcfEtu.js:1016
+l @ index-BkrcfEtu.js:1016
+batch @ index-BkrcfEtu.js:1016
+yc @ index-BkrcfEtu.js:1016
+setData @ index-BkrcfEtu.js:1016
+onSuccess @ index-BkrcfEtu.js:1016
+u @ index-BkrcfEtu.js:1016
+Promise.then
+v @ index-BkrcfEtu.js:1016
+start @ index-BkrcfEtu.js:1016
+fetch @ index-BkrcfEtu.js:1016
+wf @ index-BkrcfEtu.js:1016
+onSubscribe @ index-BkrcfEtu.js:1016
+subscribe @ index-BkrcfEtu.js:1016
+(anonymous) @ index-BkrcfEtu.js:1016
+qR @ index-BkrcfEtu.js:38
+Aj @ index-BkrcfEtu.js:40
+Bh @ index-BkrcfEtu.js:40
+(anonymous) @ index-BkrcfEtu.js:40
+N @ index-BkrcfEtu.js:25
+w @ index-BkrcfEtu.js:25

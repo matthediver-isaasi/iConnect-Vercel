@@ -1,0 +1,191 @@
+index-BCbeQyd3.js:1689 [FieldMapping] Target field changed to: 4a53827a-d7f0-4e81-b0db-5671f537550a
+index-BCbeQyd3.js:1689 [FieldMapping] updateMapping called: mapping_1765477589707 {target_field: '4a53827a-d7f0-4e81-b0db-5671f537550a', static_value: ''}
+index-BCbeQyd3.js:1689 [FieldMapping] New mappings: (9) [{…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}]
+index-BCbeQyd3.js:1689 [FormBuilder] onMappingsChange called with: (9) [{…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}]
+index-BCbeQyd3.js:1689 [FormBuilder] handleSubmit called
+index-BCbeQyd3.js:1689 [FormBuilder] formData: {
+  "name": "Enquiry form",
+  "description": "",
+  "slug": "enquiry",
+  "layout_type": "card_swipe",
+  "fields": [
+    {
+      "id": "field_1765442000359",
+      "type": "text",
+      "label": "First Name",
+      "options": [],
+      "page_id": null,
+      "required": false,
+      "allow_other": false,
+      "placeholder": "",
+      "column_index": 0
+    },
+    {
+      "id": "field_1765442008304",
+      "type": "text",
+      "label": "Last Name",
+      "options": [],
+      "page_id": null,
+      "required": false,
+      "allow_other": false,
+      "placeholder": "",
+      "column_index": 0
+    },
+    {
+      "id": "field_1765442014900",
+      "type": "email",
+      "label": "Your email",
+      "options": [],
+      "page_id": null,
+      "required": false,
+      "allow_other": false,
+      "placeholder": "",
+      "column_index": 0
+    },
+    {
+      "id": "field_1765442024867",
+      "type": "text",
+      "label": "Organisation",
+      "options": [],
+      "page_id": null,
+      "required": false,
+      "allow_other": false,
+      "placeholder": "",
+      "column_index": 0
+    },
+    {
+      "id": "field_1765442033285",
+      "type": "url",
+      "label": "Website",
+      "options": [],
+      "page_id": null,
+      "required": false,
+      "allow_other": false,
+      "placeholder": "",
+      "column_index": 0
+    }
+  ],
+  "pages": [],
+  "submit_button_text": "Submit",
+  "success_message": "Thank you for your submission!",
+  "redirect_url": "",
+  "require_authentication": false,
+  "is_active": true,
+  "is_application_form": true,
+  "application_level": "organization",
+  "auto_create_entity": true,
+  "create_entity_type": "both",
+  "uniqueness_checks": [
+    {
+      "field_id": "field_1765442014900",
+      "target_field": "member.email",
+      "comparison_mode": "domain_equals"
+    },
+    {
+      "field_id": "field_1765442024867",
+      "target_field": "organization.name",
+      "comparison_mode": "equals_lowercase"
+    },
+    {
+      "field_id": "field_1765442033285",
+      "target_field": "organization.website_url",
+      "comparison_mode": "domain_equals"
+    }
+  ],
+  "field_mappings": [
+    {
+      "id": "mapping_1765472583158",
+      "target_type": "custom",
+      "target_field": "e201a90e-840b-4555-8cd3-c50aa8d9b19f",
+      "target_entity": "organization",
+      "transformation": "extract_domain",
+      "source_field_id": "field_1765442014900"
+    },
+    {
+      "id": "mapping_1765477399254",
+      "target_type": "core",
+      "target_field": "name",
+      "target_entity": "organization",
+      "transformation": "none",
+      "source_field_id": "field_1765442024867"
+    },
+    {
+      "id": "mapping_1765477572608",
+      "target_type": "custom",
+      "static_value": "",
+      "target_field": "1ff67037-36ee-4ac0-b261-27707550b4e8",
+      "target_entity": "organization",
+      "transformation": "none",
+      "source_field_id": "field_1765442000359"
+    },
+    {
+      "id": "mapping_1765477578998",
+      "target_type": "custom",
+      "static_value": "",
+      "target_field": "a9265da5-d28c-431e-be14-631c15989a8f",
+      "target_entity": "organization",
+      "transformation": "none",
+      "source_field_id": "field_1765442008304"
+    },
+    {
+      "id": "mapping_1765477589707",
+      "target_type": "custom",
+      "target_field": "4a53827a-d7f0-4e81-b0db-5671f537550a",
+      "target_entity": "organization",
+      "transformation": "none",
+      "source_field_id": "field_1765442014900",
+      "static_value": ""
+    },
+    {
+      "id": "mapping_1765482745739",
+      "source_type": "static",
+      "target_type": "custom",
+      "static_value": "Initial application",
+      "target_field": "1c395ccf-7df2-4818-917d-1cd672216f71",
+      "target_entity": "organization",
+      "transformation": "none",
+      "source_field_id": ""
+    },
+    {
+      "id": "mapping_1765523017868",
+      "source_type": "field",
+      "target_type": "custom",
+      "static_value": "",
+      "target_field": "e201a90e-840b-4555-8cd3-c50aa8d9b19f",
+      "target_entity": "organization",
+      "transformation": "extract_domain",
+      "source_field_id": "field_1765442014900"
+    },
+    {
+      "id": "mapping_1765523045588",
+      "source_type": "field",
+      "target_type": "custom",
+      "static_value": "",
+      "target_field": "e201a90e-840b-4555-8cd3-c50aa8d9b19f",
+      "target_entity": "organization",
+      "transformation": "extract_domain",
+      "source_field_id": "field_1765442033285"
+    },
+    {
+      "id": "mapping_1765538975440",
+      "source_type": "field",
+      "target_type": "custom",
+      "static_value": "",
+      "target_field": "526c769e-deb9-4c63-9408-c04766ae9614",
+      "target_entity": "organization",
+      "transformation": "current_date",
+      "source_field_id": ""
+    }
+  ]
+}
+index-BCbeQyd3.js:1689 [FormBuilder] Validating 9 field mappings
+index-BCbeQyd3.js:1689 [FormBuilder] Mapping #1: {id: 'mapping_1765472583158', target_type: 'custom', target_field: 'e201a90e-840b-4555-8cd3-c50aa8d9b19f', target_entity: 'organization', transformation: 'extract_domain', …}
+index-BCbeQyd3.js:1689 [FormBuilder] Mapping #2: {id: 'mapping_1765477399254', target_type: 'core', target_field: 'name', target_entity: 'organization', transformation: 'none', …}
+index-BCbeQyd3.js:1689 [FormBuilder] Mapping #3: {id: 'mapping_1765477572608', target_type: 'custom', static_value: '', target_field: '1ff67037-36ee-4ac0-b261-27707550b4e8', target_entity: 'organization', …}
+index-BCbeQyd3.js:1689 [FormBuilder] Mapping #4: {id: 'mapping_1765477578998', target_type: 'custom', static_value: '', target_field: 'a9265da5-d28c-431e-be14-631c15989a8f', target_entity: 'organization', …}
+index-BCbeQyd3.js:1689 [FormBuilder] Mapping #5: {id: 'mapping_1765477589707', target_type: 'custom', target_field: '4a53827a-d7f0-4e81-b0db-5671f537550a', target_entity: 'organization', transformation: 'none', …}
+index-BCbeQyd3.js:1689 [FormBuilder] Mapping #6: {id: 'mapping_1765482745739', source_type: 'static', target_type: 'custom', static_value: 'Initial application', target_field: '1c395ccf-7df2-4818-917d-1cd672216f71', …}
+index-BCbeQyd3.js:1689 [FormBuilder] Mapping #7: {id: 'mapping_1765523017868', source_type: 'field', target_type: 'custom', static_value: '', target_field: 'e201a90e-840b-4555-8cd3-c50aa8d9b19f', …}
+index-BCbeQyd3.js:1689 [FormBuilder] Mapping #8: {id: 'mapping_1765523045588', source_type: 'field', target_type: 'custom', static_value: '', target_field: 'e201a90e-840b-4555-8cd3-c50aa8d9b19f', …}
+index-BCbeQyd3.js:1689 [FormBuilder] Mapping #9: {id: 'mapping_1765538975440', source_type: 'field', target_type: 'custom', static_value: '', target_field: '526c769e-deb9-4c63-9408-c04766ae9614', …}
+index-BCbeQyd3.js:1689 [FormBuilder] All mappings validated successfully

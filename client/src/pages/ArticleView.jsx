@@ -1,40 +1,93 @@
 import React, { useEffect, useState } from "react";
 import { base44 } from "@/api/base44Client";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { publicClient } from "@/api/publicClient";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Calendar, User, Edit, Tag, Eye, Linkedin, Mail, Trophy, ChevronDown, ChevronUp } from "lucide-react";
+import { ArrowLeft, Calendar, User, Edit, Tag, Eye, Linkedin, Mail, Trophy, UserPlus, UserMinus, Bookmark, BookOpen } from "lucide-react";
 import { format } from "date-fns";
-import { createPageUrl } from "@/utils";
-import { Link } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import ArticleComments from "../components/blog/ArticleComments";
 import ArticleReactions from "../components/blog/ArticleReactions";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
+import { useArticleUrl } from "@/contexts/ArticleUrlContext";
+import { useLayoutContext } from "@/contexts/LayoutContext";
+import BookmarkButton from "@/components/bookmarks/BookmarkButton";
+import AuthorFollowButton from "@/components/blog/AuthorFollowButton";
 
 export default function ArticleViewPage() {
-  const { memberInfo } = useMemberAccess();
+  const queryClient = useQueryClient();
+  const { memberInfo, isAdmin, isFeatureExcluded } = useMemberAccess();
+  const { branding } = useTenantBranding();
+  const { getArticleListUrl, getArticleEditorUrl, getPublicArticlesUrl } = useArticleUrl();
+  const { sessionValidated } = useLayoutContext();
+  
+  // Determine authentication state using session validation pattern
+  const isAuthenticated = sessionValidated && !!memberInfo;
+  
+  // Get route params for new folder-based URLs: /articles/:authorHandle/:articleSlug
+  const { authorHandle: routeAuthorHandle, articleSlug: routeArticleSlug } = useParams();
+  
   console.log('[ArticleView] Component initialized');
-  console.log('[ArticleView] window.location.href:', window.location.href);
-  console.log('[ArticleView] window.location.search:', window.location.search);
-  console.log('[ArticleView] window.location.hash:', window.location.hash);
+  console.log('[ArticleView] Route params - authorHandle:', routeAuthorHandle, 'articleSlug:', routeArticleSlug);
   console.log('[ArticleView] window.location.pathname:', window.location.pathname);
+  console.log('[ArticleView] isAuthenticated:', isAuthenticated);
   
+  // Legacy query params support
   const urlParams = new URLSearchParams(window.location.search);
-  console.log('[ArticleView] urlParams created from window.location.search');
+  const legacySlug = urlParams.get('slug');
+  const isPreviewMode = urlParams.get('preview') === 'true';
   
-  const slug = urlParams.get('slug');
-  console.log('[ArticleView] slug extracted from urlParams:', slug);
+  // Use route params if available, otherwise fall back to legacy query params
+  const authorHandle = routeAuthorHandle || null;
+  const slug = routeArticleSlug || legacySlug;
+  
+  console.log('[ArticleView] Resolved - authorHandle:', authorHandle, 'slug:', slug);
+  console.log('[ArticleView] isPreviewMode:', isPreviewMode);
   
   const [userIdentifier, setUserIdentifier] = useState("");
   const [viewRecorded, setViewRecorded] = useState(false);
   const [bioExpanded, setBioExpanded] = useState(false);
 
-  // Fetch article settings
-  const { data: articleSettings } = useQuery({
-    queryKey: ['article-settings'],
+  // Default settings for public users (reasonable public-friendly defaults)
+  const defaultPublicSettings = {
+    showViewCount: false, // Don't show view count for public
+    showAuthorBio: true,
+    showAwardsLabel: false, // Awards are member-only feature
+    showAboutAuthorLabel: true,
+    showAuthorOrganization: true,
+    showAuthorEmail: false, // Don't expose email publicly
+    showAuthorPhoto: true,
+    showThumbsUp: false, // Reactions are member-only
+    showThumbsDown: false,
+    allowPublicComments: false // Will be fetched from public API
+  };
+
+  // Fetch article settings - use public API for unauthenticated users
+  const { data: articleSettings = defaultPublicSettings } = useQuery({
+    queryKey: ['article-settings', isAuthenticated],
     queryFn: async () => {
+      if (!isAuthenticated) {
+        // Fetch public article settings for unauthenticated users
+        try {
+          const publicSettings = await publicClient.getArticleSettings();
+          return {
+            ...defaultPublicSettings,
+            showAuthorBio: publicSettings.showAuthorBio ?? true,
+            showAboutAuthorLabel: publicSettings.showAboutAuthorLabel ?? true,
+            showAuthorPhoto: publicSettings.showAuthorPhoto ?? true,
+            showThumbsUp: publicSettings.showThumbsUp ?? false,
+            showThumbsDown: publicSettings.showThumbsDown ?? false,
+            allowPublicComments: publicSettings.allowPublicComments ?? false
+          };
+        } catch (error) {
+          console.error('[ArticleView] Failed to fetch public article settings:', error);
+          return defaultPublicSettings;
+        }
+      }
       const allSettings = await base44.entities.SystemSettings.list();
       console.log('[ArticleView] All settings fetched:', allSettings.length);
       const viewCountSetting = allSettings.find(s => s.setting_key === 'article_show_view_count');
@@ -46,6 +99,7 @@ export default function ArticleViewPage() {
       const authorPhotoSetting = allSettings.find(s => s.setting_key === 'article_show_author_photo');
       const thumbsUpSetting = allSettings.find(s => s.setting_key === 'article_show_thumbs_up');
       const thumbsDownSetting = allSettings.find(s => s.setting_key === 'article_show_thumbs_down');
+      const allowPublicCommentsSetting = allSettings.find(s => s.setting_key === 'article_allow_public_comments');
       console.log('[ArticleView] Photo setting found:', authorPhotoSetting);
       const settings = {
         showViewCount: viewCountSetting?.setting_value !== 'false',
@@ -56,7 +110,8 @@ export default function ArticleViewPage() {
         showAuthorEmail: authorEmailSetting?.setting_value !== 'false',
         showAuthorPhoto: authorPhotoSetting?.setting_value !== 'false',
         showThumbsUp: thumbsUpSetting?.setting_value !== 'false',
-        showThumbsDown: thumbsDownSetting?.setting_value !== 'false'
+        showThumbsDown: thumbsDownSetting?.setting_value !== 'false',
+        allowPublicComments: allowPublicCommentsSetting?.setting_value === 'true'
       };
       console.log('[ArticleView] Parsed settings:', settings);
       return settings;
@@ -65,8 +120,23 @@ export default function ArticleViewPage() {
     refetchOnMount: true,
   });
 
+  // Fetch article display name - use public API for unauthenticated
+  const { data: articleDisplayName = 'Articles' } = useQuery({
+    queryKey: ['article-display-name', isAuthenticated],
+    queryFn: async () => {
+      if (isAuthenticated) {
+        const allSettings = await base44.entities.SystemSettings.list();
+        const setting = allSettings.find(s => s.setting_key === 'article_display_name');
+        return setting?.setting_value || 'Articles';
+      } else {
+        const setting = await publicClient.getSystemSetting('article_display_name');
+        return setting?.setting_value || 'Articles';
+      }
+    }
+  });
+
   // Determine if user is logged in by checking session storage
-  const isLoggedIn = !!sessionStorage.getItem('agcas_member');
+  const isLoggedIn = !!localStorage.getItem('agcas_member');
 
   // Generate or retrieve user identifier
   useEffect(() => {
@@ -82,45 +152,118 @@ export default function ArticleViewPage() {
     }
   }, [memberInfo]);
 
-  const { data: article, isLoading } = useQuery({
-    queryKey: ['article-by-slug', slug],
+  // Fetch article with hybrid loading - public API for unauthenticated, authenticated API for logged in
+  const { data: articleData = { article: null, author: null, guestWriter: null }, isLoading } = useQuery({
+    queryKey: ['article-by-slug', authorHandle, slug, isAuthenticated],
     queryFn: async () => {
-      console.log('[ArticleView] Fetching article for slug:', slug);
+      console.log('[ArticleView] Fetching article for authorHandle:', authorHandle, 'slug:', slug, 'isAuthenticated:', isAuthenticated);
+      
+      // For unauthenticated users, use public API
+      if (!isAuthenticated) {
+        console.log('[ArticleView] Using public API for article fetch');
+        try {
+          const result = await publicClient.getArticle(slug, authorHandle);
+          console.log('[ArticleView] Public API result:', result);
+          return result;
+        } catch (e) {
+          console.log('[ArticleView] Public API error:', e);
+          return { article: null, author: null, guestWriter: null };
+        }
+      }
+      
+      // For authenticated users, use the existing authenticated API
+      console.log('[ArticleView] Using authenticated API for article fetch');
       const articles = await base44.entities.BlogPost.list();
-      const found = articles.find(a => a.slug === slug);
+      
+      let found = null;
+      
+      // Helper to check if article slug matches (handles both clean and legacy formats)
+      const slugMatches = (articleSlug, targetSlug) => {
+        if (!articleSlug || !targetSlug) return false;
+        // Exact match
+        if (articleSlug === targetSlug) return true;
+        // Legacy format: article slug contains "-by-{handle}" suffix
+        // Check if the legacy slug starts with the clean slug
+        if (articleSlug.includes('-by-')) {
+          const cleanSlug = articleSlug.replace(/-by-[^-]+$/, '');
+          return cleanSlug === targetSlug;
+        }
+        return false;
+      };
+      
+      if (authorHandle && slug) {
+        // New folder-based URL: /articles/{authorHandle}/{slug}
+        if (authorHandle === 'guest') {
+          // Guest writer articles
+          found = articles.find(a => slugMatches(a.slug, slug) && a.guest_writer_id);
+        } else {
+          // Member articles - find by matching handle OR blog_handle
+          // First try to find the article directly by checking all articles with member lookup
+          for (const a of articles) {
+            if (!slugMatches(a.slug, slug) || !a.author_id) continue;
+            // Fetch just this one member to check their handle
+            try {
+              const member = await base44.entities.Member.get(a.author_id);
+              if (member && (member.handle === authorHandle || member.blog_handle === authorHandle)) {
+                found = a;
+                break;
+              }
+            } catch (e) {
+              // Member not found, continue
+            }
+          }
+        }
+      } else if (slug) {
+        // Legacy query param support - find by slug only (exact match or legacy format)
+        found = articles.find(a => a.slug === slug || slugMatches(a.slug, slug));
+      }
+      
       console.log('[ArticleView] Article found:', !!found);
       console.log('[ArticleView] Article author_id:', found?.author_id);
-      return found;
+      return { article: found, author: null, guestWriter: null };
     },
     enabled: !!slug,
   });
+  
+  // Extract article from response (handles both public and authenticated formats)
+  const article = articleData?.article || null;
+  const publicAuthorData = articleData?.author || null;
+  const publicGuestWriterData = articleData?.guestWriter || null;
 
-  // Fetch view count
+  // Fetch view count - only for authenticated users
   const { data: viewCount = 0 } = useQuery({
     queryKey: ['article-view-count', article?.id],
     queryFn: async () => {
-      const views = await base44.entities.ArticleView.list();
-      return views.filter(v => v.article_id === article.id).length;
+      const views = await base44.entities.ArticleView.listAll({
+        filter: { article_id: article.id }
+      });
+      return views.length;
     },
-    enabled: !!article?.id,
+    enabled: isAuthenticated && !!article?.id,
     staleTime: 10 * 1000,
   });
 
-  // Fetch author details (either member or guest writer)
+  // Fetch author details (either member or guest writer) - only for authenticated users
+  // For unauthenticated users, use publicAuthorData from the article fetch
   const { data: authorMember } = useQuery({
     queryKey: ['author-member', article?.author_id],
     queryFn: async () => {
       if (!article?.author_id) return null;
-      const members = await base44.entities.Member.list();
-      const found = members.find(m => m.id === article.author_id);
-      console.log('[ArticleView] authorMember found:', found);
-      console.log('[ArticleView] authorMember.organization_id:', found?.organization_id);
-      return found;
+      try {
+        const found = await base44.entities.Member.get(article.author_id);
+        console.log('[ArticleView] authorMember found:', found);
+        console.log('[ArticleView] authorMember.organization_id:', found?.organization_id);
+        return found;
+      } catch (e) {
+        console.log('[ArticleView] Failed to fetch author member:', e);
+        return null;
+      }
     },
-    enabled: !!article?.author_id,
+    enabled: isAuthenticated && !!article?.author_id && !publicAuthorData,
   });
 
-  // Fetch guest writer details if applicable
+  // Fetch guest writer details if applicable - only for authenticated users
+  // For unauthenticated users, use publicGuestWriterData from the article fetch
   const { data: guestWriter } = useQuery({
     queryKey: ['guest-writer', article?.guest_writer_id],
     queryFn: async () => {
@@ -128,30 +271,27 @@ export default function ArticleViewPage() {
       const writers = await base44.entities.GuestWriter.list();
       return writers.find(w => w.id === article.guest_writer_id);
     },
-    enabled: !!article?.guest_writer_id,
+    enabled: isAuthenticated && !!article?.guest_writer_id && !publicGuestWriterData,
   });
 
-  // Determine which author to use
-  const author = guestWriter || authorMember;
-  const isGuestWriter = !!guestWriter;
+  // Determine which author to use - prefer public data for unauthenticated, then authenticated data
+  const effectiveAuthorMember = publicAuthorData || authorMember;
+  const effectiveGuestWriter = publicGuestWriterData || guestWriter;
+  const author = effectiveGuestWriter || effectiveAuthorMember;
+  const isGuestWriter = !!effectiveGuestWriter;
 
-  // Fetch author organization (only for members)
+  // Fetch author organization (only for authenticated members)
   const { data: authorOrganization, isLoading: orgLoading, isError: orgError } = useQuery({
     queryKey: ['author-organization', authorMember?.organization_id],
     queryFn: async () => {
-      console.log('[ArticleView] Fetching organization for Zoho ID:', authorMember?.organization_id);
       if (!authorMember?.organization_id) {
-        console.log('[ArticleView] No organization_id, returning null');
         return null;
       }
       const orgs = await base44.entities.Organization.list();
-      console.log('[ArticleView] All organizations:', orgs.length);
-      console.log('[ArticleView] Looking for org with zoho_account_id:', authorMember.organization_id);
-      const found = orgs.find(o => o.zoho_account_id === authorMember.organization_id);
-      console.log('[ArticleView] Found organization:', found);
+      const found = orgs.find(o => o.id === authorMember.organization_id);
       return found;
     },
-    enabled: !!authorMember?.organization_id && !isGuestWriter,
+    enabled: isAuthenticated && !!authorMember?.organization_id && !isGuestWriter,
     staleTime: Infinity,
     refetchOnWindowFocus: false,
     refetchOnMount: false,
@@ -160,9 +300,28 @@ export default function ArticleViewPage() {
   console.log('[ArticleView] Query state - orgLoading:', orgLoading, 'orgError:', orgError, 'authorOrganization:', authorOrganization);
 
   // Get organization name (from member's org or guest writer's organization field)
-  const organizationName = isGuestWriter ? guestWriter?.organization : authorOrganization?.name;
+  const organizationName = isGuestWriter ? effectiveGuestWriter?.organization : authorOrganization?.name;
 
-  // Fetch author engagement stats (only for members)
+  // Co-authors (Task #1222): ordered author list (primary first). Works for both
+  // the public and authenticated paths via the tenant-scoped endpoint.
+  const { data: authorsData } = useQuery({
+    queryKey: ['article-authors', article?.id],
+    queryFn: async () => {
+      const r = await fetch(`/api/articles/authors?blog_post_id=${article.id}`, { credentials: 'include' });
+      if (!r.ok) return { authors: [] };
+      return r.json();
+    },
+    enabled: !!article?.id,
+    staleTime: 60_000,
+  });
+  const allAuthors = authorsData?.authors || articleData?.authors || [];
+  const coAuthorCards = allAuthors.filter(
+    (a) =>
+      !(a.type === 'member' && a.author_id === article?.author_id) &&
+      !(a.type === 'guest' && a.guest_writer_id === article?.guest_writer_id)
+  );
+
+  // Fetch author engagement stats (only for authenticated members)
   const { data: authorStats } = useQuery({
     queryKey: ['author-stats', authorMember?.id],
     queryFn: async () => {
@@ -180,19 +339,20 @@ export default function ArticleViewPage() {
 
       return { eventsAttended, articlesWritten, jobsPosted };
     },
-    enabled: !!authorMember?.id && !isGuestWriter,
+    enabled: isAuthenticated && !!authorMember?.id && !isGuestWriter,
   });
 
-  // Fetch online awards
+  // Fetch online awards - only for authenticated users
   const { data: awards = [] } = useQuery({
     queryKey: ['awards'],
     queryFn: async () => {
       const allAwards = await base44.entities.Award.list();
       return allAwards.filter(a => a.is_active).sort((a, b) => (a.level || 0) - (b.level || 0));
     },
+    enabled: isAuthenticated,
   });
 
-  // Fetch offline award assignments for author
+  // Fetch offline award assignments for author - only for authenticated users
   const { data: authorOfflineAssignments = [] } = useQuery({
     queryKey: ['author-offline-assignments', authorMember?.id],
     queryFn: async () => {
@@ -200,16 +360,17 @@ export default function ArticleViewPage() {
       const allAssignments = await base44.entities.OfflineAwardAssignment.list();
       return allAssignments.filter(a => a.member_id === authorMember.id);
     },
-    enabled: !!authorMember?.id,
+    enabled: isAuthenticated && !!authorMember?.id,
   });
 
-  // Fetch offline awards
+  // Fetch offline awards - only for authenticated users
   const { data: offlineAwards = [] } = useQuery({
     queryKey: ['offlineAwards'],
     queryFn: async () => {
       const allAwards = await base44.entities.OfflineAward.list();
       return allAwards.filter(a => a.is_active);
     },
+    enabled: isAuthenticated,
   });
 
   // Calculate author's earned online awards
@@ -234,34 +395,208 @@ export default function ArticleViewPage() {
       .sort((a, b) => (a.level || 0) - (b.level || 0));
   }, [authorOfflineAssignments, offlineAwards]);
 
-  // Record view mutation
+  // Check if user is following the author
+  const authorId = article?.author_id || null;
+  const guestWriterId = article?.guest_writer_id || null;
+  
+  const { data: followStatus = { following: false, followId: null } } = useQuery({
+    queryKey: ['follow-status', authorId, guestWriterId],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (authorId) params.set('author_id', authorId);
+      if (guestWriterId) params.set('guest_writer_id', guestWriterId);
+      const response = await fetch(`/api/article-follows/check?${params.toString()}`, {
+        credentials: 'include'
+      });
+      if (!response.ok) return { following: false, followId: null };
+      return response.json();
+    },
+    // Only check follow status for authenticated users
+    enabled: isAuthenticated && (!!authorId || !!guestWriterId),
+  });
+
+  // Follow author mutation
+  const followMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch('/api/article-follows', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          followed_member_id: authorId || null,
+          followed_guest_writer_id: guestWriterId || null
+        })
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to follow author');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['follow-status', authorId, guestWriterId] });
+      queryClient.invalidateQueries({ queryKey: ['article-follows'] });
+      toast.success('Now following this author');
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to follow author');
+    }
+  });
+
+  // Unfollow author mutation
+  const unfollowMutation = useMutation({
+    mutationFn: async (followId) => {
+      const response = await fetch(`/api/article-follows/${followId}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to unfollow author');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['follow-status', authorId, guestWriterId] });
+      queryClient.invalidateQueries({ queryKey: ['article-follows'] });
+      toast.success('Unfollowed author');
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to unfollow author');
+    }
+  });
+
+  // Handler for follow/unfollow toggle
+  const handleFollowToggle = () => {
+    if (followStatus.following && followStatus.followId) {
+      unfollowMutation.mutate(followStatus.followId);
+    } else {
+      followMutation.mutate();
+    }
+  };
+
+  // Check if current user is the author (can't follow yourself)
+  const isCurrentUserAuthor = memberInfo && (authorId === memberInfo.id);
+
+  // Mark as read mutation (for followed authors)
+  const markAsReadMutation = useMutation({
+    mutationFn: async (followId) => {
+      const response = await fetch(`/api/article-follows/${followId}/mark-read`, {
+        method: 'PATCH',
+        credentials: 'include'
+      });
+      if (!response.ok) {
+        throw new Error('Failed to mark as read');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['article-follows'] });
+    }
+  });
+
+  // Track if we've already marked as read for this article view
+  const [markedAsRead, setMarkedAsRead] = useState(false);
+
+  // Mark as read when viewing an article from a followed author (only once per page load)
+  useEffect(() => {
+    if (
+      followStatus.following && 
+      followStatus.followId && 
+      article && 
+      !isPreviewMode && 
+      !markedAsRead
+    ) {
+      markAsReadMutation.mutate(followStatus.followId);
+      setMarkedAsRead(true);
+    }
+  }, [followStatus.following, followStatus.followId, article?.id, isPreviewMode, markedAsRead]);
+
+  // Record view mutation - only for authenticated users
   const recordViewMutation = useMutation({
     mutationFn: async () => {
-      if (!article || !userIdentifier || viewRecorded) return;
+      // Guard: only record views for authenticated users
+      if (!isAuthenticated || !article || !userIdentifier || viewRecorded) return;
 
       // Check if this user has already viewed this article
-      const existingViews = await base44.entities.ArticleView.list();
-      const hasViewed = existingViews.some(
-        v => v.article_id === article.id && v.user_identifier === userIdentifier
-      );
+      const existingViews = await base44.entities.ArticleView.list({
+        filter: { article_id: article.id, user_identifier: userIdentifier }
+      });
+      const hasViewed = existingViews.length > 0;
 
       if (!hasViewed) {
         await base44.entities.ArticleView.create({
           article_id: article.id,
           user_identifier: userIdentifier,
-          is_member: !!memberInfo
+          is_member: !!memberInfo,
+          viewed_at: new Date().toISOString(),
+          tenant_id: article.tenant_id
         });
         setViewRecorded(true);
       }
     },
   });
 
-  // Record view when article and user identifier are available
+  // Record view when article and user identifier are available (skip in preview mode)
   useEffect(() => {
-    if (article && userIdentifier && !viewRecorded) {
+    // Only record views for authenticated users (view tracking uses authenticated API)
+    if (isAuthenticated && article && userIdentifier && !viewRecorded && !isPreviewMode) {
       recordViewMutation.mutate();
     }
-  }, [article, userIdentifier, viewRecorded]);
+  }, [isAuthenticated, article, userIdentifier, viewRecorded, isPreviewMode]);
+
+  // Set SEO meta tags when article loads
+  useEffect(() => {
+    if (article) {
+      document.title = article.seo_title || article.title || 'Article';
+      
+      let metaDescription = document.querySelector('meta[name="description"]');
+      if (!metaDescription) {
+        metaDescription = document.createElement('meta');
+        metaDescription.name = 'description';
+        document.head.appendChild(metaDescription);
+      }
+      metaDescription.content = article.seo_description || article.summary || '';
+
+      let ogTitle = document.querySelector('meta[property="og:title"]');
+      if (!ogTitle) {
+        ogTitle = document.createElement('meta');
+        ogTitle.setAttribute('property', 'og:title');
+        document.head.appendChild(ogTitle);
+      }
+      ogTitle.content = article.seo_title || article.title || '';
+
+      let ogDescription = document.querySelector('meta[property="og:description"]');
+      if (!ogDescription) {
+        ogDescription = document.createElement('meta');
+        ogDescription.setAttribute('property', 'og:description');
+        document.head.appendChild(ogDescription);
+      }
+      ogDescription.content = article.seo_description || article.summary || '';
+
+      if (article.feature_image_url) {
+        let ogImage = document.querySelector('meta[property="og:image"]');
+        if (!ogImage) {
+          ogImage = document.createElement('meta');
+          ogImage.setAttribute('property', 'og:image');
+          document.head.appendChild(ogImage);
+        }
+        ogImage.content = article.feature_image_url;
+      }
+
+      let ogType = document.querySelector('meta[property="og:type"]');
+      if (!ogType) {
+        ogType = document.createElement('meta');
+        ogType.setAttribute('property', 'og:type');
+        document.head.appendChild(ogType);
+      }
+      ogType.content = 'article';
+    }
+
+    return () => {
+      document.title = branding?.name || 'Portal';
+    };
+  }, [article, branding?.name]);
 
   // Share handlers
   const handleLinkedInShare = () => {
@@ -271,28 +606,34 @@ export default function ArticleViewPage() {
   };
 
   const handleEmailShare = () => {
-    const subject = encodeURIComponent(article?.title || 'Check out this article');
+    const displayName = articleDisplayName.endsWith('s') ? articleDisplayName.slice(0, -1).toLowerCase() : articleDisplayName.toLowerCase();
+    const subject = encodeURIComponent(article?.title || `Check out this ${displayName}`);
     const body = encodeURIComponent(
-      `I thought you might find this article interesting:\n\n${article?.title || ''}\n\n${article?.summary || ''}\n\n${window.location.href}`
+      `I thought you might find this ${displayName} interesting:\n\n${article?.title || ''}\n\n${article?.summary || ''}\n\n${window.location.href}`
     );
     window.location.href = `mailto:?subject=${subject}&body=${body}`;
   };
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
-        <div className="animate-pulse text-slate-600">Loading article...</div>
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
+        <div className="animate-pulse text-slate-600">Loading...</div>
       </div>
     );
   }
 
+  // Get singular form of display name for messages
+  const singularDisplayName = articleDisplayName.endsWith('s') 
+    ? articleDisplayName.slice(0, -1) 
+    : articleDisplayName;
+
   if (!article) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+      <div className="min-h-screen p-4 md:p-8">
         <div className="max-w-4xl mx-auto text-center py-16">
-          <h2 className="text-2xl font-bold text-slate-900 mb-4">Article not found</h2>
-          <Link to={isLoggedIn ? createPageUrl('Articles') : createPageUrl('PublicArticles')}>
-            <Button>Back to Articles</Button>
+          <h2 className="text-2xl font-bold text-slate-900 mb-4">{singularDisplayName} not found</h2>
+          <Link to={isLoggedIn ? getArticleListUrl() : getPublicArticlesUrl()}>
+            <Button>Back to {articleDisplayName}</Button>
           </Link>
         </div>
       </div>
@@ -302,21 +643,61 @@ export default function ArticleViewPage() {
   // Check if current user is the author
   const isAuthor = memberInfo && article.author_id === memberInfo.id;
 
+  // Check if article is a draft and if user has permission to view it
+  const isDraft = article.status !== 'published';
+  const canViewDraft = isDraft && isPreviewMode && (isAuthor || isAdmin);
+
+  // If it's a draft and user doesn't have permission, show not found
+  if (isDraft && !canViewDraft) {
+    return (
+      <div className="min-h-screen p-4 md:p-8">
+        <div className="max-w-4xl mx-auto text-center py-16">
+          <h2 className="text-2xl font-bold text-slate-900 mb-4">{singularDisplayName} not found</h2>
+          <p className="text-slate-600 mb-6">This {singularDisplayName.toLowerCase()} is not available.</p>
+          <Link to={isLoggedIn ? getArticleListUrl() : getPublicArticlesUrl()}>
+            <Button>Back to {articleDisplayName}</Button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-4xl mx-auto">
+        {/* Preview Mode Banner */}
+        {isDraft && canViewDraft && (
+          <div className="bg-warning/10 border border-warning/30 rounded-lg p-4 mb-6 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-warning/10 rounded-full">
+                <Eye className="w-5 h-5 text-warning" />
+              </div>
+              <div>
+                <p className="font-medium text-warning">Preview Mode</p>
+                <p className="text-sm text-warning">This {singularDisplayName.toLowerCase()} is in {article.status} status and not visible to the public.</p>
+              </div>
+            </div>
+            <Link to={getArticleEditorUrl(article.id)}>
+              <Button size="sm" className="bg-warning hover:bg-warning/90 text-warning-foreground gap-2">
+                <Edit className="w-4 h-4" />
+                Edit
+              </Button>
+            </Link>
+          </div>
+        )}
+
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <Link 
-            to={isLoggedIn ? createPageUrl('Articles') : createPageUrl('PublicArticles')} 
+            to={isLoggedIn ? getArticleListUrl() : getPublicArticlesUrl()} 
             className="inline-flex items-center gap-2 text-slate-600 hover:text-slate-900"
           >
             <ArrowLeft className="w-4 h-4" />
-            Back to Articles
+            Back to {articleDisplayName}
           </Link>
           
           {isAuthor && (
-            <Link to={`${createPageUrl('ArticleEditor')}?id=${article.id}`}>
+            <Link to={getArticleEditorUrl(article.id)}>
               <Button variant="outline" className="gap-2">
                 <Edit className="w-4 h-4" />
                 Edit
@@ -333,6 +714,7 @@ export default function ArticleViewPage() {
                 src={article.feature_image_url} 
                 alt={article.title}
                 className="w-full h-full object-cover"
+                style={{ objectPosition: article.feature_image_focal_point ? `${article.feature_image_focal_point.x}% ${article.feature_image_focal_point.y}%` : '50% 50%' }}
               />
             </div>
           )}
@@ -354,7 +736,7 @@ export default function ArticleViewPage() {
                   )}
                 </>
               )}
-              {articleSettings?.showViewCount && (
+              {articleSettings?.showViewCount && !isFeatureExcluded('content.articles.show-count') && (
                 <div className="flex items-center gap-1">
                   <Eye className="w-4 h-4 text-purple-600" />
                   <span className="font-medium">{viewCount} {viewCount === 1 ? 'view' : 'views'}</span>
@@ -369,9 +751,14 @@ export default function ArticleViewPage() {
             </div>
 
             {/* Title */}
-            <h1 className="text-4xl md:text-5xl font-bold text-slate-900 mb-6">
-              {article.title}
-            </h1>
+            <div className="flex items-start gap-3 mb-6">
+              <h1 className="text-4xl md:text-5xl font-bold text-slate-900 flex-1">
+                {article.title}
+              </h1>
+              {isAuthenticated && article.id && (
+                <BookmarkButton entityType="blog_post" entityId={article.id} />
+              )}
+            </div>
 
             {/* Summary */}
             {article.summary && (
@@ -406,11 +793,27 @@ export default function ArticleViewPage() {
 
                   {/* Author Info */}
                   <div className="flex-1">
-                    <div className="flex items-start justify-between">
+                    <div className="flex items-start justify-between gap-4">
                       <div>
-                        <h3 className="text-lg font-semibold text-slate-900">
-                          {isGuestWriter ? author.full_name : `${author.first_name} ${author.last_name}`}
-                        </h3>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-lg font-semibold text-slate-900">
+                            {isGuestWriter ? author.full_name : `${author.first_name} ${author.last_name}`}
+                          </h3>
+                          {articleSettings?.showAuthorBio && author.biography && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setBioExpanded(!bioExpanded)}
+                              aria-expanded={bioExpanded}
+                              aria-label={bioExpanded ? "Hide author biography" : "Show author biography"}
+                              title={bioExpanded ? "Hide biography" : "Show biography"}
+                              className="h-7 w-7 flex-shrink-0 text-slate-500"
+                              data-testid="button-toggle-author-bio"
+                            >
+                              <BookOpen className="w-4 h-4" />
+                            </Button>
+                          )}
+                        </div>
                         {articleSettings?.showAuthorOrganization && organizationName && (
                           <p className="text-sm text-blue-700 font-medium mt-0.5">{organizationName}</p>
                         )}
@@ -420,29 +823,52 @@ export default function ArticleViewPage() {
                         {articleSettings?.showAuthorEmail && author.email && (
                           <p className="text-sm text-slate-600 mt-1">{author.email}</p>
                         )}
+                        {isGuestWriter && author.linkedin_url && (
+                          <a
+                            href={author.linkedin_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 mt-1 font-medium"
+                            data-testid="link-author-linkedin"
+                          >
+                            <Linkedin className="w-4 h-4" />
+                            LinkedIn
+                          </a>
+                        )}
                       </div>
-                    </div>
-
-                    {/* Biography */}
-                    {articleSettings?.showAuthorBio && author.biography && (
-                      <div className="mt-3">
-                        <p className={`text-sm text-slate-700 leading-relaxed ${!bioExpanded ? 'line-clamp-3' : ''}`}>
-                          {author.biography}
-                        </p>
-                        <button
-                          onClick={() => setBioExpanded(!bioExpanded)}
-                          className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 mt-2 font-medium"
+                      
+                      {memberInfo && !isCurrentUserAuthor && !isFeatureExcluded('content.articles.follow-author') && (
+                        <Button
+                          variant={followStatus.following ? "outline" : "default"}
+                          size="sm"
+                          onClick={handleFollowToggle}
+                          disabled={followMutation.isPending || unfollowMutation.isPending}
+                          className="gap-2 flex-shrink-0"
+                          data-testid="button-follow-author"
                         >
-                          {bioExpanded ? (
+                          {followMutation.isPending || unfollowMutation.isPending ? (
+                            <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                          ) : followStatus.following ? (
                             <>
-                              Hide <ChevronUp className="w-4 h-4" />
+                              <UserMinus className="w-4 h-4" />
+                              Unfollow
                             </>
                           ) : (
                             <>
-                              Read More <ChevronDown className="w-4 h-4" />
+                              <UserPlus className="w-4 h-4" />
+                              Follow
                             </>
                           )}
-                        </button>
+                        </Button>
+                      )}
+                    </div>
+
+                    {/* Biography */}
+                    {articleSettings?.showAuthorBio && author.biography && bioExpanded && (
+                      <div className="mt-3" data-testid="text-author-bio">
+                        <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-line">
+                          {author.biography}
+                        </p>
                       </div>
                     )}
 
@@ -451,7 +877,7 @@ export default function ArticleViewPage() {
                       <div className="mt-4">
                         {articleSettings?.showAwardsLabel && (
                           <div className="flex items-center gap-2 mb-2">
-                            <Trophy className="w-4 h-4 text-amber-600" />
+                            <Trophy className="w-4 h-4 text-warning" />
                             <span className="text-xs font-semibold text-slate-700">Awards</span>
                           </div>
                         )}
@@ -459,13 +885,13 @@ export default function ArticleViewPage() {
                           {authorEarnedOnlineAwards.slice(0, 4).map(award => (
                             <div 
                               key={award.id} 
-                              className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg border border-amber-200"
+                              className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg border border-warning/30"
                               title={award.description}
                             >
                               {award.image_url ? (
                                 <img src={award.image_url} alt={award.name} className="w-5 h-5 object-contain" />
                               ) : (
-                                <Trophy className="w-4 h-4 text-amber-600" />
+                                <Trophy className="w-4 h-4 text-warning" />
                               )}
                               <span className="text-xs font-medium text-slate-900">{award.name}</span>
                             </div>
@@ -499,6 +925,66 @@ export default function ArticleViewPage() {
               </div>
             )}
 
+            {/* Co-authors (Task #1222) */}
+            {coAuthorCards.length > 0 && (
+              <div className="mb-8 space-y-4" data-testid="section-coauthor-cards">
+                {coAuthorCards.map((ca) => (
+                  <div
+                    key={`${ca.type}:${ca.author_id || ca.guest_writer_id}`}
+                    className="p-6 bg-gradient-to-br from-slate-50 to-blue-50 rounded-lg border border-slate-200"
+                    data-testid={`card-coauthor-${ca.type}-${ca.author_id || ca.guest_writer_id}`}
+                  >
+                    <div className="flex items-start gap-4">
+                      {articleSettings?.showAuthorPhoto && (
+                        <div className="flex-shrink-0">
+                          {ca.photoUrl ? (
+                            <img
+                              src={ca.photoUrl}
+                              alt={ca.name}
+                              className="w-20 h-20 rounded-full object-cover border-2 border-slate-200"
+                            />
+                          ) : (
+                            <div className="w-20 h-20 rounded-full bg-slate-200 flex items-center justify-center">
+                              <User className="w-10 h-10 text-slate-400" />
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      <div className="flex-1">
+                        <h3 className="text-lg font-semibold text-slate-900" data-testid={`text-coauthor-name-${ca.type}-${ca.author_id || ca.guest_writer_id}`}>
+                          {ca.name}
+                        </h3>
+                        {articleSettings?.showAuthorOrganization && ca.organization && (
+                          <p className="text-sm text-blue-700 font-medium mt-0.5">{ca.organization}</p>
+                        )}
+                        {ca.jobTitle && (
+                          <p className="text-sm text-slate-600 mt-1">{ca.jobTitle}</p>
+                        )}
+                        {articleSettings?.showAuthorEmail && ca.email && (
+                          <p className="text-sm text-slate-600 mt-1">{ca.email}</p>
+                        )}
+                        {articleSettings?.showAuthorBio && ca.biography && (
+                          <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-line mt-3">
+                            {ca.biography}
+                          </p>
+                        )}
+                      </div>
+                      {memberInfo
+                        && !isFeatureExcluded('content.articles.follow-author')
+                        && (ca.author_id || ca.guest_writer_id)
+                        && !(ca.type === 'member' && String(ca.author_id) === String(memberInfo.id)) && (
+                        <AuthorFollowButton
+                          memberId={ca.type === 'member' ? ca.author_id : null}
+                          guestWriterId={ca.type === 'guest' ? ca.guest_writer_id : null}
+                          enabled={isAuthenticated}
+                        />
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {/* Content */}
             <div 
               className="prose prose-lg prose-slate max-w-none"
@@ -525,7 +1011,7 @@ export default function ArticleViewPage() {
                 {/* Reactions Section */}
                 {(articleSettings?.showThumbsUp || articleSettings?.showThumbsDown) && (
                   <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                    <p className="text-sm text-slate-600">Was this article helpful?</p>
+                    <p className="text-sm text-slate-600">Was this {singularDisplayName.toLowerCase()} helpful?</p>
                     <ArticleReactions 
                       articleId={article.id} 
                       memberInfo={memberInfo}
@@ -537,7 +1023,7 @@ export default function ArticleViewPage() {
                 
                 {/* Share Section */}
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pt-4 border-t border-slate-200">
-                  <p className="text-sm text-slate-600">Share this article:</p>
+                  <p className="text-sm text-slate-600">Share this {singularDisplayName.toLowerCase()}:</p>
                   <div className="flex items-center gap-3">
                     <Button
                       variant="outline"
@@ -564,13 +1050,15 @@ export default function ArticleViewPage() {
           </CardContent>
         </Card>
 
-        {/* Comments Section */}
-        <ArticleComments 
-          articleId={article.id} 
-          memberInfo={memberInfo}
-          showThumbsUp={articleSettings?.showThumbsUp}
-          showThumbsDown={articleSettings?.showThumbsDown}
-        />
+        {/* Comments Section - shown if authenticated OR public comments are allowed */}
+        {(isAuthenticated || articleSettings?.allowPublicComments) && !isFeatureExcluded('content.articles.comments') && (
+          <ArticleComments 
+            articleId={article.id} 
+            memberInfo={memberInfo}
+            showThumbsUp={articleSettings?.showThumbsUp}
+            showThumbsDown={articleSettings?.showThumbsDown}
+          />
+        )}
       </div>
     </div>
   );

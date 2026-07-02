@@ -1,5 +1,7 @@
 import React from "react";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -9,6 +11,7 @@ import { Upload, Loader2, Trash2, FileText, ArrowRight, Lock, LockOpen } from "l
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import AGCASButton from "@/components/ui/AGCASButton";
+import TypographyStyleSelector, { applyTypographyStyle, useTypographyStyles } from "../TypographyStyleSelector";
 
 export function IEditResourcesShowcaseElementEditor({ element, onChange }) {
   const [isUploadingBg, setIsUploadingBg] = React.useState(false);
@@ -54,6 +57,7 @@ export function IEditResourcesShowcaseElementEditor({ element, onChange }) {
     ctaButtonBgColor: '#2563eb',
     ctaButtonIconColor: '#ffffff',
     ctaButtonMargin: 16,
+    resourceSourceMode: 'specific',
     resourceIds: ['', '', '', '']
   };
   
@@ -62,13 +66,13 @@ export function IEditResourcesShowcaseElementEditor({ element, onChange }) {
   // Fetch available resources
   const { data: resources = [] } = useQuery({
     queryKey: ['resources-list'],
-    queryFn: () => base44.entities.Resource.list('-created_date')
+    queryFn: async () => await base44.entities.Resource.list('-release_date') || []
   });
 
   // Fetch button styles
   const { data: buttonStyles = [] } = useQuery({
     queryKey: ['button-styles'],
-    queryFn: () => base44.entities.ButtonStyle.list()
+    queryFn: async () => await base44.entities.ButtonStyle.list() || []
   });
 
   const updateContent = (key, value) => {
@@ -104,7 +108,7 @@ export function IEditResourcesShowcaseElementEditor({ element, onChange }) {
       updateContent('backgroundImage', response.file_url);
       toast.success('Image uploaded');
     } catch (error) {
-      toast.error('Upload failed: ' + error.message);
+      showUploadErrorToast(error, 'Upload failed');
     } finally {
       setIsUploadingBg(false);
     }
@@ -112,6 +116,28 @@ export function IEditResourcesShowcaseElementEditor({ element, onChange }) {
 
   return (
     <div className="space-y-4">
+      {/* Anchor ID Field */}
+      <div className="border rounded-lg p-3 bg-slate-50">
+        <label className="block text-sm font-medium mb-1">Anchor ID</label>
+        <input
+          type="text"
+          value={content.anchor || ''}
+          onChange={(e) => {
+            const sanitized = e.target.value
+              .toLowerCase()
+              .replace(/\s+/g, '-')
+              .replace(/[^a-z0-9-_]/g, '');
+            updateContent('anchor', sanitized);
+          }}
+          placeholder="e.g., resources-section"
+          className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+          data-testid="input-resourcesshowcase-anchor"
+        />
+        <p className="text-xs text-slate-500 mt-1">
+          Used for linking directly to this section (e.g., /page#anchor-id)
+        </p>
+      </div>
+
       <div>
         <Label htmlFor="headerText">Header Text</Label>
         <Input
@@ -122,59 +148,79 @@ export function IEditResourcesShowcaseElementEditor({ element, onChange }) {
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <Label htmlFor="heading_font_family">Heading Font</Label>
-          <Select
-            value={content.heading_font_family || 'Poppins'}
-            onValueChange={(value) => updateContent('heading_font_family', value)}
-          >
-            <SelectTrigger className="h-9">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="Poppins">Poppins</SelectItem>
-              <SelectItem value="Degular Medium">Degular Medium</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
-          <Label htmlFor="heading_font_size">Heading Size (px)</Label>
-          <Input
-            id="heading_font_size"
-            type="number"
-            value={content.heading_font_size || 48}
-            onChange={(e) => updateContent('heading_font_size', parseInt(e.target.value) || 48)}
-            min="12"
-            max="200"
-          />
-        </div>
-      </div>
+      <TypographyStyleSelector
+        value={content.heading_typography_style_id}
+        onChange={(styleId) => updateContent('heading_typography_style_id', styleId)}
+        onApplyStyle={(style) => {
+          const mapped = applyTypographyStyle(style);
+          if (mapped.font_family) updateContent('heading_font_family', mapped.font_family);
+          if (mapped.font_size) updateContent('heading_font_size', mapped.font_size);
+          if (mapped.font_size_mobile) updateContent('heading_font_size_mobile', mapped.font_size_mobile);
+          if (mapped.letter_spacing !== undefined) updateContent('heading_letter_spacing', mapped.letter_spacing);
+          if (mapped.color) updateContent('heading_color', mapped.color);
+        }}
+        filterTypes={['h1', 'h2']}
+        label="Heading Typography Style"
+      />
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <Label htmlFor="heading_letter_spacing">Letter Spacing (px)</Label>
-          <Input
-            id="heading_letter_spacing"
-            type="number"
-            step="0.5"
-            value={content.heading_letter_spacing || 0}
-            onChange={(e) => updateContent('heading_letter_spacing', parseFloat(e.target.value) || 0)}
-            min="-5"
-            max="20"
-          />
+      <details className="text-xs">
+        <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
+        <div className="mt-2 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="heading_font_family">Heading Font</Label>
+              <Select
+                value={content.heading_font_family || 'Poppins'}
+                onValueChange={(value) => updateContent('heading_font_family', value)}
+              >
+                <SelectTrigger className="h-9">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Poppins">Poppins</SelectItem>
+                  <SelectItem value="Degular Medium">Degular Medium</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="heading_font_size">Heading Size (px)</Label>
+              <Input
+                id="heading_font_size"
+                type="number"
+                value={content.heading_font_size || 48}
+                onChange={(e) => updateContent('heading_font_size', parseInt(e.target.value) || 48)}
+                min="12"
+                max="200"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="heading_letter_spacing">Letter Spacing (px)</Label>
+              <Input
+                id="heading_letter_spacing"
+                type="number"
+                step="0.5"
+                value={content.heading_letter_spacing || 0}
+                onChange={(e) => updateContent('heading_letter_spacing', parseFloat(e.target.value) || 0)}
+                min="-5"
+                max="20"
+              />
+            </div>
+            <div>
+              <Label htmlFor="heading_color">Heading Color</Label>
+              <input
+                id="heading_color"
+                type="color"
+                value={content.heading_color || '#0f172a'}
+                onChange={(e) => updateContent('heading_color', e.target.value)}
+                className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+              />
+            </div>
+          </div>
         </div>
-        <div>
-          <Label htmlFor="heading_color">Heading Color</Label>
-          <input
-            id="heading_color"
-            type="color"
-            value={content.heading_color || '#0f172a'}
-            onChange={(e) => updateContent('heading_color', e.target.value)}
-            className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-          />
-        </div>
-      </div>
+      </details>
 
       <div className="space-y-3 p-3 bg-slate-50 rounded-lg">
         <div className="flex items-center gap-2">
@@ -282,44 +328,63 @@ export function IEditResourcesShowcaseElementEditor({ element, onChange }) {
         />
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
-        <div>
-          <Label htmlFor="subheading_font_family">Subheader Font</Label>
-          <Select
-            value={content.subheading_font_family || 'Poppins'}
-            onValueChange={(value) => updateContent('subheading_font_family', value)}
-          >
-            <SelectTrigger className="h-9">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="Poppins">Poppins</SelectItem>
-              <SelectItem value="Degular Medium">Degular Medium</SelectItem>
-            </SelectContent>
-          </Select>
+      <TypographyStyleSelector
+        value={content.subheading_typography_style_id}
+        onChange={(styleId) => updateContent('subheading_typography_style_id', styleId)}
+        onApplyStyle={(style) => {
+          const mapped = applyTypographyStyle(style);
+          if (mapped.font_family) updateContent('subheading_font_family', mapped.font_family);
+          if (mapped.font_size) updateContent('subheading_font_size', mapped.font_size);
+          if (mapped.font_size_mobile) updateContent('subheading_font_size_mobile', mapped.font_size_mobile);
+          if (mapped.color) updateContent('subheading_color', mapped.color);
+        }}
+        filterTypes={['h3', 'h4']}
+        label="Subheading Typography Style"
+      />
+
+      <details className="text-xs">
+        <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
+        <div className="mt-2 space-y-3">
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <Label htmlFor="subheading_font_family">Subheader Font</Label>
+              <Select
+                value={content.subheading_font_family || 'Poppins'}
+                onValueChange={(value) => updateContent('subheading_font_family', value)}
+              >
+                <SelectTrigger className="h-9">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Poppins">Poppins</SelectItem>
+                  <SelectItem value="Degular Medium">Degular Medium</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="subheading_font_size">Size (px)</Label>
+              <Input
+                id="subheading_font_size"
+                type="number"
+                value={content.subheading_font_size || 24}
+                onChange={(e) => updateContent('subheading_font_size', parseInt(e.target.value) || 24)}
+                min="12"
+                max="100"
+              />
+            </div>
+            <div>
+              <Label htmlFor="subheading_color">Color</Label>
+              <input
+                id="subheading_color"
+                type="color"
+                value={content.subheading_color || '#475569'}
+                onChange={(e) => updateContent('subheading_color', e.target.value)}
+                className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+              />
+            </div>
+          </div>
         </div>
-        <div>
-          <Label htmlFor="subheading_font_size">Size (px)</Label>
-          <Input
-            id="subheading_font_size"
-            type="number"
-            value={content.subheading_font_size || 24}
-            onChange={(e) => updateContent('subheading_font_size', parseInt(e.target.value) || 24)}
-            min="12"
-            max="100"
-          />
-        </div>
-        <div>
-          <Label htmlFor="subheading_color">Color</Label>
-          <input
-            id="subheading_color"
-            type="color"
-            value={content.subheading_color || '#475569'}
-            onChange={(e) => updateContent('subheading_color', e.target.value)}
-            className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-          />
-        </div>
-      </div>
+      </details>
 
       <div>
         <Label htmlFor="descriptionText">Description Text</Label>
@@ -332,56 +397,76 @@ export function IEditResourcesShowcaseElementEditor({ element, onChange }) {
         />
       </div>
 
-      <div className="grid grid-cols-4 gap-3">
-        <div>
-          <Label htmlFor="description_font_family">Description Font</Label>
-          <Select
-            value={content.description_font_family || 'Poppins'}
-            onValueChange={(value) => updateContent('description_font_family', value)}
-          >
-            <SelectTrigger className="h-9">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="Poppins">Poppins</SelectItem>
-              <SelectItem value="Degular Medium">Degular Medium</SelectItem>
-            </SelectContent>
-          </Select>
+      <TypographyStyleSelector
+        value={content.description_typography_style_id}
+        onChange={(styleId) => updateContent('description_typography_style_id', styleId)}
+        onApplyStyle={(style) => {
+          const mapped = applyTypographyStyle(style);
+          if (mapped.font_family) updateContent('description_font_family', mapped.font_family);
+          if (mapped.font_size) updateContent('description_font_size', mapped.font_size);
+          if (mapped.font_size_mobile) updateContent('description_font_size_mobile', mapped.font_size_mobile);
+          if (mapped.color) updateContent('description_color', mapped.color);
+          if (mapped.line_height) updateContent('description_line_height', mapped.line_height);
+        }}
+        filterTypes={['paragraph']}
+        label="Description Typography Style"
+      />
+
+      <details className="text-xs">
+        <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
+        <div className="mt-2 space-y-3">
+          <div className="grid grid-cols-4 gap-3">
+            <div>
+              <Label htmlFor="description_font_family">Description Font</Label>
+              <Select
+                value={content.description_font_family || 'Poppins'}
+                onValueChange={(value) => updateContent('description_font_family', value)}
+              >
+                <SelectTrigger className="h-9">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Poppins">Poppins</SelectItem>
+                  <SelectItem value="Degular Medium">Degular Medium</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="description_font_size">Size (px)</Label>
+              <Input
+                id="description_font_size"
+                type="number"
+                value={content.description_font_size || 16}
+                onChange={(e) => updateContent('description_font_size', parseInt(e.target.value) || 16)}
+                min="12"
+                max="100"
+              />
+            </div>
+            <div>
+              <Label htmlFor="description_line_height">Line Height</Label>
+              <Input
+                id="description_line_height"
+                type="number"
+                step="0.1"
+                value={content.description_line_height || 1.6}
+                onChange={(e) => updateContent('description_line_height', parseFloat(e.target.value) || 1.6)}
+                min="1"
+                max="3"
+              />
+            </div>
+            <div>
+              <Label htmlFor="description_color">Color</Label>
+              <input
+                id="description_color"
+                type="color"
+                value={content.description_color || '#64748b'}
+                onChange={(e) => updateContent('description_color', e.target.value)}
+                className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+              />
+            </div>
+          </div>
         </div>
-        <div>
-          <Label htmlFor="description_font_size">Size (px)</Label>
-          <Input
-            id="description_font_size"
-            type="number"
-            value={content.description_font_size || 16}
-            onChange={(e) => updateContent('description_font_size', parseInt(e.target.value) || 16)}
-            min="12"
-            max="100"
-          />
-        </div>
-        <div>
-          <Label htmlFor="description_line_height">Line Height</Label>
-          <Input
-            id="description_line_height"
-            type="number"
-            step="0.1"
-            value={content.description_line_height || 1.6}
-            onChange={(e) => updateContent('description_line_height', parseFloat(e.target.value) || 1.6)}
-            min="1"
-            max="3"
-          />
-        </div>
-        <div>
-          <Label htmlFor="description_color">Color</Label>
-          <input
-            id="description_color"
-            type="color"
-            value={content.description_color || '#64748b'}
-            onChange={(e) => updateContent('description_color', e.target.value)}
-            className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-          />
-        </div>
-      </div>
+      </details>
 
       <div className="space-y-3 p-3 bg-slate-50 rounded-lg">
         <h4 className="font-medium text-sm">CTA Button</h4>
@@ -510,29 +595,54 @@ export function IEditResourcesShowcaseElementEditor({ element, onChange }) {
         </div>
       </div>
 
-      <div>
-        <Label>Select Resources (up to 4)</Label>
-        <div className="space-y-2 mt-2">
-          {[0, 1, 2, 3].map((index) => (
-            <Select
-              key={index}
-              value={(Array.isArray(content.resourceIds) && content.resourceIds[index]) || ''}
-              onValueChange={(value) => updateResourceId(index, value)}
-            >
-              <SelectTrigger className="h-9">
-                <SelectValue placeholder={`Resource ${index + 1} (optional)`} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={null}>None</SelectItem>
-                {resources.map((resource) => (
-                  <SelectItem key={resource.id} value={resource.id}>
-                    {resource.title}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ))}
+      <div className="space-y-3 p-3 bg-slate-50 rounded-lg">
+        <div>
+          <Label htmlFor="resourceSourceMode">Resource Source</Label>
+          <Select
+            value={content.resourceSourceMode || 'specific'}
+            onValueChange={(value) => updateContent('resourceSourceMode', value)}
+          >
+            <SelectTrigger className="h-9" data-testid="select-resource-source-mode">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="specific">Specific resources (pick manually)</SelectItem>
+              <SelectItem value="latest">Latest resources by date (auto)</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-slate-500 mt-1">
+            {content.resourceSourceMode === 'latest'
+              ? 'Automatically displays the 4 most recently released resources, newest first.'
+              : 'Choose up to 4 specific resources to display in the slots below.'}
+          </p>
         </div>
+
+        {(content.resourceSourceMode || 'specific') === 'specific' && (
+          <div>
+            <Label>Select Resources (up to 4)</Label>
+            <div className="space-y-2 mt-2">
+              {[0, 1, 2, 3].map((index) => (
+                <Select
+                  key={index}
+                  value={(Array.isArray(content.resourceIds) && content.resourceIds[index]) || ''}
+                  onValueChange={(value) => updateResourceId(index, value)}
+                >
+                  <SelectTrigger className="h-9" data-testid={`select-resource-slot-${index}`}>
+                    <SelectValue placeholder={`Resource ${index + 1} (optional)`} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={null}>None</SelectItem>
+                    {resources.map((resource) => (
+                      <SelectItem key={resource.id} value={resource.id}>
+                        {resource.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="space-y-3 p-3 bg-slate-50 rounded-lg">
@@ -785,6 +895,7 @@ export function IEditResourcesShowcaseElementEditor({ element, onChange }) {
 }
 
 export function IEditResourcesShowcaseElementRenderer({ element, settings }) {
+  const { getStyleById } = useTypographyStyles();
   const defaultContent = {
     headerText: '',
     subheaderText: '',
@@ -830,26 +941,73 @@ export function IEditResourcesShowcaseElementRenderer({ element, settings }) {
     ctaButtonBgColor: '#2563eb',
     ctaButtonIconColor: '#ffffff',
     ctaButtonMargin: 16,
+    resourceSourceMode: 'specific',
     resourceIds: ['', '', '', '']
   };
   
   const content = { ...defaultContent, ...(element.content || {}) };
+  const sourceMode = content.resourceSourceMode === 'latest' ? 'latest' : 'specific';
+
+  const headingTypographyStyle = getStyleById(content.heading_typography_style_id);
+  const subheadingTypographyStyle = getStyleById(content.subheading_typography_style_id);
+  const descriptionTypographyStyle = getStyleById(content.description_typography_style_id);
 
   const fullWidth = settings?.fullWidth;
 
-  // Fetch selected resources
-  const { data: allResources = [] } = useQuery({
-    queryKey: ['resources-showcase'],
-    queryFn: () => base44.entities.Resource.list(),
-    enabled: Array.isArray(content.resourceIds) && content.resourceIds.some(id => id)
+  // Get the list of configured resource IDs (filter out empty strings)
+  const configuredResourceIds = React.useMemo(() => {
+    if (!Array.isArray(content.resourceIds)) return [];
+    return content.resourceIds.filter(id => id && id.trim() !== '');
+  }, [content.resourceIds]);
+
+  // Specific mode: fetch each configured resource individually by ID using public endpoint
+  // This ensures we get both public and private resources with all required fields
+  const { data: specificResources = [], isLoading: isLoadingSpecific } = useQuery({
+    queryKey: ['public-resources-showcase', configuredResourceIds],
+    queryFn: async () => {
+      if (configuredResourceIds.length === 0) return [];
+
+      const resourcePromises = configuredResourceIds.map(async (id) => {
+        try {
+          const resource = await publicClient.getResource(id);
+          return resource;
+        } catch (error) {
+          console.warn(`[ResourcesShowcase] Failed to fetch resource ${id}:`, error);
+          return null;
+        }
+      });
+
+      const resources = await Promise.all(resourcePromises);
+      return resources.filter(Boolean);
+    },
+    enabled: sourceMode === 'specific' && configuredResourceIds.length > 0
   });
 
-  const selectedResources = React.useMemo(() => {
-    if (!Array.isArray(content.resourceIds)) return [];
-    return content.resourceIds
-      .map(id => id ? allResources.find(r => r.id === id) : null)
-      .filter(Boolean);
-  }, [content.resourceIds, allResources]);
+  // Latest mode: fetch latest 4 resources by release date
+  const { data: latestResources = [], isLoading: isLoadingLatest } = useQuery({
+    queryKey: ['public-resources-showcase-latest'],
+    queryFn: async () => {
+      try {
+        const all = await publicClient.listResources();
+        if (!Array.isArray(all)) return [];
+        // listResources is already ordered by release_date desc on the server,
+        // but sort defensively in case that changes.
+        const sorted = [...all].sort((a, b) => {
+          const da = a?.release_date ? new Date(a.release_date).getTime() : 0;
+          const db = b?.release_date ? new Date(b.release_date).getTime() : 0;
+          return db - da;
+        });
+        return sorted.slice(0, 4);
+      } catch (error) {
+        console.warn('[ResourcesShowcase] Failed to fetch latest resources:', error);
+        return [];
+      }
+    },
+    enabled: sourceMode === 'latest'
+  });
+
+  const selectedResources = sourceMode === 'latest' ? latestResources : specificResources;
+  const isLoadingResources = sourceMode === 'latest' ? isLoadingLatest : isLoadingSpecific;
 
   const sectionStyle = content.gradient_enabled ? {
     background: `linear-gradient(${content.gradient_angle || 135}deg, ${content.gradient_start_color || '#3b82f6'}, ${content.gradient_end_color || '#8b5cf6'})`,
@@ -869,8 +1027,10 @@ export function IEditResourcesShowcaseElementRenderer({ element, settings }) {
 
   const backgroundWrapperClass = fullWidth ? 'w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw]' : 'w-full';
 
+  const { anchor } = content;
+
   return (
-    <div className={`${backgroundWrapperClass} py-16 relative`} style={sectionStyle}>
+    <div id={anchor || undefined} className={`${backgroundWrapperClass} py-16 relative`} style={sectionStyle}>
       <div className="max-w-7xl mx-auto px-4 relative z-10">
         <div className="grid lg:grid-cols-3 gap-8">
           {/* Left Column - Content */}
@@ -882,12 +1042,12 @@ export function IEditResourcesShowcaseElementRenderer({ element, settings }) {
               <div>
                 <h2 
                   style={{ 
-                    fontWeight: 'bold', 
-                    fontFamily: content.heading_font_family || 'Poppins',
-                    fontSize: `${content.heading_font_size || 48}px`,
-                    letterSpacing: `${content.heading_letter_spacing || 0}px`,
+                    fontWeight: headingTypographyStyle?.font_weight || 'bold', 
+                    fontFamily: headingTypographyStyle?.font_family || content.heading_font_family || 'Poppins',
+                    fontSize: `${headingTypographyStyle?.font_size || content.heading_font_size || 48}px`,
+                    letterSpacing: `${headingTypographyStyle?.letter_spacing ?? content.heading_letter_spacing ?? 0}px`,
                     marginBottom: content.heading_underline_enabled ? `${content.heading_underline_spacing || 16}px` : '24px',
-                    color: content.heading_color || '#0f172a'
+                    color: headingTypographyStyle?.color || content.heading_color || '#0f172a'
                   }}
                 >
                   {content.headerText}
@@ -911,10 +1071,10 @@ export function IEditResourcesShowcaseElementRenderer({ element, settings }) {
             {content.subheaderText && (
               <h3 
                 style={{ 
-                  fontFamily: content.subheading_font_family || 'Poppins',
-                  fontSize: `${content.subheading_font_size || 24}px`,
-                  fontWeight: '600',
-                  color: content.subheading_color || '#475569',
+                  fontFamily: subheadingTypographyStyle?.font_family || content.subheading_font_family || 'Poppins',
+                  fontSize: `${subheadingTypographyStyle?.font_size || content.subheading_font_size || 24}px`,
+                  fontWeight: subheadingTypographyStyle?.font_weight || '600',
+                  color: subheadingTypographyStyle?.color || content.subheading_color || '#475569',
                   marginBottom: '16px'
                 }}
               >
@@ -925,10 +1085,10 @@ export function IEditResourcesShowcaseElementRenderer({ element, settings }) {
             {content.descriptionText && (
               <p 
                 style={{ 
-                  fontFamily: content.description_font_family || 'Poppins',
-                  fontSize: `${content.description_font_size || 16}px`,
-                  lineHeight: content.description_line_height || 1.6,
-                  color: content.description_color || '#64748b',
+                  fontFamily: descriptionTypographyStyle?.font_family || content.description_font_family || 'Poppins',
+                  fontSize: `${descriptionTypographyStyle?.font_size || content.description_font_size || 16}px`,
+                  lineHeight: descriptionTypographyStyle?.line_height || content.description_line_height || 1.6,
+                  color: descriptionTypographyStyle?.color || content.description_color || '#64748b',
                   marginBottom: '24px'
                 }}
               >
@@ -952,19 +1112,31 @@ export function IEditResourcesShowcaseElementRenderer({ element, settings }) {
 
           {/* Right Columns - Resources */}
           <div className="lg:col-span-2">
-            {selectedResources.length === 0 ? (
+            {isLoadingResources ? (
+              <div className="text-center py-12 bg-white/90 rounded-lg" data-testid="status-resources-loading">
+                <Loader2 className="w-8 h-8 text-slate-400 mx-auto animate-spin" />
+              </div>
+            ) : selectedResources.length === 0 ? (
               <div className="text-center py-12 bg-white/90 rounded-lg">
                 <FileText className="w-12 h-12 text-slate-400 mx-auto mb-3" />
                 <p className="text-slate-500">No resources selected</p>
               </div>
             ) : (
               <div className="grid md:grid-cols-2 gap-6">
-                {selectedResources.map((resource) => (
+                {selectedResources.map((resource) => {
+                  // For member-only resources, link to /resources?resourceId={id} which triggers login flow
+                  // For public resources, link directly to target_url
+                  const resourceLink = resource.is_public 
+                    ? resource.target_url 
+                    : `/resources?resourceId=${resource.id}`;
+                  const isExternalLink = resource.is_public && resource.open_in_new_tab;
+                  
+                  return (
                   <a
                     key={resource.id}
-                    href={resource.target_url}
-                    target={resource.open_in_new_tab ? '_blank' : '_self'}
-                    rel={resource.open_in_new_tab ? 'noopener noreferrer' : undefined}
+                    href={resourceLink}
+                    target={isExternalLink ? '_blank' : '_self'}
+                    rel={isExternalLink ? 'noopener noreferrer' : undefined}
                     className="bg-white p-6 shadow-lg hover:shadow-xl transition-shadow group aspect-square flex flex-col justify-between relative"
                     style={{ borderRadius: `${content.cardBorderRadius ?? 8}px` }}
                   >
@@ -1013,7 +1185,8 @@ export function IEditResourcesShowcaseElementRenderer({ element, settings }) {
                       </div>
                     )}
                   </a>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

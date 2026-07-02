@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { FileEdit, Plus, Eye, Pencil, Trash2, ExternalLink, Search, Zap } from "lucide-react";
+import { FileEdit, Plus, Eye, Pencil, Trash2, ExternalLink, Search, Zap, Copy, Home } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -18,28 +18,49 @@ import { useNavigate } from "react-router-dom";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 export default function IEditPageManagementPage() {
-  const { isAdmin, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin) {
+      if (isFeatureExcluded('site-builder.pages')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
   const [searchQuery, setSearchQuery] = useState("");
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [pageToDelete, setPageToDelete] = useState(null);
+  // Rename / change-slug dialog state (Task #979). Reachable for
+  // canvas-builder rows from the page list, mirroring the editor's
+  // header affordance.
+  const [pageToRename, setPageToRename] = useState(null);
+  const [renameTitle, setRenameTitle] = useState('');
+  const [renameSlug, setRenameSlug] = useState('');
+  const [renameLayoutType, setRenameLayoutType] = useState('public');
+  const [renameError, setRenameError] = useState('');
   const [newPage, setNewPage] = useState({
     title: "",
     slug: "",
     description: "",
     layout_type: "public",
-    status: "draft"
+    status: "draft",
+    builder_type: "iedit",
+    canvas_template_id: "",
+  });
+  // Templates list, loaded lazily when the user picks the Canvas builder.
+  const { data: templatesData } = useQuery({
+    queryKey: ['canvas-templates'],
+    queryFn: async () => {
+      const r = await fetch('/api/canvas-templates', { credentials: 'include' });
+      if (!r.ok) return { templates: [] };
+      return r.json();
+    },
+    enabled: showCreateDialog && newPage.builder_type === 'canvas',
+    staleTime: 30_000,
   });
 
   const navigate = useNavigate();
@@ -47,22 +68,79 @@ export default function IEditPageManagementPage() {
 
   const { data: pages = [], isLoading } = useQuery({
     queryKey: ['iedit-pages'],
-    queryFn: () => base44.entities.IEditPage.list(),
+    queryFn: async () => {
+      const result = await base44.entities.IEditPage.list();
+      return Array.isArray(result) ? result : [];
+    },
+    staleTime: 0
+  });
+
+  // Query for current home page setting
+  const { data: homePageSlug } = useQuery({
+    queryKey: ['home-page-setting'],
+    queryFn: async () => {
+      const result = await base44.entities.SystemSettings.list();
+      const settings = Array.isArray(result) ? result : [];
+      const homeSetting = settings.find(s => s.setting_key === 'public_home_page_slug');
+      return homeSetting?.setting_value || null;
+    },
     staleTime: 0
   });
 
   const createPageMutation = useMutation({
     mutationFn: (pageData) => base44.entities.IEditPage.create(pageData),
-    onSuccess: (newPage) => {
+    onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: ['iedit-pages'] });
       setShowCreateDialog(false);
-      setNewPage({ title: "", slug: "", description: "", layout_type: "public", status: "draft" });
+      setNewPage({ title: "", slug: "", description: "", layout_type: "public", status: "draft", builder_type: "iedit", canvas_template_id: "" });
       toast.success('Page created successfully');
-      navigate(createPageUrl('IEditPageEditor') + `?pageId=${newPage.id}`);
+      const editorPage = created.builder_type === 'canvas' ? 'CanvasPageEditor' : 'IEditPageEditor';
+      navigate(createPageUrl(editorPage) + `?pageId=${created.id}`);
     },
     onError: (error) => {
       toast.error('Failed to create page: ' + error.message);
     }
+  });
+
+  const createLoginPageMutation = useMutation({
+    mutationFn: () => {
+      const defaultDesign = {
+        version: 1,
+        root: {
+          background: null,
+          sections: [{
+            id: 'root-section',
+            children: [{
+              id: 'lf-' + Date.now(),
+              type: 'login-form',
+              name: 'Login Form',
+              locked: false,
+              style: { background: 'transparent', borderWidth: 0, opacity: 1, zIndex: 1 },
+              a11y: { role: null, ariaLabel: null },
+              content: {},
+              bp: { desktop: { x: 376, y: 130, w: 448, h: 520 } },
+            }],
+          }],
+        },
+      };
+      return base44.entities.IEditPage.create({
+        title: 'Login',
+        slug: 'login',
+        description: 'Custom login page',
+        layout_type: 'public_no_chrome',
+        status: 'draft',
+        builder_type: 'canvas',
+        canvas_design: defaultDesign,
+      });
+    },
+    onSuccess: (created) => {
+      queryClient.invalidateQueries({ queryKey: ['iedit-pages'] });
+      toast.success('Login page created — add your design, then publish it');
+      navigate(createPageUrl('CanvasPageEditor') + `?pageId=${created.id}`);
+    },
+    onError: (error) => {
+      toast.error('Failed to create login page: ' + error.message);
+    },
   });
 
   const deletePageMutation = useMutation({
@@ -92,6 +170,20 @@ export default function IEditPageManagementPage() {
         published_at: newStatus === 'published' ? new Date().toISOString() : null
       };
       await base44.entities.IEditPage.update(page.id, updateData);
+      // Phase 7 — every publish creates a version snapshot, regardless of
+      // which surface initiated it. This keeps rollback-on-publish
+      // available for pages published from the list view as well as the
+      // canvas editor. Failures here are non-fatal: the publish itself
+      // already succeeded.
+      if (newStatus === 'published' && page.builder_type === 'canvas') {
+        try {
+          await fetch(`/api/canvas-versions/${page.id}`, {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ source: 'publish', label: `Published ${new Date().toLocaleString()}` }),
+          });
+        } catch { /* snapshot best-effort */ }
+      }
       return { ...page, ...updateData };
     },
     onSuccess: (updatedPage) => {
@@ -107,7 +199,148 @@ export default function IEditPageManagementPage() {
     }
   });
 
-  const handleCreatePage = () => {
+  const renamePageMutation = useMutation({
+    mutationFn: ({ id, data }) => base44.entities.IEditPage.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['iedit-pages'] });
+      setPageToRename(null);
+      setRenameError('');
+      toast.success('Page updated');
+    },
+    onError: (error) => {
+      toast.error('Failed to update page: ' + (error?.message || 'Unknown error'));
+    },
+  });
+
+  const openRenameDialog = (page) => {
+    setPageToRename(page);
+    setRenameTitle(page.title || '');
+    setRenameSlug(page.slug || '');
+    setRenameLayoutType(page.layout_type || 'public');
+    setRenameError('');
+  };
+
+  const failRename = (msg) => {
+    setRenameError(msg);
+    toast.error(msg);
+  };
+
+  const handleRenameSubmit = async () => {
+    if (!pageToRename) return;
+    if (pageToRename.slug === 'login') return;
+    const title = (renameTitle || '').trim();
+    const slug = (renameSlug || '').trim().toLowerCase();
+    if (!title) { failRename('Title is required'); return; }
+    if (!slug) { failRename('Slug is required'); return; }
+    if (!/^[a-z0-9-]+$/.test(slug)) {
+      failRename('Slug must be lowercase letters, numbers, and hyphens only');
+      return;
+    }
+    const others = pages.filter((p) => p.id !== pageToRename.id);
+    if (others.some((p) => (p.slug || '').toLowerCase() === slug)) {
+      failRename('Another page already uses this slug');
+      return;
+    }
+    const layoutType = ['public', 'member', 'hybrid'].includes(renameLayoutType) ? renameLayoutType : 'public';
+    setRenameError('');
+    try {
+      await renamePageMutation.mutateAsync({ id: pageToRename.id, data: { title, slug, layout_type: layoutType } });
+    } catch (error) {
+      // Mutation's onError already showed a toast; mirror the message
+      // inline in the dialog so the author sees it without dismissing.
+      setRenameError(error?.message || 'Failed to update page');
+    }
+  };
+
+  const duplicatePageMutation = useMutation({
+    mutationFn: async (page) => {
+      // Generate a unique slug by adding -copy or incrementing number
+      let newSlug = `${page.slug}-copy`;
+      const existingSlugs = pages.map(p => p.slug);
+      let counter = 1;
+      while (existingSlugs.includes(newSlug)) {
+        newSlug = `${page.slug}-copy-${counter}`;
+        counter++;
+      }
+
+      // Create the new page (as draft). builder_type and canvas_design must
+      // be carried over so duplicating a Canvas Builder page produces another
+      // Canvas page with the same design document; otherwise the new row
+      // would default to 'iedit' and lose its layout.
+      const newPageData = {
+        title: `${page.title} (Copy)`,
+        slug: newSlug,
+        description: page.description || '',
+        layout_type: page.layout_type || 'public',
+        status: 'draft',
+        meta_title: page.meta_title,
+        meta_description: page.meta_description,
+        builder_type: page.builder_type || 'iedit',
+        canvas_design: page.canvas_design || null,
+      };
+
+      const createdPage = await base44.entities.IEditPage.create(newPageData);
+
+      // Canvas pages don't use i_edit_page_element rows; their design lives
+      // entirely in canvas_design (copied above). Only the iEdit builder
+      // needs the per-element copy.
+      if ((page.builder_type || 'iedit') === 'iedit') {
+        const originalElements = await base44.entities.IEditPageElement.filter({ page_id: page.id });
+        for (const element of originalElements) {
+          const { id, page_id, created_date, updated_date, ...elementData } = element;
+          await base44.entities.IEditPageElement.create({
+            ...elementData,
+            page_id: createdPage.id
+          });
+        }
+      }
+
+      return createdPage;
+    },
+    onSuccess: (newPage) => {
+      queryClient.invalidateQueries({ queryKey: ['iedit-pages'] });
+      toast.success(`Page duplicated! New page: "${newPage.title}"`);
+    },
+    onError: (error) => {
+      toast.error('Failed to duplicate page: ' + error.message);
+    }
+  });
+
+  // Mutation to toggle home page
+  const toggleHomePageMutation = useMutation({
+    mutationFn: async (page) => {
+      // If this page is already the home page, remove it
+      const isCurrentlyHome = homePageSlug === page.slug;
+      const newSlug = isCurrentlyHome ? '' : page.slug;
+      
+      // Use dedicated function endpoint for reliability
+      const response = await fetch('/api/functions/setPublicHomePage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug: newSlug })
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to update home page');
+      }
+      
+      return { slug: newSlug, wasHome: isCurrentlyHome };
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['home-page-setting'] });
+      if (result.wasHome) {
+        toast.success('Home page removed. Default Events page will be shown.');
+      } else {
+        toast.success(`Home page set! Visitors to the root URL will now see /${result.slug}`);
+      }
+    },
+    onError: (error) => {
+      toast.error('Failed to update home page: ' + error.message);
+    }
+  });
+
+  const handleCreatePage = async () => {
     if (!newPage.title.trim() || !newPage.slug.trim()) {
       toast.error('Title and slug are required');
       return;
@@ -119,7 +352,21 @@ export default function IEditPageManagementPage() {
       return;
     }
 
-    createPageMutation.mutate(newPage);
+    // If the user picked a Canvas template, pre-fetch the template design
+    // so the new page is created with canvas_design already populated.
+    const payload = { ...newPage };
+    delete payload.canvas_template_id;
+    if (newPage.builder_type === 'canvas' && newPage.canvas_template_id) {
+      try {
+        const r = await fetch(`/api/canvas-templates/${newPage.canvas_template_id}`, { credentials: 'include' });
+        if (r.ok) {
+          const body = await r.json();
+          if (body?.template?.design) payload.canvas_design = body.template.design;
+        }
+      } catch {/* non-fatal — page will be created empty */}
+    }
+
+    createPageMutation.mutate(payload);
   };
 
   const handleDeletePage = () => {
@@ -138,25 +385,26 @@ export default function IEditPageManagementPage() {
     const variants = {
       draft: "bg-slate-100 text-slate-700",
       published: "bg-green-100 text-green-700",
-      archived: "bg-amber-100 text-amber-700"
+      archived: "bg-warning/10 text-warning"
     };
     return variants[status] || variants.draft;
   };
 
   const getPublicUrl = (slug) => {
-    return createPageUrl('content') + `?page=${slug}`;
+    // Dynamic pages are accessed via their slug directly as a route
+    return `/${slug}`;
   };
 
   if (!accessChecked) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
@@ -173,6 +421,26 @@ export default function IEditPageManagementPage() {
             New Page
           </Button>
         </div>
+
+        {/* Custom login page prompt — shown when no canvas login page exists */}
+        {!isLoading && !pages.some(p => p.slug === 'login' && p.builder_type === 'canvas') && (
+          <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 mb-6 flex flex-wrap items-start gap-4">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-blue-900 mb-0.5">Customise your login page</p>
+              <p className="text-xs text-blue-700">
+                Design a branded <code>/login</code> page in CanvasBuilder. Members will see it instead of the default form once you publish it.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              onClick={() => createLoginPageMutation.mutate()}
+              disabled={createLoginPageMutation.isPending}
+              data-testid="button-create-login-page"
+            >
+              {createLoginPageMutation.isPending ? 'Creating…' : 'Create Login Page'}
+            </Button>
+          </div>
+        )}
 
         {/* Search */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-8">
@@ -225,7 +493,15 @@ export default function IEditPageManagementPage() {
               <Card key={page.id} className="border-slate-200 hover:shadow-lg transition-shadow">
                 <CardHeader>
                   <div className="flex items-start justify-between mb-2">
-                    <CardTitle className="text-lg">{page.title}</CardTitle>
+                    <div className="flex items-center gap-2">
+                      <CardTitle className="text-lg">{page.title}</CardTitle>
+                      {homePageSlug === page.slug && (
+                        <Badge className="bg-blue-100 text-blue-700 border-blue-300">
+                          <Home className="w-3 h-3 mr-1" />
+                          Home
+                        </Badge>
+                      )}
+                    </div>
                     <Badge className={getStatusBadge(page.status)}>
                       {page.status}
                     </Badge>
@@ -241,8 +517,20 @@ export default function IEditPageManagementPage() {
                   </div>
                   
                   <div className="text-sm">
-                    <span className="text-slate-500">Layout:</span>
-                    <span className="ml-2 text-slate-700 capitalize">{page.layout_type}</span>
+                    <span className="text-slate-500">View:</span>
+                    <Badge variant="outline" className="ml-2">
+                      {page.layout_type === 'public' && 'Public'}
+                      {page.layout_type === 'member' && 'Portal'}
+                      {page.layout_type === 'hybrid' && 'Hybrid'}
+                      {!['public', 'member', 'hybrid'].includes(page.layout_type) && (page.layout_type || 'Public')}
+                    </Badge>
+                  </div>
+
+                  <div className="text-sm">
+                    <span className="text-slate-500">Builder:</span>
+                    <Badge variant="outline" className="ml-2" data-testid={`badge-builder-type-${page.id}`}>
+                      {page.builder_type === 'canvas' ? 'Canvas' : 'iEdit'}
+                    </Badge>
                   </div>
 
                   {page.updated_date && (
@@ -255,8 +543,12 @@ export default function IEditPageManagementPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => navigate(createPageUrl('IEditPageEditor') + `?pageId=${page.id}`)}
+                      onClick={() => {
+                        const editorPage = page.builder_type === 'canvas' ? 'CanvasPageEditor' : 'IEditPageEditor';
+                        navigate(createPageUrl(editorPage) + `?pageId=${page.id}`);
+                      }}
                       className="flex-1"
+                      data-testid={`button-edit-page-${page.id}`}
                     >
                       <Pencil className="w-3 h-3 mr-1" />
                       Edit
@@ -271,17 +563,42 @@ export default function IEditPageManagementPage() {
                         <ExternalLink className="w-3 h-3" />
                       </Button>
                     )}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setPageToDelete(page);
-                        setShowDeleteDialog(true);
-                      }}
-                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </Button>
+                    {page.builder_type === 'canvas' && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => openRenameDialog(page)}
+                        title={page.slug === 'login' ? 'System page — name and slug are locked' : 'Rename / change slug'}
+                        data-testid={`button-rename-page-${page.id}`}
+                      >
+                        <Pencil className="w-3 h-3" />
+                      </Button>
+                    )}
+                    {page.slug !== 'login' && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => duplicatePageMutation.mutate(page)}
+                        disabled={duplicatePageMutation.isPending}
+                        title="Duplicate Page"
+                        data-testid={`button-duplicate-page-${page.id}`}
+                      >
+                        <Copy className="w-3 h-3" />
+                      </Button>
+                    )}
+                    {page.slug !== 'login' && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setPageToDelete(page);
+                          setShowDeleteDialog(true);
+                        }}
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </Button>
+                    )}
                   </div>
 
                   {/* Publish/Unpublish Toggle */}
@@ -292,7 +609,7 @@ export default function IEditPageManagementPage() {
                     disabled={togglePublishMutation.isPending}
                     className={`w-full ${
                       page.status === 'published' 
-                        ? 'text-orange-600 hover:text-orange-700 hover:bg-orange-50' 
+                        ? 'text-warning hover:text-warning hover:bg-warning/10' 
                         : 'text-green-600 hover:text-green-700 hover:bg-green-50'
                     }`}
                     data-testid={`button-toggle-publish-${page.id}`}
@@ -300,6 +617,25 @@ export default function IEditPageManagementPage() {
                     <Zap className="w-3 h-3 mr-1" />
                     {page.status === 'published' ? 'Unpublish Page' : `Publish to /${page.slug}`}
                   </Button>
+
+                  {/* Home Page Toggle - only show for published public pages */}
+                  {page.status === 'published' && page.layout_type === 'public' && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => toggleHomePageMutation.mutate(page)}
+                      disabled={toggleHomePageMutation.isPending}
+                      className={`w-full ${
+                        homePageSlug === page.slug
+                          ? 'bg-blue-100 text-blue-700 border-blue-300 hover:bg-blue-200'
+                          : 'text-blue-600 hover:text-blue-700 hover:bg-blue-50'
+                      }`}
+                      data-testid={`button-toggle-home-${page.id}`}
+                    >
+                      <Home className="w-3 h-3 mr-1" />
+                      {homePageSlug === page.slug ? 'Remove as Home Page' : 'Set as Home Page'}
+                    </Button>
+                  )}
                   
                   {/* Show live URL when published */}
                   {page.status === 'published' && (
@@ -333,7 +669,7 @@ export default function IEditPageManagementPage() {
                       slug: newPage.slug === '' ? title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') : newPage.slug
                     });
                   }}
-                  placeholder="e.g., About Our Organization"
+                  placeholder="e.g., About Our Organisation"
                 />
               </div>
 
@@ -343,7 +679,7 @@ export default function IEditPageManagementPage() {
                   id="slug"
                   value={newPage.slug}
                   onChange={(e) => setNewPage({ ...newPage, slug: e.target.value.toLowerCase() })}
-                  placeholder="e.g., about-our-organization"
+                  placeholder="e.g., about-our-organisation"
                 />
                 <p className="text-xs text-slate-500 mt-1">
                   Lowercase letters, numbers, and hyphens only
@@ -362,7 +698,50 @@ export default function IEditPageManagementPage() {
               </div>
 
               <div>
-                <Label htmlFor="layout_type">Layout Type</Label>
+                <Label htmlFor="builder_type">Builder</Label>
+                <Select
+                  value={newPage.builder_type}
+                  onValueChange={(value) => setNewPage({ ...newPage, builder_type: value })}
+                >
+                  <SelectTrigger data-testid="select-builder-type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="iedit">iEdit (stacked elements)</SelectItem>
+                    <SelectItem value="canvas">Canvas (free-form drag &amp; drop)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-slate-500 mt-1">
+                  {newPage.builder_type === 'iedit' && 'Stacked element-based page editor. Recommended for most content pages.'}
+                  {newPage.builder_type === 'canvas' && 'Free-form drag-and-drop canvas with per-breakpoint layouts. The builder cannot be changed after the page is created.'}
+                </p>
+              </div>
+
+              {newPage.builder_type === 'canvas' && (
+                <div>
+                  <Label htmlFor="canvas_template_id">Start from template (optional)</Label>
+                  <Select
+                    value={newPage.canvas_template_id || 'blank'}
+                    onValueChange={(value) => setNewPage({ ...newPage, canvas_template_id: value === 'blank' ? '' : value })}
+                  >
+                    <SelectTrigger data-testid="select-canvas-template">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="blank">Blank page</SelectItem>
+                      {(templatesData?.templates || []).map((t) => (
+                        <SelectItem key={t.id} value={t.id}>{t.name}{t.is_starter ? ' (Starter)' : ''}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Templates copy their layout into the new page so you can keep editing without affecting the template.
+                  </p>
+                </div>
+              )}
+
+              <div>
+                <Label htmlFor="layout_type">View Type</Label>
                 <Select
                   value={newPage.layout_type}
                   onValueChange={(value) => setNewPage({ ...newPage, layout_type: value })}
@@ -371,10 +750,16 @@ export default function IEditPageManagementPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="public">Public (With header/footer)</SelectItem>
-                    <SelectItem value="member">Member Portal (With sidebar)</SelectItem>
+                    <SelectItem value="public">Public (Anyone can view, public layout)</SelectItem>
+                    <SelectItem value="member">Portal (Members only, with sidebar)</SelectItem>
+                    <SelectItem value="hybrid">Hybrid (Anyone can view, members see portal)</SelectItem>
                   </SelectContent>
                 </Select>
+                <p className="text-xs text-slate-500 mt-1">
+                  {newPage.layout_type === 'public' && 'Accessible to everyone with public header/footer layout'}
+                  {newPage.layout_type === 'member' && 'Only logged-in members can access, displayed within the portal sidebar'}
+                  {newPage.layout_type === 'hybrid' && 'Anyone can view; logged-in members see it within the portal sidebar'}
+                </p>
               </div>
             </div>
             <DialogFooter>
@@ -388,6 +773,86 @@ export default function IEditPageManagementPage() {
               >
                 Create & Edit
               </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Rename / Change Slug Dialog (Task #979) */}
+        <Dialog open={!!pageToRename} onOpenChange={(open) => {
+          if (!open) { setPageToRename(null); setRenameError(''); }
+        }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Edit page settings</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              {pageToRename?.slug === 'login' && (
+                <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+                  The <strong>Login</strong> page is a system page. Its name and URL (<code>/login</code>) are locked so members can always find the sign-in form.
+                </div>
+              )}
+              <div>
+                <Label htmlFor="rename-list-title">Page Title *</Label>
+                <Input
+                  id="rename-list-title"
+                  value={renameTitle}
+                  onChange={(e) => setRenameTitle(e.target.value)}
+                  disabled={pageToRename?.slug === 'login'}
+                  data-testid="input-rename-list-title"
+                />
+              </div>
+              <div>
+                <Label htmlFor="rename-list-slug">URL Slug *</Label>
+                <Input
+                  id="rename-list-slug"
+                  value={renameSlug}
+                  onChange={(e) => setRenameSlug(e.target.value.toLowerCase())}
+                  disabled={pageToRename?.slug === 'login'}
+                  data-testid="input-rename-list-slug"
+                />
+                {pageToRename?.slug !== 'login' && (
+                  <p className="text-xs text-slate-500 mt-1">
+                    Lowercase letters, numbers, and hyphens only
+                  </p>
+                )}
+              </div>
+              {pageToRename?.slug !== 'login' && (
+                <div>
+                  <Label htmlFor="rename-list-layout-type">View Type</Label>
+                  <Select value={renameLayoutType} onValueChange={setRenameLayoutType}>
+                    <SelectTrigger id="rename-list-layout-type" data-testid="select-rename-list-layout-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="public">Public (Anyone can view, public layout)</SelectItem>
+                      <SelectItem value="member">Portal (Members only, with sidebar)</SelectItem>
+                      <SelectItem value="hybrid">Hybrid (Anyone can view, members see portal)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-slate-500 mt-1">
+                    {renameLayoutType === 'public' && 'Accessible to everyone with public header/footer layout'}
+                    {renameLayoutType === 'member' && 'Only logged-in members can access, displayed within the portal sidebar'}
+                    {renameLayoutType === 'hybrid' && 'Anyone can view; logged-in members see it within the portal sidebar'}
+                  </p>
+                </div>
+              )}
+              {renameError && (
+                <p className="text-sm text-destructive" data-testid="text-rename-list-error">{renameError}</p>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setPageToRename(null)} data-testid="button-rename-list-cancel">
+                {pageToRename?.slug === 'login' ? 'Close' : 'Cancel'}
+              </Button>
+              {pageToRename?.slug !== 'login' && (
+                <Button
+                  onClick={handleRenameSubmit}
+                  disabled={renamePageMutation.isPending}
+                  data-testid="button-rename-list-save"
+                >
+                  {renamePageMutation.isPending ? 'Saving…' : 'Save'}
+                </Button>
+              )}
             </DialogFooter>
           </DialogContent>
         </Dialog>

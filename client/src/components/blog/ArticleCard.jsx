@@ -1,96 +1,130 @@
 import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Calendar, User, ArrowUpRight, Download, ExternalLink, PlayCircle, Eye, FileText, Mail, Plus } from "lucide-react";
-import { format } from "date-fns";
-import { createPageUrl } from "@/utils";
-import { Link } from "react-router-dom";
-import AGCASButton from "../ui/AGCASButton";
-import AGCASSquareButton from "../ui/AGCASSquareButton";
 import { Button } from "@/components/ui/button";
+import { Calendar, User, ArrowUpRight, Pencil, Trash2, Eye } from "lucide-react";
+import { format } from "date-fns";
+import { useArticleUrl } from "@/contexts/ArticleUrlContext";
+import { Link } from "react-router-dom";
+import TenantCtaButton from "@/components/common/TenantCtaButton";
 
-const iconMap = {
-  ArrowUpRight,
-  Download,
-  ExternalLink,
-  PlayCircle,
-  Eye,
-  FileText,
-  Mail,
-  Plus,
-};
-
-export default function ArticleCard({ article, buttonStyles = [], viewPageUrl = 'ArticleView', showActions = true, displayName = 'Articles' }) {
-  // Get button style from props instead of fetching
-  const buttonStyle = buttonStyles.find(s => s.card_type === 'article') || null;
-
-  const articleUrl = `${createPageUrl(viewPageUrl)}?slug=${article.slug}`;
-
-  const singularDisplayName = displayName.endsWith('s') ? displayName.slice(0, -1) : displayName;
-
-  const renderButton = () => {
-    if (!buttonStyle) {
-      // Default fallback
-      return (
-        <Button asChild className="w-full bg-blue-600 hover:bg-blue-700">
-          <Link to={articleUrl}>
-            <ArrowUpRight className="w-4 h-4 mr-2" />
-            Read {singularDisplayName}
-          </Link>
-        </Button>
-      );
-    }
-
-    // Use dynamic display name, replacing "Article" with the actual display name
-    let buttonText = buttonStyle.button_text || `Read ${singularDisplayName}`;
-    if (buttonText.includes('Article')) {
-      buttonText = buttonText.replace('Article', singularDisplayName);
-    }
-    const buttonType = buttonStyle.button_type;
-    const IconComponent = buttonStyle.icon_name && iconMap[buttonStyle.icon_name];
-
-    if (buttonType === "square_agcas") {
-      return (
-        <Link to={articleUrl}>
-          <AGCASSquareButton />
-        </Link>
-      );
-    } else if (buttonType === "rectangular_agcas") {
-      return (
-        <Link to={articleUrl}>
-          <AGCASButton 
-            icon={buttonStyle.icon_name !== 'none' ? IconComponent : undefined}
-            className="w-full"
-          >
-            {buttonText}
-          </AGCASButton>
-        </Link>
-      );
+export default function ArticleCard({ 
+  article, 
+  viewPageUrl = 'ArticleView', 
+  showActions = true, 
+  displayName = 'Articles',
+  singularDisplayName = null,
+  onEdit,
+  onDelete,
+  hasAdminEditPermission = false,
+  hasAdminDeletePermission = false,
+  currentMemberId = null,
+  showImage = true,
+  authorHandles = {}, // Map of author_id to handle
+  authorNames = {}, // Map of author_id (or guest_gwId) to full name
+  coAuthors = [], // Task #1225: ordered co-author cards (primary already excluded)
+  viewCount = null
+}) {
+  const { getArticleViewUrl } = useArticleUrl();
+  
+  // Use String() for type-safe comparison
+  const isAuthor = currentMemberId && String(article.author_id) === String(currentMemberId);
+  const isDraft = article.status === 'draft';
+  
+  // Derive singular name for "My X" badge
+  const singular = singularDisplayName || (displayName.endsWith('s') ? displayName.slice(0, -1) : displayName);
+  
+  // Determine author handle for URL construction
+  let authorHandle = "guest"; // Default for guest writers
+  if (article.author_id) {
+    // Use String() for consistent type matching with authorHandles map keys
+    const authorIdStr = String(article.author_id);
+    // Try to get handle from props, or extract from legacy slug
+    const foundHandle = authorHandles[authorIdStr];
+    console.log('[ArticleCard] Looking up handle for author_id:', authorIdStr, 
+      'authorHandles keys:', Object.keys(authorHandles).slice(0, 5), 
+      'found:', foundHandle,
+      'total keys:', Object.keys(authorHandles).length);
+    if (foundHandle) {
+      authorHandle = foundHandle;
     } else {
-      // Standard button
-      return (
-        <Button 
-          asChild
-          className="w-full bg-blue-600 hover:bg-blue-700"
-        >
-          <Link to={articleUrl}>
-            {IconComponent && buttonStyle.icon_name !== 'none' && <IconComponent className="w-4 h-4 mr-2" />}
-            {buttonText}
-          </Link>
-        </Button>
-      );
+      // Fallback: extract from legacy slug format "-by-{handle}"
+      const byHandleMatch = (article.slug || "").match(/-by-([a-z0-9-]+)$/i);
+      if (byHandleMatch) {
+        authorHandle = byHandleMatch[1];
+        console.log('[ArticleCard] Using legacy slug fallback:', authorHandle);
+      } else {
+        console.log('[ArticleCard] No handle found, using guest default');
+      }
     }
+  }
+  
+  // Get clean slug without handle suffix
+  let cleanSlug = article.slug || "";
+  const byHandleMatch = cleanSlug.match(/-by-([a-z0-9-]+)$/i);
+  if (byHandleMatch) {
+    cleanSlug = cleanSlug.slice(0, -byHandleMatch[0].length);
+  }
+  
+  // For drafts, add preview=true to the URL so the author can view them
+  const baseArticleUrl = getArticleViewUrl(authorHandle, cleanSlug);
+  const articleUrl = isDraft ? `${baseArticleUrl}${baseArticleUrl.includes('?') ? '&' : '?'}preview=true` : baseArticleUrl;
+  
+  const canEdit = hasAdminEditPermission || isAuthor;
+  const canDelete = hasAdminDeletePermission || isAuthor;
+
+  const ActionButtons = () => {
+    if (!canEdit && !canDelete) return null;
+    
+    return (
+      <div className="flex gap-1">
+        {canEdit && (
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-8 w-8 hover:bg-slate-100"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onEdit?.(article);
+            }}
+            data-testid={`button-edit-article-${article.id}`}
+          >
+            <Pencil className="h-4 w-4" />
+          </Button>
+        )}
+        {canDelete && (
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-8 w-8 hover:bg-red-100 text-red-600"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onDelete?.(article);
+            }}
+            data-testid={`button-delete-article-${article.id}`}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        )}
+      </div>
+    );
   };
 
   return (
-    <Card className="border-slate-200 hover:shadow-lg transition-shadow duration-300 overflow-hidden h-full flex flex-col">
-      {article.feature_image_url && (
+    <Card 
+      className="border-slate-200 hover:shadow-lg transition-shadow duration-300 overflow-hidden h-full flex flex-col relative"
+      data-testid={`card-article-${article.id}`}
+    >
+      {showImage && article.feature_image_url && (
         <>
           <div className="h-48 overflow-hidden bg-slate-100">
             <img 
               src={article.feature_image_url} 
               alt={article.title}
               className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
+              style={{ objectPosition: article.feature_image_focal_point ? `${article.feature_image_focal_point.x}% ${article.feature_image_focal_point.y}%` : '50% 50%' }}
             />
           </div>
           <div className="w-full h-[3px]" style={{ backgroundColor: '#5d0d77' }}></div>
@@ -107,10 +141,55 @@ export default function ArticleCard({ article, buttonStyles = [], viewPageUrl = 
           </div>
         )}
         
-        {showActions && article.author_name && (
-          <div className="flex items-center gap-1.5 text-xs text-slate-600 pb-3">
-            <User className="w-3 h-3" />
-            <span>by {article.author_name}</span>
+        {showActions && (() => {
+          // Look up author name from props, falling back to article.author_name for backwards compatibility
+          let displayAuthorName = null;
+          if (article.author_id) {
+            displayAuthorName = authorNames[String(article.author_id)];
+          } else if (article.guest_writer_id) {
+            displayAuthorName = authorNames[`guest_${article.guest_writer_id}`];
+          }
+          // Fallback to legacy author_name field
+          if (!displayAuthorName) displayAuthorName = article.author_name;
+          
+          const hasCoAuthors = Array.isArray(coAuthors) && coAuthors.length > 0;
+          if (!displayAuthorName && !hasCoAuthors) return null;
+
+          return (
+            <div className="flex items-start gap-1.5 text-xs text-slate-600 pb-3" data-testid={`text-article-authors-${article.id}`}>
+              <User className="w-3 h-3 mt-0.5 flex-shrink-0" />
+              <span>
+                by {displayAuthorName || 'Unknown'}
+                {hasCoAuthors && coAuthors.map((ca, idx) => {
+                  const key = `${ca.type}:${ca.author_id || ca.guest_writer_id || idx}`;
+                  const sep = idx === 0 ? ' & ' : ', ';
+                  return (
+                    <React.Fragment key={key}>
+                      {sep}
+                      {ca.handle ? (
+                        <Link
+                          to={`/articles/author/${ca.handle}`}
+                          className="text-blue-600 hover:underline"
+                          onClick={(e) => e.stopPropagation()}
+                          data-testid={`link-coauthor-${ca.author_id || ca.guest_writer_id}`}
+                        >
+                          {ca.name}
+                        </Link>
+                      ) : (
+                        <span data-testid={`text-coauthor-${ca.author_id || ca.guest_writer_id}`}>{ca.name}</span>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </span>
+            </div>
+          );
+        })()}
+
+        {viewCount !== null && viewCount !== undefined && (
+          <div className="flex items-center gap-1 text-xs text-slate-500 pb-2" data-testid={`text-article-views-${article.id}`}>
+            <Eye className="w-3 h-3" />
+            <span>{viewCount} {viewCount === 1 ? 'view' : 'views'}</span>
           </div>
         )}
         
@@ -136,9 +215,31 @@ export default function ArticleCard({ article, buttonStyles = [], viewPageUrl = 
         )}
       </CardHeader>
 
-      <CardContent className="pt-0 pb-4 mt-auto">
-        {renderButton()}
-      </CardContent>
+      <div className="mt-auto flex items-end justify-end">
+        <div className="mr-auto flex items-center gap-2">
+          <ActionButtons />
+          {!isDraft && isAuthor && (
+            <Badge variant="secondary" className="bg-blue-100 text-blue-800 border-blue-200" data-testid={`badge-my-article-${article.id}`}>
+              My {singular}
+            </Badge>
+          )}
+          {isDraft && (
+            <Badge variant="secondary" className="bg-warning/10 text-warning border-warning/30">
+              Draft
+            </Badge>
+          )}
+        </div>
+        <TenantCtaButton
+          as="link"
+          to={articleUrl}
+          applySize={false}
+          className="w-12 h-12"
+          fallbackClassName="inline-flex items-center justify-center bg-black hover:bg-gray-800 text-white transition-colors duration-200"
+          data-testid={`button-read-article-${article.id}`}
+        >
+          <ArrowUpRight className="w-6 h-6" strokeWidth={2} />
+        </TenantCtaButton>
+      </div>
     </Card>
   );
 }

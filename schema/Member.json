@@ -5,7 +5,7 @@
       "email": {
         "type": "string",
         "format": "email",
-        "description": "Member's email address from Zoho CRM"
+        "description": "Member's email address"
       },
       "first_name": {
         "type": "string"
@@ -30,14 +30,6 @@
         "type": "string",
         "description": "URL to member's profile photo"
       },
-      "linkedin_url": {
-        "type": "string",
-        "description": "Member's LinkedIn profile URL"
-      },
-      "zoho_contact_id": {
-        "type": "string",
-        "description": "Zoho CRM Contact ID"
-      },
       "organization_id": {
         "type": "string",
         "description": "Reference to Organization entity"
@@ -50,16 +42,6 @@
         "type": "string",
         "format": "date",
         "description": "Effective date for the current role assignment (e.g., when an Alumni member retired)"
-      },
-      "last_synced": {
-        "type": "string",
-        "format": "date-time",
-        "description": "Last sync from Zoho CRM"
-      },
-      "last_login": {
-        "type": "string",
-        "format": "date-time",
-        "description": "Last time the member logged in"
       },
       "last_activity": {
         "type": "string",
@@ -79,11 +61,6 @@
         "default": [],
         "description": "Additional feature IDs excluded for this specific member (in addition to role exclusions)"
       },
-      "has_seen_onboarding_tour": {
-        "type": "boolean",
-        "default": false,
-        "description": "Whether the member has completed the onboarding tour"
-      },
       "page_tours_seen": {
         "type": "object",
         "additionalProperties": {
@@ -96,6 +73,16 @@
         "type": "boolean",
         "default": true,
         "description": "Whether this member should appear in the public member directory"
+      },
+      "is_guest": {
+        "type": "boolean",
+        "default": false,
+        "description": "Whether this member joined via the Guest Access sign-up flow (vs a regular invited/imported member)"
+      },
+      "guest_expires_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "When this guest's access ends. NULL means Permanent; a past value means Expired. Only meaningful when is_guest is true."
       }
     },
     "required": [

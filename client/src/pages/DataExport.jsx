@@ -8,7 +8,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 
 export default function DataExportPage() {
-  const { isAdmin, memberInfo, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, memberInfo, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [downloadUrl, setDownloadUrl] = useState(null);
@@ -17,17 +17,17 @@ export default function DataExportPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin) {
+      if (isFeatureExcluded('admin.data-export')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   if (!accessChecked) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
       </div>
     );
@@ -76,7 +76,7 @@ export default function DataExportPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-4xl mx-auto">
         <div className="mb-8">
           <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">
@@ -98,7 +98,7 @@ export default function DataExportPage() {
             <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
               <h3 className="text-sm font-semibold text-blue-900 mb-2">What will be exported:</h3>
               <ul className="text-sm text-blue-700 space-y-1 list-disc list-inside">
-                <li>All member and organization data</li>
+                <li>All member and organisation data</li>
                 <li>Events, bookings, and program tickets</li>
                 <li>Resources, articles, and news posts</li>
                 <li>Roles, permissions, and settings</li>
@@ -106,12 +106,12 @@ export default function DataExportPage() {
               </ul>
             </div>
 
-            <div className="p-4 bg-amber-50 rounded-lg border border-amber-200">
+            <div className="p-4 bg-warning/10 rounded-lg border border-warning/30">
               <div className="flex items-start gap-2">
-                <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <AlertCircle className="w-5 h-5 text-warning shrink-0 mt-0.5" />
                 <div>
-                  <h3 className="text-sm font-semibold text-amber-900 mb-1">Important Notes:</h3>
-                  <ul className="text-sm text-amber-700 space-y-1">
+                  <h3 className="text-sm font-semibold text-warning mb-1">Important Notes:</h3>
+                  <ul className="text-sm text-warning space-y-1">
                     <li>• Export may take several minutes depending on data volume</li>
                     <li>• Download link expires after 1 hour</li>
                     <li>• Sensitive data like tokens are included - store securely</li>

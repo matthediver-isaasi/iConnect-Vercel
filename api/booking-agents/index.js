@@ -1,0 +1,254 @@
+import { createClient } from '@supabase/supabase-js';
+import { getTenantContext } from '../_lib/tenantContext.js';
+
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+export default async function handler(req, res) {
+  const tenantContext = await getTenantContext(req);
+  if (!tenantContext || !tenantContext.isAuthenticated) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+  const tenantId = tenantContext.tenantId;
+
+  // Validate tenantId
+  if (!tenantId || tenantId === 'undefined') {
+    console.error('[booking-agents] Invalid tenantId:', tenantId);
+    return res.status(400).json({ error: 'Invalid tenant context' });
+  }
+
+  if (req.method === 'GET') {
+    try {
+      // First, find the primary organization for this tenant
+      const { data: primaryOrg, error: orgError } = await supabase
+        .from('organization')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('is_primary', true)
+        .single();
+
+      if (orgError || !primaryOrg) {
+        console.error('[booking-agents] Primary org not found:', orgError);
+        return res.status(404).json({ error: 'Primary organization not found' });
+      }
+
+      // Get memberships with identity info (for is_booking_agent)
+      const { data: memberships, error } = await supabase
+        .from('tenant_membership')
+        .select(`
+          identity_id,
+          member_id,
+          tenant_identity:identity_id (
+            id,
+            email,
+            is_booking_agent
+          )
+        `)
+        .eq('tenant_id', tenantId)
+        .eq('status', 'active');
+
+      if (error) {
+        console.error('[booking-agents] Fetch error:', error);
+        return res.status(500).json({ error: 'Failed to fetch team members' });
+      }
+
+      // Get member_ids to look up their organizations and names
+      const memberIds = (memberships || [])
+        .map(m => m.member_id)
+        .filter(Boolean);
+
+      // Fetch members for organization_id, names, and handle
+      let memberDataMap = new Map();
+      if (memberIds.length > 0) {
+        const { data: members, error: memberError } = await supabase
+          .from('member')
+          .select('id, organization_id, first_name, last_name, email, handle')
+          .in('id', memberIds);
+
+        if (!memberError && members) {
+          for (const m of members) {
+            memberDataMap.set(m.id, m);
+          }
+        }
+      }
+
+      // Build result using member names, filtered to primary org only
+      const resultMap = new Map();
+      for (const m of memberships || []) {
+        const memberData = m.member_id ? memberDataMap.get(m.member_id) : null;
+        if (m.tenant_identity && memberData && memberData.organization_id === primaryOrg.id) {
+          resultMap.set(m.tenant_identity.id, {
+            id: m.tenant_identity.id,
+            email: memberData.email || m.tenant_identity.email,
+            first_name: memberData.first_name,
+            last_name: memberData.last_name,
+            booking_slug: memberData.handle,
+            is_booking_agent: m.tenant_identity.is_booking_agent
+          });
+        }
+      }
+      
+      const allMembers = Array.from(resultMap.values()).sort((a, b) => 
+        (a.first_name || '').localeCompare(b.first_name || '')
+      );
+      const agents = allMembers.filter(m => m.is_booking_agent === true);
+
+      return res.json({ agents, allMembers });
+    } catch (err) {
+      console.error('[booking-agents] Error:', err);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  if (req.method === 'POST') {
+    try {
+      const { identity_id, is_booking_agent } = req.body;
+
+      if (!identity_id) {
+        return res.status(400).json({ error: 'Identity ID is required' });
+      }
+
+      // Find the primary organization for this tenant
+      const { data: primaryOrg, error: orgError } = await supabase
+        .from('organization')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('is_primary', true)
+        .single();
+
+      if (orgError || !primaryOrg) {
+        return res.status(404).json({ error: 'Primary organization not found' });
+      }
+
+      // Verify the identity belongs to this tenant via membership
+      const { data: membership, error: membershipError } = await supabase
+        .from('tenant_membership')
+        .select('identity_id, member_id')
+        .eq('tenant_id', tenantId)
+        .eq('identity_id', identity_id)
+        .eq('status', 'active')
+        .single();
+
+      if (membershipError || !membership) {
+        return res.status(404).json({ error: 'Team member not found in this tenant' });
+      }
+
+      // Look up the member's organization
+      if (!membership.member_id) {
+        return res.status(403).json({ error: 'Only members of the tenant organization can be booking agents' });
+      }
+
+      const { data: member, error: memberError } = await supabase
+        .from('member')
+        .select('id, organization_id')
+        .eq('id', membership.member_id)
+        .single();
+
+      if (memberError || !member || member.organization_id !== primaryOrg.id) {
+        return res.status(403).json({ error: 'Only members of the tenant organization can be booking agents' });
+      }
+
+      const { data, error } = await supabase
+        .from('tenant_identity')
+        .update({ is_booking_agent: is_booking_agent === true })
+        .eq('id', identity_id)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('[booking-agents] Update error:', error);
+        return res.status(500).json({ error: 'Failed to update agent status' });
+      }
+
+      // If disabling as booking agent, cascade deactivation to template assignments
+      // and availability profile(s) for this tenant. Do NOT auto-reactivate when re-enabling.
+      if (is_booking_agent !== true) {
+        try {
+          const { data: tenantTemplates, error: tplError } = await supabase
+            .from('meeting_template')
+            .select('id')
+            .eq('tenant_id', tenantId);
+
+          if (tplError) {
+            console.error('[booking-agents] Failed to load tenant meeting templates for cascade:', tplError);
+          } else {
+            const tenantTemplateIds = (tenantTemplates || []).map(t => t.id);
+            if (tenantTemplateIds.length > 0) {
+              const { error: amtError } = await supabase
+                .from('agent_meeting_template')
+                .update({ is_active: false })
+                .eq('identity_id', identity_id)
+                .in('meeting_template_id', tenantTemplateIds);
+              if (amtError) {
+                console.error('[booking-agents] Failed to cascade-disable agent_meeting_template:', amtError);
+              }
+            }
+          }
+
+          const { error: profError } = await supabase
+            .from('agent_availability_profile')
+            .update({ is_active: false })
+            .eq('identity_id', identity_id)
+            .eq('tenant_id', tenantId);
+          if (profError) {
+            console.error('[booking-agents] Failed to cascade-disable agent_availability_profile:', profError);
+          }
+        } catch (cascadeErr) {
+          console.error('[booking-agents] Cascade error:', cascadeErr);
+        }
+      }
+
+      // If enabling as booking agent, create a default availability profile if one doesn't exist
+      if (is_booking_agent === true) {
+        const { data: existingProfile } = await supabase
+          .from('agent_availability_profile')
+          .select('id')
+          .eq('identity_id', identity_id)
+          .eq('tenant_id', tenantId)
+          .single();
+
+        if (!existingProfile) {
+          const defaultWorkingHours = {
+            monday: { enabled: true, start: '09:00', end: '17:00' },
+            tuesday: { enabled: true, start: '09:00', end: '17:00' },
+            wednesday: { enabled: true, start: '09:00', end: '17:00' },
+            thursday: { enabled: true, start: '09:00', end: '17:00' },
+            friday: { enabled: true, start: '09:00', end: '17:00' },
+            saturday: { enabled: false, start: '09:00', end: '17:00' },
+            sunday: { enabled: false, start: '09:00', end: '17:00' }
+          };
+
+          const { error: profileError } = await supabase
+            .from('agent_availability_profile')
+            .insert({
+              tenant_id: tenantId,
+              identity_id: identity_id,
+              is_active: true,
+              timezone: 'Europe/London',
+              default_slot_minutes: 30,
+              buffer_minutes: 15,
+              working_hours: defaultWorkingHours,
+              booking_title: 'Book a Meeting',
+              booking_description: 'Schedule a time that works for you.'
+            });
+
+          if (profileError) {
+            console.error('[booking-agents] Failed to create availability profile:', profileError);
+            // Don't fail the request - the agent was still enabled
+          } else {
+            console.log('[booking-agents] Created default availability profile for identity:', identity_id);
+          }
+        }
+      }
+
+      return res.json({ agent: data });
+    } catch (err) {
+      console.error('[booking-agents] Error:', err);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  return res.status(405).json({ error: 'Method not allowed' });
+}

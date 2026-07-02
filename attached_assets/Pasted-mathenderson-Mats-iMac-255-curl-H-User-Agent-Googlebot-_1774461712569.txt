@@ -1,0 +1,69 @@
+mathenderson@Mats-iMac-255 ~ % curl -H "User-Agent: Googlebot" https://gfi.dev.iconn.app/PublicEvents
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Events | Graduate Futures Institute</title>
+  <meta name="description" content="Browse upcoming events from Graduate Futures Institute">
+  <meta property="og:title" content="Events | Graduate Futures Institute">
+  <meta property="og:description" content="Browse upcoming events from Graduate Futures Institute">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://graduatefutures.org/PublicEvents">
+  
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Events | Graduate Futures Institute">
+  <meta name="twitter:description" content="Browse upcoming events from Graduate Futures Institute">
+  
+  <link rel="canonical" href="https://graduatefutures.org/PublicEvents">
+  <link rel="icon" href="https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/file-repository/uploads/1767909733211-xza2ojg-fgifavicon.png">
+  <meta name="robots" content="index, follow">
+</head>
+<body>
+  <header><h1>Graduate Futures Institute</h1></header>
+  <main>
+    
+      <h2>Events | Graduate Futures Institute</h2>
+      <p>Browse upcoming events from Graduate Futures Institute</p>
+      <ul><li><strong>Leadership Conference 2026</strong> - January 5, 2026 | The Grand Hotel, Brighton</li>
+<li><strong>Skills and Employer Engagement: Unpacked</strong> - January 27, 2026</li>
+<li><strong>*Co-Creation in Action: Building Inclusive Careers Services with Students</strong> - January 28, 2026</li>
+<li><strong>The future of work and the evolving role of careers services in HE – opportunity to publish your research and case studies</strong> - January 29, 2026</li>
+<li><strong>Skills and Employer Engagement: Unpacked - sponsored by Gradconsult</strong> - February 23, 2026</li>
+<li><strong>Demo Day: Career Management Platforms</strong> - February 26, 2026</li>
+<li><strong>Annual General Meeting</strong> - March 3, 2026</li>
+<li><strong>*Supporting Neurodivergent Students into Employment</strong> - March 4, 2026</li>
+<li><strong>Recognising Third Space Expertise: How Fellowship Accreditation Supports Influence, Recognition, and Pedagogic Partnership</strong> - March 11, 2026 | Microsoft Teams</li>
+<li><strong>*Group Work: Designing and Delivering Group Learning </strong> - March 17, 2026</li>
+<li><strong>*Introduction to Guidance Interviewing</strong> - March 18, 2026</li>
+<li><strong>*Introduction to Advice</strong> - March 24, 2026</li>
+<li><strong>Placements and Work-based Learning: Unpacked - supported by Symplicity</strong> - March 26, 2026</li>
+<li><strong>MAT TEST DO NOT REMOVE</strong> - March 28, 2026 | London</li>
+<li><strong>*Guidance Refresher</strong> - April 8, 2026</li>
+<li><strong>*Management and Leadership Programme: Management of HE Career and Employability Services</strong> - April 13, 2026 | Ramada Hotel &amp; Suites by Wyndham Coventry</li>
+<li><strong>Research Poster Fair webinar 2026</strong> - April 20, 2026 | Online</li>
+<li><strong>Essential Marketing and Comms for Careers Services</strong> - April 23, 2026</li>
+<li><strong>Supporting students into green jobs; introducing ISEP and the Green Careers Hub</strong> - April 28, 2026</li>
+<li><strong>Academic Employability Awards 2026</strong> - April 30, 2026 | Confetti Institute of Creative Technologies, London</li>
+<li><strong>Guiding Students Through Career Anxiety</strong> - May 6, 2026</li>
+<li><strong>*Design Thinking for Careers and Employability</strong> - May 7, 2026</li>
+<li><strong>* Career Coaching (Information, Advice and Guidance)</strong> - May 11, 2026</li>
+<li><strong>Supporting Neurodivergent Learners</strong> - May 12, 2026</li>
+<li><strong>Employability and Enterprise in the Curriculum: Embedding / Integrating / Extracting</strong> - May 18, 2026</li>
+<li><strong>Employer Engagement Strategy</strong> - May 21, 2026</li>
+<li><strong>*Employability and Career Education: Strategy and Inclusive Design</strong> - June 15, 2026</li>
+<li><strong>AI Fast Track: The student-employer landscape</strong> - June 18, 2026</li>
+<li><strong>*Challenges of Careers Work in HE</strong> - June 23, 2026</li>
+<li><strong>AI Fast Track: Practical approaches for your role</strong> - June 24, 2026</li>
+<li><strong>Annual Conference 2026</strong> - July 2, 2026 | Nottingham Trent University</li>
+<li><strong>Introduction to Guidance Interviewing</strong> - July 20, 2026</li>
+<li><strong>Introduction to Employer Engagement</strong></li>
+<li><strong>Employer Engagement Strategy</strong></li>
+<li><strong>Essential Marketing and Comms for Careers Services</strong></li>
+<li><strong>Guiding Students Through Career Anxiety</strong></li>
+<li><strong>Overcoming the Challenges of SME Engagement</strong></li>
+<li><strong>AI Fast Track</strong></li>
+<li><strong>Employability and Enterprise in the Curriculum: Embedding / Integrating / Extracting</strong></li></ul>
+  </main>
+</body>
+</html>%

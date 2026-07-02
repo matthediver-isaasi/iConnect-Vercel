@@ -1,46 +1,146 @@
-import React, { useState } from "react";
-import { base44 } from "@/api/base44Client";
+import React, { useState, useEffect, useRef } from "react";
+import { publicClient } from "@/api/publicClient";
 import { useQuery } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { User, Mail, Linkedin, Loader2 } from "lucide-react";
+import DOMPurify from 'dompurify';
+import { LazyImage } from "@/components/ui/lazy-image";
 
-export default function WallOfFameDisplay({ sectionId }) {
+export default function WallOfFameDisplay({ 
+  sectionId,
+  categoryId = null,
+  showCategoryName = true,
+  customTitle,
+  titleFontFamily = 'Poppins',
+  titleFontWeight = 700,
+  titleFontSize = 32,
+  titleColor = '#1e293b',
+  titleAlign = 'center',
+  cardsPerRow = 4,
+  rowAlign = 'center',
+  showPhoto = true,
+  showJobTitle = true,
+  showBioSnippet = false,
+  cardGap = 24,
+  backgroundType = 'none',
+  backgroundColor = '#f8fafc',
+  gradientStartColor = '#3b82f6',
+  gradientEndColor = '#8b5cf6',
+  gradientAngle = 135,
+  backgroundImageUrl,
+  backgroundImageFit = 'cover',
+  overlayEnabled = false,
+  overlayColor = '#000000',
+  overlayOpacity = 50,
+  headingText,
+  headingFontFamily = 'Poppins',
+  headingFontSize = 36,
+  headingFontSizeMobile,
+  headingFontWeight = 700,
+  headingLineHeight = 1.2,
+  headingLetterSpacing = 0,
+  headingColor = '#1e293b',
+  subheadingText,
+  subheadingFontFamily = 'Poppins',
+  subheadingFontSize = 20,
+  subheadingFontSizeMobile,
+  subheadingFontWeight = 400,
+  subheadingLineHeight = 1.5,
+  subheadingLetterSpacing = 0,
+  subheadingColor = '#475569',
+  bodyContent,
+  contentFontFamily = 'Poppins',
+  contentFontSize = 16,
+  contentFontSizeMobile,
+  contentFontWeight = 400,
+  contentLineHeight = 1.6,
+  contentLetterSpacing = 0,
+  contentColor = '#64748b',
+  textAlign = 'center'
+}) {
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [flippedPerson, setFlippedPerson] = useState(null);
 
   const { data: section, isLoading: sectionLoading } = useQuery({
-    queryKey: ['wall-of-fame-section', sectionId],
+    queryKey: ['public-wall-of-fame-section', sectionId],
     queryFn: async () => {
-      const sections = await base44.entities.WallOfFameSection.list();
+      const sections = await publicClient.listWallOfFameSections() || [];
       return sections.find(s => s.id === sectionId);
     },
     enabled: !!sectionId,
   });
 
   const { data: categories = [], isLoading: categoriesLoading } = useQuery({
-    queryKey: ['wall-of-fame-categories', sectionId],
+    queryKey: ['public-wall-of-fame-categories', sectionId],
     queryFn: async () => {
-      const cats = await base44.entities.WallOfFameCategory.list();
-      return cats.filter(c => c.section_id === sectionId && c.is_active).sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+      const cats = await publicClient.listWallOfFameCategories(sectionId) || [];
+      return cats.sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
     },
     enabled: !!sectionId,
   });
 
+  // Category selection: a pinned categoryId (from the canvas inspector) jumps
+  // straight to that category and skips the navigation grid; otherwise fall
+  // back to auto-selecting when there's only one category. We track the
+  // previous section/categoryId so that switching section or clearing the pin
+  // reliably reverts the internal selection (otherwise stale state would keep
+  // rendering the old category instead of the default navigation grid).
+  const prevSectionIdRef = useRef(sectionId);
+  const prevCategoryIdRef = useRef(categoryId);
+  useEffect(() => {
+    if (categoriesLoading) return;
+
+    const sectionChanged = prevSectionIdRef.current !== sectionId;
+    const categoryIdChanged = prevCategoryIdRef.current !== categoryId;
+    prevSectionIdRef.current = sectionId;
+    prevCategoryIdRef.current = categoryId;
+
+    // Pinned to a specific category: always reflect it (or fall back to the
+    // navigation grid if the pinned category no longer exists).
+    if (categoryId) {
+      const match = categories.find((c) => String(c.id) === String(categoryId)) || null;
+      if (!selectedCategory || String(selectedCategory.id) !== String(match?.id)) {
+        setSelectedCategory(match);
+        setFlippedPerson(null);
+      }
+      return;
+    }
+
+    // Not pinned. If the section just changed or the pin was just cleared,
+    // revert to the default view (single category auto-selects, otherwise the
+    // navigation grid).
+    if (sectionChanged || categoryIdChanged) {
+      setSelectedCategory(categories.length === 1 ? categories[0] : null);
+      setFlippedPerson(null);
+      return;
+    }
+
+    // Initial load with no pin: auto-select when there's exactly one category.
+    if (categories.length === 1 && !selectedCategory) {
+      setSelectedCategory(categories[0]);
+    }
+  }, [categories, categoriesLoading, selectedCategory, categoryId, sectionId]);
+
+  // Check if we should show the back button (only when more than one category
+  // and the block isn't pinned to a single category).
+  const showBackButton = !categoryId && categories.length > 1;
+
   const { data: people = [], isLoading: peopleLoading } = useQuery({
-    queryKey: ['wall-of-fame-people', selectedCategory?.id],
+    queryKey: ['public-wall-of-fame-people', selectedCategory?.id],
     queryFn: async () => {
-      const allPeople = await base44.entities.WallOfFamePerson.list();
-      return allPeople.filter(p => p.category_id === selectedCategory.id && p.is_active).sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+      const allPeople = await publicClient.listWallOfFamePeople(selectedCategory?.id) || [];
+      return allPeople.sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
     },
     enabled: !!selectedCategory,
   });
 
   const { data: photoSizeSetting } = useQuery({
-    queryKey: ['wall-of-fame-photo-size'],
+    queryKey: ['public-wall-of-fame-photo-size'],
     queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list();
+      // Use public endpoint for unauthenticated access on public pages
+      const allSettings = await publicClient.listSystemSettings() || [];
       const setting = allSettings.find(s => s.setting_key === 'wall_of_fame_photo_size');
       return setting?.setting_value || 'medium';
     }
@@ -54,6 +154,54 @@ export default function WallOfFameDisplay({ sectionId }) {
   };
 
   const isLoading = sectionLoading || categoriesLoading;
+
+  // Get grid column classes based on cardsPerRow
+  const getGridCols = () => {
+    const cols = parseInt(cardsPerRow) || 4;
+    switch (cols) {
+      case 1: return 'grid-cols-1';
+      case 2: return 'grid-cols-1 sm:grid-cols-2';
+      case 3: return 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3';
+      case 4: return 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4';
+      case 5: return 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5';
+      case 6: return 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6';
+      default: return 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4';
+    }
+  };
+
+  // Get justify classes based on rowAlign
+  const getRowJustify = () => {
+    switch (rowAlign) {
+      case 'left': return 'justify-start';
+      case 'right': return 'justify-end';
+      case 'center':
+      default: return 'justify-center';
+    }
+  };
+
+  // Get the title to display - use customTitle if set, otherwise category name
+  const getDisplayTitle = () => {
+    if (customTitle && customTitle.trim()) {
+      return customTitle;
+    }
+    if (selectedCategory) {
+      return selectedCategory.name;
+    }
+    return section?.name || '';
+  };
+
+  // Get background style
+  const getBackgroundStyle = () => {
+    if (backgroundType === 'color') {
+      return { backgroundColor };
+    }
+    if (backgroundType === 'gradient') {
+      return { 
+        background: `linear-gradient(${gradientAngle}deg, ${gradientStartColor}, ${gradientEndColor})` 
+      };
+    }
+    return {};
+  };
 
   if (isLoading) {
     return (
@@ -71,22 +219,110 @@ export default function WallOfFameDisplay({ sectionId }) {
     );
   }
 
+  // Title style based on props
+  const titleStyle = {
+    fontFamily: titleFontFamily,
+    fontWeight: titleFontWeight,
+    fontSize: `${titleFontSize}px`,
+    color: titleColor,
+    textAlign: titleAlign
+  };
+
+  // Check if we have a background
+  const hasBackground = backgroundType && backgroundType !== 'none';
+
   return (
-    <div className="py-12">
-      <div className="max-w-7xl mx-auto px-4">
-        <div className="text-center mb-12">
-          <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-4">
-            {section.name}
-          </h2>
-          {section.description && (
-            <p className="text-lg text-slate-600 max-w-3xl mx-auto">
-              {section.description}
-            </p>
+    <div 
+      className="relative py-12"
+      style={hasBackground && backgroundType !== 'image' ? getBackgroundStyle() : {}}
+    >
+      {/* Background image layer */}
+      {backgroundType === 'image' && backgroundImageUrl && (
+        <>
+          <img 
+            src={backgroundImageUrl} 
+            alt="Background" 
+            className="absolute inset-0 w-full h-full"
+            style={{ objectFit: backgroundImageFit }}
+          />
+          {overlayEnabled && (
+            <div 
+              className="absolute inset-0" 
+              style={{ 
+                backgroundColor: overlayColor, 
+                opacity: parseInt(overlayOpacity) / 100 
+              }} 
+            />
           )}
-        </div>
+        </>
+      )}
+
+      {/* Content layer */}
+      <div className="relative max-w-7xl mx-auto px-4">
+        {/* Custom Header, Subheader & Content */}
+        {(headingText || subheadingText || bodyContent) && (
+          <div className={`mb-8 ${textAlign === 'left' ? 'text-left' : textAlign === 'right' ? 'text-right' : 'text-center'}`}>
+            {headingText && (
+              <div 
+                style={{
+                  fontFamily: headingFontFamily,
+                  fontSize: `${headingFontSize}px`,
+                  fontWeight: headingFontWeight,
+                  lineHeight: headingLineHeight,
+                  letterSpacing: `${headingLetterSpacing}px`,
+                  color: headingColor
+                }}
+                className="mb-4 prose max-w-none"
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(headingText) }}
+              />
+            )}
+            {subheadingText && (
+              <div 
+                style={{
+                  fontFamily: subheadingFontFamily,
+                  fontSize: `${subheadingFontSize}px`,
+                  fontWeight: subheadingFontWeight,
+                  lineHeight: subheadingLineHeight,
+                  letterSpacing: `${subheadingLetterSpacing}px`,
+                  color: subheadingColor
+                }}
+                className="mb-4 prose max-w-none"
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(subheadingText) }}
+              />
+            )}
+            {bodyContent && (
+              <div 
+                style={{
+                  fontFamily: contentFontFamily,
+                  fontSize: `${contentFontSize}px`,
+                  fontWeight: contentFontWeight,
+                  lineHeight: contentLineHeight,
+                  letterSpacing: `${contentLetterSpacing}px`,
+                  color: contentColor
+                }}
+                className="prose max-w-none"
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(bodyContent) }}
+              />
+            )}
+          </div>
+        )}
+
+        {/* Section header - only show if no category selected OR if multiple categories exist */}
+        {!selectedCategory && (
+          <div className="text-center mb-12">
+            <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-4">
+              {section.name}
+            </h2>
+            {section.description && (
+              <p className="text-lg text-slate-600 max-w-3xl mx-auto">
+                {section.description}
+              </p>
+            )}
+          </div>
+        )}
 
         {!selectedCategory ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className={`grid ${getGridCols()} gap-6`}>
             {categories.map(category => (
               <Card
                 key={category.id}
@@ -111,36 +347,52 @@ export default function WallOfFameDisplay({ sectionId }) {
           </div>
         ) : (
           <div>
-            <div className="mb-8 text-center">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setSelectedCategory(null);
-                  setFlippedPerson(null);
-                }}
-                className="mb-4"
-              >
-                ← Back to Categories
-              </Button>
-              <h3 className="text-2xl font-bold text-slate-900 mb-2">
-                {selectedCategory.name}
-              </h3>
-              {selectedCategory.description && (
-                <p className="text-slate-600">{selectedCategory.description}</p>
-              )}
-            </div>
+            {(showBackButton || showCategoryName) && (
+              <div className="mb-8" style={{ textAlign: titleAlign }}>
+                {showBackButton && (
+                  <div className="mb-4" style={{ textAlign: titleAlign }}>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setSelectedCategory(null);
+                        setFlippedPerson(null);
+                      }}
+                    >
+                      ← Back to Categories
+                    </Button>
+                  </div>
+                )}
+                {showCategoryName && (
+                  <>
+                    <h3 style={titleStyle} className="mb-2">
+                      {getDisplayTitle()}
+                    </h3>
+                    {selectedCategory.description && (
+                      <p className="text-slate-600" style={{ textAlign: titleAlign }}>
+                        {selectedCategory.description}
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
 
             {peopleLoading ? (
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              <div className={`flex flex-wrap ${getRowJustify()}`} style={{ gap: `${Number(cardGap) >= 0 ? Number(cardGap) : 24}px` }}>
                 {people.map(person => (
                   <div
                     key={person.id}
                     className="perspective-1000"
-                    style={{ perspective: '1000px' }}
+                    style={{ 
+                      perspective: '1000px',
+                      width: `calc(${100 / (parseInt(cardsPerRow) || 4)}% - ${Number(cardGap) >= 0 ? Number(cardGap) : 24}px)`,
+                      minWidth: '280px',
+                      maxWidth: '320px'
+                    }}
                   >
                     <div
                       className={`relative w-full h-96 transition-all duration-700 cursor-pointer transform-style-3d ${
@@ -158,23 +410,30 @@ export default function WallOfFameDisplay({ sectionId }) {
                         style={{ backfaceVisibility: 'hidden' }}
                       >
                         <Card className="w-full h-full p-6 flex flex-col items-center justify-center text-center border-2 border-slate-200 hover:border-blue-500 transition-colors bg-white">
-                          <div className={`${sizeClasses[photoSize]} rounded-full bg-slate-100 flex items-center justify-center overflow-hidden mb-4 flex-shrink-0 aspect-square`} style={{ minWidth: photoSize === 'large' ? '10rem' : photoSize === 'medium' ? '8rem' : '6rem', minHeight: photoSize === 'large' ? '10rem' : photoSize === 'medium' ? '8rem' : '6rem' }}>
-                            {person.profile_photo_url ? (
-                              <img
-                                src={person.profile_photo_url}
-                                alt={`${person.first_name} ${person.last_name}`}
-                                className="w-full h-full object-cover"
-                                style={{ borderRadius: '50%' }}
-                              />
-                            ) : (
-                              <User className={`${photoSize === 'large' ? 'w-20 h-20' : photoSize === 'medium' ? 'w-16 h-16' : 'w-12 h-12'} text-slate-400`} />
-                            )}
-                          </div>
+                          {showPhoto && (
+                            <div className={`${sizeClasses[photoSize]} rounded-full bg-slate-100 flex items-center justify-center overflow-hidden mb-4 flex-shrink-0 aspect-square`} style={{ minWidth: photoSize === 'large' ? '10rem' : photoSize === 'medium' ? '8rem' : '6rem', minHeight: photoSize === 'large' ? '10rem' : photoSize === 'medium' ? '8rem' : '6rem' }}>
+                              {person.profile_photo_url ? (
+                                <LazyImage
+                                  src={person.profile_photo_url}
+                                  alt={`${person.first_name} ${person.last_name}`}
+                                  className="w-full h-full rounded-full"
+                                  style={{ borderRadius: '50%' }}
+                                  placeholderClassName="rounded-full"
+                                  fallback={<User className={`${photoSize === 'large' ? 'w-20 h-20' : photoSize === 'medium' ? 'w-16 h-16' : 'w-12 h-12'} text-slate-400`} />}
+                                />
+                              ) : (
+                                <User className={`${photoSize === 'large' ? 'w-20 h-20' : photoSize === 'medium' ? 'w-16 h-16' : 'w-12 h-12'} text-slate-400`} />
+                              )}
+                            </div>
+                          )}
                           <h4 className="text-lg font-bold text-slate-900 mb-1">
                             {person.first_name} {person.last_name}
                           </h4>
-                          {person.job_title && (
+                          {showJobTitle && person.job_title && (
                             <p className="text-sm text-slate-600">{person.job_title}</p>
+                          )}
+                          {showBioSnippet && person.biography && (
+                            <p className="text-sm text-slate-600 mt-2 line-clamp-3">{person.biography}</p>
                           )}
                           {(person.secondary_organisation || person.secondary_job_title) && (
                             <>

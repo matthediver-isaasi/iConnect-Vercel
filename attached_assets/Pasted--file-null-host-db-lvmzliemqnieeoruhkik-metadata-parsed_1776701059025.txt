@@ -1,0 +1,39 @@
+[
+  {
+    "file": null,
+    "host": "db-lvmzliemqnieeoruhkik",
+    "metadata": [],
+    "parsed": [
+      {
+        "application_name": "postgrest",
+        "backend_type": "client backend",
+        "command_tag": "PARSE",
+        "connection_from": "::1:25841",
+        "context": null,
+        "database_name": "postgres",
+        "detail": null,
+        "error_severity": "ERROR",
+        "hint": null,
+        "internal_query": null,
+        "internal_query_pos": null,
+        "leader_pid": null,
+        "location": null,
+        "process_id": 9587,
+        "query": "WITH pgrst_source AS ( SELECT \"public\".\"article_brief_activity\".*, row_to_json(\"article_brief_activity_performed_by_member_1\".*)::jsonb AS \"performed_by_member\" FROM \"public\".\"article_brief_activity\" LEFT JOIN LATERAL ( SELECT \"member_1\".\"id\", \"member_1\".\"first_name\", \"member_1\".\"last_name\", \"member_1\".\"email\", \"member_1\".\"profile_image\" FROM \"public\".\"member\" AS \"member_1\" WHERE \"member_1\".\"id\" = \"public\".\"article_brief_activity\".\"performed_by\"   LIMIT $1 OFFSET $2 ) AS \"article_brief_activity_performed_by_member_1\" ON TRUE WHERE  \"public\".\"article_brief_activity\".\"article_brief_id\" = $3 AND  \"public\".\"article_brief_activity\".\"tenant_id\" = $4  ORDER BY \"public\".\"article_brief_activity\".\"created_at\" ASC  LIMIT $5 OFFSET $6 )  SELECT null::bigint AS total_result_set, pg_catalog.count(_postgrest_t) AS page_total, coalesce(json_agg(_postgrest_t), '[]') AS body, nullif(current_setting('response.headers', true), '') AS response_headers, nullif(current_setting('response.status', true), '') AS response_status, '' AS response_inserted FROM ( SELECT * FROM pgrst_source ) _postgrest_t",
+        "query_id": 0,
+        "query_pos": 314,
+        "session_id": "69e64c0b.2573",
+        "session_line_num": 4,
+        "session_start_time": "2026-04-20 15:53:47 UTC",
+        "sql_state_code": "42703",
+        "timestamp": "2026-04-20 16:02:23.379 UTC",
+        "transaction_id": 0,
+        "user_name": "authenticator",
+        "virtual_transaction_id": "57/3604"
+      }
+    ],
+    "parsed_from": null,
+    "project": null,
+    "source_type": null
+  }
+]

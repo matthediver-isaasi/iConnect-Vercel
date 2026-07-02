@@ -1,0 +1,229 @@
+<div style="padding-top: 32px; padding-bottom: 90px;"><div class="max-w-7xl mx-auto px-4"><div class="hero-ra   overflow-hidden"><style>
+    .hero-ra .hero-container {
+      
+      
+    }
+    
+    .hero-ra .hero-content {
+      box-sizing: border-box;
+      width: 100%;
+      padding-left: 750px;
+      padding-right: 30px;
+      padding-top: 80px;
+      padding-bottom: 60px;
+    }
+    
+    .hero-ra .hero-heading {
+      font-family: Poppins;
+      font-size: 16px;
+      
+      line-height: 1.2;
+      letter-spacing: 5px;
+      color: #ffffff;
+      text-align: left;
+    }
+    
+    .hero-ra .hero-underline {
+      width: 15px;
+      margin-left: 0; margin-right: auto;
+    }
+    
+    .hero-ra .hero-subheading {
+      font-family: Degular Medium;
+      font-size: 50px;
+      
+      line-height: 1.1;
+      letter-spacing: 0px;
+      color: #ffffff;
+      text-align: left;
+    }
+    
+    .hero-ra .hero-content-text {
+      font-family: Poppins;
+      font-size: 16px;
+      
+      line-height: 1.6;
+      letter-spacing: 0px;
+      color: #ffffff;
+      margin-top: 24px;
+      text-align: left;
+    }
+    
+    .hero-ra .hero-content-text p,
+    .hero-ra .hero-content-text span,
+    .hero-ra .hero-content-text li,
+    .hero-ra .hero-content-text a,
+    .hero-ra .hero-content-text strong,
+    .hero-ra .hero-content-text em,
+    .hero-ra .hero-content-text u {
+      color: inherit !important;
+    }
+    
+    .hero-ra .hero-button-wrapper {
+      margin-top: 45px;
+      text-align: left;
+    }
+    
+    /* Desktop/Mobile background visibility */
+    .hero-ra .hero-bg-desktop {
+      display: block;
+    }
+    .hero-ra .hero-bg-mobile {
+      display: none;
+    }
+    
+    /* Mobile styles - triggered by media query OR .mobile-preview class */
+    @media (max-width: 767px) {
+      .hero-ra .hero-bg-desktop {
+        display: none;
+      }
+      .hero-ra .hero-bg-mobile {
+        display: block;
+      }
+    }
+    
+    /* Mobile preview class override */
+    .hero-ra.mobile-preview .hero-bg-desktop {
+      display: none !important;
+    }
+    .hero-ra.mobile-preview .hero-bg-mobile {
+      display: block !important;
+    }
+    
+    @media (max-width: 767px) {
+      .hero-ra .hero-container {
+        
+        
+      }
+      
+      .hero-ra .hero-content {
+        box-sizing: border-box;
+        width: 100%;
+        padding-left: 750px;
+        padding-right: 30px;
+        padding-top: 40px;
+        padding-bottom: 40px;
+        color: #ffffff;
+      }
+      
+      .hero-ra .hero-heading {
+        font-size: 28px;
+        line-height: 1.2;
+        letter-spacing: 5px;
+        text-align: left;
+        color: #ffffff;
+      }
+      
+      .hero-ra .hero-underline {
+        width: 15px;
+        margin-left: 0; margin-right: auto;
+      }
+      
+      .hero-ra .hero-subheading {
+        font-size: 40px;
+        line-height: 1.1;
+        text-align: left;
+        color: #ffffff;
+      }
+      
+      .hero-ra .hero-content-text {
+        font-size: 14px;
+        line-height: 1.6;
+        text-align: left;
+        color: #ffffff;
+      }
+      
+      .hero-ra .hero-content-text p,
+      .hero-ra .hero-content-text span,
+      .hero-ra .hero-content-text li,
+      .hero-ra .hero-content-text a,
+      .hero-ra .hero-content-text strong,
+      .hero-ra .hero-content-text em,
+      .hero-ra .hero-content-text u {
+        color: inherit !important;
+      }
+      
+      .hero-ra .hero-button-wrapper {
+        margin-top: 34px;
+        text-align: left;
+      }
+    }
+    
+    /* Mobile preview class - applies all mobile styles */
+    .hero-ra.mobile-preview .hero-container {
+      
+      
+    }
+    
+    .hero-ra.mobile-preview .hero-content {
+      box-sizing: border-box;
+      width: 100%;
+      padding-left: 750px;
+      padding-right: 30px;
+      padding-top: 40px;
+      padding-bottom: 40px;
+      color: #ffffff;
+    }
+    
+    .hero-ra.mobile-preview .hero-heading {
+      font-size: 28px;
+      line-height: 1.2;
+      letter-spacing: 5px;
+      text-align: left;
+      color: #ffffff;
+    }
+    
+    .hero-ra.mobile-preview .hero-underline {
+      width: 15px;
+      margin-left: 0; margin-right: auto;
+    }
+    
+    .hero-ra.mobile-preview .hero-subheading {
+      font-size: 40px;
+      line-height: 1.1;
+      text-align: left;
+      color: #ffffff;
+    }
+    
+    .hero-ra.mobile-preview .hero-content-text {
+      font-size: 14px;
+      line-height: 1.6;
+      text-align: left;
+      color: #ffffff;
+    }
+    
+    .hero-ra.mobile-preview .hero-content-text p,
+    .hero-ra.mobile-preview .hero-content-text span,
+    .hero-ra.mobile-preview .hero-content-text li,
+    .hero-ra.mobile-preview .hero-content-text a,
+    .hero-ra.mobile-preview .hero-content-text strong,
+    .hero-ra.mobile-preview .hero-content-text em,
+    .hero-ra.mobile-preview .hero-content-text u {
+      color: inherit !important;
+    }
+    
+    .hero-ra.mobile-preview .hero-button-wrapper {
+      margin-top: 34px;
+      text-align: left;
+    }
+  </style><div style="display: grid; grid-template-columns: 1fr; grid-template-rows: 1fr; width: 100%; max-width: 100%; overflow: hidden;"><div class="hero-bg-desktop" style="grid-area: 1 / 1 / -1 / -1; position: relative;"><img src="https://zkvgzcruhniduuswbfyh.supabase.co/storage/v1/object/public/file-repository/uploads/1764345107849-pwk582r-membershipHero.png" alt="&lt;p&gt;LEARN &amp;amp; CONNECT&lt;/p&gt;" style="display: block; width: 100%; height: auto;"></div><div class="hero-bg-mobile" style="grid-area: 1 / 1 / -1 / -1; position: relative; height: 100%; overflow: hidden;"><img src="https://zkvgzcruhniduuswbfyh.supabase.co/storage/v1/object/public/file-repository/uploads/1767191040649-3oyunx1-employabilityAwards.png" alt="&lt;p&gt;LEARN &amp;amp; CONNECT&lt;/p&gt;" style="display: block; width: 100%; height: 100%; object-fit: contain; border: 3px solid red;"></div><div style="grid-area: 1 / 1 / -1 / -1; display: flex; flex-direction: column; justify-content: center; position: relative; z-index: 1;"><div class="hero-content max-w-7xl mx-auto w-full"><div><h1 class="hero-heading font-bold hero-rich-text-content" style="margin-bottom: 15px;"><p>LEARN &amp; CONNECT</p></h1><div class="hero-underline" style="height: 2px; background-color: rgb(255, 255, 255); margin-bottom: 40px;"></div></div><div class="hero-subheading opacity-90 hero-rich-text-content" style="margin-bottom: 24px;"><p><a href="/academic-employability-awards-2026" rel="noopener noreferrer">Academic Employability Awards 2026</a></p></div><div class="hero-button-wrapper" style="margin-bottom: 0px;"><a href="/academic-employability-awards-2026" class="inline-flex items-center justify-center gap-2 whitespace-nowrap px-6 py-3 text-sm font-bold transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed agcas-styled-button" style="background-color: transparent; color: rgb(255, 255, 255); border: 2px solid rgb(255, 255, 255); font-family: Poppins, sans-serif;"><style>
+        .agcas-button {
+          box-shadow: inset 0 0 0 2px black;
+        }
+        .agcas-button:hover:not(:disabled) {
+          background: linear-gradient(to right top, rgb(92, 0, 133), rgb(186, 0, 135), rgb(238, 0, 195), rgb(255, 66, 41), rgb(255, 176, 0));
+          box-shadow: none !important;
+        }
+        .agcas-button:disabled {
+          background: transparent;
+        }
+        .agcas-styled-button:hover:not(:disabled) {
+          background-color: var(--hover-bg);
+          color: var(--hover-text);
+        }
+        .agcas-gradient-hover-button:hover:not(:disabled) {
+          background: linear-gradient(to right top, rgb(92, 0, 133), rgb(186, 0, 135), rgb(238, 0, 195), rgb(255, 66, 41), rgb(255, 176, 0)) !important;
+          color: white !important;
+          border-color: transparent !important;
+        }
+      </style>Enter  now<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-up-right w-5 h-5 ml-0.5"><path d="M7 7h10v10"></path><path d="M7 17 17 7"></path></svg></a></div></div></div></div></div></div></div>

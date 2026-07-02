@@ -8,11 +8,6 @@ const notImplemented = (name) => () => {
     throw new Error(`Base44 function "${name}" is not implemented. Migrate this feature to Supabase/Vercel.`);
   };
   
-  export const zohoOAuthCallback = async (params) => {
-    // This is called via browser redirect, not directly from client
-    throw new Error("zohoOAuthCallback is handled via browser redirect to /api/functions/zohoOAuthCallback");
-  };
-  
   export const syncMemberFromCRM = async (params) => {
     const response = await fetch('/api/functions/syncMemberFromCRM', {
       method: 'POST',
@@ -31,14 +26,6 @@ const notImplemented = (name) => () => {
     return response.json();
   };
   
-  export const getZohoAuthUrl = async (params) => {
-    const response = await fetch('/api/functions/getZohoAuthUrl', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(params || {})
-    });
-    return response.json();
-  };
   export const validateMember = async (params) => {
     const response = await fetch('/api/functions/validateMember', {
       method: 'POST',
@@ -98,22 +85,6 @@ const notImplemented = (name) => () => {
   };
   export const verifyMagicLink = async (params) => {
     const response = await fetch('/api/functions/verifyMagicLink', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(params)
-    });
-    return response.json();
-  };
-  export const syncOrganizationContacts = async (params) => {
-    const response = await fetch('/api/functions/syncOrganizationContacts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(params)
-    });
-    return response.json();
-  };
-  export const zohoContactWebhook = async (params) => {
-    const response = await fetch('/api/functions/zohoContactWebhook', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(params)

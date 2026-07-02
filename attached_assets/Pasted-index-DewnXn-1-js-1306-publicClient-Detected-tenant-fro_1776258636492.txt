@@ -1,0 +1,83 @@
+index-DewnXn_1.js:1306 [publicClient] Detected tenant from subdomain: 60-years-of
+index-DewnXn_1.js:1391 GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.93.3) 2026-04-15T13:10:22.202Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+vC @ index-DewnXn_1.js:1391
+rze @ index-DewnXn_1.js:1392
+_initSupabaseAuthClient @ index-DewnXn_1.js:1392
+ize @ index-DewnXn_1.js:1392
+xfe @ index-DewnXn_1.js:1392
+(anonymous) @ index-DewnXn_1.js:2467
+index-DewnXn_1.js:1695 [usePendingPurchaseOrders] memberInfo: null
+index-DewnXn_1.js:1695 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DewnXn_1.js:1699 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DewnXn_1.js:1699 [Layout] currentPageName: HomePageRedirect currentPortalPageId: null
+index-DewnXn_1.js:1695 [usePendingPurchaseOrders] memberInfo: null
+index-DewnXn_1.js:1695 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DewnXn_1.js:1699 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DewnXn_1.js:1699 [Layout] currentPageName: HomePageRedirect currentPortalPageId: null
+index-DewnXn_1.js:1695 [usePendingPurchaseOrders] memberInfo: null
+index-DewnXn_1.js:1695 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DewnXn_1.js:1699 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DewnXn_1.js:1699 [Layout] currentPageName: HomePageRedirect currentPortalPageId: null
+index-DewnXn_1.js:1695 [usePendingPurchaseOrders] memberInfo: null
+index-DewnXn_1.js:1695 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DewnXn_1.js:1699 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DewnXn_1.js:1699 [Layout] currentPageName: HomePageRedirect currentPortalPageId: null
+index-DewnXn_1.js:1695 [usePendingPurchaseOrders] memberInfo: null
+index-DewnXn_1.js:1695 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DewnXn_1.js:1699 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DewnXn_1.js:1699 [Layout] currentPageName: HomePageRedirect currentPortalPageId: null
+index-DewnXn_1.js:1699 [Layout] render decision {forceBlankLayout: false, chromeReady: true, forcePublicLayout: false}
+index-DewnXn_1.js:1392 [useNavigationRealtime] Setting up realtime subscription for navigation_item table
+index-DewnXn_1.js:1306 [publicClient] Detected tenant from subdomain: 60-years-of
+index-DewnXn_1.js:1699 [Layout] Server returned null for /api/auth/me - member deleted or disabled
+index-DewnXn_1.js:1695 [usePendingPurchaseOrders] memberInfo: null
+index-DewnXn_1.js:1695 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DewnXn_1.js:1699 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DewnXn_1.js:1699 [Layout] currentPageName: HomePageRedirect currentPortalPageId: null
+index-DewnXn_1.js:1699 [Layout] render decision {forceBlankLayout: false, chromeReady: true, forcePublicLayout: false}
+index-DewnXn_1.js:1392 [useNavigationRealtime] Subscription status: SUBSCRIBED
+index-DewnXn_1.js:1695 [usePendingPurchaseOrders] memberInfo: null
+index-DewnXn_1.js:1695 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DewnXn_1.js:1699 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DewnXn_1.js:1699 [Layout] currentPageName: HomePageRedirect currentPortalPageId: null
+index-DewnXn_1.js:1699 [Layout] render decision {forceBlankLayout: false, chromeReady: true, forcePublicLayout: false}
+index-DewnXn_1.js:1743 [Events] Debug - accessibleEvents count: 0
+index-DewnXn_1.js:1743 [Events] Debug - searchQuery: 
+index-DewnXn_1.js:1743 [Events] Debug - showPastEvents: false
+index-DewnXn_1.js:1743 [Events] Debug - memberInfo exists: false
+index-DewnXn_1.js:1743 [Events] Debug - memberInfo source: none
+index-DewnXn_1.js:1743 [Events] Debug - filteredEvents count: 0
+index-DewnXn_1.js:1661 [PublicLayout] Fetching banners for page: HomePageRedirect portalPageId: null isCustomSlug: false urlSlug: Articles
+index-DewnXn_1.js:1661 [PublicLayout] All banners found: 1
+index-DewnXn_1.js:1661 [PublicLayout] pageToPortalPageMap keys: (26) ['Events', 'PublicEvents', 'Bookings', 'MyTickets', 'BuyProgramTickets', 'MemberDirectory', 'OrganisationDirectory', 'Resources', 'PublicResources', 'Articles', 'PublicArticles', 'Team', 'Balances', 'History', 'Profile', 'MyOrganisation', 'JobBoard', 'PublicJobBoard', 'News', 'PublicNews', 'NewsView', 'MyJobPostings', 'Preferences', 'about-me', 'Support', 'Dashboard']
+index-DewnXn_1.js:1661 [PublicLayout] Matched banners: 0
+index-DewnXn_1.js:1743 [Events] Debug - accessibleEvents count: 0
+index-DewnXn_1.js:1743 [Events] Debug - searchQuery: 
+index-DewnXn_1.js:1743 [Events] Debug - showPastEvents: false
+index-DewnXn_1.js:1743 [Events] Debug - memberInfo exists: false
+index-DewnXn_1.js:1743 [Events] Debug - memberInfo source: none
+index-DewnXn_1.js:1743 [Events] Debug - filteredEvents count: 0
+index-DewnXn_1.js:1743 [Events] Debug - accessibleEvents count: 0
+index-DewnXn_1.js:1743 [Events] Debug - searchQuery: 
+index-DewnXn_1.js:1743 [Events] Debug - showPastEvents: false
+index-DewnXn_1.js:1743 [Events] Debug - memberInfo exists: false
+index-DewnXn_1.js:1743 [Events] Debug - memberInfo source: none
+index-DewnXn_1.js:1743 [Events] Debug - filteredEvents count: 0
+index-DewnXn_1.js:1743 [Events] Debug - accessibleEvents count: 0
+index-DewnXn_1.js:1743 [Events] Debug - searchQuery: 
+index-DewnXn_1.js:1743 [Events] Debug - showPastEvents: false
+index-DewnXn_1.js:1743 [Events] Debug - memberInfo exists: false
+index-DewnXn_1.js:1743 [Events] Debug - memberInfo source: none
+index-DewnXn_1.js:1743 [Events] Debug - filteredEvents count: 0
+index-DewnXn_1.js:1743 [Events] Debug - accessibleEvents count: 0
+index-DewnXn_1.js:1743 [Events] Debug - searchQuery: 
+index-DewnXn_1.js:1743 [Events] Debug - showPastEvents: false
+index-DewnXn_1.js:1743 [Events] Debug - memberInfo exists: false
+index-DewnXn_1.js:1743 [Events] Debug - memberInfo source: none
+index-DewnXn_1.js:1743 [Events] Debug - filteredEvents count: 0
+index-DewnXn_1.js:1743 [Events] Debug - accessibleEvents count: 0
+index-DewnXn_1.js:1743 [Events] Debug - searchQuery: 
+index-DewnXn_1.js:1743 [Events] Debug - showPastEvents: false
+index-DewnXn_1.js:1743 [Events] Debug - memberInfo exists: false
+index-DewnXn_1.js:1743 [Events] Debug - memberInfo source: none
+index-DewnXn_1.js:1743 [Events] Debug - filteredEvents count: 0

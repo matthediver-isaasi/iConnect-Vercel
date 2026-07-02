@@ -1,10 +1,13 @@
 import { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileQuestion } from "lucide-react";
-import ArticleFilter from "../components/blog/ArticleFilter";
+import { PaginationPageButton } from "@/components/ui/PaginationPageButton";
+import { Input } from "@/components/ui/input";
+import { FileQuestion, Search, X, Filter, User, Plus, ArrowLeft } from "lucide-react";
+import { Link } from "react-router-dom";
 import NewsCard from "../components/news/NewsCard";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SlidersHorizontal, ChevronLeft, ChevronRight } from "lucide-react";
@@ -12,9 +15,12 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { createPageUrl } from "@/utils";
 import { toast } from "sonner";
+import { useLayoutContext } from "@/contexts/LayoutContext";
+import { useNewsPostsData } from "@/hooks/useNewsPostData";
 
 export default function NewsPage() {
-  const { memberInfo, isFeatureExcluded, isAdmin } = useMemberAccess();
+  const { hasBanner } = useLayoutContext();
+  const { memberInfo, isFeatureExcluded } = useMemberAccess();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSubcategories, setSelectedSubcategories] = useState([]);
   const [sortBy, setSortBy] = useState("newest");
@@ -23,41 +29,89 @@ export default function NewsPage() {
   const [preferencesLoaded, setPreferencesLoaded] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [newsToDelete, setNewsToDelete] = useState(null);
+  const [showMyNewsOnly, setShowMyNewsOnly] = useState(false);
+  const [statusFilter, setStatusFilter] = useState("all"); // 'all', 'published', 'draft'
 
   const queryClient = useQueryClient();
 
-  const canEditNews = isAdmin && !isFeatureExcluded('action_news_edit');
-  const canDeleteNews = isAdmin && !isFeatureExcluded('action_news_delete');
+  // Edit/delete permissions based on role access control
+  // Edit also requires access to the news-editor page
+  const hasAdminEditPermission = !isFeatureExcluded('content.news.edit') && !isFeatureExcluded('content.news-editor');
+  const hasAdminDeletePermission = !isFeatureExcluded('content.news.delete');
 
   // Fetch current user's preferences
   const { data: currentMember } = useQuery({
     queryKey: ['current-member', memberInfo?.email],
     queryFn: async () => {
-      const allMembers = await base44.entities.Member.list();
-      return allMembers.find(m => m.email === memberInfo?.email);
+      const members = await base44.entities.Member.filter({ email: memberInfo?.email });
+      return members[0] || null;
     },
-    enabled: !!memberInfo
+    enabled: !!memberInfo?.email
   });
 
-  // Fetch published news
-  const { data: news = [], isLoading: newsLoading } = useQuery({
-    queryKey: ['published-news'],
+  // Fetch news display settings - use authenticated API for members, public API for visitors
+  const { data: displaySettings } = useQuery({
+    queryKey: ['news-display-settings', !!memberInfo],
+    queryFn: async () => {
+      let allSettings;
+      if (memberInfo) {
+        allSettings = await base44.entities.SystemSettings.list();
+      } else {
+        allSettings = await publicClient.listSystemSettings();
+      }
+      const cardsPerRowSetting = allSettings.find(s => s.setting_key === 'news_cards_per_row');
+      const showImageSetting = allSettings.find(s => s.setting_key === 'news_show_image');
+      const showAuthorSetting = allSettings.find(s => s.setting_key === 'news_show_author');
+      
+      return {
+        cardsPerRow: parseInt(cardsPerRowSetting?.setting_value) || 3,
+        showImage: showImageSetting?.setting_value !== 'false',
+        showAuthor: showAuthorSetting?.setting_value !== 'false'
+      };
+    },
+  });
+
+  const cardsPerRow = displaySettings?.cardsPerRow || 3;
+  const showImage = displaySettings?.showImage ?? true;
+  const showAuthor = displaySettings?.showAuthor ?? true;
+
+  // Fetch published news (for general view) - uses hybrid hook for public/authenticated routing
+  const { data: rawPublishedNews = [], isLoading: publishedNewsLoading } = useNewsPostsData();
+  
+  // Filter to published news with valid dates (public API already filters, but authenticated may return all)
+  const publishedNews = useMemo(() => {
+    const now = new Date();
+    return rawPublishedNews.filter(n => 
+      n.status === 'published' && 
+      (!n.published_date || new Date(n.published_date) <= now)
+    );
+  }, [rawPublishedNews]);
+
+  // Fetch user's own news (including drafts) for "My News" view
+  const { data: myNews = [], isLoading: myNewsLoading } = useQuery({
+    queryKey: ['my-news', currentMember?.id],
     queryFn: async () => {
       const allNews = await base44.entities.NewsPost.list('-published_date');
-      const now = new Date();
-      return allNews.filter(n => 
-        n.status === 'published' && 
-        (!n.published_date || new Date(n.published_date) <= now)
-      );
+      return allNews.filter(n => n.author_id === currentMember?.id);
     },
-    staleTime: 0, // Always fetch fresh content for news feed
+    enabled: !!currentMember?.id && showMyNewsOnly,
+    staleTime: 0,
   });
 
-  // Fetch categories
+  // Use appropriate news list based on view mode
+  const news = showMyNewsOnly ? myNews : publishedNews;
+  const newsLoading = showMyNewsOnly ? myNewsLoading : publishedNewsLoading;
+
+  // Fetch categories - use authenticated API for members, public API for visitors
   const { data: categories = [], isLoading: categoriesLoading } = useQuery({
-    queryKey: ['resourceCategories'],
+    queryKey: ['resourceCategories', !!memberInfo],
     queryFn: async () => {
-      const cats = await base44.entities.ResourceCategory.list();
+      let cats;
+      if (memberInfo) {
+        cats = await base44.entities.ResourceCategory.list();
+      } else {
+        cats = await publicClient.getResourceCategories();
+      }
       return cats
         .filter(c => c.is_active && c.applies_to_content_types?.includes("News"))
         .sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
@@ -65,15 +119,14 @@ export default function NewsPage() {
     refetchOnWindowFocus: true
   });
 
-  // Fetch button styles
-  const { data: buttonStyles = [] } = useQuery({
-    queryKey: ['article-button-styles'],
-    queryFn: async () => {
-      const allStyles = await base44.entities.ButtonStyle.list();
-      return allStyles.filter(s => s.is_active && s.card_type === 'article');
-    },
-    refetchOnWindowFocus: true
-  });
+  // Get all subcategories from categories
+  const allSubcategories = useMemo(() => {
+    const subs = new Set();
+    categories.forEach(cat => {
+      cat.subcategories?.forEach(sub => subs.add(sub));
+    });
+    return Array.from(subs).sort();
+  }, [categories]);
 
   // Load saved preferences
   useEffect(() => {
@@ -112,7 +165,8 @@ export default function NewsPage() {
       await base44.entities.NewsPost.delete(newsId);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['published-news'] });
+      queryClient.invalidateQueries({ queryKey: ['news-posts'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['my-news'] });
       setDeleteDialogOpen(false);
       setNewsToDelete(null);
       toast.success('News article deleted successfully');
@@ -147,9 +201,12 @@ export default function NewsPage() {
       const matchesSubcategory = selectedSubcategories.length === 0 || 
         (item.subcategories && item.subcategories.some(sub => selectedSubcategories.includes(sub)));
       
-      return matchesSearch && matchesSubcategory;
+      // Status filter only applies in "My News" view
+      const matchesStatus = !showMyNewsOnly || statusFilter === 'all' || item.status === statusFilter;
+      
+      return matchesSearch && matchesSubcategory && matchesStatus;
     });
-  }, [news, searchQuery, selectedSubcategories]);
+  }, [news, searchQuery, selectedSubcategories, showMyNewsOnly, statusFilter]);
 
   // Sort news
   const sortedNews = useMemo(() => {
@@ -226,7 +283,14 @@ export default function NewsPage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, selectedSubcategories, sortBy, itemsPerPage]);
+  }, [searchQuery, selectedSubcategories, sortBy, itemsPerPage, showMyNewsOnly, statusFilter]);
+
+  // Reset status filter when leaving "My News" view
+  useEffect(() => {
+    if (!showMyNewsOnly) {
+      setStatusFilter('all');
+    }
+  }, [showMyNewsOnly]);
 
   const hasUnsavedChanges = useMemo(() => {
     if (!currentMember?.news_filter_preferences) return false;
@@ -242,158 +306,295 @@ export default function NewsPage() {
     });
   }, [currentMember, selectedSubcategories, sortBy, itemsPerPage]);
 
+  // Generate grid class based on cardsPerRow setting
+  const getGridClass = () => {
+    switch (cardsPerRow) {
+      case 2:
+        return "grid md:grid-cols-2 gap-6";
+      case 4:
+        return "grid md:grid-cols-2 xl:grid-cols-4 gap-6";
+      case 3:
+      default:
+        return "grid md:grid-cols-2 xl:grid-cols-3 gap-6";
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
-        <div className="mb-8">
-          <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">News</h1>
-          <p className="text-slate-600">Stay updated with our latest news</p>
+        {/* Header - hidden when custom banner is present */}
+        {!hasBanner && (
+          <div className="mb-8">
+            <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">News</h1>
+            <p className="text-slate-600">Stay updated with our latest news</p>
+          </div>
+        )}
+
+        {/* My News header */}
+        {showMyNewsOnly && (
+          <>
+            <button
+              onClick={() => setShowMyNewsOnly(false)}
+              className="inline-flex items-center gap-2 text-slate-600 hover:text-slate-900 mb-4"
+              data-testid="button-back-to-all-news"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Back to All News
+            </button>
+            <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <h2 className="text-lg font-semibold text-blue-900 flex items-center gap-2">
+                <User className="w-5 h-5" />
+                My News Articles
+              </h2>
+              <p className="text-sm text-blue-700 mt-1">Viewing your authored articles including drafts</p>
+            </div>
+          </>
+        )}
+
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6">
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <Input
+                  placeholder="Search news..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9 pr-9"
+                  data-testid="input-search-news"
+                />
+                {searchQuery && (
+                  <button 
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    data-testid="button-clear-search"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+              
+              <div className="flex items-center gap-2 flex-wrap">
+                {memberInfo && hasAdminEditPermission && (
+                  <Button
+                    variant={showMyNewsOnly ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setShowMyNewsOnly(!showMyNewsOnly)}
+                    className="gap-2"
+                    data-testid="button-my-news-filter"
+                  >
+                    <User className="w-4 h-4" />
+                    My News
+                  </Button>
+                )}
+                
+                {showMyNewsOnly && (
+                  <Select value={statusFilter} onValueChange={setStatusFilter}>
+                    <SelectTrigger className="w-[130px] h-9" data-testid="select-status-filter">
+                      <SelectValue placeholder="Status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Status</SelectItem>
+                      <SelectItem value="published">Published</SelectItem>
+                      <SelectItem value="draft">Draft</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+                
+                {showMyNewsOnly && hasAdminEditPermission && (
+                  <Link to={createPageUrl('NewsEditor')}>
+                    <Button
+                      size="sm"
+                      className="gap-2 bg-blue-600 hover:bg-blue-700"
+                      data-testid="button-add-news"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Add News
+                    </Button>
+                  </Link>
+                )}
+                
+                {hasUnsavedChanges && (
+                  <Button
+                    onClick={handleSavePreferences}
+                    disabled={savePreferencesMutation.isPending}
+                    className="bg-blue-600 hover:bg-blue-700"
+                    size="sm"
+                    data-testid="button-save-preferences"
+                  >
+                    {savePreferencesMutation.isPending ? 'Saving...' : 'Save as Default'}
+                  </Button>
+                )}
+              </div>
+            </div>
+
+          </div>
         </div>
 
-        <div className="flex flex-col lg:flex-row gap-8">
-          <div className="lg:w-64 flex-shrink-0">
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 sticky top-8">
-              <ArticleFilter
-                categories={categories}
-                selectedSubcategories={selectedSubcategories}
-                onSubcategoryToggle={handleSubcategoryToggle}
-                searchQuery={searchQuery}
-                onSearchChange={setSearchQuery}
-                onClearSearch={() => setSearchQuery("")}
-              />
-              
-              {hasUnsavedChanges && (
+        {isLoading ? (
+          <div className={getGridClass()}>
+            {Array(6).fill(0).map((_, i) => (
+              <Card key={i} className="animate-pulse border-slate-200">
+                <div className="h-48 bg-slate-200" />
+                <div className="p-6">
+                  <div className="h-6 bg-slate-200 rounded w-3/4 mb-2" />
+                  <div className="h-4 bg-slate-200 rounded w-full" />
+                </div>
+              </Card>
+            ))}
+          </div>
+        ) : paginatedNews.length === 0 ? (
+          <Card className="border-slate-200 shadow-sm">
+            <CardContent className="p-12 text-center">
+              <FileQuestion className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+              <h3 className="text-xl font-semibold text-slate-900 mb-2">
+                {showMyNewsOnly ? 'No news found' : searchQuery || selectedSubcategories.length > 0 ? 'No news found' : 'No news available'}
+              </h3>
+              <p className="text-slate-600">
+                {showMyNewsOnly
+                  ? "You haven't authored any news articles yet"
+                  : searchQuery || selectedSubcategories.length > 0
+                    ? 'Try adjusting your search or filters'
+                    : 'Check back soon for updates'}
+              </p>
+              {showMyNewsOnly && (
                 <Button
-                  onClick={handleSavePreferences}
-                  disabled={savePreferencesMutation.isPending}
-                  className="w-full mt-4 bg-blue-600 hover:bg-blue-700"
+                  variant="outline"
                   size="sm"
+                  onClick={() => setShowMyNewsOnly(false)}
+                  className="mt-4"
+                  data-testid="button-show-all-news"
                 >
-                  {savePreferencesMutation.isPending ? 'Saving...' : 'Save as Default'}
+                  Show all news
                 </Button>
               )}
-            </div>
-          </div>
-
-          <div className="flex-1">
-            {isLoading ? (
-              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {Array(6).fill(0).map((_, i) => (
-                  <Card key={i} className="animate-pulse border-slate-200">
-                    <div className="h-48 bg-slate-200" />
-                    <div className="p-6">
-                      <div className="h-6 bg-slate-200 rounded w-3/4 mb-2" />
-                      <div className="h-4 bg-slate-200 rounded w-full" />
-                    </div>
-                  </Card>
-                ))}
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 gap-3">
+              <div className="text-sm text-slate-600">
+                Showing {startIndex + 1}-{Math.min(endIndex, sortedNews.length)} of {sortedNews.length} {sortedNews.length === 1 ? 'article' : 'articles'}
               </div>
-            ) : paginatedNews.length === 0 ? (
-              <Card className="border-slate-200 shadow-sm">
-                <CardContent className="p-12 text-center">
-                  <FileQuestion className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-                  <h3 className="text-xl font-semibold text-slate-900 mb-2">
-                    {searchQuery || selectedSubcategories.length > 0 ? 'No news found' : 'No news available'}
-                  </h3>
-                  <p className="text-slate-600">
-                    {searchQuery || selectedSubcategories.length > 0
-                      ? 'Try adjusting your search or filters'
-                      : 'Check back soon for updates'}
-                  </p>
-                </CardContent>
-              </Card>
-            ) : (
-              <>
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 gap-3">
-                  <div className="text-sm text-slate-600">
-                    Showing {startIndex + 1}-{Math.min(endIndex, sortedNews.length)} of {sortedNews.length} {sortedNews.length === 1 ? 'article' : 'articles'}
-                  </div>
-                  
-                  <div className="flex gap-2">
-                    <Select value={String(itemsPerPage)} onValueChange={(val) => setItemsPerPage(Number(val))}>
-                      <SelectTrigger className="w-32">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="6">6 per page</SelectItem>
-                        <SelectItem value="12">12 per page</SelectItem>
-                        <SelectItem value="24">24 per page</SelectItem>
-                        <SelectItem value="48">48 per page</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    
-                    <Select value={sortBy} onValueChange={setSortBy}>
-                      <SelectTrigger className="w-48">
-                        <SlidersHorizontal className="w-4 h-4 mr-2" />
-                        <SelectValue placeholder="Sort By" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="newest">Newest First</SelectItem>
-                        <SelectItem value="oldest">Oldest First</SelectItem>
-                        <SelectItem value="title-asc">Title A-Z</SelectItem>
-                        <SelectItem value="title-desc">Title Z-A</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                
-                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {paginatedNews.map(item => (
-                    <NewsCard 
-                      key={item.id} 
-                      article={item} 
-                      buttonStyles={buttonStyles}
-                      canEdit={canEditNews}
-                      canDelete={canDeleteNews}
-                      onEdit={handleEditNews}
-                      onDelete={handleDeleteNews}
-                    />
-                  ))}
-                </div>
-
-                {totalPages > 1 && (
-                  <div className="mt-8 flex justify-center">
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                        disabled={currentPage === 1}
-                      >
-                        <ChevronLeft className="w-4 h-4" />
-                      </Button>
-                      
-                      {getPageNumbers().map((page, idx) => (
-                        page === '...' ? (
-                          <span key={`ellipsis-${idx}`} className="px-2 text-slate-400">...</span>
-                        ) : (
-                          <Button
-                            key={page}
-                            variant={currentPage === page ? "default" : "outline"}
-                            size="sm"
-                            onClick={() => setCurrentPage(page)}
-                            className="min-w-[40px]"
-                          >
-                            {page}
-                          </Button>
-                        )
+              
+              <div className="flex flex-wrap gap-2">
+                {allSubcategories.length > 0 && (
+                  <Select 
+                    value={selectedSubcategories.length === 1 ? selectedSubcategories[0] : selectedSubcategories.length > 1 ? "multiple" : "all"} 
+                    onValueChange={(val) => {
+                      if (val === "all") {
+                        setSelectedSubcategories([]);
+                      } else if (val !== "multiple") {
+                        setSelectedSubcategories([val]);
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="w-44" data-testid="select-category-filter">
+                      <Filter className="w-4 h-4 mr-2" />
+                      <span className="truncate">
+                        {selectedSubcategories.length === 0 
+                          ? "All Types" 
+                          : selectedSubcategories.length === 1 
+                            ? selectedSubcategories[0]
+                            : `${selectedSubcategories.length} selected`}
+                      </span>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Types</SelectItem>
+                      {allSubcategories.map((sub) => (
+                        <SelectItem key={sub} value={sub}>{sub}</SelectItem>
                       ))}
-                      
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                        disabled={currentPage === totalPages}
-                      >
-                        <ChevronRight className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
+                    </SelectContent>
+                  </Select>
                 )}
-              </>
+                
+                <Select value={String(itemsPerPage)} onValueChange={(val) => setItemsPerPage(Number(val))}>
+                  <SelectTrigger className="w-32" data-testid="select-items-per-page">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="6">6 per page</SelectItem>
+                    <SelectItem value="12">12 per page</SelectItem>
+                    <SelectItem value="24">24 per page</SelectItem>
+                    <SelectItem value="48">48 per page</SelectItem>
+                  </SelectContent>
+                </Select>
+                
+                <Select value={sortBy} onValueChange={setSortBy}>
+                  <SelectTrigger className="w-48" data-testid="select-sort-by">
+                    <SlidersHorizontal className="w-4 h-4 mr-2" />
+                    <SelectValue placeholder="Sort By" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="newest">Newest First</SelectItem>
+                    <SelectItem value="oldest">Oldest First</SelectItem>
+                    <SelectItem value="title-asc">Title A-Z</SelectItem>
+                    <SelectItem value="title-desc">Title Z-A</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            
+            <div className={getGridClass()}>
+              {paginatedNews.map(item => (
+                <NewsCard 
+                  key={item.id} 
+                  article={item} 
+                  hasAdminEditPermission={memberInfo ? hasAdminEditPermission : false}
+                  hasAdminDeletePermission={memberInfo ? hasAdminDeletePermission : false}
+                  currentMemberId={currentMember?.id}
+                  onEdit={handleEditNews}
+                  onDelete={handleDeleteNews}
+                  showImage={showImage}
+                  showAuthor={showAuthor}
+                  showDraftBadge={showMyNewsOnly}
+                />
+              ))}
+            </div>
+
+            {totalPages > 1 && (
+              <div className="mt-8 flex justify-center">
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                    disabled={currentPage === 1}
+                    data-testid="button-prev-page"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </Button>
+                  
+                  {getPageNumbers().map((page, idx) => (
+                    page === '...' ? (
+                      <span key={`ellipsis-${idx}`} className="px-2 text-slate-400">...</span>
+                    ) : (
+                      <PaginationPageButton
+                        key={page}
+                        active={currentPage === page}
+                        onClick={() => setCurrentPage(page)}
+                        className="min-w-[40px]"
+                        data-testid={`button-page-${page}`}
+                      >
+                        {page}
+                      </PaginationPageButton>
+                    )
+                  ))}
+                  
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                    disabled={currentPage === totalPages}
+                    data-testid="button-next-page"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
             )}
-          </div>
-        </div>
+          </>
+        )}
       </div>
 
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

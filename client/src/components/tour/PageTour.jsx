@@ -18,35 +18,20 @@ export default function PageTour({ tourGroupName, viewId, onComplete, onDismissP
   const [mandatoryElementMissing, setMandatoryElementMissing] = useState(false);
   const [mandatoryCheckComplete, setMandatoryCheckComplete] = useState(false); // New state to track when mandatory check is done
 
-  console.log('[PageTour] Render - tourGroupName:', tourGroupName, 'viewId:', viewId, 'autoShow:', autoShow);
-  console.log('[PageTour] State - isActive:', isActive, 'showPopup:', showPopup, 'currentStep:', currentStep);
-
   // Fetch tour group and steps from database
   const { data: tourGroup } = useQuery({
     queryKey: ['tourGroup', tourGroupName, viewId],
     queryFn: async () => {
-      const allGroups = await base44.entities.TourGroup.list();
-      console.log('[PageTour] All tour groups from DB:', allGroups);
-      console.log('[PageTour] Looking for - page_name:', tourGroupName, 'viewId:', viewId);
+      const allGroups = await base44.entities.TourGroup.list() || [];
       
       const found = allGroups.find(g => {
         const pageNameMatch = g.page_name === tourGroupName;
         const viewIdMatch = viewId ? g.view_id === viewId : !g.view_id;
         const isActiveMatch = g.is_active === true;
         
-        console.log('[PageTour] Checking group:', g.id, {
-          page_name: g.page_name,
-          view_id: g.view_id,
-          is_active: g.is_active,
-          pageNameMatch,
-          viewIdMatch,
-          isActiveMatch
-        });
-        
         return pageNameMatch && viewIdMatch && isActiveMatch;
       });
       
-      console.log('[PageTour] Found tour group:', found);
       return found;
     },
     enabled: !!tourGroupName
@@ -56,15 +41,12 @@ export default function PageTour({ tourGroupName, viewId, onComplete, onDismissP
     queryKey: ['tourSteps', tourGroup?.id],
     queryFn: async () => {
       if (!tourGroup?.id) {
-        console.log('[PageTour] No tour group ID, returning empty steps');
         return [];
       }
-      const allSteps = await base44.entities.TourStep.list();
-      console.log('[PageTour] All steps from DB:', allSteps);
+      const allSteps = await base44.entities.TourStep.list() || [];
       const filteredSteps = allSteps
         .filter(s => s.tour_group_id === tourGroup.id)
         .sort((a, b) => a.step_order - b.step_order);
-      console.log('[PageTour] Filtered steps for group', tourGroup.id, ':', filteredSteps);
       return filteredSteps;
     },
     enabled: !!tourGroup?.id,
@@ -72,39 +54,32 @@ export default function PageTour({ tourGroupName, viewId, onComplete, onDismissP
     refetchOnMount: true,
   });
 
-  console.log('[PageTour] Data - tourGroup:', tourGroup?.id, 'steps:', steps.length);
-
   // Allow external trigger to show tour with mandatory selector validation
   useEffect(() => {
-    console.log('[PageTour] autoShow useEffect triggered - autoShow:', autoShow, 'steps.length:', steps.length);
     if (autoShow && steps.length > 0 && tourGroup) {
       // Add a delay to ensure page has rendered
       const checkTimeout = setTimeout(() => {
         // Check for mandatory selector before activating
         if (tourGroup.mandatory_selector) {
-          console.log('[PageTour] Checking for mandatory selector:', tourGroup.mandatory_selector);
           const mandatoryElement = document.querySelector(tourGroup.mandatory_selector);
           
           if (!mandatoryElement) {
-            console.log('[PageTour] Mandatory element not found, showing error popup');
             setMandatoryElementMissing(true);
-            setMandatoryCheckComplete(true); // Mark check as complete
+            setMandatoryCheckComplete(true);
             setIsActive(true);
             setShowPopup(true);
             setIsPopupVisible(true);
             return;
           }
-          console.log('[PageTour] Mandatory element found, proceeding with tour');
         }
         
         // If mandatory selector check passes (or no mandatory selector), activate tour
-        console.log('[PageTour] Setting isActive and showPopup to true');
         setMandatoryElementMissing(false);
-        setMandatoryCheckComplete(true); // Mark check as complete
+        setMandatoryCheckComplete(true);
         setIsActive(true);
         setShowPopup(true);
         setCurrentStep(0);
-      }, 500); // 500ms delay to allow page rendering
+      }, 500);
       
       return () => clearTimeout(checkTimeout);
     }
@@ -330,14 +305,9 @@ export default function PageTour({ tourGroupName, viewId, onComplete, onDismissP
     }
   };
 
-  console.log('[PageTour] Return condition check - isActive:', isActive, 'showPopup:', showPopup, 'mandatoryCheckComplete:', mandatoryCheckComplete, 'mandatoryElementMissing:', mandatoryElementMissing, 'currentStep:', currentStep, 'steps.length:', steps.length);
-  
   if (!isActive || !showPopup || !mandatoryCheckComplete || (!mandatoryElementMissing && (currentStep >= steps.length || steps.length === 0))) {
-    console.log('[PageTour] Returning null - not showing tour');
     return null;
   }
-
-  console.log('[PageTour] Rendering tour UI');
 
   // If mandatory element is missing, show error popup
   if (mandatoryElementMissing) {

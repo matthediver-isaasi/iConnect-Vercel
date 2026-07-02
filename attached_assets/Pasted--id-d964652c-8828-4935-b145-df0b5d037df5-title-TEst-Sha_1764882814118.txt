@@ -1,0 +1,82 @@
+{
+        "id": "d964652c-8828-4935-b145-df0b5d037df5",
+        "title": "TEst Sharon",
+        "description": "testing a new event",
+        "program_tag": "",
+        "start_date": "2025-12-03T10:52:00+00:00",
+        "end_date": "2025-12-03T13:48:00+00:00",
+        "location": "London",
+        "ticket_price": null,
+        "available_seats": null,
+        "backstage_event_id": null,
+        "backstage_ticket_type_id": null,
+        "backstage_public_url": null,
+        "image_url": null,
+        "last_synced": null,
+        "base44_id": null,
+        "zoom_webinar_id": null,
+        "pricing_config": {
+            "offer_type": "bogo",
+            "ticket_price": 100,
+            "ticket_classes": [
+                {
+                    "id": "ticket-1764751662046-4meui",
+                    "name": "University memebr",
+                    "price": 100,
+                    "role_ids": [
+                        "5be10af3-cfd9-4e25-80c9-886e804314da"
+                    ],
+                    "is_public": false,
+                    "is_default": true,
+                    "offer_type": "bogo",
+                    "bogo_logic_type": "buy_x_get_y_free",
+                    "bogo_buy_quantity": 1,
+                    "bogo_get_free_quantity": 1
+                },
+                {
+                    "id": "ticket-1764751767854-hat00",
+                    "name": "Non member",
+                    "price": 150,
+                    "role_ids": [],
+                    "is_public": true,
+                    "is_default": false,
+                    "offer_type": "none"
+                },
+                {
+                    "id": "ticket-1764751977157-qoa3e",
+                    "name": "Partner",
+                    "price": 120,
+                    "role_ids": [
+                        "c733a692-4406-4c83-b844-f01ab7871df2"
+                    ],
+                    "is_public": false,
+                    "is_default": false,
+                    "offer_type": "none"
+                },
+                {
+                    "id": "ticket-1764751989521-kibs3",
+                    "name": "Freelance Partner",
+                    "price": 110,
+                    "role_ids": [
+                        "39ed3e82-cf1b-4764-a059-42ba71bdf4b3"
+                    ],
+                    "is_public": false,
+                    "is_default": false,
+                    "offer_type": "none"
+                },
+                {
+                    "id": "ticket-1764751990554-oo7mn",
+                    "name": "Alumni Community",
+                    "price": 140,
+                    "role_ids": [
+                        "1c897ab7-bd4d-48ec-a432-bd5d50631dcd"
+                    ],
+                    "is_public": false,
+                    "is_default": false,
+                    "offer_type": "none"
+                }
+            ]
+        },
+        "internal_reference": null,
+        "speaker_ids": []
+    },

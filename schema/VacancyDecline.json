@@ -1,0 +1,38 @@
+{
+  "name": "VacancyDecline",
+  "type": "object",
+  "properties": {
+    "member_group_id": {
+      "type": "string",
+      "description": "Reference to the MemberGroup this decline belongs to"
+    },
+    "vacancy_id": {
+      "type": "string",
+      "description": "Reference to the Vacancy whose application/submission was declined"
+    },
+    "declined_member_id": {
+      "type": "string",
+      "description": "Reference to the Member who was declined, if resolvable"
+    },
+    "source_type": {
+      "type": "string",
+      "enum": [
+        "submission",
+        "application"
+      ],
+      "description": "Where the declined applicant came from: a form 'submission' or a legacy express-interest 'application'"
+    },
+    "source_id": {
+      "type": "string",
+      "description": "Id of the originating form_submission or vacancy_application row"
+    },
+    "declined_by_member_id": {
+      "type": "string",
+      "description": "Reference to the Member (group admin) who declined the application (forced to the current member server-side)"
+    }
+  },
+  "required": [
+    "member_group_id",
+    "vacancy_id"
+  ]
+}

@@ -26,6 +26,36 @@
       "notes": {
         "type": "string",
         "description": "Optional notes about this assignment"
+      },
+      "is_group_admin": {
+        "type": "boolean",
+        "description": "Whether this person is explicitly designated as a group admin for the group"
+      },
+      "term_length_value": {
+        "type": "number",
+        "description": "Snapshot of the role's term length value at award/invite-accept time (e.g. 3). Fixed — not affected by later role edits."
+      },
+      "term_length_unit": {
+        "type": "string",
+        "description": "Snapshot of the role's term length unit at award/invite-accept time ('months' or 'years')."
+      },
+      "max_terms": {
+        "type": "number",
+        "description": "Snapshot of the role's maximum number of terms at award/invite-accept time."
+      },
+      "term_start_date": {
+        "type": "string",
+        "format": "date",
+        "description": "When this term began (award/invite-accept date). Tracked separately from expires_at."
+      },
+      "term_end_date": {
+        "type": "string",
+        "format": "date",
+        "description": "Projected end date for this term (term_start_date + term length). Display-only; not enforced."
+      },
+      "term_number": {
+        "type": "number",
+        "description": "Which term the member is currently serving for this role in this group (e.g. 1 means 'Term 1 of max_terms')."
       }
     },
     "required": [

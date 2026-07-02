@@ -1,0 +1,235 @@
+import { getSessionMember } from '../_lib/session.js';
+import { supabase } from '../_lib/database.js';
+
+export default async function handler(req, res) {
+  if (!supabase) {
+    return res.status(503).json({ error: 'Supabase not configured' });
+  }
+
+  const member = await getSessionMember(req);
+  const memberId = member?.id;
+
+  if (!memberId) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  try {
+    if (req.method === 'GET') {
+      const { data: follows, error } = await supabase
+        .from('article_follow')
+        .select('*')
+        .eq('follower_member_id', memberId);
+
+      if (error) {
+        console.error('Error fetching follows:', error);
+        return res.status(500).json({ error: error.message });
+      }
+
+      const followsWithUnread = await Promise.all(
+        (follows || []).map(async (follow) => {
+          let unreadCount = 0;
+          
+          // Use last_read_at if available, otherwise use created_at as the baseline
+          const compareDate = follow.last_read_at || follow.created_at;
+          const nowIso = new Date().toISOString();
+          
+          // Task #1225: also count posts the followed person CO-authored, not
+          // just the ones where they are the primary author. Gather the
+          // co-authored post ids from the join table first.
+          let coAuthoredIds = [];
+          {
+            let linkQuery = supabase.from('blog_post_author').select('blog_post_id');
+            if (follow.followed_member_id) {
+              linkQuery = linkQuery.eq('author_id', follow.followed_member_id);
+            } else if (follow.followed_guest_writer_id) {
+              linkQuery = linkQuery.eq('guest_writer_id', follow.followed_guest_writer_id);
+            }
+            const { data: links } = await linkQuery;
+            coAuthoredIds = [...new Set((links || []).map((l) => l.blog_post_id).filter(Boolean))];
+          }
+
+          let query = supabase
+            .from('blog_post')
+            .select('id', { count: 'exact', head: true })
+            .eq('status', 'published')
+            .lte('published_date', nowIso); // Only count articles that have gone live
+
+          if (compareDate) {
+            query = query.gt('published_date', compareDate);
+          }
+
+          if (follow.followed_member_id) {
+            if (coAuthoredIds.length > 0) {
+              query = query.or(`author_id.eq.${follow.followed_member_id},id.in.(${coAuthoredIds.join(',')})`);
+            } else {
+              query = query.eq('author_id', follow.followed_member_id);
+            }
+          } else if (follow.followed_guest_writer_id) {
+            if (coAuthoredIds.length > 0) {
+              query = query.or(`guest_writer_id.eq.${follow.followed_guest_writer_id},id.in.(${coAuthoredIds.join(',')})`);
+            } else {
+              query = query.eq('guest_writer_id', follow.followed_guest_writer_id);
+            }
+          }
+
+          const { count } = await query;
+          unreadCount = count || 0;
+
+          let authorName = 'Unknown Author';
+          let authorHandle = null;
+          let authorProfilePhoto = null;
+          let debugInfo = null;
+          
+          let authorOrganization = null;
+          
+          if (follow.followed_member_id) {
+            const { data: member, error: memberError } = await supabase
+              .from('member')
+              .select('first_name, last_name, handle, organization_id, profile_photo_url')
+              .eq('id', follow.followed_member_id)
+              .single();
+            
+            console.log('[article-follows] Member lookup result:', { 
+              followed_member_id: follow.followed_member_id, 
+              member, 
+              memberError 
+            });
+            
+            if (member && !memberError) {
+              authorName = `${member.first_name || ''} ${member.last_name || ''}`.trim() || 'Unknown Author';
+              authorHandle = member.handle;
+              authorProfilePhoto = member.profile_photo_url;
+              
+              // Fetch organization if member has one
+              if (member.organization_id) {
+                const { data: org } = await supabase
+                  .from('organization')
+                  .select('name')
+                  .eq('id', member.organization_id)
+                  .single();
+                
+                if (org) {
+                  authorOrganization = org.name;
+                }
+              }
+            } else {
+              debugInfo = { 
+                lookup_failed: true, 
+                followed_member_id: follow.followed_member_id,
+                error: memberError?.message || 'No member found'
+              };
+            }
+          } else if (follow.followed_guest_writer_id) {
+            const { data: guestWriter, error: gwError } = await supabase
+              .from('guest_writer')
+              .select('full_name, handle, organization, profile_photo_url')
+              .eq('id', follow.followed_guest_writer_id)
+              .single();
+            
+            if (guestWriter && !gwError) {
+              authorName = guestWriter.full_name || 'Unknown Author';
+              authorHandle = guestWriter.handle;
+              authorOrganization = guestWriter.organization;
+              authorProfilePhoto = guestWriter.profile_photo_url;
+            } else {
+              debugInfo = { 
+                lookup_failed: true, 
+                followed_guest_writer_id: follow.followed_guest_writer_id,
+                error: gwError?.message || 'No guest writer found'
+              };
+            }
+          }
+
+          return {
+            ...follow,
+            unread_count: unreadCount,
+            author_name: authorName,
+            author_handle: authorHandle,
+            author_organization: authorOrganization,
+            author_profile_photo: authorProfilePhoto,
+            _debug: debugInfo
+          };
+        })
+      );
+
+      return res.json(followsWithUnread);
+    } else if (req.method === 'POST') {
+      const { followed_member_id, followed_guest_writer_id } = req.body;
+
+      if (!followed_member_id && !followed_guest_writer_id) {
+        return res.status(400).json({ error: 'Author ID required' });
+      }
+
+      if (followed_member_id && followed_guest_writer_id) {
+        return res.status(400).json({ error: 'Cannot specify both member and guest writer' });
+      }
+
+      if (followed_member_id && followed_member_id === memberId) {
+        return res.status(400).json({ error: 'Cannot follow yourself' });
+      }
+
+      if (followed_member_id) {
+        const { data: member, error: memberError } = await supabase
+          .from('member')
+          .select('id')
+          .eq('id', followed_member_id)
+          .single();
+        
+        if (memberError || !member) {
+          return res.status(404).json({ error: 'Author not found' });
+        }
+      } else if (followed_guest_writer_id) {
+        const { data: guestWriter, error: gwError } = await supabase
+          .from('guest_writer')
+          .select('id')
+          .eq('id', followed_guest_writer_id)
+          .single();
+        
+        if (gwError || !guestWriter) {
+          return res.status(404).json({ error: 'Guest writer not found' });
+        }
+      }
+
+      let checkQuery = supabase
+        .from('article_follow')
+        .select('id')
+        .eq('follower_member_id', memberId);
+
+      if (followed_member_id) {
+        checkQuery = checkQuery.eq('followed_member_id', followed_member_id);
+      } else {
+        checkQuery = checkQuery.eq('followed_guest_writer_id', followed_guest_writer_id);
+      }
+
+      const { data: existingFollow } = await checkQuery.single();
+
+      if (existingFollow) {
+        return res.status(400).json({ error: 'Already following this author' });
+      }
+
+      const { data, error } = await supabase
+        .from('article_follow')
+        .insert({
+          follower_member_id: memberId,
+          followed_member_id: followed_member_id || null,
+          followed_guest_writer_id: followed_guest_writer_id || null,
+          created_at: new Date().toISOString(),
+          last_read_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error creating follow:', error);
+        return res.status(500).json({ error: error.message });
+      }
+
+      return res.status(201).json(data);
+    }
+
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (error) {
+    console.error('Article follows error:', error);
+    return res.status(500).json({ error: 'Failed to process request' });
+  }
+}

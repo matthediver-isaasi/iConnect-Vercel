@@ -1,0 +1,68 @@
+{
+  "name": "Tenant",
+  "type": "object",
+  "description": "SaaS tenant (subscribing company) - the top level of multi-tenancy",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Tenant company name"
+    },
+    "slug": {
+      "type": "string",
+      "description": "URL-friendly identifier, used for subdomain or path routing"
+    },
+    "domain": {
+      "type": "string",
+      "description": "Custom domain for white-label branding"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["active", "suspended", "cancelled", "trial"],
+      "default": "active",
+      "description": "Tenant account status"
+    },
+    "logo_url": {
+      "type": "string",
+      "description": "URL to tenant's logo for portal branding"
+    },
+    "favicon_url": {
+      "type": "string",
+      "description": "URL to tenant's favicon"
+    },
+    "primary_color": {
+      "type": "string",
+      "description": "Primary brand color (hex code)"
+    },
+    "subscription_plan": {
+      "type": "string",
+      "enum": ["free", "starter", "professional", "enterprise"],
+      "default": "free",
+      "description": "SaaS pricing tier"
+    },
+    "subscription_status": {
+      "type": "string",
+      "enum": ["active", "past_due", "cancelled", "trialing"],
+      "default": "active",
+      "description": "Billing subscription status"
+    },
+    "stripe_customer_id": {
+      "type": "string",
+      "description": "Stripe Customer ID for billing"
+    },
+    "stripe_subscription_id": {
+      "type": "string",
+      "description": "Stripe Subscription ID"
+    },
+    "billing_email": {
+      "type": "string",
+      "format": "email",
+      "description": "Email for billing notifications"
+    },
+    "settings": {
+      "type": "object",
+      "default": {},
+      "description": "Tenant-specific configuration and feature flags"
+    }
+  },
+  "required": ["name"]
+}

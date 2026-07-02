@@ -1,4 +1,4 @@
-import { type Server } from "node:http";
+import { type Server, createServer } from "node:http";
 
 import express, {
   type Express,
@@ -7,7 +7,7 @@ import express, {
   NextFunction,
 } from "express";
 
-import { registerRoutes } from "./routes";
+import { registerVercelApiRoutes } from "./vercel-api-adapter";
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -33,6 +33,21 @@ app.use(express.json({
   }
 }));
 app.use(express.urlencoded({ extended: false }));
+
+// Allow iframe embedding for /embed/* routes (form embedding feature)
+app.use('/embed', (req, res, next) => {
+  res.setHeader('X-Frame-Options', 'ALLOWALL');
+  res.removeHeader('X-Frame-Options');
+  res.setHeader('Content-Security-Policy', "frame-ancestors *");
+  next();
+});
+
+// Allow iframe embedding for secure storage URLs (document preview feature)
+app.use('/api/storage/secure-url', (req, res, next) => {
+  res.removeHeader('X-Frame-Options');
+  res.setHeader('Content-Security-Policy', "frame-ancestors 'self'");
+  next();
+});
 
 app.use((req, res, next) => {
   const start = Date.now();
@@ -67,7 +82,10 @@ app.use((req, res, next) => {
 export default async function runApp(
   setup: (app: Express, server: Server) => Promise<void>,
 ) {
-  const server = await registerRoutes(app);
+  // Route /api/* requests to the Vercel serverless functions in /api/
+  registerVercelApiRoutes(app);
+
+  const server = createServer(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

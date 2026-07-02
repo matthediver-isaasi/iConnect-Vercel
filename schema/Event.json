@@ -30,6 +30,10 @@
       "available_seats": {
         "type": "number"
       },
+      "is_unlimited_registration": {
+        "type": "boolean",
+        "description": "If true, event has no seat limit (open registration). If false/null, use available_seats to track capacity."
+      },
       "backstage_event_id": {
         "type": "string",
         "description": "Zoho Backstage Event ID"
@@ -45,10 +49,74 @@
       "image_url": {
         "type": "string"
       },
+      "image_focal_point": {
+        "type": "object",
+        "description": "Focal point coordinates for the event image (percentages). Used for smart cropping.",
+        "properties": {
+          "x": {
+            "type": "number",
+            "description": "Horizontal focal point percentage (0-100)"
+          },
+          "y": {
+            "type": "number", 
+            "description": "Vertical focal point percentage (0-100)"
+          }
+        }
+      },
       "last_synced": {
         "type": "string",
         "format": "date-time",
         "description": "Last sync from Backstage"
+      },
+      "show_ticket_availability": {
+        "type": "boolean",
+        "description": "If true, show ticket class availability counts to users on the event details page"
+      },
+      "slug": {
+        "type": "string",
+        "description": "URL-friendly slug for the event. Must be unique per tenant. Used for friendly URLs like /events/my-event-name"
+      },
+      "is_featured": {
+        "type": "boolean",
+        "description": "If true, event is featured and displayed prominently at the top of event listings"
+      },
+      "xero_account_code": {
+        "type": "string",
+        "description": "Optional Xero nominal ledger / account code for this event. Overrides the system default xero_sales_account_code when generating invoices."
+      },
+      "attached_documents": {
+        "type": "array",
+        "description": "Public documents (programmes, agendas, info packs) rendered on the event page. PDFs open in an in-page viewer; other files open in a new tab.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "label": { "type": "string" },
+            "url": { "type": "string" },
+            "file_name": { "type": "string" },
+            "mime_type": { "type": "string" },
+            "size": { "type": "number" }
+          }
+        }
+      },
+      "documents_section_title": {
+        "type": "string",
+        "description": "Heading shown above the documents list on the public event page (e.g. \"Programmes\"). Falls back to \"Documents\" when blank."
+      },
+      "dietary_options": {
+        "type": "array",
+        "description": "Admin-defined Dietary Requirement options registrants can choose from per attendee. Empty/absent = group hidden.",
+        "items": { "type": "string" }
+      },
+      "allergy_options": {
+        "type": "array",
+        "description": "Admin-defined Allergy options (a subsection of Dietary). Registrants multi-select, each with a Mild/Moderate/Severe severity. Empty/absent = group hidden.",
+        "items": { "type": "string" }
+      },
+      "accessibility_options": {
+        "type": "array",
+        "description": "Admin-defined Accessibility Need options registrants can choose from per attendee. Empty/absent = group hidden.",
+        "items": { "type": "string" }
       }
     },
     "required": [

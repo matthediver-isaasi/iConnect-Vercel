@@ -1,0 +1,248 @@
+2025-12-29 16:55:40.497 [info] [AppProcessor] Entity pipelines - members: 1 organisations: 0
+2025-12-29 16:55:40.497 [info] [AppProcessor] Form values - all field IDs present: [
+  'field_1765017571083',
+  'field_1765017795175',
+  'field_1765017805976',
+  'field_1765017830408',
+  'field_1765019805833',
+  'field_1765693757142',
+  'field_1765695007112',
+  'field_1765789870269'
+]
+2025-12-29 16:55:40.498 [info] [AppProcessor] Form values sample (first 5 entries): [
+  'field_1765017571083="e291af8c-ed8f-42d3-b5e4-57d3dcdb2b85"',
+  'field_1765017795175="mha"',
+  'field_1765017805976="mhb"',
+  'field_1765017830408="mat.the.diver@googlemail.com"',
+  'field_1765019805833=true'
+]
+2025-12-29 16:55:40.498 [info] [AppProcessor] Entity actions - member: upsert organization: none
+2025-12-29 16:55:40.498 [info] [AppProcessor] Received role_id: c94cdcfd-d0f0-497a-ab5e-c742baacf049 type: string
+2025-12-29 16:55:40.852 [info] [AppProcessor] Entity pipeline fields to skip in legacy field_mappings - member: [
+  'organization_id',
+  'first_name',
+  'last_name',
+  'job_title',
+  'mobile',
+  'landline',
+  'email'
+] org: []
+2025-12-29 16:55:40.852 [info] [AppProcessor] Using field_mappings: 16 mappings
+2025-12-29 16:55:40.852 [info] [AppProcessor] Skipping legacy field_mappings for member field (entity_pipelines takes precedence): organization_id
+2025-12-29 16:55:40.852 [info] [AppProcessor] Skipping legacy field_mappings for member field (entity_pipelines takes precedence): first_name
+2025-12-29 16:55:40.852 [info] [AppProcessor] Skipping legacy field_mappings for member field (entity_pipelines takes precedence): last_name
+2025-12-29 16:55:40.852 [info] [AppProcessor] Skipping legacy field_mappings for member field (entity_pipelines takes precedence): job_title
+2025-12-29 16:55:40.852 [info] [AppProcessor] Skipping legacy field_mappings for member field (entity_pipelines takes precedence): mobile
+2025-12-29 16:55:40.852 [info] [AppProcessor] Skipping legacy field_mappings for member field (entity_pipelines takes precedence): landline
+2025-12-29 16:55:40.852 [info] [AppProcessor] Skipping legacy field_mappings for member field (entity_pipelines takes precedence): email
+2025-12-29 16:55:40.853 [info] [AppProcessor] Processing member from entity_pipelines (new format): Primary Member mappings: 16
+2025-12-29 16:55:40.853 [info] [AppProcessor] Primary Member mappings detail: [
+  {
+    "id": "mapping_1765698609076",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "organization_id",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765017571083"
+  },
+  {
+    "id": "mapping_1765698628803",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "first_name",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765017795175"
+  },
+  {
+    "id": "mapping_1765698635192",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "last_name",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765017805976"
+  },
+  {
+    "id": "mapping_1765698640002",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "job_title",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765693757142"
+  },
+  {
+    "id": "mapping_1765698659453",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "5879bf12-cd56-4a73-9ae4-0c27d82bd33a",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765695120692"
+  },
+  {
+    "id": "mapping_1765698706287",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "a608bc1e-9252-4590-9798-4f39d8ec7485",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765697695619"
+  },
+  {
+    "id": "mapping_1765698732323",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "mobile",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765017838015"
+  },
+  {
+    "id": "mapping_1765698740104",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "landline",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765698117811"
+  },
+  {
+    "id": "mapping_1765698951458",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "6d2fd088-8995-44ef-a955-c21c8b390544",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765017850874"
+  },
+  {
+    "id": "mapping_1765708287619",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "d40255e9-13df-42a9-9cb2-b26452d692ad",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765695184695"
+  },
+  {
+    "id": "mapping_1765708309394",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "email",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765017830408"
+  },
+  {
+    "id": "mapping_1765708327445",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "6d2fd088-8995-44ef-a955-c21c8b390544",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765017850874"
+  },
+  {
+    "id": "mapping_1765708340306",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "2bab42f4-4320-4c1c-82bc-b8f67828427e",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765698252552"
+  },
+  {
+    "id": "mapping_1765708361783",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "af7b8e88-b173-41f9-936b-a46d7b9cd9ab",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765699346757"
+  },
+  {
+    "id": "mapping_1765708384879",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "537d2cff-f8c8-41e4-a69e-2523495bb9a7",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765019805833"
+  },
+  {
+    "id": "mapping_1765708406828",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "c333eefa-d206-4ddf-820e-ae25413c3acb",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765019845410"
+  }
+]
+2025-12-29 16:55:40.853 [info] [AppProcessor] Form values for Primary Member:
+2025-12-29 16:55:40.853 [info] - organization_id: form_values["field_1765017571083"] = "e291af8c-ed8f-42d3-b5e4-57d3dcdb2b85"
+2025-12-29 16:55:40.853 [info] - first_name: form_values["field_1765017795175"] = "mha"
+2025-12-29 16:55:40.853 [info] - last_name: form_values["field_1765017805976"] = "mhb"
+2025-12-29 16:55:40.853 [info] - job_title: form_values["field_1765693757142"] = "jo "
+2025-12-29 16:55:40.853 [info] - 5879bf12-cd56-4a73-9ae4-0c27d82bd33a: form_values["field_1765695120692"] = "undefined"
+2025-12-29 16:55:40.853 [info] - a608bc1e-9252-4590-9798-4f39d8ec7485: form_values["field_1765697695619"] = "undefined"
+2025-12-29 16:55:40.854 [info] - mobile: form_values["field_1765017838015"] = "undefined"
+2025-12-29 16:55:40.854 [info] - landline: form_values["field_1765698117811"] = "undefined"
+2025-12-29 16:55:40.854 [info] - 6d2fd088-8995-44ef-a955-c21c8b390544: form_values["field_1765017850874"] = "undefined"
+2025-12-29 16:55:40.854 [info] - d40255e9-13df-42a9-9cb2-b26452d692ad: form_values["field_1765695184695"] = "undefined"
+2025-12-29 16:55:40.854 [info] - email: form_values["field_1765017830408"] = "mat.the.diver@googlemail.com"
+2025-12-29 16:55:40.854 [info] - 6d2fd088-8995-44ef-a955-c21c8b390544: form_values["field_1765017850874"] = "undefined"
+2025-12-29 16:55:40.854 [info] - 2bab42f4-4320-4c1c-82bc-b8f67828427e: form_values["field_1765698252552"] = "undefined"
+2025-12-29 16:55:40.854 [info] - af7b8e88-b173-41f9-936b-a46d7b9cd9ab: form_values["field_1765699346757"] = "undefined"
+2025-12-29 16:55:40.854 [info] - 537d2cff-f8c8-41e4-a69e-2523495bb9a7: form_values["field_1765019805833"] = "true"
+2025-12-29 16:55:40.854 [info] - c333eefa-d206-4ddf-820e-ae25413c3acb: form_values["field_1765019845410"] = "undefined"
+2025-12-29 16:55:40.854 [info] [AppProcessor] Using pipeline role_id: 561682bb-57f2-4a61-89aa-c3c201692923
+2025-12-29 16:55:40.854 [info] [AppProcessor] Extracted data: {
+  memberData: {
+    organization_id: 'e291af8c-ed8f-42d3-b5e4-57d3dcdb2b85',
+    first_name: 'mha',
+    last_name: 'mhb',
+    job_title: 'jo ',
+    email: 'mat.the.diver@googlemail.com',
+    role_id: '561682bb-57f2-4a61-89aa-c3c201692923',
+    login_enabled: true
+  },
+  orgData: {},
+  memberCustomFields: 1,
+  orgCustomFields: 0,
+  orgCustomFieldsDetail: []
+}
+2025-12-29 16:55:40.855 [info] [AppProcessor] Member processing enabled. Action: upsert MemberData: {
+  organization_id: 'e291af8c-ed8f-42d3-b5e4-57d3dcdb2b85',
+  first_name: 'mha',
+  last_name: 'mhb',
+  job_title: 'jo ',
+  email: 'mat.the.diver@googlemail.com',
+  role_id: '561682bb-57f2-4a61-89aa-c3c201692923',
+  login_enabled: true
+} PrefillMemberId: undefined
+2025-12-29 16:55:40.997 [info] [AppProcessor] Found member by email: f621afb0-6819-4519-96a0-dbe50227f66c
+2025-12-29 16:55:40.997 [info] [AppProcessor] Adding pipeline role_id to member update: 561682bb-57f2-4a61-89aa-c3c201692923
+2025-12-29 16:55:40.997 [info] [AppProcessor] Adding pipeline login_enabled to member update: true
+2025-12-29 16:55:41.124 [info] [AppProcessor] Updated member: f621afb0-6819-4519-96a0-dbe50227f66c
+2025-12-29 16:55:41.397 [info] [AppProcessor] Tracking primary member email: mat.the.diver@googlemail.com -> f621afb0-6819-4519-96a0-dbe50227f66c
+2025-12-29 16:55:41.397 [info] [AppProcessor] Using entity_pipelines.members: 0 non-primary entries

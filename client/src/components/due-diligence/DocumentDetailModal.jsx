@@ -1,0 +1,835 @@
+import { useState, useCallback, useEffect, useRef } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { 
+  FileText, Image, FileSpreadsheet, File, Check, X, Clock, 
+  Upload, Download, Send, Loader2, ChevronDown, ChevronUp, ExternalLink,
+  MessageSquare, History, Copy, Globe, RotateCcw
+} from "lucide-react";
+import { toast } from "sonner";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
+import { format } from 'date-fns';
+import { uploadFileWithProgress } from "@/lib/uploadFile";
+
+async function apiRequest(method, url, body = null) {
+  const options = { method, credentials: 'include', headers: {} };
+  if (body) {
+    options.headers['Content-Type'] = 'application/json';
+    options.body = JSON.stringify(body);
+  }
+  const response = await fetch(url, options);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(error.error || 'Request failed');
+  }
+  return response.json();
+}
+
+const STATUS_CONFIG = {
+  pending: { label: 'Pending', color: '#f59e0b', bgColor: '#fef3c7', icon: Clock },
+  approved: { label: 'Approved', color: '#22c55e', bgColor: '#dcfce7', icon: Check },
+  rejected: { label: 'Rejected', color: '#ef4444', bgColor: '#fee2e2', icon: X }
+};
+
+function getFileIcon(mimeType) {
+  if (!mimeType) return File;
+  if (mimeType.startsWith('image/')) return Image;
+  if (mimeType === 'application/pdf') return FileText;
+  if (mimeType.includes('spreadsheet') || mimeType.includes('excel') || mimeType.includes('csv')) return FileSpreadsheet;
+  return File;
+}
+
+function canPreview(mimeType) {
+  if (!mimeType) return false;
+  return mimeType.startsWith('image/') || mimeType === 'application/pdf';
+}
+
+const PUBLIC_BUCKET = 'public-assets';
+
+function isPublicBucketUrl(fileUrl) {
+  if (!fileUrl || typeof fileUrl !== 'string') return false;
+  if (fileUrl.startsWith('/api/storage/secure-url')) {
+    try {
+      const qs = fileUrl.split('?')[1];
+      if (!qs) return false;
+      const params = new URLSearchParams(qs);
+      return params.get('bucket') === PUBLIC_BUCKET;
+    } catch {
+      return false;
+    }
+  }
+  if (fileUrl.startsWith('http')) {
+    try {
+      const u = new URL(fileUrl);
+      return /\/storage\/v1\/object\/public\/public-assets\//.test(u.pathname);
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+function getEmbeddableUrl(fileUrl) {
+  if (!fileUrl) return fileUrl;
+  
+  // If it's a secure-url endpoint, ensure redirect=true is present for iframe embedding
+  if (fileUrl.includes('/api/storage/secure-url')) {
+    if (!fileUrl.includes('redirect=true')) {
+      const separator = fileUrl.includes('?') ? '&' : '?';
+      return `${fileUrl}${separator}redirect=true`;
+    }
+  }
+  return fileUrl;
+}
+
+function FilePreview({ fileUrl, mimeType, fileName, fixedHeight }) {
+  const embeddableUrl = getEmbeddableUrl(fileUrl);
+  
+  if (!fileUrl) {
+    return (
+      <div className="flex items-center justify-center h-64 bg-muted rounded-lg">
+        <p className="text-muted-foreground">No preview available</p>
+      </div>
+    );
+  }
+
+  if (mimeType?.startsWith('image/')) {
+    return (
+      <div className="flex items-center justify-center bg-muted rounded-lg p-4" style={{ height: fixedHeight || 'calc(100% - 100px)', minHeight: '400px' }}>
+        <img 
+          src={embeddableUrl} 
+          alt={fileName} 
+          className="max-h-full max-w-full object-contain rounded"
+        />
+      </div>
+    );
+  }
+
+  if (mimeType === 'application/pdf') {
+    return (
+      <div className="w-full rounded-lg overflow-hidden relative" style={{ height: fixedHeight || 'calc(100% - 100px)', minHeight: '400px' }}>
+        <iframe 
+          src={embeddableUrl} 
+          className="absolute inset-0 w-full h-full border-0"
+          title={fileName}
+        />
+      </div>
+    );
+  }
+
+  const FileIcon = getFileIcon(mimeType);
+  return (
+    <div className="flex flex-col items-center justify-center h-64 bg-muted rounded-lg gap-4">
+      <FileIcon className="w-16 h-16 text-muted-foreground" />
+      <p className="text-muted-foreground text-sm">Preview not available for this file type</p>
+      <Button variant="outline" size="sm" asChild>
+        <a href={fileUrl} target="_blank" rel="noopener noreferrer">
+          <ExternalLink className="w-4 h-4 mr-2" />
+          Open in new tab
+        </a>
+      </Button>
+    </div>
+  );
+}
+
+function VersionItem({ version, isSelected, onSelect, showPreview = false, onApprove, onUnapprove, onReject, updatingVersionId, updatingAction, hasApprovedVersion, onAddComment, isAddingComment }) {
+  const statusConfig = STATUS_CONFIG[version.status] || STATUS_CONFIG.pending;
+  const StatusIcon = statusConfig.icon;
+  const [expanded, setExpanded] = useState(showPreview);
+  const [commentText, setCommentText] = useState('');
+
+  const isApproved = version.status === 'approved';
+  const isRejected = version.status === 'rejected';
+  
+  // Check if this specific version is being updated
+  const isThisVersionUpdating = updatingVersionId === version.id;
+  const isApproving = isThisVersionUpdating && updatingAction === 'approve';
+  const isUnapproving = isThisVersionUpdating && updatingAction === 'unapprove';
+  const isRejecting = isThisVersionUpdating && updatingAction === 'reject';
+  const isAnyUpdating = !!updatingVersionId;
+
+  const handleAddComment = () => {
+    if (commentText.trim() && onAddComment) {
+      onAddComment(version.id, commentText);
+      setCommentText('');
+    }
+  };
+
+  return (
+    <div 
+      className={`border rounded-lg p-3 ${isSelected ? 'ring-2 ring-primary' : ''}`}
+      data-testid={`version-item-${version.id}`}
+    >
+      <div 
+        className="flex items-center justify-between cursor-pointer"
+        onClick={() => onSelect(version)}
+      >
+        <div className="flex items-center gap-3">
+          <div className="text-sm font-medium">v{version.version}</div>
+          <Badge 
+            variant="outline" 
+            className="text-xs"
+            style={{ borderColor: statusConfig.color, color: statusConfig.color }}
+          >
+            <StatusIcon className="w-3 h-3 mr-1" />
+            {statusConfig.label}
+          </Badge>
+        </div>
+        <div className="flex items-center gap-2">
+          {isApproved ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={(e) => { e.stopPropagation(); onUnapprove(version); }}
+              disabled={isAnyUpdating}
+              className="h-7 px-2"
+              data-testid={`button-unapprove-version-${version.id}`}
+            >
+              {isUnapproving ? (
+                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+              ) : (
+                <RotateCcw className="w-3 h-3 mr-1" />
+              )}
+              {isUnapproving ? 'Unapproving...' : 'Unapprove'}
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={(e) => { e.stopPropagation(); onApprove(version); }}
+              disabled={isAnyUpdating}
+              className="h-7 px-2"
+              data-testid={`button-approve-version-${version.id}`}
+            >
+              {isApproving ? (
+                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+              ) : (
+                <Check className="w-3 h-3 mr-1" />
+              )}
+              {isApproving ? 'Approving...' : 'Approve'}
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 px-2"
+            asChild
+            onClick={(e) => e.stopPropagation()}
+            data-testid={`button-download-version-${version.id}`}
+          >
+            <a href={version.file_url} target="_blank" rel="noopener noreferrer" download>
+              <Download className="w-3 h-3 mr-1" />
+              Download
+            </a>
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            {version.created_at ? format(new Date(version.created_at), 'MMM d, yyyy') : '--'}
+          </span>
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className="h-6 w-6"
+            onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
+          >
+            {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </Button>
+        </div>
+      </div>
+      
+      {expanded && (
+        <div className="mt-3 pt-3 border-t space-y-3">
+          <FilePreview 
+            fileUrl={version.file_url} 
+            mimeType={version.mime_type} 
+            fileName={version.file_name}
+            fixedHeight="400px"
+          />
+          
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+              <MessageSquare className="w-3 h-3" />
+              Comments ({version.comments?.length || 0})
+            </p>
+            {version.comments && version.comments.length > 0 ? (
+              <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                {version.comments.map(comment => (
+                  <div key={comment.id} className="bg-muted p-2 rounded text-sm">
+                    <p>{comment.comment}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {comment.author_name} - {format(new Date(comment.created_at), 'MMM d, yyyy h:mm a')}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">No comments yet</p>
+            )}
+            <div className="flex gap-2 mt-2">
+              <Textarea 
+                placeholder="Add a comment..."
+                value={commentText}
+                onChange={(e) => setCommentText(e.target.value)}
+                className="min-h-[60px] text-sm"
+                data-testid={`textarea-comment-${version.id}`}
+              />
+            </div>
+            <Button 
+              size="sm"
+              onClick={handleAddComment}
+              disabled={!commentText.trim() || isAddingComment}
+              data-testid={`button-add-comment-${version.id}`}
+            >
+              {isAddingComment ? (
+                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+              ) : (
+                <Send className="w-3 h-3 mr-1" />
+              )}
+              Add Comment
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function DocumentDetailModal({ 
+  isOpen, 
+  onClose, 
+  document, 
+  formSubmissionId,
+  onDocumentUpdated 
+}) {
+  const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState('preview');
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [selectedVersion, setSelectedVersion] = useState(null);
+  const [updatingVersionId, setUpdatingVersionId] = useState(null);
+  const [updatingAction, setUpdatingAction] = useState(null);
+
+  const { data: versionsData, isLoading: versionsLoading } = useQuery({
+    queryKey: ['document-versions', formSubmissionId, document?.field_name],
+    queryFn: async () => {
+      const result = await apiRequest(
+        'GET', 
+        `/api/due-diligence/documents/get-versions?formSubmissionId=${formSubmissionId}&fieldName=${encodeURIComponent(document.field_name)}`
+      );
+      return result.versions || [];
+    },
+    enabled: isOpen && !!formSubmissionId && !!document?.field_name
+  });
+
+  const versions = versionsData || [];
+  const approvedVersion = versions.find(v => v.status === 'approved') || (document?.status === 'approved' ? document : null);
+  const currentVersion = selectedVersion || versions.find(v => v.is_current_version) || document;
+  const statusConfig = STATUS_CONFIG[approvedVersion ? 'approved' : 'pending'] || STATUS_CONFIG.pending;
+  const StatusIcon = statusConfig.icon;
+
+  const canSupersede = currentVersion?.status !== 'approved';
+
+  const updateStatusMutation = useMutation({
+    mutationFn: async ({ status, version, previousApprovedId }) => {
+      const targetVersion = version || currentVersion;
+      
+      // For form-only documents, create first using existing endpoint
+      let targetDocId = targetVersion.id;
+      if (targetVersion.isFromForm) {
+        const createResult = await apiRequest('POST', '/api/due-diligence/documents/create', {
+          formSubmissionId,
+          fieldName: document.field_name,
+          fileUrl: document.file_url,
+          fileName: document.file_name,
+          fileSize: document.file_size,
+          mimeType: document.mime_type
+        });
+        targetDocId = createResult.document.id;
+      }
+      
+      // For approvals, use the combined endpoint that handles aging + approve in one call
+      if (status === 'approved') {
+        return await apiRequest('POST', '/api/due-diligence/documents/approve-with-aging', {
+          documentId: targetDocId,
+          previousApprovedId: previousApprovedId || null
+        });
+      }
+      
+      // For rejections, use the simple update-status endpoint
+      return await apiRequest('POST', '/api/due-diligence/documents/update-status', {
+        documentId: targetDocId,
+        status
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries(['submission-documents', formSubmissionId]);
+      queryClient.invalidateQueries(['document-versions', formSubmissionId, document?.field_name]);
+      toast.success('Document status updated');
+      onDocumentUpdated?.();
+      setUpdatingVersionId(null);
+      setUpdatingAction(null);
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to update status');
+      setUpdatingVersionId(null);
+      setUpdatingAction(null);
+    }
+  });
+
+  const handleApproveVersion = useCallback((version) => {
+    setUpdatingVersionId(version.id);
+    setUpdatingAction('approve');
+    // Pass the previous approved version ID to handle aging in a single API call
+    const previousApprovedId = (approvedVersion && approvedVersion.id !== version.id) ? approvedVersion.id : null;
+    updateStatusMutation.mutate({ status: 'approved', version, previousApprovedId });
+  }, [approvedVersion, updateStatusMutation]);
+
+  const handleUnapproveVersion = useCallback((version) => {
+    setUpdatingVersionId(version.id);
+    setUpdatingAction('unapprove');
+    updateStatusMutation.mutate({ status: 'pending', version });
+  }, [updateStatusMutation]);
+
+  const handleRejectVersion = useCallback((version) => {
+    setUpdatingVersionId(version.id);
+    setUpdatingAction('reject');
+    updateStatusMutation.mutate({ status: 'rejected', version });
+  }, [updateStatusMutation]);
+
+  const addCommentMutation = useMutation({
+    mutationFn: async ({ versionId, comment }) => {
+      return await apiRequest('POST', '/api/due-diligence/documents/add-comment', {
+        documentId: versionId,
+        comment
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries(['document-versions', formSubmissionId, document?.field_name]);
+      toast.success('Comment added');
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to add comment');
+    }
+  });
+
+  const handleAddVersionComment = useCallback((versionId, comment) => {
+    addCommentMutation.mutate({ versionId, comment });
+  }, [addCommentMutation]);
+
+  const autoTriggeredRef = useRef(new Set());
+  const autoTriggerErroredRef = useRef(new Set());
+
+  const ensurePublicUrlMutation = useMutation({
+    mutationFn: async ({ documentId }) => {
+      return await apiRequest('POST', '/api/due-diligence/documents/ensure-public-url', {
+        documentId
+      });
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries(['submission-documents', formSubmissionId]);
+      queryClient.invalidateQueries(['document-versions', formSubmissionId, document?.field_name]);
+      if (!variables?.silent) {
+        toast.success('Public URL generated');
+      }
+      onDocumentUpdated?.();
+    },
+    onError: (error, variables) => {
+      if (variables?.silent) {
+        // Auto-attempt failed; remember so we don't spin and let the user click Generate manually.
+        if (variables.documentId) {
+          autoTriggerErroredRef.current.add(variables.documentId);
+        }
+        console.error('[DocumentDetailModal] Auto public URL failed:', error?.message || error);
+        return;
+      }
+      toast.error(error.message || 'Failed to generate public URL');
+    }
+  });
+
+  function isRealSubmissionDocId(id) {
+    if (!id || typeof id !== 'string') return false;
+    if (id.startsWith('form-') || id.startsWith('empty-')) return false;
+    return true;
+  }
+
+  // Auto-derive public URL when the file is already in public-assets and no
+  // public_file_url has been persisted yet — the requirement is to show the
+  // URL immediately in that case (no Generate button needed).
+  useEffect(() => {
+    if (!isOpen) return;
+    if (!approvedVersion) return;
+    if (approvedVersion.public_file_url) return;
+    if (!isRealSubmissionDocId(approvedVersion.id)) return;
+    if (!isPublicBucketUrl(approvedVersion.file_url)) return;
+    if (autoTriggeredRef.current.has(approvedVersion.id)) return;
+    if (autoTriggerErroredRef.current.has(approvedVersion.id)) return;
+    autoTriggeredRef.current.add(approvedVersion.id);
+    ensurePublicUrlMutation.mutate({ documentId: approvedVersion.id, silent: true });
+  }, [isOpen, approvedVersion?.id, approvedVersion?.public_file_url, approvedVersion?.file_url, ensurePublicUrlMutation]);
+
+  const handleSupersede = useCallback(async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    setUploadProgress(0);
+
+    try {
+      const uploadResult = await uploadFileWithProgress(file, setUploadProgress);
+      
+      let supersedeDocId = null;
+      if (!currentVersion.isFromForm) {
+        supersedeDocId = currentVersion.id;
+      } else {
+        const createResult = await apiRequest('POST', '/api/due-diligence/documents/create', {
+          formSubmissionId,
+          fieldName: document.field_name,
+          fileUrl: document.file_url,
+          fileName: document.file_name,
+          fileSize: document.file_size,
+          mimeType: document.mime_type
+        });
+        supersedeDocId = createResult.document.id;
+      }
+      
+      await apiRequest('POST', '/api/due-diligence/documents/create', {
+        formSubmissionId,
+        fieldName: document.field_name,
+        fileUrl: uploadResult.file_url,
+        fileName: uploadResult.file_name,
+        fileSize: uploadResult.file_size,
+        mimeType: uploadResult.mime_type,
+        supersedeDocumentId: supersedeDocId
+      });
+
+      queryClient.invalidateQueries(['submission-documents', formSubmissionId]);
+      queryClient.invalidateQueries(['document-versions', formSubmissionId, document?.field_name]);
+      toast.success('New version uploaded successfully');
+      onDocumentUpdated?.();
+      
+    } catch (error) {
+      console.error('Upload error:', error);
+      showUploadErrorToast(error, 'Failed to upload new version');
+    } finally {
+      setIsUploading(false);
+      setUploadProgress(0);
+    }
+  }, [currentVersion, formSubmissionId, document, queryClient, onDocumentUpdated]);
+
+  if (!document) return null;
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="w-[80vw] max-w-[80vw] h-[90vh] max-h-[90vh] overflow-hidden flex flex-col">
+        <DialogHeader>
+          {document.label && (
+            <p className="text-sm text-muted-foreground mb-1">{document.label}</p>
+          )}
+          <DialogTitle className="flex items-center gap-3">
+            <span className="truncate">{document.original_file_name || document.file_name}</span>
+            <Badge 
+              style={{ backgroundColor: statusConfig.bgColor, color: statusConfig.color, borderColor: statusConfig.color }}
+              className="flex-shrink-0"
+            >
+              <StatusIcon className="w-3 h-3 mr-1" />
+              {statusConfig.label}
+            </Badge>
+          </DialogTitle>
+        </DialogHeader>
+
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 min-h-0 overflow-hidden flex flex-col">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="preview" data-testid="tab-preview">
+              <FileText className="w-4 h-4 mr-2" />
+              Preview
+            </TabsTrigger>
+            <TabsTrigger value="versions" data-testid="tab-versions">
+              <History className="w-4 h-4 mr-2" />
+              Versions ({versions.length || 1})
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="preview" className="flex-1 overflow-auto mt-4">
+            {approvedVersion ? (
+              <div className="flex flex-col min-h-full gap-4">
+                <div className="flex-1 min-h-0">
+                  <FilePreview 
+                    fileUrl={approvedVersion.file_url} 
+                    mimeType={approvedVersion.mime_type} 
+                    fileName={approvedVersion.file_name}
+                  />
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4 text-sm flex-shrink-0">
+                  <div>
+                    <span className="text-muted-foreground">File size:</span>
+                    <span className="ml-2">
+                      {approvedVersion.file_size 
+                        ? `${(approvedVersion.file_size / 1024).toFixed(1)} KB` 
+                        : '--'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Version:</span>
+                    <span className="ml-2">{approvedVersion.version || 1}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Uploaded:</span>
+                    <span className="ml-2">
+                      {approvedVersion.created_at 
+                        ? format(new Date(approvedVersion.created_at), 'MMM d, yyyy h:mm a') 
+                        : '--'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Type:</span>
+                    <span className="ml-2">{approvedVersion.mime_type || '--'}</span>
+                  </div>
+                </div>
+
+                {approvedVersion.file_url && (
+                  <div className="text-sm flex-shrink-0 min-w-0">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <span className="text-muted-foreground">URL:</span>
+                      <span 
+                        className="text-xs text-muted-foreground"
+                        data-testid="text-url-char-count"
+                      >
+                        ({approvedVersion.file_url.length} chars)
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Input
+                        readOnly
+                        value={approvedVersion.file_url}
+                        title={approvedVersion.file_url}
+                        className="font-mono text-xs flex-1 min-w-0 truncate"
+                        data-testid="input-document-url"
+                        onFocus={(e) => e.target.select()}
+                      />
+                      <Button
+                        variant="outline"
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(approvedVersion.file_url);
+                            toast.success('URL copied to clipboard');
+                          } catch (err) {
+                            toast.error('Failed to copy URL');
+                          }
+                        }}
+                        data-testid="button-copy-url"
+                        className="flex-shrink-0"
+                      >
+                        <Copy className="w-4 h-4 mr-1" />
+                        Copy
+                      </Button>
+                      <Button
+                        variant="outline"
+                        asChild
+                        data-testid="link-open-url"
+                        className="flex-shrink-0"
+                      >
+                        <a
+                          href={approvedVersion.file_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="Open in new tab"
+                        >
+                          <ExternalLink className="w-4 h-4 mr-1" />
+                          Open
+                        </a>
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {isRealSubmissionDocId(approvedVersion.id) && (
+                  <div className="text-sm flex-shrink-0 min-w-0">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <span className="text-muted-foreground">Public URL:</span>
+                      {approvedVersion.public_file_url && (
+                        <span 
+                          className="text-xs text-muted-foreground"
+                          data-testid="text-public-url-char-count"
+                        >
+                          ({approvedVersion.public_file_url.length} chars)
+                        </span>
+                      )}
+                    </div>
+                    {approvedVersion.public_file_url ? (
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Input
+                          readOnly
+                          value={approvedVersion.public_file_url}
+                          title={approvedVersion.public_file_url}
+                          className="font-mono text-xs flex-1 min-w-0 truncate"
+                          data-testid="input-document-public-url"
+                          onFocus={(e) => e.target.select()}
+                        />
+                        <Button
+                          variant="outline"
+                          onClick={async () => {
+                            try {
+                              await navigator.clipboard.writeText(approvedVersion.public_file_url);
+                              toast.success('Public URL copied to clipboard');
+                            } catch (err) {
+                              toast.error('Failed to copy URL');
+                            }
+                          }}
+                          data-testid="button-copy-public-url"
+                          className="flex-shrink-0"
+                        >
+                          <Copy className="w-4 h-4 mr-1" />
+                          Copy
+                        </Button>
+                        <Button
+                          variant="outline"
+                          asChild
+                          data-testid="link-open-public-url"
+                          className="flex-shrink-0"
+                        >
+                          <a
+                            href={approvedVersion.public_file_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Open in new tab"
+                          >
+                            <ExternalLink className="w-4 h-4 mr-1" />
+                            Open
+                          </a>
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 min-w-0">
+                        {ensurePublicUrlMutation.isPending && autoTriggeredRef.current.has(approvedVersion.id) ? (
+                          <div
+                            className="flex items-center gap-2 text-xs text-muted-foreground"
+                            data-testid="status-public-url-loading"
+                          >
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Preparing public URL...
+                          </div>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            onClick={() => ensurePublicUrlMutation.mutate({ documentId: approvedVersion.id })}
+                            disabled={ensurePublicUrlMutation.isPending}
+                            data-testid="button-generate-public-url"
+                          >
+                            {ensurePublicUrlMutation.isPending ? (
+                              <>
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                Generating...
+                              </>
+                            ) : (
+                              <>
+                                <Globe className="w-4 h-4 mr-2" />
+                                Generate public URL
+                              </>
+                            )}
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center bg-muted rounded-lg gap-4" style={{ height: '500px' }}>
+                <Clock className="w-12 h-12 text-muted-foreground" />
+                <p className="text-muted-foreground text-center">
+                  No approved version yet.<br />
+                  <span className="text-sm">Go to the Versions tab to approve a version.</span>
+                </p>
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="versions" className="flex-1 overflow-auto mt-4 h-full">
+            <ScrollArea className="h-full">
+              <div className="space-y-3 pr-4">
+                {versionsLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="w-6 h-6 animate-spin" />
+                  </div>
+                ) : versions.length > 0 ? (
+                  versions.map((version, index) => (
+                    <VersionItem 
+                      key={version.id} 
+                      version={version}
+                      isSelected={selectedVersion?.id === version.id}
+                      onSelect={setSelectedVersion}
+                      showPreview={index === 0}
+                      onApprove={handleApproveVersion}
+                      onUnapprove={handleUnapproveVersion}
+                      onReject={handleRejectVersion}
+                      updatingVersionId={updatingVersionId}
+                      updatingAction={updatingAction}
+                      hasApprovedVersion={!!approvedVersion}
+                      onAddComment={handleAddVersionComment}
+                      isAddingComment={addCommentMutation.isPending}
+                    />
+                  ))
+                ) : (
+                  <VersionItem 
+                    version={{ ...document, version: 1, is_current_version: true }}
+                    isSelected={true}
+                    onSelect={() => {}}
+                    showPreview={true}
+                    onApprove={handleApproveVersion}
+                    onUnapprove={handleUnapproveVersion}
+                    onReject={handleRejectVersion}
+                    updatingVersionId={updatingVersionId}
+                    updatingAction={updatingAction}
+                    hasApprovedVersion={!!approvedVersion}
+                    onAddComment={handleAddVersionComment}
+                    isAddingComment={addCommentMutation.isPending}
+                  />
+                )}
+              </div>
+            </ScrollArea>
+          </TabsContent>
+        </Tabs>
+
+        <Separator className="my-4" />
+
+        <div className="flex items-center justify-end gap-2">
+          {canSupersede && (
+            <div className="relative">
+              <input
+                type="file"
+                className="absolute inset-0 opacity-0 cursor-pointer"
+                onChange={handleSupersede}
+                disabled={isUploading}
+                data-testid="input-supersede-file"
+              />
+              <Button 
+                variant="outline" 
+                size="sm"
+                disabled={isUploading}
+              >
+                {isUploading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    {uploadProgress}%
+                  </>
+                ) : (
+                  <>
+                    <Upload className="w-4 h-4 mr-2" />
+                    Upload New Version
+                  </>
+                )}
+              </Button>
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}

@@ -1,0 +1,217 @@
+index-CzuuvaD0.js:1041 [publicClient] Detected tenant from subdomain: gsf
+index-CzuuvaD0.js:1126 GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.84.0) 2026-01-21T16:30:02.872Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+Vg @ index-CzuuvaD0.js:1126
+zoe @ index-CzuuvaD0.js:1127
+_initSupabaseAuthClient @ index-CzuuvaD0.js:1127
+Boe @ index-CzuuvaD0.js:1127
+Wz @ index-CzuuvaD0.js:1127
+(anonymous) @ index-CzuuvaD0.js:2109
+(anonymous) @ index-CzuuvaD0.js:1
+(anonymous) @ index-CzuuvaD0.js:2524
+index-CzuuvaD0.js:1430 [usePendingPurchaseOrders] memberInfo: null
+index-CzuuvaD0.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CzuuvaD0.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CzuuvaD0.js:1430 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CzuuvaD0.js:1430 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-CzuuvaD0.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CzuuvaD0.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CzuuvaD0.js:1430 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CzuuvaD0.js:1430 [usePendingPurchaseOrders] Query running, memberInfo.id: b24e022f-adcc-4930-8952-63a34cc16925
+index-CzuuvaD0.js:1430 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-CzuuvaD0.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CzuuvaD0.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CzuuvaD0.js:1430 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CzuuvaD0.js:1430 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-CzuuvaD0.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CzuuvaD0.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CzuuvaD0.js:1430 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CzuuvaD0.js:1430 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-CzuuvaD0.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CzuuvaD0.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CzuuvaD0.js:1430 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CzuuvaD0.js:1430 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-CzuuvaD0.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CzuuvaD0.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CzuuvaD0.js:1430 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CzuuvaD0.js:1430 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-CzuuvaD0.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CzuuvaD0.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CzuuvaD0.js:1430 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CzuuvaD0.js:1430 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-CzuuvaD0.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CzuuvaD0.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CzuuvaD0.js:1430 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CzuuvaD0.js:1430 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-CzuuvaD0.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CzuuvaD0.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CzuuvaD0.js:1430 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CzuuvaD0.js:1430 [usePendingPurchaseOrders] Fetched bookings count: 0
+index-CzuuvaD0.js:1430 [usePendingPurchaseOrders] Pending PO bookings: 0
+index-CzuuvaD0.js:1430 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-CzuuvaD0.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CzuuvaD0.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CzuuvaD0.js:1430 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CzuuvaD0.js:1396 Error loading member record: {code: 'PGRST116', details: 'Results contain 3 rows, application/vnd.pgrst.object+json requires 1 row', hint: null, message: 'JSON object requested, multiple (or no) rows returned'}
+queryFn @ index-CzuuvaD0.js:1396
+await in queryFn
+i @ index-CzuuvaD0.js:1041
+v @ index-CzuuvaD0.js:1041
+start @ index-CzuuvaD0.js:1041
+fetch @ index-CzuuvaD0.js:1041
+qf @ index-CzuuvaD0.js:1041
+onSubscribe @ index-CzuuvaD0.js:1041
+subscribe @ index-CzuuvaD0.js:1041
+(anonymous) @ index-CzuuvaD0.js:1041
+u$ @ index-CzuuvaD0.js:38
+Uy @ index-CzuuvaD0.js:40
+ex @ index-CzuuvaD0.js:40
+NX @ index-CzuuvaD0.js:40
+Gu @ index-CzuuvaD0.js:40
+oF @ index-CzuuvaD0.js:40
+ku @ index-CzuuvaD0.js:38
+(anonymous) @ index-CzuuvaD0.js:40
+setTimeout
+r @ index-CzuuvaD0.js:1041
+l @ index-CzuuvaD0.js:1041
+batch @ index-CzuuvaD0.js:1041
+Cc @ index-CzuuvaD0.js:1041
+setData @ index-CzuuvaD0.js:1041
+onSuccess @ index-CzuuvaD0.js:1041
+h @ index-CzuuvaD0.js:1041
+Promise.then
+v @ index-CzuuvaD0.js:1041
+start @ index-CzuuvaD0.js:1041
+fetch @ index-CzuuvaD0.js:1041
+qf @ index-CzuuvaD0.js:1041
+onSubscribe @ index-CzuuvaD0.js:1041
+subscribe @ index-CzuuvaD0.js:1041
+(anonymous) @ index-CzuuvaD0.js:1041
+u$ @ index-CzuuvaD0.js:38
+Uy @ index-CzuuvaD0.js:40
+ex @ index-CzuuvaD0.js:40
+(anonymous) @ index-CzuuvaD0.js:40
+N @ index-CzuuvaD0.js:25
+E @ index-CzuuvaD0.js:25
+index-CzuuvaD0.js:1430 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-CzuuvaD0.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CzuuvaD0.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CzuuvaD0.js:1430 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CzuuvaD0.js:1430 [Layout] Server session found: mat.the.diver@googlemail.com
+index-CzuuvaD0.js:1430 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-CzuuvaD0.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CzuuvaD0.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CzuuvaD0.js:1430 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CzuuvaD0.js:1430 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-CzuuvaD0.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CzuuvaD0.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CzuuvaD0.js:1430 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CzuuvaD0.js:2524  GET https://gsf.iconn.app/api/due-diligence/get-submission?id=213383e2-1d46-4459-9d72-dee8b414f903 404 (Not Found)
+bv @ index-CzuuvaD0.js:2524
+queryFn @ index-CzuuvaD0.js:2524
+i @ index-CzuuvaD0.js:1041
+v @ index-CzuuvaD0.js:1041
+start @ index-CzuuvaD0.js:1041
+fetch @ index-CzuuvaD0.js:1041
+qf @ index-CzuuvaD0.js:1041
+setOptions @ index-CzuuvaD0.js:1041
+(anonymous) @ index-CzuuvaD0.js:1041
+Uy @ index-CzuuvaD0.js:40
+ex @ index-CzuuvaD0.js:40
+oF @ index-CzuuvaD0.js:40
+ku @ index-CzuuvaD0.js:38
+NX @ index-CzuuvaD0.js:40
+Gu @ index-CzuuvaD0.js:40
+U$ @ index-CzuuvaD0.js:40
+N @ index-CzuuvaD0.js:25
+E @ index-CzuuvaD0.js:25
+index-CzuuvaD0.js:2524  GET https://gsf.iconn.app/api/due-diligence/get-submission?id=213383e2-1d46-4459-9d72-dee8b414f903 404 (Not Found)
+bv @ index-CzuuvaD0.js:2524
+queryFn @ index-CzuuvaD0.js:2524
+i @ index-CzuuvaD0.js:1041
+v @ index-CzuuvaD0.js:1041
+(anonymous) @ index-CzuuvaD0.js:1041
+Promise.then
+(anonymous) @ index-CzuuvaD0.js:1041
+Promise.catch
+v @ index-CzuuvaD0.js:1041
+start @ index-CzuuvaD0.js:1041
+fetch @ index-CzuuvaD0.js:1041
+qf @ index-CzuuvaD0.js:1041
+setOptions @ index-CzuuvaD0.js:1041
+(anonymous) @ index-CzuuvaD0.js:1041
+Uy @ index-CzuuvaD0.js:40
+ex @ index-CzuuvaD0.js:40
+oF @ index-CzuuvaD0.js:40
+ku @ index-CzuuvaD0.js:38
+NX @ index-CzuuvaD0.js:40
+Gu @ index-CzuuvaD0.js:40
+U$ @ index-CzuuvaD0.js:40
+N @ index-CzuuvaD0.js:25
+E @ index-CzuuvaD0.js:25
+index-CzuuvaD0.js:1430 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-CzuuvaD0.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CzuuvaD0.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CzuuvaD0.js:1430 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CzuuvaD0.js:2524  GET https://gsf.iconn.app/api/due-diligence/get-submission?id=213383e2-1d46-4459-9d72-dee8b414f903 404 (Not Found)
+bv @ index-CzuuvaD0.js:2524
+queryFn @ index-CzuuvaD0.js:2524
+i @ index-CzuuvaD0.js:1041
+v @ index-CzuuvaD0.js:1041
+(anonymous) @ index-CzuuvaD0.js:1041
+Promise.then
+(anonymous) @ index-CzuuvaD0.js:1041
+Promise.catch
+v @ index-CzuuvaD0.js:1041
+(anonymous) @ index-CzuuvaD0.js:1041
+Promise.then
+(anonymous) @ index-CzuuvaD0.js:1041
+Promise.catch
+v @ index-CzuuvaD0.js:1041
+start @ index-CzuuvaD0.js:1041
+fetch @ index-CzuuvaD0.js:1041
+qf @ index-CzuuvaD0.js:1041
+setOptions @ index-CzuuvaD0.js:1041
+(anonymous) @ index-CzuuvaD0.js:1041
+Uy @ index-CzuuvaD0.js:40
+ex @ index-CzuuvaD0.js:40
+oF @ index-CzuuvaD0.js:40
+ku @ index-CzuuvaD0.js:38
+NX @ index-CzuuvaD0.js:40
+Gu @ index-CzuuvaD0.js:40
+U$ @ index-CzuuvaD0.js:40
+N @ index-CzuuvaD0.js:25
+E @ index-CzuuvaD0.js:25
+index-CzuuvaD0.js:2524  GET https://gsf.iconn.app/api/due-diligence/get-submission?id=213383e2-1d46-4459-9d72-dee8b414f903 404 (Not Found)
+bv @ index-CzuuvaD0.js:2524
+queryFn @ index-CzuuvaD0.js:2524
+i @ index-CzuuvaD0.js:1041
+v @ index-CzuuvaD0.js:1041
+(anonymous) @ index-CzuuvaD0.js:1041
+Promise.then
+(anonymous) @ index-CzuuvaD0.js:1041
+Promise.catch
+v @ index-CzuuvaD0.js:1041
+(anonymous) @ index-CzuuvaD0.js:1041
+Promise.then
+(anonymous) @ index-CzuuvaD0.js:1041
+Promise.catch
+v @ index-CzuuvaD0.js:1041
+(anonymous) @ index-CzuuvaD0.js:1041
+Promise.then
+(anonymous) @ index-CzuuvaD0.js:1041
+Promise.catch
+v @ index-CzuuvaD0.js:1041
+start @ index-CzuuvaD0.js:1041
+fetch @ index-CzuuvaD0.js:1041
+qf @ index-CzuuvaD0.js:1041
+setOptions @ index-CzuuvaD0.js:1041
+(anonymous) @ index-CzuuvaD0.js:1041
+Uy @ index-CzuuvaD0.js:40
+ex @ index-CzuuvaD0.js:40
+oF @ index-CzuuvaD0.js:40
+ku @ index-CzuuvaD0.js:38
+NX @ index-CzuuvaD0.js:40
+Gu @ index-CzuuvaD0.js:40
+U$ @ index-CzuuvaD0.js:40
+N @ index-CzuuvaD0.js:25
+E @ index-CzuuvaD0.js:25

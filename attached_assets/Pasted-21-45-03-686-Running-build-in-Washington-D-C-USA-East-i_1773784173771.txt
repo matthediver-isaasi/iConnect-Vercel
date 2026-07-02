@@ -1,0 +1,86 @@
+21:45:03.686 Running build in Washington, D.C., USA (East) – iad1
+21:45:03.687 Build machine configuration: 4 cores, 8 GB
+21:45:03.798 Cloning github.com/matthediver-isaasi/iConnect-Vercel (Branch: beta14, Commit: 90aa10a)
+21:45:05.157 Cloning completed: 1.359s
+21:45:05.339 Restored build cache from previous deployment (5hvjKvqCtPAZvzjTYTnrXA7vNY3v)
+21:45:05.631 Running "vercel build"
+21:45:07.119 Vercel CLI 50.32.4
+21:45:07.120 
+21:45:08.464 Running "install" command: `npm install`...
+21:45:08.465 
+21:45:09.935 npm warn ERESOLVE overriding peer dependency
+21:45:09.935 
+21:45:09.936 npm warn While resolving: react-codemirror2@7.3.0
+21:45:09.936 npm warn Found: react@18.3.1
+21:45:09.936 npm warn node_modules/react
+21:45:09.937 npm warn   react@"^18.3.1" from the root project
+21:45:09.937 npm warn   117 more (@arco-design/web-react, @dnd-kit/accessibility, ...)
+21:45:09.937 npm warn
+21:45:09.937 npm warn Could not resolve dependency:
+21:45:09.937 npm warn peer react@">=15.5 <=17.x" from react-codemirror2@7.3.0
+21:45:09.937 npm warn node_modules/react-codemirror2
+21:45:09.937 npm warn   react-codemirror2@"^7.2.1" from easy-email-extensions@4.16.5
+21:45:09.938 npm warn   node_modules/easy-email-extensions
+21:45:09.938 npm warn
+21:45:09.938 npm warn Conflicting peer dependency: react@17.0.2
+21:45:09.938 npm warn node_modules/react
+21:45:09.938 npm warn   peer react@">=15.5 <=17.x" from react-codemirror2@7.3.0
+21:45:09.938 npm warn   node_modules/react-codemirror2
+21:45:09.938 npm warn     react-codemirror2@"^7.2.1" from easy-email-extensions@4.16.5
+21:45:09.938 npm warn     node_modules/easy-email-extensions
+21:45:09.938 
+21:45:12.963 
+21:45:12.963 added 16 packages, changed 1 package, and audited 853 packages in 4s
+21:45:12.963 
+21:45:12.964 
+21:45:12.964 188 packages are looking for funding
+21:45:12.964   run `npm fund` for details
+21:45:12.964 
+21:45:13.011 
+21:45:13.012 26 vulnerabilities (5 low, 12 moderate, 8 high, 1 critical)
+21:45:13.012 
+21:45:13.012 To address issues that do not require attention, run:
+21:45:13.012   npm audit fix
+21:45:13.012 
+21:45:13.012 To address all issues possible (including breaking changes), run:
+21:45:13.012   npm audit fix --force
+21:45:13.012 
+21:45:13.012 Some issues need review, and may require choosing
+21:45:13.012 a different dependency.
+21:45:13.012 
+21:45:13.013 Run `npm audit` for details.
+21:45:13.013 
+21:45:14.329 [36mvite v5.4.20 [32mbuilding for production...[36m[39m
+21:45:14.329 
+21:45:14.393 transforming...
+21:45:14.393 
+21:45:19.465 [32m✓[39m 299 modules transformed.
+21:45:19.466 
+21:45:19.466 [31mx[39m Build failed in 5.11s
+21:45:19.467 
+21:45:19.467 [31merror during build:
+21:45:19.467 [31m[vite:esbuild] Transform failed with 1 error:
+21:45:19.467 /vercel/path0/client/src/pages/FormBuilder.jsx:6042:24: ERROR: Expected ")" but found "{"[31m
+21:45:19.467 file: [36m/vercel/path0/client/src/pages/FormBuilder.jsx:6042:24[31m
+21:45:19.467 [33m
+21:45:19.467 [33mExpected ")" but found "{"[33m
+21:45:19.467 6040|                            </Button>
+21:45:19.467 6041|                          </div>
+21:45:19.467 6042|                          {page.page_style === 'name_badge' && (() => {
+21:45:19.467    |                          ^
+21:45:19.467 6043|                            const bs = page.badge_style || BADGE_STYLE_DEFAULTS;
+21:45:19.467 6044|                            const updateBadgeStyle = (updates) => {
+21:45:19.467 [31m
+21:45:19.467     at failureErrorWithLog (/vercel/path0/node_modules/vite/node_modules/esbuild/lib/main.js:1472:15)
+21:45:19.467     at /vercel/path0/node_modules/vite/node_modules/esbuild/lib/main.js:755:50
+21:45:19.467     at responseCallbacks.<computed> (/vercel/path0/node_modules/vite/node_modules/esbuild/lib/main.js:622:9)
+21:45:19.468     at handleIncomingPacket (/vercel/path0/node_modules/vite/node_modules/esbuild/lib/main.js:677:12)
+21:45:19.468     at Socket.readFromStdout (/vercel/path0/node_modules/vite/node_modules/esbuild/lib/main.js:600:7)
+21:45:19.468     at Socket.emit (node:events:508:28)
+21:45:19.468     at addChunk (node:internal/streams/readable:559:12)
+21:45:19.468     at readableAddChunkPushByteMode (node:internal/streams/readable:510:3)
+21:45:19.468     at Readable.push (node:internal/streams/readable:390:5)
+21:45:19.468     at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)[39m
+21:45:19.468 
+21:45:19.529 Error: Command "npx vite build" exited with 1
+21:45:19.530 

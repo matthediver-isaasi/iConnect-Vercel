@@ -1,0 +1,48 @@
+[LLM] Error invoking LLM: BadRequestError: 400 'messages' must contain the word 'json' in some form, to use 'response_format' of type 'json_object'.
+    at APIError.generate (file:///var/task/node_modules/openai/core/error.mjs:41:20)
+    at OpenAI.makeStatusError (file:///var/task/node_modules/openai/client.mjs:162:32)
+    at OpenAI.makeRequest (file:///var/task/node_modules/openai/client.mjs:330:30)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async Object.handler (file:///var/task/api/integrations/invoke-llm.js:105:24)
+    at async r (/opt/rust/nodejs.js:2:15570)
+    at async Server.<anonymous> (/opt/rust/nodejs.js:2:11592)
+    at async Server.<anonymous> (/opt/rust/nodejs.js:17:9914) {
+  status: 400,
+  headers: Headers {
+    date: 'Sat, 20 Dec 2025 20:03:45 GMT',
+    'content-type': 'application/json',
+    'content-length': '219',
+    connection: 'keep-alive',
+    'access-control-expose-headers': 'X-Request-ID',
+    'openai-organization': 'isaasi-u1c4z6',
+    'openai-processing-ms': '9',
+    'openai-project': 'proj_DkRmXz7WViJxOCJPYBiYcK4m',
+    'openai-version': '2020-10-01',
+    'x-envoy-upstream-service-time': '219',
+    'x-ratelimit-limit-requests': '10000',
+    'x-ratelimit-limit-tokens': '200000',
+    'x-ratelimit-remaining-requests': '9999',
+    'x-ratelimit-remaining-tokens': '199939',
+    'x-ratelimit-reset-requests': '8.64s',
+    'x-ratelimit-reset-tokens': '18ms',
+    'x-request-id': 'req_d0182c13061249d69c123080644e88b1',
+    'x-openai-proxy-wasm': 'v0.1',
+    'cf-cache-status': 'DYNAMIC',
+    'set-cookie': '__cf_bm=95cHlmzA4PxXSX2wWqdsRIAPpuJYofj7cxiChcWn874-1766261025-1.0.1.1-OuyE.0d.2V6_akABUWvklZCnxgrHpQeFX6iYoXc14vC8_ul3Qhr9k6ria2ZtXp82oZWqsj6WYZMeCsXfdPA.zqTnWe6lF8MkpK9fguo43CI; path=/; expires=Sat, 20-Dec-25 20:33:45 GMT; domain=.api.openai.com; HttpOnly; Secure; SameSite=None, _cfuvid=IpvbWKt7T2OVN6Fs1_E4aTlTUxgp1ceuUE7q6QxY10A-1766261025859-0.0.1.1-604800000; path=/; domain=.api.openai.com; HttpOnly; Secure; SameSite=None',
+    'strict-transport-security': 'max-age=31536000; includeSubDomains; preload',
+    'x-content-type-options': 'nosniff',
+    server: 'cloudflare',
+    'cf-ray': '9b11beafbc0d41ab-IAD',
+    'alt-svc': 'h3=":443"; ma=86400'
+  },
+  requestID: 'req_d0182c13061249d69c123080644e88b1',
+  error: {
+    message: "'messages' must contain the word 'json' in some form, to use 'response_format' of type 'json_object'.",
+    type: 'invalid_request_error',
+    param: 'messages',
+    code: null
+  },
+  code: null,
+  param: 'messages',
+  type: 'invalid_request_error'
+}

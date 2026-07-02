@@ -1,0 +1,260 @@
+2026-02-19 19:04:43.636 [info] [AppProcessor] Entity pipelines - members: 1 organisations: 0
+2026-02-19 19:04:43.636 [info] [AppProcessor] Form values - all field IDs present: [
+  'field_1765017571083',
+  'field_1765017795175',
+  'field_1765017805976',
+  'field_1765017830408',
+  'field_1765019805833',
+  'field_1765693757142',
+  'field_1765695007112',
+  'field_1765695184695',
+  'field_1765789870269'
+]
+2026-02-19 19:04:43.636 [info] [AppProcessor] Form values sample (first 5 entries): [
+  'field_1765017571083="ccbbbd4d-12e8-4e9e-b49e-cd29979623ae"',
+  'field_1765017795175="Mat"',
+  'field_1765017805976="Henderson"',
+  'field_1765017830408="mat@isaasi.co.uk"',
+  'field_1765019805833=true'
+]
+2026-02-19 19:04:43.637 [info] [AppProcessor] Entity actions - member: upsert organization: none
+2026-02-19 19:04:43.637 [info] [AppProcessor] Received role_id: c94cdcfd-d0f0-497a-ab5e-c742baacf049 type: string
+2026-02-19 19:04:43.928 [info] [AppProcessor] Running server-side uniqueness validation, tenant_id: fd82da65-aab7-4a5c-85b8-b2febeb2003d
+2026-02-19 19:04:44.068 [info] [AppProcessor] Server-side uniqueness check passed
+2026-02-19 19:04:44.230 [info] [AppProcessor] Entity pipeline fields to skip in legacy field_mappings - member: [
+  'organization_id',
+  'first_name',
+  'last_name',
+  'job_title',
+  'mobile',
+  'landline',
+  'email',
+  'show_in_directory'
+] org: []
+2026-02-19 19:04:44.230 [info] [AppProcessor] Using field_mappings: 16 mappings
+2026-02-19 19:04:44.230 [info] [AppProcessor] Skipping legacy field_mappings for member field (entity_pipelines takes precedence): organization_id
+2026-02-19 19:04:44.230 [info] [AppProcessor] Skipping legacy field_mappings for member field (entity_pipelines takes precedence): first_name
+2026-02-19 19:04:44.230 [info] [AppProcessor] Skipping legacy field_mappings for member field (entity_pipelines takes precedence): last_name
+2026-02-19 19:04:44.230 [info] [AppProcessor] Skipping legacy field_mappings for member field (entity_pipelines takes precedence): job_title
+2026-02-19 19:04:44.230 [info] [AppProcessor] Skipping legacy field_mappings for member field (entity_pipelines takes precedence): mobile
+2026-02-19 19:04:44.231 [info] [AppProcessor] Skipping legacy field_mappings for member field (entity_pipelines takes precedence): landline
+2026-02-19 19:04:44.231 [info] [AppProcessor] Skipping legacy field_mappings for member field (entity_pipelines takes precedence): email
+2026-02-19 19:04:44.232 [info] [AppProcessor] Member pipelines: 1 Primary found: true
+2026-02-19 19:04:44.232 [info] [AppProcessor] Processing member from entity_pipelines (new format): Primary Member mappings: 13
+2026-02-19 19:04:44.232 [info] [AppProcessor] Primary Member mappings detail: [
+  {
+    "id": "mapping_1765698609076",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "organization_id",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765017571083"
+  },
+  {
+    "id": "mapping_1765698628803",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "first_name",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765017795175"
+  },
+  {
+    "id": "mapping_1765698635192",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "last_name",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765017805976"
+  },
+  {
+    "id": "mapping_1765698640002",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "job_title",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765693757142"
+  },
+  {
+    "id": "mapping_1765698732323",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "mobile",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765017838015"
+  },
+  {
+    "id": "mapping_1765698740104",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "landline",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765698117811"
+  },
+  {
+    "id": "mapping_1765708309394",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "email",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765017830408"
+  },
+  {
+    "id": "mapping_1765708340306",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "2bab42f4-4320-4c1c-82bc-b8f67828427e",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765698252552"
+  },
+  {
+    "id": "mapping_1765708384879",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "show_in_directory",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765019805833"
+  },
+  {
+    "id": "mapping_1767038620208",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "3b4f312b-1d61-41a6-acf4-95482e2a3359",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765695007112"
+  },
+  {
+    "id": "mapping_1771319722492",
+    "source_type": "field",
+    "target_type": "communication",
+    "static_value": "",
+    "target_field": "6f6d6abd-6d90-4593-845b-e8b48682818f",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765789870269",
+    "source_category_id": "6f6d6abd-6d90-4593-845b-e8b48682818f"
+  },
+  {
+    "id": "mapping_1771319734125",
+    "source_type": "field",
+    "target_type": "communication",
+    "static_value": "",
+    "target_field": "291389b2-cd0e-41f0-a964-ce44e2eba403",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765789870269",
+    "source_category_id": "291389b2-cd0e-41f0-a964-ce44e2eba403"
+  },
+  {
+    "id": "mapping_1771319745190",
+    "source_type": "field",
+    "target_type": "communication",
+    "static_value": "",
+    "target_field": "8fa2db56-17b7-441c-b14d-d6fc8dba68db",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765789870269",
+    "source_category_id": "8fa2db56-17b7-441c-b14d-d6fc8dba68db"
+  }
+]
+2026-02-19 19:04:44.232 [info] [AppProcessor] Form values for Primary Member:
+2026-02-19 19:04:44.232 [info] - organization_id: form_values["field_1765017571083"] = "ccbbbd4d-12e8-4e9e-b49e-cd29979623ae"
+2026-02-19 19:04:44.232 [info] - first_name: form_values["field_1765017795175"] = "Mat"
+2026-02-19 19:04:44.232 [info] - last_name: form_values["field_1765017805976"] = "Henderson"
+2026-02-19 19:04:44.232 [info] - job_title: form_values["field_1765693757142"] = "test"
+2026-02-19 19:04:44.232 [info] - mobile: form_values["field_1765017838015"] = "undefined"
+2026-02-19 19:04:44.232 [info] - landline: form_values["field_1765698117811"] = "undefined"
+2026-02-19 19:04:44.232 [info] - email: form_values["field_1765017830408"] = "mat@isaasi.co.uk"
+2026-02-19 19:04:44.232 [info] - 2bab42f4-4320-4c1c-82bc-b8f67828427e: form_values["field_1765698252552"] = "undefined"
+2026-02-19 19:04:44.232 [info] - show_in_directory: form_values["field_1765019805833"] = "true"
+2026-02-19 19:04:44.232 [info] - 3b4f312b-1d61-41a6-acf4-95482e2a3359: form_values["field_1765695007112"] = "Data, Insights & labour market info,Employer engagement,Equality, diversity & inclusion inc. social mobility"
+2026-02-19 19:04:44.232 [info] - 6f6d6abd-6d90-4593-845b-e8b48682818f: form_values["field_1765789870269"] = "[object Object]"
+2026-02-19 19:04:44.232 [info] - 291389b2-cd0e-41f0-a964-ce44e2eba403: form_values["field_1765789870269"] = "[object Object]"
+2026-02-19 19:04:44.232 [info] - 8fa2db56-17b7-441c-b14d-d6fc8dba68db: form_values["field_1765789870269"] = "[object Object]"
+2026-02-19 19:04:44.233 [info] [AppProcessor] Custom field mapping: target=2bab42f4-4320-4c1c-82bc-b8f67828427e, source=field_1765698252552, value=undefined, hasValue=false, skipReason=undefined
+2026-02-19 19:04:44.233 [info] [AppProcessor] Skipped custom field: 2bab42f4-4320-4c1c-82bc-b8f67828427e (reason: undefined)
+2026-02-19 19:04:44.233 [info] [AppProcessor] Custom field mapping: target=3b4f312b-1d61-41a6-acf4-95482e2a3359, source=field_1765695007112, value=["Data, Insights & labour market info","Employer engagement","Equality, diversity & inclusion inc. social mobility"], hasValue=true
+2026-02-19 19:04:44.233 [info] [AppProcessor] Added custom field value: 3b4f312b-1d61-41a6-acf4-95482e2a3359 = "Data, Insights & labour market info,Employer engagement,Equality, diversity & inclusion inc. social mobility"
+2026-02-19 19:04:44.233 [info] [AppProcessor] Extracted category 6f6d6abd-6d90-4593-845b-e8b48682818f from communication_preferences: false
+2026-02-19 19:04:44.233 [info] [AppProcessor] Communication preference mapping: category=6f6d6abd-6d90-4593-845b-e8b48682818f, rawValue=false, subscribed=false
+2026-02-19 19:04:44.233 [info] [AppProcessor] Extracted category 291389b2-cd0e-41f0-a964-ce44e2eba403 from communication_preferences: false
+2026-02-19 19:04:44.233 [info] [AppProcessor] Communication preference mapping: category=291389b2-cd0e-41f0-a964-ce44e2eba403, rawValue=false, subscribed=false
+2026-02-19 19:04:44.233 [info] [AppProcessor] Extracted category 8fa2db56-17b7-441c-b14d-d6fc8dba68db from communication_preferences: false
+2026-02-19 19:04:44.233 [info] [AppProcessor] Communication preference mapping: category=8fa2db56-17b7-441c-b14d-d6fc8dba68db, rawValue=false, subscribed=false
+2026-02-19 19:04:44.233 [info] [AppProcessor] Using pipeline role_id: c94cdcfd-d0f0-497a-ab5e-c742baacf049
+2026-02-19 19:04:44.233 [info] [AppProcessor] Extracted data: {
+  memberData: {
+    organization_id: 'ccbbbd4d-12e8-4e9e-b49e-cd29979623ae',
+    first_name: 'Mat',
+    last_name: 'Henderson',
+    job_title: 'test',
+    email: 'mat@isaasi.co.uk',
+    show_in_directory: true,
+    role_id: 'c94cdcfd-d0f0-497a-ab5e-c742baacf049',
+    login_enabled: true
+  },
+  orgData: {},
+  memberCustomFields: 2,
+  orgCustomFields: 0,
+  orgCustomFieldsDetail: []
+}
+2026-02-19 19:04:44.233 [info] [AppProcessor] Member processing enabled. Action: upsert MemberData: {
+  organization_id: 'ccbbbd4d-12e8-4e9e-b49e-cd29979623ae',
+  first_name: 'Mat',
+  last_name: 'Henderson',
+  job_title: 'test',
+  email: 'mat@isaasi.co.uk',
+  show_in_directory: true,
+  role_id: 'c94cdcfd-d0f0-497a-ab5e-c742baacf049',
+  login_enabled: true
+} PrefillMemberId: undefined
+2026-02-19 19:04:44.390 [info] [AppProcessor] Found member by email: 133db61a-e502-42cf-aa64-9ba287ea85ac
+2026-02-19 19:04:44.391 [info] [AppProcessor] Role ID resolution (update): {
+  memberData_role_id: 'c94cdcfd-d0f0-497a-ab5e-c742baacf049',
+  role_id_param: 'c94cdcfd-d0f0-497a-ab5e-c742baacf049',
+  effectiveRoleIdForUpdate: 'c94cdcfd-d0f0-497a-ab5e-c742baacf049'
+}
+2026-02-19 19:04:44.391 [info] [AppProcessor] Adding pipeline login_enabled to member update: true
+2026-02-19 19:04:44.391 [info] [AppProcessor] Adding pipeline show_in_directory to member update: true
+2026-02-19 19:04:44.521 [info] [AppProcessor] Updated member: 133db61a-e502-42cf-aa64-9ba287ea85ac
+2026-02-19 19:04:45.166 [info] [AppProcessor] Communication preferences path #1 check: createdMemberId=133db61a-e502-42cf-aa64-9ba287ea85ac, fields=12 fields, form_values keys=9
+2026-02-19 19:04:45.166 [info] [AppProcessor] Found 1 communication_preferences fields in form fields array
+2026-02-19 19:04:45.166 [info] [AppProcessor] Processing 1 communication preference fields
+2026-02-19 19:04:45.166 [info] [AppProcessor] Communication preferences field field_1765789870269 raw value type: object, value: {"291389b2-cd0e-41f0-a964-ce44e2eba403":false,"6f6d6abd-6d90-4593-845b-e8b48682818f":false,"8fa2db56-17b7-441c-b14d-d6fc8dba68db":false}
+2026-02-19 19:04:45.166 [info] [AppProcessor] Queued comm pref: category=291389b2-cd0e-41f0-a964-ce44e2eba403, subscribed=false
+2026-02-19 19:04:45.166 [info] [AppProcessor] Queued comm pref: category=6f6d6abd-6d90-4593-845b-e8b48682818f, subscribed=false
+2026-02-19 19:04:45.166 [info] [AppProcessor] Queued comm pref: category=8fa2db56-17b7-441c-b14d-d6fc8dba68db, subscribed=false
+2026-02-19 19:04:45.166 [info] [AppProcessor] Saving 3 communication preferences for member: 133db61a-e502-42cf-aa64-9ba287ea85ac
+2026-02-19 19:04:45.440 [info] [AppProcessor] Updated comm pref: category=291389b2-cd0e-41f0-a964-ce44e2eba403, subscribed=false
+2026-02-19 19:04:45.707 [info] [AppProcessor] Updated comm pref: category=6f6d6abd-6d90-4593-845b-e8b48682818f, subscribed=false
+2026-02-19 19:04:46.001 [info] [AppProcessor] Updated comm pref: category=8fa2db56-17b7-441c-b14d-d6fc8dba68db, subscribed=false
+2026-02-19 19:04:46.001 [info] [AppProcessor] Completed saving communication preferences for member: 133db61a-e502-42cf-aa64-9ba287ea85ac
+2026-02-19 19:04:46.001 [info] [AppProcessor] Saving 3 communication preferences for member 133db61a-e502-42cf-aa64-9ba287ea85ac
+2026-02-19 19:04:46.168 [info] [AppProcessor] Communication preference unchanged: category=6f6d6abd-6d90-4593-845b-e8b48682818f, subscribed=false
+2026-02-19 19:04:46.311 [info] [AppProcessor] Communication preference unchanged: category=291389b2-cd0e-41f0-a964-ce44e2eba403, subscribed=false
+2026-02-19 19:04:46.486 [info] [AppProcessor] Communication preference unchanged: category=8fa2db56-17b7-441c-b14d-d6fc8dba68db, subscribed=false
+2026-02-19 19:04:46.616 [info] [AppProcessor] Tracking primary member email (from DB): mat@isaasi.co.uk -> {
+  id: '133db61a-e502-42cf-aa64-9ba287ea85ac',
+  role_id: 'c94cdcfd-d0f0-497a-ab5e-c742baacf049',
+  organization_id: 'ccbbbd4d-12e8-4e9e-b49e-cd29979623ae'
+}
+2026-02-19 19:04:46.616 [info] [AppProcessor] Using entity_pipelines.members: 0 non-primary entries

@@ -4,7 +4,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Search, X, ChevronRight, ChevronDown } from "lucide-react";
 
-export default function SubcategorySelector({ categories, selectedSubcategories, onChange }) {
+export default function SubcategorySelector({ categories, selectedSubcategories, onChange, isLoading = false }) {
   const [openCategories, setOpenCategories] = React.useState({});
   const [searchQuery, setSearchQuery] = React.useState("");
 
@@ -57,12 +57,29 @@ export default function SubcategorySelector({ categories, selectedSubcategories,
     setOpenCategories(prev => ({ ...prev, ...newOpenCategories }));
   }, [categories, selectedSubcategories]);
 
-  if (!categories || categories.length === 0) {
+  // Expand all categories when search input is focused
+  const handleSearchFocus = () => {
+    const allOpen = {};
+    categories.forEach(cat => {
+      if (cat.subcategories && cat.subcategories.length > 0) {
+        allOpen[cat.name] = true;
+      }
+    });
+    setOpenCategories(allOpen);
+  };
+
+  // Show loading state only when actually loading
+  if (isLoading) {
     return (
       <div className="text-sm text-slate-500 italic">
         Loading categories...
       </div>
     );
+  }
+
+  // Return null if no categories - parent should handle hiding the card
+  if (!categories || categories.length === 0) {
+    return null;
   }
 
   return (
@@ -76,7 +93,9 @@ export default function SubcategorySelector({ categories, selectedSubcategories,
           placeholder="Search categories..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
+          onFocus={handleSearchFocus}
           className="pl-10 pr-10"
+          data-testid="input-category-search"
         />
         {searchQuery && (
           <button

@@ -1,14 +1,8 @@
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
-
-const supabase = supabaseUrl && supabaseServiceKey 
-  ? createClient(supabaseUrl, supabaseServiceKey)
-  : null;
+import { getSession, getSessionMember } from '../_lib/session.js';
+import { isResourceExcluded } from '../_lib/roleVisibility.js';
+import { supabase } from '../_lib/database.js';
 
 export default async function handler(req, res) {
-  // Set CORS headers
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -22,35 +16,78 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // For Vercel serverless, we don't use traditional sessions
-  // The frontend stores member info in sessionStorage after validateMember
-  // This endpoint returns null to indicate "check sessionStorage"
-  // If a memberId cookie is present (from possible future JWT auth), we can look it up
-  
-  const memberId = req.cookies?.memberId;
-  
-  if (!memberId) {
-    // Not an error - frontend should check sessionStorage
-    return res.status(200).json(null);
-  }
-
-  if (!supabase) {
-    return res.status(503).json({ error: 'Supabase not configured' });
-  }
-
   try {
-    const { data, error } = await supabase
-      .from('member')
-      .select('*')
-      .eq('id', memberId)
-      .single();
-
-    if (error || !data) {
-      // Member not found, return null (not authenticated)
+    const member = await getSessionMember(req);
+    
+    if (!member) {
       return res.status(200).json(null);
     }
 
-    return res.json(data);
+    // Fetch role to determine permissions
+    let isAdmin = false;
+    let canEditMembers = false;
+    let canManageCommunications = false;
+    
+    if (member.role_id && supabase) {
+      const { data: role } = await supabase
+        .from('role')
+        .select('excluded_features')
+        .eq('id', member.role_id)
+        .single();
+      
+      const excludedFeatures = role?.excluded_features || [];
+      
+      // Derive admin status from whether admin.role-management is NOT excluded
+      // This replaces the deprecated is_admin flag
+      isAdmin = !isResourceExcluded(excludedFeatures, 'admin.role-management');
+      
+      // Admin role has all permissions
+      if (isAdmin) {
+        canEditMembers = true;
+        canManageCommunications = true;
+      } else {
+        // Check if permissions are NOT excluded (hierarchical check)
+        canEditMembers = !isResourceExcluded(excludedFeatures, 'admin_can_edit_members');
+        canManageCommunications = !isResourceExcluded(excludedFeatures, 'admin_can_manage_communications');
+      }
+    }
+
+    // Check if member has a linked tenant_user account (for SaaS admin access)
+    // This can be either via the tenant_user_member_link table OR if the session
+    // has preserved admin context (meaning they came from the admin area via SSO)
+    let hasTenantUserLink = false;
+    
+    // First check if session has preserved admin context (from portal SSO flow)
+    if (member._sessionPreservedTenantUserId || member._sessionPreservedIdentityId) {
+      hasTenantUserLink = true;
+      console.log('[Auth Me] Detected preserved admin context:', {
+        memberId: member.id,
+        preservedTenantUserId: member._sessionPreservedTenantUserId,
+        preservedIdentityId: member._sessionPreservedIdentityId
+      });
+    }
+    
+    // Fallback to database lookup
+    if (!hasTenantUserLink && supabase) {
+      const { data: link } = await supabase
+        .from('tenant_user_member_link')
+        .select('id')
+        .eq('member_id', member.id)
+        .maybeSingle();
+      
+      hasTenantUserLink = !!link;
+      if (hasTenantUserLink) {
+        console.log('[Auth Me] hasTenantUserLink=true via database lookup for member:', member.id);
+      }
+    }
+    
+    console.log('[Auth Me] Final hasTenantUserLink:', hasTenantUserLink, 'for member:', member.id);
+
+    const session = await getSession(req);
+    const isMasquerading = session?.data?.isMasquerading === true;
+    const masqueradeAdminName = isMasquerading ? session.data.masqueradeAdminName : null;
+
+    return res.json({ ...member, isAdmin, canEditMembers, canManageCommunications, hasTenantUserLink, isMasquerading, masqueradeAdminName });
   } catch (error) {
     console.error('Auth me error:', error);
     return res.status(500).json({ error: 'Failed to get user' });

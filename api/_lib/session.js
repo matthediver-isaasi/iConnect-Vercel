@@ -1,0 +1,1017 @@
+import { parse, serialize } from 'cookie';
+import crypto from 'crypto';
+import cookieSignature from 'cookie-signature';
+import { supabase } from './database.js';
+
+const SESSION_SECRET = process.env.SESSION_SECRET || 'iconnect-session-secret-change-in-production';
+
+const SESSION_COOKIE_NAME = 'iconnect.sid';
+const SESSION_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
+
+function generateSessionId() {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+function signSessionId(sessionId) {
+  return 's:' + cookieSignature.sign(sessionId, SESSION_SECRET);
+}
+
+function unsignSessionId(signedValue) {
+  if (!signedValue) return null;
+  
+  // Handle signed format: s:sessionId.signature
+  if (signedValue.startsWith('s:')) {
+    const val = signedValue.slice(2); // Remove 's:' prefix
+    const unsigned = cookieSignature.unsign(val, SESSION_SECRET);
+    return unsigned || null;
+  }
+  
+  // Fallback for unsigned (shouldn't happen in production)
+  return signedValue;
+}
+
+/**
+ * Extract a bearer token from the Authorization header.
+ * Native/mobile clients (which have no browser cookie jar) authenticate by
+ * sending `Authorization: Bearer <token>` instead of the iconnect.sid cookie.
+ * Returns null when no usable bearer token is present.
+ */
+export function getBearerToken(req) {
+  const header = req?.headers?.authorization || req?.headers?.Authorization || '';
+  if (typeof header === 'string' && header.startsWith('Bearer ')) {
+    const token = header.slice(7).trim();
+    return token || null;
+  }
+  return null;
+}
+
+export async function getSession(req) {
+  if (!supabase) {
+    console.log('[Session] getSession: No supabase client');
+    return null;
+  }
+  
+  const cookies = parse(req.headers.cookie || '');
+  const signedSessionId = cookies[SESSION_COOKIE_NAME];
+  
+  // The web cookie path is the unchanged default and is resolved first. Only
+  // when no cookie session id can be derived do we fall back to an opaque
+  // bearer token. This keeps behaviour byte-for-byte identical for any request
+  // that does not carry a bearer token.
+  let sessionId = null;
+  let viaBearer = false;
+  
+  if (signedSessionId) {
+    sessionId = unsignSessionId(signedSessionId);
+    if (!sessionId) {
+      console.log('[Session] Invalid session signature for:', signedSessionId.substring(0, 20));
+      return null;
+    }
+  } else {
+    const bearer = getBearerToken(req);
+    if (bearer) {
+      sessionId = bearer;
+      viaBearer = true;
+    }
+  }
+  
+  if (!sessionId) {
+    console.log('[Session] getSession: No session cookie or bearer token found');
+    return null;
+  }
+  
+  console.log('[Session] getSession: Looking up session:', sessionId.substring(0, 8), viaBearer ? '(bearer)' : '(cookie)');
+  
+  try {
+    const { data, error } = await supabase
+      .from('session')
+      .select('sess, expire')
+      .eq('sid', sessionId)
+      .single();
+    
+    if (error) {
+      console.log('[Session] getSession: Database error:', error.message);
+      return null;
+    }
+    
+    if (!data) {
+      console.log('[Session] getSession: Session not found in database');
+      return null;
+    }
+    
+    // Check if session expired
+    if (new Date(data.expire) < new Date()) {
+      console.log('[Session] getSession: Session expired');
+      await supabase.from('session').delete().eq('sid', sessionId);
+      return null;
+    }
+    
+    const sessData = typeof data.sess === 'string' ? JSON.parse(data.sess) : data.sess;
+    
+    // A bearer token must resolve to a session that was issued as a bearer
+    // session. This keeps the two auth methods cleanly separated so a web
+    // cookie's underlying session id can never be replayed as a bearer token.
+    if (viaBearer && sessData?.authMethod !== 'bearer') {
+      console.log('[Session] Bearer token did not resolve to a bearer session, rejecting');
+      return null;
+    }
+    
+    console.log('[Session] getSession: Session found, userType:', sessData?.userType);
+    
+    return {
+      id: sessionId,
+      data: sessData
+    };
+  } catch (err) {
+    console.error('[Session] getSession error:', err);
+    return null;
+  }
+}
+
+// Production cookie domain for cross-subdomain session sharing
+const PRODUCTION_COOKIE_DOMAIN = '.iconn.app';
+
+export async function createSession(res, sessionData, options = {}) {
+  if (!supabase) return null;
+  
+  const sessionId = generateSessionId();
+  const expire = new Date(Date.now() + SESSION_MAX_AGE);
+  const { cookieDomain, replaceSessionId, req } = options;
+  
+  // Use host-based detection for cookie domain
+  // Only use .iconn.app domain when actually on iconn.app (not Vercel preview URLs)
+  const host = req?.headers?.host || '';
+  const isOnIconnDomain = host.endsWith('.iconn.app') || host === 'iconn.app';
+  const effectiveDomain = cookieDomain || (isOnIconnDomain ? PRODUCTION_COOKIE_DOMAIN : undefined);
+  
+  // If replacing an existing session, delete it first (database only, not cookie)
+  if (replaceSessionId) {
+    try {
+      await supabase.from('session').delete().eq('sid', replaceSessionId);
+      console.log('[Session] Deleted old session:', replaceSessionId.substring(0, 8));
+    } catch (err) {
+      console.error('[Session] Error deleting old session:', err);
+    }
+  }
+  
+  // Build session object in Express/connect-pg-simple compatible format
+  // Spread sessionData to support both member and tenant_user sessions
+  const sessObject = {
+    cookie: {
+      originalMaxAge: SESSION_MAX_AGE,
+      expires: expire.toISOString(),
+      secure: true,
+      httpOnly: true,
+      path: '/',
+      sameSite: 'lax',
+      domain: effectiveDomain
+    },
+    ...sessionData
+  };
+  
+  try {
+    const { error: insertError } = await supabase.from('session').insert({
+      sid: sessionId,
+      sess: sessObject,
+      expire: expire.toISOString()
+    });
+    
+    if (insertError) {
+      console.error('[Session] createSession: Database insert failed:', insertError.message);
+      return null;
+    }
+    
+    console.log('[Session] createSession: Session inserted into database:', sessionId.substring(0, 8));
+    
+    // Sign the cookie value like Express does
+    const signedId = signSessionId(sessionId);
+    const cookieOptions = {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: SESSION_MAX_AGE / 1000 // maxAge in seconds for cookie
+    };
+    
+    // Critical: Set domain for cross-subdomain cookie sharing in production
+    if (effectiveDomain) {
+      cookieOptions.domain = effectiveDomain;
+    }
+    
+    const cookie = serialize(SESSION_COOKIE_NAME, signedId, cookieOptions);
+    
+    console.log('[Session] Created session with domain:', effectiveDomain || 'default');
+    res.setHeader('Set-Cookie', cookie);
+    
+    return { id: sessionId, data: sessionData };
+  } catch (err) {
+    console.error('Error creating session:', err);
+    return null;
+  }
+}
+
+// Bearer tokens for native/mobile clients reuse the same TTL as web sessions.
+const BEARER_TOKEN_MAX_AGE = SESSION_MAX_AGE; // 7 days in milliseconds
+
+/**
+ * Issue an opaque bearer token for a native/mobile client.
+ *
+ * This reuses the existing `session` table (no schema change): the token IS the
+ * session row's `sid`, generated unsigned so the client can send it verbatim in
+ * `Authorization: Bearer <token>`. The row is tagged `authMethod: 'bearer'` so
+ * getSession only accepts it on the bearer path. No cookie is set — mobile
+ * clients store the returned token themselves.
+ *
+ * @param {object} sessionData - same session shape used by createSession
+ *   (e.g. { userType, tenantId, tenantUserId/identityId } or member fields).
+ * @param {object} [options]
+ * @param {number} [options.maxAge] - token lifetime in ms (defaults to 7 days).
+ * @returns {Promise<{ token: string, expiresAt: string } | null>}
+ */
+export async function createBearerSession(sessionData, options = {}) {
+  if (!supabase) return null;
+
+  const token = crypto.randomBytes(48).toString('hex');
+  const maxAge = options.maxAge || BEARER_TOKEN_MAX_AGE;
+  const expire = new Date(Date.now() + maxAge);
+
+  const sessObject = {
+    cookie: {
+      originalMaxAge: maxAge,
+      expires: expire.toISOString(),
+      secure: true,
+      httpOnly: true,
+      path: '/',
+      sameSite: 'lax'
+    },
+    ...sessionData,
+    authMethod: 'bearer'
+  };
+
+  try {
+    const { error: insertError } = await supabase.from('session').insert({
+      sid: token,
+      sess: sessObject,
+      expire: expire.toISOString()
+    });
+
+    if (insertError) {
+      console.error('[Session] createBearerSession: Database insert failed:', insertError.message);
+      return null;
+    }
+
+    console.log('[Session] createBearerSession: Bearer token issued:', token.substring(0, 8), 'userType:', sessionData?.userType);
+    return { token, expiresAt: expire.toISOString() };
+  } catch (err) {
+    console.error('[Session] createBearerSession error:', err);
+    return null;
+  }
+}
+
+/**
+ * Revoke (delete) the bearer-token session referenced by the request's
+ * Authorization header. Safe to call when no token is present (returns false).
+ * Only deletes rows that were actually issued as bearer sessions, so a stray
+ * Authorization header can never delete a web cookie session.
+ * @returns {Promise<boolean>} true when a bearer session row was deleted.
+ */
+export async function revokeBearerSession(req) {
+  if (!supabase) return false;
+
+  const token = getBearerToken(req);
+  if (!token) return false;
+
+  try {
+    const { data: row } = await supabase
+      .from('session')
+      .select('sess')
+      .eq('sid', token)
+      .single();
+
+    if (!row) return false;
+
+    const sessData = typeof row.sess === 'string' ? JSON.parse(row.sess) : row.sess;
+    if (sessData?.authMethod !== 'bearer') {
+      console.log('[Session] revokeBearerSession: token is not a bearer session, ignoring');
+      return false;
+    }
+
+    await supabase.from('session').delete().eq('sid', token);
+    console.log('[Session] revokeBearerSession: Bearer token revoked:', token.substring(0, 8));
+    return true;
+  } catch (err) {
+    console.error('[Session] revokeBearerSession error:', err);
+    return false;
+  }
+}
+
+export async function updateSession(sessionId, sessionData) {
+  if (!supabase || !sessionId) {
+    console.log('[Session] updateSession: Missing supabase or sessionId');
+    return false;
+  }
+  
+  console.log('[Session] updateSession called:', {
+    sessionId: sessionId.substring(0, 8),
+    userType: sessionData?.userType,
+    memberId: sessionData?.memberId,
+    preservedTenantUserId: sessionData?.preservedTenantUserId,
+    preservedIdentityId: sessionData?.preservedIdentityId
+  });
+  
+  try {
+    const expire = new Date(Date.now() + SESSION_MAX_AGE);
+    
+    // Get existing session to preserve cookie metadata
+    const { data: existing, error: fetchError } = await supabase
+      .from('session')
+      .select('sess')
+      .eq('sid', sessionId)
+      .single();
+    
+    if (fetchError) {
+      console.error('[Session] updateSession: Failed to fetch existing session:', fetchError.message);
+      return false;
+    }
+    
+    const existingSess = existing?.sess ? 
+      (typeof existing.sess === 'string' ? JSON.parse(existing.sess) : existing.sess) : 
+      {};
+    
+    const sessObject = {
+      cookie: existingSess.cookie || {
+        originalMaxAge: SESSION_MAX_AGE,
+        expires: expire.toISOString(),
+        secure: process.env.NODE_ENV === 'production',
+        httpOnly: true,
+        path: '/',
+        sameSite: 'lax'
+      },
+      ...sessionData
+    };
+    
+    // Update cookie expiry
+    sessObject.cookie.expires = expire.toISOString();
+    
+    console.log('[Session] updateSession: Writing to DB:', {
+      sessionId: sessionId.substring(0, 8),
+      newUserType: sessObject.userType,
+      newMemberId: sessObject.memberId,
+      newPreservedTenantUserId: sessObject.preservedTenantUserId
+    });
+    
+    const { error: updateError, count } = await supabase
+      .from('session')
+      .update({
+        sess: sessObject,
+        expire: expire.toISOString()
+      })
+      .eq('sid', sessionId);
+    
+    if (updateError) {
+      console.error('[Session] updateSession: DB update failed:', updateError.message);
+      return false;
+    }
+    
+    // Verify the update by reading back
+    const { data: verification, error: verifyError } = await supabase
+      .from('session')
+      .select('sess')
+      .eq('sid', sessionId)
+      .single();
+    
+    if (verifyError) {
+      console.error('[Session] updateSession: Verification read failed:', verifyError.message);
+      return false;
+    }
+    
+    const verifiedSess = verification?.sess ? 
+      (typeof verification.sess === 'string' ? JSON.parse(verification.sess) : verification.sess) : 
+      null;
+    
+    // Check if critical fields were persisted
+    const userTypePersisted = verifiedSess?.userType === sessionData?.userType;
+    const preservedIdPersisted = !sessionData?.preservedTenantUserId || 
+      verifiedSess?.preservedTenantUserId === sessionData?.preservedTenantUserId;
+    const updateSuccessful = userTypePersisted && preservedIdPersisted;
+    
+    console.log('[Session] updateSession: Verification read:', {
+      sessionId: sessionId.substring(0, 8),
+      verifiedUserType: verifiedSess?.userType,
+      expectedUserType: sessionData?.userType,
+      verifiedPreservedTenantUserId: verifiedSess?.preservedTenantUserId,
+      expectedPreservedTenantUserId: sessionData?.preservedTenantUserId,
+      updateSuccessful
+    });
+    
+    if (!updateSuccessful) {
+      console.error('[Session] updateSession: VERIFICATION FAILED - session did not persist correctly');
+      return false;
+    }
+    
+    return true;
+  } catch (err) {
+    console.error('[Session] updateSession: Exception:', err);
+    return false;
+  }
+}
+
+export async function destroySession(req, res, options = {}) {
+  if (!supabase) return;
+  
+  const cookies = parse(req.headers.cookie || '');
+  const signedSessionId = cookies[SESSION_COOKIE_NAME];
+  
+  // Unsign the session ID
+  const sessionId = unsignSessionId(signedSessionId);
+  
+  if (sessionId) {
+    try {
+      await supabase.from('session').delete().eq('sid', sessionId);
+    } catch (err) {
+      console.error('Error destroying session:', err);
+    }
+  }
+  
+  // Clear the cookie - must use same domain as was used to set it for cross-subdomain cookies
+  // Use host-based detection for cookie domain
+  const { cookieDomain } = options;
+  const host = req?.headers?.host || '';
+  const isOnIconnDomain = host.endsWith('.iconn.app') || host === 'iconn.app';
+  const domain = cookieDomain || (isOnIconnDomain ? PRODUCTION_COOKIE_DOMAIN : undefined);
+  
+  const cookieOptions = {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 0
+  };
+  
+  if (domain) {
+    cookieOptions.domain = domain;
+  }
+  
+  const cookie = serialize(SESSION_COOKIE_NAME, '', cookieOptions);
+  
+  res.setHeader('Set-Cookie', cookie);
+}
+
+/**
+ * Try to promote a member session to tenant_user access.
+ * This is called when a user logged in via portal SSO tries to access the admin dashboard.
+ * If the user's identity has owner/admin membership for the tenant, we grant access.
+ * 
+ * @param {object} session - The current session object with id and data
+ * @param {object} req - The request object (for hostname-based tenant resolution)
+ * @returns {Promise<object|null>} - The tenant_user object if promotion succeeds, null otherwise
+ */
+async function tryPromoteMemberToTenantUser(session, req) {
+  if (!supabase || !session?.data?.identityId) {
+    return null;
+  }
+  
+  const identityId = session.data.identityId;
+  
+  // Get the tenant context - try multiple sources in order of priority
+  let targetTenantId = session.data.tenantId;
+  
+  // If no tenantId in session, try to get it from the request hostname
+  if (!targetTenantId && req) {
+    try {
+      const { resolveTenantFromRequest } = await import('./tenantResolver.js');
+      const tenantFromHost = await resolveTenantFromRequest(req);
+      if (tenantFromHost) {
+        targetTenantId = tenantFromHost.id;
+      }
+    } catch (err) {
+      // Tenant resolver may not be available
+    }
+  }
+  
+  // If still no tenantId, try to get it from the member's organization
+  if (!targetTenantId && session.data.memberId) {
+    const { data: member } = await supabase
+      .from('member')
+      .select('organization:organization_id(tenant_id)')
+      .eq('id', session.data.memberId)
+      .single();
+    
+    targetTenantId = member?.organization?.tenant_id;
+  }
+  
+  if (!targetTenantId) {
+    console.log('[Session] Cannot promote member session - no tenant context');
+    return null;
+  }
+  
+  try {
+    // Primary approach: Look up tenant_user directly by identity_id and tenant_id
+    // This is the most reliable method as it doesn't depend on tenant_membership schema
+    let tenantUser = null;
+    
+    const { data: directTenantUser } = await supabase
+      .from('tenant_user')
+      .select('*, tenant:tenant_id(*)')
+      .eq('identity_id', identityId)
+      .eq('tenant_id', targetTenantId)
+      .single();
+    
+    if (directTenantUser) {
+      tenantUser = directTenantUser;
+      console.log('[Session] Found tenant_user via identity_id lookup:', tenantUser.id);
+    }
+    
+    // Fallback: Check tenant_membership table if direct lookup fails
+    // This supports the newer membership-based access model.
+    // NOTE: admin-level access is conveyed via membership.role ('owner'/'admin'),
+    // NOT via membership_type. Most admin rows are stored as
+    // membership_type='member' with role='owner', so filtering on
+    // membership_type='owner' alone would (and did) reject legitimate admins
+    // and silently 401 every /api/admin/* call for that session.
+    if (!tenantUser) {
+      try {
+        const { data: membership } = await supabase
+          .from('tenant_membership')
+          .select('*, tenant_user:tenant_user_id(*)')
+          .eq('identity_id', identityId)
+          .eq('tenant_id', targetTenantId)
+          .eq('status', 'active')
+          .or('membership_type.eq.owner,role.eq.owner,role.eq.admin')
+          .maybeSingle();
+        
+        if (membership?.tenant_user) {
+          tenantUser = membership.tenant_user;
+          console.log('[Session] Found tenant_user via membership lookup');
+        } else if (membership?.tenant_user_id) {
+          const { data } = await supabase
+            .from('tenant_user')
+            .select('*, tenant:tenant_id(*)')
+            .eq('id', membership.tenant_user_id)
+            .single();
+          tenantUser = data;
+        }
+      } catch (membershipErr) {
+        // tenant_membership table may not have required columns yet
+        console.log('[Session] Membership lookup skipped (table may need migration)');
+      }
+    }
+    
+    if (!tenantUser) {
+      console.log('[Session] No tenant_user record found for identity promotion');
+      return null;
+    }
+    
+    if (tenantUser.status !== 'active') {
+      console.log('[Session] Tenant user inactive, cannot promote:', tenantUser.id);
+      return null;
+    }
+    
+    // Upgrade the session to full tenant_user access
+    // Change userType so all downstream admin guards pass
+    const upgradedSessionData = {
+      ...session.data,
+      userType: 'tenant_user', // Critical: change userType so subsequent API calls pass
+      tenantUserId: tenantUser.id,
+      tenantId: targetTenantId,
+      // Preserve original member info for potential back-navigation
+      originalUserType: session.data.userType,
+      promotedFromMember: true
+    };
+    
+    await updateSession(session.id, upgradedSessionData);
+    
+    console.log('[Session] Successfully promoted member session to include tenant_user access:', {
+      identityId,
+      tenantUserId: tenantUser.id,
+      tenantId: targetTenantId
+    });
+    
+    // Attach session metadata
+    tenantUser._sessionTenantId = targetTenantId;
+    tenantUser._sessionIdentityId = identityId;
+    
+    // Fetch tenant data if not included
+    if (!tenantUser.tenant) {
+      const { data: tenant } = await supabase
+        .from('tenant')
+        .select('*')
+        .eq('id', targetTenantId)
+        .single();
+      tenantUser.tenant = tenant;
+    }
+    
+    return tenantUser;
+  } catch (err) {
+    console.error('[Session] Error promoting member session:', err);
+    return null;
+  }
+}
+
+export async function getSessionMember(req) {
+  const session = await getSession(req);
+  
+  console.log('[Session] getSessionMember called, session data:', JSON.stringify({
+    hasSession: !!session,
+    sessionId: session?.id?.substring(0, 8),
+    userType: session?.data?.userType,
+    memberId: session?.data?.memberId,
+    preservedTenantUserId: session?.data?.preservedTenantUserId,
+    preservedIdentityId: session?.data?.preservedIdentityId
+  }));
+  
+  if (!session?.data?.memberId) {
+    return null;
+  }
+  
+  if (!supabase) return null;
+  
+  try {
+    const { data: member, error } = await supabase
+      .from('member')
+      .select('*, organization:organization_id(tenant_id)')
+      .eq('id', session.data.memberId)
+      .single();
+    
+    // If member doesn't exist at all (hard deleted), clean up the stale session
+    if (error || !member) {
+      console.log('[Session] Member not found in database, cleaning up stale session:', session.data.memberId);
+      await supabase.from('session').delete().eq('sid', session.id);
+      return null;
+    }
+    
+    // Security check: Reject authentication for disabled or deleted members
+    // This ensures immediate logout when admin disables login or deletes member
+    if (member.login_enabled === false) {
+      console.log('[Session] Member login disabled, rejecting session:', member.id);
+      // Delete the session to force logout
+      await supabase.from('session').delete().eq('sid', session.id);
+      return null;
+    }
+    
+    // Check if member is deleted (anonymized email pattern)
+    if (member.email?.startsWith('deleted_') && member.email?.endsWith('@deleted.local')) {
+      console.log('[Session] Member is deleted, rejecting session:', member.id);
+      await supabase.from('session').delete().eq('sid', session.id);
+      return null;
+    }
+    
+    // Attach preserved admin context if present (for hasTenantUserLink detection)
+    if (session.data.preservedTenantUserId) {
+      member._sessionPreservedTenantUserId = session.data.preservedTenantUserId;
+      console.log('[Session] Attaching preserved admin context to member:', {
+        memberId: member.id,
+        preservedTenantUserId: session.data.preservedTenantUserId
+      });
+    }
+    if (session.data.preservedIdentityId) {
+      member._sessionPreservedIdentityId = session.data.preservedIdentityId;
+      console.log('[Session] Attaching preserved identity to member:', {
+        memberId: member.id,
+        preservedIdentityId: session.data.preservedIdentityId
+      });
+    }
+    
+    return member;
+  } catch (err) {
+    console.error('Error getting session member:', err);
+    return null;
+  }
+}
+
+export async function getSessionTenantUser(req) {
+  const session = await getSession(req);
+  
+  console.log('[Session] getSessionTenantUser called, session data:', JSON.stringify({
+    hasSession: !!session,
+    sessionId: session?.id?.substring(0, 8),
+    userType: session?.data?.userType,
+    tenantUserId: session?.data?.tenantUserId,
+    preservedTenantUserId: session?.data?.preservedTenantUserId,
+    memberId: session?.data?.memberId,
+    identityId: session?.data?.identityId,
+    tenantId: session?.data?.tenantId
+  }));
+  
+  // Standard tenant_user session check
+  // Also handle legacy sessions where userType may be undefined but tenantUserId exists
+  const isTenantUserSession = session?.data?.tenantUserId && 
+    (session.data.userType === 'tenant_user' || session.data.userType === undefined);
+  
+  if (isTenantUserSession) {
+    console.log('[Session] Found tenant_user session, continuing with normal handling');
+    // Continue with normal tenant_user session handling below
+  } else if (session?.data?.preservedTenantUserId && session.data.userType === 'member') {
+    // Session has preserved admin context from portal SSO - restore it
+    console.log('[Session] Found member session with preserved admin context, restoring tenant_user access');
+    
+    const restoredSessionData = {
+      ...session.data,
+      tenantUserId: session.data.preservedTenantUserId,
+      tenantUserEmail: session.data.preservedTenantUserEmail,
+      identityId: session.data.preservedIdentityId,
+      tenantId: session.data.preservedTenantId,
+      userType: 'tenant_user',
+      // Keep member context for potential return to portal
+      preservedMemberId: session.data.memberId,
+      preservedMemberEmail: session.data.memberEmail,
+      preservedMemberType: 'member'
+      // NOTE: Keep preservedTenantUserId, preservedIdentityId etc. intact
+      // so user can switch between admin and portal without losing context
+    };
+    
+    await updateSession(session.id, restoredSessionData);
+    console.log('[Session] Restored admin context from preserved session');
+    
+    // Now continue with normal tenant_user handling using the restored tenantUserId
+    session.data = restoredSessionData;
+  } else if (session?.data?.identityId && (session.data.userType === 'member' || session.data.userType === undefined)) {
+    console.log('[Session] Found member session with identityId, attempting promotion');
+    // Member session - check if this identity is also a tenant owner
+    // and can be promoted to tenant_user access
+    const promotedUser = await tryPromoteMemberToTenantUser(session, req);
+    if (promotedUser) {
+      console.log('[Session] Member session promoted successfully');
+      return promotedUser;
+    }
+    console.log('[Session] Member session promotion failed');
+    return null;
+  } else if (session?.data?.memberId && session.data.userType === undefined) {
+    // Legacy member session without proper userType - not a tenant_user session
+    // Let getTenantContext fall through to getSessionMember instead
+    console.log('[Session] Legacy member session detected (userType undefined, memberId present), deferring to member session handling');
+    return null;
+  } else {
+    console.log('[Session] No valid session for tenant_user access, userType:', session?.data?.userType);
+    return null;
+  }
+  
+  // SECURITY: Reject sessions without tenantId to prevent tenant isolation bypass
+  // This ensures pre-patch sessions that lack tenantId cannot access APIs.
+  // Reject THIS request but do NOT delete the session row — destroying the
+  // session here turns a recoverable validation miss into a poisoned cookie
+  // that 401s ("cannot coerce") every subsequent request until cookies clear.
+  if (!session.data.tenantId) {
+    console.warn('[Session] SECURITY: Tenant user session missing tenantId, rejecting request without deleting session:', session.data.tenantUserId);
+    return null;
+  }
+  
+  if (!supabase) return null;
+  
+  try {
+    // First, try unified identity system (tenant_identity + tenant_membership)
+    // Check if the tenantUserId is an identity ID by looking it up in tenant_identity
+    if (session.data.identityId || session.data.membershipId) {
+      const identityId = session.data.identityId || session.data.tenantUserId;
+      
+      const { data: identity, error: identityError } = await supabase
+        .from('tenant_identity')
+        .select('*')
+        .eq('id', identityId)
+        .single();
+      
+      if (identity) {
+        // Found in unified identity system - verify membership.
+        //
+        // Robustness notes (this path runs on EVERY /api/admin/* request):
+        //  - Admin access is conveyed via membership.role ('owner'/'admin'),
+        //    not via membership_type. Most admin rows are stored as
+        //    membership_type='member' with role='owner', so filtering on
+        //    membership_type='owner' alone would 401 every legitimate admin.
+        //  - We fetch the FULL set of active memberships (no .single()/
+        //    .maybeSingle()) because those throw/error when duplicate rows
+        //    exist for the same identity+tenant, which would otherwise drop a
+        //    legitimate admin session and 401 the dashboard.
+        const { data: membershipRows, error: membershipError } = await supabase
+          .from('tenant_membership')
+          .select('*, tenant:tenant_id(*)')
+          .eq('identity_id', identity.id)
+          .eq('tenant_id', session.data.tenantId)
+          .eq('status', 'active');
+
+        if (membershipError) {
+          // Transient lookup failure: reject THIS request but never delete the
+          // session, so the next request can recover instead of forcing a full
+          // re-authentication.
+          console.warn('[Session] tenant_membership lookup error, not deleting session:', membershipError.message);
+          return null;
+        }
+
+        const memberships = membershipRows || [];
+        const adminMembership = memberships.find(
+          m => m.role === 'owner' || m.role === 'admin' || m.membership_type === 'owner'
+        );
+
+        if (adminMembership) {
+          console.log('[Session] Verified via unified identity system:', identity.email);
+
+          // Check if there's also a tenant_user record with a higher privilege role
+          // This handles cases where user is both a member and tenant owner
+          let effectiveRole = adminMembership.role || 'owner';
+
+          if (session.data.tenantUserId && session.data.tenantUserId !== identity.id && effectiveRole === 'member') {
+            const { data: legacyUser } = await supabase
+              .from('tenant_user')
+              .select('role')
+              .eq('id', session.data.tenantUserId)
+              .eq('tenant_id', session.data.tenantId)
+              .eq('status', 'active')
+              .single();
+
+            if (legacyUser && (legacyUser.role === 'owner' || legacyUser.role === 'admin')) {
+              console.log('[Session] Elevating role from tenant_user table:', legacyUser.role);
+              effectiveRole = legacyUser.role;
+            }
+          }
+
+          // Return a tenant user-like object for API compatibility
+          const unifiedUser = {
+            id: identity.id,
+            email: identity.email,
+            first_name: identity.first_name,
+            last_name: identity.last_name,
+            role: effectiveRole,
+            status: 'active',
+            tenant_id: session.data.tenantId,
+            tenant: adminMembership.tenant,
+            _sessionTenantId: session.data.tenantId,
+            _sessionIdentityId: identity.id,
+            _isUnifiedIdentity: true
+          };
+
+          return unifiedUser;
+        }
+
+        // Identity resolved but no admin-level membership for this tenant.
+        // Do NOT fall through to the legacy tenant_user lookup below when the
+        // session's tenantUserId is actually the identity.id (the case where no
+        // legacy tenant_user row exists): that lookup is guaranteed to miss and
+        // would DELETE a valid session, 401ing every subsequent request.
+        if (!session.data.tenantUserId || session.data.tenantUserId === identity.id) {
+          console.log('[Session] No admin-level membership for identity on tenant, returning null without deleting session:', session.data.tenantId);
+          return null;
+        }
+        // Otherwise tenantUserId is a real tenant_user.id — fall through and let
+        // the legacy lookup below validate it (legacy-only admins may have a
+        // tenant_user row without a matching tenant_membership row).
+        console.log('[Session] No unified admin membership; falling back to legacy tenant_user validation for:', session.data.tenantUserId);
+      }
+    }
+    
+    // Fallback: Verify the user in legacy tenant_user table
+    const { data: tenantUser, error } = await supabase
+      .from('tenant_user')
+      .select('*, tenant:tenant_id(*)')
+      .eq('id', session.data.tenantUserId)
+      .eq('tenant_id', session.data.tenantId) // SECURITY: Verify tenant match
+      .single();
+    
+    if (error || !tenantUser) {
+      // Reject THIS request but never delete the session — an admin-access miss
+      // (e.g. a member-only tenant selection) must not poison the cookie and
+      // 401 every subsequent request. Genuine logout still deletes via destroySession.
+      console.log('[Session] Tenant user not found in database or tenant mismatch, rejecting request without deleting session:', session.data.tenantUserId);
+      return null;
+    }
+    
+    if (tenantUser.status !== 'active') {
+      console.log('[Session] Tenant user inactive, rejecting request without deleting session:', tenantUser.id);
+      return null;
+    }
+    
+    // Attach session metadata to the tenant user for downstream use
+    tenantUser._sessionTenantId = session.data.tenantId;
+    tenantUser._sessionIdentityId = session.data.identityId;
+    
+    return tenantUser;
+  } catch (err) {
+    console.error('Error getting session tenant user:', err);
+    return null;
+  }
+}
+
+/**
+ * Invalidate all sessions for a specific member.
+ * Call this when a member is deleted or their login_enabled is set to false.
+ * Uses direct JSONB query for reliability instead of fetching and filtering in JS.
+ * @param {string} memberId - The member ID to invalidate sessions for
+ * @returns {Promise<{success: boolean, count: number}>}
+ */
+export async function invalidateMemberSessions(memberId) {
+  if (!supabase || !memberId) {
+    console.log('[Session] invalidateMemberSessions called with invalid params:', { supabase: !!supabase, memberId });
+    return { success: false, count: 0 };
+  }
+  
+  try {
+    console.log('[Session] Attempting to invalidate sessions for member:', memberId);
+    
+    // First, count how many sessions exist for this member using JSONB query
+    // Supabase filter on JSONB: sess->memberId equals the member ID
+    const { data: matchingSessions, error: countError } = await supabase
+      .from('session')
+      .select('sid')
+      .filter('sess->>memberId', 'eq', memberId);
+    
+    if (countError) {
+      console.error('[Session] Error counting sessions with JSONB filter:', countError);
+      // Fallback: try the old method
+      return await invalidateMemberSessionsFallback(memberId);
+    }
+    
+    const count = matchingSessions?.length || 0;
+    console.log(`[Session] Found ${count} session(s) for member ${memberId} using JSONB filter`);
+    
+    if (count === 0) {
+      // Double-check by fetching all sessions and logging what's there
+      const { data: allSessions } = await supabase
+        .from('session')
+        .select('sid, sess')
+        .limit(10);
+      
+      console.log('[Session] Sample of all sessions in table:', 
+        allSessions?.map(s => ({
+          sid: s.sid?.substring(0, 8) + '...',
+          memberId: (typeof s.sess === 'string' ? JSON.parse(s.sess) : s.sess)?.memberId
+        }))
+      );
+      
+      return { success: true, count: 0 };
+    }
+    
+    // Delete sessions using the same JSONB filter
+    const { error: deleteError } = await supabase
+      .from('session')
+      .delete()
+      .filter('sess->>memberId', 'eq', memberId);
+    
+    if (deleteError) {
+      console.error('[Session] Error deleting sessions with JSONB filter:', deleteError);
+      return { success: false, count: 0 };
+    }
+    
+    console.log(`[Session] Successfully invalidated ${count} session(s) for member:`, memberId);
+    return { success: true, count };
+  } catch (err) {
+    console.error('[Session] Error invalidating member sessions:', err);
+    return { success: false, count: 0 };
+  }
+}
+
+/**
+ * Fallback method using JS filtering if JSONB filter doesn't work
+ */
+async function invalidateMemberSessionsFallback(memberId) {
+  console.log('[Session] Using fallback method for session invalidation');
+  
+  try {
+    const { data: sessions, error: fetchError } = await supabase
+      .from('session')
+      .select('sid, sess');
+    
+    if (fetchError) {
+      console.error('[Session] Fallback: Error fetching sessions:', fetchError);
+      return { success: false, count: 0 };
+    }
+    
+    console.log(`[Session] Fallback: Fetched ${sessions?.length || 0} total sessions`);
+    
+    // Filter sessions that belong to this member
+    const memberSessions = (sessions || []).filter(s => {
+      const sessData = typeof s.sess === 'string' ? JSON.parse(s.sess) : s.sess;
+      const matches = sessData?.memberId === memberId;
+      if (matches) {
+        console.log('[Session] Fallback: Found matching session:', s.sid?.substring(0, 8) + '...');
+      }
+      return matches;
+    });
+    
+    if (memberSessions.length === 0) {
+      console.log('[Session] Fallback: No sessions found for member:', memberId);
+      // Log what memberIds are in the sessions for debugging
+      const allMemberIds = (sessions || []).map(s => {
+        const sessData = typeof s.sess === 'string' ? JSON.parse(s.sess) : s.sess;
+        return sessData?.memberId;
+      }).filter(Boolean);
+      console.log('[Session] Fallback: MemberIds in sessions:', [...new Set(allMemberIds)]);
+      return { success: true, count: 0 };
+    }
+    
+    const sessionIds = memberSessions.map(s => s.sid);
+    const { error: deleteError } = await supabase
+      .from('session')
+      .delete()
+      .in('sid', sessionIds);
+    
+    if (deleteError) {
+      console.error('[Session] Fallback: Error deleting sessions:', deleteError);
+      return { success: false, count: 0 };
+    }
+    
+    console.log(`[Session] Fallback: Invalidated ${sessionIds.length} session(s) for member:`, memberId);
+    return { success: true, count: sessionIds.length };
+  } catch (err) {
+    console.error('[Session] Fallback: Error:', err);
+    return { success: false, count: 0 };
+  }
+}

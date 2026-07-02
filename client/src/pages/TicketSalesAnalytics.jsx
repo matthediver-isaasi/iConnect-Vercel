@@ -13,7 +13,7 @@ import OrganizationTransactionsModal from "../components/analytics/OrganizationT
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 export default function TicketSalesAnalyticsPage() {
-  const { isAdmin, memberInfo, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { memberInfo, isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedProgram, setSelectedProgram] = useState("all");
@@ -22,13 +22,13 @@ export default function TicketSalesAnalyticsPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_TicketSalesAnalytics')) {
+      if (isFeatureExcluded('page_TicketSalesAnalytics')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady, isFeatureExcluded]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: transactions = [], isLoading: loadingTransactions } = useQuery({
     queryKey: ['all-transactions'],
@@ -70,7 +70,7 @@ export default function TicketSalesAnalyticsPage() {
         const org = organizations.find(o => o.id === orgId);
         orgMap.set(orgId, {
           organization_id: orgId,
-          organization_name: org?.name || 'Unknown Organization',
+          organization_name: org?.name || 'Unknown Organisation',
           total_tickets_purchased: 0,
           total_tickets_used: 0,
           total_tickets_refunded: 0,
@@ -155,7 +155,7 @@ export default function TicketSalesAnalyticsPage() {
 
   // Export to CSV
   const handleExportCSV = () => {
-    const headers = ['Organization', 'Tickets Purchased', 'Tickets Used', 'Tickets Refunded', 'Net Tickets', 'Sales Value (£)', 'Programs', 'Transactions'];
+    const headers = ['Organisation', 'Tickets Purchased', 'Tickets Used', 'Tickets Refunded', 'Net Tickets', 'Sales Value (£)', 'Programs', 'Transactions'];
     const rows = filteredAndSortedData.map(org => [
       org.organization_name,
       org.total_tickets_purchased,
@@ -185,14 +185,14 @@ export default function TicketSalesAnalyticsPage() {
 
   if (!accessChecked) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
@@ -203,7 +203,7 @@ export default function TicketSalesAnalyticsPage() {
             </h1>
           </div>
           <p className="text-slate-600">
-            Overview of ticket sales across all organizations
+            Overview of ticket sales across all organisations
           </p>
         </div>
 
@@ -211,7 +211,7 @@ export default function TicketSalesAnalyticsPage() {
         <div className="grid md:grid-cols-3 gap-6 mb-8">
           <Card className="border-slate-200 shadow-sm">
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-slate-600">Total Organizations</CardTitle>
+              <CardTitle className="text-sm font-medium text-slate-600">Total Organisations</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="flex items-center gap-2">
@@ -255,7 +255,7 @@ export default function TicketSalesAnalyticsPage() {
               <div className="flex-1 relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
                 <Input
-                  placeholder="Search organizations..."
+                  placeholder="Search organisations..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-10"
@@ -304,7 +304,7 @@ export default function TicketSalesAnalyticsPage() {
         {/* Sales Data Table */}
         <Card className="border-slate-200 shadow-sm">
           <CardHeader className="border-b border-slate-200">
-            <CardTitle>Sales by Organization</CardTitle>
+            <CardTitle>Sales by Organisation</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             {isLoading ? (
@@ -321,7 +321,7 @@ export default function TicketSalesAnalyticsPage() {
                   <thead className="bg-slate-50 border-b border-slate-200">
                     <tr>
                       <th className="px-6 py-3 text-left text-xs font-medium text-slate-600 uppercase tracking-wider">
-                        Organization
+                        Organisation
                       </th>
                       <th className="px-6 py-3 text-right text-xs font-medium text-slate-600 uppercase tracking-wider">
                         Purchased

@@ -1,9 +1,10 @@
 import React, { useState, useMemo } from "react";
-import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PaginationPageButton } from "@/components/ui/PaginationPageButton";
 import { FileQuestion, ChevronLeft, ChevronRight, SlidersHorizontal } from "lucide-react";
+import { publicClient } from "@/api/publicClient";
 import ArticleFilter from "../components/blog/ArticleFilter";
 import ArticleCard from "../components/blog/ArticleCard";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -15,37 +16,27 @@ export default function PublicNewsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(12);
 
-  // Fetch published news
   const { data: news = [], isLoading: newsLoading } = useQuery({
     queryKey: ['public-news'],
-    queryFn: async () => {
-      const allNews = await base44.entities.NewsPost.list('-published_date');
-      const now = new Date();
-      return allNews.filter(n => 
-        n.status === 'published' && 
-        (!n.published_date || new Date(n.published_date) <= now)
-      );
-    },
-    staleTime: 0, // Always fetch fresh content for news feed
+    queryFn: async () => await publicClient.listNews() || [],
+    staleTime: 0,
   });
 
-  // Fetch categories
   const { data: categories = [], isLoading: categoriesLoading } = useQuery({
     queryKey: ['resourceCategories'],
     queryFn: async () => {
-      const cats = await base44.entities.ResourceCategory.list();
+      const cats = await publicClient.listResourceCategories();
       return cats
-        .filter(c => c.is_active && c.applies_to_content_types?.includes("News"))
+        .filter(c => c.applies_to_content_types?.includes("News"))
         .sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
     },
     refetchOnWindowFocus: true
   });
 
-  // Fetch button styles
   const { data: buttonStyles = [] } = useQuery({
-    queryKey: ['article-button-styles'],
+    queryKey: ['public-article-button-styles'],
     queryFn: async () => {
-      const allStyles = await base44.entities.ButtonStyle.list();
+      const allStyles = await publicClient.listButtonStyles();
       return allStyles.filter(s => s.is_active && s.card_type === 'article');
     },
     refetchOnWindowFocus: true
@@ -246,15 +237,14 @@ export default function PublicNewsPage() {
                         page === '...' ? (
                           <span key={`ellipsis-${idx}`} className="px-2 text-slate-400">...</span>
                         ) : (
-                          <Button
+                          <PaginationPageButton
                             key={page}
-                            variant={currentPage === page ? "default" : "outline"}
-                            size="sm"
+                            active={currentPage === page}
                             onClick={() => setCurrentPage(page)}
                             className="min-w-[40px]"
                           >
                             {page}
-                          </Button>
+                          </PaginationPageButton>
                         )
                       ))}
                       

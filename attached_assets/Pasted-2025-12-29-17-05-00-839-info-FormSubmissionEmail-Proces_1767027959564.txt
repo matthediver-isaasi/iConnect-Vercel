@@ -1,0 +1,35 @@
+2025-12-29 17:05:00.839 [info] [FormSubmissionEmail] Processing email: email_1767027264085 template: 4ef5245b-aea2-4f75-b3d4-288f693372b1
+2025-12-29 17:05:01.033 [info] [FormSubmissionEmail] Template loaded: Uni individual thank you registering
+2025-12-29 17:05:01.033 [info] [FormSubmissionEmail] Resolved field reference field_1765017830408 to: mat.the.diver@googlemail.com
+2025-12-29 17:05:01.033 [info] [FormSubmissionEmail] Resolved emails - to: mat.the.diver@googlemail.com cc:  bcc:
+2025-12-29 17:05:01.089 [info] [FormSubmissionEmail] Sending email...
+2025-12-29 17:05:01.089 [info] [FormSubmissionEmail] Subject: Welcome to the Graduate Futures Institute
+2025-12-29 17:05:01.244 [info] [Email Service] Email footer loaded successfully
+2025-12-29 17:05:01.385 [info] [Email Service] Email footer appended
+2025-12-29 17:05:01.385 [info] [Email Service] Sending email to: mat.the.diver@googlemail.com
+2025-12-29 17:05:01.385 [info] [Email Service] Subject: Welcome to the Graduate Futures Institute
+2025-12-29 17:05:01.751 [info] [Email Service] Email sent successfully. Message ID: <20251229170501.5582b85893e3f2a4@agcas.isaasi.co.uk>
+2025-12-29 17:05:01.752 [info] [FormSubmissionEmail] Email result: {
+  success: true,
+  messageId: '<20251229170501.5582b85893e3f2a4@agcas.isaasi.co.uk>'
+}
+2025-12-29 17:05:01.752 [info] [FormSubmissionEmail] All emails processed, results: 1
+2025-12-29 17:05:00.433 [info] [FormSubmissionEmail] === ENDPOINT CALLED ===
+2025-12-29 17:05:00.434 [info] [FormSubmissionEmail] Request received for form: edef4f0c-7a44-4ee8-b5df-642266298758 submission: 6554c323-4276-4bba-b3a6-d2a819f34107
+2025-12-29 17:05:00.434 [info] [FormSubmissionEmail] form_values keys: [
+  'field_1765019805833',
+  'field_1765017571083',
+  'field_1765017795175',
+  'field_1765017805976',
+  'field_1765017830408',
+  'field_1765693757142',
+  'field_1765695007112',
+  'field_1765789870269'
+]
+2025-12-29 17:05:00.434 [info] [FormSubmissionEmail] CLIENT-SIDE form email config: {"hasSubmissionEmails":true,"submissionEmailsCount":1,"submissionEmailsValue":[{"cc":"","id":"email_1767027264085","bcc":"","recipient":"{{field_1765017830408}}","template_id":"4ef5245b-aea2-4f75-b3d4-288f693372b1","field_mapping":{}}],"legacyTemplateId":null,"legacyRecipient":null}
+2025-12-29 17:05:00.695 [info] [FormSubmissionEmail] Form loaded: HoS Join
+2025-12-29 17:05:00.696 [info] [FormSubmissionEmail] Form email config - submission_emails: [{"cc":"","id":"email_1767027264085","bcc":"","recipient":"{{field_1765017830408}}","template_id":"4ef5245b-aea2-4f75-b3d4-288f693372b1","field_mapping":{}}]
+2025-12-29 17:05:00.696 [info] [FormSubmissionEmail] Form email config - legacy template_id: null
+2025-12-29 17:05:00.696 [info] [FormSubmissionEmail] Form email config - legacy recipient:
+2025-12-29 17:05:00.697 [info] [FormSubmissionEmail] Using new multi-email format, count: 1
+2025-12-29 17:05:00.697 [info] [FormSubmissionEmail] Filtered emails to send: 1

@@ -1,0 +1,16 @@
+index-DKV_E6-g.js:2544 [ReviewSubmission] handleStatusChange called
+index-DKV_E6-g.js:2544 [ReviewSubmission] newStatus: verified
+index-DKV_E6-g.js:2544 [ReviewSubmission] currentStatus: new
+index-DKV_E6-g.js:2544 [ReviewSubmission] formId: a9ec1559-495a-4705-9da9-d51517be7bb6
+index-DKV_E6-g.js:2544 [ReviewSubmission] form: {id: 'a9ec1559-495a-4705-9da9-d51517be7bb6', name: 'ESO Long form', fields: Array(79), pages: Array(11), due_diligence_required: true}
+index-DKV_E6-g.js:2544 [ReviewSubmission] ddSubmission?.form_submission?.form_id: a9ec1559-495a-4705-9da9-d51517be7bb6
+index-DKV_E6-g.js:2544 [ReviewSubmission] Calling check-stage-actions API...
+index-DKV_E6-g.js:2544 [ReviewSubmission] check-stage-actions response: {has_meeting_actions: true, meeting_actions: Array(0), requires_agent_selection: false, _debug: {…}}
+index-DKV_E6-g.js:2544 [ReviewSubmission] requires_agent_selection: false
+index-DKV_E6-g.js:2544 [ReviewSubmission] meeting_actions length: 0
+index-DKV_E6-g.js:2544 [ReviewSubmission] DEBUG INFO: {input: {…}, stage_meeting_requests_found: 1, stage_meeting_requests_data: Array(1), unique_agents_count: 0, processing_steps: Array(1)}
+index-DKV_E6-g.js:2544 [ReviewSubmission] Agent selection not required or no meeting actions
+index-DKV_E6-g.js:2544 [ReviewSubmission] Proceeding with status update, no agent selection needed
+index-DKV_E6-g.js:2544 [DocumentsCard] Input props: {formSubmissionId: 'e19029e7-9c88-480d-8712-06f5b6ec99af', hasSubmissionData: true, submissionDataType: 'object', submissionDataKeys: Array(16), submissionDataSample: '{"field_1768821271046":"Mat","field_1768821297362"…109853362-xdpmwmc-INVOICE_999901552.pdf\\",\\"file_', …}
+index-DKV_E6-g.js:2544 [DocumentsCard] Input props: {formSubmissionId: 'e19029e7-9c88-480d-8712-06f5b6ec99af', hasSubmissionData: true, submissionDataType: 'object', submissionDataKeys: Array(16), submissionDataSample: '{"field_1768821271046":"Mat","field_1768821297362"…109853362-xdpmwmc-INVOICE_999901552.pdf\\",\\"file_', …}
+index-DKV_E6-g.js:2544 [DocumentsCard] Input props: {formSubmissionId: 'e19029e7-9c88-480d-8712-06f5b6ec99af', hasSubmissionData: true, submissionDataType: 'object', submissionDataKeys: Array(16), submissionDataSample: '{"field_1768821271046":"Mat","field_1768821297362"…109853362-xdpmwmc-INVOICE_999901552.pdf\\",\\"file_', …}

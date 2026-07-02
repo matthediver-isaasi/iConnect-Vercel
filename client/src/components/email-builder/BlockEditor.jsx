@@ -1,0 +1,2002 @@
+import { useState, useMemo, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { base44 } from '@/api/base44Client';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from '@/components/ui/command';
+import { groupPlaceholdersByCategory, placeholderFriendlyLabel } from '@/lib/emailPlaceholders';
+import { toast } from 'sonner';
+import { showUploadErrorToast } from "@/lib/planQuotaError";
+import { 
+  Upload, 
+  Loader2, 
+  Image as ImageIcon, 
+  Trash2, 
+  FolderOpen, 
+  Folder, 
+  Home, 
+  ChevronRight, 
+  ChevronLeft,
+  Search,
+  X,
+  FileText,
+  ArrowUp,
+  ArrowDown,
+  GripVertical,
+  ChevronsUpDown,
+  Check
+} from 'lucide-react';
+import { BLOCK_TYPES, SOCIAL_PLATFORMS } from './types';
+import RichTextEditor from './RichTextEditor';
+import SpacingControl from './SpacingControl';
+
+const GOOGLE_FONT_OPTIONS = [
+  { value: '', label: 'Default (inherit)' },
+  { value: "Arial, sans-serif", label: 'Arial' },
+  { value: "'Degular Medium', 'Poppins', sans-serif", label: 'Degular Medium' },
+  { value: "Georgia, serif", label: 'Georgia' },
+  { value: "'Lato', sans-serif", label: 'Lato' },
+  { value: "'Merriweather', serif", label: 'Merriweather' },
+  { value: "'Montserrat', sans-serif", label: 'Montserrat' },
+  { value: "'Open Sans', sans-serif", label: 'Open Sans' },
+  { value: "'Oswald', sans-serif", label: 'Oswald' },
+  { value: "'Playfair Display', serif", label: 'Playfair Display' },
+  { value: "'Poppins', sans-serif", label: 'Poppins' },
+  { value: "'Raleway', sans-serif", label: 'Raleway' },
+  { value: "'Roboto', sans-serif", label: 'Roboto' },
+  { value: "'Source Sans Pro', sans-serif", label: 'Source Sans Pro' },
+  { value: "'Times New Roman', serif", label: 'Times New Roman' },
+  { value: "'Urbanist', sans-serif", label: 'Urbanist' },
+  { value: "Verdana, sans-serif", label: 'Verdana' },
+];
+
+function TextBlockEditor({ block, onChange, isChild, globalFontFamily }) {
+  const update = (key, value) => {
+    if (key === 'content') {
+      onChange({ ...block, content: value });
+    } else {
+      onChange({ ...block, styles: { ...block.styles, [key]: value } });
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <Label>Content</Label>
+        <RichTextEditor
+          content={block.content}
+          onChange={(html) => update('content', html)}
+          fontFamily={block.styles.fontFamily || globalFontFamily || 'Arial, sans-serif'}
+          color={block.styles.color}
+          lineHeight={block.styles.lineHeight}
+        />
+        <p className="text-xs text-muted-foreground">
+          Supports: {'{{first_name}}'}, {'{{last_name}}'}, {'{{email}}'}
+        </p>
+      </div>
+      <div className="space-y-2">
+        <Label>Font Family</Label>
+        <Select 
+          value={block.styles.fontFamily || '__default__'} 
+          onValueChange={(v) => update('fontFamily', v === '__default__' ? '' : v)}
+        >
+          <SelectTrigger data-testid="editor-font-family">
+            <SelectValue placeholder="Select font..." />
+          </SelectTrigger>
+          <SelectContent>
+            {GOOGLE_FONT_OPTIONS.map(font => (
+              <SelectItem 
+                key={font.value || '__default__'} 
+                value={font.value || '__default__'}
+                style={{ fontFamily: font.value || 'inherit' }}
+              >
+                {font.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">
+          Google Fonts work in Gmail, Apple Mail, iOS. Outlook uses fallback.
+        </p>
+      </div>
+      <div className="space-y-2">
+        <Label>Line Height</Label>
+        <Select
+          value={block.styles.lineHeight || '1.5'}
+          onValueChange={(v) => update('lineHeight', v)}
+        >
+          <SelectTrigger data-testid="editor-line-height">
+            <SelectValue placeholder="Line height..." />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="1">1.0 — Tight</SelectItem>
+            <SelectItem value="1.15">1.15</SelectItem>
+            <SelectItem value="1.25">1.25</SelectItem>
+            <SelectItem value="1.4">1.4</SelectItem>
+            <SelectItem value="1.5">1.5 — Default</SelectItem>
+            <SelectItem value="1.6">1.6</SelectItem>
+            <SelectItem value="1.75">1.75</SelectItem>
+            <SelectItem value="2">2.0 — Loose</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <SpacingControl
+        label="Padding"
+        prefix="padding"
+        styles={block.styles}
+        onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+      />
+      {!isChild && (
+        <SpacingControl
+          label="Margin"
+          prefix="margin"
+          styles={block.styles}
+          onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+          hint="Outer spacing around this element"
+        />
+      )}
+    </div>
+  );
+}
+
+function ImageBlockEditor({ block, onChange, isChild }) {
+  const [isUploading, setIsUploading] = useState(false);
+  const [showFileSelector, setShowFileSelector] = useState(false);
+  const [fileSelectorFolder, setFileSelectorFolder] = useState(null);
+  const [fileSelectorExpandedFolders, setFileSelectorExpandedFolders] = useState({});
+  const [fileSelectorPage, setFileSelectorPage] = useState(1);
+  const [fileSelectorItemsPerPage] = useState(12);
+  const [fileSelectorSearch, setFileSelectorSearch] = useState("");
+
+  const update = (key, value) => {
+    if (key === 'src' || key === 'alt' || key === 'href') {
+      onChange({ ...block, [key]: value });
+    } else {
+      onChange({ ...block, styles: { ...block.styles, [key]: value } });
+    }
+  };
+
+  const { data: repositoryFiles = [] } = useQuery({
+    queryKey: ['file-repository'],
+    queryFn: async () => await base44.entities.FileRepository.list() || [],
+    staleTime: 0,
+  });
+
+  const { data: fileRepositoryFolders = [] } = useQuery({
+    queryKey: ['file-repository-folders'],
+    queryFn: async () => await base44.entities.FileRepositoryFolder.list('display_order') || [],
+    staleTime: 0,
+  });
+
+  const fileSelectorFolderHierarchy = useMemo(() => {
+    const buildTree = (parentId) => {
+      return fileRepositoryFolders
+        .filter(f => f.parent_folder_id === parentId)
+        .sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
+        .map(folder => ({
+          ...folder,
+          children: buildTree(folder.id)
+        }));
+    };
+    return buildTree(null);
+  }, [fileRepositoryFolders]);
+
+  const getFileSelectorBreadcrumb = (folderId) => {
+    if (!folderId) return [];
+    const trail = [];
+    let currentId = folderId;
+    while (currentId) {
+      const folder = fileRepositoryFolders.find(f => f.id === currentId);
+      if (folder) {
+        trail.unshift(folder);
+        currentId = folder.parent_folder_id;
+      } else {
+        break;
+      }
+    }
+    return trail;
+  };
+
+  const fileSelectorBreadcrumb = useMemo(() => getFileSelectorBreadcrumb(fileSelectorFolder), [fileSelectorFolder, fileRepositoryFolders]);
+
+  const filteredRepositoryFiles = useMemo(() => {
+    return repositoryFiles.filter(file => {
+      const matchesFolder = fileSelectorFolder === null
+        ? !file.folder_id
+        : file.folder_id === fileSelectorFolder;
+      const matchesSearch = !fileSelectorSearch || 
+        file.file_name?.toLowerCase().includes(fileSelectorSearch.toLowerCase()) ||
+        file.description?.toLowerCase().includes(fileSelectorSearch.toLowerCase());
+      return matchesFolder && matchesSearch && file.file_type === 'image';
+    });
+  }, [repositoryFiles, fileSelectorFolder, fileSelectorSearch]);
+
+  useEffect(() => {
+    setFileSelectorPage(1);
+  }, [fileSelectorFolder, fileSelectorSearch]);
+
+  const fileSelectorTotalPages = Math.ceil(filteredRepositoryFiles.length / fileSelectorItemsPerPage);
+  const fileSelectorStartIndex = (fileSelectorPage - 1) * fileSelectorItemsPerPage;
+  const fileSelectorEndIndex = fileSelectorStartIndex + fileSelectorItemsPerPage;
+  const paginatedRepositoryFiles = filteredRepositoryFiles.slice(fileSelectorStartIndex, fileSelectorEndIndex);
+
+  const getFileSelectorPageNumbers = () => {
+    const pages = [];
+    const maxVisible = 5;
+    if (fileSelectorTotalPages <= maxVisible) {
+      for (let i = 1; i <= fileSelectorTotalPages; i++) {
+        pages.push(i);
+      }
+    } else {
+      if (fileSelectorPage <= 3) {
+        for (let i = 1; i <= 4; i++) pages.push(i);
+        if (fileSelectorTotalPages > 5) pages.push('...');
+        pages.push(fileSelectorTotalPages);
+      } else if (fileSelectorPage >= fileSelectorTotalPages - 2) {
+        pages.push(1);
+        if (fileSelectorTotalPages > 5) pages.push('...');
+        for (let i = fileSelectorTotalPages - 3; i <= fileSelectorTotalPages; i++) pages.push(i);
+      } else {
+        pages.push(1);
+        pages.push('...');
+        for (let i = fileSelectorPage - 1; i <= fileSelectorPage + 1; i++) pages.push(i);
+        pages.push('...');
+        pages.push(fileSelectorTotalPages);
+      }
+    }
+    return pages;
+  };
+
+  const getFileSelectorFolderFileCount = (folderId) => {
+    const relevantFiles = repositoryFiles.filter(f => f.file_type === 'image');
+    return relevantFiles.filter(f => f.folder_id === folderId).length;
+  };
+
+  const handleToggleFileSelectorFolder = (folderId) => {
+    setFileSelectorExpandedFolders(prev => ({
+      ...prev,
+      [folderId]: !prev[folderId]
+    }));
+  };
+
+  const handleSelectFile = (fileUrl) => {
+    update('src', fileUrl);
+    setShowFileSelector(false);
+    setFileSelectorFolder(null);
+    setFileSelectorExpandedFolders({});
+    setFileSelectorSearch("");
+    setFileSelectorPage(1);
+  };
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
+    if (!allowedTypes.includes(file.type)) {
+      toast.error('Please upload a valid image file (JPEG, PNG, GIF, WebP, or SVG)');
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('Image must be smaller than 10MB');
+      return;
+    }
+
+    setIsUploading(true);
+
+    try {
+      const response = await base44.integrations.Core.UploadFile({ file });
+      update('src', response.file_url);
+      toast.success('Image uploaded successfully');
+    } catch (error) {
+      showUploadErrorToast(error, 'Failed to upload image');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleRemoveImage = () => {
+    update('src', '');
+  };
+
+  const renderFileSelectorFolderTree = (folderList, depth = 0) => {
+    return folderList.map(folder => {
+      const isExpanded = fileSelectorExpandedFolders[folder.id];
+      const hasChildren = folder.children && folder.children.length > 0;
+      const isSelected = fileSelectorFolder === folder.id;
+
+      return (
+        <div key={folder.id}>
+          <div
+            className={`flex items-center gap-2 py-2 px-3 rounded cursor-pointer transition-all ${
+              isSelected ? 'bg-primary/10' : 'hover:bg-muted'
+            }`}
+            style={{ paddingLeft: `${depth * 20 + 12}px` }}
+          >
+            {hasChildren ? (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleToggleFileSelectorFolder(folder.id);
+                }}
+                className="p-0.5 hover:bg-muted rounded"
+              >
+                <ChevronRight className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+              </button>
+            ) : (
+              <div className="w-5 h-5 flex-shrink-0" />
+            )}
+
+            <Folder className="w-4 h-4 text-muted-foreground shrink-0" />
+
+            <span
+              onClick={() => setFileSelectorFolder(folder.id)}
+              className="flex-1 text-sm"
+            >
+              {folder.name}
+            </span>
+
+            <span className="text-xs text-muted-foreground">
+              ({getFileSelectorFolderFileCount(folder.id)})
+            </span>
+          </div>
+
+          {hasChildren && isExpanded && (
+            <div>
+              {renderFileSelectorFolderTree(folder.children, depth + 1)}
+            </div>
+          )}
+        </div>
+      );
+    });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <Label>Image</Label>
+        {block.src ? (
+          <div className="space-y-3">
+            <div className="relative">
+              <img
+                src={block.src}
+                alt={block.alt || "Selected image"}
+                className="w-full h-32 object-cover rounded-lg border"
+              />
+              <button
+                onClick={handleRemoveImage}
+                className="absolute top-2 right-2 p-1.5 bg-destructive text-destructive-foreground rounded-full transition-colors"
+                title="Remove image"
+                data-testid="button-remove-image"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+            
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setShowFileSelector(true)}
+                className="flex-1"
+                data-testid="button-replace-from-repository"
+              >
+                <ImageIcon className="w-4 h-4 mr-2" />
+                Replace
+              </Button>
+              
+              <Label htmlFor="image-upload-replace" className="cursor-pointer flex-1">
+                <div className={`flex items-center justify-center gap-2 px-3 py-2 rounded-md border transition-colors h-8 text-sm ${
+                  isUploading 
+                    ? 'bg-muted cursor-not-allowed' 
+                    : 'border-input hover:bg-muted'
+                }`}>
+                  {isUploading ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <>
+                      <Upload className="w-4 h-4" />
+                      <span>Upload</span>
+                    </>
+                  )}
+                </div>
+              </Label>
+              <input
+                id="image-upload-replace"
+                type="file"
+                accept="image/*"
+                onChange={handleFileUpload}
+                className="hidden"
+                disabled={isUploading}
+                data-testid="input-image-upload-replace"
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="border-2 border-dashed rounded-lg p-6 text-center">
+              <ImageIcon className="w-10 h-10 text-muted-foreground mx-auto mb-2" />
+              <p className="text-muted-foreground text-sm mb-3">No image selected</p>
+              
+              <div className="flex gap-2 justify-center">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowFileSelector(true)}
+                  data-testid="button-select-from-repository"
+                >
+                  <ImageIcon className="w-4 h-4 mr-2" />
+                  Repository
+                </Button>
+                
+                <Label htmlFor="image-upload" className="cursor-pointer">
+                  <div className={`flex items-center gap-2 px-3 py-2 rounded-md transition-colors h-8 text-sm ${
+                    isUploading 
+                      ? 'bg-muted cursor-not-allowed' 
+                      : 'bg-primary hover:bg-primary/90 text-primary-foreground'
+                  }`}>
+                    {isUploading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <>
+                        <Upload className="w-4 h-4" />
+                        <span>Upload</span>
+                      </>
+                    )}
+                  </div>
+                </Label>
+                <input
+                  id="image-upload"
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                  disabled={isUploading}
+                  data-testid="input-image-upload"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <Label>Image URL</Label>
+        <Input
+          value={block.src}
+          onChange={(e) => update('src', e.target.value)}
+          placeholder="https://example.com/image.jpg"
+          data-testid="editor-image-src"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label>Alt Text</Label>
+        <Input
+          value={block.alt}
+          onChange={(e) => update('alt', e.target.value)}
+          placeholder="Image description"
+          data-testid="editor-image-alt"
+        />
+      </div>
+      <div className="space-y-2">
+        <Label>Link URL (optional)</Label>
+        <Input
+          value={block.href || ''}
+          onChange={(e) => update('href', e.target.value)}
+          placeholder="https://example.com"
+          data-testid="editor-image-href"
+        />
+      </div>
+      <div className="space-y-2">
+        <Label>Alignment</Label>
+        <Select value={block.styles.textAlign} onValueChange={(v) => update('textAlign', v)}>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="left">Left</SelectItem>
+            <SelectItem value="center">Center</SelectItem>
+            <SelectItem value="right">Right</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Size</Label>
+        <Select
+          value={block.styles.imageSize || '100%'}
+          onValueChange={(v) => {
+            const newStyles = { ...block.styles, imageSize: v };
+            if (v !== 'custom') {
+              newStyles.imageSizeCustom = '';
+            }
+            onChange({ ...block, styles: newStyles });
+          }}
+        >
+          <SelectTrigger data-testid="editor-image-size">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="25%">Small (25%)</SelectItem>
+            <SelectItem value="50%">Medium (50%)</SelectItem>
+            <SelectItem value="75%">Large (75%)</SelectItem>
+            <SelectItem value="100%">Full Width (100%)</SelectItem>
+            <SelectItem value="custom">Custom (px)</SelectItem>
+          </SelectContent>
+        </Select>
+        {(block.styles.imageSize === 'custom') && (
+          <Input
+            type="number"
+            value={block.styles.imageSizeCustom || ''}
+            onChange={(e) => update('imageSizeCustom', e.target.value)}
+            placeholder="Width in px"
+            min="1"
+            data-testid="editor-image-size-custom"
+          />
+        )}
+      </div>
+
+      <SpacingControl
+        label="Padding"
+        prefix="padding"
+        styles={block.styles}
+        onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+      />
+      {!isChild && (
+        <SpacingControl
+          label="Margin"
+          prefix="margin"
+          styles={block.styles}
+          onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+          hint="Outer spacing around this element"
+        />
+      )}
+
+      <Dialog open={showFileSelector} onOpenChange={() => {
+        setShowFileSelector(false);
+        setFileSelectorFolder(null);
+        setFileSelectorExpandedFolders({});
+        setFileSelectorSearch("");
+        setFileSelectorPage(1);
+      }}>
+        <DialogContent className="max-w-5xl max-h-[80vh] grid grid-rows-[auto_1fr_auto] gap-4">
+          <DialogHeader>
+            <DialogTitle>Select Image from Repository</DialogTitle>
+            <div className="pt-2">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search images..."
+                  value={fileSelectorSearch}
+                  onChange={(e) => setFileSelectorSearch(e.target.value)}
+                  className="pl-10"
+                  data-testid="input-file-selector-search"
+                />
+                {fileSelectorSearch && (
+                  <button
+                    onClick={() => setFileSelectorSearch("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    data-testid="button-clear-search"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="grid md:grid-cols-4 gap-4 py-4 overflow-hidden min-h-0">
+            <div className="md:col-span-1 border-r pr-4 overflow-y-auto">
+              <h3 className="text-sm font-semibold mb-3">Folders</h3>
+              
+              <div className="mb-3 p-2 bg-muted rounded-lg">
+                <button
+                  onClick={() => setFileSelectorFolder(null)}
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                  data-testid="button-folder-root"
+                >
+                  <Home className="w-3 h-3" />
+                  Root
+                </button>
+                {fileSelectorBreadcrumb.map((folder, idx) => (
+                  <span key={folder.id}>
+                    <ChevronRight className="w-3 h-3 text-muted-foreground inline-block mx-1" />
+                    <button
+                      onClick={() => setFileSelectorFolder(folder.id)}
+                      className={`text-xs ${
+                        idx === fileSelectorBreadcrumb.length - 1
+                          ? 'text-primary font-medium'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                      data-testid={`button-breadcrumb-${folder.id}`}
+                    >
+                      {folder.name}
+                    </button>
+                  </span>
+                ))}
+              </div>
+
+              <div className="border rounded-lg p-2 max-h-64 overflow-y-auto">
+                <div
+                  className={`flex items-center gap-2 py-2 px-3 rounded cursor-pointer transition-all ${
+                    fileSelectorFolder === null ? 'bg-primary/10' : 'hover:bg-muted'
+                  }`}
+                  onClick={() => setFileSelectorFolder(null)}
+                >
+                  <FolderOpen className="w-4 h-4 text-muted-foreground" />
+                  <span className="flex-1 text-sm font-medium">Root</span>
+                  <span className="text-xs text-muted-foreground">
+                    ({repositoryFiles.filter(f => !f.folder_id && f.file_type === 'image').length})
+                  </span>
+                </div>
+                {renderFileSelectorFolderTree(fileSelectorFolderHierarchy)}
+              </div>
+            </div>
+
+            <div className="md:col-span-3 flex flex-col min-h-0">
+              <div className="flex items-center justify-between mb-3 text-sm text-muted-foreground">
+                <span>
+                  {filteredRepositoryFiles.length} image{filteredRepositoryFiles.length !== 1 ? 's' : ''} 
+                  {fileSelectorSearch && ` matching "${fileSelectorSearch}"`}
+                </span>
+                {fileSelectorTotalPages > 1 && (
+                  <span>Page {fileSelectorPage} of {fileSelectorTotalPages}</span>
+                )}
+              </div>
+
+              <div className="flex-1 overflow-y-auto min-h-0">
+                {filteredRepositoryFiles.length === 0 ? (
+                  <div className="text-center py-12">
+                    <FileText className="w-16 h-16 text-muted-foreground/50 mx-auto mb-4" />
+                    <p className="text-muted-foreground">
+                      {fileSelectorSearch 
+                        ? "No images match your search"
+                        : "No images in this folder"}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    {paginatedRepositoryFiles.map((file) => (
+                      <button
+                        key={file.id}
+                        onClick={() => handleSelectFile(file.file_url)}
+                        className="text-left border-2 rounded-lg hover:border-primary transition-colors p-2"
+                        data-testid={`file-select-${file.id}`}
+                      >
+                        <img
+                          src={file.file_url}
+                          alt={file.file_name}
+                          className="w-full h-24 object-cover rounded mb-2"
+                        />
+                        <p className="text-sm font-medium truncate">
+                          {file.file_name}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {fileSelectorTotalPages > 1 && (
+                <div className="flex items-center justify-center gap-2 mt-4 pt-4 border-t">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setFileSelectorPage(p => Math.max(1, p - 1))}
+                    disabled={fileSelectorPage === 1}
+                    data-testid="button-file-selector-prev"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </Button>
+                  
+                  {getFileSelectorPageNumbers().map((page, idx) => (
+                    page === '...' ? (
+                      <span key={`ellipsis-${idx}`} className="px-2 text-muted-foreground">...</span>
+                    ) : (
+                      <Button
+                        key={page}
+                        variant={fileSelectorPage === page ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setFileSelectorPage(page)}
+                        data-testid={`button-file-selector-page-${page}`}
+                      >
+                        {page}
+                      </Button>
+                    )
+                  ))}
+                  
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setFileSelectorPage(p => Math.min(fileSelectorTotalPages, p + 1))}
+                    disabled={fileSelectorPage === fileSelectorTotalPages}
+                    data-testid="button-file-selector-next"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setShowFileSelector(false);
+              setFileSelectorFolder(null);
+              setFileSelectorExpandedFolders({});
+              setFileSelectorSearch("");
+              setFileSelectorPage(1);
+            }}>
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function ButtonBlockEditor({ block, onChange, isChild }) {
+  const update = (key, value) => {
+    if (key === 'content' || key === 'href') {
+      onChange({ ...block, [key]: value });
+    } else {
+      onChange({ ...block, styles: { ...block.styles, [key]: value } });
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <Label>Button Text</Label>
+        <Input
+          value={block.content}
+          onChange={(e) => update('content', e.target.value)}
+          placeholder="Click Here"
+          data-testid="editor-button-text"
+        />
+      </div>
+      <div className="space-y-2">
+        <Label>Link URL</Label>
+        <Input
+          value={block.href}
+          onChange={(e) => update('href', e.target.value)}
+          placeholder="https://example.com"
+          data-testid="editor-button-href"
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-2">
+          <Label>Background Color</Label>
+          <Input
+            type="color"
+            value={block.styles.backgroundColor}
+            onChange={(e) => update('backgroundColor', e.target.value)}
+            className="h-9 p-1"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>Text Color</Label>
+          <Input
+            type="color"
+            value={block.styles.color}
+            onChange={(e) => update('color', e.target.value)}
+            className="h-9 p-1"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>Font Size</Label>
+          <Select value={block.styles.fontSize} onValueChange={(v) => update('fontSize', v)}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="14px">Small</SelectItem>
+              <SelectItem value="16px">Medium</SelectItem>
+              <SelectItem value="18px">Large</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label>Border Radius</Label>
+          <Select value={block.styles.borderRadius} onValueChange={(v) => update('borderRadius', v)}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="0">None</SelectItem>
+              <SelectItem value="4px">Small</SelectItem>
+              <SelectItem value="8px">Medium</SelectItem>
+              <SelectItem value="20px">Pill</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <div className="space-y-2">
+        <Label>Alignment</Label>
+        <Select value={block.styles.textAlign} onValueChange={(v) => update('textAlign', v)}>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="left">Left</SelectItem>
+            <SelectItem value="center">Center</SelectItem>
+            <SelectItem value="right">Right</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <SpacingControl
+        label="Button Inner Padding"
+        prefix="innerPadding"
+        styles={block.styles}
+        onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+      />
+      <SpacingControl
+        label="Container Padding"
+        prefix="padding"
+        styles={block.styles}
+        onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+      />
+      {!isChild && (
+        <SpacingControl
+          label="Margin"
+          prefix="margin"
+          styles={block.styles}
+          onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+          hint="Outer spacing around this element"
+        />
+      )}
+    </div>
+  );
+}
+
+function DividerBlockEditor({ block, onChange, isChild }) {
+  const update = (key, value) => {
+    onChange({ ...block, styles: { ...block.styles, [key]: value } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <Label>Border Color</Label>
+        <Input
+          type="color"
+          value={block.styles.borderColor}
+          onChange={(e) => update('borderColor', e.target.value)}
+          className="h-9 p-1"
+        />
+      </div>
+      <div className="space-y-2">
+        <Label>Border Style</Label>
+        <Select value={block.styles.borderStyle} onValueChange={(v) => update('borderStyle', v)}>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="solid">Solid</SelectItem>
+            <SelectItem value="dashed">Dashed</SelectItem>
+            <SelectItem value="dotted">Dotted</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-2">
+        <Label>Border Width</Label>
+        <Select value={block.styles.borderWidth} onValueChange={(v) => update('borderWidth', v)}>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="1px">Thin (1px)</SelectItem>
+            <SelectItem value="2px">Medium (2px)</SelectItem>
+            <SelectItem value="4px">Thick (4px)</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <SpacingControl
+        label="Padding"
+        prefix="padding"
+        styles={block.styles}
+        onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+      />
+      {!isChild && (
+        <SpacingControl
+          label="Margin"
+          prefix="margin"
+          styles={block.styles}
+          onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+          hint="Outer spacing around this element"
+        />
+      )}
+    </div>
+  );
+}
+
+function SpacerBlockEditor({ block, onChange }) {
+  const update = (key, value) => {
+    onChange({ ...block, styles: { ...block.styles, [key]: value } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <Label>Height</Label>
+        <Select value={block.styles.height} onValueChange={(v) => update('height', v)}>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="10px">Small (10px)</SelectItem>
+            <SelectItem value="20px">Medium (20px)</SelectItem>
+            <SelectItem value="40px">Large (40px)</SelectItem>
+            <SelectItem value="60px">XL (60px)</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+  );
+}
+
+function ColumnsBlockEditor({ block, onChange }) {
+  const columns = block.columns || [];
+
+  const parseWidth = (w) => parseInt(String(w).replace('%', ''), 10) || Math.floor(100 / columns.length);
+
+  const updateColumnCount = (count) => {
+    const currentCols = block.columns || [];
+    const newCols = [];
+    const width = `${Math.floor(100 / count)}%`;
+    
+    for (let i = 0; i < count; i++) {
+      if (currentCols[i]) {
+        newCols.push({ ...currentCols[i], width });
+      } else {
+        newCols.push({ id: `col-${Date.now()}-${i}`, blocks: [], width });
+      }
+    }
+    
+    onChange({ ...block, columns: newCols });
+  };
+
+  const updateColumnWidth = (colIndex, newPct) => {
+    if (columns.length < 2) return;
+    const minPct = 10;
+    const maxForTarget = 100 - (columns.length - 1) * minPct;
+    const clamped = Math.max(minPct, Math.min(newPct, maxForTarget));
+    const remaining = 100 - clamped;
+
+    const oldWidths = columns.map((c) => parseWidth(c.width));
+    const totalOthers = oldWidths.reduce((sum, w, i) => (i === colIndex ? sum : sum + w), 0);
+
+    let rawOthers = columns.map((col, i) => {
+      if (i === colIndex) return clamped;
+      if (totalOthers > 0) return Math.max(minPct, Math.round(oldWidths[i] / totalOthers * remaining));
+      return Math.floor(remaining / (columns.length - 1));
+    });
+
+    let currentTotal = rawOthers.reduce((s, v) => s + v, 0);
+    let diff = 100 - currentTotal;
+    let attempts = 0;
+    while (diff !== 0 && attempts < 10) {
+      for (let i = 0; i < rawOthers.length && diff !== 0; i++) {
+        if (i === colIndex) continue;
+        const adjust = diff > 0 ? 1 : -1;
+        if (rawOthers[i] + adjust >= minPct) {
+          rawOthers[i] += adjust;
+          diff -= adjust;
+        }
+      }
+      attempts++;
+    }
+
+    const newColumns = columns.map((col, i) => ({ ...col, width: `${rawOthers[i]}%` }));
+    onChange({ ...block, columns: newColumns });
+  };
+
+  const resetEqualWidths = () => {
+    const equalWidth = `${Math.floor(100 / columns.length)}%`;
+    onChange({
+      ...block,
+      columns: columns.map(col => ({ ...col, width: equalWidth })),
+    });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <Label>Number of Columns</Label>
+        <Select 
+          value={String(columns.length || 2)} 
+          onValueChange={(v) => updateColumnCount(parseInt(v))}
+        >
+          <SelectTrigger data-testid="editor-column-count">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="2">2 Columns</SelectItem>
+            <SelectItem value="3">3 Columns</SelectItem>
+            <SelectItem value="4">4 Columns</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-1">
+          <Label>Column Widths</Label>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={resetEqualWidths}
+            className="text-xs h-6 px-2"
+            data-testid="button-reset-column-widths"
+          >
+            Reset Equal
+          </Button>
+        </div>
+
+        <div className="flex gap-1 h-8 rounded-md overflow-hidden border">
+          {columns.map((col, idx) => {
+            const pct = parseWidth(col.width);
+            return (
+              <div
+                key={col.id}
+                className="flex items-center justify-center text-xs font-medium transition-all"
+                style={{
+                  width: `${pct}%`,
+                  backgroundColor: `hsl(${210 + idx * 30}, 60%, ${85 - idx * 5}%)`,
+                  color: 'hsl(0, 0%, 25%)',
+                }}
+                data-testid={`column-width-display-${idx}`}
+              >
+                {pct}%
+              </div>
+            );
+          })}
+        </div>
+
+        {columns.map((col, idx) => (
+          <div key={col.id} className="space-y-1">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs text-muted-foreground">Column {idx + 1}</span>
+              <span className="text-xs font-medium">{parseWidth(col.width)}%</span>
+            </div>
+            <input
+              type="range"
+              min="10"
+              max={100 - (columns.length - 1) * 10}
+              value={parseWidth(col.width)}
+              onChange={(e) => updateColumnWidth(idx, parseInt(e.target.value))}
+              className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-primary"
+              data-testid={`slider-column-width-${idx}`}
+            />
+          </div>
+        ))}
+      </div>
+
+      <div className="space-y-2">
+        <Label>Column Gap</Label>
+        <Select
+          value={block.styles.columnGap || '10px'}
+          onValueChange={(v) => onChange({ ...block, styles: { ...block.styles, columnGap: v } })}
+        >
+          <SelectTrigger data-testid="editor-column-gap">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="0px">None (0px)</SelectItem>
+            <SelectItem value="5px">Extra Small (5px)</SelectItem>
+            <SelectItem value="10px">Small (10px)</SelectItem>
+            <SelectItem value="16px">Medium (16px)</SelectItem>
+            <SelectItem value="24px">Large (24px)</SelectItem>
+            <SelectItem value="32px">Extra Large (32px)</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Background Color</Label>
+        <Input
+          type="color"
+          value={block.styles.backgroundColor || '#ffffff'}
+          onChange={(e) => onChange({ ...block, styles: { ...block.styles, backgroundColor: e.target.value } })}
+          className="h-9 p-1"
+          data-testid="editor-columns-bg-color"
+        />
+      </div>
+
+      <SpacingControl
+        label="Padding"
+        prefix="padding"
+        styles={block.styles}
+        onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+      />
+    </div>
+  );
+}
+
+function SectionBlockEditor({ block, onChange }) {
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <Label>Background Color</Label>
+        <Input
+          type="color"
+          value={block.styles.backgroundColor || '#ffffff'}
+          onChange={(e) => onChange({ ...block, styles: { ...block.styles, backgroundColor: e.target.value } })}
+          className="h-9 p-1"
+          data-testid="editor-section-bg-color"
+        />
+      </div>
+      <SpacingControl
+        label="Padding"
+        prefix="padding"
+        styles={block.styles}
+        onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+      />
+      <p className="text-xs text-muted-foreground">
+        Drag content blocks into this section to build your email layout.
+      </p>
+    </div>
+  );
+}
+
+function SocialIconsBlockEditor({ block, onChange, isChild }) {
+  const updateStyle = (key, value) => {
+    onChange({ ...block, styles: { ...block.styles, [key]: value } });
+  };
+
+  const updatePlatform = (key, field, value) => {
+    const updated = block.platforms.map(p =>
+      p.key === key ? { ...p, [field]: value } : p
+    );
+    onChange({ ...block, platforms: updated });
+  };
+
+  const movePlatform = (index, direction) => {
+    const platforms = [...block.platforms];
+    const newIndex = index + direction;
+    if (newIndex < 0 || newIndex >= platforms.length) return;
+    const temp = platforms[index];
+    platforms[index] = platforms[newIndex];
+    platforms[newIndex] = temp;
+    onChange({ ...block, platforms });
+  };
+
+  const enabledPlatforms = block.platforms.filter(p => p.enabled);
+  const displayMode = block.styles.displayMode || 'icon-only';
+  const showLabelOptions = displayMode === 'icon-label';
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <Label>Platforms & Order</Label>
+        <p className="text-xs text-muted-foreground">Use arrows to reorder. Order here matches email output.</p>
+        <div className="space-y-1">
+          {block.platforms.map((platformData, idx) => {
+            const platformMeta = SOCIAL_PLATFORMS.find(p => p.key === platformData.key);
+            const isEnabled = platformData.enabled;
+            return (
+              <div key={platformData.key} className={`rounded border p-2 space-y-1 ${isEnabled ? 'border-primary/30 bg-primary/5' : 'border-transparent'}`}>
+                <div className="flex items-center gap-1">
+                  <div className="flex flex-col">
+                    <button
+                      onClick={() => movePlatform(idx, -1)}
+                      disabled={idx === 0}
+                      className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed"
+                      data-testid={`social-move-up-${platformData.key}`}
+                    >
+                      <ArrowUp className="w-3 h-3" />
+                    </button>
+                    <button
+                      onClick={() => movePlatform(idx, 1)}
+                      disabled={idx === block.platforms.length - 1}
+                      className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed"
+                      data-testid={`social-move-down-${platformData.key}`}
+                    >
+                      <ArrowDown className="w-3 h-3" />
+                    </button>
+                  </div>
+                  <GripVertical className="w-3 h-3 text-muted-foreground/50 shrink-0" />
+                  <label className="flex items-center gap-2 cursor-pointer flex-1" data-testid={`social-toggle-${platformData.key}`}>
+                    <input
+                      type="checkbox"
+                      checked={isEnabled}
+                      onChange={(e) => updatePlatform(platformData.key, 'enabled', e.target.checked)}
+                      className="rounded"
+                    />
+                    <span className="text-sm">{platformMeta?.label || platformData.key}</span>
+                  </label>
+                </div>
+                {isEnabled && (
+                  <Input
+                    value={platformData.url || platformMeta?.defaultUrl || ''}
+                    onChange={(e) => updatePlatform(platformData.key, 'url', e.target.value)}
+                    placeholder={`${platformMeta?.label || platformData.key} URL`}
+                    className="text-xs ml-7"
+                    data-testid={`social-url-${platformData.key}`}
+                  />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Display Mode</Label>
+        <Select value={displayMode} onValueChange={(v) => updateStyle('displayMode', v)}>
+          <SelectTrigger data-testid="social-display-mode">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="icon-only">Icon Only</SelectItem>
+            <SelectItem value="icon-label">Icon + Name</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {showLabelOptions && (
+        <>
+          <div className="space-y-2">
+            <Label>Name Position</Label>
+            <Select value={block.styles.labelPosition || 'right'} onValueChange={(v) => updateStyle('labelPosition', v)}>
+              <SelectTrigger data-testid="social-label-position">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="right">Right of icon</SelectItem>
+                <SelectItem value="left">Left of icon</SelectItem>
+                <SelectItem value="bottom">Below icon</SelectItem>
+                <SelectItem value="top">Above icon</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Name Font</Label>
+            <Select 
+              value={block.styles.labelFontFamily || '__default__'} 
+              onValueChange={(v) => updateStyle('labelFontFamily', v === '__default__' ? '' : v)}
+            >
+              <SelectTrigger data-testid="social-label-font">
+                <SelectValue placeholder="Select font..." />
+              </SelectTrigger>
+              <SelectContent>
+                {GOOGLE_FONT_OPTIONS.map(font => (
+                  <SelectItem 
+                    key={font.value || '__default__'} 
+                    value={font.value || '__default__'}
+                    style={{ fontFamily: font.value || 'inherit' }}
+                  >
+                    {font.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Name Font Size</Label>
+            <Select value={block.styles.labelFontSize || '12'} onValueChange={(v) => updateStyle('labelFontSize', v)}>
+              <SelectTrigger data-testid="social-label-font-size">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="10">10px</SelectItem>
+                <SelectItem value="11">11px</SelectItem>
+                <SelectItem value="12">12px</SelectItem>
+                <SelectItem value="13">13px</SelectItem>
+                <SelectItem value="14">14px</SelectItem>
+                <SelectItem value="16">16px</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </>
+      )}
+
+      <div className="space-y-2">
+        <Label>Icon Style</Label>
+        <Select value={block.styles.iconStyle || 'filled'} onValueChange={(v) => updateStyle('iconStyle', v)}>
+          <SelectTrigger data-testid="social-icon-style">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="filled">Filled</SelectItem>
+            <SelectItem value="outline">Outline</SelectItem>
+            <SelectItem value="monochrome">Monochrome</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Shape</Label>
+        <Select value={block.styles.shape || 'circle'} onValueChange={(v) => updateStyle('shape', v)}>
+          <SelectTrigger data-testid="social-shape">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="circle">Circle</SelectItem>
+            <SelectItem value="square">Square</SelectItem>
+            <SelectItem value="rounded">Rounded Square</SelectItem>
+            <SelectItem value="none">No Background</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Icon / Background Color</Label>
+        <div className="flex items-center gap-2">
+          <Input
+            type="color"
+            value={block.styles.iconColor || '#333333'}
+            onChange={(e) => updateStyle('iconColor', e.target.value)}
+            className="h-9 w-14 p-1"
+            data-testid="social-icon-color"
+          />
+          <span className="text-xs text-muted-foreground">Icon/bg color</span>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Icon Size</Label>
+        <Select value={block.styles.iconSize || '30'} onValueChange={(v) => updateStyle('iconSize', v)}>
+          <SelectTrigger data-testid="social-icon-size">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="20">Small (20px)</SelectItem>
+            <SelectItem value="30">Medium (30px)</SelectItem>
+            <SelectItem value="40">Large (40px)</SelectItem>
+            <SelectItem value="50">Extra Large (50px)</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Spacing Between Icons</Label>
+        <Select value={block.styles.gap || '8'} onValueChange={(v) => updateStyle('gap', v)}>
+          <SelectTrigger data-testid="social-gap">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="4">Tight (4px)</SelectItem>
+            <SelectItem value="8">Normal (8px)</SelectItem>
+            <SelectItem value="12">Wide (12px)</SelectItem>
+            <SelectItem value="16">Extra Wide (16px)</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Alignment</Label>
+        <Select value={block.styles.textAlign || 'center'} onValueChange={(v) => updateStyle('textAlign', v)}>
+          <SelectTrigger data-testid="social-alignment">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="left">Left</SelectItem>
+            <SelectItem value="center">Center</SelectItem>
+            <SelectItem value="right">Right</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <SpacingControl
+        label="Padding"
+        prefix="padding"
+        styles={block.styles}
+        onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+      />
+      {!isChild && (
+        <SpacingControl
+          label="Margin"
+          prefix="margin"
+          styles={block.styles}
+          onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+          hint="Outer spacing around this element"
+        />
+      )}
+    </div>
+  );
+}
+
+function UnsubscribeBlockEditor({ block, onChange, isChild }) {
+  const updateStyle = (key, value) => {
+    onChange({ ...block, styles: { ...block.styles, [key]: value } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <Label>Link Text</Label>
+        <Input
+          value={block.linkText || 'Unsubscribe from these emails'}
+          onChange={(e) => onChange({ ...block, linkText: e.target.value })}
+          placeholder="Unsubscribe text..."
+          data-testid="unsub-link-text"
+        />
+        <p className="text-xs text-muted-foreground">The link URL is generated automatically at send time.</p>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Font</Label>
+        <Select
+          value={block.styles.fontFamily || '__default__'}
+          onValueChange={(v) => updateStyle('fontFamily', v === '__default__' ? '' : v)}
+        >
+          <SelectTrigger data-testid="unsub-font-family">
+            <SelectValue placeholder="Select font..." />
+          </SelectTrigger>
+          <SelectContent>
+            {GOOGLE_FONT_OPTIONS.map(font => (
+              <SelectItem
+                key={font.value || '__default__'}
+                value={font.value || '__default__'}
+                style={{ fontFamily: font.value || 'inherit' }}
+              >
+                {font.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Font Size</Label>
+        <Select value={block.styles.fontSize || '12px'} onValueChange={(v) => updateStyle('fontSize', v)}>
+          <SelectTrigger data-testid="unsub-font-size">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="10px">10px</SelectItem>
+            <SelectItem value="11px">11px</SelectItem>
+            <SelectItem value="12px">12px</SelectItem>
+            <SelectItem value="13px">13px</SelectItem>
+            <SelectItem value="14px">14px</SelectItem>
+            <SelectItem value="16px">16px</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Text Color</Label>
+        <div className="flex items-center gap-2">
+          <Input
+            type="color"
+            value={block.styles.color || '#999999'}
+            onChange={(e) => updateStyle('color', e.target.value)}
+            className="h-9 w-14 p-1"
+            data-testid="unsub-color"
+          />
+          <Input
+            value={block.styles.color || '#999999'}
+            onChange={(e) => updateStyle('color', e.target.value)}
+            className="flex-1 text-xs"
+            data-testid="unsub-color-hex"
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Alignment</Label>
+        <Select value={block.styles.textAlign || 'center'} onValueChange={(v) => updateStyle('textAlign', v)}>
+          <SelectTrigger data-testid="unsub-alignment">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="left">Left</SelectItem>
+            <SelectItem value="center">Center</SelectItem>
+            <SelectItem value="right">Right</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <SpacingControl
+        label="Padding"
+        prefix="padding"
+        styles={block.styles}
+        onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+      />
+      {!isChild && (
+        <SpacingControl
+          label="Margin"
+          prefix="margin"
+          styles={block.styles}
+          onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+          hint="Outer spacing around this element"
+        />
+      )}
+    </div>
+  );
+}
+
+function EventQrBlockEditor({ block, onChange }) {
+  const updateStyle = (key, value) => {
+    onChange({ ...block, styles: { ...block.styles, [key]: value } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+        A unique entrance QR code is generated for each recipient at send time. It only appears for confirmed
+        in-person event attendees; online events and recipients without a booking show nothing.
+      </div>
+
+      <div className="space-y-2">
+        <Label>Caption</Label>
+        <Input
+          value={block.caption !== undefined ? block.caption : 'Show this QR code at the door'}
+          onChange={(e) => onChange({ ...block, caption: e.target.value })}
+          placeholder="Caption shown below the QR code..."
+          data-testid="event-qr-caption"
+        />
+        <p className="text-xs text-muted-foreground">Leave empty to hide the caption.</p>
+      </div>
+
+      <div className="space-y-2">
+        <Label>QR Size</Label>
+        <Select value={String(block.styles.qrSize || '180')} onValueChange={(v) => updateStyle('qrSize', v)}>
+          <SelectTrigger data-testid="event-qr-size">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="120">Small (120px)</SelectItem>
+            <SelectItem value="180">Medium (180px)</SelectItem>
+            <SelectItem value="240">Large (240px)</SelectItem>
+            <SelectItem value="300">Extra Large (300px)</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Alignment</Label>
+        <Select value={block.styles.textAlign || 'center'} onValueChange={(v) => updateStyle('textAlign', v)}>
+          <SelectTrigger data-testid="event-qr-align">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="left">Left</SelectItem>
+            <SelectItem value="center">Center</SelectItem>
+            <SelectItem value="right">Right</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Caption Color</Label>
+        <div className="flex items-center gap-2">
+          <Input
+            type="color"
+            value={block.styles.captionColor || '#666666'}
+            onChange={(e) => updateStyle('captionColor', e.target.value)}
+            className="h-9 w-14 p-1"
+            data-testid="event-qr-caption-color"
+          />
+          <Input
+            value={block.styles.captionColor || '#666666'}
+            onChange={(e) => updateStyle('captionColor', e.target.value)}
+            placeholder="#666666"
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Caption Font Size</Label>
+        <Select value={block.styles.captionFontSize || '13px'} onValueChange={(v) => updateStyle('captionFontSize', v)}>
+          <SelectTrigger data-testid="event-qr-caption-size">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="11px">11px</SelectItem>
+            <SelectItem value="12px">12px</SelectItem>
+            <SelectItem value="13px">13px</SelectItem>
+            <SelectItem value="14px">14px</SelectItem>
+            <SelectItem value="16px">16px</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+  );
+}
+
+function DynamicTextBlockEditor({ block, onChange, isChild }) {
+  const updateStyle = (key, value) => {
+    onChange({ ...block, styles: { ...block.styles, [key]: value } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+        A Dynamic Text slot is filled in with a single value when the email is sent
+        (one value per send, the same for every recipient). Give it a clear label so
+        the sender knows what to type.
+      </div>
+
+      <div className="space-y-2">
+        <Label>Label</Label>
+        <Input
+          value={block.label || ''}
+          onChange={(e) => onChange({ ...block, label: e.target.value })}
+          placeholder="e.g. Event name"
+          data-testid="dynamic-text-label"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label>Token</Label>
+        <Input
+          value={block.token ? `{{${block.token}}}` : ''}
+          readOnly
+          disabled
+          className="font-mono text-xs"
+          data-testid="dynamic-text-token"
+        />
+        <p className="text-xs text-muted-foreground">Automatically assigned and used to fill in the value at send time.</p>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Font</Label>
+        <Select
+          value={block.styles.fontFamily || '__default__'}
+          onValueChange={(v) => updateStyle('fontFamily', v === '__default__' ? '' : v)}
+        >
+          <SelectTrigger data-testid="dynamic-text-font-family">
+            <SelectValue placeholder="Select font..." />
+          </SelectTrigger>
+          <SelectContent>
+            {GOOGLE_FONT_OPTIONS.map(font => (
+              <SelectItem
+                key={font.value || '__default__'}
+                value={font.value || '__default__'}
+                style={{ fontFamily: font.value || 'inherit' }}
+              >
+                {font.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Font Size</Label>
+        <Select value={block.styles.fontSize || '14px'} onValueChange={(v) => updateStyle('fontSize', v)}>
+          <SelectTrigger data-testid="dynamic-text-font-size">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="12px">12px</SelectItem>
+            <SelectItem value="14px">14px</SelectItem>
+            <SelectItem value="16px">16px</SelectItem>
+            <SelectItem value="18px">18px</SelectItem>
+            <SelectItem value="20px">20px</SelectItem>
+            <SelectItem value="24px">24px</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Text Color</Label>
+        <div className="flex items-center gap-2">
+          <Input
+            type="color"
+            value={block.styles.color || '#333333'}
+            onChange={(e) => updateStyle('color', e.target.value)}
+            className="h-9 w-14 p-1"
+            data-testid="dynamic-text-color"
+          />
+          <Input
+            value={block.styles.color || '#333333'}
+            onChange={(e) => updateStyle('color', e.target.value)}
+            className="flex-1 text-xs"
+            data-testid="dynamic-text-color-hex"
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Alignment</Label>
+        <Select value={block.styles.textAlign || 'left'} onValueChange={(v) => updateStyle('textAlign', v)}>
+          <SelectTrigger data-testid="dynamic-text-alignment">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="left">Left</SelectItem>
+            <SelectItem value="center">Center</SelectItem>
+            <SelectItem value="right">Right</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <SpacingControl
+        label="Padding"
+        prefix="padding"
+        styles={block.styles}
+        onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+      />
+      {!isChild && (
+        <SpacingControl
+          label="Margin"
+          prefix="margin"
+          styles={block.styles}
+          onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+          hint="Outer spacing around this element"
+        />
+      )}
+    </div>
+  );
+}
+
+function DynamicImageBlockEditor({ block, onChange, isChild, globalFontFamily }) {
+  return (
+    <div className="space-y-4">
+      <div className="rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+        A Dynamic Image slot is filled in per send. Give it a clear label; the image
+        chosen below is the default shown until the sender changes (or hides) it.
+      </div>
+      <div className="space-y-2">
+        <Label>Label</Label>
+        <Input
+          value={block.label || ''}
+          onChange={(e) => onChange({ ...block, label: e.target.value })}
+          placeholder="e.g. Header banner"
+          data-testid="dynamic-image-label"
+        />
+      </div>
+      <div className="space-y-2">
+        <Label>Token</Label>
+        <Input
+          value={block.token ? `{{${block.token}}}` : ''}
+          readOnly
+          disabled
+          className="font-mono text-xs"
+          data-testid="dynamic-image-token"
+        />
+        <p className="text-xs text-muted-foreground">Automatically assigned and used to fill in the image at send time.</p>
+      </div>
+      <ImageBlockEditor block={block} onChange={onChange} isChild={isChild} globalFontFamily={globalFontFamily} />
+    </div>
+  );
+}
+
+function DynamicButtonBlockEditor({ block, onChange, isChild, globalFontFamily }) {
+  return (
+    <div className="space-y-4">
+      <div className="rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+        A Dynamic Button slot is filled in per send. Give it a clear label; the text
+        and link below are the defaults shown until the sender changes (or hides) it.
+      </div>
+      <div className="space-y-2">
+        <Label>Label</Label>
+        <Input
+          value={block.label || ''}
+          onChange={(e) => onChange({ ...block, label: e.target.value })}
+          placeholder="e.g. Call to action"
+          data-testid="dynamic-button-label"
+        />
+      </div>
+      <div className="space-y-2">
+        <Label>Tokens</Label>
+        <Input
+          value={[block.token ? `{{${block.token}}}` : '', block.linkToken ? `{{${block.linkToken}}}` : ''].filter(Boolean).join('  ')}
+          readOnly
+          disabled
+          className="font-mono text-xs"
+          data-testid="dynamic-button-token"
+        />
+        <p className="text-xs text-muted-foreground">Automatically assigned — one for the text, one for the link — filled in at send time.</p>
+      </div>
+      <ButtonBlockEditor block={block} onChange={onChange} isChild={isChild} globalFontFamily={globalFontFamily} />
+    </div>
+  );
+}
+
+function PlaceholderBlockEditor({ block, onChange, isChild }) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const updateStyle = (key, value) => {
+    onChange({ ...block, styles: { ...block.styles, [key]: value } });
+  };
+
+  const groups = useMemo(() => groupPlaceholdersByCategory(), []);
+  const currentLabel = block.placeholder
+    ? (block.label || placeholderFriendlyLabel(block.placeholder))
+    : '';
+
+  const selectPlaceholder = (token) => {
+    onChange({ ...block, placeholder: token, label: placeholderFriendlyLabel(token) });
+    setPickerOpen(false);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+        A Field inserts a standard placeholder token (e.g. the member's first name)
+        into the email. It is automatically replaced with the real value when the
+        email is sent — there is nothing to fill in per send.
+      </div>
+
+      <div className="space-y-2">
+        <Label>Placeholder</Label>
+        <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              role="combobox"
+              className="w-full justify-between font-normal"
+              data-testid="placeholder-picker-trigger"
+            >
+              <span className="truncate">{currentLabel || 'Select a placeholder…'}</span>
+              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-[320px] p-0" align="start">
+            <Command>
+              <CommandInput placeholder="Search placeholders…" data-testid="placeholder-picker-search" />
+              <CommandList>
+                <CommandEmpty>No placeholders found.</CommandEmpty>
+                {groups.map((group) => (
+                  <CommandGroup key={group.category} heading={group.category}>
+                    {group.items.map((item) => (
+                      <CommandItem
+                        key={`${group.category}-${item.token}`}
+                        value={`${item.token} ${item.description || ''} ${group.category}`}
+                        onSelect={() => selectPlaceholder(item.token)}
+                        data-testid={`placeholder-option-${item.token}`}
+                      >
+                        <Check
+                          className={`mr-2 h-4 w-4 ${block.placeholder === item.token ? 'opacity-100' : 'opacity-0'}`}
+                        />
+                        <div className="flex min-w-0 flex-col">
+                          <span className="truncate text-sm">{placeholderFriendlyLabel(item.token)}</span>
+                          <span className="truncate font-mono text-xs text-muted-foreground">{item.token}</span>
+                        </div>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                ))}
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
+        {block.placeholder && (
+          <p className="font-mono text-xs text-muted-foreground" data-testid="placeholder-selected-token">
+            {block.placeholder}
+          </p>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <Label>Font</Label>
+        <Select
+          value={block.styles.fontFamily || '__default__'}
+          onValueChange={(v) => updateStyle('fontFamily', v === '__default__' ? '' : v)}
+        >
+          <SelectTrigger data-testid="placeholder-font-family">
+            <SelectValue placeholder="Select font..." />
+          </SelectTrigger>
+          <SelectContent>
+            {GOOGLE_FONT_OPTIONS.map(font => (
+              <SelectItem
+                key={font.value || '__default__'}
+                value={font.value || '__default__'}
+                style={{ fontFamily: font.value || 'inherit' }}
+              >
+                {font.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Font Size</Label>
+        <Select value={block.styles.fontSize || '14px'} onValueChange={(v) => updateStyle('fontSize', v)}>
+          <SelectTrigger data-testid="placeholder-font-size">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="12px">12px</SelectItem>
+            <SelectItem value="14px">14px</SelectItem>
+            <SelectItem value="16px">16px</SelectItem>
+            <SelectItem value="18px">18px</SelectItem>
+            <SelectItem value="20px">20px</SelectItem>
+            <SelectItem value="24px">24px</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Text Color</Label>
+        <div className="flex items-center gap-2">
+          <Input
+            type="color"
+            value={block.styles.color || '#333333'}
+            onChange={(e) => updateStyle('color', e.target.value)}
+            className="h-9 w-14 p-1"
+            data-testid="placeholder-color"
+          />
+          <Input
+            value={block.styles.color || '#333333'}
+            onChange={(e) => updateStyle('color', e.target.value)}
+            className="flex-1 text-xs"
+            data-testid="placeholder-color-hex"
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Alignment</Label>
+        <Select value={block.styles.textAlign || 'left'} onValueChange={(v) => updateStyle('textAlign', v)}>
+          <SelectTrigger data-testid="placeholder-alignment">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="left">Left</SelectItem>
+            <SelectItem value="center">Center</SelectItem>
+            <SelectItem value="right">Right</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <SpacingControl
+        label="Padding"
+        prefix="padding"
+        styles={block.styles}
+        onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+      />
+      {!isChild && (
+        <SpacingControl
+          label="Margin"
+          prefix="margin"
+          styles={block.styles}
+          onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+          hint="Outer spacing around this element"
+        />
+      )}
+    </div>
+  );
+}
+
+const blockEditors = {
+  [BLOCK_TYPES.SECTION]: SectionBlockEditor,
+  [BLOCK_TYPES.TEXT]: TextBlockEditor,
+  [BLOCK_TYPES.IMAGE]: ImageBlockEditor,
+  [BLOCK_TYPES.BUTTON]: ButtonBlockEditor,
+  [BLOCK_TYPES.DIVIDER]: DividerBlockEditor,
+  [BLOCK_TYPES.SPACER]: SpacerBlockEditor,
+  [BLOCK_TYPES.COLUMNS]: ColumnsBlockEditor,
+  [BLOCK_TYPES.SOCIAL_ICONS]: SocialIconsBlockEditor,
+  [BLOCK_TYPES.UNSUBSCRIBE]: UnsubscribeBlockEditor,
+  [BLOCK_TYPES.EVENT_QR]: EventQrBlockEditor,
+  [BLOCK_TYPES.DYNAMIC_TEXT]: DynamicTextBlockEditor,
+  [BLOCK_TYPES.DYNAMIC_IMAGE]: DynamicImageBlockEditor,
+  [BLOCK_TYPES.DYNAMIC_BUTTON]: DynamicButtonBlockEditor,
+  [BLOCK_TYPES.PLACEHOLDER]: PlaceholderBlockEditor,
+};
+
+export default function BlockEditor({ block, onChange, isChild, globalFontFamily }) {
+  if (!block) {
+    return (
+      <div className="p-4 text-center text-muted-foreground">
+        <p>Select a block to edit its properties</p>
+      </div>
+    );
+  }
+
+  const EditorComponent = blockEditors[block.type];
+  const blockTypeLabel = block.type.charAt(0).toUpperCase() + block.type.slice(1);
+
+  return (
+    <div className="p-4">
+      <h3 className="text-sm font-medium mb-4">{blockTypeLabel} Settings</h3>
+      {EditorComponent && <EditorComponent block={block} onChange={onChange} isChild={isChild} globalFontFamily={globalFontFamily} />}
+    </div>
+  );
+}

@@ -1,0 +1,134 @@
+index-DjAnNPoy.js:951 GoTrueClient@sb-zkvgzcruhniduuswbfyh-auth-token:1 (2.84.0) 2025-12-16T23:07:33.235Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+wx @ index-DjAnNPoy.js:951
+lre @ index-DjAnNPoy.js:952
+_initSupabaseAuthClient @ index-DjAnNPoy.js:952
+ore @ index-DjAnNPoy.js:952
+vk @ index-DjAnNPoy.js:952
+(anonymous) @ index-DjAnNPoy.js:1459
+(anonymous) @ index-DjAnNPoy.js:1
+(anonymous) @ index-DjAnNPoy.js:1813
+index-DjAnNPoy.js:951 GoTrueClient@sb-zkvgzcruhniduuswbfyh-auth-token:2 (2.84.0) 2025-12-16T23:07:33.237Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+wx @ index-DjAnNPoy.js:951
+lre @ index-DjAnNPoy.js:952
+_initSupabaseAuthClient @ index-DjAnNPoy.js:952
+ore @ index-DjAnNPoy.js:952
+vk @ index-DjAnNPoy.js:952
+(anonymous) @ index-DjAnNPoy.js:1762
+(anonymous) @ index-DjAnNPoy.js:1
+(anonymous) @ index-DjAnNPoy.js:1813
+index-DjAnNPoy.js:1144 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-DjAnNPoy.js:1144 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DjAnNPoy.js:1144 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DjAnNPoy.js:1144 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-DjAnNPoy.js:1144 [usePendingPurchaseOrders] Query running, memberInfo.id: 48b25075-51da-437f-af20-17836a892bfe
+index-DjAnNPoy.js:1144 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-DjAnNPoy.js:1144 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DjAnNPoy.js:1144 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DjAnNPoy.js:1144 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-DjAnNPoy.js:1144 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-DjAnNPoy.js:1144 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DjAnNPoy.js:1144 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DjAnNPoy.js:1144 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-DjAnNPoy.js:1144 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-DjAnNPoy.js:1144 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DjAnNPoy.js:1144 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DjAnNPoy.js:1144 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-DjAnNPoy.js:1144 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-DjAnNPoy.js:1144 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DjAnNPoy.js:1144 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DjAnNPoy.js:1144 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-DjAnNPoy.js:1144 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-DjAnNPoy.js:1144 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DjAnNPoy.js:1144 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DjAnNPoy.js:1144 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-DjAnNPoy.js:1144 [usePendingPurchaseOrders] Fetched bookings count: 4
+index-DjAnNPoy.js:1144 [usePendingPurchaseOrders] Pending PO bookings: 3
+index-DjAnNPoy.js:1144 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-DjAnNPoy.js:1144 [usePendingPurchaseOrders] hasPendingPOs: true count: 3 isLoading: false
+index-DjAnNPoy.js:1144 [Layout] hasPendingPOs: true count: 3 isLoading: false
+index-DjAnNPoy.js:1144 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-DjAnNPoy.js:1144 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-DjAnNPoy.js:1144 [usePendingPurchaseOrders] hasPendingPOs: true count: 3 isLoading: false
+index-DjAnNPoy.js:1144 [Layout] hasPendingPOs: true count: 3 isLoading: false
+index-DjAnNPoy.js:1144 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-DjAnNPoy.js:1144 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-DjAnNPoy.js:1144 [usePendingPurchaseOrders] hasPendingPOs: true count: 3 isLoading: false
+index-DjAnNPoy.js:1144 [Layout] hasPendingPOs: true count: 3 isLoading: false
+index-DjAnNPoy.js:1144 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-DjAnNPoy.js:1144 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-DjAnNPoy.js:1144 [usePendingPurchaseOrders] hasPendingPOs: true count: 3 isLoading: false
+index-DjAnNPoy.js:1144 [Layout] hasPendingPOs: true count: 3 isLoading: false
+index-DjAnNPoy.js:1144 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-DjAnNPoy.js:1144 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-DjAnNPoy.js:1144 [usePendingPurchaseOrders] hasPendingPOs: true count: 3 isLoading: false
+index-DjAnNPoy.js:1144 [Layout] hasPendingPOs: true count: 3 isLoading: false
+index-DjAnNPoy.js:1144 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-DjAnNPoy.js:40 ReferenceError: Mail is not defined
+    at tH (index-DjAnNPoy.js:1734:200786)
+    at JC (index-DjAnNPoy.js:38:17018)
+    at s1 (index-DjAnNPoy.js:40:3139)
+    at kD (index-DjAnNPoy.js:40:44833)
+    at wD (index-DjAnNPoy.js:40:39790)
+    at aY (index-DjAnNPoy.js:40:39718)
+    at X0 (index-DjAnNPoy.js:40:39570)
+    at h1 (index-DjAnNPoy.js:40:35934)
+    at X3 (index-DjAnNPoy.js:40:36738)
+    at Pd (index-DjAnNPoy.js:38:3279)
+t1 @ index-DjAnNPoy.js:40
+a.callback @ index-DjAnNPoy.js:40
+O3 @ index-DjAnNPoy.js:38
+J3 @ index-DjAnNPoy.js:40
+yD @ index-DjAnNPoy.js:40
+eY @ index-DjAnNPoy.js:40
+rY @ index-DjAnNPoy.js:40
+Yd @ index-DjAnNPoy.js:40
+X3 @ index-DjAnNPoy.js:40
+Pd @ index-DjAnNPoy.js:38
+(anonymous) @ index-DjAnNPoy.js:40
+setTimeout
+r @ index-DjAnNPoy.js:866
+l @ index-DjAnNPoy.js:866
+batch @ index-DjAnNPoy.js:866
+Ro @ index-DjAnNPoy.js:866
+setData @ index-DjAnNPoy.js:866
+onSuccess @ index-DjAnNPoy.js:866
+u @ index-DjAnNPoy.js:866
+Promise.then
+v @ index-DjAnNPoy.js:866
+start @ index-DjAnNPoy.js:866
+fetch @ index-DjAnNPoy.js:866
+jp @ index-DjAnNPoy.js:866
+onSubscribe @ index-DjAnNPoy.js:866
+subscribe @ index-DjAnNPoy.js:866
+(anonymous) @ index-DjAnNPoy.js:866
+UO @ index-DjAnNPoy.js:38
+hy @ index-DjAnNPoy.js:40
+qm @ index-DjAnNPoy.js:40
+rY @ index-DjAnNPoy.js:40
+Yd @ index-DjAnNPoy.js:40
+X3 @ index-DjAnNPoy.js:40
+Pd @ index-DjAnNPoy.js:38
+(anonymous) @ index-DjAnNPoy.js:40
+setTimeout
+r @ index-DjAnNPoy.js:866
+l @ index-DjAnNPoy.js:866
+batch @ index-DjAnNPoy.js:866
+Ro @ index-DjAnNPoy.js:866
+setData @ index-DjAnNPoy.js:866
+onSuccess @ index-DjAnNPoy.js:866
+u @ index-DjAnNPoy.js:866
+Promise.then
+v @ index-DjAnNPoy.js:866
+start @ index-DjAnNPoy.js:866
+fetch @ index-DjAnNPoy.js:866
+jp @ index-DjAnNPoy.js:866
+onSubscribe @ index-DjAnNPoy.js:866
+subscribe @ index-DjAnNPoy.js:866
+(anonymous) @ index-DjAnNPoy.js:866
+UO @ index-DjAnNPoy.js:38
+hy @ index-DjAnNPoy.js:40
+qm @ index-DjAnNPoy.js:40
+(anonymous) @ index-DjAnNPoy.js:40
+C @ index-DjAnNPoy.js:25
+A @ index-DjAnNPoy.js:25
+index-DjAnNPoy.js:1144 [Layout] Server session found: mat@isaasi.co.uk

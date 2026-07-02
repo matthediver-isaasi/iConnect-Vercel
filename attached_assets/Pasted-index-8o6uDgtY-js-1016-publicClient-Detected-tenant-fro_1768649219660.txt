@@ -1,0 +1,661 @@
+index-8o6uDgtY.js:1016 [publicClient] Detected tenant from subdomain: bnms
+index-8o6uDgtY.js:1101 GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.84.0) 2026-01-17T11:25:47.000Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+Tg @ index-8o6uDgtY.js:1101
+Gle @ index-8o6uDgtY.js:1102
+_initSupabaseAuthClient @ index-8o6uDgtY.js:1102
+Yle @ index-8o6uDgtY.js:1102
+uz @ index-8o6uDgtY.js:1102
+(anonymous) @ index-8o6uDgtY.js:2084
+(anonymous) @ index-8o6uDgtY.js:1
+(anonymous) @ index-8o6uDgtY.js:2524
+index-8o6uDgtY.js:1405 [usePendingPurchaseOrders] memberInfo: null
+index-8o6uDgtY.js:1405 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-8o6uDgtY.js:1405 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-8o6uDgtY.js:1405 [Layout] currentPageName: Resources currentPortalPageId: portal_resources
+index-8o6uDgtY.js:1405 [usePendingPurchaseOrders] memberInfo: null
+index-8o6uDgtY.js:1405 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-8o6uDgtY.js:1405 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-8o6uDgtY.js:1405 [Layout] currentPageName: Resources currentPortalPageId: portal_resources
+index-8o6uDgtY.js:1405 [usePendingPurchaseOrders] memberInfo: null
+index-8o6uDgtY.js:1405 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-8o6uDgtY.js:1405 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-8o6uDgtY.js:1405 [Layout] currentPageName: Resources currentPortalPageId: portal_resources
+index-8o6uDgtY.js:1405 [usePendingPurchaseOrders] memberInfo: null
+index-8o6uDgtY.js:1405 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-8o6uDgtY.js:1405 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-8o6uDgtY.js:1405 [Layout] currentPageName: Resources currentPortalPageId: portal_resources
+index-8o6uDgtY.js:1405 [usePendingPurchaseOrders] memberInfo: null
+index-8o6uDgtY.js:1405 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-8o6uDgtY.js:1405 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-8o6uDgtY.js:1405 [Layout] currentPageName: Resources currentPortalPageId: portal_resources
+index-8o6uDgtY.js:1405 [usePendingPurchaseOrders] memberInfo: null
+index-8o6uDgtY.js:1405 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-8o6uDgtY.js:1405 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-8o6uDgtY.js:1405 [Layout] currentPageName: Resources currentPortalPageId: portal_resources
+index-8o6uDgtY.js:1405 [Layout] getEffectivePageName: Mapping Resources to PublicResources for unauthenticated user
+index-8o6uDgtY.js:1102 [useNavigationRealtime] Setting up realtime subscription for navigation_item table
+index-8o6uDgtY.js:2235 [useResourceRealtime] Setting up realtime subscription for resource table
+index-8o6uDgtY.js:2235 [Resources] ========== FETCH START ==========
+index-8o6uDgtY.js:2235 [Resources] Fetching at: 2026-01-17T11:25:48.442Z
+index-8o6uDgtY.js:2235 [Resources] isAuthenticated: false
+index-8o6uDgtY.js:2235 [Resources] memberRole: none
+index-8o6uDgtY.js:2235 [Resources] isAdmin: false
+index-8o6uDgtY.js:1060  GET https://bnms.iconn.app/api/entities/Resource?sort=%7B%22release_date%22%3A%22desc%22%7D 401 (Unauthorized)
+_apiRequest @ index-8o6uDgtY.js:1060
+list @ index-8o6uDgtY.js:1060
+queryFn @ index-8o6uDgtY.js:2235
+i @ index-8o6uDgtY.js:1016
+v @ index-8o6uDgtY.js:1016
+start @ index-8o6uDgtY.js:1016
+fetch @ index-8o6uDgtY.js:1016
+wf @ index-8o6uDgtY.js:1016
+onSubscribe @ index-8o6uDgtY.js:1016
+subscribe @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+zR @ index-8o6uDgtY.js:38
+Mj @ index-8o6uDgtY.js:40
+Bh @ index-8o6uDgtY.js:40
+HQ @ index-8o6uDgtY.js:40
+Lu @ index-8o6uDgtY.js:40
+B5 @ index-8o6uDgtY.js:40
+bu @ index-8o6uDgtY.js:38
+(anonymous) @ index-8o6uDgtY.js:40
+setTimeout
+r @ index-8o6uDgtY.js:1016
+l @ index-8o6uDgtY.js:1016
+batch @ index-8o6uDgtY.js:1016
+yc @ index-8o6uDgtY.js:1016
+setData @ index-8o6uDgtY.js:1016
+onSuccess @ index-8o6uDgtY.js:1016
+m @ index-8o6uDgtY.js:1016
+Promise.then
+v @ index-8o6uDgtY.js:1016
+start @ index-8o6uDgtY.js:1016
+fetch @ index-8o6uDgtY.js:1016
+wf @ index-8o6uDgtY.js:1016
+onSubscribe @ index-8o6uDgtY.js:1016
+subscribe @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+zR @ index-8o6uDgtY.js:38
+Mj @ index-8o6uDgtY.js:40
+Bh @ index-8o6uDgtY.js:40
+(anonymous) @ index-8o6uDgtY.js:40
+w @ index-8o6uDgtY.js:25
+N @ index-8o6uDgtY.js:25
+index-8o6uDgtY.js:1060  GET https://bnms.iconn.app/api/entities/ResourceCategory 401 (Unauthorized)
+_apiRequest @ index-8o6uDgtY.js:1060
+list @ index-8o6uDgtY.js:1060
+queryFn @ index-8o6uDgtY.js:2235
+i @ index-8o6uDgtY.js:1016
+v @ index-8o6uDgtY.js:1016
+start @ index-8o6uDgtY.js:1016
+fetch @ index-8o6uDgtY.js:1016
+wf @ index-8o6uDgtY.js:1016
+onSubscribe @ index-8o6uDgtY.js:1016
+subscribe @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+zR @ index-8o6uDgtY.js:38
+Mj @ index-8o6uDgtY.js:40
+Bh @ index-8o6uDgtY.js:40
+HQ @ index-8o6uDgtY.js:40
+Lu @ index-8o6uDgtY.js:40
+B5 @ index-8o6uDgtY.js:40
+bu @ index-8o6uDgtY.js:38
+(anonymous) @ index-8o6uDgtY.js:40
+setTimeout
+r @ index-8o6uDgtY.js:1016
+l @ index-8o6uDgtY.js:1016
+batch @ index-8o6uDgtY.js:1016
+yc @ index-8o6uDgtY.js:1016
+setData @ index-8o6uDgtY.js:1016
+onSuccess @ index-8o6uDgtY.js:1016
+m @ index-8o6uDgtY.js:1016
+Promise.then
+v @ index-8o6uDgtY.js:1016
+start @ index-8o6uDgtY.js:1016
+fetch @ index-8o6uDgtY.js:1016
+wf @ index-8o6uDgtY.js:1016
+onSubscribe @ index-8o6uDgtY.js:1016
+subscribe @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+zR @ index-8o6uDgtY.js:38
+Mj @ index-8o6uDgtY.js:40
+Bh @ index-8o6uDgtY.js:40
+(anonymous) @ index-8o6uDgtY.js:40
+w @ index-8o6uDgtY.js:25
+N @ index-8o6uDgtY.js:25
+index-8o6uDgtY.js:1405 [Layout] Server returned null for /api/auth/me - member deleted or disabled
+index-8o6uDgtY.js:1102 [useNavigationRealtime] Subscription status: SUBSCRIBED
+index-8o6uDgtY.js:2235 [useResourceRealtime] Subscription status: SUBSCRIBED
+index-8o6uDgtY.js:1060  GET https://bnms.iconn.app/api/entities/ResourceAuthorSettings 401 (Unauthorized)
+_apiRequest @ index-8o6uDgtY.js:1060
+list @ index-8o6uDgtY.js:1060
+queryFn @ index-8o6uDgtY.js:2235
+i @ index-8o6uDgtY.js:1016
+v @ index-8o6uDgtY.js:1016
+start @ index-8o6uDgtY.js:1016
+fetch @ index-8o6uDgtY.js:1016
+wf @ index-8o6uDgtY.js:1016
+onSubscribe @ index-8o6uDgtY.js:1016
+subscribe @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+zR @ index-8o6uDgtY.js:38
+Mj @ index-8o6uDgtY.js:40
+Bh @ index-8o6uDgtY.js:40
+HQ @ index-8o6uDgtY.js:40
+Lu @ index-8o6uDgtY.js:40
+B5 @ index-8o6uDgtY.js:40
+bu @ index-8o6uDgtY.js:38
+(anonymous) @ index-8o6uDgtY.js:40
+setTimeout
+r @ index-8o6uDgtY.js:1016
+l @ index-8o6uDgtY.js:1016
+batch @ index-8o6uDgtY.js:1016
+yc @ index-8o6uDgtY.js:1016
+setData @ index-8o6uDgtY.js:1016
+onSuccess @ index-8o6uDgtY.js:1016
+m @ index-8o6uDgtY.js:1016
+Promise.then
+v @ index-8o6uDgtY.js:1016
+start @ index-8o6uDgtY.js:1016
+fetch @ index-8o6uDgtY.js:1016
+wf @ index-8o6uDgtY.js:1016
+onSubscribe @ index-8o6uDgtY.js:1016
+subscribe @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+zR @ index-8o6uDgtY.js:38
+Mj @ index-8o6uDgtY.js:40
+Bh @ index-8o6uDgtY.js:40
+(anonymous) @ index-8o6uDgtY.js:40
+w @ index-8o6uDgtY.js:25
+N @ index-8o6uDgtY.js:25
+index-8o6uDgtY.js:1371 [PublicLayout] Fetching banners for page: PublicResources portalPageId: portal_resources isCustomSlug: false urlSlug: Articles
+index-8o6uDgtY.js:1371 [PublicLayout] All banners found: 14
+index-8o6uDgtY.js:1371 [PublicLayout] pageToPortalPageMap keys: (26) ['Events', 'PublicEvents', 'Bookings', 'MyTickets', 'BuyProgramTickets', 'MemberDirectory', 'OrganisationDirectory', 'Resources', 'PublicResources', 'Articles', 'PublicArticles', 'Team', 'Balances', 'History', 'Profile', 'MyOrganisation', 'JobBoard', 'PublicJobBoard', 'News', 'PublicNews', 'NewsView', 'MyJobPostings', 'Preferences', 'about-me', 'Support', 'Dashboard']
+index-8o6uDgtY.js:1371 [PublicLayout] Matched banner: Resources (2) ['PublicResources', 'portal_resources']
+index-8o6uDgtY.js:1371 [PublicLayout] Matched banners: 1
+index-8o6uDgtY.js:1371 [PortalHeroBanner] Rendering banner: Resources type: hero hasHeroContent: true hasImageUrl: false
+index-8o6uDgtY.js:1371 [PortalHeroBanner] Rendering as hero element: Resources
+index-8o6uDgtY.js:2235 [Resources] ========== FETCH START ==========
+index-8o6uDgtY.js:2235 [Resources] Fetching at: 2026-01-17T11:25:50.305Z
+index-8o6uDgtY.js:2235 [Resources] isAuthenticated: false
+index-8o6uDgtY.js:2235 [Resources] memberRole: none
+index-8o6uDgtY.js:2235 [Resources] isAdmin: false
+index-8o6uDgtY.js:1060  GET https://bnms.iconn.app/api/entities/ResourceCategory 401 (Unauthorized)
+_apiRequest @ index-8o6uDgtY.js:1060
+list @ index-8o6uDgtY.js:1060
+queryFn @ index-8o6uDgtY.js:2235
+i @ index-8o6uDgtY.js:1016
+v @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.then
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.catch
+v @ index-8o6uDgtY.js:1016
+start @ index-8o6uDgtY.js:1016
+fetch @ index-8o6uDgtY.js:1016
+wf @ index-8o6uDgtY.js:1016
+onSubscribe @ index-8o6uDgtY.js:1016
+subscribe @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+zR @ index-8o6uDgtY.js:38
+Mj @ index-8o6uDgtY.js:40
+Bh @ index-8o6uDgtY.js:40
+HQ @ index-8o6uDgtY.js:40
+Lu @ index-8o6uDgtY.js:40
+B5 @ index-8o6uDgtY.js:40
+bu @ index-8o6uDgtY.js:38
+(anonymous) @ index-8o6uDgtY.js:40
+setTimeout
+r @ index-8o6uDgtY.js:1016
+l @ index-8o6uDgtY.js:1016
+batch @ index-8o6uDgtY.js:1016
+yc @ index-8o6uDgtY.js:1016
+setData @ index-8o6uDgtY.js:1016
+onSuccess @ index-8o6uDgtY.js:1016
+m @ index-8o6uDgtY.js:1016
+Promise.then
+v @ index-8o6uDgtY.js:1016
+start @ index-8o6uDgtY.js:1016
+fetch @ index-8o6uDgtY.js:1016
+wf @ index-8o6uDgtY.js:1016
+onSubscribe @ index-8o6uDgtY.js:1016
+subscribe @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+zR @ index-8o6uDgtY.js:38
+Mj @ index-8o6uDgtY.js:40
+Bh @ index-8o6uDgtY.js:40
+(anonymous) @ index-8o6uDgtY.js:40
+w @ index-8o6uDgtY.js:25
+N @ index-8o6uDgtY.js:25
+index-8o6uDgtY.js:1060  GET https://bnms.iconn.app/api/entities/Resource?sort=%7B%22release_date%22%3A%22desc%22%7D 401 (Unauthorized)
+_apiRequest @ index-8o6uDgtY.js:1060
+list @ index-8o6uDgtY.js:1060
+queryFn @ index-8o6uDgtY.js:2235
+i @ index-8o6uDgtY.js:1016
+v @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.then
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.catch
+v @ index-8o6uDgtY.js:1016
+start @ index-8o6uDgtY.js:1016
+fetch @ index-8o6uDgtY.js:1016
+wf @ index-8o6uDgtY.js:1016
+onSubscribe @ index-8o6uDgtY.js:1016
+subscribe @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+zR @ index-8o6uDgtY.js:38
+Mj @ index-8o6uDgtY.js:40
+Bh @ index-8o6uDgtY.js:40
+HQ @ index-8o6uDgtY.js:40
+Lu @ index-8o6uDgtY.js:40
+B5 @ index-8o6uDgtY.js:40
+bu @ index-8o6uDgtY.js:38
+(anonymous) @ index-8o6uDgtY.js:40
+setTimeout
+r @ index-8o6uDgtY.js:1016
+l @ index-8o6uDgtY.js:1016
+batch @ index-8o6uDgtY.js:1016
+yc @ index-8o6uDgtY.js:1016
+setData @ index-8o6uDgtY.js:1016
+onSuccess @ index-8o6uDgtY.js:1016
+m @ index-8o6uDgtY.js:1016
+Promise.then
+v @ index-8o6uDgtY.js:1016
+start @ index-8o6uDgtY.js:1016
+fetch @ index-8o6uDgtY.js:1016
+wf @ index-8o6uDgtY.js:1016
+onSubscribe @ index-8o6uDgtY.js:1016
+subscribe @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+zR @ index-8o6uDgtY.js:38
+Mj @ index-8o6uDgtY.js:40
+Bh @ index-8o6uDgtY.js:40
+(anonymous) @ index-8o6uDgtY.js:40
+w @ index-8o6uDgtY.js:25
+N @ index-8o6uDgtY.js:25
+index-8o6uDgtY.js:1060  GET https://bnms.iconn.app/api/entities/ResourceAuthorSettings 401 (Unauthorized)
+_apiRequest @ index-8o6uDgtY.js:1060
+list @ index-8o6uDgtY.js:1060
+queryFn @ index-8o6uDgtY.js:2235
+i @ index-8o6uDgtY.js:1016
+v @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.then
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.catch
+v @ index-8o6uDgtY.js:1016
+start @ index-8o6uDgtY.js:1016
+fetch @ index-8o6uDgtY.js:1016
+wf @ index-8o6uDgtY.js:1016
+onSubscribe @ index-8o6uDgtY.js:1016
+subscribe @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+zR @ index-8o6uDgtY.js:38
+Mj @ index-8o6uDgtY.js:40
+Bh @ index-8o6uDgtY.js:40
+HQ @ index-8o6uDgtY.js:40
+Lu @ index-8o6uDgtY.js:40
+B5 @ index-8o6uDgtY.js:40
+bu @ index-8o6uDgtY.js:38
+(anonymous) @ index-8o6uDgtY.js:40
+setTimeout
+r @ index-8o6uDgtY.js:1016
+l @ index-8o6uDgtY.js:1016
+batch @ index-8o6uDgtY.js:1016
+yc @ index-8o6uDgtY.js:1016
+setData @ index-8o6uDgtY.js:1016
+onSuccess @ index-8o6uDgtY.js:1016
+m @ index-8o6uDgtY.js:1016
+Promise.then
+v @ index-8o6uDgtY.js:1016
+start @ index-8o6uDgtY.js:1016
+fetch @ index-8o6uDgtY.js:1016
+wf @ index-8o6uDgtY.js:1016
+onSubscribe @ index-8o6uDgtY.js:1016
+subscribe @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+zR @ index-8o6uDgtY.js:38
+Mj @ index-8o6uDgtY.js:40
+Bh @ index-8o6uDgtY.js:40
+(anonymous) @ index-8o6uDgtY.js:40
+w @ index-8o6uDgtY.js:25
+N @ index-8o6uDgtY.js:25
+index-8o6uDgtY.js:2235 [Resources] ========== FETCH START ==========
+index-8o6uDgtY.js:2235 [Resources] Fetching at: 2026-01-17T11:25:54.050Z
+index-8o6uDgtY.js:2235 [Resources] isAuthenticated: false
+index-8o6uDgtY.js:2235 [Resources] memberRole: none
+index-8o6uDgtY.js:2235 [Resources] isAdmin: false
+index-8o6uDgtY.js:1060  GET https://bnms.iconn.app/api/entities/Resource?sort=%7B%22release_date%22%3A%22desc%22%7D 401 (Unauthorized)
+_apiRequest @ index-8o6uDgtY.js:1060
+list @ index-8o6uDgtY.js:1060
+queryFn @ index-8o6uDgtY.js:2235
+i @ index-8o6uDgtY.js:1016
+v @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.then
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.catch
+v @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.then
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.catch
+v @ index-8o6uDgtY.js:1016
+start @ index-8o6uDgtY.js:1016
+fetch @ index-8o6uDgtY.js:1016
+wf @ index-8o6uDgtY.js:1016
+onSubscribe @ index-8o6uDgtY.js:1016
+subscribe @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+zR @ index-8o6uDgtY.js:38
+Mj @ index-8o6uDgtY.js:40
+Bh @ index-8o6uDgtY.js:40
+HQ @ index-8o6uDgtY.js:40
+Lu @ index-8o6uDgtY.js:40
+B5 @ index-8o6uDgtY.js:40
+bu @ index-8o6uDgtY.js:38
+(anonymous) @ index-8o6uDgtY.js:40
+setTimeout
+r @ index-8o6uDgtY.js:1016
+l @ index-8o6uDgtY.js:1016
+batch @ index-8o6uDgtY.js:1016
+yc @ index-8o6uDgtY.js:1016
+setData @ index-8o6uDgtY.js:1016
+onSuccess @ index-8o6uDgtY.js:1016
+m @ index-8o6uDgtY.js:1016
+Promise.then
+v @ index-8o6uDgtY.js:1016
+start @ index-8o6uDgtY.js:1016
+fetch @ index-8o6uDgtY.js:1016
+wf @ index-8o6uDgtY.js:1016
+onSubscribe @ index-8o6uDgtY.js:1016
+subscribe @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+zR @ index-8o6uDgtY.js:38
+Mj @ index-8o6uDgtY.js:40
+Bh @ index-8o6uDgtY.js:40
+(anonymous) @ index-8o6uDgtY.js:40
+w @ index-8o6uDgtY.js:25
+N @ index-8o6uDgtY.js:25
+index-8o6uDgtY.js:1060  GET https://bnms.iconn.app/api/entities/ResourceAuthorSettings 401 (Unauthorized)
+_apiRequest @ index-8o6uDgtY.js:1060
+list @ index-8o6uDgtY.js:1060
+queryFn @ index-8o6uDgtY.js:2235
+i @ index-8o6uDgtY.js:1016
+v @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.then
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.catch
+v @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.then
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.catch
+v @ index-8o6uDgtY.js:1016
+start @ index-8o6uDgtY.js:1016
+fetch @ index-8o6uDgtY.js:1016
+wf @ index-8o6uDgtY.js:1016
+onSubscribe @ index-8o6uDgtY.js:1016
+subscribe @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+zR @ index-8o6uDgtY.js:38
+Mj @ index-8o6uDgtY.js:40
+Bh @ index-8o6uDgtY.js:40
+HQ @ index-8o6uDgtY.js:40
+Lu @ index-8o6uDgtY.js:40
+B5 @ index-8o6uDgtY.js:40
+bu @ index-8o6uDgtY.js:38
+(anonymous) @ index-8o6uDgtY.js:40
+setTimeout
+r @ index-8o6uDgtY.js:1016
+l @ index-8o6uDgtY.js:1016
+batch @ index-8o6uDgtY.js:1016
+yc @ index-8o6uDgtY.js:1016
+setData @ index-8o6uDgtY.js:1016
+onSuccess @ index-8o6uDgtY.js:1016
+m @ index-8o6uDgtY.js:1016
+Promise.then
+v @ index-8o6uDgtY.js:1016
+start @ index-8o6uDgtY.js:1016
+fetch @ index-8o6uDgtY.js:1016
+wf @ index-8o6uDgtY.js:1016
+onSubscribe @ index-8o6uDgtY.js:1016
+subscribe @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+zR @ index-8o6uDgtY.js:38
+Mj @ index-8o6uDgtY.js:40
+Bh @ index-8o6uDgtY.js:40
+(anonymous) @ index-8o6uDgtY.js:40
+w @ index-8o6uDgtY.js:25
+N @ index-8o6uDgtY.js:25
+index-8o6uDgtY.js:1060  GET https://bnms.iconn.app/api/entities/ResourceCategory 401 (Unauthorized)
+_apiRequest @ index-8o6uDgtY.js:1060
+list @ index-8o6uDgtY.js:1060
+queryFn @ index-8o6uDgtY.js:2235
+i @ index-8o6uDgtY.js:1016
+v @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.then
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.catch
+v @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.then
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.catch
+v @ index-8o6uDgtY.js:1016
+start @ index-8o6uDgtY.js:1016
+fetch @ index-8o6uDgtY.js:1016
+wf @ index-8o6uDgtY.js:1016
+onSubscribe @ index-8o6uDgtY.js:1016
+subscribe @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+zR @ index-8o6uDgtY.js:38
+Mj @ index-8o6uDgtY.js:40
+Bh @ index-8o6uDgtY.js:40
+HQ @ index-8o6uDgtY.js:40
+Lu @ index-8o6uDgtY.js:40
+B5 @ index-8o6uDgtY.js:40
+bu @ index-8o6uDgtY.js:38
+(anonymous) @ index-8o6uDgtY.js:40
+setTimeout
+r @ index-8o6uDgtY.js:1016
+l @ index-8o6uDgtY.js:1016
+batch @ index-8o6uDgtY.js:1016
+yc @ index-8o6uDgtY.js:1016
+setData @ index-8o6uDgtY.js:1016
+onSuccess @ index-8o6uDgtY.js:1016
+m @ index-8o6uDgtY.js:1016
+Promise.then
+v @ index-8o6uDgtY.js:1016
+start @ index-8o6uDgtY.js:1016
+fetch @ index-8o6uDgtY.js:1016
+wf @ index-8o6uDgtY.js:1016
+onSubscribe @ index-8o6uDgtY.js:1016
+subscribe @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+zR @ index-8o6uDgtY.js:38
+Mj @ index-8o6uDgtY.js:40
+Bh @ index-8o6uDgtY.js:40
+(anonymous) @ index-8o6uDgtY.js:40
+w @ index-8o6uDgtY.js:25
+N @ index-8o6uDgtY.js:25
+index-8o6uDgtY.js:2235 [Resources] ========== FETCH START ==========
+index-8o6uDgtY.js:2235 [Resources] Fetching at: 2026-01-17T11:25:58.344Z
+index-8o6uDgtY.js:2235 [Resources] isAuthenticated: false
+index-8o6uDgtY.js:2235 [Resources] memberRole: none
+index-8o6uDgtY.js:2235 [Resources] isAdmin: false
+index-8o6uDgtY.js:1060  GET https://bnms.iconn.app/api/entities/ResourceAuthorSettings 401 (Unauthorized)
+_apiRequest @ index-8o6uDgtY.js:1060
+list @ index-8o6uDgtY.js:1060
+queryFn @ index-8o6uDgtY.js:2235
+i @ index-8o6uDgtY.js:1016
+v @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.then
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.catch
+v @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.then
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.catch
+v @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.then
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.catch
+v @ index-8o6uDgtY.js:1016
+start @ index-8o6uDgtY.js:1016
+fetch @ index-8o6uDgtY.js:1016
+wf @ index-8o6uDgtY.js:1016
+onSubscribe @ index-8o6uDgtY.js:1016
+subscribe @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+zR @ index-8o6uDgtY.js:38
+Mj @ index-8o6uDgtY.js:40
+Bh @ index-8o6uDgtY.js:40
+HQ @ index-8o6uDgtY.js:40
+Lu @ index-8o6uDgtY.js:40
+B5 @ index-8o6uDgtY.js:40
+bu @ index-8o6uDgtY.js:38
+(anonymous) @ index-8o6uDgtY.js:40
+setTimeout
+r @ index-8o6uDgtY.js:1016
+l @ index-8o6uDgtY.js:1016
+batch @ index-8o6uDgtY.js:1016
+yc @ index-8o6uDgtY.js:1016
+setData @ index-8o6uDgtY.js:1016
+onSuccess @ index-8o6uDgtY.js:1016
+m @ index-8o6uDgtY.js:1016
+Promise.then
+v @ index-8o6uDgtY.js:1016
+start @ index-8o6uDgtY.js:1016
+fetch @ index-8o6uDgtY.js:1016
+wf @ index-8o6uDgtY.js:1016
+onSubscribe @ index-8o6uDgtY.js:1016
+subscribe @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+zR @ index-8o6uDgtY.js:38
+Mj @ index-8o6uDgtY.js:40
+Bh @ index-8o6uDgtY.js:40
+(anonymous) @ index-8o6uDgtY.js:40
+w @ index-8o6uDgtY.js:25
+N @ index-8o6uDgtY.js:25
+index-8o6uDgtY.js:1060  GET https://bnms.iconn.app/api/entities/ResourceCategory 401 (Unauthorized)
+_apiRequest @ index-8o6uDgtY.js:1060
+list @ index-8o6uDgtY.js:1060
+queryFn @ index-8o6uDgtY.js:2235
+i @ index-8o6uDgtY.js:1016
+v @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.then
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.catch
+v @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.then
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.catch
+v @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.then
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.catch
+v @ index-8o6uDgtY.js:1016
+start @ index-8o6uDgtY.js:1016
+fetch @ index-8o6uDgtY.js:1016
+wf @ index-8o6uDgtY.js:1016
+onSubscribe @ index-8o6uDgtY.js:1016
+subscribe @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+zR @ index-8o6uDgtY.js:38
+Mj @ index-8o6uDgtY.js:40
+Bh @ index-8o6uDgtY.js:40
+HQ @ index-8o6uDgtY.js:40
+Lu @ index-8o6uDgtY.js:40
+B5 @ index-8o6uDgtY.js:40
+bu @ index-8o6uDgtY.js:38
+(anonymous) @ index-8o6uDgtY.js:40
+setTimeout
+r @ index-8o6uDgtY.js:1016
+l @ index-8o6uDgtY.js:1016
+batch @ index-8o6uDgtY.js:1016
+yc @ index-8o6uDgtY.js:1016
+setData @ index-8o6uDgtY.js:1016
+onSuccess @ index-8o6uDgtY.js:1016
+m @ index-8o6uDgtY.js:1016
+Promise.then
+v @ index-8o6uDgtY.js:1016
+start @ index-8o6uDgtY.js:1016
+fetch @ index-8o6uDgtY.js:1016
+wf @ index-8o6uDgtY.js:1016
+onSubscribe @ index-8o6uDgtY.js:1016
+subscribe @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+zR @ index-8o6uDgtY.js:38
+Mj @ index-8o6uDgtY.js:40
+Bh @ index-8o6uDgtY.js:40
+(anonymous) @ index-8o6uDgtY.js:40
+w @ index-8o6uDgtY.js:25
+N @ index-8o6uDgtY.js:25
+index-8o6uDgtY.js:1060  GET https://bnms.iconn.app/api/entities/Resource?sort=%7B%22release_date%22%3A%22desc%22%7D 401 (Unauthorized)
+_apiRequest @ index-8o6uDgtY.js:1060
+list @ index-8o6uDgtY.js:1060
+queryFn @ index-8o6uDgtY.js:2235
+i @ index-8o6uDgtY.js:1016
+v @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.then
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.catch
+v @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.then
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.catch
+v @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.then
+(anonymous) @ index-8o6uDgtY.js:1016
+Promise.catch
+v @ index-8o6uDgtY.js:1016
+start @ index-8o6uDgtY.js:1016
+fetch @ index-8o6uDgtY.js:1016
+wf @ index-8o6uDgtY.js:1016
+onSubscribe @ index-8o6uDgtY.js:1016
+subscribe @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+zR @ index-8o6uDgtY.js:38
+Mj @ index-8o6uDgtY.js:40
+Bh @ index-8o6uDgtY.js:40
+HQ @ index-8o6uDgtY.js:40
+Lu @ index-8o6uDgtY.js:40
+B5 @ index-8o6uDgtY.js:40
+bu @ index-8o6uDgtY.js:38
+(anonymous) @ index-8o6uDgtY.js:40
+setTimeout
+r @ index-8o6uDgtY.js:1016
+l @ index-8o6uDgtY.js:1016
+batch @ index-8o6uDgtY.js:1016
+yc @ index-8o6uDgtY.js:1016
+setData @ index-8o6uDgtY.js:1016
+onSuccess @ index-8o6uDgtY.js:1016
+m @ index-8o6uDgtY.js:1016
+Promise.then
+v @ index-8o6uDgtY.js:1016
+start @ index-8o6uDgtY.js:1016
+fetch @ index-8o6uDgtY.js:1016
+wf @ index-8o6uDgtY.js:1016
+onSubscribe @ index-8o6uDgtY.js:1016
+subscribe @ index-8o6uDgtY.js:1016
+(anonymous) @ index-8o6uDgtY.js:1016
+zR @ index-8o6uDgtY.js:38
+Mj @ index-8o6uDgtY.js:40
+Bh @ index-8o6uDgtY.js:40
+(anonymous) @ index-8o6uDgtY.js:40
+w @ index-8o6uDgtY.js:25
+N @ index-8o6uDgtY.js:25

@@ -8,6 +8,12 @@ export function useResourceRealtime(queryKeys = ['resources', 'public-resources'
   keysRef.current = queryKeys;
 
   useEffect(() => {
+    // SECURITY: If no query keys provided (e.g., auth not yet resolved), skip subscription
+    if (!queryKeys || queryKeys.length === 0) {
+      console.log('[useResourceRealtime] No query keys provided, skipping subscription (auth may be pending)');
+      return;
+    }
+    
     if (!isSupabaseConfigured || !supabase) {
       console.log('[useResourceRealtime] Supabase not configured, skipping realtime subscription');
       return;
@@ -41,5 +47,5 @@ export function useResourceRealtime(queryKeys = ['resources', 'public-resources'
       console.log('[useResourceRealtime] Cleaning up realtime subscription');
       supabase.removeChannel(channel);
     };
-  }, [queryClient]);
+  }, [queryClient, JSON.stringify(queryKeys)]);
 }

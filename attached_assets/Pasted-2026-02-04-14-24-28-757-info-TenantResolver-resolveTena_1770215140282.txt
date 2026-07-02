@@ -1,0 +1,25 @@
+2026-02-04 14:24:28.757 [info] [TenantResolver] resolveTenantFromRequest called
+2026-02-04 14:24:28.757 [info] [TenantResolver] Params - tenant: undefined domain: undefined
+2026-02-04 14:24:28.757 [info] [TenantResolver] Falling back to host-based resolution, hostname: gsf.dev.iconn.app
+2026-02-04 14:24:28.757 [info] [TenantResolver] resolveTenantFromHost called with: gsf.dev.iconn.app
+2026-02-04 14:24:28.757 [info] [TenantResolver] Cache hit for: gsf.dev.iconn.app
+2026-02-04 14:24:28.757 [info] [TenantContext] About to call getSessionTenantUser
+2026-02-04 14:24:28.757 [info] [Session] getSession: Looking up session: bf8c9996
+2026-02-04 14:24:28.873 [info] [Session] getSession: Session found, userType: member
+2026-02-04 14:24:28.874 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"bf8c9996","userType":"member","memberId":"49f0b578-2e2f-46f8-a151-2c4c08cc570c","identityId":"dc156a30-ae8d-4aee-b965-b54fe4b17105","tenantId":"21296ad6-1350-483a-a90c-1b06ece70501"}
+2026-02-04 14:24:28.874 [info] [Session] Found member session with identityId, attempting promotion
+2026-02-04 14:24:29.127 [info] [Session] No tenant_user record found for identity promotion
+2026-02-04 14:24:29.127 [info] [Session] Member session promotion failed
+2026-02-04 14:24:29.127 [info] [TenantContext] getSessionTenantUser returned: null
+2026-02-04 14:24:29.127 [info] [TenantContext] Checking for member session...
+2026-02-04 14:24:29.127 [info] [Session] getSession: Looking up session: bf8c9996
+2026-02-04 14:24:29.265 [info] [Session] getSession: Session found, userType: member
+2026-02-04 14:24:29.265 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"bf8c9996","userType":"member","memberId":"49f0b578-2e2f-46f8-a151-2c4c08cc570c"}
+2026-02-04 14:24:29.389 [info] [TenantContext] Member found: {
+  memberId: '49f0b578-2e2f-46f8-a151-2c4c08cc570c',
+  organizationId: '7a097c15-1028-4e12-acde-c5ababb7201e'
+}
+2026-02-04 14:24:29.389 [info] [TenantContext] Tenant from member.organization: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-02-04 14:24:29.389 [info] [Entity GET] OrganizationPreferenceValue - allowing cross-org access via allowsTenantWideAccess, tenantId: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-02-04 14:24:29.592 [info] [Entity GET] OrganizationPreferenceValue - found 652 orgs for tenant
+2026-02-04 14:24:29.753 [error] Entity list error for OrganizationPreferenceValue (table: organization_preference_value): { message: 'Bad Request' }

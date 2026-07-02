@@ -1,0 +1,90 @@
+{
+  "name": "ComplexEvent",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Event title"
+    },
+    "slug": {
+      "type": "string",
+      "description": "URL-friendly slug, unique per tenant"
+    },
+    "description": {
+      "type": "string",
+      "description": "Rich text description (HTML)"
+    },
+    "summary": {
+      "type": "string",
+      "description": "Short plain-text summary"
+    },
+    "image_url": {
+      "type": "string",
+      "description": "URL of the event banner image"
+    },
+    "start_date": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "location": {
+      "type": "string",
+      "description": "Physical address or venue name"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["draft", "published", "tbc", "closed"],
+      "description": "Event visibility/lifecycle status"
+    },
+    "timezone": {
+      "type": "string",
+      "description": "IANA timezone identifier"
+    },
+    "available_seats": {
+      "type": "number",
+      "description": "Total capacity (null = unlimited)"
+    },
+    "is_featured": {
+      "type": "boolean",
+      "description": "If true, event is featured and displayed prominently at the top of event listings"
+    },
+    "attached_documents": {
+      "type": "array",
+      "description": "Public documents (programmes, agendas, info packs) rendered on the event page. PDFs open in an in-page viewer; other files open in a new tab.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "url": { "type": "string" },
+          "file_name": { "type": "string" },
+          "mime_type": { "type": "string" },
+          "size": { "type": "number" }
+        }
+      }
+    },
+    "documents_section_title": {
+      "type": "string",
+      "description": "Heading shown above the documents list on the public event page (e.g. \"Programmes\"). Falls back to \"Documents\" when blank."
+    },
+    "dietary_options": {
+      "type": "array",
+      "description": "Admin-defined Dietary Requirement options registrants can choose from per attendee. Empty/absent = group hidden.",
+      "items": { "type": "string" }
+    },
+    "allergy_options": {
+      "type": "array",
+      "description": "Admin-defined Allergy options (a subsection of Dietary). Registrants multi-select, each with a Mild/Moderate/Severe severity. Empty/absent = group hidden.",
+      "items": { "type": "string" }
+    },
+    "accessibility_options": {
+      "type": "array",
+      "description": "Admin-defined Accessibility Need options registrants can choose from per attendee. Empty/absent = group hidden.",
+      "items": { "type": "string" }
+    }
+  },
+  "required": ["title", "slug"]
+}

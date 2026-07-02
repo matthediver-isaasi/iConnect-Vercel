@@ -1,43 +1,185 @@
-import React, { useEffect } from "react";
-import { useParams } from "react-router-dom";
+import React, { useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useParams, useLocation, useNavigate } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { useQuery } from "@tanstack/react-query";
-import PublicLayout from "../components/layouts/PublicLayout";
 import IEditElementRenderer from "../components/iedit/IEditElementRenderer";
+import CanvasPageRenderer from "../components/canvas/CanvasPageRenderer";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useLayoutContext } from "@/contexts/LayoutContext";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
+import { useArticleUrl } from "@/contexts/ArticleUrlContext";
+import { useBelowFirstElementBanners } from "@/contexts/BannerContext";
+import PortalHeroBanner from "@/components/banners/PortalHeroBanner";
+import PageBannerDisplay from "@/components/banners/PageBannerDisplay";
+import Articles from "./Articles";
+import ArticleView from "./ArticleView";
+import ArticleEditor from "./ArticleEditor";
+import PublicArticles from "./PublicArticles";
+import ErrorBoundary from "@/components/ErrorBoundary";
 
 export default function DynamicPage() {
   const { slug } = useParams();
-  const { memberInfo, isAccessReady } = useMemberAccess();
+  const location = useLocation();
+  const navigate = useNavigate();
+  // When the Canvas Page Editor opens the live preview iframe, it appends
+  // `?_canvasPreview=<nonce>`. In that mode we must bypass the publish gate
+  // (and the public endpoint, which only returns published pages) so the
+  // editor can preview and run accessibility audits against unpublished
+  // drafts. Authorization is still enforced — the authenticated
+  // IEditPage.list endpoint only returns pages the user can access, so
+  // unauthenticated visitors hitting this URL get the normal not-found
+  // branch.
+  const isCanvasPreview = useMemo(() => {
+    try {
+      return new URLSearchParams(location.search).has('_canvasPreview');
+    } catch {
+      return false;
+    }
+  }, [location.search]);
+  // Dual-view accessibility audit (Task #925): when the canvas editor wants
+  // to audit the "anonymous visitor" view of a hybrid page, it reloads the
+  // preview iframe with `_publicView=1` alongside `_canvasPreview`. We honor
+  // that flag by forcing the public layout (no portal header/sidebar) even
+  // when the viewer is logged in. Data fetching auth is unchanged.
+  const forcePublicPreview = useMemo(() => {
+    try {
+      const sp = new URLSearchParams(location.search);
+      return sp.has('_canvasPreview') && sp.get('_publicView') === '1';
+    } catch {
+      return false;
+    }
+  }, [location.search]);
+  const { memberInfo, memberRole, isAccessReady, isFeatureExcluded } = useMemberAccess();
+  // Preview mode is only honoured when the viewer actually has the
+  // Canvas page editor capability. A bare ?_canvasPreview=… param from
+  // an ordinary tenant member must NOT bypass the publish gate, or
+  // drafts would leak to anyone authenticated in the tenant.
+  //
+  // Tenant admin (admin dashboard) sessions don't populate `memberInfo`,
+  // so `isAccessReady` stays false for them. We allow preview when there
+  // is no member session at all — those callers either are a tenant admin
+  // or are unauthenticated; the server-side gates on `/api/entities/IEditPage*`
+  // and `/api/canvas-design/[pageId]` make sure drafts only come back for
+  // tenant admins or members with `site-builder.page-editor`.
+  const canPreviewDrafts = useMemo(() => {
+    if (!isCanvasPreview) return false;
+    if (!memberInfo) return true; // tenant admin or anonymous — server gate decides
+    if (!isAccessReady) return false;
+    return !isFeatureExcluded('site-builder.page-editor');
+  }, [isCanvasPreview, memberInfo, isAccessReady, isFeatureExcluded]);
+  const { setForcePublicLayout, setForceBlankLayout, setChromeReady, setPublicChrome } = useLayoutContext();
+  const { branding } = useTenantBranding();
+  
+  // Get banners that should appear below the first element
+  // Must be called unconditionally at the top to follow React's Rules of Hooks
+  const belowFirstElementBanners = useBelowFirstElementBanners();
+  
+  // Use shared ArticleUrlContext instead of duplicating settings query
+  const { 
+    displayName: articleDisplayName, 
+    urlSlug, 
+    viewSlug, 
+    editorSlug, 
+    mySlug, 
+    publicSlug, 
+    isCustomSlug, 
+    isLoading: articleUrlLoading 
+  } = useArticleUrl();
 
-  // Fetch page by slug (regardless of status - we check permissions separately)
-  const { data: page, isLoading: pageLoading, error: pageError } = useQuery({
-    queryKey: ['iedit-dynamic-page', slug],
+  const dynamicArticleRoute = useMemo(() => {
+    // Only intercept dynamic routes if we have a custom slug configured
+    if (!isCustomSlug || !slug || articleUrlLoading) return null;
+    
+    const slugLower = slug.toLowerCase();
+    
+    if (slugLower === urlSlug.toLowerCase()) {
+      return { component: 'Articles', displayName: articleDisplayName };
+    }
+    if (slugLower === viewSlug.toLowerCase()) {
+      return { component: 'ArticleView', displayName: articleDisplayName };
+    }
+    if (slugLower === editorSlug.toLowerCase()) {
+      return { component: 'ArticleEditor', displayName: articleDisplayName };
+    }
+    if (slugLower === mySlug.toLowerCase()) {
+      // MyArticles is now integrated into Articles page - redirect there
+      return { component: 'Articles', displayName: articleDisplayName };
+    }
+    if (slugLower === publicSlug.toLowerCase()) {
+      return { component: 'PublicArticles', displayName: articleDisplayName };
+    }
+    
+    return null;
+  }, [articleDisplayName, urlSlug, viewSlug, editorSlug, mySlug, publicSlug, isCustomSlug, articleUrlLoading, slug]);
+
+  // Fetch page and elements together using public endpoint first, fall back to authenticated
+  const { data: pageData, isLoading: pageLoading, error: pageError } = useQuery({
+    queryKey: ['iedit-dynamic-page', slug, isCanvasPreview ? 'preview' : 'live'],
     queryFn: async () => {
+      // In Canvas Page Editor preview mode we skip the public endpoint
+      // entirely — it only serves published pages, and the preview iframe
+      // is explicitly authoring an unpublished draft.
+      if (!isCanvasPreview) {
+        // Try public endpoint first (works for unauthenticated users on public pages)
+        try {
+          const data = await publicClient.getPage(slug);
+          if (data) {
+            return { page: data.page, elements: data.elements, symbols: data.symbols };
+          }
+        } catch (e) {
+          // Fall through to authenticated endpoint
+        }
+      }
+      
+      // Fall back to authenticated endpoints for protected pages or logged-in users
       const pages = await base44.entities.IEditPage.list({ 
         filter: { slug: slug }
       });
-      return pages[0] || null;
+      const page = pages[0] || null;
+      if (!page) return { page: null, elements: [] };
+
+      // Canvas Builder pages have no i_edit_page_element rows — their
+      // layout lives in canvas_design on the page row itself. Skip the
+      // element fetch to save a round trip.
+      if (page.builder_type === 'canvas') {
+        // This path is authenticated (preview iframe or a logged-in viewer of
+        // a hybrid/member page). The public page endpoint did not run, so pull
+        // symbol designs from the authenticated endpoint and embed them so the
+        // renderer resolves symbols without depending on the published-only
+        // public fallback — this is what makes preview show symbol children
+        // even before the page/symbol is published.
+        let symbols;
+        try {
+          const r = await fetch('/api/canvas-symbols?full=1', { credentials: 'include' });
+          if (r.ok) {
+            const body = await r.json();
+            symbols = body?.symbols;
+          }
+        } catch (e) {
+          // Best-effort: fall back to the public fetch inside the renderer.
+        }
+        return { page, elements: [], symbols };
+      }
+
+      const elements = await base44.entities.IEditPageElement.list({ 
+        filter: { page_id: page.id },
+        sort: { display_order: 'asc' }
+      });
+      return { page, elements };
     },
-    enabled: !!slug,
+    enabled: !!slug && !dynamicArticleRoute && !articleUrlLoading,
     staleTime: 0
   });
 
-  // Fetch page elements when page is loaded
-  const { data: elements = [], isLoading: elementsLoading } = useQuery({
-    queryKey: ['iedit-dynamic-elements', page?.id],
-    queryFn: () => base44.entities.IEditPageElement.list({ 
-      filter: { page_id: page.id },
-      sort: { display_order: 'asc' }
-    }),
-    enabled: !!page?.id,
-    staleTime: 0
-  });
+  const page = pageData?.page;
+  const elements = pageData?.elements || [];
+  const elementsLoading = pageLoading;
 
   // Set page title and meta description
   useEffect(() => {
     if (page) {
-      document.title = page.meta_title || page.title || 'AGCAS';
+      document.title = page.meta_title || page.title || branding?.name || 'Portal';
       
       if (page.meta_description) {
         let metaDesc = document.querySelector('meta[name="description"]');
@@ -51,120 +193,377 @@ export default function DynamicPage() {
     }
   }, [page]);
 
+  // Handle anchor scrolling after elements are loaded
+  useEffect(() => {
+    // Only proceed if we have elements loaded and there's a hash in the URL
+    if (elements.length > 0 && !elementsLoading && location.hash) {
+      const anchorId = location.hash.substring(1); // Remove the # prefix
+      let cancelled = false;
+      
+      const scrollToAnchor = () => {
+        const targetElement = document.getElementById(anchorId);
+        console.log('[Anchor Debug] Scrolling to anchor:', anchorId, 'Element found:', !!targetElement);
+        
+        if (targetElement) {
+          // Get the sticky header height to offset the scroll position
+          const header = document.querySelector('header.sticky, header[class*="sticky"]');
+          const headerHeight = header ? header.offsetHeight : 0;
+          
+          // Calculate the target scroll position with header offset
+          const elementPosition = targetElement.getBoundingClientRect().top;
+          const offsetPosition = elementPosition + window.pageYOffset - headerHeight - 20;
+          
+          console.log('[Anchor Debug] Final scroll calculation:', {
+            elementPosition,
+            pageYOffset: window.pageYOffset,
+            headerHeight,
+            offsetPosition,
+            documentHeight: document.body.scrollHeight
+          });
+          
+          window.scrollTo({
+            top: offsetPosition,
+            behavior: 'smooth'
+          });
+        }
+      };
+      
+      // Wait for document height to stabilize (indicates images/content have loaded)
+      let lastHeight = 0;
+      let stableCount = 0;
+      const checkInterval = setInterval(() => {
+        if (cancelled) {
+          clearInterval(checkInterval);
+          return;
+        }
+        
+        const currentHeight = document.body.scrollHeight;
+        console.log('[Anchor Debug] Checking height stability:', { currentHeight, lastHeight, stableCount });
+        
+        if (currentHeight === lastHeight) {
+          stableCount++;
+          // Consider stable after 3 consecutive checks (600ms of no change)
+          if (stableCount >= 3) {
+            clearInterval(checkInterval);
+            scrollToAnchor();
+          }
+        } else {
+          stableCount = 0;
+          lastHeight = currentHeight;
+        }
+      }, 200);
+      
+      // Fallback: scroll after 3 seconds max regardless of stability
+      const fallbackTimeout = setTimeout(() => {
+        if (!cancelled) {
+          clearInterval(checkInterval);
+          console.log('[Anchor Debug] Fallback timeout reached, scrolling now');
+          scrollToAnchor();
+        }
+      }, 3000);
+
+      return () => {
+        cancelled = true;
+        clearInterval(checkInterval);
+        clearTimeout(fallbackTimeout);
+      };
+    }
+  }, [elements, elementsLoading, location.hash]);
+
   // Check if page is accessible
   const isPublished = page?.status === 'published';
-  const isMemberPage = page?.layout_type === 'member';
+  const layoutType = page?.layout_type || 'public';
+  const isMemberPage = layoutType === 'member';
+  const isHybridPage = layoutType === 'hybrid';
+  const isPublicPage = layoutType === 'public';
   const isLoggedIn = !!memberInfo;
 
-  // Show loading while fetching page data
+  // Signal to Layout whether to use public layout (no sidebar)
+  // - Default to public layout while loading (before we know the page type)
+  // - Public pages: Always use public layout, even for logged-in users
+  // - Hybrid pages: Use public layout for guests, portal layout for logged-in users
+  // - Member pages: Always use portal layout (with sidebar)
+  // - Dynamic article routes: Use portal layout (except PublicArticles)
+  useLayoutEffect(() => {
+    setChromeReady(false);
+    return () => {
+      setChromeReady(true);
+      setForceBlankLayout(false);
+    };
+  }, [slug, setChromeReady, setForceBlankLayout]);
+
+  useLayoutEffect(() => {
+    // Dynamic article routes bypass the page-data query entirely, so we need
+    // to release the chrome gate as soon as the route is resolved — otherwise
+    // Layout keeps the children wrapped in `visibility: hidden` forever.
+    if (dynamicArticleRoute) {
+      // Article routes always show full chrome — resolve before opening the gate.
+      setPublicChrome('both');
+      setChromeReady(true);
+      return () => {
+        setPublicChrome('both');
+      };
+    }
+    if (pageLoading) return;
+    // Release the chrome gate as soon as the page query has resolved, even
+    // when no page was found. Otherwise the not-found / unpublished /
+    // member-only / error branches below render inside Layout's
+    // `visibility: hidden` wrapper and the user sees a blank screen.
+    if (page?.hide_chrome) {
+      setForcePublicLayout(false);
+      setForceBlankLayout(true);
+      setChromeReady(true);
+      return () => {
+        setPublicChrome('both');
+      };
+    }
+    // Resolve the per-page chrome value *synchronously* before opening the
+    // gate so PublicLayout never paints header/footer with the stale default
+    // ('both') and then hides them — that one-frame mismatch causes the
+    // visible flicker on hide-chrome Canvas pages.
+    const shouldForcePublic = forcePublicPreview || isPublicPage || (isHybridPage && !isLoggedIn);
+    setPublicChrome(shouldForcePublic ? (page?.public_chrome || 'both') : 'both');
+    setChromeReady(true);
+    return () => {
+      setPublicChrome('both');
+    };
+  }, [page, pageLoading, dynamicArticleRoute, forcePublicPreview, isPublicPage, isHybridPage, isLoggedIn, setForceBlankLayout, setForcePublicLayout, setChromeReady, setPublicChrome]);
+
+  useEffect(() => {
+    if (page?.hide_chrome) return;
+
+    if (dynamicArticleRoute) {
+      const isPublicArticleRoute = dynamicArticleRoute.component === 'PublicArticles';
+      // Force public layout for the explicit PublicArticles route, OR for any
+      // dynamic article route when the visitor is not logged in. The Articles
+      // component supports guests internally via publicClient; we just need
+      // the public chrome (no portal sidebar) to wrap it.
+      setForcePublicLayout(isPublicArticleRoute || !isLoggedIn);
+      // Article routes always show the full public chrome. Reset explicitly so
+      // a per-page chrome choice from a previously viewed page cannot leak in.
+      setPublicChrome('both');
+      return () => {
+        setForcePublicLayout(false);
+        setPublicChrome('both');
+      };
+    }
+
+    if (pageLoading || !page) {
+      setForcePublicLayout(true);
+      return;
+    }
+
+    const shouldForcePublic = forcePublicPreview || isPublicPage || (isHybridPage && !isLoggedIn);
+    setForcePublicLayout(shouldForcePublic);
+    // When this page renders with the public layout, honour its per-page
+    // header/footer choice. Reset to 'both' on cleanup so it never leaks to
+    // the next page.
+    if (shouldForcePublic) {
+      setPublicChrome(page.public_chrome || 'both');
+    }
+
+    return () => {
+      setForcePublicLayout(false);
+      setPublicChrome('both');
+    };
+  }, [page, pageLoading, isPublicPage, isHybridPage, isLoggedIn, forcePublicPreview, setForcePublicLayout, setPublicChrome, dynamicArticleRoute]);
+
+  // Check for redirect mappings when page is not found
+  const shouldCheckRedirect = !pageLoading && !page && !dynamicArticleRoute && !!slug;
+  const { data: redirectResult, isLoading: redirectLoading } = useQuery({
+    queryKey: ['redirect-resolve', slug],
+    queryFn: async () => {
+      const currentPath = '/' + slug;
+      const response = await fetch(`/api/redirects/resolve?path=${encodeURIComponent(currentPath)}`);
+      if (!response.ok) return { found: false };
+      return response.json();
+    },
+    enabled: shouldCheckRedirect,
+    staleTime: 60000
+  });
+
+  // Handle 404 - check redirect mappings first, then fall back to default behavior
+  // We need to wait for access state to be determined:
+  // - For guests: memberInfo is null (from localStorage init, not undefined)
+  // - For logged-in users: isAccessReady will be true after role is loaded
+  const isGuest = memberInfo === null;
+  const authCheckComplete = isGuest || isAccessReady;
+  
+  // Determine if redirect check is complete:
+  // - If we should check redirects, wait for the result to be defined (not just not loading)
+  // - If we shouldn't check redirects, consider it complete
+  const redirectCheckComplete = shouldCheckRedirect 
+    ? (redirectResult !== undefined && !redirectLoading)
+    : true;
+  
+  useEffect(() => {
+    // Wait for page loading to complete and we're in a 404 scenario
+    if (pageLoading || page || dynamicArticleRoute) {
+      return;
+    }
+    
+    // If we should check redirects, wait for that to complete
+    if (!redirectCheckComplete) {
+      console.log('[DynamicPage] Waiting for redirect check to complete...');
+      return;
+    }
+    
+    // Check if we have a redirect mapping
+    if (redirectResult?.found && redirectResult?.target_url) {
+      console.log('[DynamicPage] Redirect mapping found:', redirectResult.target_url);
+      // Handle external vs internal redirects
+      if (redirectResult.target_url.startsWith('http://') || redirectResult.target_url.startsWith('https://')) {
+        window.location.href = redirectResult.target_url;
+      } else {
+        navigate(redirectResult.target_url, { replace: true });
+      }
+      return;
+    }
+    
+  }, [page, pageLoading, dynamicArticleRoute, redirectCheckComplete, redirectResult, authCheckComplete, memberInfo, memberRole, navigate]);
+
+  // Debug: Log what's being rendered
+  console.log('[DynamicPage] slug:', slug);
+  console.log('[DynamicPage] dynamicArticleRoute:', dynamicArticleRoute);
+  console.log('[DynamicPage] mySlug:', mySlug, 'isCustomSlug:', isCustomSlug);
+
+  if (dynamicArticleRoute) {
+    console.log('[DynamicPage] Rendering component:', dynamicArticleRoute.component);
+    let routeEl = null;
+    switch (dynamicArticleRoute.component) {
+      case 'Articles':
+        routeEl = <Articles />;
+        break;
+      case 'ArticleView':
+        routeEl = <ArticleView />;
+        break;
+      case 'ArticleEditor':
+        routeEl = <ArticleEditor />;
+        break;
+      case 'PublicArticles':
+        routeEl = <PublicArticles />;
+        break;
+      default:
+        routeEl = null;
+    }
+    return (
+      <ErrorBoundary name={`DynamicArticleRoute:${dynamicArticleRoute.component}`}>
+        {routeEl}
+      </ErrorBoundary>
+    );
+  }
+
   if (pageLoading || elementsLoading) {
     return (
-      <PublicLayout currentPageName={slug}>
-        <div className="min-h-screen flex items-center justify-center" data-testid="loading-dynamic-page">
-          <div className="text-slate-600">Loading page...</div>
-        </div>
-      </PublicLayout>
+      <div className="min-h-screen" data-testid="loading-dynamic-page" aria-busy="true">
+        <div className="sr-only">Loading content</div>
+      </div>
     );
   }
 
-  // Page doesn't exist - show 404 (catch-all route means we can't fall through)
   if (!page) {
-    return (
-      <PublicLayout currentPageName={slug}>
-        <div className="min-h-screen flex items-center justify-center" data-testid="page-not-found">
-          <div className="text-center">
-            <h1 className="text-6xl font-bold text-slate-300 mb-4">404</h1>
-            <h2 className="text-2xl font-bold text-slate-900 mb-2">Page Not Found</h2>
-            <p className="text-slate-600 mb-6">
-              The page you're looking for doesn't exist.
-            </p>
-            <a 
-              href="/" 
-              className="inline-flex items-center justify-center px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-              data-testid="link-home"
-            >
-              Go Home
-            </a>
-          </div>
+    if (redirectLoading || (shouldCheckRedirect && !redirectCheckComplete)) {
+      return (
+        <div className="min-h-screen" data-testid="page-checking-redirect" aria-busy="true">
+          <div className="sr-only">Checking page...</div>
         </div>
-      </PublicLayout>
+      );
+    }
+
+    return (
+      <div className="min-h-screen flex items-center justify-center" data-testid="page-not-found">
+        <div className="text-center max-w-md px-4">
+          <h1 className="text-4xl font-bold mb-4" data-testid="text-not-found-title">Page not found</h1>
+          <p className="text-muted-foreground mb-6" data-testid="text-not-found-message">
+            The page you're looking for doesn't exist or has been removed.
+          </p>
+          <a
+            href="/"
+            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover-elevate"
+            data-testid="link-go-home"
+          >
+            Go to homepage
+          </a>
+        </div>
+      </div>
     );
   }
 
-  // Page exists but not published
-  if (!isPublished) {
+  if (!isPublished && !canPreviewDrafts) {
     return (
-      <PublicLayout currentPageName={slug}>
-        <div className="min-h-screen flex items-center justify-center" data-testid="page-not-published">
-          <div className="text-center">
-            <h1 className="text-4xl font-bold text-slate-900 mb-4">Page Not Available</h1>
-            <p className="text-slate-600">
-              This page is currently in draft mode and not publicly accessible.
-            </p>
-          </div>
+      <div className="min-h-screen flex items-center justify-center" data-testid="page-not-published">
+        <div className="text-center">
+          <p className="text-slate-600">
+            This page is currently being updated. Please check back soon.
+          </p>
         </div>
-      </PublicLayout>
+      </div>
     );
   }
 
-  // For member pages, wait for access to be ready before showing member-only gate
   if (isMemberPage && !isAccessReady) {
     return (
-      <PublicLayout currentPageName={slug}>
-        <div className="min-h-screen flex items-center justify-center" data-testid="loading-access-check">
-          <div className="text-slate-600">Checking access...</div>
-        </div>
-      </PublicLayout>
+      <div className="min-h-screen" data-testid="loading-access-check" aria-busy="true">
+        <div className="sr-only">Loading content</div>
+      </div>
     );
   }
 
-  // Member page but user not logged in (only check after access is ready)
   if (isMemberPage && !isLoggedIn) {
     return (
-      <PublicLayout currentPageName={slug}>
-        <div className="min-h-screen flex items-center justify-center" data-testid="page-requires-login">
-          <div className="text-center">
-            <h1 className="text-4xl font-bold text-slate-900 mb-4">Members Only</h1>
-            <p className="text-slate-600 mb-6">
-              This page is only accessible to logged-in members.
-            </p>
-            <a 
-              href="/Home" 
-              className="inline-flex items-center justify-center px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-              data-testid="link-login"
-            >
-              Log In
-            </a>
-          </div>
+      <div className="min-h-screen flex items-center justify-center" data-testid="page-requires-login">
+        <div className="text-center">
+          <p className="text-slate-600 mb-6">
+            This page is only accessible to logged-in members.
+          </p>
+          <a 
+            href="/Home" 
+            className="inline-flex items-center justify-center px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            data-testid="link-login"
+          >
+            Log In
+          </a>
         </div>
-      </PublicLayout>
+      </div>
     );
   }
 
-  // Render the page with appropriate layout
-  // Member pages use a simple wrapper, public pages use PublicLayout
-  const LayoutComponent = isMemberPage 
-    ? ({ children }) => <div className="min-h-screen">{children}</div>
-    : PublicLayout;
-
-  return (
-    <LayoutComponent currentPageName={slug}>
+  // Canvas Builder pages render via their own design document instead of
+  // the stacked IEditPageElement list. Phase 1 only ships a stub renderer.
+  if (page.builder_type === 'canvas') {
+    return (
       <div className="w-full" data-testid={`dynamic-page-${slug}`}>
-        {elements.map((element) => (
-          <IEditElementRenderer
-            key={element.id}
-            element={element}
-          />
-        ))}
-        
-        {elements.length === 0 && (
-          <div className="min-h-screen flex items-center justify-center" data-testid="page-no-content">
-            <div className="text-center">
-              <p className="text-slate-600">This page has no content yet.</p>
-            </div>
-          </div>
-        )}
+        <CanvasPageRenderer page={page} symbols={pageData?.symbols} />
       </div>
-    </LayoutComponent>
+    );
+  }
+
+  // Render the page content - Layout handles the appropriate wrapper (PublicLayout or sidebar)
+  return (
+    <div className="w-full" data-testid={`dynamic-page-${slug}`}>
+      {elements.map((element, index) => (
+        <React.Fragment key={element.id}>
+          <IEditElementRenderer element={element} memberInfo={memberInfo} />
+          {/* Insert below-first-element banners after the first element */}
+          {index === 0 && belowFirstElementBanners.length > 0 && (
+            <div className="w-full">
+              {belowFirstElementBanners.map((banner) => (
+                banner.banner_type === 'image'
+                  ? <PageBannerDisplay key={banner.id} banner={banner} />
+                  : <PortalHeroBanner key={banner.id} banner={banner} />
+              ))}
+            </div>
+          )}
+        </React.Fragment>
+      ))}
+      
+      {elements.length === 0 && (
+        <div className="min-h-screen flex items-center justify-center" data-testid="page-no-content">
+          <div className="text-center">
+            <p className="text-slate-600">This page is currently being updated. Please check back soon.</p>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/api/supabaseClient"; // or your actual client path
+import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -13,6 +14,8 @@ import {
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Loader2,
   X,
@@ -26,11 +29,196 @@ import {
   Users,
   CalendarDays,
   Save,
+  Lock,
+  Eye,
+  EyeOff,
+  Shield,
+  Check,
+  AlertCircle,
+  Mail,
+  ClipboardList,
+  Download,
+  Award,
+  FolderTree,
+  UserCog,
+  ArrowRight,
 } from "lucide-react";
 import { format } from "date-fns";
 import ResourceFilter from "../components/resources/ResourceFilter";
 import { toast } from "sonner";
 import { Switch } from "@/components/ui/switch";
+import { useLayoutContext } from "@/contexts/LayoutContext";
+import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useWorkflowConfirmation } from "@/hooks/useWorkflowConfirmation";
+import WorkflowConfirmationModal from "@/components/WorkflowConfirmationModal";
+import OutlookConnection from "@/components/OutlookConnection";
+import BookingAvailabilitySettings from "@/components/BookingAvailabilitySettings";
+import CustomFieldFileUpload, { CustomFieldFileDisplay } from "@/components/CustomFieldFileUpload";
+import { COUNTRIES } from "@/data/countries";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command";
+import { ChevronsUpDown } from "lucide-react";
+import { Link } from "react-router-dom";
+import { createPageUrl } from "@/utils";
+
+// --- List Field Editor Component ---
+function ListFieldEditor({ fieldId, values = [], onChange, placeholder, disabled = false }) {
+  const [inputValue, setInputValue] = useState('');
+  
+  // Ensure values is always a clean array with trimmed entries
+  const safeValues = Array.isArray(values) ? values.map(v => String(v).trim()).filter(Boolean) : [];
+
+  const handleAddItem = () => {
+    const trimmed = inputValue.trim();
+    // Check for duplicates case-insensitively
+    if (!trimmed || safeValues.some(v => v.toLowerCase() === trimmed.toLowerCase())) return;
+    onChange([...safeValues, trimmed]);
+    setInputValue('');
+  };
+
+  const handleRemoveItem = (itemToRemove) => {
+    onChange(safeValues.filter(item => item !== itemToRemove));
+  };
+
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleAddItem();
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      {safeValues.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {safeValues.map((item, index) => (
+            <Badge 
+              key={index} 
+              variant="secondary" 
+              className="flex items-center gap-1 px-2 py-1"
+              data-testid={`list-item-${fieldId}-${index}`}
+            >
+              <span>{item}</span>
+              {!disabled && (
+                <button
+                  type="button"
+                  onClick={() => handleRemoveItem(item)}
+                  className="ml-1 hover:text-red-600 transition-colors"
+                  data-testid={`button-remove-list-item-${fieldId}-${index}`}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </Badge>
+          ))}
+        </div>
+      )}
+      
+      {!disabled && (
+        <div className="flex gap-2">
+          <Input
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyPress={handleKeyPress}
+            placeholder={placeholder || 'Add item...'}
+            className="flex-1"
+            data-testid={`input-list-${fieldId}`}
+          />
+          <Button 
+            type="button" 
+            variant="outline" 
+            onClick={handleAddItem}
+            disabled={!inputValue.trim()}
+            data-testid={`button-add-list-item-${fieldId}`}
+          >
+            Add
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function resolveCountryName(value) {
+  if (!value) return value;
+  const byCode = COUNTRIES.find(c => c.code === value);
+  if (byCode) return byCode.name;
+  return value;
+}
+
+function CountryMultiSelectField({ fieldId, selectedValues, availableCountries, onChange, label }) {
+  const [open, setOpen] = useState(false);
+
+  const normalizedValues = selectedValues.map(v => resolveCountryName(v));
+
+  const toggleCountry = (countryName) => {
+    if (normalizedValues.includes(countryName)) {
+      onChange(normalizedValues.filter(v => v !== countryName));
+    } else {
+      onChange([...normalizedValues, countryName]);
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            className="justify-between font-normal w-full min-h-9"
+            data-testid={`select-countries-${fieldId}`}
+          >
+            <span className="truncate text-left flex-1 text-sm">
+              {normalizedValues.length === 0
+                ? `Select ${label.toLowerCase()}`
+                : `${normalizedValues.length} countr${normalizedValues.length === 1 ? 'y' : 'ies'} selected`}
+            </span>
+            <ChevronsUpDown className="ml-1 h-4 w-4 shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-[300px] p-0" align="start">
+          <Command>
+            <CommandInput placeholder="Search countries..." />
+            <CommandList>
+              <CommandEmpty>No countries found.</CommandEmpty>
+              <CommandGroup className="max-h-[250px] overflow-auto">
+                {availableCountries.map(country => (
+                  <CommandItem
+                    key={country.code}
+                    value={country.name}
+                    onSelect={() => toggleCountry(country.name)}
+                  >
+                    <Check className={`mr-2 h-4 w-4 ${normalizedValues.includes(country.name) ? 'opacity-100' : 'opacity-0'}`} />
+                    {country.name}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+      {normalizedValues.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {normalizedValues.map(name => (
+            <Badge key={name} variant="secondary" className="text-xs">
+              {name}
+              <button
+                type="button"
+                onClick={() => toggleCountry(name)}
+                className="ml-1"
+                data-testid={`button-remove-country-${name}`}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </Badge>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // --- Helper: upload to Supabase Storage and return public URL ---
 async function uploadImageToSupabase(file, bucket, folderPrefix = "") {
@@ -54,6 +242,19 @@ async function uploadImageToSupabase(file, bucket, folderPrefix = "") {
 }
 
 export default function PreferencesPage() {
+  // Get hasBanner from layout context (since props don't work through React Router)
+  const { hasBanner } = useLayoutContext();
+  
+  const {
+    pendingWorkflows,
+    showConfirmationModal,
+    setShowConfirmationModal,
+    checkForPendingWorkflows,
+    handleConfirmWorkflow,
+    handleSkipWorkflow,
+    handleSkipAllWorkflows,
+  } = useWorkflowConfirmation();
+
   // Resource prefs
   const [selectedSubcategories, setSelectedSubcategories] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -65,27 +266,44 @@ export default function PreferencesPage() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [jobTitle, setJobTitle] = useState("");
+  const [mobile, setMobile] = useState("");
+  const [landline, setLandline] = useState("");
   const [biography, setBiography] = useState("");
   const [profilePhotoUrl, setProfilePhotoUrl] = useState("");
-  const [linkedinUrl, setLinkedinUrl] = useState("");
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [hasUnsavedProfile, setHasUnsavedProfile] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [showInDirectory, setShowInDirectory] = useState(true);
 
-  // Organisation logo state
-  const [organizationLogoUrl, setOrganizationLogoUrl] = useState("");
-  const [isUploadingOrgLogo, setIsUploadingOrgLogo] = useState(false);
-  const [hasUnsavedOrgLogo, setHasUnsavedOrgLogo] = useState(false);
+
+  // Password change state
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordSuccess, setPasswordSuccess] = useState(false);
+
+  // Communication preferences state
+  const [updatingCommPrefs, setUpdatingCommPrefs] = useState(new Set());
+  const [updatingOptOutAll, setUpdatingOptOutAll] = useState(false);
+
+  // Additional info (custom preference fields) state
+  const [additionalInfoValues, setAdditionalInfoValues] = useState({});
+  const [hasUnsavedAdditionalInfo, setHasUnsavedAdditionalInfo] = useState(false);
+  const [isSavingAdditionalInfo, setIsSavingAdditionalInfo] = useState(false);
+
 
   const queryClient = useQueryClient();
 
-  // --- Get current user from sessionStorage (set by TestLogin/VerifyMagicLink) ---
+  // --- Get current user from sessionStorage (set by Login) ---
   const [sessionMember, setSessionMember] = useState(null);
   const [sessionLoading, setSessionLoading] = useState(true);
 
   useEffect(() => {
-    const storedMember = sessionStorage.getItem('agcas_member');
+    const storedMember = localStorage.getItem('agcas_member');
     if (storedMember) {
       try {
         const parsed = JSON.parse(storedMember);
@@ -100,11 +318,44 @@ export default function PreferencesPage() {
     setSessionLoading(false);
   }, []);
 
-  // Use session member directly as the member record (it already contains full member data)
-  const currentUser = sessionMember;
-  const memberRecord = sessionMember;
+  // Fetch fresh member data from backend API to ensure we have all fields (including created_at)
+  // Uses /api/auth/me which runs with service key and bypasses RLS
+  const { data: freshMemberData, isLoading: freshMemberLoading } = useQuery({
+    queryKey: ["fresh-member-data", sessionMember?.id],
+    enabled: !!sessionMember?.id,
+    queryFn: async () => {
+      try {
+        const response = await fetch('/api/auth/me', { credentials: 'include' });
+        console.log("[Preferences] /api/auth/me response status:", response.status);
+        if (!response.ok) {
+          console.error("[Preferences] Error fetching fresh member data:", response.status);
+          return null;
+        }
+        const data = await response.json();
+        console.log("[Preferences] Fresh member data from API:", data);
+        console.log("[Preferences] created_on value:", data?.created_on);
+        return data;
+      } catch (err) {
+        console.error("[Preferences] Error fetching fresh member data:", err);
+        return null;
+      }
+    },
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+  });
+
+  // Merge fresh data with session data (fresh data takes priority for fields like created_at)
+  const memberRecord = useMemo(() => {
+    if (!sessionMember) return null;
+    if (!freshMemberData) return sessionMember;
+    const merged = { ...sessionMember, ...freshMemberData };
+    console.log("[Preferences] Merged memberRecord:", merged);
+    console.log("[Preferences] memberRecord.created_on:", merged.created_on);
+    return merged;
+  }, [sessionMember, freshMemberData]);
+
+  const currentUser = memberRecord;
   const userLoading = sessionLoading;
-  const memberLoading = false;
+  const memberLoading = freshMemberLoading;
   const authError = null;
   const memberError = null;
 
@@ -128,9 +379,45 @@ export default function PreferencesPage() {
     },
   });
 
-  // Helper to mimic old isFeatureExcluded prop:
-  const isFeatureExcluded = (featureKey) =>
-    !!memberRecord?.member_excluded_features?.includes(featureKey);
+  // Use useMemberAccess hook to check both role-level and member-level feature exclusions
+  const { isFeatureExcluded } = useMemberAccess();
+
+  // Fetch member field permissions for current role
+  const { data: memberFieldPermissions = {} } = useQuery({
+    queryKey: ['my-member-field-permissions'],
+    enabled: !!memberRecord,
+    queryFn: async () => {
+      try {
+        const response = await fetch('/api/my-member-field-permissions', {
+          credentials: 'include'
+        });
+        if (!response.ok) {
+          console.log('[Preferences] my-member-field-permissions response not ok:', response.status);
+          return {};
+        }
+        const data = await response.json();
+        console.log('[Preferences] Fetched member field permissions:', data);
+        return data;
+      } catch (err) {
+        console.error('[Preferences] Error fetching member field permissions:', err);
+        return {};
+      }
+    }
+  });
+
+  // Helper functions for field permissions
+  const getFieldPermission = (fieldKey) => {
+    const permission = memberFieldPermissions[fieldKey] || 'read_write';
+    return permission;
+  };
+
+  const canEditField = (fieldKey) => {
+    return getFieldPermission(fieldKey) === 'read_write';
+  };
+
+  const isFieldVisible = (fieldKey) => {
+    return getFieldPermission(fieldKey) !== 'hidden';
+  };
 
   // crude "is team member" flag – adjust if you later add a real column
   const isTeamMember =
@@ -272,6 +559,38 @@ export default function PreferencesPage() {
       },
     });
 
+  // --- Engagement awards ---
+  const { data: engagementAwards = [], isLoading: engagementAwardsLoading } =
+    useQuery({
+      queryKey: ["engagementAwards"],
+      queryFn: async () => {
+        const { data, error } = await supabase
+          .from("engagement_award")
+          .select("*")
+          .eq("is_active", true);
+        if (error) throw error;
+        return data || [];
+      },
+    });
+
+  // --- Engagement award assignments ---
+  const {
+    data: engagementAssignments = [],
+    isLoading: engagementAssignmentsLoading,
+  } = useQuery({
+    queryKey: ["engagementAssignments", memberRecord?.id],
+    enabled: !!memberRecord?.id,
+    queryFn: async () => {
+      if (!memberRecord?.id) return [];
+      const { data, error } = await supabase
+        .from("engagement_award_assignment")
+        .select("*")
+        .eq("member_id", memberRecord.id);
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
   // --- Award classifications ---
   const { data: awardClassifications = [] } = useQuery({
     queryKey: ["awardClassifications"],
@@ -288,15 +607,352 @@ export default function PreferencesPage() {
   const { data: categories = [], isLoading: categoriesLoading } = useQuery({
     queryKey: ["resourceCategories"],
     queryFn: async () => {
+      // Use base44 entity API like CategoryManagement does for consistency
+      try {
+        const cats = await base44.entities.ResourceCategory.list('display_order');
+        // Filter out explicitly inactive categories (allow null/undefined is_active)
+        return (cats || []).filter(c => c.is_active !== false);
+      } catch (error) {
+        console.error('[Preferences] Failed to load resource categories:', error);
+        return [];
+      }
+    },
+  });
+
+  // --- Communication categories with role assignments (tenant-scoped via entity API) ---
+  const { data: communicationCategories = [], isLoading: communicationCategoriesLoading } = useQuery({
+    queryKey: ["communicationCategories"],
+    queryFn: async () => {
+      const categories = await base44.entities.CommunicationCategory.list({
+        filter: { is_active: true },
+        sort: { display_order: 'asc' }
+      });
+      const roleAssignments = await base44.entities.CommunicationCategoryRole.list();
+      return (categories || []).map(cat => ({
+        ...cat,
+        communication_category_role: (roleAssignments || []).filter(r => r.category_id === cat.id)
+      }));
+    },
+  });
+
+  // --- Member's communication preferences ---
+  const { data: communicationPreferences = [] } = useQuery({
+    queryKey: ["communicationPreferences", memberRecord?.id],
+    enabled: !!memberRecord?.id,
+    queryFn: async () => {
+      if (!memberRecord?.id) return [];
       const { data, error } = await supabase
-        .from("resource_category")
+        .from("member_communication_preference")
         .select("*")
-        .eq("is_active", true)
-        .order("display_order", { ascending: true });
+        .eq("member_id", memberRecord.id);
       if (error) throw error;
       return data || [];
     },
   });
+
+  // --- Member's resource category selections (from database via API) ---
+  const { data: memberResourceCategories = [], isLoading: memberResourceCategoriesLoading } = useQuery({
+    queryKey: ["memberResourceCategories", memberRecord?.id],
+    enabled: !!memberRecord?.id,
+    queryFn: async () => {
+      if (!memberRecord?.id) return [];
+      try {
+        // Use API endpoint instead of direct Supabase to bypass RLS
+        const response = await fetch(`/api/members/${memberRecord.id}/categories`);
+        if (!response.ok) {
+          console.error("[Preferences] Failed to load member categories:", response.status);
+          return [];
+        }
+        const data = await response.json();
+        return data || [];
+      } catch (error) {
+        console.error("[Preferences] Failed to load member categories:", error);
+        return [];
+      }
+    },
+  });
+
+  // --- Preference fields (custom additional info fields) - member scope only ---
+  const { data: allPreferenceFields = [], isLoading: preferenceFieldsLoading } = useQuery({
+    queryKey: ["/api/entities/PreferenceField", "member"],
+    queryFn: async () => {
+      try {
+        // Try to filter by entity_scope (requires migration to be run)
+        const fields = await base44.entities.PreferenceField.list({
+          filter: { is_active: true, entity_scope: 'member' },
+          sort: { display_order: 'asc' }
+        });
+        return (fields || []).filter(f => (!f.entity_scope || f.entity_scope === 'member') && f.show_in_my_preferences !== false);
+      } catch {
+        // Fallback: if entity_scope column doesn't exist, fetch all active and filter client-side
+        try {
+          const allFields = await base44.entities.PreferenceField.list({
+            filter: { is_active: true },
+            sort: { display_order: 'asc' }
+          });
+          return (allFields || []).filter(f => (!f.entity_scope || f.entity_scope === 'member') && f.show_in_my_preferences !== false);
+        } catch {
+          return [];
+        }
+      }
+    },
+  });
+
+  // --- Fetch hidden custom field IDs for Preferences page ---
+  const { data: hiddenFieldIds = [] } = useQuery({
+    queryKey: ['preferences-hidden-custom-fields'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('system_settings')
+        .select('setting_value')
+        .eq('setting_key', 'preferences_hidden_custom_fields')
+        .limit(1);
+      if (error || !data?.[0]?.setting_value) return [];
+      try {
+        const parsed = JSON.parse(data[0].setting_value);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    },
+  });
+
+  // --- Fetch custom field order for Preferences page ---
+  const { data: customFieldOrder = [] } = useQuery({
+    queryKey: ['preferences-custom-field-order'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('system_settings')
+        .select('setting_value')
+        .eq('setting_key', 'preferences_custom_field_order')
+        .limit(1);
+      if (error || !data?.[0]?.setting_value) return [];
+      try {
+        const parsed = JSON.parse(data[0].setting_value);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    },
+  });
+
+  // --- Get member's role IDs ---
+  const memberRoleIds = useMemo(() => {
+    if (!memberRecord?.role_id) return [];
+    if (Array.isArray(memberRecord.role_id)) {
+      return memberRecord.role_id;
+    }
+    return [memberRecord.role_id];
+  }, [memberRecord?.role_id]);
+
+  // Filter out hidden fields and sort by custom order
+  const preferenceFields = useMemo(() => {
+    if (!allPreferenceFields.length) return [];
+    
+    const visibleFields = allPreferenceFields.filter(field => !hiddenFieldIds.includes(field.id));
+    
+    // Then sort by custom order if defined
+    if (customFieldOrder.length > 0) {
+      const orderedResult = [];
+      
+      // Add fields in saved order first
+      customFieldOrder.forEach(id => {
+        const field = visibleFields.find(f => f.id === id);
+        if (field) orderedResult.push(field);
+      });
+      
+      // Add any remaining visible fields not in the saved order
+      visibleFields.forEach(field => {
+        if (!orderedResult.find(f => f.id === field.id)) {
+          orderedResult.push(field);
+        }
+      });
+      
+      return orderedResult;
+    }
+    
+    return visibleFields;
+  }, [allPreferenceFields, hiddenFieldIds, customFieldOrder]);
+
+  // --- Fetch hidden resource category IDs for Preferences page ---
+  const { data: hiddenResourceCategoryIds = [] } = useQuery({
+    queryKey: ['preferences-hidden-resource-categories'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('system_settings')
+        .select('setting_value')
+        .eq('setting_key', 'preferences_hidden_resource_categories')
+        .limit(1);
+      if (error || !data?.[0]?.setting_value) return [];
+      try {
+        const parsed = JSON.parse(data[0].setting_value);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    },
+  });
+
+  // Filter out hidden resource categories
+  const visibleCategories = useMemo(() => {
+    if (!categories.length) return [];
+    return categories.filter(category => !hiddenResourceCategoryIds.includes(category.id));
+  }, [categories, hiddenResourceCategoryIds]);
+
+  // --- Member's preference values ---
+  const { data: memberPreferenceValues = [] } = useQuery({
+    queryKey: ["/api/entities/MemberPreferenceValue", memberRecord?.id],
+    enabled: !!memberRecord?.id,
+    queryFn: async () => {
+      if (!memberRecord?.id) return [];
+      try {
+        const values = await base44.entities.MemberPreferenceValue.list({
+          filter: { member_id: memberRecord.id }
+        });
+        return values || [];
+      } catch {
+        return [];
+      }
+    },
+  });
+
+
+  // --- Fetch role-change request rules (admin-configured) ---
+  const { data: roleChangeRules = [] } = useQuery({
+    queryKey: ['role-change-requests-config'],
+    queryFn: async () => {
+      try {
+        const allSettings = await base44.entities.SystemSettings.list();
+        const setting = allSettings.find(s => s.setting_key === 'role_change_requests');
+        if (!setting?.setting_value) return [];
+        const parsed = JSON.parse(setting.setting_value);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (error) {
+        console.error('[Preferences] Error fetching role change rules:', error);
+        return [];
+      }
+    },
+    staleTime: 60000
+  });
+
+  // --- Fetch all roles (for resolving target role names in role-change rules) ---
+  const { data: allRoles = [] } = useQuery({
+    queryKey: ['all-roles-for-role-change'],
+    enabled: roleChangeRules.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("role")
+        .select("id, name");
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  // --- Fetch roles with badge info for the member ---
+  const { data: memberRoles = [], isLoading: rolesLoading } = useQuery({
+    queryKey: ["memberRolesWithBadges", memberRoleIds],
+    enabled: memberRoleIds.length > 0,
+    queryFn: async () => {
+      if (memberRoleIds.length === 0) return [];
+      const { data, error } = await supabase
+        .from("role")
+        .select("id, name, description, badge_image_url")
+        .in("id", memberRoleIds);
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  // Filter roles that have badges
+  const rolesWithBadges = useMemo(() => {
+    return memberRoles.filter(role => role.badge_image_url);
+  }, [memberRoles]);
+
+  // --- Filter categories available to this member based on their role(s) ---
+  const availableCategories = useMemo(() => {
+    if (!communicationCategories.length) return [];
+    
+    return communicationCategories.filter(category => {
+      // If no roles assigned to category, it's available to everyone
+      if (!category.communication_category_role?.length) return true;
+      
+      // Check if member has any of the required roles
+      const categoryRoleIds = category.communication_category_role.map(r => r.role_id);
+      return memberRoleIds.some(roleId => categoryRoleIds.includes(roleId));
+    });
+  }, [communicationCategories, memberRoleIds]);
+
+  // --- Section order and visibility for Preferences page layout ---
+  const DEFAULT_SECTION_CONFIG = [
+    { id: 'profile_information', visible: true },
+    { id: 'communications', visible: true },
+    { id: 'additional_info', visible: true },
+    { id: 'role_change_request', visible: true },
+    { id: 'engagement_stats', visible: true },
+    { id: 'engagement_awards', visible: true },
+    { id: 'groups', visible: true },
+    { id: 'membership_badges', visible: true },
+    { id: 'awards', visible: true },
+    { id: 'professional_biography', visible: true },
+    { id: 'resource_interests', visible: true },
+    { id: 'outlook_integration', visible: true },
+    { id: 'booking_availability', visible: true },
+    { id: 'password_security', visible: true }
+  ];
+  
+  const { data: sectionConfig = DEFAULT_SECTION_CONFIG } = useQuery({
+    queryKey: ['preferences-section-order'],
+    queryFn: async () => {
+      try {
+        // Use base44.entities.SystemSettings.list() to match PreferenceSettings.jsx approach
+        const allSettings = await base44.entities.SystemSettings.list();
+        const setting = allSettings.find(s => s.setting_key === 'preferences_section_order');
+        
+        if (!setting?.setting_value) return DEFAULT_SECTION_CONFIG;
+        
+        const parsed = JSON.parse(setting.setting_value);
+        if (!Array.isArray(parsed)) return DEFAULT_SECTION_CONFIG;
+        
+        let storedConfig;
+        // Handle both old format (array of strings) and new format (array of objects)
+        if (parsed.length > 0 && typeof parsed[0] === 'object') {
+          // New format: [{ id: 'section_id', visible: true }, ...]
+          storedConfig = parsed;
+        } else {
+          // Old format: ['section_id', ...] - convert to new format with all visible
+          storedConfig = parsed.map(id => ({ id, visible: true }));
+        }
+        
+        // Remove deprecated 'engagement' section (now split into separate cards)
+        storedConfig = storedConfig.filter(s => s.id !== 'engagement');
+        
+        // Ensure password_security is always at the bottom
+        const passwordSection = storedConfig.find(s => s.id === 'password_security');
+        storedConfig = storedConfig.filter(s => s.id !== 'password_security');
+        
+        // Merge with DEFAULT_SECTION_CONFIG to include any new sections
+        // that weren't in the stored config
+        const storedIds = storedConfig.map(s => s.id);
+        const newSections = DEFAULT_SECTION_CONFIG.filter(
+          defaultSection => !storedIds.includes(defaultSection.id) && defaultSection.id !== 'password_security'
+        );
+        
+        // Add new sections, then password_security at the very end
+        return [...storedConfig, ...newSections, passwordSection || { id: 'password_security', visible: true }];
+      } catch (error) {
+        console.error('[Preferences] Error fetching section config:', error);
+        return DEFAULT_SECTION_CONFIG;
+      }
+    },
+    staleTime: 60000
+  });
+
+  // Filter to only visible sections and extract order
+  // Also hide password_security if user logged in via Google (no password to change)
+  const sectionOrder = sectionConfig
+    .filter(section => section.visible !== false)
+    .filter(section => !(section.id === 'password_security' && memberRecord?.google_id))
+    .map(section => section.id);
 
   // --- Derived awards from stats ---
   const earnedOnlineAwards = useMemo(() => {
@@ -332,35 +988,47 @@ export default function PreferencesPage() {
       .sort((a, b) => (a.level || 0) - (b.level || 0));
   }, [offlineAssignments, offlineAwards, awardSublevels]);
 
+  const earnedEngagementAwards = useMemo(() => {
+    if (!engagementAssignments || engagementAssignments.length === 0 || !engagementAwards)
+      return [];
+    return engagementAssignments
+      .map((assignment) => {
+        const award = engagementAwards.find(
+          (a) => a.id === assignment.engagement_award_id
+        );
+        if (!award) return null;
+        const sublevel = assignment.sublevel_id
+          ? awardSublevels.find((s) => s.id === assignment.sublevel_id)
+          : null;
+        return { ...award, sublevel, assignment };
+      })
+      .filter(Boolean)
+      .sort((a, b) => (a.level || 0) - (b.level || 0));
+  }, [engagementAssignments, engagementAwards, awardSublevels]);
+
   // --- Load profile state from memberRecord ---
+  const profileInitializedRef = useRef(false);
   useEffect(() => {
     if (!memberRecord) return;
+    if (profileInitializedRef.current && hasUnsavedProfile) return;
+    profileInitializedRef.current = true;
 
     setFirstName(memberRecord.first_name || "");
     setLastName(memberRecord.last_name || "");
     setJobTitle(memberRecord.job_title || "");
+    setMobile(memberRecord.mobile || "");
+    setLandline(memberRecord.landline || "");
     setBiography(memberRecord.biography || "");
     setProfilePhotoUrl(memberRecord.profile_photo_url || "");
-    setLinkedinUrl(memberRecord.linkedin_url || "");
     setShowInDirectory(memberRecord.show_in_directory !== false);
   }, [memberRecord]);
 
-  // --- Load organisation logo from orgInfo ---
-  useEffect(() => {
-    if (organizationInfo) {
-      setOrganizationLogoUrl(organizationInfo.logo_url || "");
-    }
-  }, [organizationInfo]);
-
-  // --- Load preferences from localStorage ---
+  // --- Load expandedCategories from localStorage (UI state only, always load) ---
   useEffect(() => {
     const storedPrefs = localStorage.getItem('agcas_resource_preferences');
     if (storedPrefs) {
       try {
         const prefs = JSON.parse(storedPrefs);
-        if (prefs.selectedSubcategories) {
-          setSelectedSubcategories(prefs.selectedSubcategories);
-        }
         if (prefs.expandedCategories) {
           setExpandedCategories(prefs.expandedCategories);
         }
@@ -370,18 +1038,107 @@ export default function PreferencesPage() {
     }
   }, []);
 
+  // --- Load category preferences from database (member_resource_category table) ---
+  useEffect(() => {
+    if (memberResourceCategoriesLoading) return;
+    
+    if (memberResourceCategories.length > 0) {
+      // Convert database records to the format used by the UI:
+      // Each record has resource_category_id and subcategory_name
+      // The UI uses format: "categoryId" for category-only or "categoryId|subcategoryName" for subcategory
+      const selections = memberResourceCategories.map(record => {
+        if (record.subcategory_name) {
+          return `${record.resource_category_id}|${record.subcategory_name}`;
+        }
+        return record.resource_category_id;
+      });
+      setSelectedSubcategories(selections);
+    } else {
+      // No database records - check localStorage for legacy selectedSubcategories (migration path)
+      const storedPrefs = localStorage.getItem('agcas_resource_preferences');
+      if (storedPrefs) {
+        try {
+          const prefs = JSON.parse(storedPrefs);
+          if (prefs.selectedSubcategories) {
+            setSelectedSubcategories(prefs.selectedSubcategories);
+          }
+        } catch {
+          // Ignore parse errors
+        }
+      }
+    }
+  }, [memberResourceCategories, memberResourceCategoriesLoading]);
+
+  // --- Load additional info values from memberPreferenceValues ---
+  useEffect(() => {
+    if (memberPreferenceValues.length > 0 && preferenceFields.length > 0) {
+      const valuesMap = {};
+      memberPreferenceValues.forEach(pv => {
+        const field = preferenceFields.find(f => f.id === pv.field_id);
+        if (field) {
+          // For picklist and list, parse as array with defensive handling
+          if ((field.field_type === 'picklist' || field.field_type === 'list' || field.field_type === 'countries') && pv.value) {
+            try {
+              const parsed = JSON.parse(pv.value);
+              // Ensure it's an array, normalize values
+              valuesMap[pv.field_id] = Array.isArray(parsed) 
+                ? parsed.map(v => String(v).trim()).filter(Boolean)
+                : [];
+            } catch {
+              console.warn(`Failed to parse ${field.field_type} value for field ${pv.field_id}, defaulting to empty array`);
+              valuesMap[pv.field_id] = [];
+            }
+          } else {
+            valuesMap[pv.field_id] = pv.value || '';
+          }
+        }
+      });
+      setAdditionalInfoValues(valuesMap);
+    }
+  }, [memberPreferenceValues, preferenceFields]);
+
+
   // --- Mutations ---
   const savePreferencesMutation = useMutation({
     mutationFn: async (preferences) => {
-      localStorage.setItem('agcas_resource_preferences', JSON.stringify(preferences));
+      if (!memberRecord?.id) throw new Error("No member record");
+      
+      // Convert UI format to API format
+      // UI format: "categoryId" or "categoryId|subcategoryName"
+      // API format: { category_id, subcategory_name }
+      const selections = preferences.selectedSubcategories.map(item => {
+        if (item.includes('|')) {
+          const [categoryId, subcategoryName] = item.split('|');
+          return { category_id: categoryId, subcategory_name: subcategoryName };
+        }
+        return { category_id: item, subcategory_name: null };
+      });
+      
+      // Save to database via API endpoint (handles diff-based updates server-side)
+      const response = await fetch(`/api/members/${memberRecord.id}/categories`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ selections }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to save preferences');
+      }
+      
+      // Also save expandedCategories to localStorage (UI state only)
+      localStorage.setItem('agcas_resource_preferences', JSON.stringify({ expandedCategories: preferences.expandedCategories }));
+      
       return preferences;
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["memberResourceCategories", memberRecord?.id] });
       toast.success("Preferences saved successfully");
       setHasUnsavedChanges(false);
       setIsSaving(false);
     },
-    onError: () => {
+    onError: (error) => {
+      console.error("[Preferences] Failed to save:", error);
       toast.error("Failed to save preferences");
       setIsSaving(false);
     },
@@ -399,9 +1156,25 @@ export default function PreferencesPage() {
       if (error) throw error;
       return data;
     },
-    onSuccess: () => {
+    onSuccess: (updatedMember) => {
+      // Update session storage with new member data so it persists on page refresh
+      if (updatedMember) {
+        const storedMember = localStorage.getItem('agcas_member');
+        if (storedMember) {
+          try {
+            const parsed = JSON.parse(storedMember);
+            const updatedSession = { ...parsed, ...updatedMember };
+            localStorage.setItem('agcas_member', JSON.stringify(updatedSession));
+            // Also update the local state
+            setSessionMember(updatedSession);
+          } catch {
+            // Ignore parse errors
+          }
+        }
+      }
       queryClient.invalidateQueries({ queryKey: ["memberRecord"] });
       queryClient.invalidateQueries({ queryKey: ["all-members-directory"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/entities/MemberPreferenceValue", memberRecord?.id] });
       toast.success("Profile updated successfully");
       setHasUnsavedProfile(false);
       setIsSavingProfile(false);
@@ -412,27 +1185,55 @@ export default function PreferencesPage() {
     },
   });
 
-  const updateOrganizationLogoMutation = useMutation({
-    mutationFn: async (logoUrl) => {
-      if (!organizationInfo?.id) throw new Error("No organization");
-      const { data, error } = await supabase
-        .from("organization")
-        .update({ logo_url: logoUrl })
-        .eq("id", organizationInfo.id)
-        .select()
-        .maybeSingle();
-      if (error) throw error;
-      return data;
+
+  const saveAdditionalInfoMutation = useMutation({
+    mutationFn: async (values) => {
+      if (!memberRecord?.id) throw new Error("No member record");
+      
+      const updates = Object.entries(values).map(async ([fieldId, value]) => {
+        const field = preferenceFields.find(f => f.id === fieldId);
+        
+        let storedValue = value;
+        if ((field?.field_type === 'picklist' || field?.field_type === 'list' || field?.field_type === 'countries') && Array.isArray(value)) {
+          storedValue = JSON.stringify(value);
+        }
+        const newStored = Array.isArray(storedValue) ? JSON.stringify(storedValue) : String(storedValue ?? '');
+        
+        const res = await fetch('/api/entities/member-preference-value/upsert', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            member_id: memberRecord.id,
+            field_id: fieldId,
+            value: newStored
+          })
+        });
+        if (!res.ok) {
+          const error = await res.json();
+          throw new Error(error.error || 'Failed to save custom field');
+        }
+        const data = await res.json();
+        checkForPendingWorkflows(data);
+        return data;
+      });
+      
+      await Promise.all(updates);
+      return values;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["organization"] });
-      toast.success("Organization logo updated successfully");
-      setHasUnsavedOrgLogo(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/entities/MemberPreferenceValue", memberRecord?.id] });
+      toast.success("Additional information saved successfully");
+      setHasUnsavedAdditionalInfo(false);
+      setIsSavingAdditionalInfo(false);
     },
-    onError: () => {
-      toast.error("Failed to update organization logo");
+    onError: (error) => {
+      console.error("Failed to save additional info:", error);
+      toast.error("Failed to save additional information");
+      setIsSavingAdditionalInfo(false);
     },
   });
+
 
   // --- Handlers ---
   const handlePhotoUpload = async (e) => {
@@ -457,8 +1258,26 @@ export default function PreferencesPage() {
         folder
       );
       setProfilePhotoUrl(publicUrl);
-      setHasUnsavedProfile(true);
-      toast.success("Photo uploaded successfully");
+
+      if (memberRecord?.id) {
+        const { error } = await supabase
+          .from("member")
+          .update({ profile_photo_url: publicUrl })
+          .eq("id", memberRecord.id);
+        if (error) throw error;
+
+        const storedMember = localStorage.getItem('agcas_member');
+        if (storedMember) {
+          try {
+            const parsed = JSON.parse(storedMember);
+            localStorage.setItem('agcas_member', JSON.stringify({ ...parsed, profile_photo_url: publicUrl }));
+            setSessionMember(prev => prev ? { ...prev, profile_photo_url: publicUrl } : prev);
+          } catch {}
+        }
+        queryClient.invalidateQueries({ queryKey: ["fresh-member-data", memberRecord.id] });
+      }
+
+      toast.success("Photo saved");
     } catch (err) {
       console.error(err);
       toast.error("Failed to upload photo");
@@ -467,41 +1286,6 @@ export default function PreferencesPage() {
     }
   };
 
-  const handleOrgLogoUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith("image/")) {
-      toast.error("Please select an image file");
-      return;
-    }
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error("Image must be less than 5MB");
-      return;
-    }
-
-    setIsUploadingOrgLogo(true);
-    try {
-      const folder = organizationInfo?.id || "organization";
-      const publicUrl = await uploadImageToSupabase(
-        file,
-        "organization-logos",
-        folder
-      );
-      setOrganizationLogoUrl(publicUrl);
-      setHasUnsavedOrgLogo(true);
-      toast.success("Logo uploaded successfully");
-    } catch (err) {
-      console.error(err);
-      toast.error("Failed to upload logo");
-    } finally {
-      setIsUploadingOrgLogo(false);
-    }
-  };
-
-  const handleSaveOrgLogo = () => {
-    updateOrganizationLogoMutation.mutate(organizationLogoUrl);
-  };
 
   const handleSavePreferences = () => {
     setIsSaving(true);
@@ -512,7 +1296,35 @@ export default function PreferencesPage() {
     savePreferencesMutation.mutate(preferences);
   };
 
-  const handleSaveProfile = () => {
+  // Handle additional info field changes
+  const handleAdditionalInfoChange = (fieldId, value) => {
+    setAdditionalInfoValues(prev => ({
+      ...prev,
+      [fieldId]: value
+    }));
+    setHasUnsavedAdditionalInfo(true);
+  };
+
+  // Handle picklist checkbox toggle
+  const handlePicklistToggle = (fieldId, optionValue, checked) => {
+    setAdditionalInfoValues(prev => {
+      const currentValues = Array.isArray(prev[fieldId]) ? prev[fieldId] : [];
+      const newValues = checked 
+        ? [...currentValues, optionValue]
+        : currentValues.filter(v => v !== optionValue);
+      return { ...prev, [fieldId]: newValues };
+    });
+    setHasUnsavedAdditionalInfo(true);
+  };
+
+  // Save additional info
+  const handleSaveAdditionalInfo = () => {
+    setIsSavingAdditionalInfo(true);
+    saveAdditionalInfoMutation.mutate(additionalInfoValues);
+  };
+
+
+  const handleSaveProfile = async () => {
     const wordCount = biography
       .trim()
       .split(/\s+/)
@@ -523,13 +1335,15 @@ export default function PreferencesPage() {
     }
 
     setIsSavingProfile(true);
+    
     updateProfileMutation.mutate({
       first_name: firstName,
       last_name: lastName,
       job_title: jobTitle,
+      mobile,
+      landline,
       biography,
       profile_photo_url: profilePhotoUrl,
-      linkedin_url: linkedinUrl,
       show_in_directory: showInDirectory,
     });
   };
@@ -539,6 +1353,220 @@ export default function PreferencesPage() {
     setExpandedCategories({});
     setSearchQuery("");
     setHasUnsavedChanges(true);
+  };
+
+  // Sync member preferences to Zoho Campaigns (fire-and-forget, don't block UI)
+  const syncToZohoCampaigns = async (memberId) => {
+    try {
+      await fetch('/api/zoho-campaigns/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ memberId })
+      });
+    } catch (error) {
+      console.log('[Preferences] Zoho sync skipped or failed:', error.message);
+    }
+  };
+
+  // Handle communication preference toggle
+  const handleCommunicationToggle = async (categoryId, isSubscribed) => {
+    if (!memberRecord?.id) return;
+    
+    setUpdatingCommPrefs(prev => new Set(prev).add(categoryId));
+    
+    try {
+      const existingPref = communicationPreferences.find(p => p.category_id === categoryId);
+      
+      if (existingPref) {
+        // Update existing preference
+        const { error } = await supabase
+          .from("member_communication_preference")
+          .update({ 
+            is_subscribed: isSubscribed
+          })
+          .eq("id", existingPref.id);
+        
+        if (error) throw error;
+      } else {
+        // Create new preference
+        const { error } = await supabase
+          .from("member_communication_preference")
+          .insert({
+            member_id: memberRecord.id,
+            category_id: categoryId,
+            is_subscribed: isSubscribed
+          });
+        
+        if (error) throw error;
+      }
+      
+      // Invalidate query to refresh data
+      queryClient.invalidateQueries({ queryKey: ["communicationPreferences", memberRecord.id] });
+      toast.success(isSubscribed ? "Subscribed to updates" : "Unsubscribed from updates");
+      
+      // Sync to Zoho Campaigns in background (don't await)
+      syncToZohoCampaigns(memberRecord.id);
+    } catch (error) {
+      console.error("Failed to update communication preference:", error);
+      toast.error("Failed to update preference");
+    } finally {
+      setUpdatingCommPrefs(prev => {
+        const next = new Set(prev);
+        next.delete(categoryId);
+        return next;
+      });
+    }
+  };
+
+  // Handle opt-out of all communications toggle
+  const handleOptOutAllToggle = async (optOut) => {
+    if (!memberRecord?.id) return;
+    
+    setUpdatingOptOutAll(true);
+    
+    try {
+      // Update member record with opt-out-all flag
+      const { error } = await supabase
+        .from("member")
+        .update({ 
+          communications_opted_out_all: optOut
+        })
+        .eq("id", memberRecord.id);
+      
+      if (error) throw error;
+      
+      // If opting out, also set all individual preferences to false
+      if (optOut && availableCategories.length > 0) {
+        for (const category of availableCategories) {
+          const existingPref = communicationPreferences.find(p => p.category_id === category.id);
+          
+          if (existingPref) {
+            await supabase
+              .from("member_communication_preference")
+              .update({ 
+                is_subscribed: false
+              })
+              .eq("id", existingPref.id);
+          } else {
+            await supabase
+              .from("member_communication_preference")
+              .insert({
+                member_id: memberRecord.id,
+                category_id: category.id,
+                is_subscribed: false
+              });
+          }
+        }
+      }
+      
+      // Update sessionMember state immediately for UI update
+      setSessionMember(prev => prev ? { ...prev, communications_opted_out_all: optOut } : prev);
+      
+      // Invalidate queries to refresh data
+      queryClient.invalidateQueries({ queryKey: ["fresh-member-data", memberRecord.id] });
+      queryClient.invalidateQueries({ queryKey: ["communicationPreferences", memberRecord.id] });
+      
+      // Update localStorage session data
+      const storedMember = localStorage.getItem('agcas_member');
+      if (storedMember) {
+        try {
+          const parsed = JSON.parse(storedMember);
+          parsed.communications_opted_out_all = optOut;
+          localStorage.setItem('agcas_member', JSON.stringify(parsed));
+        } catch (e) {
+          console.error("Failed to update localStorage:", e);
+        }
+      }
+      
+      toast.success(optOut ? "Opted out of all communications" : "Communications re-enabled");
+      
+      // Sync to Zoho Campaigns in background (don't await)
+      syncToZohoCampaigns(memberRecord.id);
+    } catch (error) {
+      console.error("Failed to update opt-out preference:", error);
+      toast.error("Failed to update preference");
+    } finally {
+      setUpdatingOptOutAll(false);
+    }
+  };
+
+  // Password validation helpers
+  const getPasswordStrength = (password) => {
+    if (!password) return { score: 0, label: '', color: '' };
+    let score = 0;
+    if (password.length >= 8) score++;
+    if (password.length >= 12) score++;
+    if (/[a-z]/.test(password) && /[A-Z]/.test(password)) score++;
+    if (/\d/.test(password)) score++;
+    if (/[^a-zA-Z0-9]/.test(password)) score++;
+    
+    if (score <= 1) return { score, label: 'Weak', color: 'bg-red-500' };
+    if (score <= 2) return { score, label: 'Fair', color: 'bg-warning' };
+    if (score <= 3) return { score, label: 'Good', color: 'bg-warning' };
+    if (score <= 4) return { score, label: 'Strong', color: 'bg-green-500' };
+    return { score, label: 'Very Strong', color: 'bg-green-600' };
+  };
+
+  const passwordRequirements = [
+    { test: (p) => p.length >= 8, label: 'At least 8 characters' },
+    { test: (p) => /[a-z]/.test(p) && /[A-Z]/.test(p), label: 'Upper and lowercase letters' },
+    { test: (p) => /\d/.test(p), label: 'At least one number' },
+    { test: (p) => /[^a-zA-Z0-9]/.test(p), label: 'At least one special character' },
+  ];
+
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    setPasswordError("");
+    setPasswordSuccess(false);
+
+    // Validate
+    if (!currentPassword) {
+      setPasswordError("Please enter your current password");
+      return;
+    }
+    if (newPassword.length < 8) {
+      setPasswordError("New password must be at least 8 characters");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError("New passwords do not match");
+      return;
+    }
+    if (currentPassword === newPassword) {
+      setPasswordError("New password must be different from current password");
+      return;
+    }
+
+    setIsChangingPassword(true);
+
+    try {
+      const response = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ currentPassword, newPassword })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setPasswordSuccess(true);
+        setCurrentPassword("");
+        setNewPassword("");
+        setConfirmPassword("");
+        toast.success("Password changed successfully");
+        
+        // Clear success message after 5 seconds
+        setTimeout(() => setPasswordSuccess(false), 5000);
+      } else {
+        setPasswordError(data.error || "Failed to change password");
+      }
+    } catch (err) {
+      setPasswordError("An error occurred. Please try again.");
+    } finally {
+      setIsChangingPassword(false);
+    }
   };
 
   const handleSubcategoryToggle = (subcategory) => {
@@ -559,35 +1587,53 @@ export default function PreferencesPage() {
     });
   };
 
+  // Check if a subcategory is selected (format: "categoryId|subcategoryName" or just "categoryId" for flat categories)
+  const isSubcategorySelected = (categoryId, subcategoryName) => {
+    if (subcategoryName === null) {
+      // Flat category - check for just the category ID
+      return selectedSubcategories.includes(categoryId);
+    }
+    // Subcategory - check for "categoryId|subcategoryName"
+    return selectedSubcategories.includes(`${categoryId}|${subcategoryName}`);
+  };
+
+  // Toggle a subcategory selection
+  const toggleSubcategory = (categoryId, subcategoryName) => {
+    const key = subcategoryName === null ? categoryId : `${categoryId}|${subcategoryName}`;
+    setSelectedSubcategories(prev => {
+      const exists = prev.includes(key);
+      const newSelection = exists ? prev.filter(s => s !== key) : [...prev, key];
+      setHasUnsavedChanges(true);
+      return newSelection;
+    });
+  };
+
   // --- Track profile / org changes ---
   useEffect(() => {
     if (!memberRecord) return;
+    
     const changed =
       firstName !== (memberRecord.first_name || "") ||
       lastName !== (memberRecord.last_name || "") ||
       jobTitle !== (memberRecord.job_title || "") ||
+      mobile !== (memberRecord.mobile || "") ||
+      landline !== (memberRecord.landline || "") ||
       biography !== (memberRecord.biography || "") ||
       profilePhotoUrl !== (memberRecord.profile_photo_url || "") ||
-      linkedinUrl !== (memberRecord.linkedin_url || "") ||
       showInDirectory !== (memberRecord.show_in_directory !== false);
     setHasUnsavedProfile(changed);
   }, [
     firstName,
     lastName,
     jobTitle,
+    mobile,
+    landline,
     biography,
     profilePhotoUrl,
-    linkedinUrl,
     showInDirectory,
     memberRecord,
   ]);
 
-  useEffect(() => {
-    if (!organizationInfo) return;
-    const changed =
-      organizationLogoUrl !== (organizationInfo.logo_url || "");
-    setHasUnsavedOrgLogo(changed);
-  }, [organizationLogoUrl, organizationInfo]);
 
   // --- Filters / derived values ---
   const filteredCategories = categories.filter((cat) => {
@@ -615,6 +1661,8 @@ export default function PreferencesPage() {
     orgLoading ||
     offlineAssignmentsLoading ||
     offlineAwardsLoading2 ||
+    engagementAwardsLoading ||
+    engagementAssignmentsLoading ||
     groupAssignmentsLoading ||
     awardsLoading ||
     groupsLoading;
@@ -625,92 +1673,207 @@ export default function PreferencesPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
       </div>
     );
   }
 
-  // --- UI identical to previous version (just without props) ---
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
-      <div className="max-w-4xl mx-auto space-y-8">
-        <div>
-          <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">
-            Preferences
-          </h1>
-          <p className="text-slate-600">
-            Manage your profile and content preferences
-          </p>
-        </div>
-
-        {/* Organization Logo Section - only if organizationInfo and not team member */}
-        {organizationInfo && !isTeamMember && (
-          <Card className="border-slate-200 shadow-sm">
+  // --- Render section by ID for dynamic ordering ---
+  const renderSection = (sectionId) => {
+    switch (sectionId) {
+      case 'profile_information':
+        return (
+          <Card key="profile_information" className="border-slate-200 shadow-sm">
             <CardHeader>
-              <CardTitle>Organization Logo</CardTitle>
+              <CardTitle>My Information</CardTitle>
               <CardDescription>
-                Upload your organization's logo for the directory
+                {sessionMember?.handle ? `@${sessionMember.handle}` : 'Update your personal details'}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label>Logo</Label>
-                <div className="flex items-center gap-4">
-                  <div className="w-24 h-24 rounded-lg bg-slate-100 flex items-center justify-center overflow-hidden border-2 border-slate-200">
-                    {organizationLogoUrl ? (
-                      <img
-                        src={organizationLogoUrl}
-                        alt="Organization Logo"
-                        className="w-full h-full object-contain"
-                      />
+              {isFieldVisible('profile_photo_url') && (
+                <div className="space-y-2">
+                  <Label>Profile Photo</Label>
+                  <div className="flex items-center gap-4">
+                    <div className="w-24 h-24 rounded-full bg-slate-100 flex items-center justify-center overflow-hidden border-2 border-slate-200">
+                      {profilePhotoUrl ? (
+                        <img
+                          src={profilePhotoUrl}
+                          alt="Profile"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <User className="w-12 h-12 text-slate-400" />
+                      )}
+                    </div>
+                    {canEditField('profile_photo_url') ? (
+                      <div>
+                        <input
+                          type="file"
+                          id="photo-upload"
+                          accept="image/*"
+                          onChange={handlePhotoUpload}
+                          className="hidden"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          disabled={isUploadingPhoto}
+                          onClick={() =>
+                            document.getElementById("photo-upload").click()
+                          }
+                        >
+                          {isUploadingPhoto ? (
+                            <>
+                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              Uploading...
+                            </>
+                          ) : (
+                            <>
+                              <Upload className="w-4 h-4 mr-2" />
+                              Upload Photo
+                            </>
+                          )}
+                        </Button>
+                        <p className="text-xs text-slate-500 mt-1">
+                          JPG, PNG or GIF. Max 5MB.
+                        </p>
+                      </div>
                     ) : (
-                      <Building2 className="w-12 h-12 text-slate-400" />
+                      <p className="text-xs text-slate-500">Read only</p>
                     )}
                   </div>
-                  <div>
-                    <input
-                      type="file"
-                      id="org-logo-upload"
-                      accept="image/*"
-                      onChange={handleOrgLogoUpload}
-                      className="hidden"
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {isFieldVisible('first_name') && (
+                  <div className="space-y-2">
+                    <Label htmlFor="firstName">First Name</Label>
+                    {canEditField('first_name') ? (
+                      <Input
+                        id="firstName"
+                        value={firstName}
+                        onChange={(e) => setFirstName(e.target.value)}
+                        placeholder="Enter your first name"
+                      />
+                    ) : (
+                      <p className="text-sm font-medium text-slate-900 p-2 bg-slate-50 rounded border">{firstName || <span className="text-slate-400 italic font-normal">Not set</span>}</p>
+                    )}
+                  </div>
+                )}
+                {isFieldVisible('last_name') && (
+                  <div className="space-y-2">
+                    <Label htmlFor="lastName">Last Name</Label>
+                    {canEditField('last_name') ? (
+                      <Input
+                        id="lastName"
+                        value={lastName}
+                        onChange={(e) => setLastName(e.target.value)}
+                        placeholder="Enter your last name"
+                      />
+                    ) : (
+                      <p className="text-sm font-medium text-slate-900 p-2 bg-slate-50 rounded border">{lastName || <span className="text-slate-400 italic font-normal">Not set</span>}</p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {isFieldVisible('job_title') && (
+                <div className="space-y-2">
+                  <Label htmlFor="jobTitle">Job Title</Label>
+                  {canEditField('job_title') ? (
+                    <Input
+                      id="jobTitle"
+                      value={jobTitle}
+                      onChange={(e) => setJobTitle(e.target.value)}
+                      placeholder="e.g., Careers Adviser"
                     />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={isUploadingOrgLogo}
-                      onClick={() =>
-                        document.getElementById("org-logo-upload").click()
-                      }
-                    >
-                      {isUploadingOrgLogo ? (
-                        <>
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          Uploading...
-                        </>
-                      ) : (
-                        <>
-                          <Upload className="w-4 h-4 mr-2" />
-                          Upload Logo
-                        </>
-                      )}
-                    </Button>
+                  ) : (
+                    <p className="text-sm font-medium text-slate-900 p-2 bg-slate-50 rounded border">{jobTitle || <span className="text-slate-400 italic font-normal">Not set</span>}</p>
+                  )}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {isFieldVisible('mobile') && (
+                  <div className="space-y-2">
+                    <Label htmlFor="mobile">Mobile</Label>
+                    {canEditField('mobile') ? (
+                      <Input
+                        id="mobile"
+                        value={mobile}
+                        onChange={(e) => setMobile(e.target.value)}
+                        placeholder="Enter your mobile number"
+                        data-testid="input-mobile"
+                      />
+                    ) : (
+                      <p className="text-sm font-medium text-slate-900 p-2 bg-slate-50 rounded border" data-testid="text-mobile">{mobile || <span className="text-slate-400 italic font-normal">Not set</span>}</p>
+                    )}
+                  </div>
+                )}
+                {isFieldVisible('landline') && (
+                  <div className="space-y-2">
+                    <Label htmlFor="landline">Landline</Label>
+                    {canEditField('landline') ? (
+                      <Input
+                        id="landline"
+                        value={landline}
+                        onChange={(e) => setLandline(e.target.value)}
+                        placeholder="Enter your landline number"
+                        data-testid="input-landline"
+                      />
+                    ) : (
+                      <p className="text-sm font-medium text-slate-900 p-2 bg-slate-50 rounded border" data-testid="text-landline">{landline || <span className="text-slate-400 italic font-normal">Not set</span>}</p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {isFieldVisible('show_in_directory') && !isFeatureExcluded('user.about-me.show-in-directory') && (
+                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200">
+                  <div className="flex-1">
+                    <Label htmlFor="show-in-directory" className="cursor-pointer">
+                      Show in Member Directory
+                    </Label>
                     <p className="text-xs text-slate-500 mt-1">
-                      JPG, PNG or GIF. Max 5MB.
+                      Allow other members to see your profile in the member
+                      directory
                     </p>
                   </div>
+                  {canEditField('show_in_directory') ? (
+                    <Switch
+                      id="show-in-directory"
+                      checked={showInDirectory}
+                      onCheckedChange={setShowInDirectory}
+                    />
+                  ) : (
+                    <span className="text-sm font-medium text-slate-700">{showInDirectory ? 'Yes' : 'No'}</span>
+                  )}
+                </div>
+              )}
+
+              <div className="flex items-center gap-2 p-4 bg-slate-50 rounded-lg border border-slate-200">
+                <CalendarDays className="w-5 h-5 text-slate-500" />
+                <div>
+                  <p className="text-sm text-slate-600">Member since</p>
+                  <p className="text-sm font-semibold text-slate-900">
+                    {memberRecord?.created_on 
+                      ? format(new Date(memberRecord.created_on), "dd MMMM yyyy")
+                      : "Unknown"}
+                  </p>
                 </div>
               </div>
 
-              {hasUnsavedOrgLogo && (
+              {hasUnsavedProfile && (
                 <div className="flex justify-end pt-4">
                   <Button
-                    onClick={handleSaveOrgLogo}
-                    disabled={updateOrganizationLogoMutation.isPending}
+                    onClick={handleSaveProfile}
+                    disabled={isSavingProfile}
                     className="bg-blue-600 hover:bg-blue-700"
                   >
-                    {updateOrganizationLogoMutation.isPending ? (
+                    {isSavingProfile ? (
                       <>
                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                         Saving...
@@ -718,7 +1881,7 @@ export default function PreferencesPage() {
                     ) : (
                       <>
                         <Save className="w-4 h-4 mr-2" />
-                        Save Logo
+                        Save Profile
                       </>
                     )}
                   </Button>
@@ -726,175 +1889,224 @@ export default function PreferencesPage() {
               )}
             </CardContent>
           </Card>
-        )}
+        );
 
-        {/* Profile Information */}
-        <Card className="border-slate-200 shadow-sm">
-          <CardHeader>
-            <CardTitle>Profile Information</CardTitle>
-            <CardDescription>
-              {sessionMember?.handle ? `@${sessionMember.handle}` : 'Update your personal details'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label>Profile Photo</Label>
-              <div className="flex items-center gap-4">
-                <div className="w-24 h-24 rounded-full bg-slate-100 flex items-center justify-center overflow-hidden border-2 border-slate-200">
-                  {profilePhotoUrl ? (
-                    <img
-                      src={profilePhotoUrl}
-                      alt="Profile"
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <User className="w-12 h-12 text-slate-400" />
-                  )}
+      case 'outlook_integration':
+        if (isFeatureExcluded('user.about-me.outlook')) return null;
+        return (
+          <div key="outlook_integration">
+            <OutlookConnection />
+          </div>
+        );
+
+      case 'booking_availability':
+        if (isFeatureExcluded('user.about-me.booking-availability')) return null;
+        return (
+          <div key="booking_availability">
+            <BookingAvailabilitySettings />
+          </div>
+        );
+
+      case 'password_security':
+        return (
+          <Card key="password_security" className="border-slate-200 shadow-sm">
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Shield className="w-5 h-5 text-blue-600" />
+                <CardTitle>Password</CardTitle>
+              </div>
+              <CardDescription>
+                Keep your account secure by using a strong password
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleChangePassword} className="space-y-6">
+                {passwordSuccess && (
+                  <div className="flex items-start gap-3 p-4 bg-green-50 border border-green-200 rounded-lg">
+                    <Check className="h-5 w-5 text-green-600 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="font-medium text-green-800">Password updated successfully!</p>
+                      <p className="text-sm text-green-700 mt-1">
+                        Your password has been changed. Use your new password next time you log in.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {passwordError && (
+                  <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-lg">
+                    <AlertCircle className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
+                    <p className="text-sm text-red-700">{passwordError}</p>
+                  </div>
+                )}
+
+                <div className="grid md:grid-cols-2 gap-6">
+                  <div className="space-y-4">
+                    {/* Current Password */}
+                    <div className="space-y-2">
+                      <Label htmlFor="current-password">Current Password</Label>
+                      <div className="relative">
+                        <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
+                        <Input
+                          id="current-password"
+                          type={showCurrentPassword ? "text" : "password"}
+                          value={currentPassword}
+                          onChange={(e) => setCurrentPassword(e.target.value)}
+                          placeholder="Enter your current password"
+                          className="pl-10 pr-10"
+                          data-testid="input-current-password"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                          className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        >
+                          {showCurrentPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* New Password */}
+                    <div className="space-y-2">
+                      <Label htmlFor="new-password">New Password</Label>
+                      <div className="relative">
+                        <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
+                        <Input
+                          id="new-password"
+                          type={showNewPassword ? "text" : "password"}
+                          value={newPassword}
+                          onChange={(e) => setNewPassword(e.target.value)}
+                          placeholder="Enter your new password"
+                          className="pl-10 pr-10"
+                          data-testid="input-new-password"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowNewPassword(!showNewPassword)}
+                          className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        >
+                          {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                      
+                      {/* Password Strength Indicator */}
+                      {newPassword && (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden">
+                              <div 
+                                className={`h-full transition-all duration-300 ${getPasswordStrength(newPassword).color}`}
+                                style={{ width: `${(getPasswordStrength(newPassword).score / 5) * 100}%` }}
+                              />
+                            </div>
+                            <span className={`text-xs font-medium ${
+                              getPasswordStrength(newPassword).score <= 2 ? 'text-red-600' :
+                              getPasswordStrength(newPassword).score <= 3 ? 'text-warning' : 'text-green-600'
+                            }`}>
+                              {getPasswordStrength(newPassword).label}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Confirm Password */}
+                    <div className="space-y-2">
+                      <Label htmlFor="confirm-password">Confirm New Password</Label>
+                      <div className="relative">
+                        <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
+                        <Input
+                          id="confirm-password"
+                          type={showNewPassword ? "text" : "password"}
+                          value={confirmPassword}
+                          onChange={(e) => setConfirmPassword(e.target.value)}
+                          placeholder="Confirm your new password"
+                          className="pl-10"
+                          data-testid="input-confirm-password"
+                        />
+                      </div>
+                      {confirmPassword && newPassword !== confirmPassword && (
+                        <p className="text-xs text-red-600">Passwords do not match</p>
+                      )}
+                      {confirmPassword && newPassword === confirmPassword && (
+                        <p className="text-xs text-green-600 flex items-center gap-1">
+                          <Check className="h-3 w-3" /> Passwords match
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Password Requirements */}
+                  <div className="space-y-4">
+                    <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
+                      <h4 className="text-sm font-medium text-slate-900 mb-3">Password Requirements</h4>
+                      <ul className="space-y-2">
+                        {passwordRequirements.map((req, index) => {
+                          const isMet = newPassword && req.test(newPassword);
+                          return (
+                            <li 
+                              key={index} 
+                              className={`flex items-center gap-2 text-sm ${
+                                isMet ? 'text-green-600' : 'text-slate-500'
+                              }`}
+                            >
+                              {isMet ? (
+                                <Check className="h-4 w-4 flex-shrink-0" />
+                              ) : (
+                                <div className="h-4 w-4 rounded-full border-2 border-slate-300 flex-shrink-0" />
+                              )}
+                              {req.label}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                    
+                    <p className="text-xs text-slate-500">
+                      For your security, choose a password you haven't used on other websites.
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <input
-                    type="file"
-                    id="photo-upload"
-                    accept="image/*"
-                    onChange={handlePhotoUpload}
-                    className="hidden"
-                  />
+
+                <div className="flex justify-end pt-4 border-t border-slate-200">
                   <Button
-                    type="button"
-                    variant="outline"
-                    disabled={isUploadingPhoto}
-                    onClick={() =>
-                      document.getElementById("photo-upload").click()
-                    }
+                    type="submit"
+                    disabled={isChangingPassword || !currentPassword || !newPassword || !confirmPassword || newPassword !== confirmPassword}
+                    className="bg-blue-600 hover:bg-blue-700"
+                    data-testid="button-change-password"
                   >
-                    {isUploadingPhoto ? (
+                    {isChangingPassword ? (
                       <>
                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Uploading...
+                        Changing Password...
                       </>
                     ) : (
                       <>
-                        <Upload className="w-4 h-4 mr-2" />
-                        Upload Photo
+                        <Lock className="w-4 h-4 mr-2" />
+                        Change Password
                       </>
                     )}
                   </Button>
-                  <p className="text-xs text-slate-500 mt-1">
-                    JPG, PNG or GIF. Max 5MB.
-                  </p>
                 </div>
-              </div>
-            </div>
+              </form>
+            </CardContent>
+          </Card>
+        );
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="firstName">First Name</Label>
-                <Input
-                  id="firstName"
-                  value={firstName}
-                  onChange={(e) => setFirstName(e.target.value)}
-                  placeholder="Enter your first name"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="lastName">Last Name</Label>
-                <Input
-                  id="lastName"
-                  value={lastName}
-                  onChange={(e) => setLastName(e.target.value)}
-                  placeholder="Enter your last name"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="jobTitle">Job Title</Label>
-              <Input
-                id="jobTitle"
-                value={jobTitle}
-                onChange={(e) => setJobTitle(e.target.value)}
-                placeholder="e.g., Careers Adviser"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="linkedinUrl">LinkedIn Profile URL</Label>
-              <Input
-                id="linkedinUrl"
-                type="url"
-                value={linkedinUrl}
-                onChange={(e) => setLinkedinUrl(e.target.value)}
-                placeholder="https://www.linkedin.com/in/your-profile"
-              />
-            </div>
-
-            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200">
-              <div className="flex-1">
-                <Label htmlFor="show-in-directory" className="cursor-pointer">
-                  Show in Member Directory
-                </Label>
-                <p className="text-xs text-slate-500 mt-1">
-                  Allow other members to see your profile in the member
-                  directory
-                </p>
-              </div>
-              <Switch
-                id="show-in-directory"
-                checked={showInDirectory}
-                onCheckedChange={setShowInDirectory}
-              />
-            </div>
-
-            {memberRecord?.created_at && (
-              <div className="flex items-center gap-2 p-4 bg-slate-50 rounded-lg border border-slate-200">
-                <CalendarDays className="w-5 h-5 text-slate-500" />
-                <div>
-                  <p className="text-sm text-slate-600">Member since</p>
-                  <p className="text-sm font-semibold text-slate-900">
-                    {format(
-                      new Date(memberRecord.created_at),
-                      "dd MMMM yyyy"
-                    )}
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {hasUnsavedProfile && (
-              <div className="flex justify-end pt-4">
-                <Button
-                  onClick={handleSaveProfile}
-                  disabled={isSavingProfile}
-                  className="bg-blue-600 hover:bg-blue-700"
-                >
-                  {isSavingProfile ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <Save className="w-4 h-4 mr-2" />
-                      Save Profile
-                    </>
-                  )}
-                </Button>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Engagement Section */}
-        {canEditBiography && (
-          <Card className="border-slate-200 shadow-sm">
+      case 'engagement_stats':
+        if (isFeatureExcluded('user.about-me.engagement-stats')) return null;
+        return (
+          <Card key="engagement_stats" className="border-slate-200 shadow-sm">
             <CardHeader>
-              <CardTitle>Engagement</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                <Calendar className="w-5 h-5 text-blue-600" />
+                Engagement Stats
+              </CardTitle>
               <CardDescription>
-                Your activity and contributions to the community
+                Your recent activity and contributions to the community
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Stats */}
+            <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-4 border border-blue-200">
                   <div className="flex items-center gap-3">
@@ -907,7 +2119,7 @@ export default function PreferencesPage() {
                           ? "-"
                           : engagementStats?.eventsAttended || 0}
                       </p>
-                      <p className="text-xs text-blue-700">Events Attended</p>
+                      <p className="text-xs text-blue-700">Event engagement</p>
                     </div>
                   </div>
                 </div>
@@ -946,197 +2158,360 @@ export default function PreferencesPage() {
                   </div>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+        );
 
-              {/* Groups */}
-              {groupAssignments.length > 0 && (
-                <div className="pt-4 border-t border-slate-200">
-                  <div className="flex items-center gap-2 mb-4">
-                    <Users className="w-5 h-5 text-blue-600" />
-                    <h3 className="text-sm font-semibold text-slate-900">
-                      Your Groups
-                    </h3>
-                    <Badge variant="secondary">
-                      {groupAssignments.length}
-                    </Badge>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {groupAssignments.map((assignment) => {
-                      const group = memberGroups.find(
-                        (g) => g.id === assignment.group_id
-                      );
-                      if (!group) return null;
-                      return (
-                        <div
-                          key={assignment.id}
-                          className="flex items-start gap-3 p-3 bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg border border-blue-200"
+      case 'engagement_awards':
+        if (isFeatureExcluded('user.about-me.engagement-awards') || earnedEngagementAwards.length === 0) return null;
+        return (
+          <Card key="engagement_awards" className="border-slate-200 shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Trophy className="w-5 h-5 text-rose-600" />
+                Engagement Awards
+                <Badge variant="secondary">{earnedEngagementAwards.length}</Badge>
+              </CardTitle>
+              <CardDescription>
+                Awards earned through your engagement activities
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                {earnedEngagementAwards.map((award, idx) => {
+                  const classification = award.classification_id
+                    ? awardClassifications.find(
+                        (c) => c.id === award.classification_id
+                      )
+                    : null;
+                  return (
+                    <div
+                      key={`engagement-${award.id}-${idx}`}
+                      className="flex flex-col items-center p-3 bg-gradient-to-br from-rose-50 to-rose-100 rounded-lg border border-rose-200 hover:shadow-md transition-shadow relative"
+                    >
+                      {classification && (
+                        <Badge
+                          variant="secondary"
+                          className="absolute top-1 right-1 text-[10px] px-1.5 py-0.5"
                         >
-                          <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center flex-shrink-0">
-                            <Users className="w-5 h-5 text-white" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-slate-900 truncate">
-                              {group.name}
-                            </p>
-                            <p className="text-xs text-blue-700 font-medium">
-                              {assignment.group_role}
-                            </p>
-                            {group.description && (
-                              <p className="text-xs text-slate-600 mt-1 line-clamp-2">
-                                {group.description}
-                              </p>
-                            )}
-                          </div>
+                          {classification.name}
+                        </Badge>
+                      )}
+                      {award.image_url ? (
+                        <img
+                          src={award.image_url}
+                          alt={award.name}
+                          className="w-12 h-12 object-contain mb-2"
+                        />
+                      ) : (
+                        <div className="w-12 h-12 bg-gradient-to-br from-rose-400 to-rose-600 rounded-full flex items-center justify-center mb-2">
+                          <Trophy className="w-6 h-6 text-white" />
                         </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* Awards */}
-              {(earnedOnlineAwards.length > 0 ||
-                earnedOfflineAwards.length > 0) && (
-                <div className="pt-4 border-t border-slate-200">
-                  <div className="flex items-center gap-2 mb-4">
-                    <Trophy className="w-5 h-5 text-amber-600" />
-                    <h3 className="text-sm font-semibold text-slate-900">
-                      Your Awards
-                    </h3>
-                    <Badge variant="secondary">
-                      {earnedOnlineAwards.length + earnedOfflineAwards.length}
-                    </Badge>
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                    {earnedOnlineAwards.map((award) => {
-                      const classification = award.classification_id
-                        ? awardClassifications.find(
-                            (c) => c.id === award.classification_id
-                          )
-                        : null;
-                      return (
-                        <div
-                          key={`online-${award.id}`}
-                          className="flex flex-col items-center p-3 bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg border border-amber-200 hover:shadow-md transition-shadow relative"
+                      )}
+                      <p className="text-xs font-semibold text-center text-slate-900 line-clamp-2">
+                        {award.name}
+                      </p>
+                      {award.sublevel && (
+                        <Badge
+                          variant="outline"
+                          className="mt-1 text-[10px] px-1.5 py-0.5 border-rose-300 text-rose-700"
                         >
-                          {classification && (
-                            <Badge
-                              variant="secondary"
-                              className="absolute top-1 right-1 text-[10px] px-1.5 py-0.5"
-                            >
-                              {classification.name}
-                            </Badge>
-                          )}
-                          {award.image_url ? (
-                            <img
-                              src={award.image_url}
-                              alt={award.name}
-                              className="w-12 h-12 object-contain mb-2"
-                            />
-                          ) : (
-                            <div className="w-12 h-12 bg-gradient-to-br from-amber-400 to-amber-600 rounded-full flex items-center justify-center mb-2">
-                              <Trophy className="w-6 h-6 text-white" />
-                            </div>
-                          )}
-                          <p className="text-xs font-semibold text-center text-slate-900 line-clamp-2">
-                            {award.name}
+                          {award.sublevel.name}
+                        </Badge>
+                      )}
+                      {award.description && (
+                        <p className="text-[10px] text-slate-500 text-center mt-1 line-clamp-2">
+                          {award.description}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        );
+
+      case 'groups':
+        if (isFeatureExcluded('user.about-me.groups') || isFeatureExcluded('membership.member-groups') || groupAssignments.length === 0) return null;
+        return (
+          <Card key="groups" className="border-slate-200 shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Users className="w-5 h-5 text-blue-600" />
+                Groups
+                <Badge variant="secondary">{groupAssignments.length}</Badge>
+              </CardTitle>
+              <CardDescription>
+                Groups you are a member of
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {groupAssignments.map((assignment) => {
+                  const group = memberGroups.find(
+                    (g) => g.id === assignment.group_id
+                  );
+                  if (!group) return null;
+                  return (
+                    <div
+                      key={assignment.id}
+                      className="flex items-start gap-3 p-3 bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg border border-blue-200"
+                    >
+                      <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center flex-shrink-0">
+                        <Users className="w-5 h-5 text-white" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-slate-900 truncate">
+                          {group.name}
+                        </p>
+                        <p className="text-xs text-blue-700 font-medium">
+                          {assignment.group_role}
+                        </p>
+                        {group.description && (
+                          <p className="text-xs text-slate-600 mt-1 line-clamp-2">
+                            {group.description}
                           </p>
-                          {award.description && (
-                            <p className="text-xs text-slate-600 text-center mt-1 line-clamp-2">
-                              {award.description}
-                            </p>
-                          )}
-                        </div>
-                      );
-                    })}
-                    {earnedOfflineAwards.map((award, idx) => {
-                      const classification = award.classification_id
-                        ? awardClassifications.find(
-                            (c) => c.id === award.classification_id
-                          )
-                        : null;
-                      return (
-                        <div
-                          key={`offline-${award.id}-${idx}`}
-                          className="flex flex-col items-center p-3 bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg border border-purple-200 hover:shadow-md transition-shadow relative"
-                        >
-                          {classification && (
-                            <Badge
-                              variant="secondary"
-                              className="absolute top-1 right-1 text-[10px] px-1.5 py-0.5"
-                            >
-                              {classification.name}
-                            </Badge>
-                          )}
-                          {award.sublevel?.image_url ? (
-                            <img
-                              src={award.sublevel.image_url}
-                              alt={award.sublevel.name}
-                              className="w-12 h-12 object-contain mb-2"
-                            />
-                          ) : award.image_url ? (
-                            <img
-                              src={award.image_url}
-                              alt={award.name}
-                              className="w-12 h-12 object-contain mb-2"
-                            />
-                          ) : (
-                            <div className="w-12 h-12 bg-gradient-to-br from-purple-400 to-purple-600 rounded-full flex items-center justify-center mb-2">
-                              <Trophy className="w-6 h-6 text-white" />
-                            </div>
-                          )}
-                          <p className="text-xs font-semibold text-center text-slate-900 line-clamp-2">
-                            {award.name}
-                          </p>
-                          {award.sublevel && (
-                            <Badge className="mt-1 bg-purple-600 text-white text-[10px]">
-                              {award.sublevel.name}
-                            </Badge>
-                          )}
-                          {award.period_text && (
-                            <p className="text-xs text-purple-700 text-center mt-1 font-medium">
-                              {award.period_text}
-                            </p>
-                          )}
-                          {award.description && (
-                            <p className="text-xs text-slate-600 text-center mt-1 line-clamp-2">
-                              {award.description}
-                            </p>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        );
 
-              {/* Biography */}
-              <div className="space-y-2 pt-4 border-t border-slate-200">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="biography">Professional Biography</Label>
-                  <span
-                    className={`text-xs ${
-                      getBiographyWordCount() > 500
-                        ? "text-red-600 font-semibold"
-                        : "text-slate-500"
-                    }`}
+      case 'membership_badges':
+        if (isFeatureExcluded('user.about-me.membership-badges') || rolesWithBadges.length === 0) return null;
+        return (
+          <Card key="membership_badges" className="border-slate-200 shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Award className="w-5 h-5 text-indigo-600" />
+                Membership Badges
+                <Badge variant="secondary">{rolesWithBadges.length}</Badge>
+              </CardTitle>
+              <CardDescription>
+                Your membership badges that you can download and share
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                {rolesWithBadges.map((role) => (
+                  <div
+                    key={`badge-${role.id}`}
+                    className="flex flex-col items-center p-4 bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-lg border border-indigo-200 hover:shadow-md transition-shadow"
+                    data-testid={`role-badge-${role.id}`}
                   >
-                    {getBiographyWordCount()} / 500 words
-                  </span>
+                    <img
+                      src={role.badge_image_url}
+                      alt={`${role.name} badge`}
+                      className="w-24 h-24 object-contain mb-3"
+                    />
+                    <p className="text-sm font-semibold text-center text-slate-900 mb-1">
+                      {role.name}
+                    </p>
+                    {role.description && (
+                      <p className="text-xs text-slate-600 text-center mb-3 line-clamp-2">
+                        {role.description}
+                      </p>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const link = document.createElement('a');
+                        link.href = role.badge_image_url;
+                        link.download = `${role.name.replace(/\s+/g, '-').toLowerCase()}-badge.png`;
+                        link.target = '_blank';
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        toast.success("Badge download started");
+                      }}
+                      className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
+                      data-testid={`download-badge-${role.id}`}
+                    >
+                      <Download className="w-4 h-4 mr-1" />
+                      Download Badge
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        );
+
+      case 'awards':
+        if (isFeatureExcluded('user.about-me.awards') || (earnedOnlineAwards.length === 0 && earnedOfflineAwards.length === 0)) return null;
+        return (
+          <Card key="awards" className="border-slate-200 shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Trophy className="w-5 h-5 text-warning" />
+                Awards
+                <Badge variant="secondary">{earnedOnlineAwards.length + earnedOfflineAwards.length}</Badge>
+              </CardTitle>
+              <CardDescription>
+                Awards you have earned
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                {earnedOnlineAwards.map((award) => {
+                  const classification = award.classification_id
+                    ? awardClassifications.find(
+                        (c) => c.id === award.classification_id
+                      )
+                    : null;
+                  return (
+                    <div
+                      key={`online-${award.id}`}
+                      className="flex flex-col items-center p-3 bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg border border-warning/30 hover:shadow-md transition-shadow relative"
+                    >
+                      {classification && (
+                        <Badge
+                          variant="secondary"
+                          className="absolute top-1 right-1 text-[10px] px-1.5 py-0.5"
+                        >
+                          {classification.name}
+                        </Badge>
+                      )}
+                      {award.image_url ? (
+                        <img
+                          src={award.image_url}
+                          alt={award.name}
+                          className="w-12 h-12 object-contain mb-2"
+                        />
+                      ) : (
+                        <div className="w-12 h-12 bg-gradient-to-br from-amber-400 to-amber-600 rounded-full flex items-center justify-center mb-2">
+                          <Trophy className="w-6 h-6 text-white" />
+                        </div>
+                      )}
+                      <p className="text-xs font-semibold text-center text-slate-900 line-clamp-2">
+                        {award.name}
+                      </p>
+                      {award.description && (
+                        <p className="text-xs text-slate-600 text-center mt-1 line-clamp-2">
+                          {award.description}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+                {earnedOfflineAwards.map((award, idx) => {
+                  const classification = award.classification_id
+                    ? awardClassifications.find(
+                        (c) => c.id === award.classification_id
+                      )
+                    : null;
+                  return (
+                    <div
+                      key={`offline-${award.id}-${idx}`}
+                      className="flex flex-col items-center p-3 bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg border border-purple-200 hover:shadow-md transition-shadow relative"
+                    >
+                      {classification && (
+                        <Badge
+                          variant="secondary"
+                          className="absolute top-1 right-1 text-[10px] px-1.5 py-0.5"
+                        >
+                          {classification.name}
+                        </Badge>
+                      )}
+                      {award.sublevel?.image_url ? (
+                        <img
+                          src={award.sublevel.image_url}
+                          alt={award.sublevel.name}
+                          className="w-12 h-12 object-contain mb-2"
+                        />
+                      ) : award.image_url ? (
+                        <img
+                          src={award.image_url}
+                          alt={award.name}
+                          className="w-12 h-12 object-contain mb-2"
+                        />
+                      ) : (
+                        <div className="w-12 h-12 bg-gradient-to-br from-purple-400 to-purple-600 rounded-full flex items-center justify-center mb-2">
+                          <Trophy className="w-6 h-6 text-white" />
+                        </div>
+                      )}
+                      <p className="text-xs font-semibold text-center text-slate-900 line-clamp-2">
+                        {award.name}
+                      </p>
+                      {award.sublevel && (
+                        <Badge className="mt-1 bg-purple-600 text-white text-[10px]">
+                          {award.sublevel.name}
+                        </Badge>
+                      )}
+                      {award.period_text && (
+                        <p className="text-xs text-purple-700 text-center mt-1 font-medium">
+                          {award.period_text}
+                        </p>
+                      )}
+                      {award.description && (
+                        <p className="text-xs text-slate-600 text-center mt-1 line-clamp-2">
+                          {award.description}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        );
+
+      case 'professional_biography':
+        if (isFeatureExcluded('user.about-me.professional-biography')) return null;
+        if (!isFieldVisible('biography')) return null;
+        return (
+          <Card key="professional_biography" className="border-slate-200 shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileText className="w-5 h-5 text-blue-600" />
+                Professional Biography
+              </CardTitle>
+              <CardDescription>
+                Share your professional background and expertise
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="biography">Your Biography</Label>
+                  {canEditField('biography') && (
+                    <span
+                      className={`text-xs ${
+                        getBiographyWordCount() > 500
+                          ? "text-red-600 font-semibold"
+                          : "text-slate-500"
+                      }`}
+                    >
+                      {getBiographyWordCount()} / 500 words
+                    </span>
+                  )}
                 </div>
-                <Textarea
-                  id="biography"
-                  value={biography}
-                  onChange={(e) => setBiography(e.target.value)}
-                  placeholder="Share your professional background, expertise, and experience (max 500 words)"
-                  className="min-h-[200px]"
-                />
+                {canEditField('biography') ? (
+                  <Textarea
+                    id="biography"
+                    value={biography}
+                    onChange={(e) => setBiography(e.target.value)}
+                    placeholder="Share your professional background, expertise, and experience (max 500 words)"
+                    className="min-h-[200px]"
+                  />
+                ) : (
+                  <div className="p-3 bg-slate-50 rounded border min-h-[100px] text-sm text-slate-700">
+                    {biography || <span className="text-slate-400 italic">No biography set</span>}
+                  </div>
+                )}
                 <p className="text-xs text-slate-500">
                   This biography will be displayed on your published articles
                 </p>
               </div>
 
-              {hasUnsavedProfile && (
-                <div className="flex justify-end pt-4">
+              {canEditField('biography') && hasUnsavedProfile && (
+                <div className="flex justify-end pt-4 border-t border-slate-200">
                   <Button
                     onClick={handleSaveProfile}
                     disabled={
@@ -1160,107 +2535,758 @@ export default function PreferencesPage() {
               )}
             </CardContent>
           </Card>
-        )}
+        );
 
-        {/* Resource Interests */}
-        <Card className="border-slate-200 shadow-sm">
-          <CardHeader>
-            <CardTitle>Resource Interests</CardTitle>
-            <CardDescription>
-              Select topics you're interested in to personalize your experience
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="grid md:grid-cols-2 gap-6">
+      case 'resource_interests':
+        // Separate categories with subcategories from flat categories (using filtered visibleCategories)
+        const categoriesWithSubcats = visibleCategories.filter(c => 
+          c.subcategories && Array.isArray(c.subcategories) && c.subcategories.length > 0
+        );
+        const flatCategories = visibleCategories.filter(c => 
+          !c.subcategories || !Array.isArray(c.subcategories) || c.subcategories.length === 0
+        );
+        
+        return (
+          <Card key="resource_interests" className="border-slate-200 shadow-sm">
+            <CardHeader className="flex flex-row items-center justify-between gap-2">
               <div>
-                <h3 className="text-sm font-semibold text-slate-900 mb-4">
-                  Browse Topics
-                </h3>
-                <div className="border border-slate-200 rounded-lg bg-slate-50 p-4 max-h-[600px] overflow-y-auto">
-                  <ResourceFilter
-                    categories={filteredCategories}
-                    selectedSubcategories={selectedSubcategories}
-                    onSubcategoryToggle={handleSubcategoryToggle}
-                    searchQuery={searchQuery}
-                    onSearchChange={setSearchQuery}
-                    onClearSearch={() => setSearchQuery("")}
-                    onCategoryToggle={handleCategoryExpand}
-                    expandedCategories={expandedCategories}
-                  />
-                </div>
+                <CardTitle className="flex items-center gap-2">
+                  <FolderTree className="w-5 h-5 text-blue-600" />
+                  Resource Interests
+                </CardTitle>
+                <CardDescription>
+                  Select the categories that interest you to personalize your experience
+                </CardDescription>
               </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-semibold text-slate-900">
-                    Your Interests
-                  </h3>
-                  {selectedSubcategories.length > 0 && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={handleResetFilters}
-                      className="text-blue-600 hover:text-blue-700"
-                    >
-                      Clear All
-                    </Button>
-                  )}
-                </div>
-
-                {selectedSubcategories.length === 0 ? (
-                  <div className="border border-dashed border-slate-300 rounded-lg p-8 text-center">
-                    <p className="text-slate-500 text-sm">
-                      No interests selected yet. Browse topics on the left to
-                      get started.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="border border-slate-200 rounded-lg bg-white p-4 space-y-2 max-h-[600px] overflow-y-auto">
-                    {selectedSubcategories.map((subcategory) => (
-                      <div
-                        key={subcategory}
-                        className="flex items-center justify-between p-2 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
-                      >
-                        <span className="text-sm text-slate-900">
-                          {subcategory}
-                        </span>
-                        <button
-                          onClick={() => handleSubcategoryToggle(subcategory)}
-                          className="text-slate-500 hover:text-slate-700"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {hasUnsavedChanges && (
-              <div className="flex justify-end pt-4 border-t border-slate-200">
+              {hasUnsavedChanges && (
                 <Button
                   onClick={handleSavePreferences}
                   disabled={isSaving}
-                  className="bg-blue-600 hover:bg-blue-700"
+                  data-testid="button-save-preferences"
                 >
                   {isSaving ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Saving...
-                    </>
+                    <Loader2 className="w-4 h-4 animate-spin mr-1" />
                   ) : (
-                    <>
-                      <Save className="w-4 h-4 mr-2" />
-                      Save Preferences
-                    </>
+                    <Save className="w-4 h-4 mr-1" />
                   )}
+                  Save
                 </Button>
+              )}
+            </CardHeader>
+            <CardContent>
+              {(categoriesLoading || memberResourceCategoriesLoading) ? (
+                <div className="space-y-3">
+                  {[1, 2, 3].map(i => (
+                    <div key={i} className="border border-slate-200 rounded-lg p-3 animate-pulse">
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 bg-slate-200 rounded" />
+                        <div className="h-4 bg-slate-200 rounded w-32" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : visibleCategories.length === 0 ? (
+                <p className="text-sm text-slate-500 text-center py-8">No categories available</p>
+              ) : (
+                <div className="space-y-6">
+                  <p className="text-sm text-slate-600">
+                    Select the categories that interest you. These preferences help personalize content recommendations.
+                  </p>
+                  
+                  {/* Flat categories (no subcategories) - display as selectable grid */}
+                  {flatCategories.length > 0 && (
+                    <div className="space-y-3">
+                      <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                        <FolderTree className="w-4 h-4 text-slate-500" />
+                        Categories
+                      </h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {flatCategories.map(category => {
+                          const isSelected = isSubcategorySelected(category.id, null);
+                          return (
+                            <div 
+                              key={category.id} 
+                              className={`border rounded-lg p-3 cursor-pointer transition-colors ${
+                                isSelected 
+                                  ? 'border-blue-500 bg-blue-50' 
+                                  : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                              }`}
+                              onClick={() => toggleSubcategory(category.id, null)}
+                              data-testid={`category-card-${category.id}`}
+                            >
+                              <div className="flex items-start gap-3">
+                                <Checkbox
+                                  id={`pref-cat-${category.id}`}
+                                  checked={isSelected}
+                                  onCheckedChange={() => toggleSubcategory(category.id, null)}
+                                  data-testid={`checkbox-category-${category.id}`}
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <Label 
+                                    htmlFor={`pref-cat-${category.id}`} 
+                                    className="font-medium text-sm cursor-pointer text-slate-900"
+                                  >
+                                    {category.name}
+                                  </Label>
+                                  {category.description && (
+                                    <p className="text-xs text-slate-500 mt-1 line-clamp-2">
+                                      {category.description}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Categories with subcategories - display as headers with selectable children */}
+                  {categoriesWithSubcats.map(category => {
+                    const selectedCount = (category.subcategories || []).filter(subName => 
+                      isSubcategorySelected(category.id, subName)
+                    ).length;
+                    
+                    return (
+                      <div key={category.id} className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                            <FolderTree className="w-4 h-4 text-slate-500" />
+                            {category.name}
+                          </h3>
+                          {selectedCount > 0 && (
+                            <Badge variant="secondary" className="text-xs">
+                              {selectedCount} selected
+                            </Badge>
+                          )}
+                        </div>
+                        {category.description && (
+                          <p className="text-xs text-slate-500 -mt-1">{category.description}</p>
+                        )}
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                          {(category.subcategories || []).map((subcatName, idx) => {
+                            const isSelected = isSubcategorySelected(category.id, subcatName);
+                            const uniqueKey = `${category.id}-${subcatName}`;
+                            return (
+                              <div 
+                                key={uniqueKey} 
+                                className={`border rounded-lg p-3 cursor-pointer transition-colors ${
+                                  isSelected 
+                                    ? 'border-blue-500 bg-blue-50' 
+                                    : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                                }`}
+                                onClick={() => toggleSubcategory(category.id, subcatName)}
+                                data-testid={`subcategory-card-${category.id}-${idx}`}
+                              >
+                                <div className="flex items-start gap-3">
+                                  <Checkbox
+                                    id={`pref-subcat-${uniqueKey}`}
+                                    checked={isSelected}
+                                    onCheckedChange={() => toggleSubcategory(category.id, subcatName)}
+                                    data-testid={`checkbox-subcategory-${category.id}-${idx}`}
+                                  />
+                                  <div className="flex-1 min-w-0">
+                                    <Label 
+                                      htmlFor={`pref-subcat-${uniqueKey}`} 
+                                      className="font-medium text-sm cursor-pointer text-slate-900"
+                                    >
+                                      {subcatName}
+                                    </Label>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  
+                  {selectedSubcategories.length > 0 && (
+                    <div className="mt-4 pt-4 border-t border-slate-200">
+                      <p className="text-sm text-slate-600">
+                        <span className="font-medium">{selectedSubcategories.length}</span> {selectedSubcategories.length === 1 ? 'item' : 'items'} selected
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        );
+
+      case 'communications':
+        if (isFeatureExcluded('user.about-me.communication-preferences')) return null;
+        const isOptedOutAll = memberRecord?.communications_opted_out_all === true;
+        return (
+          <Card key="communications" className="border-slate-200 shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Mail className="w-5 h-5 text-blue-600" />
+                Communication Preferences
+              </CardTitle>
+              <CardDescription>
+                Choose which types of communications you'd like to receive
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Master opt-out toggle */}
+              <div 
+                className={`flex items-center justify-between p-4 rounded-lg border ${isOptedOutAll ? 'bg-red-50 border-red-200' : 'bg-warning/10 border-warning/30'}`}
+                data-testid="comm-opt-out-all"
+              >
+                <div className="space-y-1">
+                  <h4 className="font-medium text-slate-900 flex items-center gap-2">
+                    <Shield className="w-4 h-4 text-warning" />
+                    Opt out of all communications
+                  </h4>
+                  <p className="text-sm text-slate-500">
+                    {isOptedOutAll 
+                      ? "You have opted out of all marketing communications" 
+                      : "Enable this to stop receiving all marketing communications"}
+                  </p>
+                </div>
+                <Switch
+                  checked={isOptedOutAll}
+                  onCheckedChange={(checked) => handleOptOutAllToggle(checked)}
+                  disabled={updatingOptOutAll}
+                  data-testid="switch-opt-out-all"
+                />
               </div>
-            )}
-          </CardContent>
-        </Card>
+              
+              {isOptedOutAll && (
+                <div 
+                  className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm"
+                  data-testid="comm-opt-out-warning"
+                >
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                  <span>You have opted out of all communications. Turn off the toggle above to manage individual preferences.</span>
+                </div>
+              )}
+              
+              {communicationCategoriesLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                </div>
+              ) : availableCategories.length === 0 ? (
+                <div className="text-center py-8 text-slate-500">
+                  <Mail className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+                  <p>No communication categories available for your role.</p>
+                </div>
+              ) : (
+                <div className={`space-y-4 ${isOptedOutAll ? 'opacity-50' : ''}`}>
+                  {availableCategories.map((category) => {
+                    const pref = communicationPreferences.find(p => p.category_id === category.id);
+                    // When opted out all, show as unsubscribed; otherwise use preference or default to unsubscribed
+                    const isSubscribed = isOptedOutAll ? false : (pref ? pref.is_subscribed : false);
+                    
+                    return (
+                      <div 
+                        key={category.id} 
+                        className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200"
+                        data-testid={`comm-category-${category.id}`}
+                      >
+                        <div className="space-y-1">
+                          <h4 className="font-medium text-slate-900">{category.name}</h4>
+                          {category.description && (
+                            <p className="text-sm text-slate-500">{category.description}</p>
+                          )}
+                        </div>
+                        <Switch
+                          checked={isSubscribed}
+                          onCheckedChange={(checked) => handleCommunicationToggle(category.id, checked)}
+                          disabled={updatingCommPrefs.has(category.id) || isOptedOutAll}
+                          data-testid={`switch-comm-${category.id}`}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        );
+
+      case 'additional_info':
+        if (isFeatureExcluded('user.about-me.additional-info')) return null;
+        if (preferenceFields.length === 0 && !preferenceFieldsLoading) return null;
+        return (
+          <Card key="additional_info" className="border-slate-200 shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ClipboardList className="w-5 h-5 text-blue-600" />
+                Role Info
+              </CardTitle>
+              
+              <CardDescription>
+                Provide additional information about your role
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {preferenceFieldsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {preferenceFields.map((field) => {
+                    // Check if this custom field should be visible based on role permissions
+                    if (!isFieldVisible(field.id)) {
+                      return null;
+                    }
+                    
+                    const fieldValue = additionalInfoValues[field.id] || '';
+                    const canEdit = canEditField(field.id);
+                    
+                    return (
+                      <div key={field.id} className="space-y-2" data-testid={`additional-field-${field.id}`}>
+                        <Label htmlFor={`field-${field.id}`}>
+                          {field.label}
+                          {field.is_required && <span className="text-red-500 ml-1">*</span>}
+                        </Label>
+                        
+                        {field.field_type === 'text' && (
+                          canEdit ? (
+                            <Input
+                              id={`field-${field.id}`}
+                              value={fieldValue}
+                              onChange={(e) => handleAdditionalInfoChange(field.id, e.target.value)}
+                              placeholder={`Enter ${field.label.toLowerCase()}`}
+                              data-testid={`input-field-${field.id}`}
+                            />
+                          ) : (
+                            <p className="text-sm text-slate-700 py-2">{fieldValue || '-'}</p>
+                          )
+                        )}
+                        
+                        {field.field_type === 'url' && (
+                          canEdit ? (
+                            <Input
+                              id={`field-${field.id}`}
+                              type="url"
+                              value={fieldValue}
+                              onChange={(e) => handleAdditionalInfoChange(field.id, e.target.value)}
+                              placeholder="https://example.com"
+                              data-testid={`input-field-${field.id}`}
+                            />
+                          ) : (
+                            <p className="text-sm text-slate-700 py-2">{fieldValue || '-'}</p>
+                          )
+                        )}
+                        
+                        {field.field_type === 'number' && (
+                          canEdit ? (
+                            <Input
+                              id={`field-${field.id}`}
+                              type="number"
+                              value={fieldValue}
+                              onChange={(e) => handleAdditionalInfoChange(field.id, e.target.value)}
+                              placeholder={`Enter ${field.label.toLowerCase()}`}
+                              data-testid={`input-field-${field.id}`}
+                            />
+                          ) : (
+                            <p className="text-sm text-slate-700 py-2">{fieldValue || '-'}</p>
+                          )
+                        )}
+                        
+                        {field.field_type === 'decimal' && (
+                          canEdit ? (
+                            <Input
+                              id={`field-${field.id}`}
+                              type="number"
+                              step="0.01"
+                              value={fieldValue}
+                              onChange={(e) => handleAdditionalInfoChange(field.id, e.target.value)}
+                              placeholder={`Enter ${field.label.toLowerCase()}`}
+                              data-testid={`input-field-${field.id}`}
+                            />
+                          ) : (
+                            <p className="text-sm text-slate-700 py-2">{fieldValue || '-'}</p>
+                          )
+                        )}
+                        
+                        {field.field_type === 'boolean' && (
+                          <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border">
+                            <Switch
+                              id={`field-${field.id}`}
+                              checked={fieldValue === 'true' || fieldValue === true}
+                              onCheckedChange={(checked) => handleAdditionalInfoChange(field.id, checked ? 'true' : 'false')}
+                              disabled={!canEdit}
+                              data-testid={`switch-field-${field.id}`}
+                            />
+                            <Label htmlFor={`field-${field.id}`} className="cursor-pointer text-sm text-slate-700">
+                              {fieldValue === 'true' || fieldValue === true ? 'Yes' : 'No'}
+                            </Label>
+                          </div>
+                        )}
+                        
+                        {field.field_type === 'dropdown' && field.options && (
+                          canEdit ? (
+                            <Select 
+                              value={fieldValue} 
+                              onValueChange={(value) => handleAdditionalInfoChange(field.id, value)}
+                            >
+                              <SelectTrigger data-testid={`select-field-${field.id}`}>
+                                <SelectValue placeholder={`Select ${field.label.toLowerCase()}`} />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {field.options.map((option) => (
+                                  <SelectItem key={option.value} value={option.value}>
+                                    {option.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <p className="text-sm text-slate-700 py-2">
+                              {field.options.find(o => o.value === fieldValue)?.label || fieldValue || '-'}
+                            </p>
+                          )
+                        )}
+                        
+                        {field.field_type === 'picklist' && field.options && (() => {
+                          const selectedValues = Array.isArray(fieldValue) ? fieldValue : [];
+                          const selectedCount = selectedValues.length;
+                          const maxSelections = field.max_selections;
+                          const minSelections = field.min_selections;
+                          const isAtMax = maxSelections != null && selectedCount >= maxSelections;
+                          
+                          if (!canEdit) {
+                            // Read-only: show selected values as text
+                            const selectedLabels = selectedValues
+                              .map(v => field.options.find(o => o.value === v)?.label || v)
+                              .join(', ');
+                            return <p className="text-sm text-slate-700 py-2">{selectedLabels || '-'}</p>;
+                          }
+                          
+                          return (
+                            <div className="space-y-2">
+                              {(minSelections != null || maxSelections != null) && (
+                                <p className="text-xs text-slate-500">
+                                  {minSelections != null && maxSelections != null 
+                                    ? `Select between ${minSelections} and ${maxSelections} options`
+                                    : minSelections != null 
+                                      ? `Select at least ${minSelections} option${minSelections > 1 ? 's' : ''}`
+                                      : `Select up to ${maxSelections} option${maxSelections > 1 ? 's' : ''}`
+                                  }
+                                  {' '}({selectedCount} selected)
+                                </p>
+                              )}
+                              <div className="space-y-2 p-3 bg-slate-50 rounded-lg border">
+                                {field.options.map((option) => {
+                                  const isChecked = selectedValues.includes(option.value);
+                                  const isDisabled = !isChecked && isAtMax;
+                                  
+                                  return (
+                                    <div key={option.value} className="flex items-center space-x-2">
+                                      <Checkbox
+                                        id={`field-${field.id}-${option.value}`}
+                                        checked={isChecked}
+                                        disabled={isDisabled}
+                                        onCheckedChange={(checked) => 
+                                          handlePicklistToggle(field.id, option.value, checked)
+                                        }
+                                        data-testid={`checkbox-field-${field.id}-${option.value}`}
+                                      />
+                                      <label 
+                                        htmlFor={`field-${field.id}-${option.value}`}
+                                        className={`text-sm cursor-pointer ${isDisabled ? 'text-slate-400' : 'text-slate-700'}`}
+                                      >
+                                        {option.label}
+                                      </label>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {field.field_type === 'list' && (
+                          canEdit ? (
+                            <ListFieldEditor
+                              fieldId={field.id}
+                              values={Array.isArray(fieldValue) ? fieldValue : []}
+                              onChange={(newValues) => {
+                                handleAdditionalInfoChange(field.id, newValues);
+                              }}
+                              placeholder={`Add ${field.label.toLowerCase()}...`}
+                            />
+                          ) : (
+                            <p className="text-sm text-slate-700 py-2">
+                              {Array.isArray(fieldValue) ? fieldValue.join(', ') : '-'}
+                            </p>
+                          )
+                        )}
+
+                        {field.field_type === 'file' && (
+                          canEdit ? (
+                            <CustomFieldFileUpload
+                              fieldId={field.id}
+                              value={fieldValue}
+                              onChange={(newValue) => handleAdditionalInfoChange(field.id, newValue)}
+                              allowedTypes={field.allowed_file_types || []}
+                              label={`Upload ${field.label}`}
+                            />
+                          ) : (
+                            <CustomFieldFileDisplay value={fieldValue} />
+                          )
+                        )}
+
+                        {field.field_type === 'textarea' && (
+                          canEdit ? (
+                            <Textarea
+                              id={`field-${field.id}`}
+                              value={fieldValue}
+                              onChange={(e) => handleAdditionalInfoChange(field.id, e.target.value)}
+                              placeholder={`Enter ${field.label.toLowerCase()}`}
+                              rows={4}
+                              data-testid={`textarea-field-${field.id}`}
+                            />
+                          ) : (
+                            <p className="text-sm text-slate-700 py-2 whitespace-pre-wrap">{fieldValue || '-'}</p>
+                          )
+                        )}
+
+                        {field.field_type === 'email' && (
+                          canEdit ? (
+                            <Input
+                              id={`field-${field.id}`}
+                              type="email"
+                              value={fieldValue}
+                              onChange={(e) => handleAdditionalInfoChange(field.id, e.target.value)}
+                              placeholder="name@example.com"
+                              data-testid={`input-field-${field.id}`}
+                            />
+                          ) : (
+                            <p className="text-sm text-slate-700 py-2">{fieldValue || '-'}</p>
+                          )
+                        )}
+
+                        {field.field_type === 'date' && (
+                          canEdit ? (
+                            <Input
+                              id={`field-${field.id}`}
+                              type="date"
+                              value={fieldValue}
+                              onChange={(e) => handleAdditionalInfoChange(field.id, e.target.value)}
+                              data-testid={`input-field-${field.id}`}
+                            />
+                          ) : (
+                            <p className="text-sm text-slate-700 py-2">
+                              {(() => {
+                                if (!fieldValue) return '-';
+                                try {
+                                  const d = new Date(fieldValue);
+                                  return isNaN(d.getTime()) ? fieldValue : format(d, 'dd MMM yyyy');
+                                } catch { return fieldValue; }
+                              })()}
+                            </p>
+                          )
+                        )}
+
+                        {field.field_type === 'country' && (() => {
+                          const availableCountries = field.all_countries !== false
+                            ? COUNTRIES
+                            : COUNTRIES.filter(c => {
+                                const selected = Array.isArray(field.selected_countries) ? field.selected_countries : [];
+                                return selected.includes(c.code) || selected.includes(c.name);
+                              });
+
+                          if (!canEdit) {
+                            return <p className="text-sm text-slate-700 py-2">{resolveCountryName(fieldValue) || '-'}</p>;
+                          }
+
+                          const normalizedValue = resolveCountryName(fieldValue);
+
+                          return (
+                            <Select
+                              value={normalizedValue}
+                              onValueChange={(value) => handleAdditionalInfoChange(field.id, value)}
+                            >
+                              <SelectTrigger data-testid={`select-field-${field.id}`}>
+                                <SelectValue placeholder={`Select ${field.label.toLowerCase()}`} />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {availableCountries.map((country) => (
+                                  <SelectItem key={country.code} value={country.name}>
+                                    {country.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          );
+                        })()}
+
+                        {field.field_type === 'countries' && (() => {
+                          const selectedValues = Array.isArray(fieldValue) ? fieldValue : [];
+                          const availableCountries = field.all_countries !== false
+                            ? COUNTRIES
+                            : COUNTRIES.filter(c => {
+                                const selected = Array.isArray(field.selected_countries) ? field.selected_countries : [];
+                                return selected.includes(c.code) || selected.includes(c.name);
+                              });
+
+                          if (!canEdit) {
+                            return (
+                              <p className="text-sm text-slate-700 py-2">
+                                {selectedValues.length > 0 ? selectedValues.map(v => resolveCountryName(v)).join(', ') : '-'}
+                              </p>
+                            );
+                          }
+
+                          return (
+                            <CountryMultiSelectField
+                              fieldId={field.id}
+                              selectedValues={selectedValues}
+                              availableCountries={availableCountries}
+                              onChange={(newValues) => handleAdditionalInfoChange(field.id, newValues)}
+                              label={field.label}
+                            />
+                          );
+                        })()}
+
+                        {/* Fallback for unrecognized field types - render as text input */}
+                        {!['text', 'url', 'number', 'decimal', 'boolean', 'dropdown', 'picklist', 'list', 'file', 'textarea', 'email', 'date', 'country', 'countries'].includes(field.field_type) && (
+                          canEdit ? (
+                            <Input
+                              id={`field-${field.id}`}
+                              value={fieldValue}
+                              onChange={(e) => handleAdditionalInfoChange(field.id, e.target.value)}
+                              placeholder={`Enter ${field.label.toLowerCase()}`}
+                              data-testid={`input-field-${field.id}`}
+                            />
+                          ) : (
+                            <p className="text-sm text-slate-700 py-2">{fieldValue || '-'}</p>
+                          )
+                        )}
+                      </div>
+                    );
+                  })}
+                  
+                  {hasUnsavedAdditionalInfo && (
+                    <div className="flex justify-end pt-4 border-t border-slate-200">
+                      <Button
+                        onClick={handleSaveAdditionalInfo}
+                        disabled={isSavingAdditionalInfo}
+                        className="bg-blue-600 hover:bg-blue-700"
+                        data-testid="button-save-additional-info"
+                      >
+                        {isSavingAdditionalInfo ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Saving...
+                          </>
+                        ) : (
+                          <>
+                            <Save className="w-4 h-4 mr-2" />
+                            Save Information
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        );
+
+      case 'role_change_request': {
+        if (isFeatureExcluded('user.about-me.role-change-request')) return null;
+
+        const matchingRules = (roleChangeRules || []).filter(rule =>
+          rule?.source_role_id &&
+          rule?.target_role_id &&
+          rule?.form_slug &&
+          memberRoleIds.includes(rule.source_role_id)
+        );
+
+        // Hide the card entirely when there is nothing the member can request
+        if (matchingRules.length === 0) return null;
+
+        const roleNameById = (id) =>
+          allRoles.find(r => r.id === id)?.name || 'another role';
+
+        return (
+          <Card key="role_change_request" className="border-slate-200 shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <UserCog className="w-5 h-5 text-blue-600" />
+                Request Role Change
+              </CardTitle>
+              <CardDescription>
+                Based on your current role, you can request to change to the role(s) below.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {matchingRules.map((rule, index) => {
+                const targetName = roleNameById(rule.target_role_id);
+                const requestUrl = `${createPageUrl('FormView')}?slug=${encodeURIComponent(rule.form_slug)}${memberRecord?.id ? `&member_id=${encodeURIComponent(memberRecord.id)}` : ''}`;
+                return (
+                  <div
+                    key={`${rule.source_role_id}-${rule.target_role_id}-${index}`}
+                    className="p-4 rounded-lg border border-slate-200 bg-white flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+                    data-testid={`role-change-option-${index}`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-slate-900" data-testid={`text-role-change-target-${index}`}>
+                          {targetName}
+                        </span>
+                        <ArrowRight className="w-4 h-4 text-slate-400" />
+                      </div>
+                      {rule.description && (
+                        <p className="text-sm text-slate-600 mt-1">{rule.description}</p>
+                      )}
+                    </div>
+                    <Link to={requestUrl} className="flex-shrink-0">
+                      <Button className="gap-2 w-full sm:w-auto" data-testid={`button-request-role-change-${index}`}>
+                        Request change
+                        <ArrowRight className="w-4 h-4" />
+                      </Button>
+                    </Link>
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+        );
+      }
+
+      default:
+        return null;
+    }
+  };
+
+  // --- UI with dynamic section ordering ---
+  return (
+    <div className="min-h-screen p-4 md:p-8">
+      <div className="max-w-4xl mx-auto space-y-8">
+        {/* Header - hidden when custom banner is present */}
+        {!hasBanner && (
+          <div>
+            <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">
+              Preferences
+            </h1>
+            <p className="text-slate-600">
+              Manage your profile and content preferences
+            </p>
+          </div>
+        )}
+
+        {sectionOrder.map((sectionId) => renderSection(sectionId))}
       </div>
+
+      <WorkflowConfirmationModal
+        open={showConfirmationModal}
+        onOpenChange={setShowConfirmationModal}
+        pendingWorkflows={pendingWorkflows}
+        onConfirm={handleConfirmWorkflow}
+        onSkip={handleSkipWorkflow}
+        onSkipAll={handleSkipAllWorkflows}
+      />
     </div>
   );
 }

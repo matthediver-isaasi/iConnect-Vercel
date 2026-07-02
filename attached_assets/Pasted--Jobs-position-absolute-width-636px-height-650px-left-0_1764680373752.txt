@@ -1,0 +1,240 @@
+/* Jobs */
+
+position: absolute;
+width: 636px;
+height: 650px;
+left: 0px;
+top: 4350px;
+
+
+
+/* BG */
+
+position: absolute;
+left: 0%;
+right: 50.31%;
+top: 71.08%;
+bottom: 18.3%;
+
+background: linear-gradient(44.99deg, #FFB000 0%, #D02711 61.56%);
+
+
+/* Container */
+
+position: absolute;
+width: 536px;
+height: 549px;
+left: 50px;
+top: 4401px;
+
+background: #FFFFFF;
+
+
+/* Jobs */
+
+position: absolute;
+width: 471px;
+height: 393px;
+left: 89px;
+top: 4487px;
+
+
+
+/* Main Heading Text */
+
+position: absolute;
+left: 6.95%;
+right: 56.25%;
+top: 74.59%;
+bottom: 22.16%;
+
+font-family: 'Degular';
+font-style: normal;
+font-weight: 500;
+font-size: 55px;
+line-height: 50px;
+/* or 91% */
+
+color: #000000;
+
+
+
+/* Header Container */
+
+position: absolute;
+width: 71px;
+height: 33.47px;
+left: 90px;
+top: 4487px;
+
+
+
+/* Header Background */
+
+position: absolute;
+width: 71px;
+height: 33.47px;
+left: 90px;
+top: 4487px;
+
+
+
+/* Header Text */
+
+position: absolute;
+left: 7.03%;
+right: 87.42%;
+top: 73.32%;
+bottom: 26.42%;
+
+font-family: 'Poppins';
+font-style: normal;
+font-weight: 700;
+font-size: 15px;
+line-height: 122%;
+/* or 18px */
+letter-spacing: 0.31em;
+text-transform: uppercase;
+
+color: #000000;
+
+
+
+/* Vector 17 */
+
+position: absolute;
+width: 9px;
+height: 0px;
+left: 91px;
+top: 4520.47px;
+
+border: 2px solid #000000;
+
+
+/* Button Container */
+
+position: absolute;
+width: 269px;
+height: 50px;
+left: 91px;
+top: 4830px;
+
+
+
+/* Button Background */
+
+position: absolute;
+left: 7.11%;
+right: 71.88%;
+top: 78.92%;
+bottom: 20.26%;
+
+border: 2px solid #000000;
+
+
+/* Button Background */
+
+position: absolute;
+width: 232.85px;
+height: 25px;
+left: 110px;
+top: 4842px;
+
+
+
+/* Button Background */
+
+position: absolute;
+width: 232.85px;
+height: 25px;
+left: 110px;
+top: 4842px;
+
+
+
+/* Button Text Container */
+
+position: absolute;
+width: 208px;
+height: 25px;
+left: 110px;
+top: 4842px;
+
+
+
+/* Button Text */
+
+position: absolute;
+width: 208px;
+height: 25px;
+left: 110px;
+top: 4842px;
+
+font-family: 'Poppins';
+font-style: normal;
+font-weight: 600;
+font-size: 18px;
+line-height: 25px;
+/* identical to box height, or 139% */
+text-align: center;
+
+color: #000000;
+
+
+
+/* Button Icon Container */
+
+position: absolute;
+width: 10.85px;
+height: 10.26px;
+left: 332px;
+top: 4851px;
+
+
+
+/* Union */
+
+position: absolute;
+width: 10.85px;
+height: 10.26px;
+left: 332px;
+top: 4851px;
+
+background: #000000;
+
+
+/* Button Icon Part */
+
+position: absolute;
+width: 1.99px;
+height: 10.26px;
+left: 340.85px;
+top: 4851px;
+
+background: #FFFFFF;
+border-radius: 0px;
+
+
+/* Button Icon Part */
+
+position: absolute;
+width: 1.99px;
+height: 10.26px;
+left: 332.59px;
+top: 4851px;
+
+background: #FFFFFF;
+border-radius: 0px;
+transform: rotate(90deg);
+
+
+/* Rectangle 239 */
+
+position: absolute;
+width: 2.51px;
+height: 10.91px;
+left: 332px;
+top: 4851.83px;
+
+background: #FFFFFF;
+transform: rotate(45.04deg);

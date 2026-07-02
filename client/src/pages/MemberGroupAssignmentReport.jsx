@@ -6,24 +6,24 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Users, Calendar, AlertTriangle, Clock, Search, FileText } from "lucide-react";
+import { Users, Calendar, AlertTriangle, Clock, Search, FileText, Loader2 } from "lucide-react";
 import { format, addDays, isBefore, isAfter } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 
 export default function MemberGroupAssignmentReportPage() {
-  const { isAdmin, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin) {
+      if (isFeatureExcluded('membership.member-groups')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
   const [searchQuery, setSearchQuery] = useState('');
   const [expiryFilter, setExpiryFilter] = useState('all');
   const [groupFilter, setGroupFilter] = useState('all');
@@ -36,13 +36,18 @@ export default function MemberGroupAssignmentReportPage() {
   });
 
   const { data: members = [], isLoading: loadingMembers } = useQuery({
-    queryKey: ['members-list'],
-    queryFn: () => base44.entities.Member.list('first_name'),
+    queryKey: ['members-list-all'],
+    queryFn: () => base44.entities.Member.listAll(),
+  });
+
+  const { data: guests = [], isLoading: loadingGuests } = useQuery({
+    queryKey: ['member-group-guests-all'],
+    queryFn: () => base44.entities.MemberGroupGuest.listAll(),
   });
 
   const { data: assignments = [], isLoading: loadingAssignments } = useQuery({
-    queryKey: ['member-group-assignments'],
-    queryFn: () => base44.entities.MemberGroupAssignment.list(),
+    queryKey: ['member-group-assignments-all'],
+    queryFn: () => base44.entities.MemberGroupAssignment.listAll(),
   });
 
   const today = new Date();
@@ -58,21 +63,36 @@ export default function MemberGroupAssignmentReportPage() {
 
   const enrichedAssignments = useMemo(() => {
     return assignments.map(assignment => {
-      const member = members.find(m => m.id === assignment.member_id);
+      const isGuest = !!assignment.guest_id;
+      const member = !isGuest ? members.find(m => m.id === assignment.member_id) : null;
+      const guest = isGuest ? guests.find(g => g.id === assignment.guest_id) : null;
       const group = groups.find(g => g.id === assignment.group_id);
       const expiryStatus = getExpiryStatus(assignment.expires_at);
+      
+      let memberName = 'Unknown';
+      let memberEmail = '';
+      
+      if (isGuest && guest) {
+        memberName = `${guest.full_name || guest.name || 'Guest'} (Guest)`;
+        memberEmail = guest.email || '';
+      } else if (member) {
+        memberName = `${member.first_name} ${member.last_name}`;
+        memberEmail = member.email || '';
+      }
       
       return {
         ...assignment,
         member,
+        guest,
         group,
+        isGuest,
         expiryStatus,
-        memberName: member ? `${member.first_name} ${member.last_name}` : 'Unknown',
-        memberEmail: member?.email || '',
+        memberName,
+        memberEmail,
         groupName: group?.name || 'Unknown Group'
       };
     });
-  }, [assignments, members, groups]);
+  }, [assignments, members, guests, groups]);
 
   const filteredAssignments = useMemo(() => {
     let filtered = enrichedAssignments;
@@ -137,7 +157,7 @@ export default function MemberGroupAssignmentReportPage() {
       case 'expired':
         return <Badge className="bg-red-100 text-red-700">Expired</Badge>;
       case 'expiring-soon':
-        return <Badge className="bg-amber-100 text-amber-700">Expiring Soon</Badge>;
+        return <Badge className="bg-warning/10 text-warning">Expiring Soon</Badge>;
       case 'active':
         return <Badge className="bg-green-100 text-green-700">Active</Badge>;
       default:
@@ -145,18 +165,23 @@ export default function MemberGroupAssignmentReportPage() {
     }
   };
 
-  const isLoading = loadingGroups || loadingMembers || loadingAssignments;
+  const isLoading = !accessChecked || loadingGroups || loadingMembers || loadingAssignments || loadingGuests;
 
-  if (!accessChecked) {
+  if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
-        <div className="animate-pulse text-slate-600">Loading...</div>
+      <div className="min-h-screen p-8 flex items-center justify-center">
+        <Card className="max-w-md">
+          <CardContent className="p-12 text-center">
+            <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-4" />
+            <p className="text-slate-600">Loading assignment report...</p>
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         <div className="mb-8">
           <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">
@@ -198,11 +223,11 @@ export default function MemberGroupAssignmentReportPage() {
           <Card className="border-slate-200">
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-amber-100 rounded-lg">
-                  <Clock className="w-5 h-5 text-amber-600" />
+                <div className="p-2 bg-warning/10 rounded-lg">
+                  <Clock className="w-5 h-5 text-warning" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-amber-600">{stats.expiringSoon}</p>
+                  <p className="text-2xl font-bold text-warning">{stats.expiringSoon}</p>
                   <p className="text-xs text-slate-600">Expiring in 30 days</p>
                 </div>
               </div>

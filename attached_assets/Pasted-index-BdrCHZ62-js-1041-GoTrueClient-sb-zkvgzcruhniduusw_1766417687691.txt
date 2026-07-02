@@ -1,0 +1,64 @@
+index-BdrCHZ62.js:1041 GoTrueClient@sb-zkvgzcruhniduuswbfyh-auth-token:1 (2.84.0) 2025-12-22T15:33:55.401Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+eg @ index-BdrCHZ62.js:1041
+index-BdrCHZ62.js:1041 GoTrueClient@sb-zkvgzcruhniduuswbfyh-auth-token:2 (2.84.0) 2025-12-22T15:33:55.402Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+eg @ index-BdrCHZ62.js:1041
+index-BdrCHZ62.js:1234 [usePendingPurchaseOrders] memberInfo: Object
+index-BdrCHZ62.js:1234 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BdrCHZ62.js:1234 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BdrCHZ62.js:1234 [Layout] currentPageName: JobPostingManagement currentPortalPageId: null
+index-BdrCHZ62.js:1234 [usePendingPurchaseOrders] Query running, memberInfo.id: 48b25075-51da-437f-af20-17836a892bfe
+index-BdrCHZ62.js:1234 [usePendingPurchaseOrders] memberInfo: Object
+index-BdrCHZ62.js:1234 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BdrCHZ62.js:1234 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BdrCHZ62.js:1234 [Layout] currentPageName: JobPostingManagement currentPortalPageId: null
+index-BdrCHZ62.js:1234 [usePendingPurchaseOrders] memberInfo: Object
+index-BdrCHZ62.js:1234 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BdrCHZ62.js:1234 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BdrCHZ62.js:1234 [Layout] currentPageName: JobPostingManagement currentPortalPageId: null
+index-BdrCHZ62.js:1234 [usePendingPurchaseOrders] memberInfo: Object
+index-BdrCHZ62.js:1234 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BdrCHZ62.js:1234 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BdrCHZ62.js:1234 [Layout] currentPageName: JobPostingManagement currentPortalPageId: null
+index-BdrCHZ62.js:1234 [usePendingPurchaseOrders] memberInfo: Object
+index-BdrCHZ62.js:1234 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BdrCHZ62.js:1234 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BdrCHZ62.js:1234 [Layout] currentPageName: JobPostingManagement currentPortalPageId: null
+index-BdrCHZ62.js:1234 [usePendingPurchaseOrders] Fetched bookings count: 2
+index-BdrCHZ62.js:1234 [usePendingPurchaseOrders] Pending PO bookings: 0
+index-BdrCHZ62.js:1234 [usePendingPurchaseOrders] memberInfo: Object
+index-BdrCHZ62.js:1234 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BdrCHZ62.js:1234 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BdrCHZ62.js:1234 [Layout] currentPageName: JobPostingManagement currentPortalPageId: null
+index-BdrCHZ62.js:1234 [usePendingPurchaseOrders] memberInfo: Object
+index-BdrCHZ62.js:1234 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BdrCHZ62.js:1234 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BdrCHZ62.js:1234 [Layout] currentPageName: JobPostingManagement currentPortalPageId: null
+index-BdrCHZ62.js:1234 [usePendingPurchaseOrders] memberInfo: Object
+index-BdrCHZ62.js:1234 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BdrCHZ62.js:1234 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BdrCHZ62.js:1234 [Layout] currentPageName: JobPostingManagement currentPortalPageId: null
+index-BdrCHZ62.js:1234 [usePendingPurchaseOrders] memberInfo: Object
+index-BdrCHZ62.js:1234 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BdrCHZ62.js:1234 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BdrCHZ62.js:1234 [Layout] currentPageName: JobPostingManagement currentPortalPageId: null
+index-BdrCHZ62.js:1234 [usePendingPurchaseOrders] memberInfo: Object
+index-BdrCHZ62.js:1234 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BdrCHZ62.js:1234 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BdrCHZ62.js:1234 [Layout] currentPageName: JobPostingManagement currentPortalPageId: null
+index-BdrCHZ62.js:1234 [usePendingPurchaseOrders] memberInfo: Object
+index-BdrCHZ62.js:1234 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BdrCHZ62.js:1234 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BdrCHZ62.js:1234 [Layout] currentPageName: JobPostingManagement currentPortalPageId: null
+index-BdrCHZ62.js:1234 [Layout] Server session found: mat@isaasi.co.uk
+index-BdrCHZ62.js:1234 [usePendingPurchaseOrders] memberInfo: Object
+index-BdrCHZ62.js:1234 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BdrCHZ62.js:1234 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BdrCHZ62.js:1234 [Layout] currentPageName: JobPostingManagement currentPortalPageId: null
+index-BdrCHZ62.js:1234 [usePendingPurchaseOrders] memberInfo: Object
+index-BdrCHZ62.js:1234 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BdrCHZ62.js:1234 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BdrCHZ62.js:1234 [Layout] currentPageName: JobPostingManagement currentPortalPageId: null
+fetch('/api/admin/backfill-job-posting-dates', { method: 'POST' })
+  .then(r => r.json())
+  .then(console.log)
+Promise {<pending>}[[Prototype]]: Promise[[PromiseState]]: "rejected"[[PromiseResult]]: SyntaxError: Unexpected token 'T', "The page c"... is not valid JSONmessage: "Unexpected token 'T', \"The page c\"... is not valid JSON"stack: "SyntaxError: Unexpected token 'T', \"The page c\"... is not valid JSON"[[Prototype]]: Error

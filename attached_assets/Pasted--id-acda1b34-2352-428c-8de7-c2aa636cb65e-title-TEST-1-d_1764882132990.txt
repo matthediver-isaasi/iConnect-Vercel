@@ -1,0 +1,104 @@
+[
+    {
+        "id": "acda1b34-2352-428c-8de7-c2aa636cb65e",
+        "title": "TEST 1",
+        "description": "Description 1",
+        "program_tag": "",
+        "start_date": "2025-12-25T18:05:00+00:00",
+        "end_date": "2025-12-25T19:05:00+00:00",
+        "location": "Online Event",
+        "ticket_price": null,
+        "available_seats": null,
+        "backstage_event_id": null,
+        "backstage_ticket_type_id": null,
+        "backstage_public_url": null,
+        "image_url": null,
+        "last_synced": null,
+        "base44_id": null,
+        "zoom_webinar_id": "feeee91a-9eed-4243-a28a-bb9e567d0bdd",
+        "pricing_config": {
+            "offer_type": "none",
+            "ticket_price": 0,
+            "ticket_classes": [
+                {
+                    "id": "ticket-1764781556979-z8ttm",
+                    "name": "Standard Ticket",
+                    "price": 0,
+                    "role_ids": [
+                        "5be10af3-cfd9-4e25-80c9-886e804314da",
+                        "c94cdcfd-d0f0-497a-ab5e-c742baacf049"
+                    ],
+                    "is_default": true,
+                    "offer_type": "none",
+                    "role_match_only": false,
+                    "visibility_mode": "members_and_public"
+                },
+                {
+                    "id": "ticket-1764784163499-brpbx",
+                    "name": "Partner",
+                    "price": 1,
+                    "role_ids": [
+                        "c733a692-4406-4c83-b844-f01ab7871df2"
+                    ],
+                    "is_default": false,
+                    "offer_type": "none",
+                    "role_match_only": true,
+                    "visibility_mode": "members_only"
+                }
+            ]
+        },
+        "internal_reference": "INTERA",
+        "speaker_ids": []
+    },
+    {
+        "id": "1e3bba1b-c81f-4b9a-8cd7-63b7f5ac81d1",
+        "title": "Test 031225",
+        "description": "Test description ngdsk;sndfskndfsal/ sdfadsk;fndaskf/ nmk;adfs/ndsa/k",
+        "program_tag": "",
+        "start_date": "2025-12-04T18:02:00+00:00",
+        "end_date": "2025-12-04T19:02:00+00:00",
+        "location": "London",
+        "ticket_price": null,
+        "available_seats": 20,
+        "backstage_event_id": null,
+        "backstage_ticket_type_id": null,
+        "backstage_public_url": null,
+        "image_url": "https://zkvgzcruhniduuswbfyh.supabase.co/storage/v1/object/public/file-repository/uploads/1764862129892-xwewo8p-Abertay.jpg",
+        "last_synced": null,
+        "base44_id": null,
+        "zoom_webinar_id": null,
+        "pricing_config": {
+            "offer_type": "none",
+            "ticket_price": 200,
+            "ticket_classes": [
+                {
+                    "id": "ticket-1764784929769-7dgu3",
+                    "name": "Standard Ticket",
+                    "price": 200,
+                    "role_ids": [],
+                    "is_default": true,
+                    "offer_type": "none",
+                    "role_match_only": false,
+                    "visibility_mode": "members_and_public"
+                },
+                {
+                    "id": "ticket-1764784987817-72ctf",
+                    "name": "University Ticket",
+                    "price": 100,
+                    "role_ids": [
+                        "5be10af3-cfd9-4e25-80c9-886e804314da",
+                        "561682bb-57f2-4a61-89aa-c3c201692923",
+                        "d913cc27-5203-48b4-b1eb-695010e1ef12",
+                        "c94cdcfd-d0f0-497a-ab5e-c742baacf049"
+                    ],
+                    "is_default": false,
+                    "offer_type": "none",
+                    "role_match_only": false,
+                    "visibility_mode": "members_only"
+                }
+            ]
+        },
+        "internal_reference": null,
+        "speaker_ids": []
+    }
+]

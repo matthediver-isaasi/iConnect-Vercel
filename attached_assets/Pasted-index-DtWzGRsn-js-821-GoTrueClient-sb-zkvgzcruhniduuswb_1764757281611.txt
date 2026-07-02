@@ -1,0 +1,46 @@
+index-DtWzGRsn.js:821 GoTrueClient@sb-zkvgzcruhniduuswbfyh-auth-token:1 (2.84.0) 2025-12-03T10:20:50.377Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+Ep @ index-DtWzGRsn.js:821
+Jse @ index-DtWzGRsn.js:822
+_initSupabaseAuthClient @ index-DtWzGRsn.js:822
+Qse @ index-DtWzGRsn.js:822
+US @ index-DtWzGRsn.js:822
+(anonymous) @ index-DtWzGRsn.js:1048
+(anonymous) @ index-DtWzGRsn.js:1
+(anonymous) @ index-DtWzGRsn.js:1312
+index-DtWzGRsn.js:821 GoTrueClient@sb-zkvgzcruhniduuswbfyh-auth-token:2 (2.84.0) 2025-12-03T10:20:50.380Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+Ep @ index-DtWzGRsn.js:821
+Jse @ index-DtWzGRsn.js:822
+_initSupabaseAuthClient @ index-DtWzGRsn.js:822
+Qse @ index-DtWzGRsn.js:822
+US @ index-DtWzGRsn.js:822
+(anonymous) @ index-DtWzGRsn.js:1262
+(anonymous) @ index-DtWzGRsn.js:1
+(anonymous) @ index-DtWzGRsn.js:1312
+index-DtWzGRsn.js:871 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-DtWzGRsn.js:871 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DtWzGRsn.js:871 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DtWzGRsn.js:871 [usePendingPurchaseOrders] Query running, memberInfo.id: 48b25075-51da-437f-af20-17836a892bfe
+index-DtWzGRsn.js:871 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-DtWzGRsn.js:871 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DtWzGRsn.js:871 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DtWzGRsn.js:871 [usePendingPurchaseOrders] Fetched bookings count: 1
+index-DtWzGRsn.js:871 [usePendingPurchaseOrders] Pending PO bookings: 1
+index-DtWzGRsn.js:871 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-DtWzGRsn.js:871 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-DtWzGRsn.js:871 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-DtWzGRsn.js:871 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-DtWzGRsn.js:871 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-DtWzGRsn.js:871 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-DtWzGRsn.js:871 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-DtWzGRsn.js:871 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-DtWzGRsn.js:871 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-DtWzGRsn.js:871 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-DtWzGRsn.js:871 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-DtWzGRsn.js:871 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-DtWzGRsn.js:871 [Layout] Server session found: mat@isaasi.co.uk
+index-DtWzGRsn.js:871 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-DtWzGRsn.js:871 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-DtWzGRsn.js:871 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-DtWzGRsn.js:871 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-DtWzGRsn.js:871 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-DtWzGRsn.js:871 [Layout] hasPendingPOs: true count: 1 isLoading: false

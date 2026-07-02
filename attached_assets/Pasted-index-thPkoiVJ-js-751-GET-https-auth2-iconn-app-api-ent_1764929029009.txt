@@ -1,0 +1,65 @@
+index-thPkoiVJ.js:751  GET https://auth2.iconn.app/api/entities/TypographyStyle 500 (Internal Server Error)
+_apiRequest @ index-thPkoiVJ.js:751
+list @ index-thPkoiVJ.js:751
+_ @ index-thPkoiVJ.js:1456
+(anonymous) @ index-thPkoiVJ.js:1456
+Pv @ index-thPkoiVJ.js:40
+gh @ index-thPkoiVJ.js:40
+jP @ index-thPkoiVJ.js:40
+Zc @ index-thPkoiVJ.js:38
+DG @ index-thPkoiVJ.js:40
+vd @ index-thPkoiVJ.js:40
+GF @ index-thPkoiVJ.js:40
+N @ index-thPkoiVJ.js:25
+P @ index-thPkoiVJ.js:25
+index-thPkoiVJ.js:1456 Failed to load typography styles: Error: API Error (500): Could not find the table 'public.typographystyle' in the schema cache
+    at OQ._apiRequest (index-thPkoiVJ.js:751:48849)
+    at async kQ.list (index-thPkoiVJ.js:751:40950)
+    at async _ (index-thPkoiVJ.js:1456:53076)
+_ @ index-thPkoiVJ.js:1456
+await in _
+(anonymous) @ index-thPkoiVJ.js:1456
+Pv @ index-thPkoiVJ.js:40
+gh @ index-thPkoiVJ.js:40
+jP @ index-thPkoiVJ.js:40
+Zc @ index-thPkoiVJ.js:38
+DG @ index-thPkoiVJ.js:40
+vd @ index-thPkoiVJ.js:40
+GF @ index-thPkoiVJ.js:40
+N @ index-thPkoiVJ.js:25
+P @ index-thPkoiVJ.js:25
+index-thPkoiVJ.js:751  POST https://auth2.iconn.app/api/entities/TypographyStyle 500 (Internal Server Error)
+_apiRequest @ index-thPkoiVJ.js:751
+create @ index-thPkoiVJ.js:751
+S @ index-thPkoiVJ.js:1456
+d @ index-thPkoiVJ.js:1456
+eK @ index-thPkoiVJ.js:37
+sK @ index-thPkoiVJ.js:37
+nK @ index-thPkoiVJ.js:37
+HE @ index-thPkoiVJ.js:37
+eF @ index-thPkoiVJ.js:37
+(anonymous) @ index-thPkoiVJ.js:37
+SS @ index-thPkoiVJ.js:40
+NO @ index-thPkoiVJ.js:37
+Cj @ index-thPkoiVJ.js:37
+X2 @ index-thPkoiVJ.js:37
+vK @ index-thPkoiVJ.js:37
+index-thPkoiVJ.js:1456 Failed to create style: Error: API Error (500): Could not find the table 'public.typographystyle' in the schema cache
+    at OQ._apiRequest (index-thPkoiVJ.js:751:48849)
+    at async kQ.create (index-thPkoiVJ.js:751:41377)
+    at async S (index-thPkoiVJ.js:1456:53450)
+    at async d (index-thPkoiVJ.js:1456:44184)
+S @ index-thPkoiVJ.js:1456
+await in S
+d @ index-thPkoiVJ.js:1456
+eK @ index-thPkoiVJ.js:37
+sK @ index-thPkoiVJ.js:37
+nK @ index-thPkoiVJ.js:37
+HE @ index-thPkoiVJ.js:37
+eF @ index-thPkoiVJ.js:37
+(anonymous) @ index-thPkoiVJ.js:37
+SS @ index-thPkoiVJ.js:40
+NO @ index-thPkoiVJ.js:37
+Cj @ index-thPkoiVJ.js:37
+X2 @ index-thPkoiVJ.js:37
+vK @ index-thPkoiVJ.js:37

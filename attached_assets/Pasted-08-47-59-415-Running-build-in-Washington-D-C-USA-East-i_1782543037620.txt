@@ -1,0 +1,37 @@
+08:47:59.415 Running build in Washington, D.C., USA (East) – iad1
+08:47:59.416 Build machine configuration: 4 cores, 8 GB
+08:47:59.502 Cloning github.com/matthediver-isaasi/iConnect-Vercel (Branch: sidebar1, Commit: 4fd1241)
+08:48:01.355 Cloning completed: 1.852s
+08:48:01.596 Restored build cache from previous deployment (8s3PcQfd9SEp6onpzhXX1YePqnxH)
+08:48:01.838 Running "vercel build"
+08:48:01.851 Vercel CLI 54.17.2
+08:48:03.749 Running "install" command: `npm install`...
+08:48:05.158 npm warn ERESOLVE overriding peer dependency
+08:48:05.159 npm warn While resolving: react-codemirror2@7.3.0
+08:48:05.159 npm warn Found: react@18.3.1
+08:48:05.159 npm warn node_modules/react
+08:48:05.159 npm warn   react@"^18.3.1" from the root project
+08:48:05.159 npm warn   124 more (@arco-design/web-react, @dnd-kit/accessibility, ...)
+08:48:05.159 npm warn
+08:48:05.159 npm warn Could not resolve dependency:
+08:48:05.159 npm warn peer react@">=15.5 <=17.x" from react-codemirror2@7.3.0
+08:48:05.159 npm warn node_modules/react-codemirror2
+08:48:05.160 npm warn   react-codemirror2@"^7.2.1" from easy-email-extensions@4.16.5
+08:48:05.160 npm warn   node_modules/easy-email-extensions
+08:48:05.160 npm warn
+08:48:05.160 npm warn Conflicting peer dependency: react@17.0.2
+08:48:05.160 npm warn node_modules/react
+08:48:05.160 npm warn   peer react@">=15.5 <=17.x" from react-codemirror2@7.3.0
+08:48:05.160 npm warn   node_modules/react-codemirror2
+08:48:05.160 npm warn     react-codemirror2@"^7.2.1" from easy-email-extensions@4.16.5
+08:48:05.160 npm warn     node_modules/easy-email-extensions
+08:49:15.341 npm error code ENOTFOUND
+08:49:15.341 npm error syscall getaddrinfo
+08:49:15.341 npm error errno ENOTFOUND
+08:49:15.341 npm error network request to http://package-firewall.replit.local/npm/@vercel/analytics/-/analytics-2.0.1.tgz failed, reason: getaddrinfo ENOTFOUND package-firewall.replit.local
+08:49:15.342 npm error network This is a problem related to network connectivity.
+08:49:15.342 npm error network In most cases you are behind a proxy or have bad network settings.
+08:49:15.342 npm error network
+08:49:15.343 npm error network If you are behind a proxy, please make sure that the 'proxy' config is set properly.  See: 'npm help config'
+08:49:15.344 npm error A complete log of this run can be found in: /vercel/.npm/_logs/2026-06-27T06_48_03_867Z-debug-0.log
+08:49:15.386 Error: Command "npm install" exited with 1

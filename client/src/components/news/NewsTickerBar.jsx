@@ -8,16 +8,20 @@ import { base44 } from "@/api/base44Client";
 export default function NewsTickerBar() {
   const [currentIndex, setCurrentIndex] = useState(0);
 
-  // Load ticker settings from SystemSettings via base44 client
+  // Load ticker settings from SystemSettings via base44 client (portal-only component)
   const { data: settings = [] } = useQuery({
     queryKey: ["news-ticker-settings"],
     queryFn: async () => {
       try {
-        const allSettings = await base44.entities.SystemSettings.list();
+        const allSettings = await base44.entities.SystemSettings.list() || [];
         return allSettings.filter(s => 
           s.setting_key === 'news_ticker_count' || 
           s.setting_key === 'news_ticker_cycle_seconds' ||
-          s.setting_key === 'news_ticker_enabled'
+          s.setting_key === 'news_ticker_enabled' ||
+          s.setting_key === 'news_ticker_bottom_margin' ||
+          s.setting_key === 'news_ticker_bg_start' ||
+          s.setting_key === 'news_ticker_bg_end' ||
+          s.setting_key === 'news_ticker_text_color'
         );
       } catch (error) {
         console.error("Error loading news ticker settings:", error);
@@ -42,14 +46,44 @@ export default function NewsTickerBar() {
       )?.setting_value
     ) || 5;
 
-  // Load latest news posts via base44 client
+  const bottomMargin =
+    parseInt(
+      settings.find(
+        (s) => s.setting_key === "news_ticker_bottom_margin"
+      )?.setting_value
+    ) || 0;
+
+  const bgStart =
+    settings.find((s) => s.setting_key === "news_ticker_bg_start")
+      ?.setting_value || "";
+  const bgEnd =
+    settings.find((s) => s.setting_key === "news_ticker_bg_end")
+      ?.setting_value || "";
+  const textColor =
+    settings.find((s) => s.setting_key === "news_ticker_text_color")
+      ?.setting_value || "";
+
+  const hasCustomBg = Boolean(bgStart || bgEnd);
+  const gradientStart = bgStart || "#9333ea";
+  const gradientEnd = bgEnd || "#2563eb";
+  const containerStyle = {
+    marginBottom: bottomMargin > 0 ? `${bottomMargin}px` : undefined,
+  };
+  if (hasCustomBg) {
+    containerStyle.background = `linear-gradient(to right, ${gradientStart}, ${gradientEnd})`;
+  }
+  if (textColor) {
+    containerStyle.color = textColor;
+  }
+
+  // Load latest news posts via base44 client (portal-only component)
   const { data: latestNews = [] } = useQuery({
     queryKey: ["latest-news-ticker", tickerCount],
     enabled: tickerEnabled,
     queryFn: async () => {
       try {
         const nowIso = new Date().toISOString();
-        const allNews = await base44.entities.NewsPost.list();
+        const allNews = await base44.entities.NewsPost.list() || [];
         
         // Filter for published news with published_date <= now
         const publishedNews = allNews
@@ -84,7 +118,10 @@ export default function NewsTickerBar() {
   if (!tickerEnabled || latestNews.length === 0) return null;
 
   return (
-    <div className="bg-gradient-to-r from-purple-600 to-blue-600 text-white overflow-hidden">
+    <div 
+      className={`overflow-hidden${hasCustomBg ? "" : " bg-gradient-to-r from-purple-600 to-blue-600"}${textColor ? "" : " text-white"}`}
+      style={containerStyle}
+    >
       <div className="max-w-7xl mx-auto px-4 py-3">
         <div className="flex items-center gap-3">
           <span className="text-xs font-semibold uppercase tracking-wider shrink-0 bg-white/20 px-2 py-1 rounded">

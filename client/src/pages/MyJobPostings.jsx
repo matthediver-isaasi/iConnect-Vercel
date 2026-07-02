@@ -1,5 +1,6 @@
 
 import React, { useState, useMemo } from "react";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,6 +14,7 @@ import { Briefcase, MapPin, Building2, Clock, Star, AlertCircle, Pencil, FileTex
 import { format, differenceInDays } from "date-fns";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
+import { parseJobClosingDate, startOfLocalToday } from "@/lib/jobDate";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 export default function MyJobPostingsPage() {
@@ -25,15 +27,42 @@ export default function MyJobPostingsPage() {
   const queryClient = useQueryClient();
 
   const { data: jobs = [], isLoading } = useQuery({
-    queryKey: ['my-job-postings', memberInfo?.email],
+    queryKey: ['my-job-postings', memberInfo?.id, memberInfo?.email],
     queryFn: async () => {
-      if (!memberInfo?.email) return [];
-      const allJobs = await base44.entities.JobPosting.filter({ 
-        contact_email: memberInfo.email 
+      if (!memberInfo?.id && !memberInfo?.email) return [];
+      
+      // Build filter queries - use posted_by_member_id (preferred) and contact_email (fallback for historical data)
+      const queries = [];
+      
+      if (memberInfo?.id) {
+        queries.push(base44.entities.JobPosting.filter({ posted_by_member_id: memberInfo.id }));
+      }
+      
+      if (memberInfo?.email) {
+        // Use ilike for case-insensitive email matching to handle legacy data with different casing
+        queries.push(base44.entities.JobPosting.list({ 
+          filter: { contact_email: { ilike: memberInfo.email.toLowerCase() } } 
+        }));
+      }
+      
+      if (queries.length === 0) return [];
+      
+      const results = await Promise.all(queries);
+      
+      // Merge and deduplicate jobs using a Map
+      const jobMap = new Map();
+      results.forEach(jobList => {
+        jobList.forEach(job => {
+          if (!jobMap.has(job.id)) {
+            jobMap.set(job.id, job);
+          }
+        });
       });
+      
+      const allJobs = Array.from(jobMap.values());
       return allJobs.sort((a, b) => new Date(b.created_date) - new Date(a.created_date));
     },
-    enabled: !!memberInfo?.email,
+    enabled: !!(memberInfo?.id || memberInfo?.email),
     staleTime: 0,
     refetchOnMount: true,
   });
@@ -89,7 +118,7 @@ export default function MyJobPostingsPage() {
 
   const getStatusBadge = (status) => {
     const styles = {
-      pending_approval: 'bg-yellow-100 text-yellow-700',
+      pending_approval: 'bg-warning/10 text-warning',
       active: 'bg-green-100 text-green-700',
       expired: 'bg-slate-100 text-slate-700',
       rejected: 'bg-red-100 text-red-700',
@@ -159,7 +188,7 @@ export default function MyJobPostingsPage() {
 
       toast.success(`${files.length} ${files.length === 1 ? 'file' : 'files'} uploaded successfully`);
     } catch (error) {
-      toast.error('Failed to upload files. Please try again.');
+      showUploadErrorToast(error, 'Failed to upload files. Please try again.');
     } finally {
       setUploadingFiles(false);
     }
@@ -174,8 +203,22 @@ export default function MyJobPostingsPage() {
   };
 
   const handleSaveEdit = () => {
-    if (!editingJob.title || !editingJob.company_name || !editingJob.closing_date) {
-      toast.error('Please fill in all required fields');
+    if (!editingJob.title?.trim()) {
+      toast.error('Please enter a job title');
+      return;
+    }
+    if (!editingJob.company_name?.trim()) {
+      toast.error('Please enter a company name');
+      return;
+    }
+    // Check description - ReactQuill returns "<p><br></p>" for empty content
+    const descriptionText = editingJob.description?.replace(/<[^>]*>/g, '').trim();
+    if (!descriptionText) {
+      toast.error('Please enter a job description');
+      return;
+    }
+    if (!editingJob.closing_date) {
+      toast.error('Please select a closing date');
       return;
     }
     updateJobMutation.mutate({ id: editingJob.id, data: editingJob });
@@ -183,7 +226,9 @@ export default function MyJobPostingsPage() {
 
   const isClosingSoon = (closingDate) => {
     if (!closingDate) return false;
-    const daysUntilClosing = differenceInDays(new Date(closingDate), new Date());
+    const parsed = parseJobClosingDate(closingDate);
+    if (!parsed) return false;
+    const daysUntilClosing = differenceInDays(parsed, startOfLocalToday());
     return daysUntilClosing >= 0 && daysUntilClosing <= 7;
   };
 
@@ -203,7 +248,7 @@ export default function MyJobPostingsPage() {
   }, [jobs, groupedJobs, activeFilter]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         <div className="mb-8">
           <div className="flex items-center justify-between mb-2">
@@ -217,7 +262,7 @@ export default function MyJobPostingsPage() {
             </Button>
           </div>
           <p className="text-slate-600">
-            Manage your organization's job postings
+            Manage your organisation's job postings
           </p>
         </div>
 
@@ -225,7 +270,7 @@ export default function MyJobPostingsPage() {
         <div className="grid md:grid-cols-5 gap-4 mb-8">
           <Card 
             className={`border-slate-200 cursor-pointer transition-all hover:shadow-lg ${
-              activeFilter === 'pending' ? 'ring-2 ring-yellow-500 bg-yellow-50' : ''
+              activeFilter === 'pending' ? 'ring-2 ring-yellow-500 bg-warning/10' : ''
             }`}
             onClick={() => setActiveFilter('pending')}
           >
@@ -233,9 +278,9 @@ export default function MyJobPostingsPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-slate-600 mb-1">Pending</p>
-                  <p className="text-2xl font-bold text-yellow-600">{groupedJobs.pending.length}</p>
+                  <p className="text-2xl font-bold text-warning">{groupedJobs.pending.length}</p>
                 </div>
-                <Clock className="w-8 h-8 text-yellow-600" />
+                <Clock className="w-8 h-8 text-warning" />
               </div>
             </CardContent>
           </Card>
@@ -352,7 +397,8 @@ export default function MyJobPostingsPage() {
           <div className="grid md:grid-cols-2 gap-6">
             {filteredJobs.map((job) => {
               const closingSoon = job.closing_date && isClosingSoon(job.closing_date);
-              const daysUntilClosing = job.closing_date ? differenceInDays(new Date(job.closing_date), new Date()) : null;
+              const closingDateParsed = parseJobClosingDate(job.closing_date);
+              const daysUntilClosing = closingDateParsed ? differenceInDays(closingDateParsed, startOfLocalToday()) : null;
               const hasAttachments = job.attachment_urls && job.attachment_urls.length > 0;
               
               // Allow editing if job is pending or active
@@ -367,9 +413,9 @@ export default function MyJobPostingsPage() {
                 >
                   <CardContent className="p-6">
                     {closingSoon && job.status === 'active' && (
-                      <div className="mb-4 -mx-6 -mt-6 px-6 py-2 bg-gradient-to-r from-amber-50 to-orange-50 border-b border-amber-200 flex items-center gap-2">
-                        <AlertCircle className="w-4 h-4 text-amber-600" />
-                        <span className="text-sm font-medium text-amber-900">
+                      <div className="mb-4 -mx-6 -mt-6 px-6 py-2 bg-gradient-to-r from-amber-50 to-orange-50 border-b border-warning/30 flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-warning" />
+                        <span className="text-sm font-medium text-warning">
                           Closing {daysUntilClosing === 0 ? 'today' : `in ${daysUntilClosing} ${daysUntilClosing === 1 ? 'day' : 'days'}`}
                         </span>
                       </div>
@@ -389,7 +435,7 @@ export default function MyJobPostingsPage() {
                         <h3 className="text-lg font-bold text-slate-900 line-clamp-2 mb-2">{job.title}</h3>
                         <p className="text-sm font-medium text-slate-700">{job.company_name}</p>
                       </div>
-                      {job.featured && <Star className="w-5 h-5 text-amber-500 fill-amber-500 flex-shrink-0" />}
+                      {job.featured && <Star className="w-5 h-5 text-warning fill-amber-500 flex-shrink-0" />}
                     </div>
 
                     <div className="flex flex-wrap gap-2 mb-4">
@@ -416,15 +462,15 @@ export default function MyJobPostingsPage() {
                       {job.closing_date && (
                         <div className="flex items-center gap-2 text-sm">
                           <Clock className="w-4 h-4 flex-shrink-0 text-slate-600" />
-                          <span className={closingSoon && job.status === 'active' ? 'font-semibold text-amber-700' : 'text-slate-600'}>
-                            Closes {format(new Date(job.closing_date), 'MMM d, yyyy')}
+                          <span className={closingSoon && job.status === 'active' ? 'font-semibold text-warning' : 'text-slate-600'}>
+                            Closes {format(closingDateParsed, 'MMM d, yyyy')}
                           </span>
                         </div>
                       )}
                     </div>
 
                     <p className="text-sm text-slate-600 line-clamp-2 leading-relaxed mb-4">
-                      {job.description?.substring(0, 150)}...
+                      {job.description?.replace(/<[^>]*>/g, '').substring(0, 150)}...
                     </p>
 
                     <div className="flex gap-2 pt-4 border-t border-slate-200">

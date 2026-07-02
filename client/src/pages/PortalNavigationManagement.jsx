@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Menu, Plus, Pencil, GripVertical, Users, Shield, Calendar, CreditCard, Ticket, Wallet, ShoppingCart, History, Sparkles, FileText, Briefcase, Settings, BookOpen, Building, HelpCircle, BarChart3, FileEdit, AtSign, FolderTree, Trophy, MousePointer2, Mail, Download, LayoutGrid, Table, Search, Trash2 } from "lucide-react";
+import { Menu, Plus, Pencil, GripVertical, Users, Shield, Calendar, CreditCard, Ticket, Wallet, ShoppingCart, History, Sparkles, FileText, Briefcase, Settings, BookOpen, Building, HelpCircle, BarChart3, FileEdit, AtSign, FolderTree, Trophy, MousePointer2, Mail, Download, LayoutGrid, Table, Search, Trash2, Newspaper, PenLine, Home, Globe, Folder, Image, MessageSquare, Bell, Star, Heart, Eye, Link, ExternalLink, Tag, Award, Bookmark, Clock, Phone, MapPin, Video, Music, Camera, Mic, Headphones, Tv, Radio, Rss, Share2, Gift, Zap, Target, Flag, Layers, Grid, List, Layout, Monitor, Smartphone, Tablet, Laptop, Server, Database, Cloud, Lock, Key, UserCheck, UserPlus, UserMinus, Users2, MessageCircle, Send, Inbox, Archive } from "lucide-react";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -17,22 +17,26 @@ import { createPageUrl } from "@/utils";
 
 const availableIcons = {
   Menu, Calendar, CreditCard, Ticket, Wallet, ShoppingCart, History, Sparkles, FileText, Briefcase, Settings, 
-  BookOpen, Building, HelpCircle, Users, Shield, BarChart3, FileEdit, AtSign, FolderTree, Trophy, MousePointer2, Mail, Download
+  BookOpen, Building, HelpCircle, Users, Shield, BarChart3, FileEdit, AtSign, FolderTree, Trophy, MousePointer2, Mail, Download,
+  Newspaper, PenLine, Home, Globe, Folder, Image, MessageSquare, Bell, Star, Heart, Eye, Link, ExternalLink, Tag, 
+  Award, Bookmark, Clock, Phone, MapPin, Video, Music, Camera, Mic, Headphones, Tv, Radio, Rss, Share2, Gift, 
+  Zap, Target, Flag, Layers, Grid, List, Layout, Monitor, Smartphone, Tablet, Laptop, Server, Database, Cloud, Lock, Key,
+  UserCheck, UserPlus, UserMinus, Users2, MessageCircle, Send, Inbox, Archive
 };
 
 export default function PortalNavigationManagementPage() {
-  const { isAdmin, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin) {
+      if (isFeatureExcluded('system.portal-navigation')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
   const [editingItem, setEditingItem] = useState(null);
   const [showDialog, setShowDialog] = useState(false);
   const [isReordering, setIsReordering] = useState(false);
@@ -356,14 +360,14 @@ export default function PortalNavigationManagementPage() {
 
   if (!accessChecked) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-8">
           <div>
@@ -606,7 +610,7 @@ export default function PortalNavigationManagementPage() {
             <Card>
               <CardHeader className="border-b border-slate-200">
                 <CardTitle className="flex items-center gap-2">
-                  <Shield className="w-5 h-5 text-amber-600" />
+                  <Shield className="w-5 h-5 text-warning" />
                   Admin Navigation
                 </CardTitle>
               </CardHeader>

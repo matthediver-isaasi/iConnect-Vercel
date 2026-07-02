@@ -1,285 +1,124 @@
-# Overview
+# Membership Management Platform
+A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
 
-This is a membership management platform built with React (Vite) and Express.js. The application manages members, organizations, events, bookings, program tickets, resources, blog posts, and various administrative features. It is currently undergoing a platform migration from Base44 to Replit, maintaining 100% visual and functional parity with the existing application while adapting the backend infrastructure.
+## Run & Operate
+-   **Run Dev Server:** `npm run dev`
+-   **Build:** `npm run build`
+-   **Typecheck:** `npm run typecheck`
+-   **Codegen:** `npm run codegen`
+-   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").
+-   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.
+-   **One-off scripts (backfills, CSV imports, tenant seeds):** live in `scripts/` (e.g. `recompute-tenant-storage.mjs`, `backfill-*.mjs`, `import-*.mjs`, `seed-*.mjs`). They are idempotent, default to dry-run unless an `--apply` flag is passed, and many are hard-pinned to a single tenant. Read the script header before running; each documents its own flags and scope.
+-   **Storage usage reconcile:** `node scripts/recompute-tenant-storage.mjs [--dry-run] [--tenant=<uuid>]`, or trust the nightly cron at `/api/cron/recompute-tenant-storage` (03:00 UTC, `CRON_SECRET`-guarded).
 
-The system integrates with Supabase for database operations, Zoho CRM for contact/account management, Zoho Backstage for event management, Stripe for payments, and Xero for invoicing.
+## Env vars (current canonical set)
+Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPABASE_*` names; prefer the `DEST_*` names below for new code.
 
-# User Preferences
+| Var | Purpose |
+| --- | ------- |
+| `DEST_SUPABASE_URL` / `DEST_SUPABASE_KEY` / `DEST_DATABASE_URL` | Destination (prod) Supabase. See "Database connection". |
+| `SOURCE_SUPABASE_URL` / `SOURCE_SUPABASE_KEY` / `SOURCE_DATABASE_URL` | Legacy single-tenant snapshot — only used by migration scripts. |
+| `DATABASE_URL` | Direct host (IPv6 only) — used by Vercel / Drizzle push, not this workspace. |
+| `MAILGUN_API_KEY`, `MAILGUN_REGION` (default `eu`), `MAILGUN_FROM_EMAIL`, `APP_DOMAIN` (default `iconn.app`) | Email sending. `MAILGUN_FROM_EMAIL` is the non-system default From; system emails are pinned to `noreply@mail.${APP_DOMAIN}` regardless. |
+| `STRIPE_SECRET_KEY` | Tenant Stripe AND platform-side paid-plan upgrade Checkout. |
+| `STRIPE_PLAN_WEBHOOK_SECRET` | Verifies `/api/webhooks/stripe-plan` from the platform Stripe account. Configure dashboard to deliver `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
+| `XERO_CLIENT_ID` | Xero OAuth. |
+| `QUICKBOOKS_REDIRECT_URI` (optional) | Overrides default `${origin}/api/quickbooks/callback` for stable QBO OAuth redirect. |
+| `BROWSERLESS_API_TOKEN`, `BROWSERLESS_BASE_URL` (opt), `BROWSERLESS_AUDIT_TIMEOUT_MS` (opt) | Accessibility audits via browserless.io. |
+| `VITE_APP_URL` | Frontend-known app URL. |
+| `CAPTCHA_PROVIDER`, `CAPTCHA_SECRET_KEY` (opt) | Self-serve signup captcha (hCaptcha/Turnstile/reCAPTCHA). Bypassed when not production. |
+| `SIGNUP_RATE_IP_PER_HOUR`, `SIGNUP_RATE_EMAIL_PER_DAY` (opt) | Self-serve signup rate limits. |
+| `CRON_SECRET` | Guards all `/api/cron/*` endpoints. |
+| `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
 
-Preferred communication style: Simple, everyday language.
+## Database connection (read this before any DB work from this workspace)
+There are two Supabase projects this codebase talks to:
 
-# System Architecture
+| Role | What it is | URL secret | Postgres URL secret | Service-role key secret |
+| ---- | ---------- | ---------- | ------------------- | ----------------------- |
+| **Destination (current prod)** | Multi-tenant iConnect DB | `DEST_SUPABASE_URL` (`https://lvmzliemqnieeoruhkik.supabase.co`) | `DEST_DATABASE_URL` | `DEST_SUPABASE_KEY` |
+| **Source (legacy)** | Pre-multi-tenancy single-tenant snapshot, used by migration scripts | `SOURCE_SUPABASE_URL` | `SOURCE_DATABASE_URL` | `SOURCE_SUPABASE_KEY` |
 
-## Frontend Architecture
+**The Supabase direct host (`db.<project>.supabase.co`) is unreachable from this Replit workspace** — it publishes only IPv6 (AAAA) DNS and the Replit container has no IPv6 outbound route, so `psql`, `execute_sql_tool`, `drizzle-kit push`, and any raw `pg`/Drizzle client pointed at the direct host fail with `ENOTFOUND` / `ENETUNREACH`. Those tools work from Vercel functions, the user's laptop, and CI — just not from here against the direct host.
 
-**Technology Stack:**
-- React 18 with TypeScript/JSX
-- Vite as the build tool and development server
-- TanStack Query for server state management
-- shadcn/ui component library built on Radix UI primitives
-- Tailwind CSS for styling with custom design tokens
+**The Supabase Pooler hostname IS IPv4-reachable from this workspace** (`aws-1-eu-central-1.pooler.supabase.com:5432`, which is what `DEST_DATABASE_URL` already points to). `pg` clients using `DEST_DATABASE_URL` (transaction-pooler mode) work from Replit for read/write queries and DDL such as `CREATE INDEX`. Prefer `@supabase/supabase-js` for ordinary CRUD (REST endpoint is also IPv4-reachable, more ergonomic); reach for `pg` via `DEST_DATABASE_URL` only when you need raw SQL / DDL the REST API can't do.
 
-**Design System:**
-The application uses a "new-york" style variant from shadcn/ui with extensive customization. The design system enforces a strict no-modification policy during migration - all UI components, layouts, spacing, and visual treatments must remain pixel-perfect identical to the Base44 version.
+For any DB access from this workspace (scripts, ad-hoc debugging, one-off data fixes), use **`@supabase/supabase-js`** with the service-role key. Working reference: `scripts/debug-tenant.mjs`.
 
-**Component Organization:**
-- Components aliased via `@/components` path
-- UI primitives in `@/components/ui` (Radix-based)
-- Shared utilities in `@/lib/utils`
-- Hooks in `@/hooks`
-
-**Routing:**
-Client-side routing handled by the frontend framework. All routes fall through to `index.html` for SPA behavior, with special handling for `/api/*` routes going to the backend.
-
-## Backend Architecture
-
-**Server Framework:**
-- Express.js server with dual entry points:
-  - `server/index-dev.ts` - Development mode with Vite middleware integration
-  - `server/index-prod.ts` - Production mode serving static assets from `dist/public`
-
-**Database Layer:**
-- PostgreSQL database via Neon serverless
-- Drizzle ORM configured but schema defined externally in Supabase
-- Connection string via `DATABASE_URL` environment variable
-- Uses singular table names (e.g., `member`, `organization`, `event`)
-
-**API Design Pattern:**
-The backend provides a generic entity CRUD API that mirrors the Base44 SDK interface:
-- `GET /api/entities/:entity` - List entities with filtering, sorting, pagination
-- `GET /api/entities/:entity/:id` - Get single entity with optional expand
-- `POST /api/entities/:entity` - Create entity
-- `PATCH /api/entities/:entity/:id` - Update entity
-- `DELETE /api/entities/:entity/:id` - Delete entity
-
-This abstraction layer allows frontend code to remain unchanged during migration by providing the same interface the Base44 SDK used, but communicating with Supabase instead.
-
-**Authentication:**
-- Magic link-based authentication system
-- Session management using express-session with MemoryStore (development) or connect-pg-simple (production)
-- Auth endpoints: `/api/auth/me`, `/api/auth/logout`
-- Member verification via email lookup in Supabase
-
-**Function Handlers:**
-Server-side functions accessible via `/api/functions/:functionName` endpoint for operations like:
-- Magic link generation and verification
-- Stripe payment intent creation
-- Booking creation and management
-- Program ticket purchases
-- Event synchronization
-
-## Data Model
-
-**Core Entities:**
-- **Member**: User accounts with roles, organizations, biographies, handles
-- **Organization**: Company/institution accounts with domains, training funds, program ticket balances
-- **Role**: Permission system defining feature access via excluded features list
-- **TeamMember**: Admin/staff accounts separate from members
-
-**Events & Bookings:**
-- **Event**: Synced from Zoho Backstage with program tags, dates, pricing
-- **Booking**: Event registrations with payment methods (voucher, training fund, account, program ticket)
-- **Program**: Event categories with special pricing and offers (BOGO, bulk discounts)
-- **ProgramTicketTransaction**: Purchase/usage history for program tickets
-
-**Content Management:**
-- **BlogPost**: Articles with authors (members or guest writers), categories, tags, reactions
-- **Resource**: Downloadable files, videos, external links with categorization
-- **NewsPost**: News articles (non-member authored)
-- **IEditPage/IEditPageElement**: Dynamic page builder system with element templates
-
-**Configuration:**
-- **NavigationItem**: Dynamic navigation menu configuration for top/main nav
-- **PortalMenu**: Internal portal navigation structure
-- **PageBanner**: Configurable banner images for pages
-- **TourGroup/TourStep**: Interactive guided tours for user onboarding
-- **SystemSettings**: Key-value configuration store
-
-## External Dependencies
-
-**Supabase:**
-- Primary database for all application data
-- Used for CRUD operations via service key on backend
-- Anon key exposed to frontend for specific features (realtime subscriptions)
-- Environment variables: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`
-
-**Zoho CRM:**
-- Contact and account synchronization
-- OAuth-based authentication flow
-- Webhook receivers for real-time updates
-- Token storage in `zoho_token` table with refresh mechanism
-
-**Zoho Backstage:**
-- Event management and ticket sales
-- Bi-directional sync for bookings and cancellations
-- Event data includes program tags, dates, locations, pricing
-- Booking references linked to Backstage ticket types
-
-**Stripe:**
-- Payment processing for program tickets, job postings, and other purchases
-- Payment intent creation via server-side API
-- Webhook handlers for payment confirmation
-- Environment variable: `STRIPE_SECRET_KEY`
-
-**Xero:**
-- Invoice generation for purchases
-- OAuth authentication with token refresh
-- Tenant ID configuration for organization targeting
-- Token storage in `xero_token` table
-
-**File Storage:**
-- File uploads handled via Supabase Storage or Base44 integration layer
-- URLs stored in database for images, documents, videos
-- Support for both public and private file repositories
-
-**Email Delivery:**
-- Magic link authentication emails
-- Notification emails for bookings, cancellations
-- Handled via integration layer (SendEmail function)
-
-## Migration Strategy
-
-The application is transitioning from Base44 (previous platform) to Replit while maintaining zero UI/UX changes:
-
-1. **Frontend Compatibility Layer**: The `base44Client.js` adapter provides the same SDK interface as Base44, proxying requests to the Express backend instead
-2. **Entity Mapping**: Maps Base44 entity names to Supabase singular table names
-3. **API Translation**: Express routes translate between Base44-style requests and Supabase queries
-4. **Environment Configuration**: Secrets management via Replit Secrets for database URLs, API keys, OAuth credentials
-5. **Build Process**: Vite builds to `dist/public` for production deployment
-6. **Routing Configuration**: `vercel.json` configured for Vercel production deployment
-
-## Deployment Architecture
-
-**Development (Replit):**
-- Express.js server with Vite middleware integration
-- Full API functionality including Zoho Backstage sync
-- Hot module replacement for frontend development
-- Server runs on port 5000
-
-**Production (Vercel):**
-- Serverless functions in `/api` directory
-- `api/functions/[functionName].js` - Main function dispatcher (validateMember, createBooking, etc.)
-- `api/entities/[entity]/index.js` - Entity list/create operations
-- `api/entities/[entity]/[id].js` - Entity get/update/delete operations
-- Static frontend served from Vite build output
-
-**Deployment Parity Status (Updated Nov 2024):**
-All critical functions now have parity between Express and Vercel serverless:
-- validateMember with Zoho CRM sync
-- Magic link generation/verification
-- createBooking with program ticket deduction
-- validateColleague with organization validation
-- processProgramTicketPurchase/cancel/reinstate
-- Job posting functions (member and non-member)
-- Discount code application
-- Training fund balance sync
-
-**Table Name Mappings:**
-Entity names map to Supabase table names using singular form:
-- `IEditPage` → `i_edit_page` (note underscore between i and edit)
-- `IEditPageElement` → `i_edit_page_element`
-- `IEditElementTemplate` → `i_edit_element_template`
-- All other entities use snake_case conversion
-
-**Critical Constraints:**
-- No visual or UX modifications permitted
-- All component structures must remain identical
-- Styling and layouts must be pixel-perfect matches
-- Only infrastructure and platform integration changes allowed
-
-**Architecture Pattern for Member/Role Access:**
-React Router's `<Routes>` component doesn't propagate props from parent Layout. All pages requiring member/role data use the centralized `useMemberAccess` hook located at `client/src/hooks/useMemberAccess.js`.
-
-The hook provides:
-- `memberInfo` - Current member data from sessionStorage (reactive to updates)
-- `organizationInfo` - Current organization data from sessionStorage (reactive to updates)
-- `memberRole` - Role data fetched via useQuery
-- `isAdmin` - Boolean indicating if memberRole.is_admin === true
-- `isFeatureExcluded(featureId)` - Function to check if a feature is excluded for the user
-- `isAccessReady` - Boolean indicating if all access data is loaded
-- `reloadMemberInfo()` - Function to refresh member data from API and update state
-- `refreshOrganizationInfo()` - Function to refresh organization data from API and update state
-
-Example usage in pages:
-```javascript
-import { useMemberAccess } from "@/hooks/useMemberAccess";
-
-export default function MyPage() {
-  const { memberInfo, organizationInfo, isAdmin, isAccessReady, reloadMemberInfo } = useMemberAccess();
-  
-  // For admin-only pages, add access control:
-  const [accessChecked, setAccessChecked] = useState(false);
-  
-  useEffect(() => {
-    if (isAccessReady) {
-      if (!isAdmin) {
-        window.location.href = createPageUrl('Events');
-      } else {
-        setAccessChecked(true);
-      }
-    }
-  }, [isAdmin, isAccessReady]);
-  
-  if (!accessChecked) return <LoadingState />;
-  
-  // Rest of component...
-}
+```js
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY
+);
 ```
 
-**Data Freshness & Caching Strategy:**
-The application uses a hybrid approach to ensure data freshness while maintaining good performance:
+Quick one-off from bash (env vars ARE available in the shell):
 
-1. **Global Default (5 seconds)**: React Query is configured with `staleTime: 5000` and `refetchOnMount: true` in `client/src/main.jsx`. This means:
-   - Data is considered fresh for 5 seconds
-   - When returning to a page after 5+ seconds, React Query shows cached data immediately then refetches in the background
-   - Users always see instant page loads with seamless freshness checks
+```bash
+node -e "
+const { createClient } = require('@supabase/supabase-js');
+const sb = createClient(process.env.DEST_SUPABASE_URL, process.env.DEST_SUPABASE_KEY, { auth: { persistSession: false } });
+(async () => {
+  const { data, error } = await sb.from('tenant').select('id, slug, name').limit(5);
+  console.log({ data, error });
+})();
+"
+```
 
-2. **Real-time Content Feeds (staleTime: 0)**: Critical content pages use `staleTime: 0` to always fetch fresh data:
-   - Articles, PublicArticles, MyArticles - main articles feed
-   - News, PublicNews - news listings
-   - Resources, PublicResources - resources feed
-   - Admin management pages (ArticleManagement, ResourceManagement, FormManagement, FloaterManagement, AwardManagement)
-   - Content pages also have Supabase Realtime subscriptions for live updates while on the page
+## Stack
+-   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS
+-   **Backend:** Express.js, PostgreSQL, Drizzle ORM
+-   **Deployment:** Vercel (serverless functions)
+-   **Runtime:** Node.js (Vercel)
 
-3. **Supabase Realtime Subscriptions**: Implemented for live updates while user is on the page:
-   - `useBlogPostRealtime` - blog_post table changes
-   - `useResourceRealtime` - resource table changes
-   - `useNavigationRealtime` - navigation_item and portal_menu changes
-   - `useArticleCommentRealtime` - article_comment table changes (filtered by articleId for live comment updates)
-   - `useArticleReactionRealtime` - article_reaction table changes (filtered by articleId for live reaction counts)
-   - `useCommentReactionRealtime` - comment_reaction table changes (for live thumbs up/down on comments)
-   - All hooks use a single shared Supabase client from `client/src/api/supabaseClient.js`
+## Where things live
+-   `/client`: Frontend source code (`client/src/design-system` = custom "new-york" shadcn variant)
+-   `/api`: Backend API endpoints (Vercel serverless functions); shared helpers under `api/_lib/`
+-   `/supabase/migrations`: Database migrations (idempotent SQL)
+-   `/scripts`: Utility and migration scripts
+-   `client/index.html` + `api/render.js`: SSR for SEO/OG tag injection
+-   `supabase/schema.prisma`: Database schema (source of truth for Drizzle)
 
-This approach was chosen because Base44's SDK had multi-minute cache delays that were unacceptable for the client.
+## Architecture decisions
+-   **Multi-tenancy:** Data isolation at GLOBAL / TENANT / ORGANIZATION / MEMBER levels via `tenant_id` and `organization_id`. The shared entity API hard-fails any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Identity:** Unified identity with per-tenant password isolation, Google OAuth, feature-based role management.
+-   **Email sending:** `api/_lib/emailService.js` resolves the sending domain off `tenantId` for tenant→member emails. **System emails** (platform→tenant-owner: admin reset, signup verification, team invite, billing notifications) MUST pass `systemEmail: true` (or use `sendSystemEmail()`); this forces both Mailgun domain AND From identity to `mail.${APP_DOMAIN}` / `noreply@mail.${APP_DOMAIN}`. System reset/verification links must point at `${APP_DOMAIN}/...` not a tenant subdomain.
+-   **Dynamic SEO:** SSR meta-tag injection per-tenant via `api/render.js`; per-page metadata resolved by `api/_lib/entityMeta.js`. Per-entity `seo_title` / `seo_description` / `og_image_url` overrides on events, blog posts, news, campaigns, resources, and directories (UI in `client/src/components/blog/SEOSettings.jsx`). `og:image` URLs on `vault.iconn.app` or `*.supabase.co` are proxied through `/api/og-image`.
+-   **Event deletion:** Multi-step cancellation flow (refunds, reinstatements, Zoom unregistration) before any data purge. Direct deletion of events is deprecated for UI flows.
+-   **Semantic `warning` color:** `--warning` / `--warning-foreground` CSS vars in `client/src/index.css` (both themes, WCAG-AA). Use `text-warning`, `bg-warning`, `<Badge variant="warning">`, `<Alert variant="warning">` instead of raw amber/yellow/orange palette classes.
+-   **Membership invoices:** `organisation_membership_history` / `member_membership_history` carry `payment_status` (`unpaid`/`paid`/`partial`/`voided`) + `paid_at`, separate from the lifecycle `status`. Accounting-sync failures flag the row `accounting_sync_status='failed'` (not swallowed) with a Retry button in `OrgMembershipTab.jsx`. Payment reconciliation cron `/api/cron/reconcile-membership-invoice-payments` (every 3h, `CRON_SECRET`-guarded) queries Xero/QBO and fires workflows on `unpaid -> paid` only. See `api/_lib/membershipPaymentReconciliation.js`, `api/_lib/accountingProvider.js`.
+-   **Tenant storage metering:** `tenant.storage_used_bytes` (BIGINT) drives `checkStorageQuota` (`api/_lib/planQuota.js`) and `/admin/plan-usage`. Maintained incrementally via `addTenantStorageBytes` (`api/_lib/tenantStorageUsage.js`). Can drift (signed-URL claimed size); re-baseline with `scripts/recompute-tenant-storage.mjs` or the nightly cron.
+-   **Paid-plan upgrade flow (`/admin/plan-usage` → Stripe Checkout):** `PlanUsage.jsx` → `api/admin/plan-checkout.js` (tenant-admin RBAC, uses PLATFORM `STRIPE_SECRET_KEY`, NOT tenant's connected Stripe). First-time creates a Checkout Session; existing live sub swaps price in place via `stripe.subscriptions.update` (proration, never a parallel sub). Webhook `api/webhooks/stripe-plan.js` upserts `tenant_subscription` and flips `tenant.plan_code` only when status is `active`/`trialing`; `subscription.deleted` reverts to `free`.
+-   **Self-serve signup & onboarding (`/signup` → wizard):** `signup-start.js` (captcha + rate limits + verification email) → `signup-verify.js` (`provisionTenant`, `free` plan) → 5-step `OnboardingWizard.jsx` → `POST /api/admin/onboarding` runs `api/_lib/onboardingSeeder.js` (branding + tiers + persona seed pack tagged `is_sample=true`). Legacy admins backfilled to `onboarding_status='complete'`.
+-   **Accessibility audits:** Admin page (RBAC `admin.accessibility-audits`) runs axe-core 4.10 via browserless.io for tenant public URLs. Results in `accessibility_audit` / `accessibility_audit_result`; endpoints under `/api/admin/accessibility-audits`; runner `api/_lib/browserlessAxe.js`. v1 limits: ≤10 URLs/run, http(s) only, no credentialed URLs.
 
-## Runtime Page Provisioning (CMS Feature)
+## Product
+-   **Core:** Members, Events, Bookings, Resources, Blog.
+-   **Identity:** Unified login, multi-tenant ownership, organization memberships, granular access control.
+-   **Customization:** Page Builder, Custom Forms with conditional logic, Workflow Automation, per-tenant branding.
+-   **Financials:** Stripe membership payments, Xero/QBO invoicing, Fundraising with Gift Aid.
+-   **Comms:** Email templates, campaigns, member preferences.
+-   **Integrations:** WordPress Sync, Zoom (events/sessions), Zoho CRM sync.
+-   **Reporting:** Due Diligence Reports, configurable Member/Org Directories.
+-   **Community:** Tenant-scoped forums, Member Group email campaigns.
 
-**Overview:**
-The application supports runtime page/route provisioning - a key CMS capability that replaces Base44's limitation of requiring developer intervention to create new page routes. Admins can now publish pages instantly without code deployment.
+## User preferences
+Preferred communication style: Simple, everyday language.
 
-**How It Works:**
-1. **Catch-All Route**: A `/:slug` route at the end of the router (in `client/src/pages/index.jsx`) catches any URL not matched by explicit routes
-2. **DynamicPage Component**: Located at `client/src/pages/DynamicPage.jsx`, renders IEdit pages based on URL slug
-3. **Publish Toggle**: In IEditPageManagement, admins click "Publish to /{slug}" to make pages live instantly
+## Gotchas
+-   **`dev.iconn.app` = Vercel preview deployment** built from the `selfserve2` git branch of the same Vercel project as production. Shares the same Supabase. (a) Vercel's Functions → Logs viewer defaults to Production and hides Preview logs — switch the Environment filter to Preview. (b) A fix only reaches `dev.iconn.app` after the commit is on the `selfserve2` branch and that branch's preview build has finished.
+-   **`sendEmail()` never throws.** It catches Mailgun errors and returns `{ success: false, error, status, domain }`. Callers MUST inspect the return value; a bare `try { await sendEmail(...) } catch {}` will falsely report success on 401 / unverified domain / missing key. Canonical pattern: `api/auth/request-admin-password-reset.js`.
+-   **System emails MUST pass `systemEmail: true`** (or use `sendSystemEmail()`). Without it, a tenant with a verified custom sending domain would silently send admin reset / signup / billing emails from the tenant's own brand — wrong identity.
+-   **API hard-fails** any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Workflow `dd_owner` / `dd_owner_email` placeholders** resolve via `resolveDdOwnerForSubmission` (`api/_lib/ddOwner.js`) only when the trigger caller passes `context.formSubmissionId` to `triggerWorkflows`. Without submission context they collapse to empty strings.
+-   **No server-side length validation on `event.summary` / `complex_event.summary`** — relies on client-side `event_summary_max_length` system setting (default 150).
 
-**Page Status Flow:**
-- `draft` status: Page is not publicly accessible (shows "Page Not Available" message)
-- `published` status: Page is live at `/{slug}` URL
-
-**Access Control:**
-- Public pages (`layout_type: 'public'`): Accessible to everyone when published
-- Member pages (`layout_type: 'member'`): Require login when published
-
-**Fallback Handling:**
-- Unknown slugs show a 404 page with "Go Home" link
-- Unpublished pages show "Page Not Available" message
-- Member pages show "Members Only" gate for unauthenticated users
-
-**Key Files:**
-- `client/src/pages/DynamicPage.jsx` - Dynamic page renderer
-- `client/src/pages/IEditPageManagement.jsx` - Admin publish/unpublish UI
-- `client/src/pages/index.jsx` - Router with catch-all route
-
-**Testing Notes:**
-- Use `/testlogin` page with `mat@isaasi.co.uk` as authentication backdoor for testing admin features
-- Magic link authentication stores member data in sessionStorage key `agcas_member`
+## Pointers
+-   **React:** `https://react.dev/`
+-   **Tailwind:** `https://tailwindcss.com/docs`
+-   **Drizzle:** `https://orm.drizzle.team/docs/overview`
+-   **Vercel Functions:** `https://vercel.com/docs/functions/overview`
+-   **Supabase:** `https://supabase.com/docs`
+-   **Stripe:** `https://stripe.com/docs/api`
+-   **Mailgun:** `https://documentation.mailgun.com/en/latest/api_reference.html`

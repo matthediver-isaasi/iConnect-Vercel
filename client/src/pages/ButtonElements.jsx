@@ -1,741 +1,1418 @@
-
-import React, { useState, useEffect, useMemo } from "react";
-import { base44 } from "@/api/base44Client";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { ArrowUpRight, Download, ExternalLink, Mail, Plus, Save, Trash2, Edit, Eye, Check, X, ArrowLeft, PlayCircle, FileText } from "lucide-react";
-import AGCASButton from "../components/ui/AGCASButton";
-import AGCASSquareButton from "../components/ui/AGCASSquareButton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import { Slider } from "@/components/ui/slider";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Save, Loader2, Eye, RotateCcw, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { createPageUrl } from "@/utils";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { createPageUrl } from "@/utils";
+import { LUCIDE_ICONS, getLucideIcon } from "@/components/canvas/blocks/registry";
 
-const iconMap = {
-  ArrowUpRight,
-  Download,
-  ExternalLink,
-  PlayCircle,
-  Eye,
-  FileText,
-  Mail,
-  Plus,
+// Default icon block shared by all styles. `name === ''` means "no icon"
+// (renders nothing). `color === ''` means "inherit the button's text colour".
+// Additive: older saved configs with no `icon` block load with no icon.
+const DEFAULT_ICON = { name: '', color: '', position: 'before', size: 18 };
+
+const DEFAULT_PRIMARY_STYLE = {
+  background: {
+    type: 'gradient',
+    solidColor: '#5C0085',
+    gradientAngle: 90,
+    gradientStops: [
+      { color: '#5C0085', position: 0 },
+      { color: '#BA0087', position: 100 }
+    ]
+  },
+  border: {
+    width: 0,
+    color: '#000000',
+    style: 'solid'
+  },
+  radius: 6,
+  hover: {
+    type: 'gradient',
+    solidColor: '#BA0087',
+    gradientAngle: 90,
+    gradientStops: [
+      { color: '#BA0087', position: 0 },
+      { color: '#EE00C3', position: 100 }
+    ]
+  },
+  textColor: '#FFFFFF',
+  hoverTextColor: '#FFFFFF',
+  size: {
+    paddingX: 20,
+    paddingY: 8,
+    fontSize: 16,
+    iconSize: 18
+  },
+  icon: { ...DEFAULT_ICON }
 };
 
+const DEFAULT_SECONDARY_STYLE = {
+  background: {
+    type: 'solid',
+    solidColor: 'transparent',
+    gradientAngle: 90,
+    gradientStops: [
+      { color: '#FFFFFF', position: 0 },
+      { color: '#F0F0F0', position: 100 }
+    ]
+  },
+  border: {
+    width: 2,
+    color: '#000000',
+    style: 'solid'
+  },
+  radius: 6,
+  hover: {
+    type: 'gradient',
+    solidColor: '#5C0085',
+    gradientAngle: 90,
+    gradientStops: [
+      { color: '#5C0085', position: 0 },
+      { color: '#BA0087', position: 100 }
+    ]
+  },
+  textColor: '#000000',
+  hoverTextColor: '#FFFFFF',
+  size: {
+    paddingX: 20,
+    paddingY: 8,
+    fontSize: 16,
+    iconSize: 18
+  },
+  icon: { ...DEFAULT_ICON }
+};
+
+// Default size block shared by both styles — used to backfill the field on
+// payloads saved before the size tab existed (additive migration).
+const DEFAULT_SIZE = { paddingX: 20, paddingY: 8, fontSize: 16, iconSize: 18 };
+
+// Helper to convert old format to new format
+const migrateGradientConfig = (bgConfig) => {
+  if (!bgConfig) return bgConfig;
+  
+  // If already has new format, return as-is
+  if (bgConfig.gradientStops) return bgConfig;
+  
+  // Convert old format to new format
+  const directionToAngle = {
+    'to right': 90,
+    'to left': 270,
+    'to bottom': 180,
+    'to top': 0,
+    'to bottom right': 135,
+    'to bottom left': 225,
+    'to top right': 45,
+    'to top left': 315
+  };
+  
+  return {
+    ...bgConfig,
+    gradientAngle: directionToAngle[bgConfig.gradientDirection] || 90,
+    gradientStops: [
+      { color: bgConfig.gradientStart || '#5C0085', position: 0 },
+      { color: bgConfig.gradientEnd || '#BA0087', position: 100 }
+    ]
+  };
+};
+
+function ButtonStyleEditor({
+  style,
+  onChange,
+  title,
+  description,
+  // Optional — when set, the title renders as an editable Input
+  // (used for free-form custom styles) and onLabelChange is fired on input.
+  editableLabel = false,
+  onLabelChange,
+  // Optional — when set, a Delete button shows in the card header.
+  // Used to remove custom styles from the saved map.
+  onDelete,
+  // Optional override so custom entries can carry stable data-testid
+  // prefixes derived from their map-key rather than their (renamable) label.
+  testIdPrefix: testIdPrefixProp,
+}) {
+  const [isHovered, setIsHovered] = useState(false);
+  const testIdPrefix = testIdPrefixProp || title.toLowerCase().replace(/\s+/g, '-');
+
+  const updateStyle = (path, value) => {
+    const newStyle = { ...style };
+    const keys = path.split('.');
+    let current = newStyle;
+    for (let i = 0; i < keys.length - 1; i++) {
+      current[keys[i]] = { ...current[keys[i]] };
+      current = current[keys[i]];
+    }
+    current[keys[keys.length - 1]] = value;
+    onChange(newStyle);
+  };
+
+  const getBackgroundStyle = (bgConfig) => {
+    if (bgConfig.type === 'transparent') {
+      return { backgroundColor: 'transparent' };
+    }
+    if (bgConfig.type === 'solid') {
+      return { backgroundColor: bgConfig.solidColor };
+    }
+    
+    // Handle new format with gradientStops
+    if (bgConfig.gradientStops && bgConfig.gradientStops.length >= 2) {
+      const angle = bgConfig.gradientAngle ?? 90;
+      const stops = [...bgConfig.gradientStops]
+        .sort((a, b) => a.position - b.position)
+        .map(stop => `${stop.color} ${stop.position}%`)
+        .join(', ');
+      return {
+        background: `linear-gradient(${angle}deg, ${stops})`
+      };
+    }
+    
+    // Fallback for old format
+    const directionToAngle = {
+      'to right': 90,
+      'to left': 270,
+      'to bottom': 180,
+      'to top': 0,
+      'to bottom right': 135,
+      'to bottom left': 225
+    };
+    const angle = directionToAngle[bgConfig.gradientDirection] || 90;
+    return {
+      background: `linear-gradient(${angle}deg, ${bgConfig.gradientStart || '#5C0085'} 0%, ${bgConfig.gradientEnd || '#BA0087'} 100%)`
+    };
+  };
+
+  const previewStyle = {
+    ...getBackgroundStyle(isHovered ? style.hover : style.background),
+    border: `${style.border.width}px ${style.border.style} ${style.border.color}`,
+    borderRadius: `${style.radius}px`,
+    color: isHovered ? style.hoverTextColor : style.textColor,
+    padding: '12px 24px',
+    fontWeight: 500,
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '8px'
+  };
+
+  // Default-icon preview helpers. The icon block is additive — when no icon
+  // is configured (`name === ''`) nothing is rendered. Icon colour falls back
+  // to the button's current text colour when left blank.
+  const iconCfg = style.icon || DEFAULT_ICON;
+  const IconComp = iconCfg.name ? getLucideIcon(iconCfg.name) : null;
+  const iconSizePx = Number.isFinite(iconCfg.size) ? iconCfg.size : DEFAULT_ICON.size;
+  const iconPosition = iconCfg.position === 'after' ? 'after' : 'before';
+
+  const renderPreviewInner = (textColor, label) => {
+    const iconEl = IconComp ? (
+      <IconComp style={{ width: iconSizePx, height: iconSizePx, color: iconCfg.color || textColor }} />
+    ) : null;
+    return iconPosition === 'after' ? (
+      <>
+        <span>{label}</span>
+        {iconEl}
+      </>
+    ) : (
+      <>
+        {iconEl}
+        <span>{label}</span>
+      </>
+    );
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            {editableLabel ? (
+              <Input
+                value={title}
+                onChange={(e) => onLabelChange && onLabelChange(e.target.value)}
+                className="text-lg font-semibold"
+                placeholder="Style name"
+                data-testid={`input-${testIdPrefix}-label`}
+              />
+            ) : (
+              <CardTitle className="text-lg">{title}</CardTitle>
+            )}
+            {description && <CardDescription className="mt-1">{description}</CardDescription>}
+          </div>
+          {onDelete && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={onDelete}
+              data-testid={`button-${testIdPrefix}-delete`}
+              aria-label="Delete style"
+            >
+              <Trash2 className="w-4 h-4 text-red-500" />
+            </Button>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {/* Live Preview */}
+        <div className="p-6 bg-slate-100 rounded-lg flex items-center justify-center gap-4">
+          <div className="text-center">
+            <p className="text-xs text-slate-500 mb-2">Normal State</p>
+            <button
+              className="unstyled"
+              style={{
+                ...getBackgroundStyle(style.background),
+                border: `${style.border.width}px ${style.border.style} ${style.border.color}`,
+                borderRadius: `${style.radius}px`,
+                color: style.textColor,
+                padding: '12px 24px',
+                fontWeight: 500,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}
+              data-testid={`preview-${title.toLowerCase().replace(' ', '-')}-normal`}
+            >
+              {renderPreviewInner(style.textColor, 'Sample Button')}
+            </button>
+          </div>
+          <div className="text-center">
+            <p className="text-xs text-slate-500 mb-2">Hover State</p>
+            <button
+              className="unstyled"
+              style={{
+                ...getBackgroundStyle(style.hover),
+                border: `${style.border.width}px ${style.border.style} ${style.border.color}`,
+                borderRadius: `${style.radius}px`,
+                color: style.hoverTextColor,
+                padding: '12px 24px',
+                fontWeight: 500,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}
+              data-testid={`preview-${title.toLowerCase().replace(' ', '-')}-hover`}
+            >
+              {renderPreviewInner(style.hoverTextColor, 'Sample Button')}
+            </button>
+          </div>
+          <div className="text-center">
+            <p className="text-xs text-slate-500 mb-2">Interactive Preview</p>
+            <button
+              className="unstyled"
+              style={previewStyle}
+              onMouseEnter={() => setIsHovered(true)}
+              onMouseLeave={() => setIsHovered(false)}
+              data-testid={`preview-${title.toLowerCase().replace(' ', '-')}-interactive`}
+            >
+              {renderPreviewInner(isHovered ? style.hoverTextColor : style.textColor, 'Hover Me')}
+            </button>
+          </div>
+        </div>
+
+        <Tabs defaultValue="background" className="w-full">
+          <TabsList className="grid w-full grid-cols-6">
+            <TabsTrigger value="background" data-testid={`tab-${testIdPrefix}-background`}>Background</TabsTrigger>
+            <TabsTrigger value="border" data-testid={`tab-${testIdPrefix}-border`}>Border</TabsTrigger>
+            <TabsTrigger value="radius" data-testid={`tab-${testIdPrefix}-radius`}>Radius</TabsTrigger>
+            <TabsTrigger value="size" data-testid={`tab-${testIdPrefix}-size`}>Size</TabsTrigger>
+            <TabsTrigger value="icon" data-testid={`tab-${testIdPrefix}-icon`}>Icon</TabsTrigger>
+            <TabsTrigger value="hover" data-testid={`tab-${testIdPrefix}-hover`}>Hover Effect</TabsTrigger>
+          </TabsList>
+
+          {/* Background Tab */}
+          <TabsContent value="background" className="space-y-4 pt-4">
+            <div className="flex items-center gap-4">
+              <Label className="min-w-24">Type:</Label>
+              <div className="flex gap-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name={`${testIdPrefix}-bg-type`}
+                    checked={style.background.type === 'solid'}
+                    onChange={() => updateStyle('background.type', 'solid')}
+                    className="w-4 h-4"
+                    data-testid={`radio-${testIdPrefix}-bg-solid`}
+                  />
+                  <span className="text-sm">Solid</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name={`${testIdPrefix}-bg-type`}
+                    checked={style.background.type === 'gradient'}
+                    onChange={() => updateStyle('background.type', 'gradient')}
+                    className="w-4 h-4"
+                    data-testid={`radio-${testIdPrefix}-bg-gradient`}
+                  />
+                  <span className="text-sm">Gradient</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name={`${testIdPrefix}-bg-type`}
+                    checked={style.background.type === 'transparent'}
+                    onChange={() => updateStyle('background.type', 'transparent')}
+                    className="w-4 h-4"
+                    data-testid={`radio-${testIdPrefix}-bg-transparent`}
+                  />
+                  <span className="text-sm">Transparent</span>
+                </label>
+              </div>
+            </div>
+
+            {style.background.type === 'transparent' ? (
+              <div
+                className="flex items-center gap-4 p-4 rounded border border-dashed border-slate-300"
+                data-testid={`explainer-${testIdPrefix}-bg-transparent`}
+              >
+                <div
+                  className="w-16 h-10 rounded border border-slate-300 shrink-0"
+                  style={{
+                    backgroundImage:
+                      'linear-gradient(45deg, #cbd5e1 25%, transparent 25%), linear-gradient(-45deg, #cbd5e1 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #cbd5e1 75%), linear-gradient(-45deg, transparent 75%, #cbd5e1 75%)',
+                    backgroundSize: '12px 12px',
+                    backgroundPosition: '0 0, 0 6px, 6px -6px, -6px 0px'
+                  }}
+                  aria-hidden="true"
+                />
+                <p className="text-sm text-slate-600">
+                  No fill — the button background is fully transparent. Use the Border tab to outline the button if needed.
+                </p>
+              </div>
+            ) : style.background.type === 'solid' ? (
+              <div className="flex items-center gap-4">
+                <Label className="min-w-24">Color:</Label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={style.background.solidColor === 'transparent' ? '#ffffff' : style.background.solidColor}
+                    onChange={(e) => updateStyle('background.solidColor', e.target.value)}
+                    className="w-10 h-10 rounded cursor-pointer"
+                    data-testid={`colorpicker-${testIdPrefix}-bg-solid`}
+                  />
+                  <Input
+                    value={style.background.solidColor}
+                    onChange={(e) => updateStyle('background.solidColor', e.target.value)}
+                    className="w-32"
+                    placeholder="#000000 or transparent"
+                    data-testid={`input-${testIdPrefix}-bg-solid`}
+                  />
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center gap-4">
+                  <Label className="min-w-24">Angle:</Label>
+                  <div className="flex items-center gap-3 flex-1">
+                    <div 
+                      className="relative w-12 h-12 rounded-full border-2 border-slate-300 flex items-center justify-center cursor-pointer"
+                      style={{ background: 'conic-gradient(from 0deg, #e2e8f0, #94a3b8, #e2e8f0)' }}
+                      onClick={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const x = e.clientX - rect.left - rect.width / 2;
+                        const y = e.clientY - rect.top - rect.height / 2;
+                        let angle = Math.round(Math.atan2(y, x) * (180 / Math.PI) + 90);
+                        if (angle < 0) angle += 360;
+                        updateStyle('background.gradientAngle', angle);
+                      }}
+                      data-testid={`angle-wheel-${testIdPrefix}-bg`}
+                    >
+                      <div 
+                        className="absolute w-1 h-5 bg-slate-800 rounded origin-bottom"
+                        style={{ 
+                          transform: `rotate(${(style.background.gradientAngle || 90)}deg)`,
+                          bottom: '50%'
+                        }}
+                      />
+                    </div>
+                    <Input
+                      type="number"
+                      min="0"
+                      max="360"
+                      value={style.background.gradientAngle ?? 90}
+                      onChange={(e) => updateStyle('background.gradientAngle', parseInt(e.target.value, 10) || 0)}
+                      className="w-20"
+                      data-testid={`input-${testIdPrefix}-gradient-angle`}
+                    />
+                    <span className="text-sm text-slate-500">degrees</span>
+                  </div>
+                </div>
+                
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label>Color Stops:</Label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const stops = style.background.gradientStops || [];
+                        const newPosition = stops.length > 0 
+                          ? Math.round((stops[stops.length - 1].position + 100) / 2)
+                          : 50;
+                        updateStyle('background.gradientStops', [
+                          ...stops,
+                          { color: '#888888', position: Math.min(newPosition, 99) }
+                        ].sort((a, b) => a.position - b.position));
+                      }}
+                      data-testid={`button-${testIdPrefix}-add-stop`}
+                    >
+                      <Plus className="w-4 h-4 mr-1" /> Add Stop
+                    </Button>
+                  </div>
+                  
+                  <div 
+                    className="h-6 rounded"
+                    style={getBackgroundStyle(style.background)}
+                    data-testid={`gradient-preview-${testIdPrefix}-bg`}
+                  />
+                  
+                  {(style.background.gradientStops || []).map((stop, index) => (
+                    <div key={index} className="flex items-center gap-3">
+                      <input
+                        type="color"
+                        value={stop.color}
+                        onChange={(e) => {
+                          const newStops = [...(style.background.gradientStops || [])];
+                          newStops[index] = { ...newStops[index], color: e.target.value };
+                          updateStyle('background.gradientStops', newStops);
+                        }}
+                        className="w-10 h-10 rounded cursor-pointer"
+                        data-testid={`colorpicker-${testIdPrefix}-stop-${index}`}
+                      />
+                      <Input
+                        value={stop.color}
+                        onChange={(e) => {
+                          const newStops = [...(style.background.gradientStops || [])];
+                          newStops[index] = { ...newStops[index], color: e.target.value };
+                          updateStyle('background.gradientStops', newStops);
+                        }}
+                        className="w-28"
+                        data-testid={`input-${testIdPrefix}-stop-color-${index}`}
+                      />
+                      <div className="flex items-center gap-2 flex-1">
+                        <Slider
+                          value={[stop.position]}
+                          onValueChange={([val]) => {
+                            const newStops = [...(style.background.gradientStops || [])];
+                            newStops[index] = { ...newStops[index], position: val };
+                            updateStyle('background.gradientStops', newStops.sort((a, b) => a.position - b.position));
+                          }}
+                          min={0}
+                          max={100}
+                          step={1}
+                          className="flex-1"
+                          data-testid={`slider-${testIdPrefix}-stop-${index}`}
+                        />
+                        <span className="text-sm text-slate-500 w-10">{stop.position}%</span>
+                      </div>
+                      {(style.background.gradientStops || []).length > 2 && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            const newStops = (style.background.gradientStops || []).filter((_, i) => i !== index);
+                            updateStyle('background.gradientStops', newStops);
+                          }}
+                          data-testid={`button-${testIdPrefix}-remove-stop-${index}`}
+                        >
+                          <Trash2 className="w-4 h-4 text-red-500" />
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            <div className="flex items-center gap-4">
+              <Label className="min-w-24">Text Color:</Label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={style.textColor}
+                  onChange={(e) => updateStyle('textColor', e.target.value)}
+                  className="w-10 h-10 rounded cursor-pointer"
+                  data-testid={`colorpicker-${testIdPrefix}-text-color`}
+                />
+                <Input
+                  value={style.textColor}
+                  onChange={(e) => updateStyle('textColor', e.target.value)}
+                  className="w-32"
+                  data-testid={`input-${testIdPrefix}-text-color`}
+                />
+              </div>
+            </div>
+          </TabsContent>
+
+          {/* Border Tab */}
+          <TabsContent value="border" className="space-y-4 pt-4">
+            <div className="flex items-center gap-4">
+              <Label className="min-w-24">Width:</Label>
+              <div className="flex items-center gap-4 flex-1">
+                <Slider
+                  value={[style.border.width]}
+                  onValueChange={([val]) => updateStyle('border.width', val)}
+                  max={10}
+                  step={1}
+                  className="flex-1"
+                  data-testid={`slider-${testIdPrefix}-border-width`}
+                />
+                <span className="text-sm text-slate-500 w-12" data-testid={`text-${testIdPrefix}-border-width-value`}>{style.border.width}px</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <Label className="min-w-24">Color:</Label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={style.border.color}
+                  onChange={(e) => updateStyle('border.color', e.target.value)}
+                  className="w-10 h-10 rounded cursor-pointer"
+                  data-testid={`colorpicker-${testIdPrefix}-border-color`}
+                />
+                <Input
+                  value={style.border.color}
+                  onChange={(e) => updateStyle('border.color', e.target.value)}
+                  className="w-32"
+                  data-testid={`input-${testIdPrefix}-border-color`}
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <Label className="min-w-24">Style:</Label>
+              <select
+                value={style.border.style}
+                onChange={(e) => updateStyle('border.style', e.target.value)}
+                className="border rounded px-3 py-2 text-sm"
+                data-testid={`select-${testIdPrefix}-border-style`}
+              >
+                <option value="solid">Solid</option>
+                <option value="dashed">Dashed</option>
+                <option value="dotted">Dotted</option>
+              </select>
+            </div>
+          </TabsContent>
+
+          {/* Radius Tab */}
+          <TabsContent value="radius" className="space-y-4 pt-4">
+            <div className="flex items-center gap-4">
+              <Label className="min-w-24">Radius:</Label>
+              <div className="flex items-center gap-4 flex-1">
+                <Slider
+                  value={[style.radius]}
+                  onValueChange={([val]) => updateStyle('radius', val)}
+                  max={50}
+                  step={1}
+                  className="flex-1"
+                  data-testid={`slider-${testIdPrefix}-radius`}
+                />
+                <span className="text-sm text-slate-500 w-12" data-testid={`text-${testIdPrefix}-radius-value`}>{style.radius}px</span>
+              </div>
+            </div>
+            <p className="text-xs text-slate-500">
+              Set to 50px for fully rounded pill-shaped buttons
+            </p>
+          </TabsContent>
+
+          {/* Size Tab */}
+          <TabsContent value="size" className="space-y-4 pt-4">
+            <p className="text-xs text-slate-500">
+              These dimensions are applied when the button is used on canvas
+              pages (Tenant primary / Tenant secondary variants). Other
+              frontend consumers continue to use their own sizing.
+            </p>
+
+            <div className="flex items-center gap-4">
+              <Label className="min-w-32">Horizontal padding:</Label>
+              <div className="flex items-center gap-4 flex-1">
+                <Slider
+                  value={[style.size?.paddingX ?? DEFAULT_SIZE.paddingX]}
+                  onValueChange={([val]) => updateStyle('size.paddingX', val)}
+                  min={0}
+                  max={64}
+                  step={1}
+                  className="flex-1"
+                  data-testid={`slider-${testIdPrefix}-size-padding-x`}
+                />
+                <span className="text-sm text-slate-500 w-12" data-testid={`text-${testIdPrefix}-size-padding-x-value`}>
+                  {style.size?.paddingX ?? DEFAULT_SIZE.paddingX}px
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <Label className="min-w-32">Vertical padding:</Label>
+              <div className="flex items-center gap-4 flex-1">
+                <Slider
+                  value={[style.size?.paddingY ?? DEFAULT_SIZE.paddingY]}
+                  onValueChange={([val]) => updateStyle('size.paddingY', val)}
+                  min={0}
+                  max={40}
+                  step={1}
+                  className="flex-1"
+                  data-testid={`slider-${testIdPrefix}-size-padding-y`}
+                />
+                <span className="text-sm text-slate-500 w-12" data-testid={`text-${testIdPrefix}-size-padding-y-value`}>
+                  {style.size?.paddingY ?? DEFAULT_SIZE.paddingY}px
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <Label className="min-w-32">Font size:</Label>
+              <div className="flex items-center gap-4 flex-1">
+                <Slider
+                  value={[style.size?.fontSize ?? DEFAULT_SIZE.fontSize]}
+                  onValueChange={([val]) => updateStyle('size.fontSize', val)}
+                  min={10}
+                  max={32}
+                  step={1}
+                  className="flex-1"
+                  data-testid={`slider-${testIdPrefix}-size-font`}
+                />
+                <span className="text-sm text-slate-500 w-12" data-testid={`text-${testIdPrefix}-size-font-value`}>
+                  {style.size?.fontSize ?? DEFAULT_SIZE.fontSize}px
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <Label className="min-w-32">Icon size:</Label>
+              <div className="flex items-center gap-4 flex-1">
+                <Slider
+                  value={[style.size?.iconSize ?? DEFAULT_SIZE.iconSize]}
+                  onValueChange={([val]) => updateStyle('size.iconSize', val)}
+                  min={10}
+                  max={32}
+                  step={1}
+                  className="flex-1"
+                  data-testid={`slider-${testIdPrefix}-size-icon`}
+                />
+                <span className="text-sm text-slate-500 w-12" data-testid={`text-${testIdPrefix}-size-icon-value`}>
+                  {style.size?.iconSize ?? DEFAULT_SIZE.iconSize}px
+                </span>
+              </div>
+            </div>
+          </TabsContent>
+
+          {/* Icon Tab */}
+          <TabsContent value="icon" className="space-y-4 pt-4">
+            <p className="text-xs text-slate-500">
+              Set a default icon for this button style. It shows in the previews
+              above and on tenant-variant buttons placed on published pages. A
+              per-block icon chosen in the page builder overrides this default.
+            </p>
+
+            <div className="flex items-center gap-4">
+              <Label className="min-w-32">Icon:</Label>
+              <div className="flex items-center gap-3 flex-1">
+                <select
+                  value={style.icon?.name || ''}
+                  onChange={(e) => updateStyle('icon.name', e.target.value)}
+                  className="border rounded px-3 py-2 text-sm flex-1"
+                  data-testid={`select-${testIdPrefix}-icon-name`}
+                >
+                  <option value="">None</option>
+                  {Object.keys(LUCIDE_ICONS).map((name) => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                </select>
+                {(() => {
+                  const Preview = style.icon?.name ? getLucideIcon(style.icon.name) : null;
+                  return Preview ? (
+                    <Preview
+                      className="shrink-0"
+                      style={{
+                        width: style.icon?.size ?? DEFAULT_ICON.size,
+                        height: style.icon?.size ?? DEFAULT_ICON.size,
+                        color: style.icon?.color || style.textColor
+                      }}
+                      data-testid={`icon-preview-${testIdPrefix}`}
+                    />
+                  ) : null;
+                })()}
+              </div>
+            </div>
+
+            {style.icon?.name ? (
+              <>
+                <div className="flex items-center gap-4">
+                  <Label className="min-w-32">Icon size:</Label>
+                  <div className="flex items-center gap-4 flex-1">
+                    <Slider
+                      value={[style.icon?.size ?? DEFAULT_ICON.size]}
+                      onValueChange={([val]) => updateStyle('icon.size', val)}
+                      min={10}
+                      max={48}
+                      step={1}
+                      className="flex-1"
+                      data-testid={`slider-${testIdPrefix}-icon-size`}
+                    />
+                    <span className="text-sm text-slate-500 w-12" data-testid={`text-${testIdPrefix}-icon-size-value`}>
+                      {style.icon?.size ?? DEFAULT_ICON.size}px
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-4">
+                  <Label className="min-w-32">Icon color:</Label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={(style.icon?.color || style.textColor) === 'transparent' ? '#ffffff' : (style.icon?.color || style.textColor)}
+                      onChange={(e) => updateStyle('icon.color', e.target.value)}
+                      className="w-10 h-10 rounded cursor-pointer"
+                      data-testid={`colorpicker-${testIdPrefix}-icon-color`}
+                    />
+                    <Input
+                      value={style.icon?.color || ''}
+                      onChange={(e) => updateStyle('icon.color', e.target.value)}
+                      className="w-40"
+                      placeholder="Inherit text color"
+                      data-testid={`input-${testIdPrefix}-icon-color`}
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Leave blank to use the button's text colour. The icon colour can differ from the label.
+                </p>
+
+                <div className="flex items-center gap-4">
+                  <Label className="min-w-32">Position:</Label>
+                  <div className="flex gap-4">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name={`${testIdPrefix}-icon-position`}
+                        checked={(style.icon?.position || 'before') === 'before'}
+                        onChange={() => updateStyle('icon.position', 'before')}
+                        className="w-4 h-4"
+                        data-testid={`radio-${testIdPrefix}-icon-before`}
+                      />
+                      <span className="text-sm">Before label</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name={`${testIdPrefix}-icon-position`}
+                        checked={style.icon?.position === 'after'}
+                        onChange={() => updateStyle('icon.position', 'after')}
+                        className="w-4 h-4"
+                        data-testid={`radio-${testIdPrefix}-icon-after`}
+                      />
+                      <span className="text-sm">After label</span>
+                    </label>
+                  </div>
+                </div>
+              </>
+            ) : null}
+          </TabsContent>
+
+          {/* Hover Tab */}
+          <TabsContent value="hover" className="space-y-4 pt-4">
+            <div className="flex items-center gap-4">
+              <Label className="min-w-24">Type:</Label>
+              <div className="flex gap-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name={`${testIdPrefix}-hover-type`}
+                    checked={style.hover.type === 'solid'}
+                    onChange={() => updateStyle('hover.type', 'solid')}
+                    className="w-4 h-4"
+                    data-testid={`radio-${testIdPrefix}-hover-solid`}
+                  />
+                  <span className="text-sm">Solid</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name={`${testIdPrefix}-hover-type`}
+                    checked={style.hover.type === 'gradient'}
+                    onChange={() => updateStyle('hover.type', 'gradient')}
+                    className="w-4 h-4"
+                    data-testid={`radio-${testIdPrefix}-hover-gradient`}
+                  />
+                  <span className="text-sm">Gradient</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name={`${testIdPrefix}-hover-type`}
+                    checked={style.hover.type === 'transparent'}
+                    onChange={() => updateStyle('hover.type', 'transparent')}
+                    className="w-4 h-4"
+                    data-testid={`radio-${testIdPrefix}-hover-transparent`}
+                  />
+                  <span className="text-sm">Transparent</span>
+                </label>
+              </div>
+            </div>
+
+            {style.hover.type === 'transparent' ? (
+              <div
+                className="flex items-center gap-4 p-4 rounded border border-dashed border-slate-300"
+                data-testid={`explainer-${testIdPrefix}-hover-transparent`}
+              >
+                <div
+                  className="w-16 h-10 rounded border border-slate-300 shrink-0"
+                  style={{
+                    backgroundImage:
+                      'linear-gradient(45deg, #cbd5e1 25%, transparent 25%), linear-gradient(-45deg, #cbd5e1 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #cbd5e1 75%), linear-gradient(-45deg, transparent 75%, #cbd5e1 75%)',
+                    backgroundSize: '12px 12px',
+                    backgroundPosition: '0 0, 0 6px, 6px -6px, -6px 0px'
+                  }}
+                  aria-hidden="true"
+                />
+                <p className="text-sm text-slate-600">
+                  No fill on hover — the button background becomes fully transparent. Pair with a hover border / text colour to keep the hover state visible.
+                </p>
+              </div>
+            ) : style.hover.type === 'solid' ? (
+              <div className="flex items-center gap-4">
+                <Label className="min-w-24">Color:</Label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={style.hover.solidColor}
+                    onChange={(e) => updateStyle('hover.solidColor', e.target.value)}
+                    className="w-10 h-10 rounded cursor-pointer"
+                    data-testid={`colorpicker-${testIdPrefix}-hover-solid`}
+                  />
+                  <Input
+                    value={style.hover.solidColor}
+                    onChange={(e) => updateStyle('hover.solidColor', e.target.value)}
+                    className="w-32"
+                    data-testid={`input-${testIdPrefix}-hover-solid`}
+                  />
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center gap-4">
+                  <Label className="min-w-24">Angle:</Label>
+                  <div className="flex items-center gap-3 flex-1">
+                    <div 
+                      className="relative w-12 h-12 rounded-full border-2 border-slate-300 flex items-center justify-center cursor-pointer"
+                      style={{ background: 'conic-gradient(from 0deg, #e2e8f0, #94a3b8, #e2e8f0)' }}
+                      onClick={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const x = e.clientX - rect.left - rect.width / 2;
+                        const y = e.clientY - rect.top - rect.height / 2;
+                        let angle = Math.round(Math.atan2(y, x) * (180 / Math.PI) + 90);
+                        if (angle < 0) angle += 360;
+                        updateStyle('hover.gradientAngle', angle);
+                      }}
+                      data-testid={`angle-wheel-${testIdPrefix}-hover`}
+                    >
+                      <div 
+                        className="absolute w-1 h-5 bg-slate-800 rounded origin-bottom"
+                        style={{ 
+                          transform: `rotate(${(style.hover.gradientAngle || 90)}deg)`,
+                          bottom: '50%'
+                        }}
+                      />
+                    </div>
+                    <Input
+                      type="number"
+                      min="0"
+                      max="360"
+                      value={style.hover.gradientAngle ?? 90}
+                      onChange={(e) => updateStyle('hover.gradientAngle', parseInt(e.target.value, 10) || 0)}
+                      className="w-20"
+                      data-testid={`input-${testIdPrefix}-hover-gradient-angle`}
+                    />
+                    <span className="text-sm text-slate-500">degrees</span>
+                  </div>
+                </div>
+                
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label>Color Stops:</Label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const stops = style.hover.gradientStops || [];
+                        const newPosition = stops.length > 0 
+                          ? Math.round((stops[stops.length - 1].position + 100) / 2)
+                          : 50;
+                        updateStyle('hover.gradientStops', [
+                          ...stops,
+                          { color: '#888888', position: Math.min(newPosition, 99) }
+                        ].sort((a, b) => a.position - b.position));
+                      }}
+                      data-testid={`button-${testIdPrefix}-hover-add-stop`}
+                    >
+                      <Plus className="w-4 h-4 mr-1" /> Add Stop
+                    </Button>
+                  </div>
+                  
+                  <div 
+                    className="h-6 rounded"
+                    style={getBackgroundStyle(style.hover)}
+                    data-testid={`gradient-preview-${testIdPrefix}-hover`}
+                  />
+                  
+                  {(style.hover.gradientStops || []).map((stop, index) => (
+                    <div key={index} className="flex items-center gap-3">
+                      <input
+                        type="color"
+                        value={stop.color}
+                        onChange={(e) => {
+                          const newStops = [...(style.hover.gradientStops || [])];
+                          newStops[index] = { ...newStops[index], color: e.target.value };
+                          updateStyle('hover.gradientStops', newStops);
+                        }}
+                        className="w-10 h-10 rounded cursor-pointer"
+                        data-testid={`colorpicker-${testIdPrefix}-hover-stop-${index}`}
+                      />
+                      <Input
+                        value={stop.color}
+                        onChange={(e) => {
+                          const newStops = [...(style.hover.gradientStops || [])];
+                          newStops[index] = { ...newStops[index], color: e.target.value };
+                          updateStyle('hover.gradientStops', newStops);
+                        }}
+                        className="w-28"
+                        data-testid={`input-${testIdPrefix}-hover-stop-color-${index}`}
+                      />
+                      <div className="flex items-center gap-2 flex-1">
+                        <Slider
+                          value={[stop.position]}
+                          onValueChange={([val]) => {
+                            const newStops = [...(style.hover.gradientStops || [])];
+                            newStops[index] = { ...newStops[index], position: val };
+                            updateStyle('hover.gradientStops', newStops.sort((a, b) => a.position - b.position));
+                          }}
+                          min={0}
+                          max={100}
+                          step={1}
+                          className="flex-1"
+                          data-testid={`slider-${testIdPrefix}-hover-stop-${index}`}
+                        />
+                        <span className="text-sm text-slate-500 w-10">{stop.position}%</span>
+                      </div>
+                      {(style.hover.gradientStops || []).length > 2 && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            const newStops = (style.hover.gradientStops || []).filter((_, i) => i !== index);
+                            updateStyle('hover.gradientStops', newStops);
+                          }}
+                          data-testid={`button-${testIdPrefix}-hover-remove-stop-${index}`}
+                        >
+                          <Trash2 className="w-4 h-4 text-red-500" />
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            <div className="flex items-center gap-4">
+              <Label className="min-w-24">Hover Text:</Label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={style.hoverTextColor}
+                  onChange={(e) => updateStyle('hoverTextColor', e.target.value)}
+                  className="w-10 h-10 rounded cursor-pointer"
+                  data-testid={`colorpicker-${testIdPrefix}-hover-text-color`}
+                />
+                <Input
+                  value={style.hoverTextColor}
+                  onChange={(e) => updateStyle('hoverTextColor', e.target.value)}
+                  className="w-32"
+                  data-testid={`input-${testIdPrefix}-hover-text-color`}
+                />
+              </div>
+            </div>
+          </TabsContent>
+        </Tabs>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function ButtonElementsPage() {
-  const { isAdmin, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  
+  const [primaryStyle, setPrimaryStyle] = useState(DEFAULT_PRIMARY_STYLE);
+  const [secondaryStyle, setSecondaryStyle] = useState(DEFAULT_SECONDARY_STYLE);
+  // Free-form additional tenant button styles. Stored as an ordered array
+  // so the UI can render them with stable keys; saved as a map keyed by
+  // `key`. `key` is the persisted map-key — immutable once saved so canvas
+  // Button blocks already referencing `tenant:<key>` keep resolving. `label`
+  // is the human-readable name shown in the canvas Variant dropdown.
+  const [customStyles, setCustomStyles] = useState([]);
+
+  // Slugify a label to a kebab-case key, ensuring it doesn't collide with
+  // reserved keys (`primary`, `secondary`) or any other existing key.
+  const slugifyKey = (label, existingKeys) => {
+    const base = (label || 'new-style')
+      .toString()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'new-style';
+    const reserved = new Set(['primary', 'secondary', ...existingKeys]);
+    if (!reserved.has(base)) return base;
+    let n = 2;
+    while (reserved.has(`${base}-${n}`)) n += 1;
+    return `${base}-${n}`;
+  };
+
+  const addCustomStyle = () => {
+    setCustomStyles((prev) => {
+      const key = slugifyKey('New style', prev.map((c) => c.key));
+      // Deep clone of the primary defaults so user starts from a familiar
+      // base; they can rebrand colors/radius/size from there.
+      const clone = JSON.parse(JSON.stringify(DEFAULT_PRIMARY_STYLE));
+      // `isNew` is a UI-only flag (stripped on save) that allows the key
+      // to be re-slugified from the label until the first save lands.
+      return [...prev, { key, label: 'New style', isNew: true, ...clone }];
+    });
+  };
+
+  const updateCustomStyle = (key, nextStyle) => {
+    setCustomStyles((prev) =>
+      prev.map((c) =>
+        c.key === key ? { ...nextStyle, key: c.key, label: c.label, isNew: c.isNew } : c
+      )
+    );
+  };
+
+  const renameCustomStyle = (key, nextLabel) => {
+    setCustomStyles((prev) => {
+      // For brand-new (never-saved) entries we re-slugify the map-key from
+      // the label on every keystroke, so the persisted key reflects the
+      // user's chosen name on first save. Once saved (`isNew` is cleared),
+      // the key is immutable to keep already-placed canvas Button blocks
+      // resolvable.
+      return prev.map((c) => {
+        if (c.key !== key) return c;
+        if (!c.isNew) return { ...c, label: nextLabel };
+        const otherKeys = prev.filter((x) => x.key !== key).map((x) => x.key);
+        const nextKey = slugifyKey(nextLabel, otherKeys);
+        return { ...c, label: nextLabel, key: nextKey };
+      });
+    });
+  };
+
+  const deleteCustomStyle = (key) => {
+    setCustomStyles((prev) => prev.filter((c) => c.key !== key));
+  };
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin) {
+      if (isFeatureExcluded('site-builder.buttons')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
-  // Memoize URL params to prevent re-reading on every render
-  const urlParams = useMemo(() => new URLSearchParams(window.location.search), []);
-  const mode = urlParams.get('mode');
-  const editId = urlParams.get('id');
+  }, [isFeatureExcluded, isAccessReady]);
 
-  const queryClient = useQueryClient();
-  const [clickCount, setClickCount] = useState(0);
-
-  const [isCreating] = useState(mode === 'create' || mode === 'edit');
-  const [selectedCardType, setSelectedCardType] = useState(null);
-  const [selectedResourceType, setSelectedResourceType] = useState(null);
-  const [selectedButtonType, setSelectedButtonType] = useState(null);
-  const [selectedIcon, setSelectedIcon] = useState('ArrowUpRight');
-  const [customText, setCustomText] = useState('');
-  const [styleName, setStyleName] = useState('');
-  const [styleDescription, setStyleDescription] = useState('');
-
-  const { data: editingStyle } = useQuery({
-    queryKey: ['buttonStyle', editId],
-    queryFn: async () => {
-      const styles = await base44.entities.ButtonStyle.list();
-      return styles.find(s => s.id === editId);
-    },
-    enabled: !!editId && mode === 'edit'
-  });
-
+  // Fetch existing button styles from tenant branding
   useEffect(() => {
-    if (editingStyle) {
-      setSelectedCardType(editingStyle.card_type);
-      setSelectedResourceType(editingStyle.resource_type || null);
-      setSelectedButtonType(editingStyle.button_type);
-      setSelectedIcon(editingStyle.icon_name || 'ArrowUpRight');
-      setCustomText(editingStyle.button_text || '');
-      setStyleName(editingStyle.name || '');
-      setStyleDescription(editingStyle.description || '');
+    const fetchButtonStyles = async () => {
+      try {
+        const response = await fetch('/api/admin/tenant-branding', {
+          credentials: 'include'
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          const buttonStyles = data.branding?.branding_config?.button_styles;
+          
+          if (buttonStyles) {
+            // Task #961: for transparent blocks, skip the default-merge so
+            // we don't inject default `solidColor` / `gradientStops` into
+            // an intentionally fill-less config. Solid/gradient blocks
+            // still get the same gradient + defaults migration as before.
+            const mergeBgBlock = (defaultBlock, incoming) => {
+              if (incoming && incoming.type === 'transparent') {
+                return { ...incoming };
+              }
+              return migrateGradientConfig({ ...defaultBlock, ...(incoming || {}) });
+            };
+            if (buttonStyles.primary) {
+              const migratedPrimary = {
+                ...DEFAULT_PRIMARY_STYLE,
+                ...buttonStyles.primary,
+                background: mergeBgBlock(DEFAULT_PRIMARY_STYLE.background, buttonStyles.primary.background),
+                hover: mergeBgBlock(DEFAULT_PRIMARY_STYLE.hover, buttonStyles.primary.hover),
+                size: { ...DEFAULT_SIZE, ...(buttonStyles.primary.size || {}) },
+                icon: { ...DEFAULT_ICON, ...(buttonStyles.primary.icon || {}) }
+              };
+              setPrimaryStyle(migratedPrimary);
+            }
+            if (buttonStyles.secondary) {
+              const migratedSecondary = {
+                ...DEFAULT_SECONDARY_STYLE,
+                ...buttonStyles.secondary,
+                background: mergeBgBlock(DEFAULT_SECONDARY_STYLE.background, buttonStyles.secondary.background),
+                hover: mergeBgBlock(DEFAULT_SECONDARY_STYLE.hover, buttonStyles.secondary.hover),
+                size: { ...DEFAULT_SIZE, ...(buttonStyles.secondary.size || {}) },
+                icon: { ...DEFAULT_ICON, ...(buttonStyles.secondary.icon || {}) }
+              };
+              setSecondaryStyle(migratedSecondary);
+            }
+            // Load any custom (non-primary/secondary) entries — they all
+            // share the same shape and the same per-key migration as the
+            // two reserved keys.
+            const loadedCustom = [];
+            Object.entries(buttonStyles).forEach(([key, entry]) => {
+              if (key === 'primary' || key === 'secondary') return;
+              if (!entry || typeof entry !== 'object') return;
+              loadedCustom.push({
+                key,
+                label: entry.label || key,
+                ...DEFAULT_PRIMARY_STYLE,
+                ...entry,
+                background: mergeBgBlock(DEFAULT_PRIMARY_STYLE.background, entry.background),
+                hover: mergeBgBlock(DEFAULT_PRIMARY_STYLE.hover, entry.hover),
+                size: { ...DEFAULT_SIZE, ...(entry.size || {}) },
+                icon: { ...DEFAULT_ICON, ...(entry.icon || {}) }
+              });
+            });
+            if (loadedCustom.length > 0) setCustomStyles(loadedCustom);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch button styles:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (accessChecked) {
+      fetchButtonStyles();
     }
-  }, [editingStyle]);
+  }, [accessChecked]);
 
-  const saveMutation = useMutation({
-    mutationFn: async () => {
-      if (!styleName.trim()) {
-        throw new Error('Please enter a style name');
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      // First fetch current branding to get existing branding_config
+      const getResponse = await fetch('/api/admin/tenant-branding', {
+        credentials: 'include'
+      });
+      
+      if (!getResponse.ok) {
+        throw new Error('Failed to fetch current branding');
       }
-      if (!selectedCardType) {
-        throw new Error('Please select a card type');
-      }
-      if (selectedCardType === 'resource' && !selectedResourceType) {
-        throw new Error('Please select a resource type');
-      }
-      if (!selectedButtonType) {
-        throw new Error('Please select a button style');
-      }
-
-      const data = {
-        name: styleName,
-        card_type: selectedCardType,
-        resource_type: selectedCardType === 'resource' ? selectedResourceType : undefined,
-        button_type: selectedButtonType,
-        button_text: customText || getDefaultText(selectedCardType, selectedResourceType, selectedButtonType),
-        icon_name: selectedButtonType === 'rectangular_agcas' ? selectedIcon : 'none',
-        description: styleDescription,
-        is_active: true,
+      
+      const currentData = await getResponse.json();
+      const currentBrandingConfig = currentData.branding?.branding_config || {};
+      
+      // Build the full button_styles map: primary, secondary, plus every
+      // custom entry keyed by its stable map-key. The UI array form is
+      // collapsed back to an object so the existing storage contract is
+      // unchanged.
+      const customMap = {};
+      customStyles.forEach(({ key, label, isNew: _isNew, ...rest }) => {
+        if (!key) return;
+        // Strip the UI-only `key` and `isNew` fields; keep `label` so it
+        // round-trips. The key becomes the object map-key on save.
+        customMap[key] = { label: label || key, ...rest };
+      });
+      const updatedBrandingConfig = {
+        ...currentBrandingConfig,
+        button_styles: {
+          primary: primaryStyle,
+          secondary: secondaryStyle,
+          ...customMap
+        }
       };
-
-      if (editId && mode === 'edit') {
-        return await base44.entities.ButtonStyle.update(editId, data);
-      } else {
-        return await base44.entities.ButtonStyle.create(data);
+      
+      // Save back to tenant branding
+      const response = await fetch('/api/admin/tenant-branding', {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          branding_config: updatedBrandingConfig
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to save button styles');
       }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['buttonStyles'] });
-      toast.success(editId ? 'Button style updated successfully!' : 'Button style created successfully!');
-      window.location.href = createPageUrl('ButtonStyleManagement');
-    },
-    onError: (error) => {
-      toast.error(error.message || 'Failed to save button style');
-    },
-  });
-
-  const getDefaultText = (cardType, resourceType, buttonType) => {
-    if (cardType === 'article') return 'Read Article';
-    if (cardType === 'resource') {
-      if (resourceType === 'download') return 'Download';
-      if (resourceType === 'video') return 'Watch Video';
-      if (resourceType === 'external_link') return 'Visit Site';
-    }
-    return 'Click Here';
-  };
-
-  const handleButtonClick = (type, icon = null) => {
-    setSelectedButtonType(type);
-    if (icon) setSelectedIcon(icon);
-  };
-
-  const handleCancel = () => {
-    window.location.href = createPageUrl('ButtonStyleManagement');
-  };
-
-  const handleClick = () => {
-    setClickCount(prev => prev + 1);
-    toast.success('Button clicked!');
-  };
-
-  const renderButtonPreview = (type, text, icon) => {
-    const displayText = text || getDefaultText(selectedCardType, selectedResourceType, type);
-    const IconComponent = iconMap[icon];
-
-    if (type === "square_agcas") {
-      return <AGCASSquareButton onClick={() => {}} />;
-    } else if (type === "rectangular_agcas") {
-      return (
-        <AGCASButton onClick={() => {}} icon={icon !== 'none' ? IconComponent : undefined}>
-          {displayText}
-        </AGCASButton>
-      );
-    } else {
-      return (
-        <Button className="bg-blue-600 hover:bg-blue-700">
-          {IconComponent && icon !== 'none' && <IconComponent className="w-4 h-4 mr-2" />}
-          {displayText}
-        </Button>
-      );
+      
+      // Clear the `isNew` flag from any newly-added custom entries — once
+      // saved, their map-keys are frozen and renames will only update the
+      // human-readable label going forward.
+      setCustomStyles((prev) => prev.map((c) => (c.isNew ? { ...c, isNew: false } : c)));
+      toast.success('Button styles saved successfully!');
+    } catch (error) {
+      console.error('Save error:', error);
+      toast.error('Failed to save button styles');
+    } finally {
+      setSaving(false);
     }
   };
 
-  if (!accessChecked) {
+  const handleReset = () => {
+    setPrimaryStyle(DEFAULT_PRIMARY_STYLE);
+    setSecondaryStyle(DEFAULT_SECONDARY_STYLE);
+    setCustomStyles([]);
+    toast.info('Button styles reset to defaults');
+  };
+
+  if (!accessChecked || loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
-        <div className="animate-pulse text-slate-600">Loading...</div>
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
       </div>
     );
   }
 
-  // If in creation/edit mode, show the style builder
-  if (isCreating && isAdmin) {
-    const canProceed = selectedCardType && (selectedCardType === 'article' || (selectedCardType === 'resource' && selectedResourceType));
-
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
-        <div className="max-w-5xl mx-auto">
-          <div className="mb-8">
-            <Button variant="ghost" onClick={handleCancel} className="mb-4 gap-2">
-              <ArrowLeft className="w-4 h-4" />
-              Back to Button Styles
-            </Button>
+  return (
+    <div className="min-h-screen p-4 md:p-8">
+      <div className="max-w-6xl mx-auto">
+        {/* Header */}
+        <div className="mb-8 flex items-start justify-between">
+          <div>
             <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">
-              {editId ? 'Edit Button Style' : 'Create Button Style'}
+              Button Style Creator
             </h1>
             <p className="text-slate-600">
-              Select card type, then choose a button style to set as default
+              Define primary and secondary button styles for your portal. These styles can be used when configuring navigation buttons and other frontend elements.
             </p>
           </div>
-
-          <div className="grid lg:grid-cols-3 gap-8">
-            {/* Settings Sidebar */}
-            <div className="lg:col-span-1 space-y-6">
-              <Card className="border-slate-200 shadow-sm sticky top-8">
-                <CardHeader>
-                  <CardTitle className="text-base">Style Configuration</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="style-name">Style Name *</Label>
-                    <Input
-                      id="style-name"
-                      placeholder="e.g., Download Button Style"
-                      value={styleName}
-                      onChange={(e) => setStyleName(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="card-type">Card Type *</Label>
-                    <Select value={selectedCardType || ''} onValueChange={setSelectedCardType}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select card type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="article">Article Cards</SelectItem>
-                        <SelectItem value="resource">Resource Cards</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {selectedCardType === 'resource' && (
-                    <div className="space-y-2">
-                      <Label htmlFor="resource-type">Resource Type *</Label>
-                      <Select value={selectedResourceType || ''} onValueChange={setSelectedResourceType}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select resource type" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="download">Download Resources</SelectItem>
-                          <SelectItem value="video">Video Resources</SelectItem>
-                          <SelectItem value="external_link">External Link Resources</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <p className="text-xs text-slate-500">
-                        This style will apply to all resource cards of this type
-                      </p>
-                    </div>
-                  )}
-
-                  <div className="space-y-2">
-                    <Label htmlFor="custom-text">Button Text (Optional)</Label>
-                    <Input
-                      id="custom-text"
-                      placeholder={`Default: ${getDefaultText(selectedCardType, selectedResourceType, selectedButtonType)}`}
-                      value={customText}
-                      onChange={(e) => setCustomText(e.target.value)}
-                    />
-                    <p className="text-xs text-slate-500">
-                      Leave empty to use default text
-                    </p>
-                  </div>
-
-                  {selectedButtonType === 'rectangular_agcas' && (
-                    <div className="space-y-2">
-                      <Label htmlFor="icon">Icon</Label>
-                      <Select value={selectedIcon} onValueChange={setSelectedIcon}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="ArrowUpRight">Arrow Up Right</SelectItem>
-                          <SelectItem value="Download">Download</SelectItem>
-                          <SelectItem value="ExternalLink">External Link</SelectItem>
-                          <SelectItem value="PlayCircle">Play Circle</SelectItem>
-                          <SelectItem value="Eye">Eye</SelectItem>
-                          <SelectItem value="FileText">File Text</SelectItem>
-                          <SelectItem value="Mail">Mail</SelectItem>
-                          <SelectItem value="Plus">Plus</SelectItem>
-                          <SelectItem value="none">No Icon</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-
-                  <div className="space-y-2">
-                    <Label htmlFor="description">Description (Optional)</Label>
-                    <Textarea
-                      id="description"
-                      placeholder="Describe this button style..."
-                      value={styleDescription}
-                      onChange={(e) => setStyleDescription(e.target.value)}
-                      rows={3}
-                    />
-                  </div>
-
-                  {canProceed && selectedButtonType && (
-                    <div className="pt-4 border-t border-slate-200">
-                      <Label className="text-sm mb-3 block">Preview:</Label>
-                      {renderButtonPreview(selectedButtonType, customText, selectedIcon)}
-                    </div>
-                  )}
-
-                  <div className="pt-4 space-y-2">
-                    <Button
-                      onClick={() => saveMutation.mutate()}
-                      disabled={saveMutation.isPending || !canProceed || !selectedButtonType || !styleName}
-                      className="w-full bg-blue-600 hover:bg-blue-700"
-                    >
-                      <Save className="w-4 h-4 mr-2" />
-                      {editId ? 'Update Style' : 'Create Style'}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={handleCancel}
-                      className="w-full"
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Button Selection Area */}
-            <div className="lg:col-span-2 space-y-6">
-              {!canProceed ? (
-                <Card className="border-slate-200 shadow-sm">
-                  <CardContent className="p-12 text-center">
-                    <h3 className="text-xl font-semibold text-slate-900 mb-2">
-                      {!selectedCardType ? 'Select a Card Type' : 'Select a Resource Type'}
-                    </h3>
-                    <p className="text-slate-600">
-                      {!selectedCardType 
-                        ? 'Choose card type from the sidebar to continue'
-                        : 'Choose resource type from the sidebar to continue'}
-                    </p>
-                  </CardContent>
-                </Card>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={handleReset}
+              data-testid="button-reset-styles"
+            >
+              <RotateCcw className="w-4 h-4 mr-2" />
+              Reset
+            </Button>
+            <Button
+              onClick={handleSave}
+              disabled={saving}
+              data-testid="button-save-styles"
+            >
+              {saving ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
               ) : (
-                <>
-                  <Card className={`border-2 ${selectedButtonType === 'rectangular_agcas' ? 'border-blue-500 bg-blue-50' : 'border-slate-200'} shadow-sm transition-all`}>
-                    <CardHeader>
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <CardTitle>AGCAS Rectangular Button</CardTitle>
-                          <CardDescription>
-                            Transparent background with 2px border and gradient hover - Click any button below to select it
-                          </CardDescription>
-                        </div>
-                        {selectedButtonType === 'rectangular_agcas' && (
-                          <Badge className="bg-blue-600">Selected</Badge>
-                        )}
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex flex-wrap gap-4">
-                        {Object.entries(iconMap).map(([name, Icon]) => (
-                          <AGCASButton key={name} onClick={(e) => { e.stopPropagation(); handleButtonClick('rectangular_agcas', name); }} icon={Icon}>
-                            {customText || getDefaultText(selectedCardType, selectedResourceType, 'rectangular_agcas')}
-                          </AGCASButton>
-                        ))}
-                        <AGCASButton onClick={(e) => { e.stopPropagation(); handleButtonClick('rectangular_agcas', 'none'); }}>
-                          {customText || getDefaultText(selectedCardType, selectedResourceType, 'rectangular_agcas')}
-                        </AGCASButton>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  <Card className={`border-2 ${selectedButtonType === 'square_agcas' ? 'border-blue-500 bg-blue-50' : 'border-slate-200'} shadow-sm cursor-pointer transition-all hover:border-blue-300`} onClick={() => handleButtonClick('square_agcas')}>
-                    <CardHeader>
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <CardTitle>AGCAS Square Button</CardTitle>
-                          <CardDescription>
-                            Square button with arrow up icon - Click to select
-                          </CardDescription>
-                        </div>
-                        {selectedButtonType === 'square_agcas' && (
-                          <Badge className="bg-blue-600">Selected</Badge>
-                        )}
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex gap-4">
-                        <AGCASSquareButton onClick={(e) => { e.stopPropagation(); handleButtonClick('square_agcas'); }} />
-                        <AGCASSquareButton onClick={(e) => { e.stopPropagation(); handleButtonClick('square_agcas'); }} className="w-20 h-20" />
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  <Card className={`border-2 ${selectedButtonType === 'standard' ? 'border-blue-500 bg-blue-50' : 'border-slate-200'} shadow-sm transition-all`}>
-                    <CardHeader>
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <CardTitle>Standard Button</CardTitle>
-                          <CardDescription>
-                            Standard shadcn/ui button with solid background - Click any button below to select it
-                          </CardDescription>
-                        </div>
-                        {selectedButtonType === 'standard' && (
-                          <Badge className="bg-blue-600">Selected</Badge>
-                        )}
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex flex-wrap gap-4">
-                        {Object.entries(iconMap).map(([name, Icon]) => (
-                          <Button key={name} onClick={(e) => { e.stopPropagation(); handleButtonClick('standard', name); }} className="bg-blue-600 hover:bg-blue-700">
-                            <Icon className="w-4 h-4 mr-2" />
-                            {customText || getDefaultText(selectedCardType, selectedResourceType, 'standard')}
-                          </Button>
-                        ))}
-                        <Button onClick={(e) => { e.stopPropagation(); handleButtonClick('standard', 'none'); }} className="bg-blue-600 hover:bg-blue-700">
-                          {customText || getDefaultText(selectedCardType, selectedResourceType, 'standard')}
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </>
+                <Save className="w-4 h-4 mr-2" />
               )}
-            </div>
+              Save Styles
+            </Button>
           </div>
         </div>
-      </div>
-    );
-  }
 
-  // Regular showcase mode
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
-      <div className="max-w-7xl mx-auto">
-        <div className="mb-8">
-          <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">
-            AGCAS Button Elements
-          </h1>
-          <p className="text-slate-600">
-            Reusable button components with consistent styling across the portal
-          </p>
+        {/* Style Editors */}
+        <div className="grid lg:grid-cols-2 gap-8">
+          <ButtonStyleEditor
+            style={primaryStyle}
+            onChange={setPrimaryStyle}
+            title="Primary Button"
+            description="Main call-to-action buttons with bold, attention-grabbing styling"
+          />
+          
+          <ButtonStyleEditor
+            style={secondaryStyle}
+            onChange={setSecondaryStyle}
+            title="Secondary Button"
+            description="Alternative buttons for less prominent actions, often with outline styling"
+          />
         </div>
 
-        <div className="grid gap-8">
-          {/* Basic Button Showcase */}
-          <Card className="border-slate-200 shadow-sm">
-            <CardHeader>
-              <CardTitle>Basic AGCAS Button</CardTitle>
-              <CardDescription>
-                Rectangular button with 2px black border, transparent background, and gradient hover effect
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="space-y-4">
-                <div>
-                  <p className="text-sm text-slate-600 mb-3">Default Button:</p>
-                  <AGCASButton onClick={handleClick}>
-                    Click Me
-                  </AGCASButton>
-                </div>
-
-                <div>
-                  <p className="text-sm text-slate-600 mb-3">With Icon (Arrow Up Right):</p>
-                  <AGCASButton onClick={handleClick} icon={ArrowUpRight}>
-                    Join Us
-                  </AGCASButton>
-                </div>
-
-                <div>
-                  <p className="text-sm text-slate-600 mb-3">Disabled State:</p>
-                  <AGCASButton disabled>
-                    Disabled Button
-                  </AGCASButton>
-                </div>
-
-                <div className="pt-4 border-t border-slate-200">
-                  <p className="text-sm text-slate-500 italic">
-                    Click count: {clickCount}
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Square Button Showcase */}
-          <Card className="border-slate-200 shadow-sm">
-            <CardHeader>
-              <CardTitle>AGCAS Square Button</CardTitle>
-              <CardDescription>
-                Square button with arrow up icon filling 80% of the space, same styling as rectangular button
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="space-y-4">
-                <div>
-                  <p className="text-sm text-slate-600 mb-3">Default Square Button:</p>
-                  <AGCASSquareButton onClick={handleClick} />
-                </div>
-
-                <div>
-                  <p className="text-sm text-slate-600 mb-3">Disabled State:</p>
-                  <AGCASSquareButton disabled />
-                </div>
-
-                <div>
-                  <p className="text-sm text-slate-600 mb-3">Custom Sizes:</p>
-                  <div className="flex items-end gap-4">
-                    <AGCASSquareButton onClick={handleClick} className="w-12 h-12" />
-                    <AGCASSquareButton onClick={handleClick} />
-                    <AGCASSquareButton onClick={handleClick} className="w-20 h-20" />
-                    <AGCASSquareButton onClick={handleClick} className="w-24 h-24" />
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Button Variations with Different Icons */}
-          <Card className="border-slate-200 shadow-sm">
-            <CardHeader>
-              <CardTitle>Button Variations with Icons</CardTitle>
-              <CardDescription>
-                Different use cases with various Lucide icons
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <AGCASButton onClick={handleClick} icon={Download}>
-                  Download
-                </AGCASButton>
-
-                <AGCASButton onClick={handleClick} icon={ExternalLink}>
-                  Visit Site
-                </AGCASButton>
-
-                <AGCASButton onClick={handleClick} icon={Mail}>
-                  Contact
-                </AGCASButton>
-
-                <AGCASButton onClick={handleClick} icon={Plus}>
-                  Add New
-                </AGCASButton>
-
-                <AGCASButton onClick={handleClick} icon={Save}>
-                  Save Changes
-                </AGCASButton>
-
-                <AGCASButton onClick={handleClick} icon={Edit}>
-                  Edit
-                </AGCASButton>
-
-                <AGCASButton onClick={handleClick} icon={Trash2}>
-                  Delete
-                </AGCASButton>
-
-                <AGCASButton onClick={handleClick} icon={Eye}>
-                  Preview
-                </AGCASButton>
-
-                <AGCASButton onClick={handleClick} icon={Check}>
-                  Confirm
-                </AGCASButton>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Button Without Icons */}
-          <Card className="border-slate-200 shadow-sm">
-            <CardHeader>
-              <CardTitle>Text-Only Buttons</CardTitle>
-              <CardDescription>
-                Buttons without icons for simple actions
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <AGCASButton onClick={handleClick}>
-                  Submit
-                </AGCASButton>
-
-                <AGCASButton onClick={handleClick}>
-                  Cancel
-                </AGCASButton>
-
-                <AGCASButton onClick={handleClick}>
-                  Learn More
-                </AGCASButton>
-
-                <AGCASButton onClick={handleClick}>
-                  Get Started
-                </AGCASButton>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Size Variations */}
-          <Card className="border-slate-200 shadow-sm">
-            <CardHeader>
-              <CardTitle>Size Variations</CardTitle>
-              <CardDescription>
-                Custom sizing using className prop
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-wrap items-end gap-4">
-                <AGCASButton onClick={handleClick} className="px-3 py-1.5 text-xs">
-                  Small Button
-                </AGCASButton>
-
-                <AGCASButton onClick={handleClick}>
-                  Default Button
-                </AGCASButton>
-
-                <AGCASButton onClick={handleClick} className="px-8 py-4 text-base">
-                  Large Button
-                </AGCASButton>
-
-                <AGCASButton onClick={handleClick} className="px-12 py-5 text-lg">
-                  Extra Large
-                </AGCASButton>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Full Width Buttons */}
-          <Card className="border-slate-200 shadow-sm">
-            <CardHeader>
-              <CardTitle>Full Width Buttons</CardTitle>
-              <CardDescription>
-                Buttons that span the full width of their container
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <AGCASButton onClick={handleClick} className="w-full" icon={ArrowUpRight}>
-                Full Width Button
-              </AGCASButton>
-
-              <AGCASButton onClick={handleClick} className="w-full" icon={Download}>
-                Download Resource
-              </AGCASButton>
-
-              <AGCASButton onClick={handleClick} className="w-full">
-                Continue
-              </AGCASButton>
-            </CardContent>
-          </Card>
-
-          {/* Usage Example / Code Reference */}
-          <Card className="border-slate-200 shadow-sm">
-            <CardHeader>
-              <CardTitle>Usage Example</CardTitle>
-              <CardDescription>
-                How to import and use the AGCAS Button components
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="bg-slate-900 text-slate-100 rounded-lg p-4 overflow-x-auto">
-                <pre className="text-sm">
-{`import AGCASButton from "@/components/ui/AGCASButton";
-import AGCASSquareButton from "@/components/ui/AGCASSquareButton";
-import { ArrowUpRight } from "lucide-react";
-
-// Basic rectangular button
-<AGCASButton onClick={handleClick}>
-  Click Me
-</AGCASButton>
-
-// Rectangular button with icon
-<AGCASButton onClick={handleClick} icon={ArrowUpRight}>
-  Join Us
-</AGCASButton>
-
-// Square button with arrow up icon
-<AGCASSquareButton onClick={handleClick} />
-
-// Square button with custom size
-<AGCASSquareButton 
-  onClick={handleClick} 
-  className="w-20 h-20"
-/>
-
-// With custom styling
-<AGCASButton 
-  onClick={handleClick} 
-  className="w-full px-8 py-4"
-  icon={Download}
->
-  Download Now
-</AGCASButton>
-
-// Disabled state
-<AGCASButton disabled>
-  Disabled Button
-</AGCASButton>`}
-                </pre>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Comparison with Standard Button */}
-          <Card className="border-slate-200 shadow-sm">
-            <CardHeader>
-              <CardTitle>Comparison</CardTitle>
-              <CardDescription>
-                AGCAS Button vs Standard shadcn/ui Button
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid md:grid-cols-2 gap-6">
-                <div className="space-y-3">
-                  <p className="text-sm font-semibold text-slate-700">AGCAS Button:</p>
-                  <AGCASButton onClick={handleClick} icon={ArrowUpRight}>
-                    AGCAS Style
-                  </AGCASButton>
-                  <ul className="text-sm text-slate-600 space-y-1 ml-4">
-                    <li>• 2px black border</li>
-                    <li>• Transparent background</li>
-                    <li>• Gradient hover effect</li>
-                    <li>• No border radius</li>
-                  </ul>
-                </div>
-
-                <div className="space-y-3">
-                  <p className="text-sm font-semibold text-slate-700">Standard Button:</p>
-                  <Button onClick={handleClick} className="bg-blue-600 hover:bg-blue-700">
-                    <ArrowUpRight className="w-4 h-4 mr-2" />
-                    Standard Style
-                  </Button>
-                  <ul className="text-sm text-slate-600 space-y-1 ml-4">
-                    <li>• Solid background</li>
-                    <li>• Rounded corners</li>
-                    <li>• Simple hover effect</li>
-                  </ul>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+        {/* Additional (free-form) button styles — canvas Button block only */}
+        <div className="mt-10">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-xl font-semibold text-slate-900">Additional button styles</h2>
+              <p className="text-sm text-slate-600">
+                Extra named styles available in the page builder's Button block. Use these for contrast against specific section backgrounds (e.g. "On dark hero", "On orange banner"). Primary and Secondary above remain the defaults used by navigation, header, and IEdit CTA buttons.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={addCustomStyle}
+              data-testid="button-add-custom-style"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Add button style
+            </Button>
+          </div>
+          {customStyles.length === 0 ? (
+            <Card>
+              <CardContent className="py-8 text-center text-slate-500 text-sm">
+                No additional styles yet. Click "Add button style" to create one.
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid lg:grid-cols-2 gap-8">
+              {customStyles.map((entry) => (
+                <ButtonStyleEditor
+                  key={entry.key}
+                  style={entry}
+                  onChange={(next) => updateCustomStyle(entry.key, next)}
+                  title={entry.label}
+                  description={`Variant key: tenant:${entry.key}`}
+                  editableLabel
+                  onLabelChange={(v) => renameCustomStyle(entry.key, v)}
+                  onDelete={() => deleteCustomStyle(entry.key)}
+                  testIdPrefix={`custom-${entry.key}`}
+                />
+              ))}
+            </div>
+          )}
         </div>
+
+        {/* Usage Info */}
+        <Card className="mt-8">
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Eye className="w-5 h-5" />
+              How to Use These Styles
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-slate-600">
+              Once saved, these button styles will be available throughout your portal configuration:
+            </p>
+            <ul className="mt-3 space-y-2 text-slate-600">
+              <li className="flex items-start gap-2">
+                <span className="text-primary font-bold">•</span>
+                <span><strong>Navigation Management:</strong> When adding navigation items as buttons, select Primary or Secondary style</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-primary font-bold">•</span>
+                <span><strong>Page Builder:</strong> Button blocks will use these predefined styles</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-primary font-bold">•</span>
+                <span><strong>Content Cards:</strong> Action buttons on resource and article cards</span>
+              </li>
+            </ul>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

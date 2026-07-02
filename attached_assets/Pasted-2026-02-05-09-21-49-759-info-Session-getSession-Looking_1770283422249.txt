@@ -1,0 +1,172 @@
+2026-02-05 09:21:49.759 [info] [Session] getSession: Looking up session: 23656293
+2026-02-05 09:21:50.052 [info] [Session] getSession: Session found, userType: member
+2026-02-05 09:21:50.052 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"23656293","userType":"member","memberId":"49f0b578-2e2f-46f8-a151-2c4c08cc570c"}
+2026-02-05 09:21:50.178 [info] [TenantResolver] resolveTenantFromRequest called
+2026-02-05 09:21:50.179 [info] [TenantResolver] Params - tenant: undefined domain: undefined
+2026-02-05 09:21:50.179 [info] [TenantResolver] Falling back to host-based resolution, hostname: gsf.dev.iconn.app
+2026-02-05 09:21:50.179 [info] [TenantResolver] resolveTenantFromHost called with: gsf.dev.iconn.app
+2026-02-05 09:21:50.179 [info] [TenantResolver] Parsed host: gsf.dev.iconn.app
+2026-02-05 09:21:50.180 [info] [TenantResolver] Preview environment detected, environment: dev
+2026-02-05 09:21:50.180 [info] [TenantResolver] Subdomain detected, slug: gsf
+2026-02-05 09:21:50.180 [info] [TenantResolver] Looking up by slug: gsf
+2026-02-05 09:21:50.181 [error] (node:4) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+2026-02-05 09:21:50.316 [info] [TenantResolver] Found tenant by slug: gsf
+2026-02-05 09:21:50.316 [info] [TenantContext] About to call getSessionTenantUser
+2026-02-05 09:21:50.316 [info] [Session] getSession: Looking up session: 23656293
+2026-02-05 09:21:50.439 [info] [Session] getSession: Session found, userType: member
+2026-02-05 09:21:50.439 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"23656293","userType":"member","memberId":"49f0b578-2e2f-46f8-a151-2c4c08cc570c","identityId":"dc156a30-ae8d-4aee-b965-b54fe4b17105","tenantId":"21296ad6-1350-483a-a90c-1b06ece70501"}
+2026-02-05 09:21:50.439 [info] [Session] Found member session with identityId, attempting promotion
+2026-02-05 09:21:50.682 [info] [Session] No tenant_user record found for identity promotion
+2026-02-05 09:21:50.683 [info] [Session] Member session promotion failed
+2026-02-05 09:21:50.683 [info] [TenantContext] getSessionTenantUser returned: null
+2026-02-05 09:21:50.683 [info] [TenantContext] Checking for member session...
+2026-02-05 09:21:50.683 [info] [Session] getSession: Looking up session: 23656293
+2026-02-05 09:21:50.805 [info] [Session] getSession: Session found, userType: member
+2026-02-05 09:21:50.805 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"23656293","userType":"member","memberId":"49f0b578-2e2f-46f8-a151-2c4c08cc570c"}
+2026-02-05 09:21:50.943 [info] [TenantContext] Member found: {
+  memberId: '49f0b578-2e2f-46f8-a151-2c4c08cc570c',
+  organizationId: '7a097c15-1028-4e12-acde-c5ababb7201e'
+}
+2026-02-05 09:21:50.943 [info] [TenantContext] Tenant from member.organization: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-02-05 09:21:51.560 [info] [DD Stage Actions] executeStageActions called: {
+  stageId: 'approved',
+  ddSubmissionId: '14384a7b-eaec-4c6a-9639-cf87f0cfb88b',
+  formSubmissionId: '4858a3dc-3755-4386-9dd7-b1b397f43558',
+  tenantId: '21296ad6-1350-483a-a90c-1b06ece70501',
+  triggeredBy: 'sharon@onlinem.co.uk'
+}
+2026-02-05 09:21:51.560 [info] [DD Stage Actions] Querying DD config for form_id: dd04a19b-019b-4cb2-9a7f-3a77027e9857 tenant_id: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-02-05 09:21:51.672 [info] [DD Stage Actions] Found DD config with 8 stages
+2026-02-05 09:21:51.672 [info] [DD Stage Actions] Found stage: approved
+2026-02-05 09:21:51.673 [info] [DD Stage Actions] Stage has 0 send_contracts actions: []
+2026-02-05 09:21:51.673 [info] [DD Meeting Request] ========== START executeMeetingRequestActions ==========
+2026-02-05 09:21:51.674 [info] [DD Meeting Request] Params: {
+  stageId: 'approved',
+  tenantId: '21296ad6-1350-483a-a90c-1b06ece70501',
+  triggeredBy: 'sharon@onlinem.co.uk',
+  selectedAgentId: null
+}
+2026-02-05 09:21:51.674 [info] [DD Meeting Request] ddSubmission ID: 14384a7b-eaec-4c6a-9639-cf87f0cfb88b
+2026-02-05 09:21:51.674 [info] [DD Meeting Request] form_submission_id: 4858a3dc-3755-4386-9dd7-b1b397f43558
+2026-02-05 09:21:51.674 [info] [DD Meeting Request] Querying stage_meeting_request for stageId: approved tenantId: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-02-05 09:21:51.797 [info] [DD Meeting Request] No meeting request configs found for this stage. Returning empty results.
+2026-02-05 09:21:51.798 [info] [DD Email Action] ========== START executeEmailTemplateActions ==========
+2026-02-05 09:21:51.798 [info] [DD Email Action] customMessage from options: null
+2026-02-05 09:21:51.799 [info] [DD Email Action] Params: {
+  stageId: 'approved',
+  tenantId: '21296ad6-1350-483a-a90c-1b06ece70501',
+  triggeredBy: 'sharon@onlinem.co.uk'
+}
+2026-02-05 09:21:51.799 [info] [DD Email Action] ddSubmission ID: 14384a7b-eaec-4c6a-9639-cf87f0cfb88b
+2026-02-05 09:21:51.799 [info] [DD Email Action] form_submission_id: 4858a3dc-3755-4386-9dd7-b1b397f43558
+2026-02-05 09:21:51.918 [info] [DD Email Action] Querying stage_email_action for stageId: approved tenantId: 21296ad6-1350-483a-a90c-1b06ece70501 formId: dd04a19b-019b-4cb2-9a7f-3a77027e9857
+2026-02-05 09:21:52.044 [info] [DD Email Action] No form-specific email actions found, checking for global actions (form_id is null)
+2026-02-05 09:21:52.163 [info] [DD Email Action] No email action configs found for this stage/form. Returning empty results.
+2026-02-05 09:21:52.164 [info] [DD Member Action] ========== START executeMemberCreationActions ==========
+2026-02-05 09:21:52.164 [info] [DD Member Action] Params: {
+  stageId: 'approved',
+  tenantId: '21296ad6-1350-483a-a90c-1b06ece70501',
+  triggeredBy: 'sharon@onlinem.co.uk',
+  configId: '680d24d6-c3ec-4c6a-bdc3-9773174f1211'
+}
+2026-02-05 09:21:52.164 [info] [DD Member Action] ddSubmission ID: 14384a7b-eaec-4c6a-9639-cf87f0cfb88b
+2026-02-05 09:21:52.164 [info] [DD Member Action] Filtering by config_id: 680d24d6-c3ec-4c6a-bdc3-9773174f1211
+2026-02-05 09:21:52.289 [info] [DD Member Action] Found 3 member action config(s)
+2026-02-05 09:21:53.130 [info] [DD Field Mapping] Field field_1768821469481: using reviewed value
+2026-02-05 09:21:53.378 [info] [DD Field Mapping] Field field_1768821515114: using reviewed value
+2026-02-05 09:21:53.616 [info] [DD Field Mapping] Field field_1768821524362: using reviewed value
+2026-02-05 09:21:53.848 [info] [DD Field Mapping] Field field_1768821532462: using reviewed value
+2026-02-05 09:22:03.933 [info] [DD Field Mapping] Field field_1768828506563: using reviewed value
+2026-02-05 09:22:04.172 [info] [DD Field Mapping] Field field_1769452270248: no value in reviewed or original data, skipping
+2026-02-05 09:22:04.172 [info] [DD Field Mapping] Field field_1768828316857: using reviewed value
+2026-02-05 09:22:04.635 [info] [DD Field Mapping] Field field_1768821469481: using reviewed value
+2026-02-05 09:22:04.870 [info] [DD Field Mapping] Field field_1768821515114: using reviewed value
+2026-02-05 09:22:05.095 [info] [DD Field Mapping] Field field_1768821524362: using reviewed value
+2026-02-05 09:22:05.330 [info] [DD Field Mapping] Field field_1768821532462: using reviewed value
+2026-02-05 09:22:05.565 [info] [DD Field Mapping] Field field_1770191888608: no value in reviewed or original data, skipping
+2026-02-05 09:22:05.565 [info] [DD Field Mapping] Field field_1768822369496: using reviewed value
+2026-02-05 09:22:05.677 [info] [DD Field Mapping] Field field_1768822408998: using reviewed value
+2026-02-05 09:22:05.926 [info] [DD Field Mapping] Field field_1768822441662: using reviewed value
+2026-02-05 09:22:06.151 [info] [DD Field Mapping] Field field_1768822819000: using reviewed value
+2026-02-05 09:22:06.380 [info] [DD Field Mapping] Field field_1768823008601: using reviewed value
+2026-02-05 09:22:06.612 [info] [DD Field Mapping] Field field_1768823054570: using reviewed value
+2026-02-05 09:22:06.835 [info] [DD Field Mapping] Field field_1768823662697: using reviewed value
+2026-02-05 09:22:07.076 [info] [DD Field Mapping] Field field_1768823696846: using reviewed value
+2026-02-05 09:22:07.308 [info] [DD Field Mapping] Field field_1768824122398: using reviewed value
+2026-02-05 09:22:07.542 [info] [DD Field Mapping] Field field_1768824139330: using reviewed value
+2026-02-05 09:22:07.774 [info] [DD Field Mapping] Field field_1768824153632: using reviewed value
+2026-02-05 09:22:08.000 [info] [DD Field Mapping] Field field_1768991246953: no value in reviewed or original data, skipping
+2026-02-05 09:22:08.001 [info] [DD Field Mapping] Field field_1768824172030: using reviewed value
+2026-02-05 09:22:08.228 [info] [DD Field Mapping] Field field_1768991360588: no value in reviewed or original data, skipping
+2026-02-05 09:22:08.228 [info] [DD Field Mapping] Field field_1768824354068: using reviewed value
+2026-02-05 09:22:08.471 [info] [DD Field Mapping] Field field_1768824559686: using reviewed value
+2026-02-05 09:22:08.699 [info] [DD Field Mapping] Field field_1768991539365: no value in reviewed or original data, skipping
+2026-02-05 09:22:08.699 [info] [DD Field Mapping] Field field_1768824780839: using reviewed value
+2026-02-05 09:22:08.930 [info] [DD Field Mapping] Field field_1768992066770: no value in reviewed or original data, skipping
+2026-02-05 09:22:08.930 [info] [DD Field Mapping] Field field_1768824803989: using reviewed value
+2026-02-05 09:22:09.166 [info] [DD Field Mapping] Field field_1768824823222: using reviewed value
+2026-02-05 09:22:09.408 [info] [DD Field Mapping] Field field_1768824844073: using reviewed value
+2026-02-05 09:22:09.633 [info] [DD Field Mapping] Field field_1768828287813: using reviewed value
+2026-02-05 09:22:09.870 [info] [DD Field Mapping] Field field_1768828316857: using reviewed value
+2026-02-05 09:22:10.105 [info] [DD Field Mapping] Field field_1768828423428: using reviewed value
+2026-02-05 09:22:10.327 [info] [DD Field Mapping] Field field_1768828506563: using reviewed value
+2026-02-05 09:22:10.562 [info] [DD Field Mapping] Field field_1768822353115: no value in reviewed or original data, skipping
+2026-02-05 09:22:10.562 [info] [DD Field Mapping] Target 7af40750-1543-44e8-8022-0e0e27bc2c5c: using static value "ESO"
+2026-02-05 09:22:11.040 [info] [DD Zoho CRM] ========== START executeZohoCrmActions ==========
+2026-02-05 09:22:11.040 [info] [DD Zoho CRM] Params: {
+  stageId: 'approved',
+  tenantId: '21296ad6-1350-483a-a90c-1b06ece70501',
+  triggeredBy: 'sharon@onlinem.co.uk'
+}
+2026-02-05 09:22:11.040 [info] [DD Zoho CRM] ddSubmission ID: 14384a7b-eaec-4c6a-9639-cf87f0cfb88b
+2026-02-05 09:22:11.499 [info] [DD Zoho CRM] Found 2 Zoho CRM action(s)
+2026-02-05 09:22:11.742 [info] [DD Zoho CRM] Processing action: 88ed66e0-0c2b-423a-a9fc-04c837adb1db
+2026-02-05 09:22:11.742 [info] [DD Zoho CRM] Zoho CRM account already created: 815132000010684001
+2026-02-05 09:22:11.742 [info] [DD Zoho CRM] Processing action: 4dbbc2a3-67e1-48f6-857b-96979dc792eb
+2026-02-05 09:22:11.742 [info] [DD Zoho CRM] Zoho CRM account already created: 815132000010684001
+2026-02-05 09:22:11.742 [info] [DD Zoho CRM] ========== END executeZohoCrmActions ==========
+2026-02-05 09:22:11.742 [info] [DD Stage Actions] Completed all stage actions, total results: 8
+2026-02-05 09:21:59.904 [info] [DD Field Mapping] Field field_1768822819000: using reviewed value
+2026-02-05 09:22:00.132 [info] [DD Field Mapping] Field field_1768823008601: using reviewed value
+2026-02-05 09:22:00.366 [info] [DD Field Mapping] Field field_1768823054570: using reviewed value
+2026-02-05 09:22:00.612 [info] [DD Field Mapping] Field field_1768823696846: using reviewed value
+2026-02-05 09:22:00.852 [info] [DD Field Mapping] Field field_1768824122398: using reviewed value
+2026-02-05 09:22:01.092 [info] [DD Field Mapping] Field field_1768824139330: using reviewed value
+2026-02-05 09:22:01.322 [info] [DD Field Mapping] Field field_1768824153632: using reviewed value
+2026-02-05 09:22:01.572 [info] [DD Field Mapping] Field field_1768824172030: using reviewed value
+2026-02-05 09:22:01.827 [info] [DD Field Mapping] Field field_1768824354068: using reviewed value
+2026-02-05 09:22:02.075 [info] [DD Field Mapping] Field field_1768824592603: using reviewed value
+2026-02-05 09:22:02.309 [info] [DD Field Mapping] Field field_1768824705974: using reviewed value
+2026-02-05 09:22:02.551 [info] [DD Field Mapping] Field field_1768824780839: using reviewed value
+2026-02-05 09:22:02.782 [info] [DD Field Mapping] Field field_1768824803989: using reviewed value
+2026-02-05 09:22:03.011 [info] [DD Field Mapping] Field field_1768824823222: using reviewed value
+2026-02-05 09:22:03.239 [info] [DD Field Mapping] Field field_1768824844073: using reviewed value
+2026-02-05 09:22:03.474 [info] [DD Field Mapping] Field field_1768828287813: using reviewed value
+2026-02-05 09:22:03.700 [info] [DD Field Mapping] Field field_1768828423428: using reviewed value
+2026-02-05 09:21:54.082 [info] [DD Field Mapping] Field field_1770115219452: using reviewed value
+2026-02-05 09:21:54.310 [info] [DD Field Mapping] Field field_1768822369496: using reviewed value
+2026-02-05 09:21:54.428 [info] [DD Field Mapping] Field field_1768822408998: using reviewed value
+2026-02-05 09:21:54.680 [info] [DD Field Mapping] Field field_1768822819000: using reviewed value
+2026-02-05 09:21:54.911 [info] [DD Field Mapping] Field field_1768823008601: using reviewed value
+2026-02-05 09:21:55.180 [info] [DD Field Mapping] Field field_1768823054570: using reviewed value
+2026-02-05 09:21:55.409 [info] [DD Field Mapping] Field field_1768823662697: using reviewed value
+2026-02-05 09:21:55.637 [info] [DD Field Mapping] Field field_1768823696846: using reviewed value
+2026-02-05 09:21:55.874 [info] [DD Field Mapping] Field field_1768824122398: using reviewed value
+2026-02-05 09:21:56.124 [info] [DD Field Mapping] Field field_1768824139330: using reviewed value
+2026-02-05 09:21:56.360 [info] [DD Field Mapping] Field field_1768824153632: using reviewed value
+2026-02-05 09:21:56.593 [info] [DD Field Mapping] Field field_1768824172030: using reviewed value
+2026-02-05 09:21:56.824 [info] [DD Field Mapping] Field field_1768824354068: using reviewed value
+2026-02-05 09:21:57.059 [info] [DD Field Mapping] Field field_1768824592603: using reviewed value
+2026-02-05 09:21:57.298 [info] [DD Field Mapping] Field field_1768824705974: using reviewed value
+2026-02-05 09:21:57.534 [info] [DD Field Mapping] Field field_1768824780839: using reviewed value
+2026-02-05 09:21:57.762 [info] [DD Field Mapping] Field field_1769452270248: no value in reviewed or original data, skipping
+2026-02-05 09:21:57.762 [info] [DD Field Mapping] Field field_1768824803989: using reviewed value
+2026-02-05 09:21:58.005 [info] [DD Field Mapping] Field field_1768824823222: using reviewed value
+2026-02-05 09:21:58.251 [info] [DD Field Mapping] Field field_1768824844073: using reviewed value
+2026-02-05 09:21:58.488 [info] [DD Field Mapping] Field field_1768828287813: using reviewed value
+2026-02-05 09:21:58.742 [info] [DD Field Mapping] Field field_1768828316857: using reviewed value
+2026-02-05 09:21:58.973 [info] [DD Field Mapping] Field field_1768828423428: using reviewed value
+2026-02-05 09:21:59.204 [info] [DD Field Mapping] Field field_1768828506563: using reviewed value
+2026-02-05 09:21:59.430 [info] [DD Field Mapping] Field field_1768822353115: no value in reviewed or original data, skipping
+2026-02-05 09:21:59.430 [info] [DD Field Mapping] Target 7af40750-1543-44e8-8022-0e0e27bc2c5c: using static value "SO"

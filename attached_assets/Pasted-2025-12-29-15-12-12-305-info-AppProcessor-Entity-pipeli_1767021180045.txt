@@ -1,0 +1,272 @@
+2025-12-29 15:12:12.305 [info] [AppProcessor] Entity pipelines - members: 1 organisations: 1
+2025-12-29 15:12:12.305 [info] [AppProcessor] Form values - all field IDs present: [
+  'field_1765610636257', 'field_1765614961476',
+  'field_1765635992459', 'field_1765637262772',
+  'field_1765637349881', 'field_1765640393181',
+  'field_1765649548352', 'field_1765654021220',
+  'field_1765654193504', 'field_1765654276539',
+  'field_1765654323522', 'field_1765654363656',
+  'field_1765658533266', 'field_1765658547882',
+  'field_1765919899063', 'field_1765919958148',
+  'field_1766924358873', 'field_1767003307766'
+]
+2025-12-29 15:12:12.306 [info] [AppProcessor] Form values sample (first 5 entries): [
+  'field_1765610636257="mhtest"',
+  'field_1765614961476=["googlemail.com","mhtest.com"]',
+  'field_1765635992459=["Russel Group","University Alliance"]',
+  'field_1765637262772=["Franchising","Apprenticeships"]',
+  'field_1765637349881="Yes"'
+]
+2025-12-29 15:12:12.306 [info] [AppProcessor] Entity actions - member: upsert organization: upsert
+2025-12-29 15:12:12.306 [info] [AppProcessor] Received role_id: null type: object
+2025-12-29 15:12:12.659 [info] [AppProcessor] Entity pipeline fields to skip in legacy field_mappings - member: [ 'first_name', 'last_name', 'job_title', 'email' ] org: [ 'name', 'invoicing_address', 'invoicing_email' ]
+2025-12-29 15:12:12.659 [info] [AppProcessor] Using field_mappings: 3 mappings
+2025-12-29 15:12:12.659 [info] [AppProcessor] Skipping legacy field_mappings for member field (entity_pipelines takes precedence): email
+2025-12-29 15:12:12.659 [info] [AppProcessor] Skipping legacy field_mappings for member field (entity_pipelines takes precedence): first_name
+2025-12-29 15:12:12.659 [info] [AppProcessor] Skipping legacy field_mappings for member field (entity_pipelines takes precedence): last_name
+2025-12-29 15:12:12.659 [info] [AppProcessor] Processing member from entity_pipelines (new format): HoS mappings: 4
+2025-12-29 15:12:12.659 [info] [AppProcessor] HoS mappings detail: [
+  {
+    "id": "mapping_1767009847672",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "first_name",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765654276539"
+  },
+  {
+    "id": "mapping_1767009860205",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "last_name",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765654323522"
+  },
+  {
+    "id": "mapping_1767009868089",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "job_title",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765919899063"
+  },
+  {
+    "id": "mapping_1767009878888",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "email",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765654363656"
+  }
+]
+2025-12-29 15:12:12.659 [info] [AppProcessor] Form values for HoS:
+2025-12-29 15:12:12.659 [info] - first_name: form_values["field_1765654276539"] = "mhf"
+2025-12-29 15:12:12.660 [info] - last_name: form_values["field_1765654323522"] = "mhl"
+2025-12-29 15:12:12.660 [info] - job_title: form_values["field_1765919899063"] = "mhj"
+2025-12-29 15:12:12.660 [info] - email: form_values["field_1765654363656"] = "mat.the.diver@googlemail.com"
+2025-12-29 15:12:12.660 [info] [AppProcessor] Using pipeline role_id: 561682bb-57f2-4a61-89aa-c3c201692923
+2025-12-29 15:12:12.660 [info] [AppProcessor] Using pipeline login_enabled: false
+2025-12-29 15:12:12.660 [info] [AppProcessor] Processing organization from entity_pipelines (new format): Primary Organisation mappings: 8
+2025-12-29 15:12:12.661 [info] [AppProcessor] Primary Organisation mappings detail: [
+  {
+    "id": "mapping_1765927645960",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "name",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765610636257"
+  },
+  {
+    "id": "mapping_1765927665179",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "1dfed5fd-64bb-4462-96c7-145daf1bedc2",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765637262772"
+  },
+  {
+    "id": "mapping_1765927706778",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "6a137764-59a2-437c-a110-54701cc41bfe",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765635992459"
+  },
+  {
+    "id": "mapping_1765929242450",
+    "source_type": "static",
+    "target_type": "custom",
+    "static_value": "Full application received",
+    "target_field": "1c395ccf-7df2-4818-917d-1cd672216f71",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": ""
+  },
+  {
+    "id": "mapping_1765930141420",
+    "source_type": "static",
+    "target_type": "custom",
+    "static_value": "University",
+    "target_field": "e5ac547d-edb1-4ff1-83ab-fc82c1813065",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": ""
+  },
+  {
+    "id": "mapping_1766926026592",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "invoicing_address",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1766924358873"
+  },
+  {
+    "id": "mapping_1766927583562",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "invoicing_email",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765654021220"
+  },
+  {
+    "id": "mapping_1767015619411",
+    "source_type": "static",
+    "target_type": "custom",
+    "static_value": "Full application received",
+    "target_field": "1c395ccf-7df2-4818-917d-1cd672216f71",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": ""
+  }
+]
+2025-12-29 15:12:12.661 [info] [AppProcessor] Form values for Primary Organisation:
+2025-12-29 15:12:12.661 [info] - name: form_values["field_1765610636257"] = "mhtest"
+2025-12-29 15:12:12.661 [info] - 1dfed5fd-64bb-4462-96c7-145daf1bedc2: form_values["field_1765637262772"] = "Franchising,Apprenticeships"
+2025-12-29 15:12:12.661 [info] - 6a137764-59a2-437c-a110-54701cc41bfe: form_values["field_1765635992459"] = "Russel Group,University Alliance"
+2025-12-29 15:12:12.661 [info] - invoicing_address: form_values["field_1766924358873"] = "sdsdssdsds"
+2025-12-29 15:12:12.661 [info] - invoicing_email: form_values["field_1765654021220"] = "mat.the.diver@googlemail.com"
+2025-12-29 15:12:12.661 [info] [AppProcessor] Extracted data: {
+  memberData: {
+    first_name: 'mhf',
+    last_name: 'mhl',
+    job_title: 'mhj',
+    email: 'mat.the.diver@googlemail.com',
+    role_id: '561682bb-57f2-4a61-89aa-c3c201692923',
+    login_enabled: false
+  },
+  orgData: {
+    name: 'mhtest',
+    invoicing_address: 'sdsdssdsds',
+    invoicing_email: 'mat.the.diver@googlemail.com'
+  },
+  memberCustomFields: 0,
+  orgCustomFields: 4,
+  orgCustomFieldsDetail: [
+    {
+      field_id: '1dfed5fd-64bb-4462-96c7-145daf1bedc2',
+      value: '["Franchising","Apprenticeships"]'
+    },
+    {
+      field_id: '6a137764-59a2-437c-a110-54701cc41bfe',
+      value: '["Russel Group","University Alliance"]'
+    },
+    {
+      field_id: '1c395ccf-7df2-4818-917d-1cd672216f71',
+      value: 'Full application received'
+    },
+    {
+      field_id: 'e5ac547d-edb1-4ff1-83ab-fc82c1813065',
+      value: 'University'
+    }
+  ]
+}
+2025-12-29 15:12:12.661 [info] [AppProcessor] Org processing enabled. Action: upsert OrgData: {
+  name: 'mhtest',
+  invoicing_address: 'sdsdssdsds',
+  invoicing_email: 'mat.the.diver@googlemail.com'
+} PrefillOrgId: null
+2025-12-29 15:12:12.787 [info] [AppProcessor] Found org by name: 86b8ec6f-109d-4bc3-b86a-cd8a3156e40e
+2025-12-29 15:12:12.921 [info] [AppProcessor] Updated organization: 86b8ec6f-109d-4bc3-b86a-cd8a3156e40e
+2025-12-29 15:12:14.118 [info] [AppProcessor] Member processing enabled. Action: upsert MemberData: {
+  first_name: 'mhf',
+  last_name: 'mhl',
+  job_title: 'mhj',
+  email: 'mat.the.diver@googlemail.com',
+  role_id: '561682bb-57f2-4a61-89aa-c3c201692923',
+  login_enabled: false
+} PrefillMemberId: undefined
+2025-12-29 15:12:14.253 [info] [AppProcessor] Found member by email: undefined
+2025-12-29 15:12:14.253 [info] [AppProcessor] Adding pipeline role_id to member insert: 561682bb-57f2-4a61-89aa-c3c201692923
+2025-12-29 15:12:14.253 [info] [AppProcessor] login_enabled for member insert: false
+2025-12-29 15:12:14.253 [info] [AppProcessor] Final memberInsertData: {"email":"mat.the.diver@googlemail.com","first_name":"mhf","last_name":"mhl","organization_id":"86b8ec6f-109d-4bc3-b86a-cd8a3156e40e","login_enabled":false,"job_title":"mhj","role_id":"561682bb-57f2-4a61-89aa-c3c201692923"}
+2025-12-29 15:12:14.413 [info] [AppProcessor] Created member: 277832c5-7d5d-4ca8-b28b-1954806ca016
+2025-12-29 15:12:14.413 [info] [AppProcessor] Triggered workflows for new member: 277832c5-7d5d-4ca8-b28b-1954806ca016
+2025-12-29 15:12:14.841 [info] [Workflows] Evaluating 1 workflows for member:277832c5-7d5d-4ca8-b28b-1954806ca016
+2025-12-29 15:12:14.841 [info] [Workflows] Send new member account setup email - conditions array: [{"logic":"AND","value":"Live","field_id":"1c395ccf-7df2-4818-917d-1cd672216f71","operator":"equals","field_type":"org_custom"},{"logic":"AND","value":"true","field_id":"login_enabled","operator":"equals","field_type":"member_core"}]
+2025-12-29 15:12:14.841 [info] [Workflows] Send new member account setup email - afterData keys: [
+  'id',
+  'email',
+  'first_name',
+  'last_name',
+  'handle',
+  'job_title',
+  'biography',
+  'profile_photo_url',
+  'zoho_contact_id',
+  'organization_id',
+  'role_id',
+  'role_effective_from',
+  'last_synced',
+  'last_login',
+  'last_activity',
+  'login_enabled',
+  'member_excluded_features',
+  'has_seen_onboarding_tour',
+  'page_tours_seen',
+  'show_in_directory',
+  'base44_id',
+  'zoho_organization_id',
+  'created_on',
+  'mobile',
+  'landline',
+  'engagement_opening_balances'
+]
+2025-12-29 15:12:14.841 [info] [Workflows] Send new member account setup email - afterData.login_enabled: false type: boolean
+2025-12-29 15:12:14.841 [info] [Workflows] Evaluating 2 conditions for Send new member account setup email
+2025-12-29 15:12:14.841 [info] [Workflows] Condition 0 field_type="org_custom", isMemberField=false, isOrgField=false, isMemberCustom=false, isOrgCustom=true
+2025-12-29 15:12:14.977 [info] [AppProcessor] Created temporary credentials for member: 277832c5-7d5d-4ca8-b28b-1954806ca016
+2025-12-29 15:12:14.997 [info] [Workflows] Org custom field "1c395ccf-7df2-4818-917d-1cd672216f71": afterValue="Full application received"
+2025-12-29 15:12:14.997 [info] [Workflows] Condition 0: field="1c395ccf-7df2-4818-917d-1cd672216f71", op="equals", value="Live", actual="Full application received", met=false, logic=AND
+2025-12-29 15:12:14.997 [info] [Workflows] After condition 0: allConditionsMet=false (initial)
+2025-12-29 15:12:14.997 [info] [Workflows] Condition 1 field_type="member_core", isMemberField=true, isOrgField=false, isMemberCustom=false, isOrgCustom=false
+2025-12-29 15:12:14.997 [info] [Workflows] Member core field "login_enabled": afterValue="false"
+2025-12-29 15:12:14.997 [info] [Workflows] Condition 1: field="login_enabled", op="equals", value="true", actual="false", met=false, logic=AND
+2025-12-29 15:12:14.997 [info] [Workflows] After condition 1: false AND false = false
+2025-12-29 15:12:14.997 [info] [Workflows] Final allConditionsMet for Send new member account setup email: false
+2025-12-29 15:12:14.997 [info] [Workflows] Conditions not met for workflow: Send new member account setup email - SKIPPING
+2025-12-29 15:12:15.293 [info] [Email Service] Email footer loaded successfully
+2025-12-29 15:12:15.417 [info] [Email Service] Email footer appended
+2025-12-29 15:12:15.417 [info] [Email Service] Sending email to: mat.the.diver@googlemail.com
+2025-12-29 15:12:15.417 [info] [Email Service] Subject: Welcome to ICONN - Your Login Details
+2025-12-29 15:12:15.775 [info] [Email Service] Email sent successfully. Message ID: <20251229151215.2ecac47426293c0d@agcas.isaasi.co.uk>
+2025-12-29 15:12:15.775 [info] [AppProcessor] Welcome email sent to: mat.the.diver@googlemail.com
+2025-12-29 15:12:15.776 [info] [AppProcessor] Tracking primary member email: mat.the.diver@googlemail.com -> 277832c5-7d5d-4ca8-b28b-1954806ca016
+2025-12-29 15:12:15.776 [info] [AppProcessor] Using entity_pipelines.members: 0 non-primary entries

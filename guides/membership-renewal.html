@@ -1,0 +1,2497 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang xml:lang>
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Membership Renewal System</title>
+  <style>
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+
+ul.task-list[class]{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+font-size: inherit;
+width: 0.8em;
+margin: 0 0.8em 0.2em -1.6em;
+vertical-align: middle;
+}
+.display.math{display: block; text-align: center; margin: 0.5rem auto;}
+
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { display: inline-block; text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+{ counter-reset: source-line 0; }
+pre.numberSource code > span
+{ position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+{ content: counter(source-line);
+position: relative; left: -1em; text-align: right; vertical-align: baseline;
+border: none; display: inline-block;
+-webkit-touch-callout: none; -webkit-user-select: none;
+-khtml-user-select: none; -moz-user-select: none;
+-ms-user-select: none; user-select: none;
+padding: 0 4px; width: 4em;
+color: #aaaaaa;
+}
+pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa; padding-left: 4px; }
+div.sourceCode
+{ }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+code span.al { color: #ff0000; font-weight: bold; } 
+code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.at { color: #7d9029; } 
+code span.bn { color: #40a070; } 
+code span.bu { color: #008000; } 
+code span.cf { color: #007020; font-weight: bold; } 
+code span.ch { color: #4070a0; } 
+code span.cn { color: #880000; } 
+code span.co { color: #60a0b0; font-style: italic; } 
+code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.do { color: #ba2121; font-style: italic; } 
+code span.dt { color: #902000; } 
+code span.dv { color: #40a070; } 
+code span.er { color: #ff0000; font-weight: bold; } 
+code span.ex { } 
+code span.fl { color: #40a070; } 
+code span.fu { color: #06287e; } 
+code span.im { color: #008000; font-weight: bold; } 
+code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.kw { color: #007020; font-weight: bold; } 
+code span.op { color: #666666; } 
+code span.ot { color: #007020; } 
+code span.pp { color: #bc7a00; } 
+code span.sc { color: #4070a0; } 
+code span.ss { color: #bb6688; } 
+code span.st { color: #4070a0; } 
+code span.va { color: #19177c; } 
+code span.vs { color: #4070a0; } 
+code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } 
+</style>
+  <link href="data:text/css; charset=utf-8;charset=utf-8,%0A%2Emarkdown%2Dbody%7B%2D%2Dbase%2Dsize%2D16%3A1rem%3B%2D%2Dbase%2Dsize%2D24%3A1%2E5rem%3B%2D%2Dbase%2Dsize%2D4%3A0%2E25rem%3B%2D%2Dbase%2Dsize%2D40%3A2%2E5rem%3B%2D%2Dbase%2Dsize%2D8%3A0%2E5rem%3B%2D%2Dbase%2Dtext%2Dweight%2Dmedium%3A500%3B%2D%2Dbase%2Dtext%2Dweight%2Dnormal%3A400%3B%2D%2Dbase%2Dtext%2Dweight%2Dsemibold%3A600%3B%2D%2DfontStack%2Dmonospace%3Aui%2Dmonospace%2CSFMono%2DRegular%2CSF%20Mono%2CMenlo%2CConsolas%2CLiberation%20Mono%2Cmonospace%3B%2D%2DfontStack%2DsansSerif%3A%2Dapple%2Dsystem%2CBlinkMacSystemFont%2C%22Segoe%20UI%22%2C%22Noto%20Sans%22%2CHelvetica%2CArial%2Csans%2Dserif%2C%22Apple%20Color%20Emoji%22%2C%22Segoe%20UI%20Emoji%22%3B%2D%2DfgColor%2Daccent%3AHighlight%7D%40media%20%28prefers%2Dcolor%2Dscheme%3Adark%29%7B%2Emarkdown%2Dbody%2C%5Bdata%2Dtheme%3Ddark%5D%7Bcolor%2Dscheme%3Adark%3B%2D%2DfgColor%2Daccent%3A%234493f8%3B%2D%2DbgColor%2Dattention%2Dmuted%3A%23bb800926%3B%2D%2DbgColor%2Ddefault%3A%230d1117%3B%2D%2DbgColor%2Dmuted%3A%23151b23%3B%2D%2DbgColor%2Dneutral%2Dmuted%3A%23656c7633%3B%2D%2DborderColor%2Daccent%2Demphasis%3A%231f6feb%3B%2D%2DborderColor%2Dattention%2Demphasis%3A%239e6a03%3B%2D%2DborderColor%2Ddanger%2Demphasis%3A%23da3633%3B%2D%2DborderColor%2Ddefault%3A%233d444d%3B%2D%2DborderColor%2Ddone%2Demphasis%3A%238957e5%3B%2D%2DborderColor%2Dsuccess%2Demphasis%3A%23238636%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dbrackethighlighter%2Dangle%3A%239198a1%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dbrackethighlighter%2Dunmatched%3A%23f85149%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dcarriage%2Dreturn%2Dbg%3A%23b62324%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dcarriage%2Dreturn%2Dtext%3A%23f0f6fc%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dcomment%3A%239198a1%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dconstant%3A%2379c0ff%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dconstant%2Dother%2Dreference%2Dlink%3A%23a5d6ff%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dentity%3A%23d2a8ff%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dentity%2Dtag%3A%237ee787%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dkeyword%3A%23ff7b72%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Dbold%3A%23f0f6fc%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Dchanged%2Dbg%3A%235a1e02%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Dchanged%2Dtext%3A%23ffdfb6%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Ddeleted%2Dbg%3A%2367060c%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Ddeleted%2Dtext%3A%23ffdcd7%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Dheading%3A%231f6feb%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Dignored%2Dbg%3A%231158c7%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Dignored%2Dtext%3A%23f0f6fc%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Dinserted%2Dbg%3A%23033a16%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Dinserted%2Dtext%3A%23aff5b4%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Ditalic%3A%23f0f6fc%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Dlist%3A%23f2cc60%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmeta%2Ddiff%2Drange%3A%23d2a8ff%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dstorage%2Dmodifier%2Dimport%3A%23f0f6fc%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dstring%3A%23a5d6ff%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dstring%2Dregexp%3A%237ee787%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dsublimelinter%2Dgutter%2Dmark%3A%233d444d%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dvariable%3A%23ffa657%3B%2D%2DfgColor%2Dattention%3A%23d29922%3B%2D%2DfgColor%2Ddanger%3A%23f85149%3B%2D%2DfgColor%2Ddefault%3A%23f0f6fc%3B%2D%2DfgColor%2Ddone%3A%23ab7df8%3B%2D%2DfgColor%2Dmuted%3A%239198a1%3B%2D%2DfgColor%2Dsuccess%3A%233fb950%3B%2D%2DborderColor%2Dmuted%3A%233d444db3%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dinvalid%2Dillegal%2Dbg%3Avar%28%2D%2DbgColor%2Ddanger%2Dmuted%29%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dinvalid%2Dillegal%2Dtext%3Avar%28%2D%2DfgColor%2Ddanger%29%3B%2D%2Dfocus%2DoutlineColor%3Avar%28%2D%2DborderColor%2Daccent%2Demphasis%29%3B%2D%2DborderColor%2Dneutral%2Dmuted%3Avar%28%2D%2DborderColor%2Dmuted%29%7D%7D%40media%20%28prefers%2Dcolor%2Dscheme%3Alight%29%7B%2Emarkdown%2Dbody%2C%5Bdata%2Dtheme%3Dlight%5D%7Bcolor%2Dscheme%3Alight%3B%2D%2DfgColor%2Ddanger%3A%23d1242f%3B%2D%2DbgColor%2Dattention%2Dmuted%3A%23fff8c5%3B%2D%2DbgColor%2Dmuted%3A%23f6f8fa%3B%2D%2DbgColor%2Dneutral%2Dmuted%3A%23818b981f%3B%2D%2DborderColor%2Daccent%2Demphasis%3A%230969da%3B%2D%2DborderColor%2Dattention%2Demphasis%3A%239a6700%3B%2D%2DborderColor%2Ddanger%2Demphasis%3A%23cf222e%3B%2D%2DborderColor%2Ddefault%3A%23d1d9e0%3B%2D%2DborderColor%2Ddone%2Demphasis%3A%238250df%3B%2D%2DborderColor%2Dsuccess%2Demphasis%3A%231a7f37%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dbrackethighlighter%2Dangle%3A%2359636e%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dbrackethighlighter%2Dunmatched%3A%2382071e%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dcarriage%2Dreturn%2Dbg%3A%23cf222e%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dcarriage%2Dreturn%2Dtext%3A%23f6f8fa%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dcomment%3A%2359636e%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dconstant%3A%230550ae%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dconstant%2Dother%2Dreference%2Dlink%3A%230a3069%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dentity%3A%236639ba%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dentity%2Dtag%3A%230550ae%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dinvalid%2Dillegal%2Dtext%3Avar%28%2D%2DfgColor%2Ddanger%29%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dkeyword%3A%23cf222e%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Dchanged%2Dbg%3A%23ffd8b5%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Dchanged%2Dtext%3A%23953800%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Ddeleted%2Dbg%3A%23ffebe9%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Ddeleted%2Dtext%3A%2382071e%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Dheading%3A%230550ae%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Dignored%2Dbg%3A%230550ae%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Dignored%2Dtext%3A%23d1d9e0%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Dinserted%2Dbg%3A%23dafbe1%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Dinserted%2Dtext%3A%23116329%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Dlist%3A%233b2300%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmeta%2Ddiff%2Drange%3A%238250df%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dstring%3A%230a3069%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dstring%2Dregexp%3A%23116329%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dsublimelinter%2Dgutter%2Dmark%3A%23818b98%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dvariable%3A%23953800%3B%2D%2DfgColor%2Daccent%3A%230969da%3B%2D%2DfgColor%2Dattention%3A%239a6700%3B%2D%2DfgColor%2Ddone%3A%238250df%3B%2D%2DfgColor%2Dmuted%3A%2359636e%3B%2D%2DfgColor%2Dsuccess%3A%231a7f37%3B%2D%2DbgColor%2Ddefault%3A%23ffffff%3B%2D%2DborderColor%2Dmuted%3A%23d1d9e0b3%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dinvalid%2Dillegal%2Dbg%3Avar%28%2D%2DbgColor%2Ddanger%2Dmuted%29%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Dbold%3A%231f2328%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Ditalic%3A%231f2328%3B%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dstorage%2Dmodifier%2Dimport%3A%231f2328%3B%2D%2DfgColor%2Ddefault%3A%231f2328%3B%2D%2Dfocus%2DoutlineColor%3Avar%28%2D%2DborderColor%2Daccent%2Demphasis%29%3B%2D%2DborderColor%2Dneutral%2Dmuted%3Avar%28%2D%2DborderColor%2Dmuted%29%7D%7D%2Emarkdown%2Dbody%7B%2Dms%2Dtext%2Dsize%2Dadjust%3A100%25%3B%2Dwebkit%2Dtext%2Dsize%2Dadjust%3A100%25%3Bmargin%3A0%3Bfont%2Dweight%3Avar%28%2D%2Dbase%2Dtext%2Dweight%2Dnormal%2C400%29%3Bcolor%3Avar%28%2D%2DfgColor%2Ddefault%29%3Bbackground%2Dcolor%3Avar%28%2D%2DbgColor%2Ddefault%29%3Bfont%2Dfamily%3Avar%28%2D%2DfontStack%2DsansSerif%2C%20%2Dapple%2Dsystem%2C%20BlinkMacSystemFont%2C%20%22Segoe%20UI%22%2C%20%22Noto%20Sans%22%2C%20Helvetica%2C%20Arial%2C%20sans%2Dserif%2C%20%22Apple%20Color%20Emoji%22%2C%20%22Segoe%20UI%20Emoji%22%29%3Bfont%2Dsize%3A16px%3Bline%2Dheight%3A1%2E5%3Bword%2Dwrap%3Abreak%2Dword%7D%2Emarkdown%2Dbody%20a%7Btext%2Ddecoration%3Aunderline%3Btext%2Dunderline%2Doffset%3A%2E2rem%7D%2Emarkdown%2Dbody%20%2Eocticon%7Bdisplay%3Ainline%2Dblock%3Bfill%3AcurrentColor%3Bvertical%2Dalign%3Atext%2Dbottom%7D%2Emarkdown%2Dbody%20h1%3Ahover%20%2Eanchor%20%2Eocticon%2Dlink%3Abefore%2C%2Emarkdown%2Dbody%20h2%3Ahover%20%2Eanchor%20%2Eocticon%2Dlink%3Abefore%2C%2Emarkdown%2Dbody%20h3%3Ahover%20%2Eanchor%20%2Eocticon%2Dlink%3Abefore%2C%2Emarkdown%2Dbody%20h4%3Ahover%20%2Eanchor%20%2Eocticon%2Dlink%3Abefore%2C%2Emarkdown%2Dbody%20h5%3Ahover%20%2Eanchor%20%2Eocticon%2Dlink%3Abefore%2C%2Emarkdown%2Dbody%20h6%3Ahover%20%2Eanchor%20%2Eocticon%2Dlink%3Abefore%7Bwidth%3A16px%3Bheight%3A16px%3Bcontent%3A%27%20%27%3Bdisplay%3Ainline%2Dblock%3Bbackground%2Dcolor%3AcurrentColor%3B%2Dwebkit%2Dmask%2Dimage%3Aurl%28%22data%3Aimage%2Fsvg%2Bxml%2C%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww%2Ew3%2Eorg%2F2000%2Fsvg%27%20viewBox%3D%270%200%2016%2016%27%20version%3D%271%2E1%27%20aria%2Dhidden%3D%27true%27%3E%3Cpath%20fill%2Drule%3D%27evenodd%27%20d%3D%27M7%2E775%203%2E275a%2E75%2E75%200%20001%2E06%201%2E06l1%2E25%2D1%2E25a2%202%200%20112%2E83%202%2E83l%2D2%2E5%202%2E5a2%202%200%2001%2D2%2E83%200%20%2E75%2E75%200%2000%2D1%2E06%201%2E06%203%2E5%203%2E5%200%20004%2E95%200l2%2E5%2D2%2E5a3%2E5%203%2E5%200%2000%2D4%2E95%2D4%2E95l%2D1%2E25%201%2E25zm%2D4%2E69%209%2E64a2%202%200%20010%2D2%2E83l2%2E5%2D2%2E5a2%202%200%20012%2E83%200%20%2E75%2E75%200%20001%2E06%2D1%2E06%203%2E5%203%2E5%200%2000%2D4%2E95%200l%2D2%2E5%202%2E5a3%2E5%203%2E5%200%20004%2E95%204%2E95l1%2E25%2D1%2E25a%2E75%2E75%200%2000%2D1%2E06%2D1%2E06l%2D1%2E25%201%2E25a2%202%200%2001%2D2%2E83%200z%27%3E%3C%2Fpath%3E%3C%2Fsvg%3E%22%29%3Bmask%2Dimage%3Aurl%28%22data%3Aimage%2Fsvg%2Bxml%2C%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww%2Ew3%2Eorg%2F2000%2Fsvg%27%20viewBox%3D%270%200%2016%2016%27%20version%3D%271%2E1%27%20aria%2Dhidden%3D%27true%27%3E%3Cpath%20fill%2Drule%3D%27evenodd%27%20d%3D%27M7%2E775%203%2E275a%2E75%2E75%200%20001%2E06%201%2E06l1%2E25%2D1%2E25a2%202%200%20112%2E83%202%2E83l%2D2%2E5%202%2E5a2%202%200%2001%2D2%2E83%200%20%2E75%2E75%200%2000%2D1%2E06%201%2E06%203%2E5%203%2E5%200%20004%2E95%200l2%2E5%2D2%2E5a3%2E5%203%2E5%200%2000%2D4%2E95%2D4%2E95l%2D1%2E25%201%2E25zm%2D4%2E69%209%2E64a2%202%200%20010%2D2%2E83l2%2E5%2D2%2E5a2%202%200%20012%2E83%200%20%2E75%2E75%200%20001%2E06%2D1%2E06%203%2E5%203%2E5%200%2000%2D4%2E95%200l%2D2%2E5%202%2E5a3%2E5%203%2E5%200%20004%2E95%204%2E95l1%2E25%2D1%2E25a%2E75%2E75%200%2000%2D1%2E06%2D1%2E06l%2D1%2E25%201%2E25a2%202%200%2001%2D2%2E83%200z%27%3E%3C%2Fpath%3E%3C%2Fsvg%3E%22%29%7D%2Emarkdown%2Dbody%20details%2C%2Emarkdown%2Dbody%20figcaption%2C%2Emarkdown%2Dbody%20figure%7Bdisplay%3Ablock%7D%2Emarkdown%2Dbody%20summary%7Bdisplay%3Alist%2Ditem%7D%2Emarkdown%2Dbody%20%5Bhidden%5D%7Bdisplay%3Anone%21important%7D%2Emarkdown%2Dbody%20a%7Bbackground%2Dcolor%3Argba%280%2C0%2C0%2C0%29%3Bcolor%3Avar%28%2D%2DfgColor%2Daccent%29%3Btext%2Ddecoration%3Anone%7D%2Emarkdown%2Dbody%20abbr%5Btitle%5D%7Bborder%2Dbottom%3Anone%3B%2Dwebkit%2Dtext%2Ddecoration%3Aunderline%20dotted%3Btext%2Ddecoration%3Aunderline%20dotted%7D%2Emarkdown%2Dbody%20b%2C%2Emarkdown%2Dbody%20strong%7Bfont%2Dweight%3Avar%28%2D%2Dbase%2Dtext%2Dweight%2Dsemibold%2C600%29%7D%2Emarkdown%2Dbody%20dfn%7Bfont%2Dstyle%3Aitalic%7D%2Emarkdown%2Dbody%20h1%7Bmargin%3A%2E67em%200%3Bfont%2Dweight%3Avar%28%2D%2Dbase%2Dtext%2Dweight%2Dsemibold%2C600%29%3Bpadding%2Dbottom%3A%2E3em%3Bfont%2Dsize%3A2em%3Bborder%2Dbottom%3A1px%20solid%20var%28%2D%2DborderColor%2Dmuted%29%7D%2Emarkdown%2Dbody%20mark%7Bbackground%2Dcolor%3Avar%28%2D%2DbgColor%2Dattention%2Dmuted%29%3Bcolor%3Avar%28%2D%2DfgColor%2Ddefault%29%7D%2Emarkdown%2Dbody%20small%7Bfont%2Dsize%3A90%25%7D%2Emarkdown%2Dbody%20sub%2C%2Emarkdown%2Dbody%20sup%7Bfont%2Dsize%3A75%25%3Bline%2Dheight%3A0%3Bposition%3Arelative%3Bvertical%2Dalign%3Abaseline%7D%2Emarkdown%2Dbody%20sub%7Bbottom%3A%2D%2E25em%7D%2Emarkdown%2Dbody%20sup%7Btop%3A%2D%2E5em%7D%2Emarkdown%2Dbody%20img%7Bborder%2Dstyle%3Anone%3Bmax%2Dwidth%3A100%25%3Bbox%2Dsizing%3Acontent%2Dbox%7D%2Emarkdown%2Dbody%20code%2C%2Emarkdown%2Dbody%20kbd%2C%2Emarkdown%2Dbody%20pre%2C%2Emarkdown%2Dbody%20samp%7Bfont%2Dfamily%3Amonospace%3Bfont%2Dsize%3A1em%7D%2Emarkdown%2Dbody%20figure%7Bmargin%3A1em%20var%28%2D%2Dbase%2Dsize%2D40%29%7D%2Emarkdown%2Dbody%20hr%7Bbox%2Dsizing%3Acontent%2Dbox%3Boverflow%3Ahidden%3Bbackground%3Argba%280%2C0%2C0%2C0%29%3Bborder%2Dbottom%3A1px%20solid%20var%28%2D%2DborderColor%2Dmuted%29%3Bheight%3A%2E25em%3Bpadding%3A0%3Bmargin%3Avar%28%2D%2Dbase%2Dsize%2D24%29%200%3Bbackground%2Dcolor%3Avar%28%2D%2DborderColor%2Ddefault%29%3Bborder%3A0%7D%2Emarkdown%2Dbody%20input%7Bfont%3Ainherit%3Bmargin%3A0%3Boverflow%3Avisible%3Bfont%2Dfamily%3Ainherit%3Bfont%2Dsize%3Ainherit%3Bline%2Dheight%3Ainherit%7D%2Emarkdown%2Dbody%20%5Btype%3Dbutton%5D%2C%2Emarkdown%2Dbody%20%5Btype%3Dreset%5D%2C%2Emarkdown%2Dbody%20%5Btype%3Dsubmit%5D%7B%2Dwebkit%2Dappearance%3Abutton%3Bappearance%3Abutton%7D%2Emarkdown%2Dbody%20%5Btype%3Dcheckbox%5D%2C%2Emarkdown%2Dbody%20%5Btype%3Dradio%5D%7Bbox%2Dsizing%3Aborder%2Dbox%3Bpadding%3A0%7D%2Emarkdown%2Dbody%20%5Btype%3Dnumber%5D%3A%3A%2Dwebkit%2Dinner%2Dspin%2Dbutton%2C%2Emarkdown%2Dbody%20%5Btype%3Dnumber%5D%3A%3A%2Dwebkit%2Douter%2Dspin%2Dbutton%7Bheight%3Aauto%7D%2Emarkdown%2Dbody%20%5Btype%3Dsearch%5D%3A%3A%2Dwebkit%2Dsearch%2Dcancel%2Dbutton%2C%2Emarkdown%2Dbody%20%5Btype%3Dsearch%5D%3A%3A%2Dwebkit%2Dsearch%2Ddecoration%7B%2Dwebkit%2Dappearance%3Anone%3Bappearance%3Anone%7D%2Emarkdown%2Dbody%20%3A%3A%2Dwebkit%2Dinput%2Dplaceholder%7Bcolor%3Ainherit%3Bopacity%3A%2E54%7D%2Emarkdown%2Dbody%20%3A%3A%2Dwebkit%2Dfile%2Dupload%2Dbutton%7B%2Dwebkit%2Dappearance%3Abutton%3Bappearance%3Abutton%3Bfont%3Ainherit%7D%2Emarkdown%2Dbody%20a%3Ahover%7Btext%2Ddecoration%3Aunderline%7D%2Emarkdown%2Dbody%20%3A%3Aplaceholder%7Bcolor%3Avar%28%2D%2DfgColor%2Dmuted%29%3Bopacity%3A1%7D%2Emarkdown%2Dbody%20hr%3A%3Abefore%7Bdisplay%3Atable%3Bcontent%3A%22%22%7D%2Emarkdown%2Dbody%20hr%3A%3Aafter%7Bdisplay%3Atable%3Bclear%3Aboth%3Bcontent%3A%22%22%7D%2Emarkdown%2Dbody%20table%7Bborder%2Dspacing%3A0%3Bborder%2Dcollapse%3Acollapse%3Bdisplay%3Ablock%3Bwidth%3Amax%2Dcontent%3Bmax%2Dwidth%3A100%25%3Boverflow%3Aauto%3Bfont%2Dvariant%3Atabular%2Dnums%7D%2Emarkdown%2Dbody%20td%2C%2Emarkdown%2Dbody%20th%7Bpadding%3A0%7D%2Emarkdown%2Dbody%20details%20summary%7Bcursor%3Apointer%7D%2Emarkdown%2Dbody%20%5Brole%3Dbutton%5D%3Afocus%2C%2Emarkdown%2Dbody%20a%3Afocus%2C%2Emarkdown%2Dbody%20input%5Btype%3Dcheckbox%5D%3Afocus%2C%2Emarkdown%2Dbody%20input%5Btype%3Dradio%5D%3Afocus%7Boutline%3A2px%20solid%20var%28%2D%2Dfocus%2DoutlineColor%29%3Boutline%2Doffset%3A%2D2px%3Bbox%2Dshadow%3Anone%7D%2Emarkdown%2Dbody%20%5Brole%3Dbutton%5D%3Afocus%3Anot%28%3Afocus%2Dvisible%29%2C%2Emarkdown%2Dbody%20a%3Afocus%3Anot%28%3Afocus%2Dvisible%29%2C%2Emarkdown%2Dbody%20input%5Btype%3Dcheckbox%5D%3Afocus%3Anot%28%3Afocus%2Dvisible%29%2C%2Emarkdown%2Dbody%20input%5Btype%3Dradio%5D%3Afocus%3Anot%28%3Afocus%2Dvisible%29%7Boutline%3Asolid%201px%20rgba%280%2C0%2C0%2C0%29%7D%2Emarkdown%2Dbody%20%5Brole%3Dbutton%5D%3Afocus%2Dvisible%2C%2Emarkdown%2Dbody%20a%3Afocus%2Dvisible%2C%2Emarkdown%2Dbody%20input%5Btype%3Dcheckbox%5D%3Afocus%2Dvisible%2C%2Emarkdown%2Dbody%20input%5Btype%3Dradio%5D%3Afocus%2Dvisible%7Boutline%3A2px%20solid%20var%28%2D%2Dfocus%2DoutlineColor%29%3Boutline%2Doffset%3A%2D2px%3Bbox%2Dshadow%3Anone%7D%2Emarkdown%2Dbody%20a%3Anot%28%5Bclass%5D%29%3Afocus%2C%2Emarkdown%2Dbody%20a%3Anot%28%5Bclass%5D%29%3Afocus%2Dvisible%2C%2Emarkdown%2Dbody%20input%5Btype%3Dcheckbox%5D%3Afocus%2C%2Emarkdown%2Dbody%20input%5Btype%3Dcheckbox%5D%3Afocus%2Dvisible%2C%2Emarkdown%2Dbody%20input%5Btype%3Dradio%5D%3Afocus%2C%2Emarkdown%2Dbody%20input%5Btype%3Dradio%5D%3Afocus%2Dvisible%7Boutline%2Doffset%3A0%7D%2Emarkdown%2Dbody%20kbd%7Bdisplay%3Ainline%2Dblock%3Bpadding%3Avar%28%2D%2Dbase%2Dsize%2D4%29%3Bfont%3A11px%20var%28%2D%2DfontStack%2Dmonospace%2C%20ui%2Dmonospace%2C%20SFMono%2DRegular%2C%20SF%20Mono%2C%20Menlo%2C%20Consolas%2C%20Liberation%20Mono%2C%20monospace%29%3Bline%2Dheight%3A10px%3Bcolor%3Avar%28%2D%2DfgColor%2Ddefault%29%3Bvertical%2Dalign%3Amiddle%3Bbackground%2Dcolor%3Avar%28%2D%2DbgColor%2Dmuted%29%3Bborder%3Asolid%201px%20var%28%2D%2DborderColor%2Dneutral%2Dmuted%29%3Bborder%2Dbottom%2Dcolor%3Avar%28%2D%2DborderColor%2Dneutral%2Dmuted%29%3Bborder%2Dradius%3A6px%3Bbox%2Dshadow%3Ainset%200%20%2D1px%200%20var%28%2D%2DborderColor%2Dneutral%2Dmuted%29%7D%2Emarkdown%2Dbody%20h1%2C%2Emarkdown%2Dbody%20h2%2C%2Emarkdown%2Dbody%20h3%2C%2Emarkdown%2Dbody%20h4%2C%2Emarkdown%2Dbody%20h5%2C%2Emarkdown%2Dbody%20h6%7Bmargin%2Dtop%3Avar%28%2D%2Dbase%2Dsize%2D24%29%3Bmargin%2Dbottom%3Avar%28%2D%2Dbase%2Dsize%2D16%29%3Bfont%2Dweight%3Avar%28%2D%2Dbase%2Dtext%2Dweight%2Dsemibold%2C600%29%3Bline%2Dheight%3A1%2E25%7D%2Emarkdown%2Dbody%20h2%7Bfont%2Dweight%3Avar%28%2D%2Dbase%2Dtext%2Dweight%2Dsemibold%2C600%29%3Bpadding%2Dbottom%3A%2E3em%3Bfont%2Dsize%3A1%2E5em%3Bborder%2Dbottom%3A1px%20solid%20var%28%2D%2DborderColor%2Dmuted%29%7D%2Emarkdown%2Dbody%20h3%7Bfont%2Dweight%3Avar%28%2D%2Dbase%2Dtext%2Dweight%2Dsemibold%2C600%29%3Bfont%2Dsize%3A1%2E25em%7D%2Emarkdown%2Dbody%20h4%7Bfont%2Dweight%3Avar%28%2D%2Dbase%2Dtext%2Dweight%2Dsemibold%2C600%29%3Bfont%2Dsize%3A1em%7D%2Emarkdown%2Dbody%20h5%7Bfont%2Dweight%3Avar%28%2D%2Dbase%2Dtext%2Dweight%2Dsemibold%2C600%29%3Bfont%2Dsize%3A%2E875em%7D%2Emarkdown%2Dbody%20h6%7Bfont%2Dweight%3Avar%28%2D%2Dbase%2Dtext%2Dweight%2Dsemibold%2C600%29%3Bfont%2Dsize%3A%2E85em%3Bcolor%3Avar%28%2D%2DfgColor%2Dmuted%29%7D%2Emarkdown%2Dbody%20p%7Bmargin%2Dtop%3A0%3Bmargin%2Dbottom%3A10px%7D%2Emarkdown%2Dbody%20blockquote%7Bmargin%3A0%3Bpadding%3A0%201em%3Bcolor%3Avar%28%2D%2DfgColor%2Dmuted%29%3Bborder%2Dleft%3A%2E25em%20solid%20var%28%2D%2DborderColor%2Ddefault%29%7D%2Emarkdown%2Dbody%20ol%2C%2Emarkdown%2Dbody%20ul%7Bmargin%2Dtop%3A0%3Bmargin%2Dbottom%3A0%3Bpadding%2Dleft%3A2em%7D%2Emarkdown%2Dbody%20ol%20ol%2C%2Emarkdown%2Dbody%20ul%20ol%7Blist%2Dstyle%2Dtype%3Alower%2Droman%7D%2Emarkdown%2Dbody%20ol%20ol%20ol%2C%2Emarkdown%2Dbody%20ol%20ul%20ol%2C%2Emarkdown%2Dbody%20ul%20ol%20ol%2C%2Emarkdown%2Dbody%20ul%20ul%20ol%7Blist%2Dstyle%2Dtype%3Alower%2Dalpha%7D%2Emarkdown%2Dbody%20dd%7Bmargin%2Dleft%3A0%7D%2Emarkdown%2Dbody%20code%2C%2Emarkdown%2Dbody%20samp%2C%2Emarkdown%2Dbody%20tt%7Bfont%2Dfamily%3Avar%28%2D%2DfontStack%2Dmonospace%2C%20ui%2Dmonospace%2C%20SFMono%2DRegular%2C%20SF%20Mono%2C%20Menlo%2C%20Consolas%2C%20Liberation%20Mono%2C%20monospace%29%3Bfont%2Dsize%3A12px%7D%2Emarkdown%2Dbody%20pre%7Bmargin%2Dtop%3A0%3Bmargin%2Dbottom%3A0%3Bfont%2Dfamily%3Avar%28%2D%2DfontStack%2Dmonospace%2C%20ui%2Dmonospace%2C%20SFMono%2DRegular%2C%20SF%20Mono%2C%20Menlo%2C%20Consolas%2C%20Liberation%20Mono%2C%20monospace%29%3Bfont%2Dsize%3A12px%3Bword%2Dwrap%3Anormal%7D%2Emarkdown%2Dbody%20%2Eocticon%7Bdisplay%3Ainline%2Dblock%3Boverflow%3Avisible%21important%3Bvertical%2Dalign%3Atext%2Dbottom%3Bfill%3AcurrentColor%7D%2Emarkdown%2Dbody%20input%3A%3A%2Dwebkit%2Dinner%2Dspin%2Dbutton%2C%2Emarkdown%2Dbody%20input%3A%3A%2Dwebkit%2Douter%2Dspin%2Dbutton%7Bmargin%3A0%3Bappearance%3Anone%7D%2Emarkdown%2Dbody%20%2Emr%2D2%7Bmargin%2Dright%3Avar%28%2D%2Dbase%2Dsize%2D8%2C8px%29%21important%7D%2Emarkdown%2Dbody%3A%3Abefore%7Bdisplay%3Atable%3Bcontent%3A%22%22%7D%2Emarkdown%2Dbody%3A%3Aafter%7Bdisplay%3Atable%3Bclear%3Aboth%3Bcontent%3A%22%22%7D%2Emarkdown%2Dbody%3E%3Afirst%2Dchild%7Bmargin%2Dtop%3A0%21important%7D%2Emarkdown%2Dbody%3E%3Alast%2Dchild%7Bmargin%2Dbottom%3A0%21important%7D%2Emarkdown%2Dbody%20a%3Anot%28%5Bhref%5D%29%7Bcolor%3Ainherit%3Btext%2Ddecoration%3Anone%7D%2Emarkdown%2Dbody%20%2Eabsent%7Bcolor%3Avar%28%2D%2DfgColor%2Ddanger%29%7D%2Emarkdown%2Dbody%20%2Eanchor%7Bfloat%3Aleft%3Bpadding%2Dright%3Avar%28%2D%2Dbase%2Dsize%2D4%29%3Bmargin%2Dleft%3A%2D20px%3Bline%2Dheight%3A1%7D%2Emarkdown%2Dbody%20%2Eanchor%3Afocus%7Boutline%3A0%7D%2Emarkdown%2Dbody%20blockquote%2C%2Emarkdown%2Dbody%20details%2C%2Emarkdown%2Dbody%20dl%2C%2Emarkdown%2Dbody%20ol%2C%2Emarkdown%2Dbody%20p%2C%2Emarkdown%2Dbody%20pre%2C%2Emarkdown%2Dbody%20table%2C%2Emarkdown%2Dbody%20ul%7Bmargin%2Dtop%3A0%3Bmargin%2Dbottom%3Avar%28%2D%2Dbase%2Dsize%2D16%29%7D%2Emarkdown%2Dbody%20blockquote%3E%3Afirst%2Dchild%7Bmargin%2Dtop%3A0%7D%2Emarkdown%2Dbody%20blockquote%3E%3Alast%2Dchild%7Bmargin%2Dbottom%3A0%7D%2Emarkdown%2Dbody%20h1%20%2Eocticon%2Dlink%2C%2Emarkdown%2Dbody%20h2%20%2Eocticon%2Dlink%2C%2Emarkdown%2Dbody%20h3%20%2Eocticon%2Dlink%2C%2Emarkdown%2Dbody%20h4%20%2Eocticon%2Dlink%2C%2Emarkdown%2Dbody%20h5%20%2Eocticon%2Dlink%2C%2Emarkdown%2Dbody%20h6%20%2Eocticon%2Dlink%7Bcolor%3Avar%28%2D%2DfgColor%2Ddefault%29%3Bvertical%2Dalign%3Amiddle%3Bvisibility%3Ahidden%7D%2Emarkdown%2Dbody%20h1%3Ahover%20%2Eanchor%2C%2Emarkdown%2Dbody%20h2%3Ahover%20%2Eanchor%2C%2Emarkdown%2Dbody%20h3%3Ahover%20%2Eanchor%2C%2Emarkdown%2Dbody%20h4%3Ahover%20%2Eanchor%2C%2Emarkdown%2Dbody%20h5%3Ahover%20%2Eanchor%2C%2Emarkdown%2Dbody%20h6%3Ahover%20%2Eanchor%7Btext%2Ddecoration%3Anone%7D%2Emarkdown%2Dbody%20h1%3Ahover%20%2Eanchor%20%2Eocticon%2Dlink%2C%2Emarkdown%2Dbody%20h2%3Ahover%20%2Eanchor%20%2Eocticon%2Dlink%2C%2Emarkdown%2Dbody%20h3%3Ahover%20%2Eanchor%20%2Eocticon%2Dlink%2C%2Emarkdown%2Dbody%20h4%3Ahover%20%2Eanchor%20%2Eocticon%2Dlink%2C%2Emarkdown%2Dbody%20h5%3Ahover%20%2Eanchor%20%2Eocticon%2Dlink%2C%2Emarkdown%2Dbody%20h6%3Ahover%20%2Eanchor%20%2Eocticon%2Dlink%7Bvisibility%3Avisible%7D%2Emarkdown%2Dbody%20h1%20code%2C%2Emarkdown%2Dbody%20h1%20tt%2C%2Emarkdown%2Dbody%20h2%20code%2C%2Emarkdown%2Dbody%20h2%20tt%2C%2Emarkdown%2Dbody%20h3%20code%2C%2Emarkdown%2Dbody%20h3%20tt%2C%2Emarkdown%2Dbody%20h4%20code%2C%2Emarkdown%2Dbody%20h4%20tt%2C%2Emarkdown%2Dbody%20h5%20code%2C%2Emarkdown%2Dbody%20h5%20tt%2C%2Emarkdown%2Dbody%20h6%20code%2C%2Emarkdown%2Dbody%20h6%20tt%7Bpadding%3A0%20%2E2em%3Bfont%2Dsize%3Ainherit%7D%2Emarkdown%2Dbody%20summary%20h1%2C%2Emarkdown%2Dbody%20summary%20h2%2C%2Emarkdown%2Dbody%20summary%20h3%2C%2Emarkdown%2Dbody%20summary%20h4%2C%2Emarkdown%2Dbody%20summary%20h5%2C%2Emarkdown%2Dbody%20summary%20h6%7Bdisplay%3Ainline%2Dblock%7D%2Emarkdown%2Dbody%20summary%20h1%20%2Eanchor%2C%2Emarkdown%2Dbody%20summary%20h2%20%2Eanchor%2C%2Emarkdown%2Dbody%20summary%20h3%20%2Eanchor%2C%2Emarkdown%2Dbody%20summary%20h4%20%2Eanchor%2C%2Emarkdown%2Dbody%20summary%20h5%20%2Eanchor%2C%2Emarkdown%2Dbody%20summary%20h6%20%2Eanchor%7Bmargin%2Dleft%3A%2D40px%7D%2Emarkdown%2Dbody%20summary%20h1%2C%2Emarkdown%2Dbody%20summary%20h2%7Bpadding%2Dbottom%3A0%3Bborder%2Dbottom%3A0%7D%2Emarkdown%2Dbody%20ol%2Eno%2Dlist%2C%2Emarkdown%2Dbody%20ul%2Eno%2Dlist%7Bpadding%3A0%3Blist%2Dstyle%2Dtype%3Anone%7D%2Emarkdown%2Dbody%20ol%5Btype%3D%22a%20s%22%5D%7Blist%2Dstyle%2Dtype%3Alower%2Dalpha%7D%2Emarkdown%2Dbody%20ol%5Btype%3D%22A%20s%22%5D%7Blist%2Dstyle%2Dtype%3Aupper%2Dalpha%7D%2Emarkdown%2Dbody%20ol%5Btype%3D%22i%20s%22%5D%7Blist%2Dstyle%2Dtype%3Alower%2Droman%7D%2Emarkdown%2Dbody%20ol%5Btype%3D%22I%20s%22%5D%7Blist%2Dstyle%2Dtype%3Aupper%2Droman%7D%2Emarkdown%2Dbody%20ol%5Btype%3D%221%22%5D%7Blist%2Dstyle%2Dtype%3Adecimal%7D%2Emarkdown%2Dbody%20div%3Eol%3Anot%28%5Btype%5D%29%7Blist%2Dstyle%2Dtype%3Adecimal%7D%2Emarkdown%2Dbody%20ol%20ol%2C%2Emarkdown%2Dbody%20ol%20ul%2C%2Emarkdown%2Dbody%20ul%20ol%2C%2Emarkdown%2Dbody%20ul%20ul%7Bmargin%2Dtop%3A0%3Bmargin%2Dbottom%3A0%7D%2Emarkdown%2Dbody%20li%3Ep%7Bmargin%2Dtop%3Avar%28%2D%2Dbase%2Dsize%2D16%29%7D%2Emarkdown%2Dbody%20li%2Bli%7Bmargin%2Dtop%3A%2E25em%7D%2Emarkdown%2Dbody%20dl%7Bpadding%3A0%7D%2Emarkdown%2Dbody%20dl%20dt%7Bpadding%3A0%3Bmargin%2Dtop%3Avar%28%2D%2Dbase%2Dsize%2D16%29%3Bfont%2Dsize%3A1em%3Bfont%2Dstyle%3Aitalic%3Bfont%2Dweight%3Avar%28%2D%2Dbase%2Dtext%2Dweight%2Dsemibold%2C600%29%7D%2Emarkdown%2Dbody%20dl%20dd%7Bpadding%3A0%20var%28%2D%2Dbase%2Dsize%2D16%29%3Bmargin%2Dbottom%3Avar%28%2D%2Dbase%2Dsize%2D16%29%7D%2Emarkdown%2Dbody%20table%20th%7Bfont%2Dweight%3Avar%28%2D%2Dbase%2Dtext%2Dweight%2Dsemibold%2C600%29%7D%2Emarkdown%2Dbody%20table%20td%2C%2Emarkdown%2Dbody%20table%20th%7Bpadding%3A6px%2013px%3Bborder%3A1px%20solid%20var%28%2D%2DborderColor%2Ddefault%29%7D%2Emarkdown%2Dbody%20table%20td%3E%3Alast%2Dchild%7Bmargin%2Dbottom%3A0%7D%2Emarkdown%2Dbody%20table%20tr%7Bbackground%2Dcolor%3Avar%28%2D%2DbgColor%2Ddefault%29%3Bborder%2Dtop%3A1px%20solid%20var%28%2D%2DborderColor%2Dmuted%29%7D%2Emarkdown%2Dbody%20table%20tr%3Anth%2Dchild%282n%29%7Bbackground%2Dcolor%3Avar%28%2D%2DbgColor%2Dmuted%29%7D%2Emarkdown%2Dbody%20table%20img%7Bbackground%2Dcolor%3Argba%280%2C0%2C0%2C0%29%7D%2Emarkdown%2Dbody%20img%5Balign%3Dright%5D%7Bpadding%2Dleft%3A20px%7D%2Emarkdown%2Dbody%20img%5Balign%3Dleft%5D%7Bpadding%2Dright%3A20px%7D%2Emarkdown%2Dbody%20%2Eemoji%7Bmax%2Dwidth%3Anone%3Bvertical%2Dalign%3Atext%2Dtop%3Bbackground%2Dcolor%3Argba%280%2C0%2C0%2C0%29%7D%2Emarkdown%2Dbody%20span%2Eframe%7Bdisplay%3Ablock%3Boverflow%3Ahidden%7D%2Emarkdown%2Dbody%20span%2Eframe%3Espan%7Bdisplay%3Ablock%3Bfloat%3Aleft%3Bwidth%3Aauto%3Bpadding%3A7px%3Bmargin%3A13px%200%200%3Boverflow%3Ahidden%3Bborder%3A1px%20solid%20var%28%2D%2DborderColor%2Ddefault%29%7D%2Emarkdown%2Dbody%20span%2Eframe%20span%20img%7Bdisplay%3Ablock%3Bfloat%3Aleft%7D%2Emarkdown%2Dbody%20span%2Eframe%20span%20span%7Bdisplay%3Ablock%3Bpadding%3A5px%200%200%3Bclear%3Aboth%3Bcolor%3Avar%28%2D%2DfgColor%2Ddefault%29%7D%2Emarkdown%2Dbody%20span%2Ealign%2Dcenter%7Bdisplay%3Ablock%3Boverflow%3Ahidden%3Bclear%3Aboth%7D%2Emarkdown%2Dbody%20span%2Ealign%2Dcenter%3Espan%7Bdisplay%3Ablock%3Bmargin%3A13px%20auto%200%3Boverflow%3Ahidden%3Btext%2Dalign%3Acenter%7D%2Emarkdown%2Dbody%20span%2Ealign%2Dcenter%20span%20img%7Bmargin%3A0%20auto%3Btext%2Dalign%3Acenter%7D%2Emarkdown%2Dbody%20span%2Ealign%2Dright%7Bdisplay%3Ablock%3Boverflow%3Ahidden%3Bclear%3Aboth%7D%2Emarkdown%2Dbody%20span%2Ealign%2Dright%3Espan%7Bdisplay%3Ablock%3Bmargin%3A13px%200%200%3Boverflow%3Ahidden%3Btext%2Dalign%3Aright%7D%2Emarkdown%2Dbody%20span%2Ealign%2Dright%20span%20img%7Bmargin%3A0%3Btext%2Dalign%3Aright%7D%2Emarkdown%2Dbody%20span%2Efloat%2Dleft%7Bdisplay%3Ablock%3Bfloat%3Aleft%3Bmargin%2Dright%3A13px%3Boverflow%3Ahidden%7D%2Emarkdown%2Dbody%20span%2Efloat%2Dleft%20span%7Bmargin%3A13px%200%200%7D%2Emarkdown%2Dbody%20span%2Efloat%2Dright%7Bdisplay%3Ablock%3Bfloat%3Aright%3Bmargin%2Dleft%3A13px%3Boverflow%3Ahidden%7D%2Emarkdown%2Dbody%20span%2Efloat%2Dright%3Espan%7Bdisplay%3Ablock%3Bmargin%3A13px%20auto%200%3Boverflow%3Ahidden%3Btext%2Dalign%3Aright%7D%2Emarkdown%2Dbody%20code%2C%2Emarkdown%2Dbody%20tt%7Bpadding%3A%2E2em%20%2E4em%3Bmargin%3A0%3Bfont%2Dsize%3A85%25%3Bwhite%2Dspace%3Abreak%2Dspaces%3Bbackground%2Dcolor%3Avar%28%2D%2DbgColor%2Dneutral%2Dmuted%29%3Bborder%2Dradius%3A6px%7D%2Emarkdown%2Dbody%20code%20br%2C%2Emarkdown%2Dbody%20tt%20br%7Bdisplay%3Anone%7D%2Emarkdown%2Dbody%20del%20code%7Btext%2Ddecoration%3Ainherit%7D%2Emarkdown%2Dbody%20samp%7Bfont%2Dsize%3A85%25%7D%2Emarkdown%2Dbody%20pre%20code%7Bfont%2Dsize%3A100%25%7D%2Emarkdown%2Dbody%20pre%3Ecode%7Bpadding%3A0%3Bmargin%3A0%3Bword%2Dbreak%3Anormal%3Bwhite%2Dspace%3Apre%3Bbackground%3Argba%280%2C0%2C0%2C0%29%3Bborder%3A0%7D%2Emarkdown%2Dbody%20%2Ehighlight%7Bmargin%2Dbottom%3Avar%28%2D%2Dbase%2Dsize%2D16%29%7D%2Emarkdown%2Dbody%20%2Ehighlight%20pre%7Bmargin%2Dbottom%3A0%3Bword%2Dbreak%3Anormal%7D%2Emarkdown%2Dbody%20%2Ehighlight%20pre%2C%2Emarkdown%2Dbody%20pre%7Bpadding%3Avar%28%2D%2Dbase%2Dsize%2D16%29%3Boverflow%3Aauto%3Bfont%2Dsize%3A85%25%3Bline%2Dheight%3A1%2E45%3Bcolor%3Avar%28%2D%2DfgColor%2Ddefault%29%3Bbackground%2Dcolor%3Avar%28%2D%2DbgColor%2Dmuted%29%3Bborder%2Dradius%3A6px%7D%2Emarkdown%2Dbody%20pre%20code%2C%2Emarkdown%2Dbody%20pre%20tt%7Bdisplay%3Ainline%3Bpadding%3A0%3Bmargin%3A0%3Boverflow%3Avisible%3Bline%2Dheight%3Ainherit%3Bword%2Dwrap%3Anormal%3Bbackground%2Dcolor%3Argba%280%2C0%2C0%2C0%29%3Bborder%3A0%7D%2Emarkdown%2Dbody%20%2Ecsv%2Ddata%20td%2C%2Emarkdown%2Dbody%20%2Ecsv%2Ddata%20th%7Bpadding%3A5px%3Boverflow%3Ahidden%3Bfont%2Dsize%3A12px%3Bline%2Dheight%3A1%3Btext%2Dalign%3Aleft%3Bwhite%2Dspace%3Anowrap%7D%2Emarkdown%2Dbody%20%2Ecsv%2Ddata%20%2Eblob%2Dnum%7Bpadding%3A10px%20var%28%2D%2Dbase%2Dsize%2D8%29%209px%3Btext%2Dalign%3Aright%3Bbackground%3Avar%28%2D%2DbgColor%2Ddefault%29%3Bborder%3A0%7D%2Emarkdown%2Dbody%20%2Ecsv%2Ddata%20tr%7Bborder%2Dtop%3A0%7D%2Emarkdown%2Dbody%20%2Ecsv%2Ddata%20th%7Bfont%2Dweight%3Avar%28%2D%2Dbase%2Dtext%2Dweight%2Dsemibold%2C600%29%3Bbackground%3Avar%28%2D%2DbgColor%2Dmuted%29%3Bborder%2Dtop%3A0%7D%2Emarkdown%2Dbody%20%5Bdata%2Dfootnote%2Dref%5D%3A%3Abefore%7Bcontent%3A%22%5B%22%7D%2Emarkdown%2Dbody%20%5Bdata%2Dfootnote%2Dref%5D%3A%3Aafter%7Bcontent%3A%22%5D%22%7D%2Emarkdown%2Dbody%20%2Efootnotes%7Bfont%2Dsize%3A12px%3Bcolor%3Avar%28%2D%2DfgColor%2Dmuted%29%3Bborder%2Dtop%3A1px%20solid%20var%28%2D%2DborderColor%2Ddefault%29%7D%2Emarkdown%2Dbody%20%2Efootnotes%20ol%7Bpadding%2Dleft%3Avar%28%2D%2Dbase%2Dsize%2D16%29%7D%2Emarkdown%2Dbody%20%2Efootnotes%20ol%20ul%7Bdisplay%3Ainline%2Dblock%3Bpadding%2Dleft%3Avar%28%2D%2Dbase%2Dsize%2D16%29%3Bmargin%2Dtop%3Avar%28%2D%2Dbase%2Dsize%2D16%29%7D%2Emarkdown%2Dbody%20%2Efootnotes%20li%7Bposition%3Arelative%7D%2Emarkdown%2Dbody%20%2Efootnotes%20li%3Atarget%3A%3Abefore%7Bposition%3Aabsolute%3Btop%3Acalc%28var%28%2D%2Dbase%2Dsize%2D8%29%2A%2D1%29%3Bright%3Acalc%28var%28%2D%2Dbase%2Dsize%2D8%29%2A%2D1%29%3Bbottom%3Acalc%28var%28%2D%2Dbase%2Dsize%2D8%29%2A%2D1%29%3Bleft%3Acalc%28var%28%2D%2Dbase%2Dsize%2D24%29%2A%2D1%29%3Bpointer%2Devents%3Anone%3Bcontent%3A%22%22%3Bborder%3A2px%20solid%20var%28%2D%2DborderColor%2Daccent%2Demphasis%29%3Bborder%2Dradius%3A6px%7D%2Emarkdown%2Dbody%20%2Efootnotes%20li%3Atarget%7Bcolor%3Avar%28%2D%2DfgColor%2Ddefault%29%7D%2Emarkdown%2Dbody%20%2Efootnotes%20%2Edata%2Dfootnote%2Dbackref%20g%2Demoji%7Bfont%2Dfamily%3Amonospace%7D%2Emarkdown%2Dbody%20%2Epl%2Dc%7Bcolor%3Avar%28%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dcomment%29%7D%2Emarkdown%2Dbody%20%2Epl%2Dc1%2C%2Emarkdown%2Dbody%20%2Epl%2Ds%20%2Epl%2Dv%7Bcolor%3Avar%28%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dconstant%29%7D%2Emarkdown%2Dbody%20%2Epl%2De%2C%2Emarkdown%2Dbody%20%2Epl%2Den%7Bcolor%3Avar%28%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dentity%29%7D%2Emarkdown%2Dbody%20%2Epl%2Ds%20%2Epl%2Ds1%2C%2Emarkdown%2Dbody%20%2Epl%2Dsmi%7Bcolor%3Avar%28%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dstorage%2Dmodifier%2Dimport%29%7D%2Emarkdown%2Dbody%20%2Epl%2Dent%7Bcolor%3Avar%28%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dentity%2Dtag%29%7D%2Emarkdown%2Dbody%20%2Epl%2Dk%7Bcolor%3Avar%28%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dkeyword%29%7D%2Emarkdown%2Dbody%20%2Epl%2Dpds%2C%2Emarkdown%2Dbody%20%2Epl%2Ds%2C%2Emarkdown%2Dbody%20%2Epl%2Ds%20%2Epl%2Dpse%20%2Epl%2Ds1%2C%2Emarkdown%2Dbody%20%2Epl%2Dsr%2C%2Emarkdown%2Dbody%20%2Epl%2Dsr%20%2Epl%2Dcce%2C%2Emarkdown%2Dbody%20%2Epl%2Dsr%20%2Epl%2Dsra%2C%2Emarkdown%2Dbody%20%2Epl%2Dsr%20%2Epl%2Dsre%7Bcolor%3Avar%28%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dstring%29%7D%2Emarkdown%2Dbody%20%2Epl%2Dsmw%2C%2Emarkdown%2Dbody%20%2Epl%2Dv%7Bcolor%3Avar%28%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dvariable%29%7D%2Emarkdown%2Dbody%20%2Epl%2Dbu%7Bcolor%3Avar%28%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dbrackethighlighter%2Dunmatched%29%7D%2Emarkdown%2Dbody%20%2Epl%2Dii%7Bcolor%3Avar%28%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dinvalid%2Dillegal%2Dtext%29%3Bbackground%2Dcolor%3Avar%28%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dinvalid%2Dillegal%2Dbg%29%7D%2Emarkdown%2Dbody%20%2Epl%2Dc2%7Bcolor%3Avar%28%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dcarriage%2Dreturn%2Dtext%29%3Bbackground%2Dcolor%3Avar%28%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dcarriage%2Dreturn%2Dbg%29%7D%2Emarkdown%2Dbody%20%2Epl%2Dsr%20%2Epl%2Dcce%7Bfont%2Dweight%3A700%3Bcolor%3Avar%28%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dstring%2Dregexp%29%7D%2Emarkdown%2Dbody%20%2Epl%2Dml%7Bcolor%3Avar%28%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Dlist%29%7D%2Emarkdown%2Dbody%20%2Epl%2Dmh%2C%2Emarkdown%2Dbody%20%2Epl%2Dmh%20%2Epl%2Den%2C%2Emarkdown%2Dbody%20%2Epl%2Dms%7Bfont%2Dweight%3A700%3Bcolor%3Avar%28%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Dheading%29%7D%2Emarkdown%2Dbody%20%2Epl%2Dmi%7Bfont%2Dstyle%3Aitalic%3Bcolor%3Avar%28%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Ditalic%29%7D%2Emarkdown%2Dbody%20%2Epl%2Dmb%7Bfont%2Dweight%3A700%3Bcolor%3Avar%28%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Dbold%29%7D%2Emarkdown%2Dbody%20%2Epl%2Dmd%7Bcolor%3Avar%28%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Ddeleted%2Dtext%29%3Bbackground%2Dcolor%3Avar%28%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Ddeleted%2Dbg%29%7D%2Emarkdown%2Dbody%20%2Epl%2Dmi1%7Bcolor%3Avar%28%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Dinserted%2Dtext%29%3Bbackground%2Dcolor%3Avar%28%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Dinserted%2Dbg%29%7D%2Emarkdown%2Dbody%20%2Epl%2Dmc%7Bcolor%3Avar%28%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Dchanged%2Dtext%29%3Bbackground%2Dcolor%3Avar%28%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Dchanged%2Dbg%29%7D%2Emarkdown%2Dbody%20%2Epl%2Dmi2%7Bcolor%3Avar%28%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Dignored%2Dtext%29%3Bbackground%2Dcolor%3Avar%28%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmarkup%2Dignored%2Dbg%29%7D%2Emarkdown%2Dbody%20%2Epl%2Dmdr%7Bfont%2Dweight%3A700%3Bcolor%3Avar%28%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dmeta%2Ddiff%2Drange%29%7D%2Emarkdown%2Dbody%20%2Epl%2Dba%7Bcolor%3Avar%28%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dbrackethighlighter%2Dangle%29%7D%2Emarkdown%2Dbody%20%2Epl%2Dsg%7Bcolor%3Avar%28%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dsublimelinter%2Dgutter%2Dmark%29%7D%2Emarkdown%2Dbody%20%2Epl%2Dcorl%7Btext%2Ddecoration%3Aunderline%3Bcolor%3Avar%28%2D%2Dcolor%2Dprettylights%2Dsyntax%2Dconstant%2Dother%2Dreference%2Dlink%29%7D%2Emarkdown%2Dbody%20%5Brole%3Dbutton%5D%3Afocus%3Anot%28%3Afocus%2Dvisible%29%2C%2Emarkdown%2Dbody%20%5Brole%3Dtabpanel%5D%5Btabindex%3D%220%22%5D%3Afocus%3Anot%28%3Afocus%2Dvisible%29%2C%2Emarkdown%2Dbody%20a%3Afocus%3Anot%28%3Afocus%2Dvisible%29%2C%2Emarkdown%2Dbody%20button%3Afocus%3Anot%28%3Afocus%2Dvisible%29%2C%2Emarkdown%2Dbody%20summary%3Afocus%3Anot%28%3Afocus%2Dvisible%29%7Boutline%3A0%3Bbox%2Dshadow%3Anone%7D%2Emarkdown%2Dbody%20%5Btabindex%3D%220%22%5D%3Afocus%3Anot%28%3Afocus%2Dvisible%29%2C%2Emarkdown%2Dbody%20details%2Ddialog%3Afocus%3Anot%28%3Afocus%2Dvisible%29%7Boutline%3A0%7D%2Emarkdown%2Dbody%20g%2Demoji%7Bdisplay%3Ainline%2Dblock%3Bmin%2Dwidth%3A1ch%3Bfont%2Dfamily%3A%22Apple%20Color%20Emoji%22%2C%22Segoe%20UI%20Emoji%22%2C%22Segoe%20UI%20Symbol%22%3Bfont%2Dsize%3A1em%3Bfont%2Dstyle%3Anormal%21important%3Bfont%2Dweight%3Avar%28%2D%2Dbase%2Dtext%2Dweight%2Dnormal%2C400%29%3Bline%2Dheight%3A1%3Bvertical%2Dalign%3A%2D%2E075em%7D%2Emarkdown%2Dbody%20g%2Demoji%20img%7Bwidth%3A1em%3Bheight%3A1em%7D%2Emarkdown%2Dbody%20a%3Ahas%28%3Ep%2C%3Ediv%2C%3Epre%2C%3Eblockquote%29%7Bdisplay%3Ablock%7D%2Emarkdown%2Dbody%20a%3Ahas%28%3Ep%2C%3Ediv%2C%3Epre%2C%3Eblockquote%29%3Anot%28%3Ahas%28%2Esnippet%2Dclipboard%2Dcontent%2C%3Epre%29%29%7Bwidth%3Afit%2Dcontent%7D%2Emarkdown%2Dbody%20a%3Ahas%28%3Ep%2C%3Ediv%2C%3Epre%2C%3Eblockquote%29%3Ahas%28%2Esnippet%2Dclipboard%2Dcontent%2C%3Epre%29%3Afocus%2Dvisible%7Boutline%3A2px%20solid%20var%28%2D%2Dfocus%2DoutlineColor%29%3Boutline%2Doffset%3A2px%7D%2Emarkdown%2Dbody%20%2Etask%2Dlist%2Ditem%7Blist%2Dstyle%2Dtype%3Anone%7D%2Emarkdown%2Dbody%20%2Etask%2Dlist%2Ditem%20label%7Bfont%2Dweight%3Avar%28%2D%2Dbase%2Dtext%2Dweight%2Dnormal%2C400%29%7D%2Emarkdown%2Dbody%20%2Etask%2Dlist%2Ditem%2Eenabled%20label%7Bcursor%3Apointer%7D%2Emarkdown%2Dbody%20%2Etask%2Dlist%2Ditem%2B%2Etask%2Dlist%2Ditem%7Bmargin%2Dtop%3Avar%28%2D%2Dbase%2Dsize%2D4%29%7D%2Emarkdown%2Dbody%20%2Etask%2Dlist%2Ditem%20%2Ehandle%7Bdisplay%3Anone%7D%2Emarkdown%2Dbody%20%2Etask%2Dlist%2Ditem%2Dcheckbox%7Bmargin%3A0%20%2E2em%20%2E25em%20%2D1%2E4em%3Bvertical%2Dalign%3Amiddle%7D%2Emarkdown%2Dbody%20ul%3Adir%28rtl%29%20%2Etask%2Dlist%2Ditem%2Dcheckbox%7Bmargin%3A0%20%2D1%2E6em%20%2E25em%20%2E2em%7D%2Emarkdown%2Dbody%20ol%3Adir%28rtl%29%20%2Etask%2Dlist%2Ditem%2Dcheckbox%7Bmargin%3A0%20%2D1%2E6em%20%2E25em%20%2E2em%7D%2Emarkdown%2Dbody%20%2Econtains%2Dtask%2Dlist%3Afocus%2Dwithin%20%2Etask%2Dlist%2Ditem%2Dconvert%2Dcontainer%2C%2Emarkdown%2Dbody%20%2Econtains%2Dtask%2Dlist%3Ahover%20%2Etask%2Dlist%2Ditem%2Dconvert%2Dcontainer%7Bdisplay%3Ablock%3Bwidth%3Aauto%3Bheight%3A24px%3Boverflow%3Avisible%3Bclip%2Dpath%3Anone%7D%2Emarkdown%2Dbody%20%3A%3A%2Dwebkit%2Dcalendar%2Dpicker%2Dindicator%7Bfilter%3Ainvert%2850%25%29%7D%2Emarkdown%2Dbody%20%2Emarkdown%2Dalert%7Bpadding%3Avar%28%2D%2Dbase%2Dsize%2D8%29%20var%28%2D%2Dbase%2Dsize%2D16%29%3Bmargin%2Dbottom%3Avar%28%2D%2Dbase%2Dsize%2D16%29%3Bcolor%3Ainherit%3Bborder%2Dleft%3A%2E25em%20solid%20var%28%2D%2DborderColor%2Ddefault%29%7D%2Emarkdown%2Dbody%20%2Emarkdown%2Dalert%3E%3Afirst%2Dchild%7Bmargin%2Dtop%3A0%7D%2Emarkdown%2Dbody%20%2Emarkdown%2Dalert%3E%3Alast%2Dchild%7Bmargin%2Dbottom%3A0%7D%2Emarkdown%2Dbody%20%2Emarkdown%2Dalert%20%2Emarkdown%2Dalert%2Dtitle%7Bdisplay%3Aflex%3Bfont%2Dweight%3Avar%28%2D%2Dbase%2Dtext%2Dweight%2Dmedium%2C500%29%3Balign%2Ditems%3Acenter%3Bline%2Dheight%3A1%7D%2Emarkdown%2Dbody%20%2Emarkdown%2Dalert%2Emarkdown%2Dalert%2Dnote%7Bborder%2Dleft%2Dcolor%3Avar%28%2D%2DborderColor%2Daccent%2Demphasis%29%7D%2Emarkdown%2Dbody%20%2Emarkdown%2Dalert%2Emarkdown%2Dalert%2Dnote%20%2Emarkdown%2Dalert%2Dtitle%7Bcolor%3Avar%28%2D%2DfgColor%2Daccent%29%7D%2Emarkdown%2Dbody%20%2Emarkdown%2Dalert%2Emarkdown%2Dalert%2Dimportant%7Bborder%2Dleft%2Dcolor%3Avar%28%2D%2DborderColor%2Ddone%2Demphasis%29%7D%2Emarkdown%2Dbody%20%2Emarkdown%2Dalert%2Emarkdown%2Dalert%2Dimportant%20%2Emarkdown%2Dalert%2Dtitle%7Bcolor%3Avar%28%2D%2DfgColor%2Ddone%29%7D%2Emarkdown%2Dbody%20%2Emarkdown%2Dalert%2Emarkdown%2Dalert%2Dwarning%7Bborder%2Dleft%2Dcolor%3Avar%28%2D%2DborderColor%2Dattention%2Demphasis%29%7D%2Emarkdown%2Dbody%20%2Emarkdown%2Dalert%2Emarkdown%2Dalert%2Dwarning%20%2Emarkdown%2Dalert%2Dtitle%7Bcolor%3Avar%28%2D%2DfgColor%2Dattention%29%7D%2Emarkdown%2Dbody%20%2Emarkdown%2Dalert%2Emarkdown%2Dalert%2Dtip%7Bborder%2Dleft%2Dcolor%3Avar%28%2D%2DborderColor%2Dsuccess%2Demphasis%29%7D%2Emarkdown%2Dbody%20%2Emarkdown%2Dalert%2Emarkdown%2Dalert%2Dtip%20%2Emarkdown%2Dalert%2Dtitle%7Bcolor%3Avar%28%2D%2DfgColor%2Dsuccess%29%7D%2Emarkdown%2Dbody%20%2Emarkdown%2Dalert%2Emarkdown%2Dalert%2Dcaution%7Bborder%2Dleft%2Dcolor%3Avar%28%2D%2DborderColor%2Ddanger%2Demphasis%29%7D%2Emarkdown%2Dbody%20%2Emarkdown%2Dalert%2Emarkdown%2Dalert%2Dcaution%20%2Emarkdown%2Dalert%2Dtitle%7Bcolor%3Avar%28%2D%2DfgColor%2Ddanger%29%7D%2Emarkdown%2Dbody%3E%3Afirst%2Dchild%3E%2Eheading%2Delement%3Afirst%2Dchild%7Bmargin%2Dtop%3A0%21important%7D%2Emarkdown%2Dbody%20%2Ehighlight%20pre%3Ahas%28%2B%2Ezeroclipboard%2Dcontainer%29%7Bmin%2Dheight%3A52px%7D%0A" rel="stylesheet" />
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">Membership Renewal System</h1>
+</header>
+<h1 id="membership-renewal-system">Membership Renewal System</h1>
+<p><strong>Author:</strong> isaasi<br />
+<strong>Last Updated:</strong> February 2026<br />
+<strong>Module:</strong> Organisation Membership</p>
+<hr />
+<h2 id="table-of-contents">Table of Contents</h2>
+<ol type="1">
+<li><a href="#overview">Overview</a></li>
+<li><a href="#architecture">Architecture</a></li>
+<li><a href="#the-simulation-engine">The Simulation Engine</a></li>
+<li><a href="#cost-calculation-logic">Cost Calculation Logic</a></li>
+<li><a href="#override-system">Override System</a></li>
+<li><a href="#invoicing-modes">Invoicing Modes</a></li>
+<li><a href="#the-three-renewal-paths">The Three Renewal Paths</a></li>
+<li><a href="#record-fee">Record Fee</a></li>
+<li><a href="#safeguards-and-duplicate-prevention">Safeguards and
+Duplicate Prevention</a></li>
+<li><a href="#frontend-ui--organisation-membership-tab">Frontend UI —
+Organisation Membership Tab</a></li>
+<li><a href="#purchase-order-numbers">Purchase Order Numbers</a></li>
+<li><a href="#email-fees--member-payment-portal">Email Fees &amp; Member
+Payment Portal</a></li>
+<li><a href="#portal-membership-fees-page">Portal Membership Fees
+Page</a></li>
+<li><a href="#membership-settings">Membership Settings</a></li>
+<li><a href="#fee-approval-workflow">Fee Approval Workflow</a></li>
+<li><a href="#database-tables">Database Tables</a></li>
+<li><a href="#data-flow-diagrams">Data Flow Diagrams</a></li>
+<li><a href="#xero-integration">Xero Integration</a></li>
+<li><a href="#configuration-reference">Configuration Reference</a></li>
+<li><a href="#troubleshooting">Troubleshooting</a></li>
+</ol>
+<hr />
+<h2 id="overview">Overview</h2>
+<p>The membership renewal system handles the full lifecycle of
+calculating, creating, and invoicing annual membership fees for
+organisations within a tenant. It is designed around a single source of
+truth — the shared simulation function — that all three renewal paths
+(workflow, cron job, manual) use to ensure consistent cost calculations
+everywhere.</p>
+<p>Each organisation’s membership year is determined by the tenant’s
+tier configuration (configurable start month/day), and costs are
+calculated using a day-based approach that accounts for pro-rata
+periods, free periods, spillover discounts, custom discount rules, and
+three types of overrides.</p>
+<p>The system supports per-year invoicing controls, allowing admins to
+independently choose Automatic, Scheduled, or Manual invoicing for each
+membership year. An optional fee approval workflow allows admins to
+review and approve calculated fees per organisation/year before any
+processing (cron, manual renewal, or member payment) can proceed.</p>
+<hr />
+<h2 id="architecture">Architecture</h2>
+<h3 id="key-files">Key Files</h3>
+<table>
+<colgroup>
+<col style="width: 40%" />
+<col style="width: 60%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>File</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>api/_lib/membershipSimulation.js</code></td>
+<td>Shared simulation engine — single source of truth for all cost
+calculations</td>
+</tr>
+<tr class="even">
+<td><code>api/_lib/membershipConfigResolver.js</code></td>
+<td>Resolves the correct tier configuration for an organisation (handles
+scoped configs)</td>
+</tr>
+<tr class="odd">
+<td><code>api/_lib/discountHelper.js</code></td>
+<td>Evaluates and applies custom discount rules</td>
+</tr>
+<tr class="even">
+<td><code>api/_lib/workflows.js</code></td>
+<td>Workflow <code>create_membership</code> action (automatic path)</td>
+</tr>
+<tr class="odd">
+<td><code>api/cron/process-membership-renewals.js</code></td>
+<td>Cron job for automatic and scheduled renewals</td>
+</tr>
+<tr class="even">
+<td><code>api/membership/org-membership-invoicing.js</code></td>
+<td>Manual renewal endpoint and invoicing settings management</td>
+</tr>
+<tr class="odd">
+<td><code>api/membership/member-fees.js</code></td>
+<td>Authenticated portal API — session-based fee lookup, PO submission,
+Stripe payment</td>
+</tr>
+<tr class="even">
+<td><code>api/membership/email-fees.js</code></td>
+<td>Email Fees endpoint — token creation, email sending</td>
+</tr>
+<tr class="odd">
+<td><code>api/public/membership-fees/[token].js</code></td>
+<td>Public API — token validation, PO submission, Stripe payment</td>
+</tr>
+<tr class="even">
+<td><code>api/membership/membership-settings.js</code></td>
+<td>Membership settings API — approval toggle, Stripe enablement, custom
+message</td>
+</tr>
+<tr class="odd">
+<td><code>client/src/components/OrgMembershipTab.jsx</code></td>
+<td>Frontend UI for the organisation membership tab</td>
+</tr>
+<tr class="even">
+<td><code>client/src/pages/MembershipSettings.jsx</code></td>
+<td>Admin page for membership settings (approval, Stripe, custom
+message)</td>
+</tr>
+<tr class="odd">
+<td><code>client/src/pages/MembershipFeePage.jsx</code></td>
+<td>Public member-facing payment page (token-based)</td>
+</tr>
+<tr class="even">
+<td><code>client/src/pages/MembershipFees.jsx</code></td>
+<td>Portal membership fees page (authenticated members)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="design-principles">Design Principles</h3>
+<ol type="1">
+<li><strong>Single source of truth</strong>:
+<code>simulateMembershipForOrg()</code> is the only function that
+performs cost calculations. No renewal path implements its own
+calculation logic.</li>
+<li><strong>Day-based calculations</strong>: Pro-rata and billable-day
+calculations use actual calendar days between dates. Free period
+durations are first converted from their configured unit (months, weeks,
+or days) into an approximate day count using standard conversion factors
+(months × 30.44, weeks × 7), then applied as calendar days within the
+membership year.</li>
+<li><strong>Per-year independence</strong>: Each membership year has its
+own invoicing mode, override, and simulation — they don’t interfere with
+each other.</li>
+<li><strong>Tenant isolation</strong>: All queries are scoped by
+<code>tenant_id</code> to ensure strict multi-tenant data
+separation.</li>
+<li><strong>Defensive coding</strong>: Three layers of duplicate
+prevention ensure a membership record is never created twice.</li>
+<li><strong>Optional approval gate</strong>: When enabled, fee approval
+adds a consistent check across all four processing paths (cron, manual,
+portal, public token) using the same pattern — query the tenant setting,
+then check the per-org/year flag.</li>
+</ol>
+<hr />
+<h2 id="the-simulation-engine">The Simulation Engine</h2>
+<h3 id="function-signature">Function Signature</h3>
+<div class="sourceCode" id="cb1"><pre class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">simulateMembershipForOrg</span>(tenantId<span class="op">,</span> organizationId<span class="op">,</span> options <span class="op">=</span> {})</span></code></pre></div>
+<h3 id="options">Options</h3>
+<table>
+<colgroup>
+<col style="width: 22%" />
+<col style="width: 16%" />
+<col style="width: 25%" />
+<col style="width: 36%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Option</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>source</code></td>
+<td>string</td>
+<td><code>&#39;workflow&#39;</code></td>
+<td>Who is calling: <code>&#39;workflow&#39;</code>, <code>&#39;cron&#39;</code>,
+<code>&#39;manual&#39;</code>, or <code>&#39;simulate&#39;</code></td>
+</tr>
+<tr class="even">
+<td><code>mode</code></td>
+<td>string</td>
+<td><code>&#39;automatic&#39;</code></td>
+<td>Invoicing mode context: <code>&#39;automatic&#39;</code>,
+<code>&#39;scheduled&#39;</code>, or <code>&#39;manual&#39;</code></td>
+</tr>
+<tr class="odd">
+<td><code>workflowName</code></td>
+<td>string</td>
+<td><code>null</code></td>
+<td>Name of the triggering workflow (for logging)</td>
+</tr>
+<tr class="even">
+<td><code>verbose</code></td>
+<td>boolean</td>
+<td><code>false</code></td>
+<td>Enable extra logging</td>
+</tr>
+<tr class="odd">
+<td><code>targetYear</code></td>
+<td>string</td>
+<td><code>null</code></td>
+<td>Target a specific year label (e.g. <code>&#39;2025/2026&#39;</code>). If
+null, defaults based on source</td>
+</tr>
+</tbody>
+</table>
+<h3 id="year-targeting-logic">Year Targeting Logic</h3>
+<p>When no <code>targetYear</code> is specified: -
+<code>source === &#39;simulate&#39;</code> → targets the <strong>next</strong>
+membership year (preview) - All other sources → target the
+<strong>current</strong> membership year</p>
+<p>When <code>targetYear</code> is specified, the simulation matches it
+against the current or next year labels and uses the matching one.</p>
+<h3 id="return-value">Return Value</h3>
+<p>The simulation returns a comprehensive result object containing:</p>
+<ul>
+<li><code>success</code> (boolean) — whether simulation completed</li>
+<li><code>org</code> — the organisation record</li>
+<li><code>config</code> — the matched tier configuration</li>
+<li><code>membershipYear</code> — <code>{ label, start, end }</code> for
+the target year</li>
+<li><code>yearNumber</code> — which year of membership this is (1st,
+2nd, 3rd, etc.)</li>
+<li><code>goLiveDate</code> — the organisation’s go-live date (or
+null)</li>
+<li><code>matchedBand</code> — the tier band that was matched</li>
+<li><code>tierLabel</code> — display label for the matched tier</li>
+<li><code>fieldValue</code> — the organisation’s field value used for
+band matching</li>
+<li><code>annualCost</code> — the base annual cost (after custom
+discounts but before pro-rata/free period)</li>
+<li><code>prorataCost</code> — pro-rata cost if applicable (year 1
+only)</li>
+<li><code>freeDiscount</code> — free period discount amount</li>
+<li><code>rolloverDiscount</code> — rollover discount amount (year 2
+spillover)</li>
+<li><code>customDiscountTotal</code> — total of all custom discount
+rules</li>
+<li><code>customDiscountDetails</code> — array of applied discount rule
+details</li>
+<li><code>finalCost</code> — the actual amount to charge</li>
+<li><code>currency</code> — currency code (e.g. ‘GBP’)</li>
+<li><code>overrideApplied</code> — whether an override was used</li>
+<li><code>overrideType</code> — type of override if applied</li>
+<li><code>existingRecord</code> — existing history record if one exists
+for this year (includes <code>xero_invoice_id</code>)</li>
+<li><code>invoicePreview</code> — preview of the Xero invoice that would
+be generated</li>
+<li><code>steps</code> — detailed step-by-step log of the simulation
+(used in UI)</li>
+<li><code>isNewOrg</code> — whether this is a new organisation (year 1
+with no existing records)</li>
+<li><code>billingPeriod</code> — from config (typically ‘annual’)</li>
+</ul>
+<h3 id="simulation-steps-log">Simulation Steps Log</h3>
+<p>The simulation builds a detailed <code>steps</code> array as it
+progresses, recording each decision point. This is displayed in the
+frontend simulation panel and is invaluable for debugging. Each step
+has:</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>{ <span class="dt">step</span><span class="op">:</span> <span class="st">&#39;Step Name&#39;</span><span class="op">,</span> <span class="dt">detail</span><span class="op">:</span> <span class="st">&#39;Description&#39;</span><span class="op">,</span> <span class="dt">status</span><span class="op">:</span> <span class="st">&#39;ok&#39;</span> <span class="op">|</span> <span class="st">&#39;warning&#39;</span> <span class="op">|</span> <span class="st">&#39;error&#39;</span><span class="op">,</span> <span class="dt">timestamp</span><span class="op">:</span> <span class="st">&#39;...&#39;</span> }</span></code></pre></div>
+<hr />
+<h2 id="cost-calculation-logic">Cost Calculation Logic</h2>
+<h3 id="membership-year-determination">Membership Year
+Determination</h3>
+<p>The membership year is defined by the tier configuration’s
+<code>membership_start_month</code> and
+<code>membership_start_day</code>. For example, if the membership year
+starts on April 1:</p>
+<ul>
+<li>Current year: <code>2025/2026</code> (1 Apr 2025 – 31 Mar 2026)</li>
+<li>Next year: <code>2026/2027</code> (1 Apr 2026 – 31 Mar 2027)</li>
+</ul>
+<p>The label format is always <code>YYYY/YYYY</code>.</p>
+<h3 id="year-number-calculation">Year Number Calculation</h3>
+<p>The year number tells us how long an organisation has been a member,
+counted from their go-live date:</p>
+<ul>
+<li><strong>Year 1</strong>: The membership year containing the go-live
+date</li>
+<li><strong>Year 2</strong>: The next membership year after year 1</li>
+<li><strong>Year 3+</strong>: Subsequent years</li>
+</ul>
+<p>This is important because pro-rata and free period discounts only
+apply in years 1 and 2.</p>
+<h3 id="tier-band-matching">Tier Band Matching</h3>
+<ol type="1">
+<li>The system looks up the organisation’s field value (e.g. member
+count, or a custom field)</li>
+<li>It matches this value against the tier bands defined in the
+configuration</li>
+<li>Each band has a <code>min_value</code>, <code>max_value</code> (null
+= unlimited), <code>annual_cost</code>, <code>label</code>, and
+optionally <code>vat_rate</code></li>
+<li>The first band where
+<code>fieldValue &gt;= min_value AND fieldValue &lt;= max_value</code>
+is selected</li>
+</ol>
+<h3 id="custom-discounts">Custom Discounts</h3>
+<p>Before any time-based calculations, custom discount rules are
+evaluated:</p>
+<ol type="1">
+<li>Discount rules are defined per tier configuration</li>
+<li>Each rule checks an organisation’s custom field value against
+conditions</li>
+<li>Rules can apply percentage or fixed-amount discounts</li>
+<li>Multiple rules stack (applied sequentially)</li>
+<li>The discounted cost becomes the basis for all subsequent
+calculations</li>
+</ol>
+<h3 id="day-based-calculations-year-1">Day-Based Calculations (Year
+1)</h3>
+<p>When an organisation is in their first membership year and pro-rata
+is enabled:</p>
+<pre><code>totalDaysInYear = days from year start to year end (inclusive)
+dailyCost = annualCost / totalDaysInYear
+prorataDays = days from go-live date to year end (inclusive)
+prorataCost = dailyCost × prorataDays</code></pre>
+<h3 id="free-period-year-1">Free Period (Year 1)</h3>
+<p>If the configuration has a free period:</p>
+<pre><code>freePeriodTotalDays = free period converted to days
+freePeriodDaysApplied = min(freePeriodTotalDays, prorataDays)  // can&#39;t exceed remaining days
+freeDiscount = dailyCost × freePeriodDaysApplied</code></pre>
+<h3 id="final-cost-year-1">Final Cost (Year 1)</h3>
+<pre><code>billableDays = prorataDays - freePeriodDaysApplied
+finalCost = dailyCost × billableDays</code></pre>
+<h3 id="free-period-spillover-year-2">Free Period Spillover (Year
+2)</h3>
+<p>If the free period wasn’t fully consumed in year 1 (because the org
+joined late in the year), the remaining free days spill over into year
+2:</p>
+<pre><code>spilloverDays = freePeriodTotalDays - freeDaysUsedInYear1
+year2FreeDiscount = year2DailyCost × min(spilloverDays, totalDaysInYear2)
+finalCost = annualCost - year2FreeDiscount</code></pre>
+<h3 id="year-3">Year 3+</h3>
+<p>No pro-rata, free period, or spillover discounts. The full annual
+cost applies (after custom discounts and any overrides).</p>
+<h3 id="price-override">Price Override</h3>
+<p>When a price override is set, all calculation lines (pro-rata, free
+period, spillover) are suppressed. The final cost is exactly the manual
+price specified.</p>
+<hr />
+<h2 id="override-system">Override System</h2>
+<p>Overrides allow admins to modify an organisation’s membership cost
+outside the normal tier calculation. There are three types:</p>
+<h3 id="structure-override">1. Structure Override</h3>
+<p>Assigns the organisation to a different tier configuration
+entirely.</p>
+<ul>
+<li><strong>Config ID</strong>: Points to an alternative
+<code>membership_tier_config</code></li>
+<li><strong>Band ID</strong> (optional): Forces a specific band within
+that config. If not set, the organisation’s field value is matched
+against the alternative config’s bands</li>
+<li>Custom discounts are re-evaluated against the new config</li>
+<li>Pro-rata and free period calculations still apply based on the new
+annual cost</li>
+</ul>
+<h3 id="manual-price-override">2. Manual Price Override</h3>
+<p>Sets an exact price, bypassing all calculations.</p>
+<ul>
+<li>The <code>manual_price</code> value becomes the final cost
+directly</li>
+<li>No pro-rata, free period, custom discounts, or spillover are
+applied</li>
+<li>Useful for negotiated or exceptional arrangements</li>
+</ul>
+<h3 id="discount-override">3. Discount Override</h3>
+<p>Applies a specific discount instead of the normal custom discount
+rules.</p>
+<ul>
+<li><strong>Discount type</strong>: <code>&#39;percentage&#39;</code> or
+<code>&#39;fixed&#39;</code></li>
+<li><strong>Discount value</strong>: The percentage or fixed amount</li>
+<li>When applied, it replaces the custom discount rules entirely (not
+stacked on top)</li>
+<li>The gross cost is recalculated as
+<code>annualCost + customDiscountTotal</code> (i.e. the cost before
+custom discounts were applied), and the override discount is applied
+against that gross cost</li>
+<li>For percentage:
+<code>discountAmount = grossCost × percentage / 100</code></li>
+<li>For fixed:
+<code>discountAmount = min(fixedValue, grossCost)</code></li>
+</ul>
+<h3 id="override-scoping">Override Scoping</h3>
+<p>Overrides are stored in the
+<code>organisation_membership_override</code> table with an optional
+<code>membership_year</code> column:</p>
+<ul>
+<li>Year-specific overrides take priority (matched by year label)</li>
+<li>Legacy overrides (null <code>membership_year</code>) serve as
+fallback</li>
+<li>The simulation queries using
+<code>OR(membership_year = targetYear, membership_year IS NULL)</code>
+and picks the most specific match</li>
+</ul>
+<hr />
+<h2 id="invoicing-modes">Invoicing Modes</h2>
+<p>Each organisation can have a different invoicing mode per membership
+year, stored in <code>organisation_membership_invoicing</code>.</p>
+<h3 id="automatic">Automatic</h3>
+<ul>
+<li><strong>What happens</strong>: The membership record and invoice are
+created together. Typically, the cron job is the primary actor — it
+creates both the record and invoice in one pass. If a workflow fires
+first (e.g. when go-live is set), it creates just the record; the cron
+then finds the existing record and skips.</li>
+<li><strong>Workflow action</strong>: Proceeds normally — creates the
+membership history record only (no Xero invoice).</li>
+<li><strong>Cron job</strong>: Handles automatic renewals — checks if
+the membership year has started and creates records with invoices for
+eligible orgs. If the workflow already created the record, the cron will
+find the existing record and skip entirely (in automatic mode, the cron
+does not separately invoice existing records — invoicing only happens
+when the cron creates the record itself).</li>
+</ul>
+<h3 id="scheduled">Scheduled</h3>
+<ul>
+<li><strong>What happens</strong>: The membership record is created when
+the year starts, but the invoice is generated on a specific future date
+chosen by the admin.</li>
+<li><strong>Workflow action</strong>: Skips — returns a message saying
+the scheduled renewal job will handle it.</li>
+<li><strong>Cron job</strong>: Creates the record when the year starts
+(without invoicing). On a subsequent run, when the invoice date arrives,
+it generates the Xero invoice for the existing record.</li>
+<li><strong>VAT handling</strong>: When the cron job invoices an
+existing record later, it derives VAT from the stored record’s
+<code>vat_rate</code> or falls back to looking up the band’s VAT rate —
+it does NOT re-run the simulation, ensuring the invoiced amount matches
+the recorded amount.</li>
+</ul>
+<h3 id="manual">Manual</h3>
+<ul>
+<li><strong>What happens</strong>: Nothing automatic — the admin must
+click the “Renew &amp; Invoice Now” button in the UI to create both the
+record and invoice.</li>
+<li><strong>Workflow action</strong>: Skips — returns a message
+directing to the admin UI.</li>
+<li><strong>Cron job</strong>: Ignores organisations with manual mode
+(only queries for <code>automatic</code> and
+<code>scheduled</code>).</li>
+<li><strong>UI</strong>: The “Renew &amp; Invoice Now” button only
+appears on the current year section, not the next year preview.</li>
+</ul>
+<h3 id="default-behaviour">Default Behaviour</h3>
+<p>If no invoicing setting exists for an organisation/year: - The
+<strong>workflow action</strong> defaults to <code>&#39;automatic&#39;</code>
+(so it will proceed to create the record) - The <strong>simulation
+engine</strong> logs the saved mode from the invoicing table; if no
+setting exists it reports <code>&#39;manual&#39;</code> as the current mode for
+display context - The <strong>cron job</strong> won’t pick it up — it
+only queries <code>organisation_membership_invoicing</code> rows that
+explicitly have <code>automatic</code> or <code>scheduled</code> mode,
+so orgs with no saved setting are naturally excluded</p>
+<h3 id="legacy-fallback">Legacy Fallback</h3>
+<p>The <code>membership_year</code> column in
+<code>organisation_membership_invoicing</code> was added later. Legacy
+rows with null <code>membership_year</code> serve as fallback when no
+year-specific setting exists.</p>
+<hr />
+<h2 id="the-three-renewal-paths">The Three Renewal Paths</h2>
+<h3 id="path-1-workflow-action-create_membership">Path 1: Workflow
+Action (<code>create_membership</code>)</h3>
+<p><strong>File:</strong> <code>api/_lib/workflows.js</code> →
+<code>executeCreateMembershipAction()</code></p>
+<p><strong>Trigger:</strong> A workflow containing a
+<code>create_membership</code> action is executed (typically triggered
+by setting a go-live date on an organisation).</p>
+<p><strong>Flow:</strong></p>
+<ol type="1">
+<li>Resolve the organisation ID (supports both organisation and member
+entity types)</li>
+<li>Call <code>simulateMembershipForOrg()</code> with
+<code>source: &#39;workflow&#39;</code></li>
+<li>If simulation fails → return error with steps</li>
+<li>If dry run → return simulation results without creating
+anything</li>
+<li><strong>Check invoicing mode</strong> for the target year (with null
+fallback):
+<ul>
+<li><code>manual</code> → skip with message to use admin UI</li>
+<li><code>scheduled</code> → skip with message about cron job</li>
+<li><code>automatic</code> (or no setting) → proceed</li>
+</ul></li>
+<li>If existing record found → skip (duplicate prevention)</li>
+<li>Insert membership history record</li>
+<li>Return success with full cost breakdown</li>
+</ol>
+<p><strong>Important:</strong> The workflow action only creates the
+membership history record. It does NOT generate a Xero invoice.
+Invoicing is handled separately by the cron job (for automatic/scheduled
+modes) or the manual renewal path.</p>
+<h3 id="path-2-cron-job-automatic-scheduled">Path 2: Cron Job (Automatic
+&amp; Scheduled)</h3>
+<p><strong>File:</strong>
+<code>api/cron/process-membership-renewals.js</code></p>
+<p><strong>Trigger:</strong> Scheduled cron execution (e.g. daily).</p>
+<p><strong>Flow:</strong></p>
+<ol type="1">
+<li>Fetch all active tier configurations to determine which tenants to
+process</li>
+<li>For each tenant, query
+<code>organisation_membership_invoicing</code> for rows with
+<code>automatic</code> or <code>scheduled</code> mode</li>
+<li>For each org/setting:
+<ol type="a">
+<li>Call <code>simulateMembershipForOrg()</code> with
+<code>source: &#39;cron&#39;</code> and the setting’s
+<code>membership_year</code> as <code>targetYear</code></li>
+<li><strong>Go-live date guard</strong>: If no go-live date → skip</li>
+<li>Determine if renewal is due (today &gt;= year start date)</li>
+</ol></li>
+</ol>
+<p><strong>Automatic mode flow:</strong> - If not due → skip - If
+existing record → skip - Create record AND invoice together</p>
+<p><strong>Scheduled mode flow:</strong> - If not due AND no existing
+record → skip - If no existing record AND due → create record (invoice
+only if invoice date reached) - If existing record WITHOUT invoice AND
+invoice date reached → invoice the existing record - If existing record
+WITH invoice → skip</p>
+<ol start="4" type="1">
+<li>Log results to <code>scheduled_task_log</code></li>
+</ol>
+<p><strong>Key details:</strong> - Uses
+<code>simulateMembershipForOrg()</code> for all cost calculations -
+Three-layer duplicate prevention (see Safeguards section) - Scheduled
+invoicing of existing records derives VAT from the stored record, not
+from re-simulation</p>
+<h3 id="path-3-manual-renewal">Path 3: Manual Renewal</h3>
+<p><strong>File:</strong>
+<code>api/membership/org-membership-invoicing.js</code> →
+<code>handleManualRenewal()</code></p>
+<p><strong>Trigger:</strong> Admin clicks “Renew &amp; Invoice Now”
+button in the UI (current year section only).</p>
+<p><strong>Flow:</strong></p>
+<ol type="1">
+<li>Accept <code>organizationId</code> and optional
+<code>membershipYear</code> from request body</li>
+<li>Call <code>simulateMembershipForOrg()</code> with
+<code>source: &#39;manual&#39;</code>, <code>mode: &#39;manual&#39;</code>, and
+<code>targetYear</code> (defaults to current year)</li>
+<li><strong>Go-live date guard</strong>: If no go-live date → return 400
+error</li>
+<li><strong>Duplicate guard</strong>: If existing record → return 400
+error</li>
+<li>Insert membership history record</li>
+<li><strong>DB constraint guard</strong>: Handle 23505 (unique
+violation) gracefully</li>
+<li>Create Xero invoice immediately</li>
+<li>Link invoice to history record</li>
+<li>Create organisation note with renewal and invoice details</li>
+<li>Return success response</li>
+</ol>
+<p><strong>Key detail:</strong> Manual renewal creates BOTH the record
+AND invoice in one operation, giving the admin immediate results.</p>
+<hr />
+<h2 id="record-fee">Record Fee</h2>
+<h3 id="purpose">Purpose</h3>
+<p>The Record Fee button allows an admin to manually capture the current
+year’s calculated membership cost as a history record — <strong>without
+generating a Xero invoice</strong>. This is distinct from the three
+renewal paths described above, which are all part of the invoicing
+lifecycle.</p>
+<h3 id="how-it-works">How It Works</h3>
+<ol type="1">
+<li>Admin clicks “Record {year} Fee” button on the current year
+card</li>
+<li>The frontend sends a POST to
+<code>/api/membership/org-membership</code> with
+<code>{ organizationId, membershipYear }</code></li>
+<li>The backend runs the simulation to calculate the current cost
+(including any active overrides)</li>
+<li>The simulation result’s <strong>final cost</strong> is saved as a
+<code>organisation_membership_history</code> record</li>
+<li>No Xero invoice is generated</li>
+</ol>
+<h3 id="what-gets-recorded">What Gets Recorded</h3>
+<p>The recorded fee is the <strong>final cost shown on the year
+card</strong> at the time the button is clicked. This means:</p>
+<ul>
+<li>If a <strong>structure override</strong> is active, the recorded
+cost reflects the alternative tier/band pricing</li>
+<li>If a <strong>manual price override</strong> is set, the recorded
+cost is exactly that manual price</li>
+<li>If a <strong>discount override</strong> is active, the recorded cost
+reflects the overridden discount</li>
+<li>If <strong>no override</strong> is active, the recorded cost
+reflects the standard tier calculation with any custom discounts,
+pro-rata, and free period adjustments</li>
+</ul>
+<h3 id="record-fee-vs-renew-invoice-now">Record Fee vs Renew &amp;
+Invoice Now</h3>
+<table>
+<colgroup>
+<col style="width: 21%" />
+<col style="width: 28%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Aspect</th>
+<th>Record Fee</th>
+<th>Renew &amp; Invoice Now</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Creates history record</td>
+<td>Yes</td>
+<td>Yes</td>
+</tr>
+<tr class="even">
+<td>Generates Xero invoice</td>
+<td>No</td>
+<td>Yes</td>
+</tr>
+<tr class="odd">
+<td>Appears on</td>
+<td>Current year card only</td>
+<td>Current year card only (when mode is Manual)</td>
+</tr>
+<tr class="even">
+<td>Use case</td>
+<td>Lock in the calculated cost without invoicing</td>
+<td>Create record and send invoice immediately</td>
+</tr>
+</tbody>
+</table>
+<h3 id="ui-behaviour-after-recording">UI Behaviour After Recording</h3>
+<p>Once a fee is recorded for the current year:</p>
+<ul>
+<li>The <strong>Record Fee button</strong> is replaced by a badge
+showing “Recorded: {amount}”</li>
+<li>The <strong>Final Cost</strong> label changes to “Recorded
+Cost”</li>
+<li>The <strong>entire invoicing section is hidden</strong> (radio
+buttons, date picker, Save button, and Renew &amp; Invoice Now button) —
+replaced by a message: “Fee recorded for {year} — invoicing controls
+hidden”</li>
+<li>The <strong>next year card is unaffected</strong> — it continues to
+show all invoicing controls as normal</li>
+</ul>
+<h3 id="when-to-use">When to Use</h3>
+<ul>
+<li>When you want to lock in the cost calculation for the year before
+deciding how/when to invoice</li>
+<li>When invoicing will be handled outside the platform (e.g. manually
+through Xero directly)</li>
+<li>When you need a record of the agreed cost but don’t want to trigger
+an automatic invoice</li>
+</ul>
+<hr />
+<h2 id="safeguards-and-duplicate-prevention">Safeguards and Duplicate
+Prevention</h2>
+<p>We implement three layers of duplicate prevention to ensure a
+membership record is never created twice for the same year:</p>
+<h3 id="layer-1-simulation-check-application-level">Layer 1: Simulation
+Check (Application Level)</h3>
+<p>The simulation function queries for existing records:</p>
+<div class="sourceCode" id="cb7"><pre class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { <span class="dt">data</span><span class="op">:</span> existingRecord } <span class="op">=</span> <span class="cf">await</span> supabase</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>  <span class="op">.</span><span class="fu">from</span>(<span class="st">&#39;organisation_membership_history&#39;</span>)</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>  <span class="op">.</span><span class="fu">select</span>(<span class="st">&#39;id, membership_year, final_cost, xero_invoice_id&#39;</span>)</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>  <span class="op">.</span><span class="fu">eq</span>(<span class="st">&#39;tenant_id&#39;</span><span class="op">,</span> tenantId)</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>  <span class="op">.</span><span class="fu">eq</span>(<span class="st">&#39;organization_id&#39;</span><span class="op">,</span> organizationId)</span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>  <span class="op">.</span><span class="fu">eq</span>(<span class="st">&#39;membership_year&#39;</span><span class="op">,</span> membershipYear<span class="op">.</span><span class="at">label</span>)</span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>  <span class="op">.</span><span class="fu">maybeSingle</span>()<span class="op">;</span></span></code></pre></div>
+<p>All callers check <code>simResult.existingRecord</code> and skip if
+present.</p>
+<h3 id="layer-2-caller-re-check">Layer 2: Caller Re-check</h3>
+<p>Each renewal path has its own duplicate check before insertion: -
+<strong>Workflow</strong>: Checks <code>simResult.existingRecord</code>
+after invoicing mode check - <strong>Cron</strong>:
+<code>processOrgRenewal()</code> re-checks
+<code>simResult.existingRecord</code> at the start -
+<strong>Manual</strong>: Checks <code>simResult.existingRecord</code>
+before insertion</p>
+<h3 id="layer-3-database-constraint">Layer 3: Database Constraint</h3>
+<p>If a race condition somehow gets past both application-level checks,
+the database unique constraint on
+<code>(tenant_id, organization_id, membership_year)</code> in
+<code>organisation_membership_history</code> catches the duplicate. The
+error code <code>23505</code> is handled gracefully:</p>
+<div class="sourceCode" id="cb8"><pre class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (insertError<span class="op">.</span><span class="at">code</span> <span class="op">===</span> <span class="st">&#39;23505&#39;</span>) {</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Return &quot;skipped&quot; or &quot;already exists&quot; instead of throwing</span></span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h3 id="go-live-date-guard">Go-Live Date Guard</h3>
+<p>All automated renewal paths require a go-live date: -
+<strong>Cron</strong>: Skips orgs without a go-live date with a clear
+log message - <strong>Manual</strong>: Returns a 400 error explaining a
+go-live date is required - <strong>Workflow</strong>: The simulation
+still runs (to allow dry runs/previews) but the go-live date is
+reported. The workflow action itself only proceeds for automatic mode,
+which typically is triggered by setting the go-live date</p>
+<h3 id="fee-approval-guard">Fee Approval Guard</h3>
+<p>When <code>membership_require_approval</code> is enabled in
+<code>system_settings</code>, all processing paths check the
+<code>fees_approved</code> flag on the org/year’s invoicing record
+before proceeding:</p>
+<ul>
+<li><strong>Cron</strong>: <code>checkCronApproval()</code> skips the
+org with reason <code>&#39;Fees not yet approved&#39;</code></li>
+<li><strong>Manual renewal</strong>:
+<code>checkApprovalRequired()</code> returns 400 error</li>
+<li><strong>Member portal</strong>:
+<code>checkMemberFeesApproval()</code> blocks payment actions and
+returns an approval-pending response</li>
+<li><strong>Token page</strong>: Inline check blocks PO submission and
+payment with 400 errors</li>
+</ul>
+<p>Each check follows the same two-step pattern: 1. Query
+<code>system_settings</code> for
+<code>membership_require_approval</code> — if not <code>&#39;true&#39;</code>,
+approval is not required (return early) 2. Query
+<code>organisation_membership_invoicing.fees_approved</code> for the
+org/year — if <code>true</code>, proceed; if <code>false</code>,
+block</p>
+<h3 id="invoicing-mode-guard-workflow">Invoicing Mode Guard
+(Workflow)</h3>
+<p>The workflow <code>create_membership</code> action checks the
+invoicing mode before creating records: - Queries
+<code>organisation_membership_invoicing</code> for the target year -
+Falls back to legacy null <code>membership_year</code> rows - Defaults
+to <code>&#39;automatic&#39;</code> if no setting exists - Skips for
+<code>manual</code> and <code>scheduled</code> modes with descriptive
+messages</p>
+<hr />
+<h2 id="frontend-ui-organisation-membership-tab">Frontend UI —
+Organisation Membership Tab</h2>
+<p><strong>File:</strong>
+<code>client/src/components/OrgMembershipTab.jsx</code></p>
+<h3 id="layout">Layout</h3>
+<p>The tab shows a two-year rolling view:</p>
+<ol type="1">
+<li><strong>Current Year Card</strong> — the active membership year</li>
+<li><strong>Next Year Card</strong> — preview of the upcoming year</li>
+</ol>
+<p>Each year section uses the shared <code>YearCostSection</code>
+component.</p>
+<h3 id="yearcostsection-component">YearCostSection Component</h3>
+<p>Each year card displays:</p>
+<ul>
+<li><strong>Cost Breakdown</strong>: Tier label, annual cost, custom
+discounts, pro-rata, free period, spillover, and final cost</li>
+<li><strong>Override Controls</strong>: Button to add/edit an override
+(structure, price, or discount type)</li>
+<li><strong>Simulate Button</strong>: Runs a dry-run simulation and
+shows the step-by-step log</li>
+<li><strong>Invoicing Controls</strong>: Radio buttons for
+Automatic/Scheduled/Manual, date picker for scheduled, Save button</li>
+<li><strong>Renew &amp; Invoice Now Button</strong>: Only visible on the
+current year section when invoicing mode is Manual</li>
+</ul>
+<h3 id="key-frontend-behaviours">Key Frontend Behaviours</h3>
+<ul>
+<li>The <strong>Renew &amp; Invoice Now</strong> button passes the
+current year label to the backend:
+<code>manualRenewalMutation.mutate({ membershipYear: currentYearCost?.membershipYear })</code></li>
+<li>The next year section passes <code>onManualRenewal={null}</code>,
+which causes the button to not render</li>
+<li>Invoicing mode changes are saved independently per year</li>
+<li>The simulate button calls the backend with the year label and
+displays detailed steps in a panel</li>
+<li>Override modal supports all three override types with
+configuration-specific forms</li>
+<li>When a <strong>fee has been recorded</strong> for the current year
+(<code>currentYearRecorded</code> is truthy), the entire invoicing
+section (radio buttons, date picker, Save, Renew &amp; Invoice Now) is
+hidden and replaced with a status message. The next year card is
+unaffected since it always passes
+<code>currentYearRecorded={null}</code></li>
+</ul>
+<h3 id="mutations">Mutations</h3>
+<table>
+<colgroup>
+<col style="width: 27%" />
+<col style="width: 27%" />
+<col style="width: 21%" />
+<col style="width: 24%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Mutation</th>
+<th>Endpoint</th>
+<th>Method</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>invoicingMutation</code></td>
+<td><code>/api/membership/org-membership-invoicing</code></td>
+<td>PUT</td>
+<td>Save invoicing mode/date</td>
+</tr>
+<tr class="even">
+<td><code>manualRenewalMutation</code></td>
+<td><code>/api/membership/org-membership-invoicing</code></td>
+<td>POST</td>
+<td>Trigger manual renewal</td>
+</tr>
+<tr class="odd">
+<td><code>simulateRenewalMutation</code></td>
+<td><code>/api/membership/org-membership-simulate</code></td>
+<td>POST</td>
+<td>Run dry-run simulation</td>
+</tr>
+<tr class="even">
+<td><code>recordMutation</code></td>
+<td><code>/api/membership/org-membership</code></td>
+<td>POST</td>
+<td>Record fee — saves the simulated cost as a history record without
+invoicing</td>
+</tr>
+<tr class="odd">
+<td><code>removeOverrideMutation</code></td>
+<td><code>/api/membership/org-membership-override</code></td>
+<td>DELETE</td>
+<td>Remove an override</td>
+</tr>
+<tr class="even">
+<td><code>approvalMutation</code></td>
+<td><code>/api/membership/org-membership-invoicing</code></td>
+<td>PATCH</td>
+<td>Approve or unapprove fees for a year</td>
+</tr>
+</tbody>
+</table>
+<h3 id="cache-invalidation">Cache Invalidation</h3>
+<p>After any mutation, the following query keys are invalidated: -
+<code>[&#39;org-membership&#39;, organizationId]</code> — cost data -
+<code>[&#39;org-membership-invoicing&#39;, organizationId]</code> — invoicing
+settings - <code>[&#39;org-notes&#39;]</code> — organisation notes (since
+renewals add notes)</p>
+<hr />
+<h2 id="purchase-order-numbers">Purchase Order Numbers</h2>
+<h3 id="overview-1">Overview</h3>
+<p>Admins can attach a purchase order (PO) number to an organisation’s
+membership year. The PO number flows through to Xero invoices as the
+reference field, formatted as <code>Membership YYYY - PO: XXXXX</code>.
+Members can also submit PO numbers via the public token page or the
+portal membership fees page.</p>
+<h3 id="storage">Storage</h3>
+<p>PO numbers are stored in the
+<code>organisation_membership_invoicing</code> table via the
+<code>purchase_order_number</code> column, scoped by
+<code>tenant_id</code>, <code>organization_id</code>, and
+<code>membership_year</code>. The <code>po_source</code> column tracks
+who submitted the PO:</p>
+<ul>
+<li><code>&#39;member&#39;</code> — submitted by a member via the public token
+page or portal</li>
+<li><code>null</code> — entered or overridden by an admin</li>
+</ul>
+<h3 id="flow">Flow</h3>
+<ol type="1">
+<li>Admin enters a PO number in the year card invoicing controls</li>
+<li>Saved alongside invoicing mode via
+<code>PUT /api/membership/org-membership-invoicing</code></li>
+<li>All three renewal paths (manual, cron, workflow) read the PO from
+invoicing settings</li>
+<li>PO is passed to <code>createXeroMembershipInvoice</code> as the
+<code>reference</code> field</li>
+<li>PO is stored in the <code>organisation_membership_history</code>
+record</li>
+</ol>
+<h3 id="member-submitted-po-numbers">Member-Submitted PO Numbers</h3>
+<p>When a member submits a PO number (via token page or portal):</p>
+<ol type="1">
+<li>The PO is saved to <code>organisation_membership_invoicing</code>
+with <code>po_source = &#39;member&#39;</code></li>
+<li>In the admin UI (Organisation Membership Tab), the PO field appears
+<strong>locked</strong> with a “Supplied by member” label</li>
+<li>An <strong>unlock button</strong> allows the admin to edit the
+member-submitted PO</li>
+<li>When the admin saves (after unlocking and editing),
+<code>po_source</code> is cleared to <code>null</code>, removing the
+lock on subsequent loads</li>
+<li>If a member later resubmits a PO, <code>po_source</code> is set back
+to <code>&#39;member&#39;</code> and the lock reappears</li>
+</ol>
+<h3 id="admin-override-of-member-po">Admin Override of Member PO</h3>
+<p>The lock/unlock pattern ensures admins can clearly see when a PO was
+submitted by a member vs. entered by an admin. The admin can always
+override a member-submitted PO by:</p>
+<ol type="1">
+<li>Clicking the unlock button next to the locked PO field</li>
+<li>Editing the PO value</li>
+<li>Clicking Save — this clears <code>po_source</code> to
+<code>null</code></li>
+</ol>
+<h3 id="key-files-1">Key Files</h3>
+<table>
+<colgroup>
+<col style="width: 40%" />
+<col style="width: 60%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>File</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>api/membership/org-membership-invoicing.js</code></td>
+<td>Saves/loads PO alongside invoicing mode; clears
+<code>po_source</code> on admin save</td>
+</tr>
+<tr class="even">
+<td><code>api/cron/process-membership-renewals.js</code></td>
+<td>Reads PO for cron-generated invoices</td>
+</tr>
+<tr class="odd">
+<td><code>api/_lib/workflows.js</code></td>
+<td>Reads PO for workflow-generated invoices</td>
+</tr>
+<tr class="even">
+<td><code>api/public/membership-fees/[token].js</code></td>
+<td>Saves member-submitted PO with <code>po_source: &#39;member&#39;</code></td>
+</tr>
+<tr class="odd">
+<td><code>api/membership/member-fees.js</code></td>
+<td>Saves member-submitted PO with <code>po_source: &#39;member&#39;</code>
+(portal path)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="email-fees-member-payment-portal">Email Fees &amp; Member
+Payment Portal</h2>
+<h3 id="overview-2">Overview</h3>
+<p>The “Email Fees” feature allows admins to send a branded email to an
+organisation’s finance contact, containing a cost breakdown and a link
+to a public payment page. From the public page, the member can:</p>
+<ul>
+<li>View the full cost breakdown for the membership year</li>
+<li>Submit a purchase order number</li>
+<li>Pay immediately via Stripe (if enabled for the tenant)</li>
+</ul>
+<h3 id="token-system">Token System</h3>
+<p>Each “Email Fees” action generates a secure token stored in
+<code>membership_fee_tokens</code>:</p>
+<table>
+<colgroup>
+<col style="width: 40%" />
+<col style="width: 60%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Column</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>token</code></td>
+<td>Random UUID, used as the public URL path</td>
+</tr>
+<tr class="even">
+<td><code>status</code></td>
+<td><code>pending</code> → <code>po_submitted</code> → <code>paid</code>
+(or <code>expired</code>/<code>cancelled</code>)</td>
+</tr>
+<tr class="odd">
+<td><code>expires_at</code></td>
+<td>30 days from creation</td>
+</tr>
+<tr class="even">
+<td><code>stripe_payment_intent_id</code></td>
+<td>Set when card payment is initiated</td>
+</tr>
+<tr class="odd">
+<td><code>paid_at</code></td>
+<td>Timestamp when payment confirmed</td>
+</tr>
+<tr class="even">
+<td><code>po_number</code></td>
+<td>PO submitted by the member</td>
+</tr>
+</tbody>
+</table>
+<h3 id="admin-flow">Admin Flow</h3>
+<ol type="1">
+<li>Admin clicks “Email Fees” on the year card</li>
+<li>Modal shows the org’s primary contact email (editable)</li>
+<li>On send, the backend:
+<ul>
+<li>Creates a token record</li>
+<li>Runs simulation for cost breakdown</li>
+<li>Sends a branded email via tenant’s email service</li>
+</ul></li>
+<li>Email contains cost summary and a link to
+<code>/membership-fees/{token}</code></li>
+</ol>
+<h3 id="member-flow-public-page">Member Flow (Public Page)</h3>
+<p>The public page at <code>/membership-fees/:token</code> shows:</p>
+<ol type="1">
+<li>Tenant branding (logo, primary colour)</li>
+<li>Organisation name, period, tier</li>
+<li>Full cost breakdown (gross, discounts, pro-rata, free period)</li>
+<li>Total amount due</li>
+<li>PO number input (optional)</li>
+<li>“Pay Now” button (if Stripe enabled)</li>
+</ol>
+<h3 id="stripe-payment">Stripe Payment</h3>
+<p>When the member clicks “Pay Now”:</p>
+<ol type="1">
+<li>Frontend calls <code>POST /api/public/membership-fees/:token</code>
+with <code>action: create_payment</code></li>
+<li>Backend creates a Stripe PaymentIntent for the total amount</li>
+<li>Stripe Elements mounts in the page</li>
+<li>Member enters card details and confirms</li>
+<li>On success, frontend calls <code>action: confirm_payment</code></li>
+<li>Backend:
+<ul>
+<li>Verifies the PaymentIntent status is <code>succeeded</code> and the
+amount matches</li>
+<li>Creates <code>organisation_membership_history</code> record with
+<code>status: &#39;active&#39;</code>, <code>payment_method: &#39;stripe&#39;</code>,
+and the Stripe <code>payment_intent_id</code></li>
+<li>Creates Xero invoice with “(PAID)” in the reference</li>
+<li>Updates token status to <code>paid</code></li>
+<li>Creates an organisation note with payment details</li>
+</ul></li>
+</ol>
+<h3 id="stripe-payment-as-invoicing-override">Stripe Payment as
+Invoicing Override</h3>
+<p>A successful Stripe payment <strong>immediately records the
+membership as paid</strong>, which effectively overrides whatever
+invoicing mode (Automatic/Scheduled/Manual) the admin has configured for
+that year. Once the history record exists:</p>
+<ul>
+<li>The <strong>cron job</strong> will find
+<code>simResult.existingRecord</code> and skip the organisation entirely
+(for automatic mode) or skip record creation (for scheduled mode)</li>
+<li>The <strong>workflow action</strong> will find the existing record
+and skip</li>
+<li>The <strong>manual renewal</strong> button will show “already
+exists” if clicked</li>
+</ul>
+<p>This means a member paying via Stripe settles the membership
+independently of the admin’s invoicing settings. The only admin setting
+that flows through is the <strong>PO number</strong> — if one was saved
+in the invoicing settings before the member pays, it is included on the
+history record.</p>
+<h3 id="stripe-minimum-amounts">Stripe Minimum Amounts</h3>
+<p>Stripe enforces minimum payment amounts by currency. The system
+enforces these both on the frontend (disabling the Pay button) and the
+backend (returning a 400 error):</p>
+<table>
+<thead>
+<tr class="header">
+<th>Currency</th>
+<th>Minimum</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>GBP</td>
+<td>0.30</td>
+</tr>
+<tr class="even">
+<td>USD, EUR, AUD, NZD</td>
+<td>0.50</td>
+</tr>
+</tbody>
+</table>
+<h3 id="key-files-2">Key Files</h3>
+<table>
+<colgroup>
+<col style="width: 40%" />
+<col style="width: 60%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>File</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>api/admin/init-membership-fee-tokens.js</code></td>
+<td>Database table creation</td>
+</tr>
+<tr class="even">
+<td><code>api/membership/email-fees.js</code></td>
+<td>Email Fees endpoint — token creation, email sending</td>
+</tr>
+<tr class="odd">
+<td><code>api/public/membership-fees/[token].js</code></td>
+<td>Public API — token validation, PO submission, payment</td>
+</tr>
+<tr class="even">
+<td><code>client/src/pages/MembershipFeePage.jsx</code></td>
+<td>Public member-facing payment page (token-based)</td>
+</tr>
+<tr class="odd">
+<td><code>client/src/components/OrgMembershipTab.jsx</code></td>
+<td>Admin UI — Email Fees button and modal</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="portal-membership-fees-page">Portal Membership Fees Page</h2>
+<h3 id="overview-3">Overview</h3>
+<p>In addition to the token-based public page for external contacts, a
+portal page at <code>/MembershipFees</code> is available for
+authenticated members with the <code>commerce.membership</code> role
+access key. This serves members who have portal access (e.g., a finance
+person at the organisation) and can view fees and make payments at any
+time without needing an email link.</p>
+<h3 id="access-control">Access Control</h3>
+<p>The page is gated by <code>commerce.membership</code> in the role
+access configuration:</p>
+<ul>
+<li><strong><code>commerce.membership</code></strong> — Controls
+visibility of the Membership Fees page in the portal navigation</li>
+<li><strong><code>commerce.membership.submit-po</code></strong> —
+Controls whether the member can submit a purchase order number</li>
+<li><strong><code>commerce.membership.pay-online</code></strong> —
+Controls whether the member can pay via Stripe</li>
+</ul>
+<p>Admins manage these permissions via Role Management / Role Access
+Config Management.</p>
+<h3 id="how-it-works-1">How It Works</h3>
+<ol type="1">
+<li>Member navigates to <code>/MembershipFees</code> in the portal</li>
+<li>The page calls <code>GET /api/membership/member-fees</code> which:
+<ul>
+<li>Identifies the member from their session</li>
+<li>Looks up their organisation</li>
+<li>Runs <code>simulateMembershipForOrg()</code> to get current
+fees</li>
+<li>Returns the same cost breakdown, PO status, and Stripe
+availability</li>
+</ul></li>
+<li>Member can submit a PO number (stored in
+<code>organisation_membership_invoicing</code> with
+<code>po_source: &#39;member&#39;</code>)</li>
+<li>Member can pay via Stripe — same flow as the public page:
+<ul>
+<li><code>POST</code> with <code>action: create_payment</code> creates a
+PaymentIntent</li>
+<li>Stripe Elements captures card details</li>
+<li><code>POST</code> with <code>action: confirm_payment</code>
+validates payment, then:
+<ul>
+<li>Creates <code>organisation_membership_history</code> record with
+<code>status: &#39;active&#39;</code>, <code>payment_method: &#39;stripe&#39;</code>,
+and the Stripe <code>payment_intent_id</code></li>
+<li>Creates Xero invoice with “(PAID)” in the reference</li>
+<li>Creates an organisation note with payment details</li>
+</ul></li>
+<li>This immediately marks the membership as paid, preventing the cron
+job from re-invoicing (see <a href="#stripe-payment-as-invoicing-override">Stripe Payment as Invoicing
+Override</a>)</li>
+</ul></li>
+</ol>
+<h3 id="difference-from-token-based-page">Difference from Token-Based
+Page</h3>
+<table>
+<colgroup>
+<col style="width: 10%" />
+<col style="width: 50%" />
+<col style="width: 40%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Aspect</th>
+<th>Token Page (<code>/membership-fees/:token</code>)</th>
+<th>Portal Page (<code>/MembershipFees</code>)</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Authentication</td>
+<td>Token in URL</td>
+<td>Member session</td>
+</tr>
+<tr class="even">
+<td>Access</td>
+<td>Anyone with the link</td>
+<td>Portal members with role access</td>
+</tr>
+<tr class="odd">
+<td>Expiry</td>
+<td>30-day token expiry</td>
+<td>Always available</td>
+</tr>
+<tr class="even">
+<td>Use case</td>
+<td>External finance contacts</td>
+<td>Members with portal login</td>
+</tr>
+<tr class="odd">
+<td>Branding</td>
+<td>Full tenant branding (standalone)</td>
+<td>Portal layout (within portal navigation)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="key-files-3">Key Files</h3>
+<table>
+<colgroup>
+<col style="width: 40%" />
+<col style="width: 60%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>File</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>api/membership/member-fees.js</code></td>
+<td>Authenticated API — session-based fee lookup, PO, payment</td>
+</tr>
+<tr class="even">
+<td><code>client/src/pages/MembershipFees.jsx</code></td>
+<td>Portal page component</td>
+</tr>
+<tr class="odd">
+<td><code>client/src/lib/roleAccessMap.ts</code></td>
+<td>Role access config entry (<code>commerce.membership</code>)</td>
+</tr>
+<tr class="even">
+<td><code>client/src/pages/pageRegistry.js</code></td>
+<td>Page registered as <code>MembershipFees</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="membership-settings">Membership Settings</h2>
+<h3 id="overview-4">Overview</h3>
+<p>The Membership Settings page (<code>/MembershipSettings</code>)
+provides tenant-level controls that affect how membership fees are
+processed and presented to members. Three settings are managed from this
+page:</p>
+<ol type="1">
+<li><strong>Require Fee Approval</strong> — enables the fee approval
+workflow (see <a href="#fee-approval-workflow">Fee Approval
+Workflow</a>)</li>
+<li><strong>Allow Stripe Payments</strong> — controls whether Stripe
+payment is offered on member-facing fee pages</li>
+<li><strong>Custom Approval Message</strong> — a free-text message shown
+to members when their fees are pending approval</li>
+</ol>
+<p>These settings are stored in the <code>system_settings</code> table
+as key-value pairs scoped by <code>tenant_id</code>.</p>
+<h3 id="admin-ui">Admin UI</h3>
+<p><strong>File:</strong>
+<code>client/src/pages/MembershipSettings.jsx</code></p>
+<p>The page is accessible from the Portal Menu Management dropdown
+(registered in the admin navigation). It displays three controls:</p>
+<ul>
+<li><strong>Require Fee Approval</strong> toggle — when enabled, fees
+for each org/year must be explicitly approved by an admin before any
+processing (cron, manual renewal, member payment) can proceed</li>
+<li><strong>Allow Stripe Payments</strong> toggle — when disabled, the
+“Pay Now” button and Stripe Elements are hidden from both the portal
+membership fees page and the public token-based payment page. Defaults
+to enabled</li>
+<li><strong>Custom Message</strong> text area — optional message
+displayed to members on fee pages when their fees are pending approval.
+If empty, a default message is shown: “Your membership fees are
+currently being reviewed. You will be notified when they are ready for
+payment.”</li>
+</ul>
+<h3 id="api">API</h3>
+<p><strong>File:</strong>
+<code>api/membership/membership-settings.js</code></p>
+<table>
+<colgroup>
+<col style="width: 47%" />
+<col style="width: 52%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Method</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>GET</code></td>
+<td>Returns the three settings as a normalised object:
+<code>{ require_approval, stripe_enabled, custom_message }</code></td>
+</tr>
+<tr class="even">
+<td><code>PUT</code></td>
+<td>Saves all three settings using upsert
+(<code>ON CONFLICT tenant_id, setting_key</code>)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>GET response defaults:</strong></p>
+<table>
+<thead>
+<tr class="header">
+<th>Field</th>
+<th>Default (when no setting exists)</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>require_approval</code></td>
+<td><code>false</code></td>
+</tr>
+<tr class="even">
+<td><code>stripe_enabled</code></td>
+<td><code>true</code></td>
+</tr>
+<tr class="odd">
+<td><code>custom_message</code></td>
+<td><code>&#39;&#39;</code> (empty string)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>PUT body:</strong></p>
+<div class="sourceCode" id="cb9"><pre class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>{</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">require_approval</span><span class="op">:</span> <span class="kw">true</span><span class="op">,</span>      <span class="co">// boolean</span></span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">stripe_enabled</span><span class="op">:</span> <span class="kw">true</span><span class="op">,</span>        <span class="co">// boolean</span></span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">custom_message</span><span class="op">:</span> <span class="st">&quot;...&quot;</span>        <span class="co">// string or empty</span></span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h3 id="stripe-enablement-control">Stripe Enablement Control</h3>
+<p>The <code>membership_stripe_enabled</code> setting is checked in two
+places to control Stripe payment visibility:</p>
+<ol type="1">
+<li><strong>Authenticated portal</strong>
+(<code>api/membership/member-fees.js</code>) — the GET response includes
+<code>stripeEnabled</code> based on the setting. The frontend hides the
+Stripe payment card when <code>stripeEnabled</code> is false.</li>
+<li><strong>Public token page</strong>
+(<code>api/public/membership-fees/[token].js</code>) — same check on
+GET. The frontend hides the payment section accordingly.</li>
+</ol>
+<p><strong>Important:</strong> This setting does not prevent Stripe
+payments at the API level — it controls frontend visibility only. The
+approval workflow (if enabled) provides the backend enforcement layer
+that blocks payment processing.</p>
+<h3 id="key-files-4">Key Files</h3>
+<table>
+<colgroup>
+<col style="width: 40%" />
+<col style="width: 60%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>File</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>api/membership/membership-settings.js</code></td>
+<td>Settings API — GET/PUT for all three settings</td>
+</tr>
+<tr class="even">
+<td><code>client/src/pages/MembershipSettings.jsx</code></td>
+<td>Admin settings page</td>
+</tr>
+<tr class="odd">
+<td><code>api/membership/member-fees.js</code></td>
+<td>Reads <code>membership_stripe_enabled</code> for portal fee
+page</td>
+</tr>
+<tr class="even">
+<td><code>api/public/membership-fees/[token].js</code></td>
+<td>Reads <code>membership_stripe_enabled</code> for public fee
+page</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="fee-approval-workflow">Fee Approval Workflow</h2>
+<h3 id="overview-5">Overview</h3>
+<p>The fee approval workflow adds an admin-controlled gate to the
+membership fee lifecycle. When enabled (via
+<code>membership_require_approval</code> in Membership Settings), fees
+for each organisation/year must be explicitly approved by an admin
+before any processing path — cron job, manual renewal, member payment,
+or PO submission — can proceed.</p>
+<p>This gives admins the ability to review and verify calculated fees
+before they are sent to members or processed into invoices.</p>
+<h3 id="how-it-works-2">How It Works</h3>
+<ol type="1">
+<li>Admin enables “Require Fee Approval” in Membership Settings</li>
+<li>On the Organisation Membership tab, each year card now shows an
+<strong>Approve Fees</strong> button (next to the Save button in the
+invoicing controls area)</li>
+<li>Admin clicks <strong>Approve Fees</strong> to mark that org/year as
+approved</li>
+<li>Once approved:
+<ul>
+<li>The year card gets a green border and “Approved” badge</li>
+<li>The “Renew &amp; Invoice Now” and “Email Fees” buttons become
+enabled</li>
+<li>The cron job will process the org</li>
+<li>Members can pay or submit POs on the fee pages</li>
+</ul></li>
+<li>Admin can click <strong>Unapprove</strong> to revoke approval at any
+time</li>
+</ol>
+<h3 id="approval-state-storage">Approval State Storage</h3>
+<p>The approval flag is stored as <code>fees_approved</code> (boolean,
+default <code>false</code>) on the
+<code>organisation_membership_invoicing</code> table, scoped by
+<code>tenant_id</code>, <code>organization_id</code>, and
+<code>membership_year</code>.</p>
+<p><strong>PATCH endpoint</strong>
+(<code>api/membership/org-membership-invoicing.js</code>):</p>
+<div class="sourceCode" id="cb10"><pre class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>PATCH <span class="op">/</span>api<span class="op">/</span>membership<span class="op">/</span>org<span class="op">-</span>membership<span class="op">-</span>invoicing</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>{</span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">organizationId</span><span class="op">:</span> <span class="st">&quot;...&quot;</span><span class="op">,</span></span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">membershipYear</span><span class="op">:</span> <span class="st">&quot;2025/2026&quot;</span><span class="op">,</span></span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">action</span><span class="op">:</span> <span class="st">&quot;approve&quot;</span>    <span class="co">// or &quot;unapprove&quot;</span></span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<p>If no invoicing record exists for the org/year, the PATCH handler
+creates one with <code>invoicing_mode: &#39;manual&#39;</code> and the requested
+<code>fees_approved</code> value. If a record exists, only
+<code>fees_approved</code> and <code>updated_at</code> are updated.</p>
+<h3 id="enforcement-points">Enforcement Points</h3>
+<p>The approval check follows the same pattern across all four
+processing paths: query <code>system_settings</code> for
+<code>membership_require_approval</code>, and if enabled, query the
+org/year’s <code>fees_approved</code> flag.</p>
+<h4 id="path-1-cron-job">Path 1: Cron Job</h4>
+<p><strong>File:</strong>
+<code>api/cron/process-membership-renewals.js</code> →
+<code>checkCronApproval()</code></p>
+<ul>
+<li>Called after simulation, before record creation</li>
+<li>If approval required and not approved → org is skipped with reason
+<code>&#39;Fees not yet approved&#39;</code></li>
+<li>Logged in the cron results as a skipped entry</li>
+</ul>
+<h4 id="path-2-manual-renewal">Path 2: Manual Renewal</h4>
+<p><strong>File:</strong>
+<code>api/membership/org-membership-invoicing.js</code> →
+<code>checkApprovalRequired()</code></p>
+<ul>
+<li>Called after simulation and duplicate check, before record
+insertion</li>
+<li>If approval required and not approved → returns 400 error:
+<code>&#39;Fees must be approved before renewal can be processed. Use the Approve Fees button first.&#39;</code></li>
+</ul>
+<h4 id="path-3-portal-member-fees-authenticated">Path 3: Portal Member
+Fees (Authenticated)</h4>
+<p><strong>File:</strong> <code>api/membership/member-fees.js</code> →
+<code>checkMemberFeesApproval()</code></p>
+<ul>
+<li><strong>GET</strong>: Returns <code>approvalPending</code> and
+<code>approvalMessage</code> in the response. The frontend shows the
+approval message card and hides payment/PO options.</li>
+<li><strong>POST</strong> (<code>create_payment</code>,
+<code>confirm_payment</code>): Checks approval before processing.
+Returns 400 error if not approved.</li>
+</ul>
+<h4 id="path-4-public-token-page">Path 4: Public Token Page</h4>
+<p><strong>File:</strong>
+<code>api/public/membership-fees/[token].js</code></p>
+<ul>
+<li><strong>GET</strong>: Returns <code>approvalPending</code> and
+<code>approvalMessage</code> inline. The frontend shows the approval
+message and hides payment/PO options.</li>
+<li><strong>POST</strong> (<code>submit_po</code>): Checks approval
+before saving PO. Returns 400 error if not approved.</li>
+<li><strong>POST</strong> (<code>create_payment</code>,
+<code>confirm_payment</code>): Checks approval before processing.
+Returns 400 error if not approved.</li>
+</ul>
+<h3 id="frontend-behaviour">Frontend Behaviour</h3>
+<h4 id="organisation-membership-tab-orgmembershiptab.jsx">Organisation
+Membership Tab (<code>OrgMembershipTab.jsx</code>)</h4>
+<p>When <code>membership_require_approval</code> is enabled:</p>
+<ul>
+<li>Each <code>YearCostSection</code> receives
+<code>approvalRequired</code>, <code>feesApproved</code>,
+<code>onApprove</code>, <code>onUnapprove</code>, and
+<code>approvePending</code> props</li>
+<li><strong>Not approved state</strong>:
+<ul>
+<li>“Approve Fees” button (primary variant) appears next to Save</li>
+<li>“Renew &amp; Invoice Now” and “Email Fees” buttons are disabled</li>
+<li>An amber warning message appears: “Fees must be approved before
+invoicing or payment actions”</li>
+</ul></li>
+<li><strong>Approved state</strong>:
+<ul>
+<li>Year card gets a green border and light green background
+(<code>border-green-200 bg-green-50/50</code>, dark mode:
+<code>border-green-900 bg-green-950/30</code>)</li>
+<li>“Approved” badge appears next to the year label</li>
+<li>“Unapprove” button (outline variant) replaces the “Approve Fees”
+button</li>
+<li>All action buttons are enabled</li>
+</ul></li>
+<li>Approval state is tracked per year in a <code>feesApprovedMap</code>
+keyed by year label</li>
+<li>Both current year and next year cards independently support
+approve/unapprove</li>
+</ul>
+<h4 id="portal-membership-fees-page-membershipfees.jsx">Portal
+Membership Fees Page (<code>MembershipFees.jsx</code>)</h4>
+<p>When <code>approvalPending</code> is true in the API response:</p>
+<ul>
+<li>A card with an amber shield icon displays the approval message</li>
+<li>The message is the custom message from Membership Settings, or a
+default: “Your membership fees are currently being reviewed. You will be
+notified when they are ready for payment.”</li>
+<li>PO submission and Stripe payment sections are hidden</li>
+</ul>
+<h4 id="public-token-page-membershipfeepage.jsx">Public Token Page
+(<code>MembershipFeePage.jsx</code>)</h4>
+<p>The public token page receives <code>approvalPending</code> and
+<code>approvalMessage</code> in the GET response from the backend, but
+the current frontend component does not display a dedicated approval
+message card. Enforcement is handled at the backend level — POST
+requests for PO submission and Stripe payment return 400 errors when
+fees are not approved. The <code>approvalPending</code> flag is
+available in the API response for future frontend use.</p>
+<h3 id="data-flow-diagram">Data Flow Diagram</h3>
+<pre><code>Admin enables &quot;Require Fee Approval&quot; in Membership Settings
+  → system_settings: membership_require_approval = &#39;true&#39;
+
+Admin opens Organisation Membership tab
+  → Year card shows &quot;Approve Fees&quot; button
+  → Admin reviews calculated fees
+  → Admin clicks &quot;Approve Fees&quot;
+    → PATCH /api/membership/org-membership-invoicing
+      → Sets fees_approved = true on invoicing record
+      → Year card turns green, &quot;Approved&quot; badge appears
+
+Processing paths check approval:
+  → Cron job: checkCronApproval() → approved? ✓ proceed / ✗ skip
+  → Manual renewal: checkApprovalRequired() → approved? ✓ proceed / ✗ 400 error
+  → Member portal: checkMemberFeesApproval() → approved? ✓ show payment / ✗ show message
+  → Token page: inline check → approved? ✓ show payment / ✗ show message</code></pre>
+<h3 id="key-files-5">Key Files</h3>
+<table>
+<colgroup>
+<col style="width: 40%" />
+<col style="width: 60%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>File</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>api/membership/membership-settings.js</code></td>
+<td>Manages <code>membership_require_approval</code> setting</td>
+</tr>
+<tr class="even">
+<td><code>api/membership/org-membership-invoicing.js</code></td>
+<td>PATCH handler for approve/unapprove;
+<code>checkApprovalRequired()</code> for manual renewal</td>
+</tr>
+<tr class="odd">
+<td><code>api/cron/process-membership-renewals.js</code></td>
+<td><code>checkCronApproval()</code> for cron path</td>
+</tr>
+<tr class="even">
+<td><code>api/membership/member-fees.js</code></td>
+<td><code>checkMemberFeesApproval()</code> for portal path</td>
+</tr>
+<tr class="odd">
+<td><code>api/public/membership-fees/[token].js</code></td>
+<td>Inline approval checks for public token path</td>
+</tr>
+<tr class="even">
+<td><code>client/src/components/OrgMembershipTab.jsx</code></td>
+<td>Approve/Unapprove buttons, green card styling, disabled state
+logic</td>
+</tr>
+<tr class="odd">
+<td><code>client/src/pages/MembershipFees.jsx</code></td>
+<td>Approval-pending message display for portal</td>
+</tr>
+<tr class="even">
+<td><code>client/src/pages/MembershipFeePage.jsx</code></td>
+<td>Approval-pending message display for public page</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="database-tables">Database Tables</h2>
+<h3 id="membership_tier_config"><code>membership_tier_config</code></h3>
+<p>The tier configuration for a tenant. Multiple configs can be active
+simultaneously if scoped to different organisation field values.</p>
+<table>
+<colgroup>
+<col style="width: 29%" />
+<col style="width: 22%" />
+<col style="width: 48%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Column</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>id</code></td>
+<td>uuid</td>
+<td>Primary key</td>
+</tr>
+<tr class="even">
+<td><code>tenant_id</code></td>
+<td>uuid</td>
+<td>Tenant scope</td>
+</tr>
+<tr class="odd">
+<td><code>name</code></td>
+<td>text</td>
+<td>Config name</td>
+</tr>
+<tr class="even">
+<td><code>field_source</code></td>
+<td>text</td>
+<td><code>&#39;core&#39;</code> or <code>&#39;custom&#39;</code></td>
+</tr>
+<tr class="odd">
+<td><code>field_name</code></td>
+<td>text</td>
+<td>Field used for band matching (e.g. <code>&#39;member_count&#39;</code>)</td>
+</tr>
+<tr class="even">
+<td><code>field_id</code></td>
+<td>uuid</td>
+<td>Custom field ID (if field_source is custom)</td>
+</tr>
+<tr class="odd">
+<td><code>membership_start_month</code></td>
+<td>int</td>
+<td>Month the membership year begins</td>
+</tr>
+<tr class="even">
+<td><code>membership_start_day</code></td>
+<td>int</td>
+<td>Day the membership year begins</td>
+</tr>
+<tr class="odd">
+<td><code>currency</code></td>
+<td>text</td>
+<td>e.g. <code>&#39;GBP&#39;</code></td>
+</tr>
+<tr class="even">
+<td><code>billing_period</code></td>
+<td>text</td>
+<td>e.g. <code>&#39;annual&#39;</code></td>
+</tr>
+<tr class="odd">
+<td><code>prorata_enabled</code></td>
+<td>boolean</td>
+<td>Whether pro-rata calculations apply</td>
+</tr>
+<tr class="even">
+<td><code>free_period_amount</code></td>
+<td>int</td>
+<td>Free period duration</td>
+</tr>
+<tr class="odd">
+<td><code>free_period_unit</code></td>
+<td>text</td>
+<td><code>&#39;months&#39;</code>, <code>&#39;weeks&#39;</code>, or
+<code>&#39;days&#39;</code></td>
+</tr>
+<tr class="even">
+<td><code>rollover_enabled</code></td>
+<td>boolean</td>
+<td>Whether free period spillover applies</td>
+</tr>
+<tr class="odd">
+<td><code>effective_from</code></td>
+<td>date</td>
+<td>When this config became active</td>
+</tr>
+<tr class="even">
+<td><code>effective_to</code></td>
+<td>date</td>
+<td>Null if currently active</td>
+</tr>
+<tr class="odd">
+<td><code>structure_field_id</code></td>
+<td>uuid</td>
+<td>Field used for config scoping (optional)</td>
+</tr>
+<tr class="even">
+<td><code>structure_match_value</code></td>
+<td>text</td>
+<td>Value to match for scoped configs (optional)</td>
+</tr>
+<tr class="odd">
+<td><code>pricing_model</code></td>
+<td>text</td>
+<td><code>&#39;tiered&#39;</code> or <code>&#39;flat&#39;</code></td>
+</tr>
+<tr class="even">
+<td><code>start_mode</code></td>
+<td>text</td>
+<td><code>&#39;fixed_date&#39;</code> or <code>&#39;immediate&#39;</code></td>
+</tr>
+<tr class="odd">
+<td><code>flat_cost</code></td>
+<td>numeric</td>
+<td>Cost for flat pricing model</td>
+</tr>
+</tbody>
+</table>
+<h3 id="membership_tier_band"><code>membership_tier_band</code></h3>
+<p>Tier bands within a configuration.</p>
+<table>
+<thead>
+<tr class="header">
+<th>Column</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>id</code></td>
+<td>uuid</td>
+<td>Primary key</td>
+</tr>
+<tr class="even">
+<td><code>config_id</code></td>
+<td>uuid</td>
+<td>FK to <code>membership_tier_config</code></td>
+</tr>
+<tr class="odd">
+<td><code>tenant_id</code></td>
+<td>uuid</td>
+<td>Tenant scope</td>
+</tr>
+<tr class="even">
+<td><code>label</code></td>
+<td>text</td>
+<td>Display label (e.g. <code>&#39;Small (1-10)&#39;</code>)</td>
+</tr>
+<tr class="odd">
+<td><code>min_value</code></td>
+<td>numeric</td>
+<td>Lower bound (inclusive)</td>
+</tr>
+<tr class="even">
+<td><code>max_value</code></td>
+<td>numeric</td>
+<td>Upper bound (inclusive), null = unlimited</td>
+</tr>
+<tr class="odd">
+<td><code>annual_cost</code></td>
+<td>numeric</td>
+<td>Annual fee for this band</td>
+</tr>
+<tr class="even">
+<td><code>vat_rate</code></td>
+<td>text</td>
+<td>VAT/tax configuration (JSON string or tax type)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="organisation_membership_history"><code>organisation_membership_history</code></h3>
+<p>Records of membership renewals — one row per org per year.</p>
+<table>
+<colgroup>
+<col style="width: 29%" />
+<col style="width: 22%" />
+<col style="width: 48%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Column</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>id</code></td>
+<td>uuid</td>
+<td>Primary key</td>
+</tr>
+<tr class="even">
+<td><code>tenant_id</code></td>
+<td>uuid</td>
+<td>Tenant scope</td>
+</tr>
+<tr class="odd">
+<td><code>organization_id</code></td>
+<td>uuid</td>
+<td>FK to organisation</td>
+</tr>
+<tr class="even">
+<td><code>membership_year</code></td>
+<td>text</td>
+<td>Year label (e.g. <code>&#39;2025/2026&#39;</code>)</td>
+</tr>
+<tr class="odd">
+<td><code>config_id</code></td>
+<td>uuid</td>
+<td>Config used for calculation</td>
+</tr>
+<tr class="even">
+<td><code>band_id</code></td>
+<td>uuid</td>
+<td>Band matched</td>
+</tr>
+<tr class="odd">
+<td><code>tier_label</code></td>
+<td>text</td>
+<td>Band label at time of creation</td>
+</tr>
+<tr class="even">
+<td><code>field_value</code></td>
+<td>numeric</td>
+<td>Org’s field value at time of creation</td>
+</tr>
+<tr class="odd">
+<td><code>annual_cost</code></td>
+<td>numeric</td>
+<td>Base annual cost</td>
+</tr>
+<tr class="even">
+<td><code>prorata_cost</code></td>
+<td>numeric</td>
+<td>Pro-rata cost (null if not applicable)</td>
+</tr>
+<tr class="odd">
+<td><code>free_period_discount</code></td>
+<td>numeric</td>
+<td>Free period discount amount</td>
+</tr>
+<tr class="even">
+<td><code>rollover_discount</code></td>
+<td>numeric</td>
+<td>Rollover/spillover discount</td>
+</tr>
+<tr class="odd">
+<td><code>custom_discount_total</code></td>
+<td>numeric</td>
+<td>Total custom discounts</td>
+</tr>
+<tr class="even">
+<td><code>custom_discount_details</code></td>
+<td>jsonb</td>
+<td>Array of applied discount details</td>
+</tr>
+<tr class="odd">
+<td><code>final_cost</code></td>
+<td>numeric</td>
+<td>Amount charged</td>
+</tr>
+<tr class="even">
+<td><code>currency</code></td>
+<td>text</td>
+<td>Currency code</td>
+</tr>
+<tr class="odd">
+<td><code>billing_period</code></td>
+<td>text</td>
+<td>e.g. <code>&#39;annual&#39;</code></td>
+</tr>
+<tr class="even">
+<td><code>vat_rate</code></td>
+<td>text</td>
+<td>VAT configuration snapshot</td>
+</tr>
+<tr class="odd">
+<td><code>purchase_order_number</code></td>
+<td>text</td>
+<td>PO number (from invoicing settings, member submission, or token
+page)</td>
+</tr>
+<tr class="even">
+<td><code>payment_method</code></td>
+<td>text</td>
+<td>How payment was made: <code>&#39;stripe&#39;</code>, <code>&#39;xero&#39;</code>, or
+null (admin-initiated)</td>
+</tr>
+<tr class="odd">
+<td><code>stripe_payment_intent_id</code></td>
+<td>text</td>
+<td>Stripe PaymentIntent ID (if paid via Stripe)</td>
+</tr>
+<tr class="even">
+<td><code>status</code></td>
+<td>text</td>
+<td><code>&#39;active&#39;</code></td>
+</tr>
+<tr class="odd">
+<td><code>notes</code></td>
+<td>text</td>
+<td>How the record was created</td>
+</tr>
+<tr class="even">
+<td><code>xero_invoice_id</code></td>
+<td>text</td>
+<td>Linked Xero invoice ID</td>
+</tr>
+<tr class="odd">
+<td><code>xero_invoice_number</code></td>
+<td>text</td>
+<td>Linked Xero invoice number</td>
+</tr>
+</tbody>
+</table>
+<h3 id="organisation_membership_invoicing"><code>organisation_membership_invoicing</code></h3>
+<p>Per-org, per-year invoicing mode settings.</p>
+<table>
+<colgroup>
+<col style="width: 29%" />
+<col style="width: 22%" />
+<col style="width: 48%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Column</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>id</code></td>
+<td>uuid</td>
+<td>Primary key</td>
+</tr>
+<tr class="even">
+<td><code>tenant_id</code></td>
+<td>uuid</td>
+<td>Tenant scope</td>
+</tr>
+<tr class="odd">
+<td><code>organization_id</code></td>
+<td>uuid</td>
+<td>FK to organisation</td>
+</tr>
+<tr class="even">
+<td><code>membership_year</code></td>
+<td>text</td>
+<td>Year label (null for legacy fallback)</td>
+</tr>
+<tr class="odd">
+<td><code>invoicing_mode</code></td>
+<td>text</td>
+<td><code>&#39;automatic&#39;</code>, <code>&#39;scheduled&#39;</code>, or
+<code>&#39;manual&#39;</code></td>
+</tr>
+<tr class="even">
+<td><code>invoice_date</code></td>
+<td>date</td>
+<td>Scheduled invoice date (for scheduled mode)</td>
+</tr>
+<tr class="odd">
+<td><code>purchase_order_number</code></td>
+<td>text</td>
+<td>PO number for this year’s membership</td>
+</tr>
+<tr class="even">
+<td><code>po_source</code></td>
+<td>text</td>
+<td><code>&#39;member&#39;</code> if PO was submitted by a member (via token
+page or portal), null if entered by admin</td>
+</tr>
+<tr class="odd">
+<td><code>fees_approved</code></td>
+<td>boolean</td>
+<td>Whether fees have been approved by an admin for this org/year
+(default <code>false</code>)</td>
+</tr>
+<tr class="even">
+<td><code>updated_at</code></td>
+<td>timestamp</td>
+<td>Last modification</td>
+</tr>
+</tbody>
+</table>
+<h3 id="organisation_membership_override"><code>organisation_membership_override</code></h3>
+<p>Per-org overrides.</p>
+<table>
+<colgroup>
+<col style="width: 29%" />
+<col style="width: 22%" />
+<col style="width: 48%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Column</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>id</code></td>
+<td>uuid</td>
+<td>Primary key</td>
+</tr>
+<tr class="even">
+<td><code>tenant_id</code></td>
+<td>uuid</td>
+<td>Tenant scope</td>
+</tr>
+<tr class="odd">
+<td><code>organization_id</code></td>
+<td>uuid</td>
+<td>FK to organisation</td>
+</tr>
+<tr class="even">
+<td><code>membership_year</code></td>
+<td>text</td>
+<td>Year label (null for legacy fallback)</td>
+</tr>
+<tr class="odd">
+<td><code>override_type</code></td>
+<td>text</td>
+<td><code>&#39;structure&#39;</code>, <code>&#39;price&#39;</code>, or
+<code>&#39;discount&#39;</code></td>
+</tr>
+<tr class="even">
+<td><code>config_id</code></td>
+<td>uuid</td>
+<td>Alt config (for structure override)</td>
+</tr>
+<tr class="odd">
+<td><code>band_id</code></td>
+<td>uuid</td>
+<td>Forced band (for structure override)</td>
+</tr>
+<tr class="even">
+<td><code>manual_price</code></td>
+<td>numeric</td>
+<td>Fixed price (for price override)</td>
+</tr>
+<tr class="odd">
+<td><code>discount_type</code></td>
+<td>text</td>
+<td><code>&#39;percentage&#39;</code> or <code>&#39;fixed&#39;</code> (for discount
+override)</td>
+</tr>
+<tr class="even">
+<td><code>discount_value</code></td>
+<td>numeric</td>
+<td>Discount amount (for discount override)</td>
+</tr>
+<tr class="odd">
+<td><code>note</code></td>
+<td>text</td>
+<td>Admin note explaining the override</td>
+</tr>
+</tbody>
+</table>
+<h3 id="system_settings"><code>system_settings</code></h3>
+<p>Tenant-scoped key-value store for membership configuration settings.
+Used by the Membership Settings admin page to control approval workflow,
+Stripe enablement, and custom member-facing messages.</p>
+<table>
+<colgroup>
+<col style="width: 29%" />
+<col style="width: 22%" />
+<col style="width: 48%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Column</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>id</code></td>
+<td>uuid</td>
+<td>Primary key</td>
+</tr>
+<tr class="even">
+<td><code>tenant_id</code></td>
+<td>uuid</td>
+<td>Tenant scope</td>
+</tr>
+<tr class="odd">
+<td><code>setting_key</code></td>
+<td>text</td>
+<td>Setting identifier
+(e.g. <code>&#39;membership_require_approval&#39;</code>)</td>
+</tr>
+<tr class="even">
+<td><code>setting_value</code></td>
+<td>text</td>
+<td>Setting value (stored as string)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Membership-related keys:</strong></p>
+<table>
+<colgroup>
+<col style="width: 14%" />
+<col style="width: 22%" />
+<col style="width: 25%" />
+<col style="width: 37%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Key</th>
+<th>Values</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>membership_require_approval</code></td>
+<td><code>&#39;true&#39;</code> / <code>&#39;false&#39;</code></td>
+<td><code>&#39;false&#39;</code> (not present)</td>
+<td>When <code>&#39;true&#39;</code>, fees must be approved per org/year before
+any processing</td>
+</tr>
+<tr class="even">
+<td><code>membership_stripe_enabled</code></td>
+<td><code>&#39;true&#39;</code> / <code>&#39;false&#39;</code></td>
+<td><code>&#39;true&#39;</code> (not present)</td>
+<td>When <code>&#39;false&#39;</code>, Stripe payment is hidden on member-facing
+pages</td>
+</tr>
+<tr class="odd">
+<td><code>membership_custom_message</code></td>
+<td>text / <code>&#39;none&#39;</code></td>
+<td><code>&#39;none&#39;</code> (not present)</td>
+<td>Custom message shown to members when fees are pending approval</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="data-flow-diagrams">Data Flow Diagrams</h2>
+<h3 id="automatic-renewal-flow">Automatic Renewal Flow</h3>
+<pre><code>Go-live date set on org
+  → Workflow triggered
+    → create_membership action
+      → simulateMembershipForOrg(source: &#39;workflow&#39;)
+      → Check invoicing mode = &#39;automatic&#39; ✓
+      → Check no existing record ✓
+      → Insert membership_history record (no invoice)
+      → Return success
+
+Daily cron runs
+  → Find orgs with &#39;automatic&#39; invoicing
+  → For each org:
+    → simulateMembershipForOrg(source: &#39;cron&#39;)
+    → Go-live date set? ✓
+    → Year started? ✓
+    → Approval required? → Check fees_approved ✓ (skip if not approved)
+    → Existing record? → Skip entirely (record + invoice already handled or invoice not needed yet)
+    → No existing record? → Create record + invoice together</code></pre>
+<p><strong>Note on Automatic mode invoice timing:</strong> In the
+typical flow, the workflow creates the record when the go-live date is
+set. The cron job then finds the existing record and skips. This means
+the invoice is generated by the cron only when it creates the record
+itself (i.e. when the workflow didn’t run or was missed). If you need
+the workflow to trigger immediate invoicing for automatic mode, that
+would require a separate enhancement. Currently, for most automatic
+orgs, the cron job is the primary path that creates both the record and
+invoice together.</p>
+<h3 id="scheduled-renewal-flow">Scheduled Renewal Flow</h3>
+<pre><code>Go-live date set on org
+  → Workflow triggered
+    → create_membership action
+      → simulateMembershipForOrg(source: &#39;workflow&#39;)
+      → Check invoicing mode = &#39;scheduled&#39;
+      → SKIP: &quot;Scheduled renewal job will handle this&quot;
+
+Daily cron runs (before invoice date)
+  → Find orgs with &#39;scheduled&#39; invoicing
+  → Year started? ✓
+  → No existing record? → Create record WITHOUT invoice
+  → Invoice date reached? ✗ → Skip invoicing
+
+Daily cron runs (on/after invoice date)
+  → Find orgs with &#39;scheduled&#39; invoicing
+  → Existing record WITHOUT invoice? ✓
+  → Invoice date reached? ✓
+  → Generate Xero invoice from stored record data
+  → Link invoice to history record</code></pre>
+<h3 id="manual-renewal-flow">Manual Renewal Flow</h3>
+<pre><code>Go-live date set on org
+  → Workflow triggered
+    → create_membership action
+      → simulateMembershipForOrg(source: &#39;workflow&#39;)
+      → Check invoicing mode = &#39;manual&#39;
+      → SKIP: &quot;Use admin UI Renew &amp; Invoice Now button&quot;
+
+Admin opens Organisation Membership tab
+  → Views current year cost breakdown
+  → Clicks &quot;Renew &amp; Invoice Now&quot;
+    → POST /api/membership/org-membership-invoicing
+      → simulateMembershipForOrg(source: &#39;manual&#39;, targetYear: currentYear)
+      → Go-live date set? ✓
+      → No existing record? ✓
+      → Approval required? → Check fees_approved ✓ (400 error if not approved)
+      → Insert membership_history record
+      → Create Xero invoice immediately
+      → Add organisation note
+      → Return success</code></pre>
+<hr />
+<h2 id="xero-integration">Xero Integration</h2>
+<h3 id="invoice-creation">Invoice Creation</h3>
+<p>When a renewal creates an invoice, it calls
+<code>createXeroMembershipInvoice()</code> with:</p>
+<table>
+<thead>
+<tr class="header">
+<th>Field</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>appTenantId</code></td>
+<td>Tenant ID (for Xero connection lookup)</td>
+</tr>
+<tr class="even">
+<td><code>organizationName</code></td>
+<td>Organisation name (invoice contact)</td>
+</tr>
+<tr class="odd">
+<td><code>membershipYear</code></td>
+<td>Year label (for reference)</td>
+</tr>
+<tr class="even">
+<td><code>tierLabel</code></td>
+<td>Matched band label</td>
+</tr>
+<tr class="odd">
+<td><code>finalCost</code></td>
+<td>Calculated final cost</td>
+</tr>
+<tr class="even">
+<td><code>currency</code></td>
+<td>From tier config</td>
+</tr>
+<tr class="odd">
+<td><code>reference</code></td>
+<td><code>&quot;Membership {yearLabel}&quot;</code></td>
+</tr>
+<tr class="even">
+<td><code>vatRate</code></td>
+<td>From matched band’s <code>vat_rate</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="xero-settings">Xero Settings</h3>
+<p>Two tenant-level settings control invoice behaviour:</p>
+<ul>
+<li><code>xero_sales_account_code</code>: Account code for the line item
+(default: <code>&#39;200&#39;</code>)</li>
+<li><code>xero_invoice_status</code>: Status of created invoices
+(default: <code>&#39;DRAFT&#39;</code>)</li>
+</ul>
+<h3 id="invoice-linking">Invoice Linking</h3>
+<p>After creating an invoice, the <code>xero_invoice_id</code> and
+<code>xero_invoice_number</code> are stored on the history record for
+tracking and to prevent duplicate invoicing.</p>
+<h3 id="vat-handling-for-scheduled-invoicing">VAT Handling for Scheduled
+Invoicing</h3>
+<p>When the cron job invoices an existing record (scheduled mode), it
+derives VAT from: 1. The stored record’s <code>vat_rate</code> field (if
+populated at record creation time) 2. Falling back to looking up the
+band’s <code>vat_rate</code> by <code>record.band_id</code></p>
+<p>This ensures the invoice matches the recorded cost, even if tier
+bands have changed since the record was created.</p>
+<hr />
+<h2 id="configuration-reference">Configuration Reference</h2>
+<h3 id="tier-configuration-wizard">Tier Configuration Wizard</h3>
+<p>The tier management UI uses a 6-step wizard:</p>
+<ol type="1">
+<li><strong>Structure Scope</strong>: Optional scoping by organisation
+field value</li>
+<li><strong>Tier Model</strong>: Tiered (band-based) or flat cost</li>
+<li><strong>Period</strong>: Fixed date (annual from start date) or
+immediate start</li>
+<li><strong>Discounts</strong>: Custom discount rules based on
+organisation fields</li>
+<li><strong>Pricing</strong>: Band definitions with costs and VAT</li>
+<li><strong>Summary</strong>: Review and save</li>
+</ol>
+<h3 id="go-live-date-field">Go-Live Date Field</h3>
+<p>The go-live date is stored as an organisation custom field with
+<code>name = &#39;go_live&#39;</code>. The simulation looks up this field
+by:</p>
+<ol type="1">
+<li>Finding the <code>preference_field</code> record with
+<code>name = &#39;go_live&#39;</code> and
+<code>entity_scope = &#39;organization&#39;</code> for the tenant</li>
+<li>Querying <code>organization_preference_value</code> for that field
+and organisation</li>
+</ol>
+<p>This field is typically set by a workflow action (e.g. as part of a
+Due Diligence completion workflow).</p>
+<h3 id="free-period-configuration">Free Period Configuration</h3>
+<table>
+<thead>
+<tr class="header">
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>free_period_amount</code></td>
+<td>Number of units</td>
+</tr>
+<tr class="even">
+<td><code>free_period_unit</code></td>
+<td><code>&#39;months&#39;</code>, <code>&#39;weeks&#39;</code>, or
+<code>&#39;days&#39;</code></td>
+</tr>
+</tbody>
+</table>
+<p>Internally converted to days: months × 30.44, weeks × 7.</p>
+<h3 id="rollover">Rollover</h3>
+<p>When <code>rollover_enabled</code> is true and a free period is
+configured, any unused free days from year 1 are carried forward as a
+discount in year 2.</p>
+<hr />
+<h2 id="troubleshooting">Troubleshooting</h2>
+<h3 id="organisation-doesnt-match-any-tier-band">Organisation doesn’t
+match any tier band</h3>
+<p><strong>Symptom</strong>: Simulation returns “Organisation does not
+match any tier band”</p>
+<p><strong>Check</strong>: - Does the organisation have a value set for
+the field used by the tier config? - Is the value within the range of
+any defined band? - If using scoped configs, does the org match the
+scope criteria?</p>
+<h3 id="renewal-was-skipped-unexpectedly">Renewal was skipped
+unexpectedly</h3>
+<p><strong>Check the invoicing mode</strong>: If set to manual or
+scheduled, the workflow action will skip.</p>
+<p><strong>Check the go-live date</strong>: If not set, automatic
+renewals are skipped.</p>
+<p><strong>Check for existing record</strong>: If a record already
+exists for that year, all paths skip.</p>
+<p><strong>Check fee approval</strong>: If
+<code>membership_require_approval</code> is enabled and
+<code>fees_approved</code> is false for the org/year, all processing
+paths (cron, manual, member payment) will be blocked.</p>
+<p>Use the <strong>Simulate</strong> button in the UI to see the
+step-by-step breakdown.</p>
+<h3 id="member-cannot-pay-or-submit-po">Member cannot pay or submit
+PO</h3>
+<p><strong>Symptom</strong>: Member sees an approval-pending message
+instead of payment/PO options on the membership fees page (portal or
+token-based).</p>
+<p><strong>Cause</strong>: The tenant has
+<code>membership_require_approval</code> enabled, and the admin has not
+yet approved fees for that organisation/year.</p>
+<p><strong>Fix</strong>: Admin navigates to the organisation’s
+Membership tab and clicks the “Approve Fees” button on the relevant year
+card. Alternatively, disable the approval requirement in Membership
+Settings if it’s no longer needed.</p>
+<h3 id="stripe-payment-option-not-showing-for-members">Stripe payment
+option not showing for members</h3>
+<p><strong>Symptom</strong>: Members see the fee breakdown but no “Pay
+Now” button on the portal or token-based payment page.</p>
+<p><strong>Cause</strong>: The tenant has
+<code>membership_stripe_enabled</code> set to <code>&#39;false&#39;</code> in
+Membership Settings.</p>
+<p><strong>Fix</strong>: Admin navigates to Membership Settings and
+enables the “Allow Stripe Payments” toggle.</p>
+<h3 id="duplicate-record-error">Duplicate record error</h3>
+<p>If you see error code 23505, this means the database constraint
+caught a race condition. The record already exists — this is the
+safeguard working correctly. No action needed.</p>
+<h3 id="scheduled-invoice-not-generating">Scheduled invoice not
+generating</h3>
+<p><strong>Check</strong>: - Is the invoice date set on the year’s
+invoicing settings? - Has the invoice date been reached? - Does the
+membership history record exist but lack an
+<code>xero_invoice_id</code>? - Is the cron job running?</p>
+<h3 id="vat-mismatch-on-scheduled-invoices">VAT mismatch on scheduled
+invoices</h3>
+<p>Scheduled invoices use VAT from the stored record/band, not from
+re-simulation. If the tier band’s VAT changed between record creation
+and invoice date, the original rate is used (by design — the invoice
+should match the recorded amount).</p>
+<h3 id="cost-showing-differently-in-simulation-vs.-actual-record">Cost
+showing differently in simulation vs. actual record</h3>
+<p>The simulation and record creation use the exact same function
+(<code>simulateMembershipForOrg</code>). If values differ, check: - Was
+an override added or removed between simulation and creation? - Did the
+organisation’s field value change? - Did the tier config change?</p>
+<p>The simulation is a point-in-time calculation — it reflects the state
+at the moment it runs.</p>
+</body>
+</html>

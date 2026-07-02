@@ -11,20 +11,20 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 
 export default function BorderRadiusSettingsPage() {
-  const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const queryClient = useQueryClient();
   const [borderRadius, setBorderRadius] = useState("");
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_BorderRadiusSettings')) {
+      if (isFeatureExcluded('page_BorderRadiusSettings')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: settings, isLoading } = useQuery({
     queryKey: ['borderRadiusSettings'],
@@ -67,14 +67,14 @@ export default function BorderRadiusSettingsPage() {
 
   if (!accessChecked) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-4xl mx-auto">
         <div className="mb-8">
           <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">
@@ -152,8 +152,8 @@ export default function BorderRadiusSettingsPage() {
               </Button>
             </div>
 
-            <div className="bg-amber-50 border border-amber-200 p-4 mt-6">
-              <p className="text-sm text-amber-800">
+            <div className="bg-warning/10 border border-warning/30 p-4 mt-6">
+              <p className="text-sm text-warning">
                 <strong>Note:</strong> After saving, you'll need to refresh the page for changes to take effect throughout the application.
               </p>
             </div>

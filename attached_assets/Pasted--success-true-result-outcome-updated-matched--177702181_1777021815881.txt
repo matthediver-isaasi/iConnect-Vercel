@@ -1,0 +1,66 @@
+{
+    "success": true,
+    "result": {
+        "outcome": "updated",
+        "matched": {
+            "id": "3b4cf2ca-3f90-461c-bb68-6b027cbc749c",
+            "naturalKey": {
+                "field": "name",
+                "value": "aeioTU"
+            },
+            "zoho_crm_id": "815132000006866409",
+            "zoho_crm_module": "Accounts"
+        },
+        "matchedBy": "zoho_id",
+        "coreToWrite": {},
+        "customToWrite": {
+            "24dd507a-43b4-45f8-a396-eb4b9b079f1d": [
+                "ECED (0-3 years)",
+                "ECED (3-6 years)"
+            ],
+            "9cf870e4-6b3b-47d1-9233-a783135130b7": 4791,
+            "81fe250c-ae91-477f-80d9-79e24033063d": 750303,
+            "45641770-9594-462e-b235-79316a11a1be": 50
+        },
+        "linkPatch": null,
+        "diffs": [
+            {
+                "scope": "custom",
+                "field": "24dd507a-43b4-45f8-a396-eb4b9b079f1d",
+                "zohoValue": [
+                    "ECED (0-3 years)",
+                    "ECED (3-6 years)"
+                ],
+                "beforeValue": null,
+                "afterValue": [
+                    "ECED (0-3 years)",
+                    "ECED (3-6 years)"
+                ]
+            },
+            {
+                "scope": "custom",
+                "field": "9cf870e4-6b3b-47d1-9233-a783135130b7",
+                "zohoValue": 4791,
+                "beforeValue": null,
+                "afterValue": 4791
+            },
+            {
+                "scope": "custom",
+                "field": "81fe250c-ae91-477f-80d9-79e24033063d",
+                "zohoValue": 750303,
+                "beforeValue": null,
+                "afterValue": 750303
+            },
+            {
+                "scope": "custom",
+                "field": "45641770-9594-462e-b235-79316a11a1be",
+                "zohoValue": 50,
+                "beforeValue": null,
+                "afterValue": 50
+            }
+        ],
+        "logId": "8c5cecd5-1949-4e13-8c6e-a964a288fb66",
+        "zoho_module": "Accounts",
+        "dryRun": false
+    }
+}

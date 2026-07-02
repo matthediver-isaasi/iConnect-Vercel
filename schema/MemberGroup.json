@@ -8,7 +8,15 @@
       },
       "description": {
         "type": "string",
-        "description": "Description of the group"
+        "description": "Purpose of the group"
+      },
+      "who_is_it_for": {
+        "type": "string",
+        "description": "Who the group is for (optional rich text)"
+      },
+      "about_the_group": {
+        "type": "string",
+        "description": "About the group (optional rich text)"
       },
       "roles": {
         "type": "array",
@@ -22,6 +30,73 @@
         "type": "boolean",
         "default": true,
         "description": "Whether this group is currently active"
+      },
+      "header_image_url": {
+        "type": "string",
+        "description": "Optional header image URL displayed on the self-join browse page"
+      },
+      "allow_self_join": {
+        "type": "boolean",
+        "default": false,
+        "description": "Whether members can join this group themselves from the Member Groups page"
+      },
+      "default_self_join_role": {
+        "type": "string",
+        "description": "Role assigned automatically when a member self-joins this group"
+      },
+      "classification_id": {
+        "type": "string",
+        "description": "Optional MemberGroupClassification this group belongs to (organisational label only, no behaviour)"
+      },
+      "linkedin_url": {
+        "type": "string",
+        "description": "Optional LinkedIn profile URL for this group, shown as a link on the Member Group Detail page"
+      },
+      "terms_of_reference": {
+        "type": "string",
+        "description": "Optional multi-line terms of reference shown to members when self-joining; the member must agree before the join completes"
+      },
+      "role_terms_of_reference": {
+        "type": "object",
+        "default": {},
+        "description": "Deprecated. Previously held per-role terms-of-reference HTML, keyed by role name. Superseded by role_terms_url; retained for legacy data only."
+      },
+      "role_terms_url": {
+        "type": "object",
+        "default": {},
+        "description": "Optional per-role terms-of-reference URL, keyed by role name. Used by role invitations: the invite email and public invite page link to this URL. Roles without a URL show no terms link."
+      },
+      "role_term_definitions": {
+        "type": "object",
+        "default": {},
+        "description": "Optional per-role term definition, keyed by role name: { term_value: number, term_unit: 'months'|'years', max_terms: number }. Surfaced (read-only) on vacancy postings and snapshotted onto assignments at award/invite-accept time."
+      },
+      "events_enabled": {
+        "type": "boolean",
+        "default": false,
+        "description": "Whether Group Admins of this group can create simple (single) events scoped to the group"
+      },
+      "complex_events_enabled": {
+        "type": "boolean",
+        "default": false,
+        "description": "Whether Group Admins of this group can create complex (multi-session) events scoped to the group"
+      },
+      "resource_subcategories": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "default": [],
+        "description": "Resource subcategory names linked to this group. The group's Resources card surfaces tenant resources tagged with any of these subcategories; group-created resources are auto-tagged with them; and such auto-tagged group resources become visible tenant-wide on /Resources under the matching filter."
+      },
+      "self_join_closed": {
+        "type": "boolean",
+        "default": false,
+        "description": "When true, the group remains visible on the Member Groups page but new self-join registrations are blocked. Use self_join_closed_label to customise the button text shown to members."
+      },
+      "self_join_closed_label": {
+        "type": "string",
+        "description": "Custom label shown on the disabled CTA button when self_join_closed is true. Defaults to 'Registrations closed' if left blank."
       }
     },
     "required": [

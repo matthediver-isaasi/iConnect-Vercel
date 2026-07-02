@@ -1,0 +1,76 @@
+15:52:54.838 Running build in Washington, D.C., USA (East) – iad1
+15:52:54.839 Build machine configuration: 4 cores, 8 GB
+15:52:54.928 Cloning github.com/matthediver-isaasi/iConnect-Vercel (Branch: seo1, Commit: d4ccec6)
+15:52:54.929 Previous build caches not available.
+15:52:56.373 Cloning completed: 1.445s
+15:52:56.847 Running "vercel build"
+15:52:57.477 Vercel CLI 50.37.3
+15:52:58.819 Running "install" command: `npm install`...
+15:53:00.214 npm warn ERESOLVE overriding peer dependency
+15:53:00.215 npm warn While resolving: react-codemirror2@7.3.0
+15:53:00.215 npm warn Found: react@18.3.1
+15:53:00.215 npm warn node_modules/react
+15:53:00.215 npm warn   react@"^18.3.1" from the root project
+15:53:00.215 npm warn   123 more (@arco-design/web-react, @dnd-kit/accessibility, ...)
+15:53:00.216 npm warn
+15:53:00.216 npm warn Could not resolve dependency:
+15:53:00.216 npm warn peer react@">=15.5 <=17.x" from react-codemirror2@7.3.0
+15:53:00.216 npm warn node_modules/react-codemirror2
+15:53:00.216 npm warn   react-codemirror2@"^7.2.1" from easy-email-extensions@4.16.5
+15:53:00.217 npm warn   node_modules/easy-email-extensions
+15:53:00.217 npm warn
+15:53:00.217 npm warn Conflicting peer dependency: react@17.0.2
+15:53:00.217 npm warn node_modules/react
+15:53:00.217 npm warn   peer react@">=15.5 <=17.x" from react-codemirror2@7.3.0
+15:53:00.217 npm warn   node_modules/react-codemirror2
+15:53:00.217 npm warn     react-codemirror2@"^7.2.1" from easy-email-extensions@4.16.5
+15:53:00.217 npm warn     node_modules/easy-email-extensions
+15:53:03.344 npm warn deprecated lodash.isequal@4.5.0: This package is deprecated. Use require('node:util').isDeepStrictEqual instead.
+15:53:06.040 npm warn deprecated @esbuild-kit/esm-loader@2.6.5: Merged into tsx: https://tsx.is
+15:53:06.054 npm warn deprecated @esbuild-kit/core-utils@3.3.2: Merged into tsx: https://tsx.is
+15:53:16.286 
+15:53:16.287 added 903 packages, and audited 904 packages in 17s
+15:53:16.287 
+15:53:16.287 192 packages are looking for funding
+15:53:16.287   run `npm fund` for details
+15:53:16.340 
+15:53:16.340 29 vulnerabilities (3 low, 14 moderate, 11 high, 1 critical)
+15:53:16.340 
+15:53:16.340 To address issues that do not require attention, run:
+15:53:16.340   npm audit fix
+15:53:16.340 
+15:53:16.340 To address all issues possible (including breaking changes), run:
+15:53:16.340   npm audit fix --force
+15:53:16.340 
+15:53:16.340 Some issues need review, and may require choosing
+15:53:16.340 a different dependency.
+15:53:16.340 
+15:53:16.340 Run `npm audit` for details.
+15:53:16.990 [36mvite v5.4.20 [32mbuilding for production...[36m[39m
+15:53:17.042 transforming...
+15:53:22.812 [32m✓[39m 478 modules transformed.
+15:53:22.813 [31mx[39m Build failed in 5.80s
+15:53:22.813 [31merror during build:
+15:53:22.814 [31m[vite:esbuild] Transform failed with 1 error:
+15:53:22.814 /vercel/path0/client/src/pages/EditEvent.jsx:940:28: ERROR: "await" can only be used inside an "async" function[31m
+15:53:22.814 file: [36m/vercel/path0/client/src/pages/EditEvent.jsx:940:28[31m
+15:53:22.814 [33m
+15:53:22.814 [33m"await" can only be used inside an "async" function[33m
+15:53:22.815 938|        // Load sponsor assignments
+15:53:22.815 939|        try {
+15:53:22.815 940|          const assignments = await base44.entities.EventSponsorAssignment.list({ filter: { event_id: event.id, event_type: 'simple' } });
+15:53:22.815    |                              ^
+15:53:22.815 941|          setSelectedSponsors(assignments.map(a => a.sponsor_id).filter(Boolean));
+15:53:22.815 942|        } catch (e) {
+15:53:22.815 [31m
+15:53:22.816     at failureErrorWithLog (/vercel/path0/node_modules/vite/node_modules/esbuild/lib/main.js:1472:15)
+15:53:22.816     at /vercel/path0/node_modules/vite/node_modules/esbuild/lib/main.js:755:50
+15:53:22.816     at responseCallbacks.<computed> (/vercel/path0/node_modules/vite/node_modules/esbuild/lib/main.js:622:9)
+15:53:22.816     at handleIncomingPacket (/vercel/path0/node_modules/vite/node_modules/esbuild/lib/main.js:677:12)
+15:53:22.816     at Socket.readFromStdout (/vercel/path0/node_modules/vite/node_modules/esbuild/lib/main.js:600:7)
+15:53:22.816     at Socket.emit (node:events:508:28)
+15:53:22.816     at addChunk (node:internal/streams/readable:563:12)
+15:53:22.817     at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)
+15:53:22.817     at Readable.push (node:internal/streams/readable:394:5)
+15:53:22.817     at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)[39m
+15:53:22.862 Error: Command "npx vite build" exited with 1

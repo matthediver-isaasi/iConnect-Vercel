@@ -78,6 +78,10 @@
         "type": "string",
         "description": "Reference to ResourceFolder entity - the folder this resource belongs to"
       },
+      "member_group_id": {
+        "type": "string",
+        "description": "Optional reference to a member_group. When set, this resource belongs to that group and is shown on its MemberGroupDetail Resources card. Null = tenant-wide resource."
+      },
       "status": {
         "type": "string",
         "enum": [
@@ -86,6 +90,25 @@
         ],
         "default": "active",
         "description": "Publication status - draft resources are not visible to end users"
+      },
+      "linked_events": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "event_id": {
+              "type": "string",
+              "description": "ID of the linked event"
+            },
+            "session_id": {
+              "type": "string",
+              "description": "Optional session ID for complex events - requires track-level access"
+            }
+          },
+          "required": ["event_id"]
+        },
+        "default": [],
+        "description": "Array of linked events (and optional sessions). Members must have a confirmed booking for at least one to access the resource."
       }
     },
     "required": [

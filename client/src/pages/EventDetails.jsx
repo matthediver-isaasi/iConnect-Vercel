@@ -1,27 +1,48 @@
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
+import { supabase } from "@/api/supabaseClient";
 import { useQuery } from "@tanstack/react-query";
+import { useEventData, useEventDataBySlug } from "@/hooks/useEventsData";
+import PublicDocumentsSection from "@/components/events/PublicDocumentsSection";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Calendar, MapPin, Clock, Users, ArrowLeft, Ticket, Plus, Loader2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
+import { Calendar, MapPin, Clock, Users, ArrowLeft, Ticket, Plus, Loader2, Video, AlertTriangle, PoundSterling, User, Mic, ChevronRight, ChevronDown, ChevronUp, X, Lock, FileText, LogIn, Bird, ExternalLink } from "lucide-react";
+import { getEffectiveTicketPrice } from "@/lib/ticketPricing";
+import EarlyBirdCountdown from "@/components/EarlyBirdCountdown";
+import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
+import DOMPurify from "dompurify";
 import { createPageUrl } from "@/utils";
-import { Link } from "react-router-dom";
+import { formatEventTime, getTimezoneAbbreviation } from "@/utils/timeFormat";
+import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import AttendeeList from "../components/booking/AttendeeList";
+import AttendeeOptionsSelector from "../components/booking/AttendeeOptionsSelector";
 import PaymentOptions from "../components/booking/PaymentOptions";
-import RegistrationModeSelector from "../components/booking/RegistrationModeSelector";
 import ColleagueSelector from "../components/booking/ColleagueSelector";
 import PageTour from "../components/tour/PageTour";
+import EventSponsorsCard from "@/components/events/EventSponsorsCard";
 import TourButton from "../components/tour/TourButton";
+import { getFocalPointStyle } from "@/components/FocalPointPicker";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useSpeakerModuleName } from "@/hooks/useSpeakerModuleName";
+import { useEventSeatRealtime } from "@/hooks/useEventSeatRealtime";
+import { useTicketAvailabilityRealtime } from "@/hooks/useTicketAvailabilityRealtime";
+import BookmarkButton from "@/components/bookmarks/BookmarkButton";
 
 export default function EventDetailsPage() {
   const { memberInfo, organizationInfo, memberRole, isFeatureExcluded, reloadMemberInfo, refreshOrganizationInfo } = useMemberAccess();
+  const { singular: speakerSingular, plural: speakerPlural } = useSpeakerModuleName();
   const [memberInfoState, setMemberInfoState] = useState(null);
   const [showTour, setShowTour] = useState(false);
   const [tourAutoShow, setTourAutoShow] = useState(false);
@@ -32,16 +53,107 @@ export default function EventDetailsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [registrationMode, setRegistrationMode] = useState('colleagues');
   const [memberAttending, setMemberAttending] = useState(false);
-  const [showColleagueSelector, setShowColleagueSelector] = useState(false);
+  const [activeRegistrationPanel, setActiveRegistrationPanel] = useState(null); // 'team' | 'external' | null
+  const [selectedTicketClassId, setSelectedTicketClassId] = useState(null);
+  const [earlyBirdExpiredTick, setEarlyBirdExpiredTick] = useState(0);
+  const handleEarlyBirdExpired = useCallback(() => setEarlyBirdExpiredTick(t => t + 1), []);
+  const [paymentCanProceed, setPaymentCanProceed] = useState(false);
+  
+  // External attendee form state
+  const [externalEmail, setExternalEmail] = useState('');
+  const [externalFirstName, setExternalFirstName] = useState('');
+  const [externalLastName, setExternalLastName] = useState('');
+  const [externalValidating, setExternalValidating] = useState(false);
+
+  // Modal states for speaker profiles
+  const [showSpeakerModal, setShowSpeakerModal] = useState(false);
+  const [selectedSpeaker, setSelectedSpeaker] = useState(null);
+  
+  // Description accordion state
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
+
+  // Terms and conditions state
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
+  const [thirdPartyConsent, setThirdPartyConsent] = useState(true);
+  
+  // Get eventId for terms reset tracking
+  const routeParams = useParams();
+  const urlParams2 = new URLSearchParams(window.location.search);
+  const currentEventId = urlParams2.get('id');
+
+  // Guest registration form state (for non-logged-in users)
+  const [guestInfo, setGuestInfo] = useState({
+    first_name: '',
+    last_name: '',
+    email: '',
+    organization: '',
+    phone: '',
+    job_title: '',
+    dietary_selections: [],
+    allergy_selections: [],
+    accessibility_selections: []
+  });
+
+  // Validate guest form
+  const isGuestFormValid = useMemo(() => {
+    return guestInfo.first_name.trim() !== '' &&
+           guestInfo.last_name.trim() !== '' &&
+           guestInfo.email.trim() !== '' &&
+           guestInfo.email.includes('@') &&
+           guestInfo.organization.trim() !== '';
+  }, [guestInfo]);
+
+  const [showMemberEmailModal, setShowMemberEmailModal] = useState(false);
+  const [checkingMemberEmail, setCheckingMemberEmail] = useState(false);
+  const [guestEmailIsMember, setGuestEmailIsMember] = useState(false);
+
+  // Check if user is a guest (not logged in)
+  const isGuestCheckout = !currentMemberInfo;
 
   // Track if initialization has completed to prevent resets on subsequent renders
   const hasInitialized = useRef(null);
 
   const urlParams = new URLSearchParams(window.location.search);
-  const eventId = urlParams.get('id');
+  const eventIdFromQuery = urlParams.get('id');
+  const eventSlugFromQuery = urlParams.get('slug');
+  const eventSlugFromRoute = routeParams.eventSlug;
+  const debugMode = urlParams.get('debugZoom') === '1';
+  const isEmbedMode = urlParams.get('embed') === 'true';
+  const embedTenant = urlParams.get('tenant');
 
-  // Determine if tours should be shown for this user
-  const shouldShowTours = memberRole?.show_tours !== false;
+  const slugToResolve = eventSlugFromRoute || eventSlugFromQuery;
+  const isSlugLookup = !!slugToResolve && !eventIdFromQuery;
+  const { data: slugResolvedEvent, isLoading: isSlugLoading } = useEventDataBySlug(isSlugLookup ? slugToResolve : null);
+  const eventId = eventIdFromQuery || (slugResolvedEvent?.id) || null;
+
+  // Notify parent iframe of height changes for embed mode
+  const notifyParentResize = () => {
+    if (!isEmbedMode) return;
+    setTimeout(() => {
+      const height = document.documentElement.scrollHeight;
+      window.parent.postMessage({ 
+        type: 'iconn-event-resize', 
+        height,
+        eventId,
+        tenant: embedTenant
+      }, '*');
+    }, 100);
+  };
+
+  // Watch for resize in embed mode
+  useEffect(() => {
+    if (!isEmbedMode) return;
+    notifyParentResize();
+    const resizeObserver = new ResizeObserver(() => {
+      notifyParentResize();
+    });
+    resizeObserver.observe(document.body);
+    return () => resizeObserver.disconnect();
+  }, [isEmbedMode]);
+
+  // Determine if tours should be shown for this user (never in embed mode)
+  const shouldShowTours = !isEmbedMode && memberRole?.show_tours !== false;
 
   // Check if user has seen this page's tour
   const hasSeenTour = currentMemberInfo?.page_tours_seen?.EventDetails === true;
@@ -54,37 +166,9 @@ export default function EventDetailsPage() {
     }
   }, [shouldShowTours, hasSeenTour, currentMemberInfo]);
 
-  // Calculate available registration modes
-  const availableRegistrationModes = React.useMemo(() => {
-    const modes = [
-    {
-      id: 'self',
-      icon: 'User',
-      title: 'Self Register',
-      description: 'Register yourself only',
-      featureId: 'element_SelfRegistration'
-    },
-    {
-      id: 'colleagues',
-      icon: 'Users',
-      title: 'Register Attendees',
-      description: 'Register your attendee(s) now'
-    }];
-
-    const filtered = modes.filter((modeOption) => {
-      if (modeOption.featureId && isFeatureExcluded) {
-        return !isFeatureExcluded(modeOption.featureId);
-      }
-      return true;
-    });
-    
-    console.log('[EventDetails] Available registration modes:', filtered.map(m => m.id));
-    return filtered;
-  }, [isFeatureExcluded]);
-
   useEffect(() => {
     if (!memberInfo) {
-      const storedMember = sessionStorage.getItem('agcas_member');
+      const storedMember = localStorage.getItem('agcas_member');
       if (storedMember) {
         setMemberInfoState(JSON.parse(storedMember));
       } else {
@@ -94,6 +178,7 @@ export default function EventDetailsPage() {
   }, [memberInfo]);
 
   // Initialization useEffect - now only runs once per eventId change
+  // Always defaults to 'colleagues' mode with Attendees card shown
   useEffect(() => {
     console.log('[EventDetails] Initialization useEffect - hasInitialized.current:', hasInitialized.current, 'eventId:', eventId);
     
@@ -106,137 +191,35 @@ export default function EventDetailsPage() {
     console.log('[EventDetails] Running initialization logic');
     hasInitialized.current = eventId; // Mark as initialized for this eventId
 
-    if (currentMemberInfo) {
-      if (eventId) {
-        const savedRegistration = sessionStorage.getItem(`event_registration_${eventId}`);
-        console.log('[EventDetails] Saved registration in sessionStorage:', savedRegistration ? 'exists' : 'not found');
+    if (currentMemberInfo && eventId) {
+      const savedRegistration = sessionStorage.getItem(`event_registration_${eventId}`);
+      console.log('[EventDetails] Saved registration in sessionStorage:', savedRegistration ? 'exists' : 'not found');
 
-        if (savedRegistration) {
-          let { attendees: savedAttendees, registrationMode: savedMode, memberAttending: savedMemberAttending } = JSON.parse(savedRegistration);
-          console.log('[EventDetails] Loaded saved registration - mode:', savedMode, 'attendees:', savedAttendees.length);
+      if (savedRegistration) {
+        let { attendees: savedAttendees, memberAttending: savedMemberAttending } = JSON.parse(savedRegistration);
+        console.log('[EventDetails] Loaded saved registration - attendees:', savedAttendees.length);
 
-          // CRITICAL FIX: Check if saved mode is still available for this user
-          const isSavedModeAvailable = availableRegistrationModes.some(mode => mode.id === savedMode);
-          console.log('[EventDetails] Is saved mode "' + savedMode + '" still available?', isSavedModeAvailable);
-
-          if (!isSavedModeAvailable) {
-            console.log('[EventDetails] Saved mode is no longer available - resetting to defaults');
-            // Clear the invalid saved registration
-            sessionStorage.removeItem(`event_registration_${eventId}`);
-            
-            // Set up defaults as if no saved registration exists
-            let initialRegistrationMode;
-            let initialMemberAttending = false;
-            let initialAttendees = [];
-            let initialShowColleagueSelector = false;
-
-            const colleaguesModeOption = availableRegistrationModes.find(mode => mode.id === 'colleagues');
-            const selfModeOption = availableRegistrationModes.find(mode => mode.id === 'self');
-            
-            if (colleaguesModeOption) {
-              initialRegistrationMode = 'colleagues';
-              initialShowColleagueSelector = true;
-            } else if (selfModeOption) {
-              initialRegistrationMode = 'self';
-              initialMemberAttending = true;
-              initialAttendees = [{
-                email: currentMemberInfo.email || "",
-                first_name: currentMemberInfo.first_name || "",
-                last_name: currentMemberInfo.last_name || "",
-                isValid: true,
-                isSelf: true
-              }];
-            } else {
-              initialRegistrationMode = availableRegistrationModes.length > 0 ? availableRegistrationModes[0].id : 'colleagues';
-              if (initialRegistrationMode === 'colleagues') {
-                initialShowColleagueSelector = true;
-              }
-            }
-            
-            setRegistrationMode(initialRegistrationMode);
-            setMemberAttending(initialMemberAttending);
-            setAttendees(initialAttendees);
-            setShowColleagueSelector(initialShowColleagueSelector);
-            return;
-          }
-
-          // Saved mode is valid - use it
-          if (savedMode === 'links') {
-            savedMode = 'self';
-            savedMemberAttending = true;
-            savedAttendees = [{
-              email: currentMemberInfo.email || "",
-              first_name: currentMemberInfo.first_name || "",
-              last_name: currentMemberInfo.last_name || "",
-              isValid: true,
-              isSelf: true
-            }];
-            console.log('[EventDetails] Converted links mode to self mode');
-          }
-
-          setAttendees(savedAttendees);
-          setRegistrationMode(savedMode);
-          setMemberAttending(savedMemberAttending !== undefined ? savedMemberAttending : false);
-          
-          // Only auto-show colleague selector if in colleagues mode with no attendees
-          if (savedMode === 'colleagues' && savedAttendees.length === 0) {
-            setShowColleagueSelector(true);
-          } else {
-            setShowColleagueSelector(false);
-          }
-        } else {
-          // No saved registration - set defaults
-          console.log('[EventDetails] No saved registration - initializing defaults');
-          
-          let initialRegistrationMode;
-          let initialMemberAttending = false;
-          let initialAttendees = [];
-          let initialShowColleagueSelector = false;
-
-          const colleaguesModeOption = availableRegistrationModes.find(mode => mode.id === 'colleagues');
-          const selfModeOption = availableRegistrationModes.find(mode => mode.id === 'self');
-          
-          if (colleaguesModeOption) {
-            initialRegistrationMode = 'colleagues';
-            initialShowColleagueSelector = true;
-          } else if (selfModeOption) {
-            initialRegistrationMode = 'self';
-            initialMemberAttending = true;
-            initialAttendees = [{
-              email: currentMemberInfo.email || "",
-              first_name: currentMemberInfo.first_name || "",
-              last_name: currentMemberInfo.last_name || "",
-              isValid: true,
-              isSelf: true
-            }];
-          } else {
-            initialRegistrationMode = availableRegistrationModes.length > 0 ? availableRegistrationModes[0].id : 'colleagues';
-            if (initialRegistrationMode === 'colleagues') {
-              initialShowColleagueSelector = true;
-            }
-          }
-          
-          setRegistrationMode(initialRegistrationMode);
-          setMemberAttending(initialMemberAttending);
-          setAttendees(initialAttendees);
-          setShowColleagueSelector(initialShowColleagueSelector);
-        }
+        setAttendees(savedAttendees);
+        setRegistrationMode('colleagues');
+        setMemberAttending(savedMemberAttending !== undefined ? savedMemberAttending : false);
+        setActiveRegistrationPanel(null);
+      } else {
+        // No saved registration - set defaults
+        console.log('[EventDetails] No saved registration - initializing defaults');
+        setRegistrationMode('colleagues');
+        setMemberAttending(false);
+        setAttendees([]);
+        setActiveRegistrationPanel(null);
       }
     } else {
       // For unauthenticated users
       console.log('[EventDetails] No memberInfo - setting up for unauthenticated user');
       setAttendees([]);
-      const colleaguesModeOption = availableRegistrationModes.find(mode => mode.id === 'colleagues');
-      const defaultMode = colleaguesModeOption ? 'colleagues' : (availableRegistrationModes.length > 0 ? availableRegistrationModes[0].id : 'colleagues');
-      setRegistrationMode(defaultMode);
+      setRegistrationMode('colleagues');
       setMemberAttending(false);
-      if (defaultMode === 'colleagues') {
-        setShowColleagueSelector(true);
-      } else {
-        setShowColleagueSelector(false);
-      }
+      setActiveRegistrationPanel(null);
     }
-  }, [eventId]); // CRITICAL: Removed currentMemberInfo and availableRegistrationModes from dependencies
+  }, [eventId]); // CRITICAL: Only depends on eventId
 
   // Separate useEffect to save state to sessionStorage
   useEffect(() => {
@@ -251,16 +234,605 @@ export default function EventDetailsPage() {
     }
   }, [attendees, registrationMode, memberAttending, eventId, currentMemberInfo]);
 
-  const { data: event, isLoading } = useQuery({
-    queryKey: ['event', eventId],
-    queryFn: async () => {
-      const events = await base44.entities.Event.list();
-      return events.find((e) => e.id === eventId);
-    },
-    enabled: !!eventId
+  // Set up realtime subscription for seat updates
+  const { isConnected: realtimeConnected } = useEventSeatRealtime(eventId, {
+    showSoldOutToast: true,
+    onSoldOut: () => {
+      console.log('[EventDetails] Event sold out via realtime update');
+    }
   });
 
+  // Use hybrid hook (authenticated: base44, public: publicClient)
+  const { data: event, isLoading } = useEventData(eventId);
+
+  useEffect(() => {
+    if (event) {
+      document.title = event.seo_title || event.title || 'Event';
+
+      let metaDescription = document.querySelector('meta[name="description"]');
+      if (!metaDescription) {
+        metaDescription = document.createElement('meta');
+        metaDescription.name = 'description';
+        document.head.appendChild(metaDescription);
+      }
+      metaDescription.content = event.seo_description || event.summary || '';
+
+      let ogTitle = document.querySelector('meta[property="og:title"]');
+      if (!ogTitle) {
+        ogTitle = document.createElement('meta');
+        ogTitle.setAttribute('property', 'og:title');
+        document.head.appendChild(ogTitle);
+      }
+      ogTitle.content = event.seo_title || event.title || '';
+
+      let ogDescription = document.querySelector('meta[property="og:description"]');
+      if (!ogDescription) {
+        ogDescription = document.createElement('meta');
+        ogDescription.setAttribute('property', 'og:description');
+        document.head.appendChild(ogDescription);
+      }
+      ogDescription.content = event.seo_description || event.summary || '';
+
+      if (event.image_url) {
+        let ogImage = document.querySelector('meta[property="og:image"]');
+        if (!ogImage) {
+          ogImage = document.createElement('meta');
+          ogImage.setAttribute('property', 'og:image');
+          document.head.appendChild(ogImage);
+        }
+        ogImage.content = event.image_url;
+      }
+
+      let ogType = document.querySelector('meta[property="og:type"]');
+      if (!ogType) {
+        ogType = document.createElement('meta');
+        ogType.setAttribute('property', 'og:type');
+        document.head.appendChild(ogType);
+      }
+      ogType.content = 'event';
+    }
+
+    return () => {
+      document.title = 'Portal';
+    };
+  }, [event]);
+
+  // Query for speakers assigned to this event
+  const { data: eventSpeakers = [] } = useQuery({
+    queryKey: ['event-speakers', event?.speaker_ids],
+    queryFn: async () => await publicClient.listSpeakers(event.speaker_ids) || [],
+    enabled: !!event?.speaker_ids && event.speaker_ids.length > 0
+  });
+
+  const { data: eventSessions = [] } = useQuery({
+    queryKey: ['event-sessions', event?.id],
+    queryFn: async () => {
+      const response = await fetch(`/api/complex-event-sessions/public?event_id=${event.id}`, { credentials: 'include' });
+      if (!response.ok) return [];
+      return response.json();
+    },
+    enabled: !!event?.id && !!event?.is_complex
+  });
+
+  // Query for all system settings (using public endpoint for unauthenticated access)
+  const { data: systemSettings = [] } = useQuery({
+    queryKey: ['public-system-settings'],
+    queryFn: () => publicClient.listSystemSettings()
+  });
+
+  // Reset terms acceptance when event changes or terms content changes
+  // This must be placed before any early returns to maintain hooks order
+  const termsSettingValue = Array.isArray(systemSettings) 
+    ? systemSettings.find(s => s.setting_key === 'event_booking_terms')?.setting_value || ''
+    : '';
+  useEffect(() => {
+    setTermsAccepted(false);
+    setThirdPartyConsent(true);
+  }, [currentEventId, termsSettingValue]);
+
+  // Query for webinar join link visibility settings (using public endpoint)
+  const { data: joinLinkSettings } = useQuery({
+    queryKey: ['public-webinar-join-link-settings'],
+    queryFn: async () => {
+      const allSettings = await publicClient.listSystemSettings();
+      const setting = allSettings.find(s => s.setting_key === 'webinar_show_join_link');
+      if (setting && setting.setting_value) {
+        try {
+          return JSON.parse(setting.setting_value);
+        } catch {
+          return {};
+        }
+      }
+      return {};
+    }
+  });
+
+  // Query for webinars to match URLs to webinar IDs
+  // Only runs for authenticated users - skipped on public pages
+  const { data: webinars = [] } = useQuery({
+    queryKey: ['/api/zoom/webinars'],
+    queryFn: async () => {
+      try {
+        const response = await fetch('/api/zoom/webinars');
+        if (!response.ok) return [];
+        return await response.json();
+      } catch {
+        return [];
+      }
+    },
+    enabled: !!memberInfo // Only fetch when authenticated
+  });
+
+  // Query for meetings to match URLs to meeting IDs
+  // Only runs for authenticated users - skipped on public pages
+  const { data: meetings = [] } = useQuery({
+    queryKey: ['/api/zoom/meetings'],
+    queryFn: async () => {
+      try {
+        const response = await fetch('/api/zoom/meetings');
+        if (!response.ok) return [];
+        return await response.json();
+      } catch {
+        return [];
+      }
+    },
+    enabled: !!memberInfo // Only fetch when authenticated
+  });
+
+  // Determine if this is an online event and if join link should be shown
+  const isOnlineEvent = event?.location?.toLowerCase().startsWith('online');
+  const hasUrlInLocation = event?.location?.includes('https://') || event?.location?.includes('http://');
+  
+  // Find matching webinar or meeting by URL if location contains a URL
+  const getZoomIdFromLocation = () => {
+    if (!hasUrlInLocation || !event?.location) return { type: null, id: null };
+    const urlMatch = event.location.match(/https?:\/\/[^\s]+/);
+    if (!urlMatch) return { type: null, id: null };
+    const url = urlMatch[0];
+    
+    // Check webinars first
+    if (webinars?.length) {
+      const matchingWebinar = webinars.find(w => w.join_url === url);
+      if (matchingWebinar) return { type: 'webinar', id: matchingWebinar.id };
+    }
+    
+    // Then check meetings
+    if (meetings?.length) {
+      const matchingMeeting = meetings.find(m => m.join_url === url);
+      if (matchingMeeting) return { type: 'meeting', id: matchingMeeting.id };
+    }
+    
+    return { type: null, id: null };
+  };
+
+  // Check if join link should be shown based on settings
+  const shouldShowJoinLink = () => {
+    if (!isOnlineEvent || !hasUrlInLocation) return false;
+    const { id: zoomId } = getZoomIdFromLocation();
+    if (!zoomId || !joinLinkSettings) return false;
+    return joinLinkSettings[zoomId] === true;
+  };
+
+  // ========== PRICING/TICKET CLASS HOOKS - MUST BE BEFORE EARLY RETURNS ==========
+  // These hooks MUST be called unconditionally to avoid React hooks order violations
+  
+  // Determine if this is a one-off event (guard for null event)
+  const isOneOffEvent = event && (!event.program_tag || event.program_tag === "");
+  
+  // Get the user's role ID
+  const userRoleId = memberRole?.id || currentMemberInfo?.role_id;
+
+  // Load the current member's group assignments so tickets that are
+  // restricted by member_group_ids can be matched on the frontend.
+  const { data: userMemberGroupIds = [] } = useQuery({
+    queryKey: ['member_group_assignment', currentMemberInfo?.id],
+    enabled: !!currentMemberInfo?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('member_group_assignment')
+        .select('group_id')
+        .eq('member_id', currentMemberInfo.id);
+      if (error || !Array.isArray(data)) return [];
+      return data.map(r => r.group_id).filter(Boolean);
+    }
+  });
+  
+  // One-off event pricing calculations - parse if it's a JSON string
+  const eventOptions = useMemo(() => ({
+    dietary_options: Array.isArray(event?.dietary_options) ? event.dietary_options : [],
+    allergy_options: Array.isArray(event?.allergy_options) ? event.allergy_options : [],
+    accessibility_options: Array.isArray(event?.accessibility_options) ? event.accessibility_options : [],
+  }), [event]);
+
+  const pricingConfig = useMemo(() => {
+    // Guard for missing event or not a one-off event
+    if (!event || !isOneOffEvent || !event.pricing_config) return null;
+    
+    let parsed = null;
+    
+    // Handle case where pricing_config is a JSON string from the database
+    if (typeof event.pricing_config === 'string') {
+      try {
+        parsed = JSON.parse(event.pricing_config);
+      } catch (e) {
+        console.error('Failed to parse pricing_config:', e);
+        return null;
+      }
+    } else if (typeof event.pricing_config === 'object' && event.pricing_config !== null) {
+      // Already an object - make a shallow copy to avoid mutation issues
+      parsed = { ...event.pricing_config };
+    }
+    
+    // Validate that parsed is a plain object
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      console.error('pricing_config is not a valid object:', parsed);
+      return null;
+    }
+    
+    return parsed;
+  }, [event, isOneOffEvent]);
+  
+  // Set up realtime subscription for ticket class availability updates
+  // MUST be after pricingConfig is defined to seed initial state
+  const { ticketClassAvailability, getTicketClassAvailability } = useTicketAvailabilityRealtime(eventId, {
+    showSoldOutToast: true,
+    initialPricingConfig: pricingConfig, // Seed with initial data
+    onTicketSoldOut: (ticketClassId, ticketClassName) => {
+      console.log('[EventDetails] Ticket class sold out via realtime update:', ticketClassName);
+    }
+  });
+  
+  // Get ALL normalized ticket classes (for display purposes when "show all" toggle is on)
+  const allNormalizedTickets = useMemo(() => {
+    if (!isOneOffEvent || !pricingConfig) return [];
+    
+    // Ensure ticket_classes is an array
+    const rawTicketClasses = pricingConfig.ticket_classes;
+    const ticketClasses = Array.isArray(rawTicketClasses) ? rawTicketClasses : [];
+    
+    // If no ticket classes defined, use legacy single-price format
+    if (ticketClasses.length === 0) {
+      return [{
+        id: 'default',
+        name: 'Standard Ticket',
+        price: Number(pricingConfig.ticket_price) || 0,
+        role_ids: [],
+        member_group_ids: [],
+        is_default: true,
+        visibility_mode: 'members_only', // Legacy tickets are members only
+        role_match_only: false,
+        offer_type: String(pricingConfig.offer_type || 'none'),
+        bogo_logic_type: String(pricingConfig.bogo_logic_type || 'buy_x_get_y_free'),
+        bogo_buy_quantity: Number(pricingConfig.bogo_buy_quantity) || 0,
+        bogo_get_free_quantity: Number(pricingConfig.bogo_get_free_quantity) || 0,
+        bulk_discount_threshold: Number(pricingConfig.bulk_discount_threshold) || 0,
+        bulk_discount_percentage: Number(pricingConfig.bulk_discount_percentage) || 0
+      }];
+    }
+    
+    // Normalize ticket classes with backwards compatibility for is_public field
+    return ticketClasses
+      .filter(tc => tc && typeof tc === 'object')
+      .map(tc => {
+        // Handle backwards compatibility: convert is_public to visibility_mode
+        let visibilityMode = tc.visibility_mode;
+        if (!visibilityMode) {
+          // Legacy tickets: if is_public was true, treat as 'members_and_public', otherwise 'members_only'
+          // Handle various truthy/falsy representations of is_public (string "true"/"false", number 1/0, boolean)
+          const isPublicValue = tc.is_public;
+          const isPublicBool = isPublicValue === true || isPublicValue === 1 || isPublicValue === 'true' || isPublicValue === '1';
+          visibilityMode = isPublicBool ? 'members_and_public' : 'members_only';
+        }
+        
+        return {
+          id: String(tc.id || `ticket-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`),
+          name: String(tc.name || 'Ticket'),
+          price: Number(tc.price) || 0,
+          role_ids: Array.isArray(tc.role_ids) ? tc.role_ids : [],
+          member_group_ids: Array.isArray(tc.member_group_ids) ? tc.member_group_ids : [],
+          is_default: Boolean(tc.is_default),
+          visibility_mode: visibilityMode,
+          role_match_only: Boolean(tc.role_match_only),
+          offer_type: String(tc.offer_type || 'none'),
+          bogo_logic_type: String(tc.bogo_logic_type || 'buy_x_get_y_free'),
+          bogo_buy_quantity: Number(tc.bogo_buy_quantity) || 0,
+          bogo_get_free_quantity: Number(tc.bogo_get_free_quantity) || 0,
+          bulk_discount_threshold: Number(tc.bulk_discount_threshold) || 0,
+          bulk_discount_percentage: Number(tc.bulk_discount_percentage) || 0,
+          // Ticket class availability fields (count-based: available_count is a
+          // fixed maximum; sold_count/is_sold_out come from the public API)
+          available_count: tc.available_count,
+          is_unlimited_tickets: tc.is_unlimited_tickets,
+          sold_count: typeof tc.sold_count === 'number' ? tc.sold_count : undefined,
+          is_sold_out: typeof tc.is_sold_out === 'boolean' ? tc.is_sold_out : undefined,
+          // Group ticket fields
+          is_group_ticket: Boolean(tc.is_group_ticket),
+          group_size: tc.group_size ? Number(tc.group_size) : null,
+          group_cutoff_date: tc.group_cutoff_date || null,
+          early_bird_enabled: Boolean(tc.early_bird_enabled),
+          early_bird_price: tc.early_bird_price != null ? Number(tc.early_bird_price) : null,
+          early_bird_deadline: tc.early_bird_deadline || null
+        };
+      });
+  }, [isOneOffEvent, pricingConfig]);
+  
+  // Count-based availability helpers (Task #1758). available_count is a fixed
+  // maximum; availability is derived from confirmed-booking counts. Prefer live
+  // realtime data, otherwise fall back to the sold_count / is_sold_out embedded
+  // on the ticket by the public API.
+  const getTicketSoldOut = (ticket) => {
+    if (!ticket) return false;
+    const realtimeAvail = getTicketClassAvailability(String(ticket.id));
+    if (realtimeAvail) {
+      return realtimeAvail.isSoldOut === true;
+    }
+    const rawAvailCount = ticket.available_count;
+    const isUnlimited = ticket.is_unlimited_tickets === true ||
+      rawAvailCount === null || rawAvailCount === undefined || rawAvailCount === '';
+    if (isUnlimited) return false;
+    if (typeof ticket.is_sold_out === 'boolean') return ticket.is_sold_out;
+    const max = Number(rawAvailCount);
+    if (!Number.isFinite(max)) return false;
+    const sold = typeof ticket.sold_count === 'number' ? ticket.sold_count : 0;
+    return (max - sold) <= 0;
+  };
+
+  // Remaining tickets for display. Returns null for unlimited / no enforceable
+  // maximum (caller should not show a count in that case).
+  const getTicketRemaining = (ticket) => {
+    if (!ticket) return null;
+    const realtimeAvail = getTicketClassAvailability(String(ticket.id));
+    if (realtimeAvail) {
+      if (realtimeAvail.is_unlimited_tickets || realtimeAvail.remaining === null) return null;
+      return Math.max(0, realtimeAvail.remaining);
+    }
+    const rawAvailCount = ticket.available_count;
+    const isUnlimited = ticket.is_unlimited_tickets === true ||
+      rawAvailCount === null || rawAvailCount === undefined || rawAvailCount === '';
+    if (isUnlimited) return null;
+    const max = Number(rawAvailCount);
+    if (!Number.isFinite(max)) return null;
+    const sold = typeof ticket.sold_count === 'number' ? ticket.sold_count : 0;
+    return Math.max(0, max - sold);
+  };
+
+  // Helper to check if a ticket is purchasable by the current user
+  // Visibility logic:
+  // - Members Only: Visible to logged-in members. If role_match_only=true, only if user's role is in role_ids
+  // - Members & Public: Same as Members Only + visible to non-logged-in visitors
+  // - Public Only: ONLY visible/purchasable by non-logged-in visitors
+  const isTicketPurchasable = (ticket) => {
+    if (!ticket) return false;
+    
+    // Count-based availability (Task #1758): availability is derived from the
+    // number of confirmed bookings, not from mutating available_count.
+    // Prefer the live realtime data; otherwise fall back to the sold_count /
+    // is_sold_out the public API embedded on the ticket.
+    if (getTicketSoldOut(ticket)) {
+      return false;
+    }
+    
+    const visibilityMode = ticket.visibility_mode;
+
+    // For non-logged-in users
+    if (!currentMemberInfo) {
+      // Can only purchase public_only tickets (and members_and_public tickets)
+      if (visibilityMode !== 'public_only' && visibilityMode !== 'members_and_public') {
+        return false;
+      }
+      // If the ticket is restricted to specific roles/groups, guests can never qualify
+      if (ticket.role_match_only) {
+        const ticketRoleIds = Array.isArray(ticket.role_ids) ? ticket.role_ids : [];
+        const ticketGroupIds = Array.isArray(ticket.member_group_ids) ? ticket.member_group_ids : [];
+        if (ticketRoleIds.length > 0 || ticketGroupIds.length > 0) return false;
+      }
+      return true;
+    }
+    
+    // For logged-in members
+    // Public-only tickets cannot be purchased by logged-in members
+    if (visibilityMode === 'public_only') return false;
+    
+    // Members Only and Members & Public tickets:
+    // If role_match_only is false, any logged-in member can purchase
+    if (!ticket.role_match_only) return true;
+
+    const ticketRoleIds = Array.isArray(ticket.role_ids) ? ticket.role_ids : [];
+    const ticketGroupIds = Array.isArray(ticket.member_group_ids) ? ticket.member_group_ids : [];
+
+    // No restrictions configured -> all roles/groups allowed
+    if (ticketRoleIds.length === 0 && ticketGroupIds.length === 0) return true;
+
+    // OR logic: user can purchase if their role matches OR any of their groups match
+    const roleMatches = !!userRoleId && ticketRoleIds.includes(userRoleId);
+    const groupMatches = (userMemberGroupIds || []).some(g => ticketGroupIds.includes(g));
+    return roleMatches || groupMatches;
+  };
+  
+  // Check if admin has enabled showing all tickets to guests
+  const allowGuestsToViewAllTickets = pricingConfig?.allowGuestsToViewAllTickets || false;
+  
+  // Get ticket classes that should be displayed
+  // For non-logged-in users: show based on admin setting allowGuestsToViewAllTickets
+  // For logged-in users: tickets they have access to based on visibility and role
+  const availableTicketClasses = useMemo(() => {
+    if (!isOneOffEvent || !pricingConfig) return [];
+    
+    // For logged-in members, filter based on visibility_mode and role_match_only
+    if (currentMemberInfo) {
+      return allNormalizedTickets.filter(tc => {
+        // Public-only tickets are NOT visible to logged-in members
+        if (tc.visibility_mode === 'public_only') return false;
+
+        // If role_match_only is false or not set, show the ticket
+        if (!tc.role_match_only) return true;
+
+        const ticketRoleIds = Array.isArray(tc.role_ids) ? tc.role_ids : [];
+        const ticketGroupIds = Array.isArray(tc.member_group_ids) ? tc.member_group_ids : [];
+
+        // No restrictions configured -> visible to all roles/groups
+        if (ticketRoleIds.length === 0 && ticketGroupIds.length === 0) return true;
+
+        // OR logic: visible if user's role matches OR any of their groups match
+        const roleMatches = !!userRoleId && ticketRoleIds.includes(userRoleId);
+        const groupMatches = (userMemberGroupIds || []).some(g => ticketGroupIds.includes(g));
+        return roleMatches || groupMatches;
+      });
+    }
+    
+    // For non-logged-in users: if admin enabled allowGuestsToViewAllTickets, show ALL tickets
+    if (allowGuestsToViewAllTickets) {
+      return allNormalizedTickets;
+    }
+    
+    // Otherwise only show tickets that include public visibility
+    return allNormalizedTickets.filter(tc => {
+      if (tc.visibility_mode !== 'members_and_public' && tc.visibility_mode !== 'public_only') {
+        return false;
+      }
+      // Restricted tickets (role_match_only with non-empty roles/groups) are
+      // not visible to guests since guests can never satisfy a role/group rule.
+      if (tc.role_match_only) {
+        const ticketRoleIds = Array.isArray(tc.role_ids) ? tc.role_ids : [];
+        const ticketGroupIds = Array.isArray(tc.member_group_ids) ? tc.member_group_ids : [];
+        if (ticketRoleIds.length > 0 || ticketGroupIds.length > 0) return false;
+      }
+      return true;
+    });
+  }, [isOneOffEvent, pricingConfig, currentMemberInfo, userRoleId, userMemberGroupIds, allNormalizedTickets, allowGuestsToViewAllTickets]);
+  
+  // Auto-select first available PURCHASABLE ticket class
+  // Also reset selection if currently selected ticket becomes non-purchasable
+  useEffect(() => {
+    if (availableTicketClasses.length > 0) {
+      // Find the currently selected ticket if any
+      const currentSelection = selectedTicketClassId 
+        ? availableTicketClasses.find(tc => tc.id === selectedTicketClassId)
+        : null;
+      
+      // If no selection or current selection is not purchasable, select first purchasable ticket
+      if (!currentSelection || !isTicketPurchasable(currentSelection)) {
+        // Find the first purchasable ticket, preferring the default one
+        const purchasableTickets = availableTicketClasses.filter(isTicketPurchasable);
+        if (purchasableTickets.length > 0) {
+          const defaultPurchasable = purchasableTickets.find(tc => tc.is_default);
+          setSelectedTicketClassId(defaultPurchasable?.id || purchasableTickets[0]?.id);
+        } else {
+          // No purchasable tickets available - clear selection
+          setSelectedTicketClassId(null);
+        }
+      }
+    }
+  }, [availableTicketClasses, selectedTicketClassId, allowGuestsToViewAllTickets, currentMemberInfo, userRoleId]);
+  
+  // Get selected ticket class
+  const selectedTicketClass = useMemo(() => {
+    if (availableTicketClasses.length === 0) return null;
+    if (!selectedTicketClassId) return availableTicketClasses[0] || null;
+    return availableTicketClasses.find(tc => tc.id === selectedTicketClassId) || availableTicketClasses[0] || null;
+  }, [availableTicketClasses, selectedTicketClassId]);
+  
+  // Check if user can self-register based on selected ticket's role/group restrictions.
+  // Mirrors the OR logic used by isTicketPurchasable / availableTicketClasses:
+  // a member qualifies if their role matches OR any of their member groups match.
+  const canSelfRegister = useMemo(() => {
+    if (!isOneOffEvent || !selectedTicketClass) return true; // Non-one-off events have no role restrictions
+
+    // Restrictions only apply when role_match_only is enabled
+    if (!selectedTicketClass.role_match_only) return true;
+
+    const roleIds = Array.isArray(selectedTicketClass.role_ids) ? selectedTicketClass.role_ids : [];
+    const groupIds = Array.isArray(selectedTicketClass.member_group_ids) ? selectedTicketClass.member_group_ids : [];
+    // Empty lists -> no restriction, available to all members
+    if (roleIds.length === 0 && groupIds.length === 0) return true;
+
+    const roleMatches = !!userRoleId && roleIds.includes(userRoleId);
+    const groupMatches = (userMemberGroupIds || []).some(g => groupIds.includes(g));
+    return roleMatches || groupMatches;
+  }, [isOneOffEvent, selectedTicketClass, userRoleId, userMemberGroupIds]);
+  
+  // Task #1519: Group events (member_group_id set) force self-only registration.
+  // No colleagues / external / multi-attendee booking is permitted.
+  const isGroupEvent = !!event?.member_group_id;
+
+  // Role-based permission checks for registration buttons
+  const canRoleSelfRegister = !isFeatureExcluded || !isFeatureExcluded('element_SelfRegistration');
+  const canAddTeamMembers = !isGroupEvent && (!isFeatureExcluded || !isFeatureExcluded('element_AddColleaguesToEvents'));
+  const canRegisterExternal = !isGroupEvent && (!isFeatureExcluded || !isFeatureExcluded('element_RegisterExternalAttendees'));
+  
+  // User can add colleagues if they have permission for team members OR external attendees
+  const canAddColleagues = canAddTeamMembers || canRegisterExternal;
+  
+  // Auto-register user if they cannot add colleagues and are logged in
+  // This runs after initialization is complete
+  useEffect(() => {
+    // Only apply if initialization is complete for this event
+    if (hasInitialized.current !== eventId) return;
+    // Only apply for logged-in users
+    if (!currentMemberInfo) return;
+    // Only apply if user cannot add colleagues
+    if (canAddColleagues) return;
+    // Only apply if user can self-register for selected ticket
+    if (!canSelfRegister) return;
+    
+    // Check if user is already in attendees list
+    const alreadyAdded = attendees.some(a => a.isSelf);
+    if (!alreadyAdded) {
+      console.log('[EventDetails] User cannot add colleagues - auto-registering as attendee');
+      const memberAsAttendee = {
+        email: currentMemberInfo.email || "",
+        first_name: currentMemberInfo.first_name || "",
+        last_name: currentMemberInfo.last_name || "",
+        organization: organizationInfo?.name || currentMemberInfo.organization || "",
+        isValid: true,
+        isSelf: true
+      };
+      // Preserve existing colleagues and prepend the self-attendee
+      setAttendees(prev => [memberAsAttendee, ...prev.filter(a => !a.isSelf)]);
+      setMemberAttending(true);
+      setActiveRegistrationPanel(null);
+    }
+  }, [eventId, currentMemberInfo, canAddColleagues, canSelfRegister, organizationInfo, attendees]);
+  
+  // When ticket selection changes and user can no longer self-register, handle mode/attendance changes
+  useEffect(() => {
+    if (isOneOffEvent && !canSelfRegister) {
+      // If in self mode, switch to colleagues mode
+      if (registrationMode === 'self') {
+        console.log('[EventDetails] User can no longer self-register for selected ticket, switching to colleagues mode');
+        setRegistrationMode('colleagues');
+        setAttendees([]);
+        setMemberAttending(false);
+      } else if (memberAttending) {
+        // If in colleagues mode but was attending, remove self from attendees
+        console.log('[EventDetails] User can no longer self-register, removing self from attendees');
+        setAttendees(prev => prev.filter(a => !a.isSelf));
+        setMemberAttending(false);
+      }
+    }
+  }, [isOneOffEvent, canSelfRegister, registrationMode, memberAttending]);
+  
+  // Check if guest form should be disabled (non-logged-in user without a purchasable ticket selected)
+  // This allows showing member-only events to non-members but prevents them from registering
+  const isGuestFormDisabled = useMemo(() => {
+    // Only applies to guest checkout (non-logged-in users)
+    if (!isGuestCheckout) return false;
+    // If no ticket selected, form is disabled
+    if (!selectedTicketClass) return true;
+    // Check if the selected ticket is purchasable by guests
+    const visibilityMode = selectedTicketClass.visibility_mode;
+    const isPublicTicket = visibilityMode === 'members_and_public' || visibilityMode === 'public_only';
+    return !isPublicTicket;
+  }, [isGuestCheckout, selectedTicketClass]);
+  
+  // ========== END PRICING/TICKET CLASS HOOKS ==========
+
   const removeAttendee = (index) => {
+    const attendeeToRemove = attendees[index];
+    // If removing self, reset memberAttending flag
+    if (attendeeToRemove?.isSelf) {
+      setMemberAttending(false);
+    }
     setAttendees(attendees.filter((_, i) => i !== index));
   };
 
@@ -276,34 +848,79 @@ export default function EventDetailsPage() {
       isValid: true,
       isSelf: false
     }]);
-    setShowColleagueSelector(false);
+    setActiveRegistrationPanel(null);
   };
 
-  const handleModeChange = (mode) => {
-    setRegistrationMode(mode);
-    setShowColleagueSelector(false); // Reset when mode changes
+  // Handle registering self (Register Myself button)
+  const handleRegisterMyself = () => {
+    if (!currentMemberInfo) return;
+    
+    // Check if already registered
+    if (memberAttending) {
+      toast.info('You are already registered for this event');
+      return;
+    }
+    
+    const memberAsAttendee = {
+      email: currentMemberInfo.email || "",
+      first_name: currentMemberInfo.first_name || "",
+      last_name: currentMemberInfo.last_name || "",
+      isValid: true,
+      isSelf: true
+    };
+    
+    if (!attendees.some((a) => a.isSelf)) {
+      setAttendees([memberAsAttendee, ...attendees]);
+    }
+    setMemberAttending(true);
+    setActiveRegistrationPanel(null);
+    toast.success('You have been added as an attendee');
+  };
 
-    if (currentMemberInfo) {
-      if (mode === 'self') {
-        setAttendees([{
-          email: currentMemberInfo.email || "",
-          first_name: currentMemberInfo.first_name || "",
-          last_name: currentMemberInfo.last_name || "",
-          isValid: true,
-          isSelf: true
-        }]);
-        setMemberAttending(true);
-      } else if (mode === 'colleagues') {
-        setAttendees([]);
-        setMemberAttending(false);
-        setShowColleagueSelector(true); // Auto-show when switching to colleagues mode
+  // Handle external email submission (Register Someone Else)
+  const handleExternalEmailSubmit = async () => {
+    if (!externalEmail || !externalEmail.includes('@')) {
+      toast.error('Please enter a valid email address');
+      return;
+    }
+    
+    if (!externalFirstName.trim() || !externalLastName.trim()) {
+      toast.error('Please enter first and last name');
+      return;
+    }
+
+    setExternalValidating(true);
+    
+    try {
+      // Check if email is already in attendees
+      if (attendees.some(a => a.email?.toLowerCase() === externalEmail.toLowerCase())) {
+        toast.error('This person is already registered');
+        setExternalValidating(false);
+        return;
       }
-    } else {
-      setAttendees([]);
-      setMemberAttending(false);
-      if (mode === 'colleagues') {
-        setShowColleagueSelector(true);
-      }
+      
+      // Add as external attendee with name
+      setAttendees([...attendees, {
+        email: externalEmail,
+        first_name: externalFirstName.trim(),
+        last_name: externalLastName.trim(),
+        isValid: true,
+        validationStatus: 'external',
+        validationMessage: 'External attendee',
+        isSelf: false
+      }]);
+      
+      // Clear form
+      setExternalEmail('');
+      setExternalFirstName('');
+      setExternalLastName('');
+      setActiveRegistrationPanel(null);
+      toast.success(`${externalFirstName} ${externalLastName} has been added`);
+    } catch (error) {
+      console.error('[EventDetails] External email submission error:', error);
+      toast.error('Failed to add attendee');
+    } finally {
+      setExternalValidating(false);
     }
   };
 
@@ -356,7 +973,7 @@ export default function EventDetailsPage() {
   const updateMemberTourStatus = async (tourKey) => {
     if (currentMemberInfo && !currentMemberInfo.is_team_member) {
       try {
-        const allMembers = await base44.entities.Member.list();
+        const allMembers = await base44.entities.Member.listAll();
         const currentMember = allMembers.find(m => m.email === currentMemberInfo.email);
         
         if (currentMember) {
@@ -366,7 +983,7 @@ export default function EventDetailsPage() {
           });
           
           const updatedMemberInfo = { ...currentMemberInfo, page_tours_seen: updatedTours };
-          sessionStorage.setItem('agcas_member', JSON.stringify(updatedMemberInfo));
+          localStorage.setItem('agcas_member', JSON.stringify(updatedMemberInfo));
           
           // Notify Layout to reload memberInfo
           if (reloadMemberInfo) {
@@ -379,9 +996,9 @@ export default function EventDetailsPage() {
     }
   };
 
-  if (isLoading) {
+  if (isLoading || isSlugLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-full bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading event...</div>
       </div>
     );
@@ -389,7 +1006,7 @@ export default function EventDetailsPage() {
 
   if (!event) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+      <div className="min-h-full bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
         <div className="max-w-4xl mx-auto text-center py-16">
           <h2 className="text-2xl font-bold text-slate-900 mb-4">Event not found</h2>
           <Link to={createPageUrl('Events')}>
@@ -402,19 +1019,212 @@ export default function EventDetailsPage() {
 
   const startDate = event.start_date ? new Date(event.start_date) : null;
   const endDate = event.end_date ? new Date(event.end_date) : null;
-  const hasUnlimitedCapacity = event.available_seats === 0 || event.available_seats === null;
-  const totalCost = attendees.filter((a) => a.isValid).length * (event.ticket_price || 0);
-  const ticketsRequired = registrationMode === 'links' ? 0 : attendees.filter((a) => a.isValid).length;
+  // Use explicit is_unlimited_registration field if set, otherwise fallback to legacy logic
+  const hasUnlimitedCapacity = (() => {
+    if (event.is_unlimited_registration === true) return true;
+    if (event.is_unlimited_registration === false) return false;
+    // Legacy fallback: null available_seats = unlimited
+    return event.available_seats === null;
+  })();
+  
+  // Calculate ticket count and costs
+  // For guest checkout, it's always 1 ticket if form is valid
+  const ticketsRequired = isGuestCheckout 
+    ? (isGuestFormValid ? 1 : 0)
+    : (registrationMode === 'links' ? 0 : attendees.filter((a) => a.isValid).length);
+  
+  // Use effective ticket price (early bird or standard)
+  const effectivePricing = getEffectiveTicketPrice(selectedTicketClass);
+  const ticketPrice = effectivePricing.price || pricingConfig?.ticket_price || 0;
+  
+  // Calculate one-off event cost with offers based on selected ticket class
+  const calculateOneOffCost = () => {
+    if (!isOneOffEvent || !selectedTicketClass || ticketsRequired === 0) {
+      return { totalCost: 0, ticketsToPay: ticketsRequired, freeTickets: 0, discount: 0, discountDescription: '' };
+    }
+    
+    const basePrice = effectivePricing.price || 0;
+    let ticketsToPay = ticketsRequired;
+    let freeTickets = 0;
+    let discount = 0;
+    let discountDescription = '';
+    
+    // Use offer configuration from selected ticket class
+    const offerType = selectedTicketClass.offer_type || 'none';
+    
+    if (offerType === 'bogo' && selectedTicketClass.bogo_buy_quantity && selectedTicketClass.bogo_get_free_quantity) {
+      const buyQty = selectedTicketClass.bogo_buy_quantity;
+      const freeQty = selectedTicketClass.bogo_get_free_quantity;
+      
+      if (selectedTicketClass.bogo_logic_type === 'enter_total_pay_less') {
+        // "Enter Total, Pay Less" - customer enters total tickets they want
+        // For every (buyQty + freeQty) tickets, they only pay for buyQty
+        const bundleSize = buyQty + freeQty;
+        const fullBundles = Math.floor(ticketsRequired / bundleSize);
+        const remainder = ticketsRequired % bundleSize;
+        
+        ticketsToPay = (fullBundles * buyQty) + remainder;
+        freeTickets = ticketsRequired - ticketsToPay;
+        discountDescription = `Buy ${buyQty}, get ${freeQty} free`;
+      } else {
+        // "Buy X, Get Y Free" (legacy) - customer pays for X and gets Y free on top
+        const bundleSize = buyQty + freeQty;
+        const fullBundles = Math.floor(ticketsRequired / bundleSize);
+        const remainder = ticketsRequired % bundleSize;
+        
+        ticketsToPay = (fullBundles * buyQty) + Math.min(remainder, buyQty);
+        freeTickets = ticketsRequired - ticketsToPay;
+        discountDescription = `Buy ${buyQty}, get ${freeQty} free`;
+      }
+    } else if (offerType === 'bulk_discount' && selectedTicketClass.bulk_discount_threshold && selectedTicketClass.bulk_discount_percentage) {
+      const threshold = selectedTicketClass.bulk_discount_threshold;
+      const percentage = selectedTicketClass.bulk_discount_percentage;
+      
+      if (ticketsRequired >= threshold) {
+        discount = (basePrice * ticketsRequired * percentage) / 100;
+        discountDescription = `${percentage}% off for ${threshold}+ tickets`;
+      }
+    }
+    
+    const totalCost = Math.max(0, (ticketsToPay * basePrice) - discount);
+    
+    return { totalCost, ticketsToPay, freeTickets, discount, discountDescription };
+  };
+  
+  const oneOffCostDetails = calculateOneOffCost();
+  
+  // For program events, use the old logic
+  const totalCost = isOneOffEvent 
+    ? oneOffCostDetails.totalCost 
+    : attendees.filter((a) => a.isValid).length * (event.ticket_price || 0);
+  
   const availableProgramTickets = event.program_tag && organizationInfo?.program_ticket_balances ?
     organizationInfo.program_ticket_balances[event.program_tag] || 0 : 0;
-  const hasEnoughTickets = availableProgramTickets >= ticketsRequired;
-  const canConfirmBooking = hasEnoughTickets && event.program_tag && !submitting && ticketsRequired > 0;
+  const hasEnoughTickets = isOneOffEvent ? true : availableProgramTickets >= ticketsRequired;
+  
+  // Check if user has no tickets available for their role
+  const noTicketsForRole = isOneOffEvent && availableTicketClasses.length === 0;
 
-  // Check if available seats display is excluded
-  const showAvailableSeats = !isFeatureExcluded || !isFeatureExcluded('element_AvailableSeatsDisplay');
+  // CTA override "detail_page" mode: card opens this page, but booking inputs
+  // are hidden and replaced with a "Continue to book" button linking out.
+  const useCtaOverrideDetailMode = !!event?.cta_override_url
+    && event?.cta_override_mode === 'detail_page';
+  
+  // Check if event is sold out (not unlimited and available_seats <= 0)
+  const isSoldOut = !hasUnlimitedCapacity && event.available_seats !== null && event.available_seats <= 0;
+  
+  // Check if registration is closed (event_state is 'closed')
+  // Registration is closed if event_state is 'closed' (or legacy status='closed' when event_state is null) OR if registration_closes_at has passed
+  const isRegistrationClosed = event?.event_state === 'closed' || 
+    (!event?.event_state && event?.status === 'closed') ||
+    (event?.registration_closes_at && new Date() > new Date(event.registration_closes_at));
+  
+  // Check if any attendees are missing required name fields
+  const hasAttendeesWithMissingNames = attendees.some((a) => {
+    const needsManualName = !a.isSelf && (
+      a.validationStatus === 'unregistered_domain_match' ||
+      a.validationStatus === 'external');
+    return needsManualName && (!a.first_name || !a.last_name);
+  });
+  
+  // For one-off events, use paymentCanProceed from PaymentOptions (includes payment validation)
+  // For program events, need enough tickets
+  // Also disable if sold out or if attendees are missing required names
+  // Note: termsRequirementMet is checked separately for program events button, 
+  // and passed to PaymentOptions for one-off events
+  const canConfirmBooking = !isSoldOut && !isRegistrationClosed && !hasAttendeesWithMissingNames && (isOneOffEvent 
+    ? paymentCanProceed
+    : (hasEnoughTickets && event.program_tag && !submitting && ticketsRequired > 0));
+
+  // Check system setting for showing seats (global override)
+  // Default to true (show seats) to preserve existing UX - only hide if explicitly set to 'false'
+  const showSeatsSetting = Array.isArray(systemSettings) 
+    ? systemSettings.find(s => s.setting_key === 'show_event_seats')
+    : null;
+  const globalShowSeats = showSeatsSetting?.setting_value !== 'false';
+  
+  // Per-event visibility: when global is ON, check per-event setting (default to true if not set)
+  // When global is OFF, never show regardless of per-event setting
+  const perEventShowSeats = event?.show_seat_count !== false;
+  const showSeatsEnabled = globalShowSeats && perEventShowSeats;
+  
+  // Combine both role-based permission and system setting
+  const showAvailableSeats = showSeatsEnabled && (!isFeatureExcluded || !isFeatureExcluded('element_AvailableSeatsDisplay'));
+
+  // Get description preview lines setting (default to 3 lines)
+  const descPreviewLinesSetting = Array.isArray(systemSettings) 
+    ? systemSettings.find(s => s.setting_key === 'event_description_preview_lines')
+    : null;
+  const descriptionPreviewLines = parseInt(descPreviewLinesSetting?.setting_value) || 3;
+
+  // Get booking terms and conditions
+  const bookingTermsSetting = Array.isArray(systemSettings) 
+    ? systemSettings.find(s => s.setting_key === 'event_booking_terms')
+    : null;
+  const bookingTerms = bookingTermsSetting?.setting_value || '';
+  const hasBookingTerms = bookingTerms && bookingTerms.trim() !== '' && bookingTerms !== '<p><br></p>';
+  
+  // Terms must be accepted if they exist
+  const termsRequirementMet = !hasBookingTerms || termsAccepted;
+
+  // Third-party consent: organiser-controlled per event via pricing_config
+  const collectThirdPartyConsent = (() => {
+    const cfg = event?.pricing_config;
+    if (!cfg) return false;
+    if (typeof cfg === 'string') {
+      try { return JSON.parse(cfg)?.collectThirdPartyConsent === true; } catch { return false; }
+    }
+    return cfg?.collectThirdPartyConsent === true;
+  })();
+
+  const checkGuestEmailIsMember = async (emailToCheck) => {
+    const email = emailToCheck || guestInfo?.email;
+    if (!isGuestCheckout || !email) return false;
+    try {
+      setCheckingMemberEmail(true);
+      const result = await publicClient.checkMemberEmail(email);
+      if (emailToCheck && guestInfo?.email !== emailToCheck) {
+        return false;
+      }
+      if (result?.isMember) {
+        setGuestEmailIsMember(true);
+        setShowMemberEmailModal(true);
+        return true;
+      }
+      setGuestEmailIsMember(false);
+      return false;
+    } catch (err) {
+      console.error('[EventDetails] Member email check failed:', err);
+      return false;
+    } finally {
+      setCheckingMemberEmail(false);
+    }
+  };
+
+  const handleGuestEmailBlur = async () => {
+    if (!isGuestCheckout || !guestInfo?.email || !guestInfo.email.includes('@')) {
+      setGuestEmailIsMember(false);
+      return;
+    }
+    await checkGuestEmailIsMember(guestInfo.email);
+  };
 
   const handleConfirmBooking = async () => {
+    console.log('[EventDetails] handleConfirmBooking called');
+    console.log('[EventDetails] canConfirmBooking:', canConfirmBooking);
+    console.log('[EventDetails] hasEnoughTickets:', hasEnoughTickets);
+    console.log('[EventDetails] event.program_tag:', event?.program_tag);
+    console.log('[EventDetails] submitting:', submitting);
+    console.log('[EventDetails] ticketsRequired:', ticketsRequired);
+    console.log('[EventDetails] attendees:', attendees);
+    
+    if (isGuestCheckout) {
+      const isMember = await checkGuestEmailIsMember();
+      if (isMember) return;
+    }
+
     // Validate attendees have all required information
+    console.log('[EventDetails] Checking attendee validation, registrationMode:', registrationMode);
     if (registrationMode === 'colleagues' || registrationMode === 'self') {
       const invalidAttendees = attendees.filter((a) => {
         const needsManualName = !a.isSelf && (
@@ -429,62 +1239,123 @@ export default function EventDetailsPage() {
       });
 
       if (invalidAttendees.length > 0) {
+        console.log('[EventDetails] Invalid attendees found:', invalidAttendees);
         toast.error('Please provide first and last names for all attendees');
         return;
       }
     }
+    console.log('[EventDetails] Passed attendee validation');
 
     if (!hasEnoughTickets) {
+      console.log('[EventDetails] Not enough tickets');
       toast.error("Insufficient program tickets. Please purchase more tickets first.");
       return;
     }
+    console.log('[EventDetails] Passed ticket check');
 
     if (registrationMode === 'colleagues' && attendees.some((a) => !a.isValid)) {
+      console.log('[EventDetails] Some attendees are invalid');
       toast.error("Please remove or fix invalid attendee emails");
       return;
     }
+    console.log('[EventDetails] Passed colleagues validation');
 
     if (ticketsRequired === 0) {
+      console.log('[EventDetails] No tickets required');
       toast.error("Please add at least one attendee or specify number of links");
       return;
     }
+    console.log('[EventDetails] All validation passed, setting submitting=true');
 
     setSubmitting(true);
 
     try {
-      const response = await base44.functions.invoke('createBooking', {
+      console.log('[EventDetails] About to call createBooking API');
+      const requestPayload = {
         eventId: event.id,
         memberEmail: currentMemberInfo.email,
         attendees: registrationMode === 'colleagues' || registrationMode === 'self' ? attendees.filter((a) => a.isValid) : [],
         registrationMode: registrationMode,
         numberOfLinks: registrationMode === 'links' ? 0 : 0,
         ticketsRequired: ticketsRequired,
-        programTag: event.program_tag
-      });
+        programTag: event.program_tag,
+        thirdPartyConsent: collectThirdPartyConsent ? thirdPartyConsent === true : null
+      };
+      console.log('[EventDetails] Request payload:', JSON.stringify(requestPayload));
+      console.log('[EventDetails] Event location:', event.location);
+      console.log('[EventDetails] Event backstage_event_id:', event.backstage_event_id);
+      
+      const response = await base44.functions.invoke('createBooking', requestPayload);
+      console.log('[EventDetails] createBooking FULL response:', JSON.stringify(response.data, null, 2));
+      console.log('[EventDetails] Event type:', response.data.event_type);
+      console.log('[EventDetails] Zoom registration:', JSON.stringify(response.data.zoom_registration, null, 2));
+      
+      if (response.data.warning) {
+        console.warn('[EventDetails] Warning:', response.data.warning);
+      }
 
       if (response.data.success) {
+        console.log('[EventDetails] Booking succeeded!');
         sessionStorage.removeItem(`event_registration_${event.id}`);
 
-        if (refreshOrganizationInfo) {
-          refreshOrganizationInfo();
+        // Show different messages based on event type
+        if (response.data.event_type === 'zoom') {
+          if (response.data.zoom_registration?.webinar_found) {
+            const successCount = response.data.zoom_registration.registrations?.filter(r => r.success).length || 0;
+            toast.success(`Booking confirmed! ${successCount} attendee(s) registered with Zoom.`);
+          } else {
+            toast.success("Booking confirmed! (Zoom webinar not found - manual registration may be needed)");
+          }
+        } else {
+          toast.success("Booking confirmed!");
         }
-
-        toast.success("Booking confirmed!");
+        
+        // Debug mode: show full response before redirect
+        if (debugMode) {
+          try {
+            const zoomReg = response.data.zoom_registration || {};
+            const debugText = [
+              'DEBUG MODE - Booking Response:',
+              '',
+              'Event Type: ' + (response.data.event_type || 'unknown'),
+              'Event Location: ' + (event.location || 'null'),
+              'Backstage Event ID: ' + (event.backstage_event_id || 'null'),
+              '',
+              '--- Zoom Registration ---',
+              'Webinar Found: ' + (zoomReg.webinar_found ? 'YES' : 'NO'),
+              'Extracted Webinar ID: ' + (zoomReg.debug?.extracted_webinar_id || 'null'),
+              'Matched Webinar ID: ' + (zoomReg.debug?.webinar_matched_id || 'null'),
+              'Registration Count: ' + (zoomReg.registrations?.length || 0),
+              '',
+              'Warning: ' + (response.data.warning || 'none')
+            ].join('\n');
+            alert(debugText);
+          } catch (e) {
+            alert('Debug Error: ' + e.message);
+          }
+        }
+        
+        // Defer organization refresh to avoid React state update conflicts
         setTimeout(() => {
+          if (refreshOrganizationInfo) {
+            refreshOrganizationInfo();
+          }
           window.location.href = createPageUrl('Bookings');
-        }, 1500);
+        }, debugMode ? 100 : 1500);
+        return; // Exit early, don't setSubmitting(false) as we're navigating away
       } else {
+        console.log('[EventDetails] Booking failed:', response.data.error);
         toast.error(response.data.error || "Failed to create booking");
       }
     } catch (error) {
-      toast.error(error.response?.data?.error || "Failed to create booking");
-    } finally {
-      setSubmitting(false);
+      console.error('[EventDetails] createBooking error:', error);
+      toast.error(error.message || error.response?.data?.error || "Failed to create booking");
     }
+    setSubmitting(false);
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-full bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
       {showTour && shouldShowTours && (
         <PageTour
           tourGroupName="EventDetails"
@@ -496,36 +1367,49 @@ export default function EventDetailsPage() {
       )}
 
       <div className="max-w-7xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
-          <Link to={createPageUrl('Events')} className="inline-flex items-center gap-2 text-slate-600 hover:text-slate-900">
-            <ArrowLeft className="w-4 h-4" />
-            Back to Events
-          </Link>
-          {shouldShowTours && (
-            <TourButton onClick={handleStartTour} />
-          )}
-        </div>
+        {!isEmbedMode && (
+          <div className="flex items-center justify-between mb-6">
+            <Link to={createPageUrl('Events')} className="inline-flex items-center gap-2 text-slate-600 hover:text-slate-900">
+              <ArrowLeft className="w-4 h-4" />
+              Back to Events
+            </Link>
+          </div>
+        )}
 
         <div className="grid lg:grid-cols-3 gap-8 mb-8">
           <div className="lg:col-span-2 space-y-6">
             {event.image_url && (
-              <div className="rounded-xl overflow-hidden shadow-lg">
+              <div className="rounded-xl overflow-hidden shadow-lg aspect-video max-h-[28rem] mx-auto w-full">
                 <img
                   src={event.image_url}
                   alt={event.title}
-                  className="w-full h-64 object-cover"
+                  className="w-full h-full object-cover"
+                  style={getFocalPointStyle(event.image_focal_point)}
                 />
               </div>
             )}
 
             <Card className="border-slate-200 shadow-sm">
               <CardHeader>
-                <div className="flex items-start justify-between gap-4 mb-2">
-                  <h1 className="text-3xl font-bold text-slate-900">{event.title}</h1>
-                  {event.program_tag && (
-                    <Badge className="bg-blue-100 text-blue-700 border-blue-200 shrink-0">
-                      {event.program_tag}
-                    </Badge>
+                {/* Badges at top left, above title */}
+                {(event.program_tag || (event.filter_tags && event.filter_tags.length > 0)) && (
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {event.program_tag && (
+                      <Badge className="bg-purple-100 text-purple-700 border-purple-200">
+                        {event.program_tag}
+                      </Badge>
+                    )}
+                    {event.filter_tags && event.filter_tags.length > 0 && event.filter_tags.map((tag, index) => (
+                      <Badge key={index} className="bg-purple-100 text-purple-700 border-purple-200">
+                        {tag}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+                <div className="flex items-start gap-3 mb-2">
+                  <h1 className="text-3xl font-bold text-slate-900 flex-1">{event.title}</h1>
+                  {memberInfo && event.id && (
+                    <BookmarkButton entityType="event" entityId={event.id} />
                   )}
                 </div>
                 
@@ -543,17 +1427,31 @@ export default function EventDetailsPage() {
                   {startDate && (
                     <div className="flex items-center gap-3 text-slate-700">
                       <Clock className="w-5 h-5 text-slate-400" />
-                      <span>{format(startDate, "h:mm a")}</span>
+                      <span>{formatEventTime(startDate, systemSettings, event?.timezone)}</span>
                       {endDate && (
-                        <span className="text-slate-500">- {format(endDate, "h:mm a")}</span>
+                        <span className="text-slate-500">- {formatEventTime(endDate, systemSettings, event?.timezone)}</span>
                       )}
+                      <span className="text-slate-400 text-sm">({getTimezoneAbbreviation(startDate, event?.timezone)})</span>
                     </div>
                   )}
 
                   {event.location && (
                     <div className="flex items-center gap-3 text-slate-700">
-                      <MapPin className="w-5 h-5 text-slate-400" />
-                      <span>{event.location}</span>
+                      {isOnlineEvent ? (
+                        <>
+                          <Video className="w-5 h-5 text-green-500" />
+                          {shouldShowJoinLink() && hasUrlInLocation ? (
+                            <span>{event.location}</span>
+                          ) : (
+                            <span className="text-green-600 font-medium">Online Event</span>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <MapPin className="w-5 h-5 text-slate-400" />
+                          <span>{event.location}</span>
+                        </>
+                      )}
                     </div>
                   )}
 
@@ -572,147 +1470,1070 @@ export default function EventDetailsPage() {
                 </div>
               </CardHeader>
 
+              {/* Description Section - Expandable accordion style */}
               {event.description && (
                 <CardContent className="pt-6 border-t border-slate-200">
                   <h3 className="font-semibold text-slate-900 mb-3">About this event</h3>
-                  <p className="text-slate-600 whitespace-pre-wrap">{event.description}</p>
+                  <div className="space-y-3">
+                    <div 
+                      className={`text-slate-600 leading-relaxed prose prose-slate max-w-none prose-headings:text-slate-900 prose-p:text-slate-600 prose-a:text-blue-600 prose-li:text-slate-600 transition-all duration-300 ease-in-out overflow-hidden ${
+                        !descriptionExpanded ? 'prose-p:my-1 prose-headings:my-2' : ''
+                      }`}
+                      style={!descriptionExpanded ? { 
+                        display: '-webkit-box',
+                        WebkitLineClamp: descriptionPreviewLines,
+                        WebkitBoxOrient: 'vertical',
+                        overflow: 'hidden'
+                      } : {}}
+                      data-testid="text-event-description"
+                      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(event.description) }}
+                    />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-0 h-auto py-1"
+                      onClick={() => setDescriptionExpanded(!descriptionExpanded)}
+                      data-testid="button-toggle-description"
+                    >
+                      {descriptionExpanded ? (
+                        <>
+                          Show less
+                          <ChevronUp className="w-4 h-4 ml-1" />
+                        </>
+                      ) : (
+                        <>
+                          Show more
+                          <ChevronDown className="w-4 h-4 ml-1" />
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </CardContent>
+              )}
+
+              {/* Documents */}
+              {Array.isArray(event.attached_documents) && event.attached_documents.length > 0 && (
+                <CardContent className="pt-6 border-t border-slate-200">
+                  <PublicDocumentsSection
+                    documents={event.attached_documents}
+                    sectionTitle={event.documents_section_title}
+                  />
+                </CardContent>
+              )}
+
+              {/* Sponsors */}
+              <EventSponsorsCard eventId={event.id} eventType="simple" />
+
+              {/* Sessions Schedule */}
+              {eventSessions.length > 0 && (
+                <CardContent className="pt-6 border-t border-slate-200">
+                  <h3 className="font-semibold text-slate-900 mb-4 flex items-center gap-2">
+                    <Calendar className="w-5 h-5 text-blue-600" />
+                    Sessions
+                  </h3>
+                  <div className="space-y-3">
+                    {eventSessions.map((session) => (
+                      <div
+                        key={session.id}
+                        className="p-3 rounded-lg border border-slate-200 space-y-2"
+                        data-testid={`session-card-${session.id}`}
+                      >
+                        <div className="flex items-start justify-between gap-2 flex-wrap">
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-slate-900">{session.title}</div>
+                            {session.track_name && (
+                              <Badge variant="outline" className="text-xs mt-1">{session.track_name}</Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1">
+                            {session.delivery_mode === 'virtual' && (
+                              <Badge variant="secondary" className="text-xs">
+                                <Video className="h-3 w-3 mr-1" />Virtual
+                              </Badge>
+                            )}
+                            {session.delivery_mode === 'hybrid' && (
+                              <Badge variant="secondary" className="text-xs">
+                                <Video className="h-3 w-3 mr-1" />Hybrid
+                              </Badge>
+                            )}
+                            {session.delivery_mode === 'in_person' && (
+                              <Badge variant="secondary" className="text-xs">
+                                <MapPin className="h-3 w-3 mr-1" />In-Person
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                        {session.start_time && (
+                          <div className="text-sm text-slate-600 flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            {new Date(session.start_time).toLocaleString(undefined, {
+                              weekday: 'short',
+                              month: 'short',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                            {session.duration_minutes && ` (${session.duration_minutes} min)`}
+                          </div>
+                        )}
+                        {session.description && (
+                          <p className="text-sm text-slate-500">{session.description}</p>
+                        )}
+                        {session.zoom_join_url && (session.delivery_mode === 'virtual' || session.delivery_mode === 'hybrid') && (
+                          <div className="pt-2">
+                            <a
+                              href={session.zoom_join_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 font-medium"
+                              data-testid={`link-session-zoom-${session.id}`}
+                            >
+                              <Video className="h-4 w-4" />
+                              Join Zoom {session.zoom_type === 'webinar' ? 'Webinar' : 'Meeting'}
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              )}
+
+              {/* Speakers Section */}
+              {eventSpeakers.length > 0 && (
+                <CardContent className="pt-6 border-t border-slate-200">
+                  <h3 className="font-semibold text-slate-900 mb-4 flex items-center gap-2">
+                    <Mic className="w-5 h-5 text-purple-600" />
+                    {speakerPlural}
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {eventSpeakers.map((speaker) => (
+                      <button
+                        key={speaker.id}
+                        onClick={() => {
+                          setSelectedSpeaker(speaker);
+                          setShowSpeakerModal(true);
+                        }}
+                        className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:border-purple-300 hover:bg-purple-50 transition-colors cursor-pointer text-left group w-full"
+                        data-testid={`button-speaker-${speaker.id}`}
+                      >
+                        <Avatar className="h-12 w-12 shrink-0">
+                          {speaker.profile_photo_url ? (
+                            <AvatarImage src={speaker.profile_photo_url} alt={speaker.full_name} />
+                          ) : null}
+                          <AvatarFallback className="bg-purple-100 text-purple-700 font-medium">
+                            {speaker.full_name?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0 flex-1">
+                          <div className="font-medium text-slate-900 group-hover:text-purple-700 break-words">
+                            {speaker.full_name}
+                          </div>
+                          {(speaker.job_title || speaker.organization) && (
+                            <div className="text-sm text-slate-500 break-words">
+                              {speaker.job_title}
+                              {speaker.job_title && speaker.organization && ', '}
+                              {speaker.organization}
+                            </div>
+                          )}
+                        </div>
+                        <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-purple-600 ml-2 shrink-0" />
+                      </button>
+                    ))}
+                  </div>
                 </CardContent>
               )}
             </Card>
 
-            {registrationMode === 'colleagues' && (
-              <Card className="border-slate-200 shadow-sm">
-                <CardHeader className="border-b border-slate-200">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-xl">Attendees</CardTitle>
-                    <div className="flex items-center gap-4">
-                      {currentMemberInfo && (
-                        <div className="flex items-center gap-3" id="member-attending-toggle">
-                          <Switch
-                            id="member-attending"
-                            checked={memberAttending}
-                            onCheckedChange={toggleMemberAttendance}
-                          />
-                          <Label htmlFor="member-attending" className="text-sm font-medium text-slate-700 cursor-pointer">
-                            I am attending
-                          </Label>
-                        </div>
-                      )}
-                      <Button
-                        id="add-colleague-button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setShowColleagueSelector(true)}
-                        className="gap-2"
-                      >
-                        <Plus className="w-4 h-4" />
-                        Add Colleague
-                      </Button>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="pt-6 space-y-4">
-                  {showColleagueSelector && (
-                    <div className="p-4 border border-blue-200 rounded-lg bg-blue-50">
-                      <div className="flex items-center justify-between mb-3">
-                        <h3 className="font-medium text-slate-900">Add Colleague</h3>
+            {/* Hide attendees card if no tickets available for user's role, or if CTA override detail-page mode is active */}
+            {!noTicketsForRole && !useCtaOverrideDetailMode && (
+            <Card className="border-slate-200 shadow-sm">
+              <CardHeader className="border-b border-slate-200">
+                <div className="flex flex-col gap-3">
+                  <CardTitle className="text-xl">
+                    {isGuestCheckout ? 'Your Details' : 'Attendees'}
+                  </CardTitle>
+                  {!isGuestCheckout && (canRoleSelfRegister || canAddTeamMembers || canRegisterExternal) && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      {currentMemberInfo && canSelfRegister && canRoleSelfRegister && (
                         <Button
-                          variant="ghost"
+                          id="register-myself-button"
+                          variant={memberAttending ? "default" : "outline"}
                           size="sm"
-                          onClick={() => setShowColleagueSelector(false)}
+                          onClick={handleRegisterMyself}
+                          disabled={memberAttending}
+                          className="gap-2"
+                          data-testid="button-register-myself"
                         >
-                          Cancel
+                          <User className="w-4 h-4" />
+                          {memberAttending ? 'Registered' : 'Register Myself'}
                         </Button>
+                      )}
+                      {canAddTeamMembers && (
+                        <Button
+                          id="register-team-member-button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setActiveRegistrationPanel(activeRegistrationPanel === 'team' ? null : 'team')}
+                          className={`gap-2 ${activeRegistrationPanel === 'team' ? 'ring-2 ring-blue-500' : ''}`}
+                          data-testid="button-register-team-member"
+                        >
+                          <Users className="w-4 h-4" />
+                          Register a Team Member
+                        </Button>
+                      )}
+                      {canRegisterExternal && (
+                        <Button
+                          id="register-someone-else-button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setActiveRegistrationPanel(activeRegistrationPanel === 'external' ? null : 'external')}
+                          className={`gap-2 ${activeRegistrationPanel === 'external' ? 'ring-2 ring-blue-500' : ''}`}
+                          data-testid="button-register-someone-else"
+                        >
+                          <Plus className="w-4 h-4" />
+                          Register Someone Else
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent className="pt-6 space-y-4">
+                {/* Guest Registration Form - shown for non-logged-in users */}
+                {isGuestCheckout ? (
+                  <div className="space-y-4">
+                    {isGuestFormDisabled ? (
+                      <div className="flex items-center gap-2 p-3 bg-warning/10 border border-warning/30 rounded-lg">
+                        <Lock className="w-5 h-5 text-warning" />
+                        <p className="text-sm text-warning">
+                          This ticket is for members only. Please <a href="/Login" className="font-medium underline text-warning hover:text-warning">log in</a> to register, or select a public ticket if available.
+                        </p>
                       </div>
-                      <div id="colleague-search-input">
-                        <ColleagueSelector
-                          organizationId={currentMemberInfo?.organization_id}
-                          onSelect={handleColleagueSelect}
-                          memberInfo={currentMemberInfo}
+                    ) : (
+                      <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                        <User className="w-5 h-5 text-blue-600" />
+                        <p className="text-sm text-blue-800">
+                          Please enter your details to register for this event.
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="guest-first-name" className={isGuestFormDisabled ? "text-slate-400" : ""}>
+                          First Name <span className="text-red-500">*</span>
+                        </Label>
+                        <Input
+                          id="guest-first-name"
+                          placeholder="Enter your first name"
+                          value={guestInfo.first_name}
+                          onChange={(e) => setGuestInfo({...guestInfo, first_name: e.target.value})}
+                          disabled={isGuestFormDisabled}
+                          className={isGuestFormDisabled ? "bg-slate-100 cursor-not-allowed" : ""}
+                          data-testid="input-guest-first-name"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="guest-last-name" className={isGuestFormDisabled ? "text-slate-400" : ""}>
+                          Last Name <span className="text-red-500">*</span>
+                        </Label>
+                        <Input
+                          id="guest-last-name"
+                          placeholder="Enter your last name"
+                          value={guestInfo.last_name}
+                          onChange={(e) => setGuestInfo({...guestInfo, last_name: e.target.value})}
+                          disabled={isGuestFormDisabled}
+                          className={isGuestFormDisabled ? "bg-slate-100 cursor-not-allowed" : ""}
+                          data-testid="input-guest-last-name"
                         />
                       </div>
                     </div>
-                  )}
 
-                  {attendees.length === 0 ? (
-                    <div className="text-center py-8 text-slate-500">
-                      <Users className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                      <p>No attendees added yet</p>
-                      {currentMemberInfo && (
-                        <p className="text-sm mt-1">Toggle "I am attending" or add colleagues to get started.</p>
+                    <div className="space-y-2">
+                      <Label htmlFor="guest-email" className={isGuestFormDisabled ? "text-slate-400" : ""}>
+                        Email Address <span className="text-red-500">*</span>
+                      </Label>
+                      <Input
+                        id="guest-email"
+                        type="email"
+                        placeholder="your.email@example.com"
+                        value={guestInfo.email}
+                        onChange={(e) => {
+                          setGuestInfo({...guestInfo, email: e.target.value});
+                          if (guestEmailIsMember) setGuestEmailIsMember(false);
+                        }}
+                        onBlur={handleGuestEmailBlur}
+                        disabled={isGuestFormDisabled}
+                        className={`${isGuestFormDisabled ? "bg-slate-100 cursor-not-allowed" : ""} ${guestEmailIsMember ? "border-warning/50 focus-visible:ring-amber-500" : ""}`}
+                        data-testid="input-guest-email"
+                      />
+                      {guestEmailIsMember && (
+                        <p className="text-xs text-warning flex items-center gap-1 mt-1" data-testid="text-member-email-warning">
+                          <AlertTriangle className="h-3 w-3" />
+                          This email belongs to a member. Please log in to register.
+                        </p>
                       )}
                     </div>
-                  ) : (
-                    <>
-                      <AttendeeList
-                        attendees={attendees}
-                        onUpdate={updateAttendee}
-                        onRemove={removeAttendee}
-                        memberInfo={currentMemberInfo}
+
+                    <div className="space-y-2">
+                      <Label htmlFor="guest-organization" className={isGuestFormDisabled ? "text-slate-400" : ""}>
+                        Organisation <span className="text-red-500">*</span>
+                      </Label>
+                      <Input
+                        id="guest-organization"
+                        placeholder="Your company or organisation"
+                        value={guestInfo.organization}
+                        onChange={(e) => setGuestInfo({...guestInfo, organization: e.target.value})}
+                        disabled={isGuestFormDisabled}
+                        className={isGuestFormDisabled ? "bg-slate-100 cursor-not-allowed" : ""}
+                        data-testid="input-guest-organization"
                       />
-                      
-                      <div className="pt-4 border-t border-slate-200">
-                        <Button
-                          onClick={handleConfirmBooking}
-                          disabled={!canConfirmBooking}
-                          className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
-                          size="lg"
-                        >
-                          {submitting ? (
-                            <>
-                              <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                              Processing...
-                            </>
-                          ) : (
-                            'Confirm Booking'
-                          )}
-                        </Button>
-                        
-                        {!hasEnoughTickets && event.program_tag && (
-                          <p className="text-xs text-center text-amber-600 mt-2">
-                            Insufficient program tickets. You need {ticketsRequired - availableProgramTickets} more ticket{ticketsRequired - availableProgramTickets > 1 ? 's' : ''}.
-                          </p>
-                        )}
-                        
-                        {ticketsRequired === 0 && (
-                          <p className="text-xs text-center text-slate-500 mt-2">
-                            Add attendees to proceed with booking
-                          </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="guest-job-title" className={isGuestFormDisabled ? "text-slate-400" : ""}>
+                          Job Title
+                        </Label>
+                        <Input
+                          id="guest-job-title"
+                          placeholder="Your job title"
+                          value={guestInfo.job_title}
+                          onChange={(e) => setGuestInfo({...guestInfo, job_title: e.target.value})}
+                          disabled={isGuestFormDisabled}
+                          className={isGuestFormDisabled ? "bg-slate-100 cursor-not-allowed" : ""}
+                          data-testid="input-guest-job-title"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="guest-phone" className={isGuestFormDisabled ? "text-slate-400" : ""}>
+                          Phone Number
+                        </Label>
+                        <Input
+                          id="guest-phone"
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          placeholder="Optional"
+                          value={guestInfo.phone}
+                          onChange={(e) => setGuestInfo({...guestInfo, phone: e.target.value.replace(/[^0-9]/g, '')})}
+                          disabled={isGuestFormDisabled}
+                          className={isGuestFormDisabled ? "bg-slate-100 cursor-not-allowed" : ""}
+                          data-testid="input-guest-phone"
+                        />
+                      </div>
+                    </div>
+
+                    <AttendeeOptionsSelector
+                      eventOptions={eventOptions}
+                      value={guestInfo}
+                      onChange={(next) => setGuestInfo((prev) => ({ ...prev, ...next }))}
+                      idPrefix="guest"
+                    />
+
+                    {!isGuestFormValid && !isGuestFormDisabled && (
+                      <p className="text-xs text-slate-500">
+                        <span className="text-red-500">*</span> Required fields
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    {/* Team Member Search Panel */}
+                    {activeRegistrationPanel === 'team' && (
+                      <div className="p-4 border border-blue-200 rounded-lg bg-blue-50">
+                        <div className="flex items-center justify-between mb-3">
+                          <h3 className="font-medium text-slate-900">Register a Team Member</h3>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setActiveRegistrationPanel(null)}
+                            data-testid="button-cancel-team-member"
+                          >
+                            <X className="w-4 h-4" />
+                          </Button>
+                        </div>
+                        <div id="colleague-search-input">
+                          <ColleagueSelector
+                            organizationId={currentMemberInfo?.organization_id}
+                            onSelect={handleColleagueSelect}
+                            memberInfo={currentMemberInfo}
+                            ticketRoleIds={selectedTicketClass?.role_ids || []}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* External Attendee Panel */}
+                    {activeRegistrationPanel === 'external' && (
+                      <div className="p-4 border border-purple-200 rounded-lg bg-purple-50">
+                        <div className="flex items-center justify-between mb-3">
+                          <h3 className="font-medium text-slate-900">Register Someone Else</h3>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setActiveRegistrationPanel(null)}
+                            data-testid="button-cancel-external"
+                          >
+                            <X className="w-4 h-4" />
+                          </Button>
+                        </div>
+                        <div className="space-y-3">
+                          <p className="text-sm text-slate-600">Enter the details of the person you want to register:</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            <Input
+                              placeholder="First Name"
+                              value={externalFirstName}
+                              onChange={(e) => setExternalFirstName(e.target.value)}
+                              disabled={externalValidating}
+                              data-testid="input-external-first-name"
+                            />
+                            <Input
+                              placeholder="Last Name"
+                              value={externalLastName}
+                              onChange={(e) => setExternalLastName(e.target.value)}
+                              disabled={externalValidating}
+                              data-testid="input-external-last-name"
+                            />
+                          </div>
+                          <div className="flex gap-2">
+                            <Input
+                              placeholder="Email address"
+                              type="email"
+                              value={externalEmail}
+                              onChange={(e) => setExternalEmail(e.target.value)}
+                              onKeyPress={(e) => e.key === 'Enter' && handleExternalEmailSubmit()}
+                              disabled={externalValidating}
+                              className="flex-1"
+                              data-testid="input-external-email"
+                            />
+                            <Button 
+                              onClick={handleExternalEmailSubmit} 
+                              disabled={externalValidating || !externalEmail || !externalFirstName.trim() || !externalLastName.trim()}
+                              data-testid="button-add-external"
+                            >
+                              {externalValidating ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                'Add'
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {attendees.length === 0 ? (
+                      <div className="text-center py-8 text-slate-500">
+                        <Users className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                        <p>No attendees added yet</p>
+                        {currentMemberInfo && canAddColleagues && (
+                          <p className="text-sm mt-1">Use the buttons above to register attendees.</p>
                         )}
                       </div>
-                    </>
-                  )}
-                </CardContent>
-              </Card>
+                    ) : (
+                      <>
+                        <AttendeeList
+                          attendees={attendees}
+                          onUpdate={updateAttendee}
+                          onRemove={canAddColleagues ? removeAttendee : null}
+                          memberInfo={currentMemberInfo}
+                          eventOptions={eventOptions}
+                        />
+                        
+                        {/* Only show confirm button for program events - one-off events use PaymentOptions button */}
+                        {!isOneOffEvent && (
+                          <div className="pt-4 border-t border-slate-200 space-y-4">
+                            {/* Terms and Conditions Checkbox */}
+                            {hasBookingTerms && (
+                              <div className="flex items-start gap-2">
+                                <Checkbox
+                                  id="terms-program"
+                                  checked={termsAccepted}
+                                  onCheckedChange={setTermsAccepted}
+                                  data-testid="checkbox-terms-program"
+                                />
+                                <label 
+                                  htmlFor="terms-program" 
+                                  className="text-sm text-slate-600 leading-tight cursor-pointer"
+                                >
+                                  I agree to the{' '}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      setShowTermsModal(true);
+                                    }}
+                                    className="text-blue-600 hover:text-blue-800 underline"
+                                    data-testid="link-terms-program"
+                                  >
+                                    terms and conditions
+                                  </button>
+                                </label>
+                              </div>
+                            )}
+
+                            {hasBookingTerms && collectThirdPartyConsent && (
+                              <div className="flex items-start gap-2">
+                                <Checkbox
+                                  id="third-party-consent-program"
+                                  checked={thirdPartyConsent}
+                                  onCheckedChange={(v) => setThirdPartyConsent(v === true)}
+                                  data-testid="checkbox-third-party-consent-program"
+                                />
+                                <label
+                                  htmlFor="third-party-consent-program"
+                                  className="text-sm text-slate-600 leading-tight cursor-pointer"
+                                >
+                                  I consent to my name, organisation, email and job title being shared with relevant third-party suppliers in connection with this event.
+                                </label>
+                              </div>
+                            )}
+
+                            <Button
+                              onClick={() => {
+                                console.log('[EventDetails] Button clicked!');
+                                console.log('[EventDetails] Button disabled state:', !canConfirmBooking || !termsRequirementMet);
+                                handleConfirmBooking();
+                              }}
+                              disabled={!canConfirmBooking || !termsRequirementMet || checkingMemberEmail || guestEmailIsMember}
+                              className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
+                              size="lg"
+                              data-testid="button-confirm-booking"
+                            >
+                              {submitting || checkingMemberEmail ? (
+                                <>
+                                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                                  {checkingMemberEmail ? 'Checking...' : 'Processing...'}
+                                </>
+                              ) : isRegistrationClosed ? (
+                                'Registration Closed'
+                              ) : isSoldOut ? (
+                                'Sold Out'
+                              ) : (
+                                'Confirm Booking'
+                              )}
+                            </Button>
+                            
+                            {!hasEnoughTickets && event.program_tag && (
+                              <p className="text-xs text-center text-warning mt-2">
+                                Insufficient program tickets. You need {ticketsRequired - availableProgramTickets} more ticket{ticketsRequired - availableProgramTickets > 1 ? 's' : ''}.
+                              </p>
+                            )}
+                            
+                            {ticketsRequired === 0 && (
+                              <p className="text-xs text-center text-slate-500 mt-2">
+                                Add attendees to proceed with booking
+                              </p>
+                            )}
+                            
+                            {hasAttendeesWithMissingNames && (
+                              <p className="text-xs text-center text-red-600 mt-2">
+                                Please enter first and last names for all external attendees
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </>
+                )}
+              </CardContent>
+            </Card>
             )}
           </div>
 
           <div className="lg:col-span-1 space-y-6">
+            {/* Registration closed notice */}
+            {isRegistrationClosed && (
+              <Card className="border-red-200 bg-red-50 shadow-sm mb-4" data-testid="notice-registration-closed">
+                <CardContent className="pt-6">
+                  <div className="flex items-start gap-3">
+                    <Lock className="h-5 w-5 text-red-500 shrink-0 mt-0.5" />
+                    <div>
+                      <h3 className="font-medium text-red-800" data-testid="text-registration-closed-title">Registration Closed</h3>
+                      <p className="text-sm text-red-700 mt-1" data-testid="text-registration-closed-message">
+                        Registration for this event has closed. You can still view the event details.
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* No tickets available for role message */}
+            {isOneOffEvent && noTicketsForRole && !isRegistrationClosed && (
+              <Card className={`shadow-sm mb-4 ${isGuestCheckout ? 'border-blue-200 bg-blue-50' : 'border-warning/30 bg-warning/10'}`}>
+                <CardContent className="pt-6">
+                  <div className="flex items-start gap-3">
+                    {isGuestCheckout ? (
+                      <>
+                        <Lock className="h-5 w-5 text-blue-600 shrink-0 mt-0.5" />
+                        <div>
+                          <h3 className="font-medium text-blue-800">Member Only Event</h3>
+                          <p className="text-sm text-blue-700 mt-1">
+                            This event is available to members only. Please log in to register.
+                          </p>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <AlertTriangle className="h-5 w-5 text-warning shrink-0 mt-0.5" />
+                        <div>
+                          <h3 className="font-medium text-warning">No Tickets Available</h3>
+                          <p className="text-sm text-warning mt-1">
+                            There are no ticket classes available for your role. Please contact the event organizer for assistance.
+                          </p>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Ticket Class Selector - Only shown for one-off events with multiple ticket classes */}
+            {isOneOffEvent && availableTicketClasses.length > 1 && (
+              <Card className="border-slate-200 shadow-sm mb-4">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Ticket className="h-5 w-5 text-blue-600" />
+                    Select Ticket Type
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <RadioGroup 
+                    value={String(selectedTicketClassId || '')} 
+                    onValueChange={(value) => {
+                      // Only allow selection of purchasable tickets
+                      const ticket = availableTicketClasses.find(tc => String(tc.id) === value);
+                      if (ticket && isTicketPurchasable(ticket)) {
+                        setSelectedTicketClassId(value);
+                      }
+                    }}
+                    className="space-y-3"
+                  >
+                    {availableTicketClasses.map((tc) => {
+                      const ticketId = String(tc.id || '');
+                      const ticketPrice = Number(tc.price) || 0;
+                      const purchasable = isTicketPurchasable(tc);
+                      const isSelected = String(selectedTicketClassId) === ticketId;
+                      
+                      const tcPricing = getEffectiveTicketPrice(tc);
+                      
+                      return (
+                        <div 
+                          key={ticketId}
+                          className={`relative flex items-center justify-between p-4 rounded-lg border-2 transition-colors ${
+                            !purchasable 
+                              ? 'border-slate-200 bg-slate-50 opacity-60 cursor-not-allowed' 
+                              : isSelected 
+                                ? 'border-blue-500 bg-blue-50 cursor-pointer' 
+                                : 'border-slate-200 hover:bg-slate-50 cursor-pointer'
+                          }`}
+                          onClick={() => {
+                            if (purchasable) {
+                              setSelectedTicketClassId(ticketId);
+                            }
+                          }}
+                          data-testid={`ticket-class-${ticketId}`}
+                        >
+                          <div className="flex items-center gap-3">
+                            {!purchasable ? (
+                              <div className="relative flex items-center justify-center w-5 h-5 flex-shrink-0">
+                                <div className="w-4 h-4 rounded-full border-2 border-slate-300 bg-slate-100"></div>
+                                <Lock className="absolute h-3 w-3 text-slate-500" />
+                              </div>
+                            ) : (
+                              <RadioGroupItem 
+                                value={ticketId} 
+                                id={`ticket-${ticketId}`} 
+                              />
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <Label 
+                                htmlFor={`ticket-${ticketId}`} 
+                                className={`font-medium ${purchasable ? 'cursor-pointer' : 'cursor-not-allowed'}`}
+                              >
+                                <span className="flex items-center gap-2 flex-wrap">
+                                  {String(tc.name || 'Ticket')}
+                                  {tc.is_group_ticket && (
+                                    <Badge variant="secondary" className="text-xs" data-testid={`badge-group-ticket-${ticketId}`}>
+                                      <Users className="w-3 h-3 mr-1" />
+                                      Group ({tc.group_size})
+                                    </Badge>
+                                  )}
+                                  {tcPricing.isEarlyBird && (
+                                    <Badge variant="secondary" className="text-xs bg-warning/10 text-warning border-warning/30" data-testid={`badge-early-bird-${ticketId}`}>
+                                      <Bird className="w-3 h-3 mr-1" />
+                                      Early Bird
+                                    </Badge>
+                                  )}
+                                </span>
+                              </Label>
+                              {!purchasable && !currentMemberInfo && tc.visibility_mode && tc.visibility_mode !== 'public_only' && tc.visibility_mode !== 'members_and_public' && (
+                                <p className="text-xs text-slate-500 mt-0.5" data-testid={`text-members-only-${ticketId}`}>
+                                  Members only —{' '}
+                                  <a
+                                    href={`/Login?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`}
+                                    className="text-blue-600 hover:underline font-medium"
+                                    data-testid={`link-login-ticket-${ticketId}`}
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    log in to book
+                                  </a>
+                                </p>
+                              )}
+                              {tc.is_group_ticket && tc.group_size && (
+                                <p className="text-xs text-muted-foreground mt-0.5" data-testid={`text-group-info-${ticketId}`}>
+                                  Covers {tc.group_size} participants — manage your group after booking
+                                </p>
+                              )}
+                              {tcPricing.isEarlyBird && tcPricing.earlyBirdDeadline && (
+                                <EarlyBirdCountdown deadline={tcPricing.earlyBirdDeadline} className="mt-1" onExpired={handleEarlyBirdExpired} />
+                              )}
+                              {!isGuestCheckout && tc.offer_type && tc.offer_type !== 'none' && (
+                                <div className="text-xs text-green-600 mt-0.5">
+                                  {tc.offer_type === 'bogo' && `Buy ${tc.bogo_buy_quantity || 0}, get ${tc.bogo_get_free_quantity || 0} free`}
+                                  {tc.offer_type === 'bulk_discount' && `${tc.bulk_discount_percentage || 0}% off for ${tc.bulk_discount_threshold || 0}+ tickets`}
+                                </div>
+                              )}
+                              {event.show_ticket_availability && (() => {
+                                const remaining = getTicketRemaining(tc);
+                                if (remaining === null) return null;
+                                if (remaining <= 0) {
+                                  return <div className="text-xs text-red-600 mt-0.5">Sold out</div>;
+                                } else if (remaining <= 5) {
+                                  return <div className="text-xs text-warning mt-0.5">Only {remaining} left</div>;
+                                }
+                                return <div className="text-xs text-slate-500 mt-0.5">{remaining} available</div>;
+                              })()}
+                            </div>
+                          </div>
+                          <div className="flex flex-col items-end flex-shrink-0">
+                            <div className={`flex items-center gap-1 text-lg font-semibold ${purchasable ? 'text-slate-900' : 'text-slate-500'}`}>
+                              <PoundSterling className="h-4 w-4" />
+                              {tcPricing.price.toFixed(2)}
+                            </div>
+                            {tcPricing.isEarlyBird && (
+                              <div className="flex items-center gap-1 text-sm text-slate-400 line-through">
+                                <PoundSterling className="h-3 w-3" />
+                                {(Number(tc.price) || 0).toFixed(2)}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </RadioGroup>
+                  
+                  </CardContent>
+              </Card>
+            )}
+
+            {/* Single ticket class display - shown when only one option */}
+            {isOneOffEvent && availableTicketClasses.length === 1 && selectedTicketClass && (
+              <Card className="border-slate-200 shadow-sm mb-4">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Ticket className="h-5 w-5 text-blue-600" />
+                    Ticket
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {(() => {
+                    const purchasable = isTicketPurchasable(selectedTicketClass);
+                    const singlePricing = getEffectiveTicketPrice(selectedTicketClass);
+                    return (
+                      <div className={`flex items-center justify-between p-4 rounded-lg border border-slate-200 ${purchasable ? 'bg-slate-50' : 'bg-slate-50 opacity-80'}`}>
+                        <div className="flex items-center gap-3">
+                          {!purchasable && (
+                            <div className="flex items-center justify-center w-5 h-5 flex-shrink-0">
+                              <Lock className="h-4 w-4 text-slate-500" />
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className={`font-medium flex items-center gap-2 flex-wrap ${purchasable ? 'text-slate-900' : 'text-slate-500'}`}>
+                              {String(selectedTicketClass.name || 'Ticket')}
+                              {singlePricing.isEarlyBird && (
+                                <Badge variant="secondary" className="text-xs bg-warning/10 text-warning border-warning/30" data-testid="badge-early-bird-single">
+                                  <Bird className="w-3 h-3 mr-1" />
+                                  Early Bird
+                                </Badge>
+                              )}
+                            </div>
+                            {!purchasable && !currentMemberInfo && selectedTicketClass.visibility_mode && selectedTicketClass.visibility_mode !== 'public_only' && selectedTicketClass.visibility_mode !== 'members_and_public' && (
+                              <p className="text-xs text-slate-500 mt-0.5" data-testid="text-members-only-single">
+                                Members only —{' '}
+                                <a
+                                  href={`/Login?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`}
+                                  className="text-blue-600 hover:underline font-medium"
+                                  data-testid="link-login-ticket-single"
+                                >
+                                  log in to book
+                                </a>
+                              </p>
+                            )}
+                            {singlePricing.isEarlyBird && singlePricing.earlyBirdDeadline && (
+                              <EarlyBirdCountdown deadline={singlePricing.earlyBirdDeadline} className="mt-1" onExpired={handleEarlyBirdExpired} />
+                            )}
+                            {!isGuestCheckout && selectedTicketClass.offer_type && selectedTicketClass.offer_type !== 'none' && (
+                              <div className="text-xs text-green-600 mt-0.5">
+                                {selectedTicketClass.offer_type === 'bogo' && `Buy ${selectedTicketClass.bogo_buy_quantity || 0}, get ${selectedTicketClass.bogo_get_free_quantity || 0} free`}
+                                {selectedTicketClass.offer_type === 'bulk_discount' && `${selectedTicketClass.bulk_discount_percentage || 0}% off for ${selectedTicketClass.bulk_discount_threshold || 0}+ tickets`}
+                              </div>
+                            )}
+                            {event.show_ticket_availability && (() => {
+                              const remaining = getTicketRemaining(selectedTicketClass);
+                              if (remaining === null) return null;
+                              if (remaining <= 0) {
+                                return <div className="text-xs text-red-600 mt-0.5">Sold out</div>;
+                              } else if (remaining <= 5) {
+                                return <div className="text-xs text-warning mt-0.5">Only {remaining} left</div>;
+                              }
+                              return <div className="text-xs text-slate-500 mt-0.5">{remaining} available</div>;
+                            })()}
+                          </div>
+                        </div>
+                        <div className="flex flex-col items-end flex-shrink-0">
+                          <div className={`flex items-center gap-1 text-lg font-semibold ${purchasable ? 'text-slate-900' : 'text-slate-500'}`}>
+                            <PoundSterling className="h-4 w-4" />
+                            {singlePricing.price.toFixed(2)}
+                          </div>
+                          {singlePricing.isEarlyBird && (
+                            <div className="flex items-center gap-1 text-sm text-slate-400 line-through">
+                              <PoundSterling className="h-3 w-3" />
+                              {(Number(selectedTicketClass.price) || 0).toFixed(2)}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </CardContent>
+              </Card>
+            )}
+
+            {useCtaOverrideDetailMode && noTicketsForRole && !isGuestCheckout ? null : useCtaOverrideDetailMode ? (
+              <Card className="border-slate-200 shadow-sm" data-testid="card-cta-override-detail">
+                <CardContent className="pt-6 space-y-4">
+                  {isGuestCheckout && noTicketsForRole ? (
+                    <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                      <Lock className="h-4 w-4 text-blue-600 shrink-0" />
+                      <span className="text-sm text-blue-800 font-medium">Member only event</span>
+                    </div>
+                  ) : null}
+                  {isGuestCheckout && noTicketsForRole ? (
+                    <Button
+                      onClick={() => {
+                        const currentPath = window.location.pathname + window.location.search;
+                        window.location.href = '/login?returnTo=' + encodeURIComponent(currentPath);
+                      }}
+                      className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
+                      size="lg"
+                      data-testid="button-login-to-register"
+                    >
+                      <LogIn className="w-5 h-5 mr-2" />
+                      Login to register
+                    </Button>
+                  ) : (
+                    <Button
+                      onClick={() => {
+                        if (event.cta_override_url) {
+                          window.location.href = event.cta_override_url;
+                        }
+                      }}
+                      disabled={isSoldOut || isRegistrationClosed}
+                      className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
+                      size="lg"
+                      data-testid="button-continue-to-book"
+                    >
+                      {isRegistrationClosed
+                        ? 'Registration Closed'
+                        : isSoldOut
+                          ? 'Sold Out'
+                          : (
+                            <>
+                              <ExternalLink className="w-5 h-5 mr-2" />
+                              Continue to book
+                            </>
+                          )}
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+            ) : (
             <PaymentOptions
               totalCost={totalCost}
               memberInfo={currentMemberInfo}
               organizationInfo={organizationInfo}
-              attendees={attendees.filter((a) => a.isValid)}
+              attendees={isGuestCheckout 
+                ? (isGuestFormValid ? [{
+                    email: guestInfo.email,
+                    first_name: guestInfo.first_name,
+                    last_name: guestInfo.last_name,
+                    isValid: true,
+                    isGuest: true,
+                    organization: guestInfo.organization,
+                    phone: guestInfo.phone,
+                    job_title: guestInfo.job_title,
+                    dietary_selections: guestInfo.dietary_selections,
+                    allergy_selections: guestInfo.allergy_selections,
+                    accessibility_selections: guestInfo.accessibility_selections
+                  }] : [])
+                : attendees.filter((a) => a.isValid)}
               numberOfLinks={0}
               event={event}
               submitting={submitting}
               setSubmitting={setSubmitting}
-              registrationMode={registrationMode}
+              registrationMode={isGuestCheckout ? 'guest' : registrationMode}
               refreshOrganizationInfo={refreshOrganizationInfo}
+              isOneOffEvent={isOneOffEvent}
+              oneOffCostDetails={oneOffCostDetails}
+              ticketPrice={ticketPrice}
+              isFeatureExcluded={isFeatureExcluded}
+              selectedTicketClass={selectedTicketClass}
+              onCanProceedChange={setPaymentCanProceed}
+              isGuestCheckout={isGuestCheckout}
+              guestInfo={guestInfo}
+              noTicketsForRole={noTicketsForRole}
+              isSoldOut={isSoldOut}
+              isRegistrationClosed={isRegistrationClosed}
+              hasAttendeesWithMissingNames={hasAttendeesWithMissingNames}
+              hasBookingTerms={hasBookingTerms}
+              bookingTerms={bookingTerms}
+              termsAccepted={termsAccepted}
+              setTermsAccepted={setTermsAccepted}
+              onShowTermsModal={() => setShowTermsModal(true)}
+              collectThirdPartyConsent={collectThirdPartyConsent}
+              thirdPartyConsent={thirdPartyConsent}
+              setThirdPartyConsent={setThirdPartyConsent}
+              checkGuestEmailIsMember={checkGuestEmailIsMember}
+              checkingMemberEmail={checkingMemberEmail}
+              guestEmailIsMember={guestEmailIsMember}
             />
-
-            {availableRegistrationModes.length > 1 && (
-              <div>
-                <RegistrationModeSelector
-                  mode={registrationMode}
-                  onModeChange={handleModeChange}
-                  isFeatureExcluded={isFeatureExcluded}
-                />
-              </div>
             )}
+
           </div>
         </div>
       </div>
+
+      {/* Speaker Profile Modal */}
+      <Dialog open={showSpeakerModal} onOpenChange={setShowSpeakerModal}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-semibold">{speakerSingular} Profile</DialogTitle>
+          </DialogHeader>
+          {selectedSpeaker && (
+            <div className="mt-4 space-y-6">
+              <div className="flex items-center gap-4">
+                <Avatar className="h-20 w-20">
+                  {selectedSpeaker.profile_photo_url ? (
+                    <AvatarImage src={selectedSpeaker.profile_photo_url} alt={selectedSpeaker.full_name} />
+                  ) : null}
+                  <AvatarFallback className="bg-purple-100 text-purple-700 font-semibold text-2xl">
+                    {selectedSpeaker.full_name?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+                <div>
+                  <h3 className="text-lg font-semibold text-slate-900" data-testid="text-speaker-name">
+                    {selectedSpeaker.full_name}
+                  </h3>
+                  {(selectedSpeaker.job_title || selectedSpeaker.organization) && (
+                    <p className="text-slate-500" data-testid="text-speaker-role">
+                      {selectedSpeaker.job_title}
+                      {selectedSpeaker.job_title && selectedSpeaker.organization && ', '}
+                      {selectedSpeaker.organization}
+                    </p>
+                  )}
+                  {selectedSpeaker.email && (
+                    <a 
+                      href={`mailto:${selectedSpeaker.email}`} 
+                      className="text-sm text-blue-600 hover:underline"
+                      data-testid="link-speaker-email"
+                    >
+                      {selectedSpeaker.email}
+                    </a>
+                  )}
+                </div>
+              </div>
+              {selectedSpeaker.biography && (
+                <div>
+                  <h4 className="font-medium text-slate-900 mb-2">Biography</h4>
+                  <p className="text-slate-600 whitespace-pre-wrap leading-relaxed" data-testid="text-speaker-bio">
+                    {selectedSpeaker.biography}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Terms and Conditions Modal */}
+      <Dialog open={showTermsModal} onOpenChange={setShowTermsModal}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-semibold flex items-center gap-2">
+              <FileText className="w-5 h-5" />
+              Terms and Conditions
+            </DialogTitle>
+          </DialogHeader>
+          <div className="mt-4">
+            <div 
+              className="prose prose-slate max-w-none"
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(bookingTerms) }}
+              data-testid="terms-content"
+            />
+          </div>
+          <div className="mt-6 pt-4 border-t flex justify-end">
+            <Button onClick={() => setShowTermsModal(false)} data-testid="button-close-terms">
+              Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showMemberEmailModal} onOpenChange={setShowMemberEmailModal}>
+        <DialogContent className="max-w-md" data-testid="modal-member-email-found">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-semibold flex items-center gap-2">
+              <User className="w-5 h-5" />
+              Member Account Found
+            </DialogTitle>
+          </DialogHeader>
+          <div className="mt-4 space-y-4">
+            <p className="text-slate-600">
+              The email address <span className="font-medium text-slate-900">{guestInfo.email}</span> is associated with an existing member account.
+            </p>
+            <p className="text-slate-600">
+              Please log in to your member account to register for this event. This ensures your booking is linked to your membership and you receive all member benefits.
+            </p>
+          </div>
+          <div className="mt-6 pt-4 border-t flex flex-col gap-2">
+            <Button
+              onClick={() => {
+                const currentUrl = window.location.pathname + window.location.search;
+                window.location.href = `/login?returnTo=${encodeURIComponent(currentUrl)}`;
+              }}
+              className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
+              data-testid="button-login-redirect"
+            >
+              <LogIn className="w-4 h-4 mr-2" />
+              Log In to Continue
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => setShowMemberEmailModal(false)}
+              className="w-full"
+              data-testid="button-dismiss-member-modal"
+            >
+              Cancel
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

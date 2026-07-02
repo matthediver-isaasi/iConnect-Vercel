@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from "react";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -40,7 +41,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 
 export default function FloaterManagementPage() {
-  const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isAdmin, isFeatureExcluded, isAccessReady, authResolved, sessionValidated } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -72,6 +73,10 @@ export default function FloaterManagementPage() {
 
   const queryClient = useQueryClient();
 
+  // SECURITY: Only consider authenticated when auth check complete AND session validated
+  const isAuthenticated = authResolved && sessionValidated;
+
+  // SECURITY: Gate query on auth to prevent fetching before tenant context is ready
   const { data: floaters = [], isLoading } = useQuery({
     queryKey: ['floaters'],
     queryFn: async () => {
@@ -79,13 +84,16 @@ export default function FloaterManagementPage() {
       return allFloaters.sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
     },
     staleTime: 0, // Admin views need instant freshness after edits
+    enabled: isAuthenticated,
   });
 
+  // SECURITY: Gate on auth to prevent cross-tenant data leakage
   const { data: forms = [] } = useQuery({
     queryKey: ['forms'],
     queryFn: async () => {
       return await base44.entities.Form.list();
-    }
+    },
+    enabled: isAuthenticated,
   });
 
   const createFloaterMutation = useMutation({
@@ -133,13 +141,13 @@ export default function FloaterManagementPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_FloaterManagement')) {
+      if (isFeatureExcluded('page_FloaterManagement')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const handleOpenDialog = (floater = null) => {
     if (floater) {
@@ -233,7 +241,7 @@ export default function FloaterManagementPage() {
       setFormData(prev => ({ ...prev, image_url: result.file_url }));
       toast.success('Image uploaded successfully');
     } catch (error) {
-      toast.error('Failed to upload image');
+      showUploadErrorToast(error, 'Failed to upload image');
     } finally {
       setIsUploadingImage(false);
     }
@@ -309,14 +317,14 @@ export default function FloaterManagementPage() {
 
   if (!accessChecked || isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-8">
           <div>
@@ -642,7 +650,7 @@ export default function FloaterManagementPage() {
                   </SelectContent>
                 </Select>
                 {forms.length === 0 && (
-                  <p className="text-xs text-amber-600">No forms available. Create a form first.</p>
+                  <p className="text-xs text-warning">No forms available. Create a form first.</p>
                 )}
                 <p className="text-xs text-slate-500">The form to open when the floater is clicked</p>
               </div>

@@ -1,0 +1,32 @@
+2025-12-18 22:42:01.748 [info] [createOneOffEventBooking] Starting booking: {
+  eventId: '437c70d7-b77c-4e80-b10b-535196e8c551',
+  memberEmail: 'mat@isaasi.co.uk',
+  ticketsRequired: 1,
+  totalCost: 55,
+  paymentMethod: 'fully_covered',
+  ticketClassId: 'ticket-1765793454253-y6m80',
+  ticketClassName: 'University Member Ticket',
+  attendeesReceived: 1,
+  attendeesData: '[{"email":"mat.the.diver@googlemail.com","first_name":"test","last_name":"test","isValid":true,"validationStatus":"external","validationMessage":"External attendee","isSelf":false}]',
+  isGuestBooking: false,
+  guestInfo: null
+}
+2025-12-18 22:42:01.902 [info] [createOneOffEventBooking] Member found: 48b25075-51da-437f-af20-17836a892bfe mat@isaasi.co.uk
+2025-12-18 22:42:02.205 [info] [createOneOffEventBooking] Processing vouchers: [ '8dadfe65-5a13-482e-b8d8-fb6f954ccb42' ]
+2025-12-18 22:42:02.205 [info] [createOneOffEventBooking] Looking up voucher: 8dadfe65-5a13-482e-b8d8-fb6f954ccb42 for org: 55a86410-7f60-4451-a45c-5760d93ccf1a
+2025-12-18 22:42:02.346 [info] [createOneOffEventBooking] Voucher lookup result: {
+  id: '8dadfe65-5a13-482e-b8d8-fb6f954ccb42',
+  value: 100,
+  status: 'active'
+} error: undefined
+2025-12-18 22:42:02.346 [info] [createOneOffEventBooking] Updating voucher 8dadfe65-5a13-482e-b8d8-fb6f954ccb42 from 100 to 45
+2025-12-18 22:42:02.486 [error] [createOneOffEventBooking] Failed to update voucher: Could not find the 'notes' column of 'voucher' in the schema cache
+2025-12-18 22:42:02.486 [info] [createOneOffEventBooking] About to create bookings for 1 attendees (isGuestBooking: false )
+2025-12-18 22:42:02.486 [info] [createOneOffEventBooking] Processing attendee 1/1: mat.the.diver@googlemail.com
+2025-12-18 22:42:02.486 [info] [createOneOffEventBooking] Inserting booking: {"event_id":"437c70d7-b77c-4e80-b10b-535196e8c551","member_id":"48b25075-51da-437f-af20-17836a892bfe","organization_id":"55a86410-7f60-4451-a45c-5760d93ccf1a","booking_reference":"OOE-1766097722205-8FBMK","booking_group_reference":"OOE-1766097722205-8FBMK","attendee_email":"mat.the.diver@googlemail.com","attendee_first_name":"test","attendee_last_name":"test","status":"confirmed","payment_method":"fully_covered","ticket_price":55,"total_cost":55,"voucher_amount":55,"training_fund_amount":0,"account_amount":0,"purchase_order_number":"","po_to_follow":false,"stripe_payment_intent_id":null,"is_one_off_event":true,"ticket_class_id":"ticket-1765793454253-y6m80","ticket_class_name":"University Member Ticket","is_guest_booking":false}
+2025-12-18 22:42:02.638 [info] [createOneOffEventBooking] Booking created: b79b377b-7661-4284-9058-4d87a222e547
+2025-12-18 22:42:02.923 [info] [scheduleBookingReminderEmails] No reminder emails configured for event
+2025-12-18 22:42:02.923 [info] [createOneOffEventBooking] Decrementing 1 seats for event 437c70d7-b77c-4e80-b10b-535196e8c551
+2025-12-18 22:42:03.081 [info] [createOneOffEventBooking] Atomically decremented seats, new count: 22
+2025-12-18 22:42:03.081 [info] [createOneOffEventBooking] Sending confirmation emails to attendees...
+2025-12-18 22:42:03.209 [info] [sendConfirmationEmailsFromTemplate] No confirmation emails configured for event

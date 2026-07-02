@@ -1,18 +1,25 @@
 import React from "react";
+import DOMPurify from 'dompurify';
+import { useIsMobile } from "@/hooks/use-mobile";
 
 export default function PageBannerDisplay({ banner }) {
+  const isMobile = useIsMobile();
+  
   if (!banner || !banner.image_url) return null;
 
   const sizeClasses = {
+    'full': 'w-full',
+    'half': 'w-full md:w-1/2',
+    'quarter': 'w-full md:w-1/4',
     'full-width': 'w-full',
     'contained': 'max-w-7xl mx-auto',
     'wide': 'max-w-screen-2xl mx-auto'
   };
 
   const heightClasses = {
-    'small': 'h-32 md:h-48',
-    'medium': 'h-48 md:h-64 lg:h-80',
-    'large': 'h-64 md:h-96 lg:h-[32rem]',
+    'small': 'min-h-32 md:min-h-48 h-auto',
+    'medium': 'min-h-48 md:min-h-64 lg:min-h-80 h-auto',
+    'large': 'min-h-64 md:min-h-96 lg:min-h-[32rem] h-auto',
     'auto': 'h-auto'
   };
 
@@ -22,12 +29,76 @@ export default function PageBannerDisplay({ banner }) {
     'bottom': 'object-bottom'
   };
 
-  const containerClass = sizeClasses[banner.size] || sizeClasses['full-width'];
+  const horizontalAlignmentClasses = {
+    'left': 'md:mr-auto',
+    'center': 'md:mx-auto',
+    'right': 'md:ml-auto'
+  };
+
+  // Helper to get padding value - supports both old preset strings and new numeric values
+  const getPaddingValue = (value) => {
+    if (typeof value === 'number') return value;
+    // Fallback for old preset values
+    const presetMap = { 'none': 0, 'small': 16, 'medium': 32, 'large': 64 };
+    return presetMap[value] ?? 0;
+  };
+
+  const containerClass = sizeClasses[banner.size] || sizeClasses['full'];
   const heightClass = heightClasses[banner.height] || heightClasses['medium'];
   const positionClass = positionClasses[banner.position] || positionClasses['center'];
+  
+  // Only apply horizontal alignment for non-full-width banners
+  const needsAlignment = banner.size === 'half' || banner.size === 'quarter';
+  const alignmentClass = needsAlignment 
+    ? (horizontalAlignmentClasses[banner.horizontal_alignment] || horizontalAlignmentClasses['center'])
+    : '';
+
+  // Get padding values as pixels
+  const paddingStyle = {
+    paddingTop: `${getPaddingValue(banner.padding_top)}px`,
+    paddingBottom: `${getPaddingValue(banner.padding_bottom)}px`,
+    paddingLeft: `${getPaddingValue(banner.padding_left)}px`,
+    paddingRight: `${getPaddingValue(banner.padding_right)}px`,
+  };
+
+  // Check if header has actual content
+  const hasHeaderContent = (value) => {
+    if (!value) return false;
+    const stripped = value.replace(/<[^>]*>/g, '').trim();
+    return stripped.length > 0;
+  };
+
+  const hasHeader = hasHeaderContent(banner.header_title);
+
+  // Header text styles
+  const getHeaderStyle = () => {
+    const fontSize = isMobile && banner.header_font_size_mobile 
+      ? banner.header_font_size_mobile 
+      : (banner.header_font_size || 32);
+    
+    return {
+      fontFamily: banner.header_font_family || 'Poppins',
+      fontSize: `${fontSize}px`,
+      fontWeight: banner.header_font_weight || 700,
+      color: banner.header_color || '#ffffff',
+      lineHeight: banner.header_line_height || 1.2,
+      letterSpacing: `${banner.header_letter_spacing || 0}px`,
+      textAlign: banner.header_text_align || 'center'
+    };
+  };
 
   return (
-    <div className={`${containerClass} overflow-hidden`}>
+    <div className={`${containerClass} ${alignmentClass} overflow-hidden`} style={paddingStyle}>
+      {/* Header Text - sits ABOVE the image, same width as banner */}
+      {hasHeader && (
+        <div 
+          className="w-full py-3 md:py-4"
+          style={getHeaderStyle()}
+          dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(banner.header_title) }}
+        />
+      )}
+      
+      {/* Banner Image */}
       <div className={`${heightClass} w-full`}>
         <img
           src={banner.image_url}
@@ -37,4 +108,8 @@ export default function PageBannerDisplay({ banner }) {
       </div>
     </div>
   );
+}
+
+export function getPagePosition(banner) {
+  return banner?.page_position || 'top';
 }

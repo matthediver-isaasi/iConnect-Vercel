@@ -19,6 +19,9 @@ import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import PageTour from "../components/tour/PageTour";
 import TourButton from "../components/tour/TourButton";
+import { useLayoutContext } from "@/contexts/LayoutContext";
+import { useProgramTicketRealtime } from "@/hooks/useProgramTicketRealtime";
+import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 // Load Stripe outside component to avoid recreating on every render
 let stripePromise = null;
@@ -116,13 +119,34 @@ function StripePaymentForm({ clientSecret, onSuccess, onCancel, amount }) {
 }
 
 export default function BuyProgramTicketsPage({ 
-  memberInfo, 
-  organizationInfo, 
-  refreshOrganizationInfo, 
-  isFeatureExcluded,
-  memberRole,
-  reloadMemberInfo
+  memberInfo: propsMemberInfo, 
+  organizationInfo: propsOrganizationInfo, 
+  refreshOrganizationInfo: propsRefreshOrganizationInfo, 
+  isFeatureExcluded: propsIsFeatureExcluded,
+  memberRole: propsMemberRole,
+  reloadMemberInfo: propsReloadMemberInfo,
 }) {
+  // Get values from context (preferred) or fall back to props
+  const { 
+    hasBanner,
+    memberInfo: contextMemberInfo,
+    organizationInfo: contextOrganizationInfo,
+    memberRole: contextMemberRole,
+    isFeatureExcluded: contextIsFeatureExcluded,
+    refreshOrganizationInfo: contextRefreshOrganizationInfo,
+    reloadMemberInfo: contextReloadMemberInfo,
+  } = useLayoutContext();
+
+  // Get memberRole from useMemberAccess hook as additional fallback
+  const { memberRole: hookMemberRole } = useMemberAccess();
+  
+  // Use context values if available, otherwise fall back to props, then hook
+  const memberInfo = contextMemberInfo || propsMemberInfo;
+  const organizationInfo = contextOrganizationInfo || propsOrganizationInfo;
+  const memberRole = contextMemberRole || propsMemberRole || hookMemberRole;
+  const isFeatureExcluded = contextIsFeatureExcluded || propsIsFeatureExcluded || (() => false);
+  const refreshOrganizationInfo = contextRefreshOrganizationInfo || propsRefreshOrganizationInfo || (() => {});
+  const reloadMemberInfo = contextReloadMemberInfo || propsReloadMemberInfo || (() => {});
   const [selectedProgram, setSelectedProgram] = useState(null);
   const [quantity, setQuantity] = useState(1);
   const [purchaseOrderNumber, setPurchaseOrderNumber] = useState("");
@@ -156,8 +180,21 @@ export default function BuyProgramTicketsPage({
   // Add refs to track if tours have been auto-started in this session
   const hasAutoStartedListTour = useRef(false);
   const hasAutoStartedFormTour = useRef(false);
+  const hasUpdatedExpiredVouchers = useRef(false);
 
   const queryClient = useQueryClient();
+
+  // Subscribe to realtime updates for ticket purchases
+  // Pass refreshOrganizationInfo to update the Layout context when changes are detected
+  useProgramTicketRealtime(organizationInfo?.id, ['vouchers'], refreshOrganizationInfo);
+
+  // Refresh organization info on mount to get latest ticket balances
+  useEffect(() => {
+    if (refreshOrganizationInfo) {
+      console.log('[BuyProgramTickets] Refreshing organization info on mount');
+      refreshOrganizationInfo();
+    }
+  }, []); // Only run on mount
 
   // Check if tours should be shown for this user's role
   const shouldShowTours = memberInfo && !memberInfo.is_team_member && memberRole && memberRole.show_tours !== false;
@@ -166,7 +203,7 @@ export default function BuyProgramTicketsPage({
   useEffect(() => {
     const initStripe = async () => {
       try {
-        const response = await base44.functions.invoke('getStripePublishableKey');
+        const response = await base44.functions.invoke('getStripePublishableKey', { feature: 'events' });
         if (response.data.publishableKey) {
           stripePromise = loadStripe(response.data.publishableKey);
         } else {
@@ -179,60 +216,55 @@ export default function BuyProgramTicketsPage({
     initStripe();
   }, []);
 
-  // Update expired vouchers on page load
+  // Update expired vouchers - disabled to prevent infinite loop
+  // TODO: Re-implement this with proper state management
+  // useEffect(() => {
+  //   let isMounted = true;
+  //   const updateExpiredVouchers = async () => {
+  //     try {
+  //       console.log('[BuyProgramTickets] Updating expired vouchers...');
+  //       const response = await base44.functions.invoke('updateExpiredVouchers');
+  //       if (!isMounted) return;
+  //       if (response.data.success && response.data.updated_count > 0) {
+  //         console.log('[BuyProgramTickets] Updated expired vouchers:', response.data.updated_count);
+  //         queryClient.invalidateQueries({ queryKey: ['vouchers'] });
+  //       }
+  //     } catch (error) {
+  //       console.error('[BuyProgramTickets] Failed to update expired vouchers:', error);
+  //     }
+  //   };
+  //   if (memberInfo && organizationInfo) {
+  //     updateExpiredVouchers();
+  //   }
+  //   return () => { isMounted = false; };
+  // }, []);
+
+  // Auto-show tours based on member role (simplified to prevent re-render loops)
   useEffect(() => {
-    const updateExpiredVouchers = async () => {
-      try {
-        console.log('[BuyProgramTickets] Updating expired vouchers...');
-        const response = await base44.functions.invoke('updateExpiredVouchers');
-
-        if (response.data.success && response.data.updated_count > 0) {
-          console.log('[BuyProgramTickets] Updated expired vouchers:', response.data.updated_count);
-          // Invalidate voucher queries to refetch with updated statuses
-          queryClient.invalidateQueries({ queryKey: ['vouchers'] });
-        } else {
-          console.log('[BuyProgramTickets] No expired vouchers found or update not needed');
-        }
-
-        // Force a refetch of vouchers to ensure fresh data
-        queryClient.invalidateQueries({ queryKey: ['vouchers'] });
-      } catch (error) {
-        console.error('[BuyProgramTickets] Failed to update expired vouchers:', error);
-      }
-    };
-
-    if (memberInfo && organizationInfo) {
-      updateExpiredVouchers();
-    }
-  }, [memberInfo, organizationInfo, queryClient]);
-
-  // Check tour status for list view
-  useEffect(() => {
-    if (!shouldShowTours || selectedProgram !== null || hasAutoStartedListTour.current) return;
+    if (!memberInfo || !memberRole || !shouldShowTours) return;
+    
+    // Only auto-show tour once per component mount
+    if (hasAutoStartedListTour.current) return;
     
     const pageToursSeen = memberInfo.page_tours_seen || {};
-    const tourKey = 'BuyProgramTickets_list';
-    
-    if (!pageToursSeen[tourKey]) {
-      hasAutoStartedListTour.current = true; // Mark as auto-started
-      setTourAutoShowList(true);
+    if (!pageToursSeen['BuyProgramTickets_list'] && selectedProgram === null) {
+      hasAutoStartedListTour.current = true;
       setShowListTour(true);
     }
-  }, [memberInfo, selectedProgram, shouldShowTours]);
+  }, []); // Empty deps - only run on mount
 
-  // Check tour status for form view
+  // Auto-show form tour when program is selected
   useEffect(() => {
-    if (!shouldShowTours || selectedProgram === null || hasAutoStartedFormTour.current) return;
+    if (!memberInfo || !memberRole || !shouldShowTours || selectedProgram === null) return;
+    
+    if (hasAutoStartedFormTour.current) return;
     
     const pageToursSeen = memberInfo.page_tours_seen || {};
-    const tourKey = 'BuyProgramTickets_form';
-    
-    if (!pageToursSeen[tourKey]) {
-      hasAutoStartedFormTour.current = true; // Mark as auto-started
-      setTourAutoShowForm(true);
+    if (!pageToursSeen['BuyProgramTickets_form']) {
+      hasAutoStartedFormTour.current = true;
       setShowFormTour(true);
     }
-  }, [memberInfo, selectedProgram, shouldShowTours]);
+  }, [selectedProgram?.id]);
 
 
   // Fetch programs
@@ -266,78 +298,71 @@ export default function BuyProgramTicketsPage({
     refetchOnMount: true,
   });
 
-  // Effect to load saved program purchase data or initialize default states
+  // Load saved program purchase data on program selection (only depends on selectedProgram ID)
   useEffect(() => {
-    if (selectedProgram) {
-      const savedPurchase = sessionStorage.getItem(`program_purchase_${selectedProgram.id}`);
-
-      if (savedPurchase) {
-        const { selectedVouchers: saved, trainingFund, paymentMethod, po, qty } = JSON.parse(savedPurchase);
-
-        // Filter selectedVouchers to only include IDs that exist in current active vouchers
-        const validVoucherIds = (saved || []).filter((voucherId) =>
-          vouchers.some((v) => v.id === voucherId)
-        );
-
-        setSelectedVouchers(validVoucherIds); // Corrected from setSelectedVoucherIds to setSelectedVouchers
-        setTrainingFundAmount(trainingFund || 0);
-        setRemainingBalancePaymentMethod(paymentMethod || 'account');
-        setPurchaseOrderNumber(po || "");
-        setQuantity(qty || 1);
-      } else {
-        // If no saved data for this program, initialize with default states
-        setSelectedVouchers([]); // Corrected from setSelectedVoucherIds to setSelectedVouchers
-        setTrainingFundAmount(0);
-        setRemainingBalancePaymentMethod('account');
-        setPurchaseOrderNumber("");
-        setQuantity(1);
-        setAppliedDiscount(null); // Clear discount when no saved data or new program
-        setDiscountCodeInput("");
-      }
-    } else {
-      // If no program is selected (e.g., returning to program list), reset all purchase states
-      setSelectedVouchers([]); // Corrected from setSelectedVoucherIds to setSelectedVouchers
+    if (!selectedProgram) {
+      // Reset all states when no program is selected
+      setSelectedVouchers([]);
       setTrainingFundAmount(0);
       setRemainingBalancePaymentMethod('account');
       setPurchaseOrderNumber("");
       setQuantity(1);
-      setAppliedDiscount(null); // Clear discount when no program is selected
+      setAppliedDiscount(null);
+      setDiscountCodeInput("");
+      return;
+    }
+
+    // Load saved data for this program
+    const savedPurchase = sessionStorage.getItem(`program_purchase_${selectedProgram.id}`);
+    if (savedPurchase) {
+      try {
+        const { selectedVouchers: saved, trainingFund, paymentMethod, po, qty } = JSON.parse(savedPurchase);
+        setSelectedVouchers(saved || []);
+        setTrainingFundAmount(trainingFund || 0);
+        setRemainingBalancePaymentMethod(paymentMethod || 'account');
+        setPurchaseOrderNumber(po || "");
+        setQuantity(qty || 1);
+        setAppliedDiscount(null);
+        setDiscountCodeInput("");
+      } catch (e) {
+        // Invalid saved data, reset to defaults
+        setSelectedVouchers([]);
+        setTrainingFundAmount(0);
+        setRemainingBalancePaymentMethod('account');
+        setPurchaseOrderNumber("");
+        setQuantity(1);
+        setAppliedDiscount(null);
+        setDiscountCodeInput("");
+      }
+    } else {
+      // No saved data for this program, initialize defaults
+      setSelectedVouchers([]);
+      setTrainingFundAmount(0);
+      setRemainingBalancePaymentMethod('account');
+      setPurchaseOrderNumber("");
+      setQuantity(1);
+      setAppliedDiscount(null);
       setDiscountCodeInput("");
     }
-  }, [selectedProgram, vouchers]);
+  }, [selectedProgram?.id]);
 
-  // Additional effect to clean up selectedVouchers if vouchers list changes
+  // Save purchase state to sessionStorage (non-blocking side effect)
   useEffect(() => {
-    if (selectedVouchers.length > 0 && vouchers.length > 0) {
-      const validVoucherIds = selectedVouchers.filter((voucherId) =>
-        vouchers.some((v) => v.id === voucherId)
-      );
+    if (!selectedProgram) return;
 
-      // Only update state if there's a mismatch (to avoid infinite loops)
-      if (validVoucherIds.length !== selectedVouchers.length) {
-        console.log('[BuyProgramTickets] Cleaning up invalid voucher IDs from state');
-        setSelectedVouchers(validVoucherIds); // Corrected from setSelectedVoucherIds to setSelectedVouchers
-      }
-    }
-  }, [vouchers, selectedVouchers]);
+    const state = {
+      selectedVouchers,
+      trainingFund: trainingFundAmount,
+      paymentMethod: remainingBalancePaymentMethod,
+      po: purchaseOrderNumber,
+      qty: quantity
+    };
+    sessionStorage.setItem(`program_purchase_${selectedProgram.id}`, JSON.stringify(state));
+  }, [selectedProgram?.id, selectedVouchers, trainingFundAmount, remainingBalancePaymentMethod, purchaseOrderNumber, quantity]);
 
-  // Save state whenever it changes
+  // Clear discount when quantity changes
   useEffect(() => {
-    if (selectedProgram) {
-      const state = {
-        selectedVouchers,
-        trainingFund: trainingFundAmount,
-        paymentMethod: remainingBalancePaymentMethod,
-        po: purchaseOrderNumber,
-        qty: quantity
-      };
-      sessionStorage.setItem(`program_purchase_${selectedProgram.id}`, JSON.stringify(state));
-    }
-  }, [selectedProgram, selectedVouchers, trainingFundAmount, remainingBalancePaymentMethod, purchaseOrderNumber, quantity]);
-
-  // Clear discount when quantity or program changes
-  useEffect(() => {
-    if (selectedProgram) {
+    if (quantity !== 1 && selectedProgram) {
       setAppliedDiscount(null);
       setDiscountCodeInput("");
     }
@@ -346,7 +371,7 @@ export default function BuyProgramTicketsPage({
   const updateMemberTourStatus = async (tourKey) => {
     if (memberInfo && !memberInfo.is_team_member) {
       try {
-        const allMembers = await base44.entities.Member.list();
+        const allMembers = await base44.entities.Member.listAll();
         const currentMember = allMembers.find(m => m.email === memberInfo.email);
         
         if (currentMember) {
@@ -356,7 +381,7 @@ export default function BuyProgramTicketsPage({
           });
           
           const updatedMemberInfo = { ...memberInfo, page_tours_seen: updatedTours };
-          sessionStorage.setItem('agcas_member', JSON.stringify(updatedMemberInfo));
+          localStorage.setItem('agcas_member', JSON.stringify(updatedMemberInfo));
 
           // Notify Layout to reload memberInfo
           if (reloadMemberInfo) {
@@ -403,7 +428,7 @@ export default function BuyProgramTicketsPage({
 
   if (!memberInfo || !organizationInfo) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading...</div>
       </div>);
 
@@ -795,7 +820,7 @@ export default function BuyProgramTicketsPage({
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       {/* Tour for List View */}
       {showListTour && shouldShowTours && !selectedProgram && (
         <PageTour 
@@ -821,48 +846,26 @@ export default function BuyProgramTicketsPage({
       <div className="max-w-7xl mx-auto">
         {!selectedProgram ? (
           <>
-            {/* Program Selection View */}
-            <div className="mb-8">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">Buy unpacked tickets</h1>
-                  {/*
-                  <p className="text-slate-600">
-                    Purchase tickets for specific programs that can be used for any event in that program
-                  </p>
-                  */}
-                </div>
-                {shouldShowTours && (
-                  <TourButton onClick={handleStartListTour} />
-                )}
-              </div>
-            </div>
-
-            <Card id="total-tickets-summary-card" className="border-slate-200 shadow-sm bg-gradient-to-br from-purple-50 to-blue-50 mb-8">
-              <CardContent className="p-6">
+            {/* Program Selection View - Header hidden when custom banner is present */}
+            {!hasBanner && (
+              <div className="mb-8">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-slate-600 mb-1">Total Available</p>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-3xl font-bold text-purple-600">
-                        {organizationTotalTickets}
-                      </span>
-                      <span className="text-slate-600">unpacked tickets</span>
-                    </div>
+                    <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">Buy unpacked tickets</h1>
+                    {/*
+                    <p className="text-slate-600">
+                      Purchase tickets for specific programs that can be used for any event in that program
+                    </p>
+                    */}
                   </div>
-                  <div className="p-4 bg-white/50 rounded-lg">
-                    <Ticket className="w-8 h-8 text-purple-600" />
-                  </div>
+                  {shouldShowTours && (
+                    <TourButton onClick={handleStartListTour} />
+                  )}
                 </div>
-                
-                {organizationInfo.name &&
-                  <p className="text-sm text-slate-500 mt-3">
-                    for {organizationInfo.name}
-                  </p>
-                }
-              </CardContent>
-            </Card>
-            {/*}
+              </div>
+            )}
+
+                        {/*}
             UNPACKED ONLY
             <div className="mb-6">
             <h2 className="text-xl font-semibold text-slate-900 mb-4">Available Programs</h2>
@@ -918,22 +921,9 @@ export default function BuyProgramTicketsPage({
                         }
                         
                         <CardHeader className="pb-3">
-                          <div className="flex items-start justify-between gap-2 mb-2">
-                            
-                            <CardTitle className="text-lg group-hover:text-purple-600 transition-colors">
-                              {/*
+                          <CardTitle className="text-lg group-hover:text-purple-600 transition-colors">
                             {program.name}
-                            */}
-                              International Employability unpacked
-                            </CardTitle>
-                            
-                            
-                            
-                            <div className="flex items-center gap-1 text-purple-600 bg-purple-50 px-2 py-1 rounded-full shrink-0">
-                              <Ticket className="w-3 h-3" />
-                              <span className="text-xs font-semibold">{currentBalance}</span>
-                            </div>
-                          </div>
+                          </CardTitle>
                         </CardHeader>
                         
                         <CardContent className="space-y-3">
@@ -963,12 +953,16 @@ export default function BuyProgramTicketsPage({
                                 {program.bulk_discount_percentage}% off when buying {program.bulk_discount_threshold}+ tickets
                               </p>
                             }
-                            {/*
-                          <div className="flex items-center gap-2 text-purple-600 font-medium pt-2">
-                          <ShoppingCart className="w-4 h-4" />
-                          <span className="text-sm">Purchase Tickets</span>
                           </div>
-                          */}
+                          
+                          {/* Available Tickets Display */}
+                          <div className="pt-3 mt-3 border-t border-slate-200">
+                            <div className="flex items-center gap-2 text-purple-700 bg-purple-50 px-3 py-2 rounded-lg">
+                              <Ticket className="w-5 h-5" />
+                              <span className="text-sm font-medium">
+                                Tickets Purchased: <span className="font-bold text-lg">{currentBalance}</span>
+                              </span>
+                            </div>
                           </div>
         
                         </CardContent>

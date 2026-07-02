@@ -1,13 +1,17 @@
 import React, { useState, useMemo } from "react";
-import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button"; 
 import { FileQuestion, ChevronLeft, ChevronRight, SlidersHorizontal } from "lucide-react";
+import { publicClient } from "@/api/publicClient";
 import ResourceFilter from "../components/resources/ResourceFilter";
 import ResourceCard from "../components/resources/ResourceCard";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useResourceRealtime } from "@/hooks/useResourceRealtime";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
+import { resolveTenantButtonStyle, resolveTenantButtonStyleValues } from "@/lib/tenantButtonStyle";
+
+const DEFAULT_RESOURCE_CATEGORY_TITLE_COLOR = '#7e22ce';
 
 export default function PublicResourcesPage() {
   const [selectedCategory, setSelectedCategory] = useState("all");
@@ -17,11 +21,14 @@ export default function PublicResourcesPage() {
   const [sortBy, setSortBy] = useState("newest");
   const [itemsPerPage, setItemsPerPage] = useState(6);
 
+  const tenantBranding = useTenantBranding()?.branding;
+  const categoryTitleColor = tenantBranding?.brandingConfig?.resourceCategoryTitleColor || DEFAULT_RESOURCE_CATEGORY_TITLE_COLOR;
+  const primaryButtonStyle = resolveTenantButtonStyleValues(resolveTenantButtonStyle(tenantBranding, 'primary'));
+
   useResourceRealtime(['public-resources']);
 
-  // Check if user is logged in
   const isLoggedIn = useMemo(() => {
-    const storedMember = sessionStorage.getItem('agcas_member');
+    const storedMember = localStorage.getItem('agcas_member');
     if (!storedMember) return false;
     
     const member = JSON.parse(storedMember);
@@ -31,25 +38,18 @@ export default function PublicResourcesPage() {
     return true;
   }, []);
 
-  // Match ResourceManagement pattern exactly
   const { data: resources = [], isLoading: resourcesLoading } = useQuery({
     queryKey: ['public-resources'],
-    queryFn: async () => {
-      console.log('[PublicResources] Fetching at:', new Date().toISOString());
-      const allResources = await base44.entities.Resource.list('-published_date');
-      // Return all active resources (both public and non-public), but filter out drafts
-      return allResources.filter(r => r.status !== 'draft');
-    },
-    staleTime: 0, // Always fetch fresh content for resources feed
+    queryFn: async () => await publicClient.listResources() || [],
+    staleTime: 0,
     refetchOnMount: true,
   });
 
   const { data: categories = [], isLoading: categoriesLoading } = useQuery({
     queryKey: ['resourceCategories-public'],
     queryFn: async () => {
-      const cats = await base44.entities.ResourceCategory.list();
+      const cats = await publicClient.listResourceCategories();
       const resourceCategories = cats.filter(c =>
-        c.is_active &&
         c.applies_to_content_types &&
         c.applies_to_content_types.includes("Resources")
       );
@@ -58,11 +58,10 @@ export default function PublicResourcesPage() {
     refetchOnWindowFocus: true
   });
 
-  // Fetch button styles once at page level
   const { data: buttonStyles = [] } = useQuery({
-    queryKey: ['buttonStyles-resources'],
+    queryKey: ['public-buttonStyles-resources'],
     queryFn: async () => {
-      const styles = await base44.entities.ButtonStyle.list();
+      const styles = await publicClient.listButtonStyles();
       return styles.filter(s => s.card_type === 'resource' && s.is_active);
     },
     refetchOnWindowFocus: true
@@ -172,14 +171,16 @@ export default function PublicResourcesPage() {
           color: #334155; /* slate-700 */
         }
         .agcas-pagination-button:hover:not(:disabled) {
-          background: linear-gradient(to right top, rgb(92, 0, 133), rgb(186, 0, 135), rgb(238, 0, 195), rgb(255, 66, 41), rgb(255, 176, 0));
-          color: white;
+          background: ${primaryButtonStyle ? primaryButtonStyle.hoverBackground : 'linear-gradient(to right top, rgb(92, 0, 133), rgb(186, 0, 135), rgb(238, 0, 195), rgb(255, 66, 41), rgb(255, 176, 0))'};
+          color: ${primaryButtonStyle ? primaryButtonStyle.hoverColor : 'white'};
           box-shadow: none !important;
+          ${primaryButtonStyle ? `border-radius: ${primaryButtonStyle.radius}px;` : ''}
         }
         .agcas-pagination-button.active {
-          background: linear-gradient(to right top, rgb(92, 0, 133), rgb(186, 0, 135), rgb(238, 0, 195), rgb(255, 66, 41), rgb(255, 176, 0));
-          color: white;
+          background: ${primaryButtonStyle ? primaryButtonStyle.background : 'linear-gradient(to right top, rgb(92, 0, 133), rgb(186, 0, 135), rgb(238, 0, 195), rgb(255, 66, 41), rgb(255, 176, 0))'};
+          color: ${primaryButtonStyle ? primaryButtonStyle.color : 'white'};
           box-shadow: none !important;
+          ${primaryButtonStyle ? `border-radius: ${primaryButtonStyle.radius}px;` : ''}
         }
         .agcas-pagination-button:disabled {
           opacity: 0.5;
@@ -210,12 +211,13 @@ export default function PublicResourcesPage() {
                 onSearchChange={setSearchQuery}
                 onClearSearch={() => setSearchQuery("")}
                 isLoading={categoriesLoading}
+                categoryTitleColor={categoryTitleColor}
               />
             </div>
           </div>
 
           <div className="flex-1">
-            {isLoading ? (
+            {resourcesLoading ? (
               <div className="grid md:grid-cols-2 gap-6">
                 {Array(6).fill(0).map((_, i) => (
                   <Card key={i} className="animate-pulse border-slate-200">

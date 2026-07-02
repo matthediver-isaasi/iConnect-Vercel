@@ -1,0 +1,128 @@
+index-BJoTf8QR.js:1061 [publicClient] Detected tenant from subdomain: gsf
+index-BJoTf8QR.js:1146 GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.84.0) 2026-01-22T20:52:31.580Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+Gg @ index-BJoTf8QR.js:1146
+oce @ index-BJoTf8QR.js:1147
+_initSupabaseAuthClient @ index-BJoTf8QR.js:1147
+cce @ index-BJoTf8QR.js:1147
+iB @ index-BJoTf8QR.js:1147
+(anonymous) @ index-BJoTf8QR.js:2129
+(anonymous) @ index-BJoTf8QR.js:1
+(anonymous) @ index-BJoTf8QR.js:2544
+index-BJoTf8QR.js:1450 [usePendingPurchaseOrders] memberInfo: null
+index-BJoTf8QR.js:1450 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BJoTf8QR.js:1450 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BJoTf8QR.js:1450 [Layout] currentPageName: ReviewSubmission currentPortalPageId: null
+index-BJoTf8QR.js:1450 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-BJoTf8QR.js:1450 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BJoTf8QR.js:1450 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BJoTf8QR.js:1450 [Layout] currentPageName: ReviewSubmission currentPortalPageId: null
+index-BJoTf8QR.js:1450 [usePendingPurchaseOrders] Query running, memberInfo.id: b24e022f-adcc-4930-8952-63a34cc16925
+index-BJoTf8QR.js:1450 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-BJoTf8QR.js:1450 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BJoTf8QR.js:1450 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BJoTf8QR.js:1450 [Layout] currentPageName: ReviewSubmission currentPortalPageId: null
+index-BJoTf8QR.js:1450 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-BJoTf8QR.js:1450 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BJoTf8QR.js:1450 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BJoTf8QR.js:1450 [Layout] currentPageName: ReviewSubmission currentPortalPageId: null
+index-BJoTf8QR.js:1450 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-BJoTf8QR.js:1450 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BJoTf8QR.js:1450 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BJoTf8QR.js:1450 [Layout] currentPageName: ReviewSubmission currentPortalPageId: null
+index-BJoTf8QR.js:1450 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-BJoTf8QR.js:1450 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BJoTf8QR.js:1450 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BJoTf8QR.js:1450 [Layout] currentPageName: ReviewSubmission currentPortalPageId: null
+index-BJoTf8QR.js:1450 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-BJoTf8QR.js:1450 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BJoTf8QR.js:1450 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BJoTf8QR.js:1450 [Layout] currentPageName: ReviewSubmission currentPortalPageId: null
+index-BJoTf8QR.js:40 ReferenceError: submissionData is not defined
+    at _J (index-BJoTf8QR.js:2544:110806)
+    at t4 (index-BJoTf8QR.js:38:17018)
+    at lI (index-BJoTf8QR.js:40:44058)
+    at nI (index-BJoTf8QR.js:40:39790)
+    at qX (index-BJoTf8QR.js:40:39718)
+    at Fj (index-BJoTf8QR.js:40:39570)
+    at pC (index-BJoTf8QR.js:40:35934)
+    at uF (index-BJoTf8QR.js:40:36738)
+    at Du (index-BJoTf8QR.js:38:3279)
+    at index-BJoTf8QR.js:40:34263
+aC @ index-BJoTf8QR.js:40
+L$.a.callback @ index-BJoTf8QR.js:40
+W5 @ index-BJoTf8QR.js:38
+oF @ index-BJoTf8QR.js:40
+eI @ index-BJoTf8QR.js:40
+LX @ index-BJoTf8QR.js:40
+VX @ index-BJoTf8QR.js:40
+sm @ index-BJoTf8QR.js:40
+uF @ index-BJoTf8QR.js:40
+Du @ index-BJoTf8QR.js:38
+(anonymous) @ index-BJoTf8QR.js:40
+setTimeout
+r @ index-BJoTf8QR.js:1061
+l @ index-BJoTf8QR.js:1061
+batch @ index-BJoTf8QR.js:1061
+Ec @ index-BJoTf8QR.js:1061
+setData @ index-BJoTf8QR.js:1061
+onSuccess @ index-BJoTf8QR.js:1061
+h @ index-BJoTf8QR.js:1061
+Promise.then
+v @ index-BJoTf8QR.js:1061
+start @ index-BJoTf8QR.js:1061
+fetch @ index-BJoTf8QR.js:1061
+Kf @ index-BJoTf8QR.js:1061
+onSubscribe @ index-BJoTf8QR.js:1061
+subscribe @ index-BJoTf8QR.js:1061
+(anonymous) @ index-BJoTf8QR.js:1061
+N$ @ index-BJoTf8QR.js:38
+Jy @ index-BJoTf8QR.js:40
+cx @ index-BJoTf8QR.js:40
+(anonymous) @ index-BJoTf8QR.js:40
+N @ index-BJoTf8QR.js:25
+k @ index-BJoTf8QR.js:25
+index-BJoTf8QR.js:2544 Uncaught ReferenceError: submissionData is not defined
+    at _J (index-BJoTf8QR.js:2544:110806)
+    at t4 (index-BJoTf8QR.js:38:17018)
+    at lI (index-BJoTf8QR.js:40:44058)
+    at nI (index-BJoTf8QR.js:40:39790)
+    at qX (index-BJoTf8QR.js:40:39718)
+    at Fj (index-BJoTf8QR.js:40:39570)
+    at pC (index-BJoTf8QR.js:40:35934)
+    at uF (index-BJoTf8QR.js:40:36738)
+    at Du (index-BJoTf8QR.js:38:3279)
+    at index-BJoTf8QR.js:40:34263
+_J @ index-BJoTf8QR.js:2544
+t4 @ index-BJoTf8QR.js:38
+lI @ index-BJoTf8QR.js:40
+nI @ index-BJoTf8QR.js:40
+qX @ index-BJoTf8QR.js:40
+Fj @ index-BJoTf8QR.js:40
+pC @ index-BJoTf8QR.js:40
+uF @ index-BJoTf8QR.js:40
+Du @ index-BJoTf8QR.js:38
+(anonymous) @ index-BJoTf8QR.js:40
+setTimeout
+r @ index-BJoTf8QR.js:1061
+l @ index-BJoTf8QR.js:1061
+batch @ index-BJoTf8QR.js:1061
+Ec @ index-BJoTf8QR.js:1061
+setData @ index-BJoTf8QR.js:1061
+onSuccess @ index-BJoTf8QR.js:1061
+h @ index-BJoTf8QR.js:1061
+Promise.then
+v @ index-BJoTf8QR.js:1061
+start @ index-BJoTf8QR.js:1061
+fetch @ index-BJoTf8QR.js:1061
+Kf @ index-BJoTf8QR.js:1061
+onSubscribe @ index-BJoTf8QR.js:1061
+subscribe @ index-BJoTf8QR.js:1061
+(anonymous) @ index-BJoTf8QR.js:1061
+N$ @ index-BJoTf8QR.js:38
+Jy @ index-BJoTf8QR.js:40
+cx @ index-BJoTf8QR.js:40
+(anonymous) @ index-BJoTf8QR.js:40
+N @ index-BJoTf8QR.js:25
+k @ index-BJoTf8QR.js:25
+index-BJoTf8QR.js:1450 [usePendingPurchaseOrders] Fetched bookings count: 0
+index-BJoTf8QR.js:1450 [usePendingPurchaseOrders] Pending PO bookings: 0

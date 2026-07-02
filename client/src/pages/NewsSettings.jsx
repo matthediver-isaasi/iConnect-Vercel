@@ -5,29 +5,37 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Settings, Save } from "lucide-react";
+import { Settings, Save, LayoutGrid, Image } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 
 export default function NewsSettingsPage() {
-  const { isAdmin, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin) {
+      if (isFeatureExcluded('content.news-settings')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
+
   const [tickerCount, setTickerCount] = useState(3);
   const [cycleSeconds, setCycleSeconds] = useState(5);
-  const [tickerEnabled, setTickerEnabled] = useState(true);
-  const [showAuthor, setShowAuthor] = useState(true);
+  const [tickerEnabled, setTickerEnabled] = useState(false);
+  const [tickerBottomMargin, setTickerBottomMargin] = useState(0);
+  const [showAuthor, setShowAuthor] = useState(false);
+  const [cardsPerRow, setCardsPerRow] = useState("3");
+  const [showImage, setShowImage] = useState(false);
+  const [tickerBgStart, setTickerBgStart] = useState("");
+  const [tickerBgEnd, setTickerBgEnd] = useState("");
+  const [tickerTextColor, setTickerTextColor] = useState("");
 
   const queryClient = useQueryClient();
 
@@ -39,7 +47,13 @@ export default function NewsSettingsPage() {
         s.setting_key === 'news_ticker_count' || 
         s.setting_key === 'news_ticker_cycle_seconds' ||
         s.setting_key === 'news_ticker_enabled' ||
-        s.setting_key === 'news_show_author'
+        s.setting_key === 'news_ticker_bottom_margin' ||
+        s.setting_key === 'news_show_author' ||
+        s.setting_key === 'news_cards_per_row' ||
+        s.setting_key === 'news_show_image' ||
+        s.setting_key === 'news_ticker_bg_start' ||
+        s.setting_key === 'news_ticker_bg_end' ||
+        s.setting_key === 'news_ticker_text_color'
       );
     },
     enabled: accessChecked
@@ -50,12 +64,24 @@ export default function NewsSettingsPage() {
       const countSetting = settings.find(s => s.setting_key === 'news_ticker_count');
       const cycleSetting = settings.find(s => s.setting_key === 'news_ticker_cycle_seconds');
       const enabledSetting = settings.find(s => s.setting_key === 'news_ticker_enabled');
+      const bottomMarginSetting = settings.find(s => s.setting_key === 'news_ticker_bottom_margin');
       const authorSetting = settings.find(s => s.setting_key === 'news_show_author');
+      const cardsPerRowSetting = settings.find(s => s.setting_key === 'news_cards_per_row');
+      const showImageSetting = settings.find(s => s.setting_key === 'news_show_image');
+      const bgStartSetting = settings.find(s => s.setting_key === 'news_ticker_bg_start');
+      const bgEndSetting = settings.find(s => s.setting_key === 'news_ticker_bg_end');
+      const textColorSetting = settings.find(s => s.setting_key === 'news_ticker_text_color');
       
       if (countSetting) setTickerCount(parseInt(countSetting.setting_value) || 3);
       if (cycleSetting) setCycleSeconds(parseInt(cycleSetting.setting_value) || 5);
       if (enabledSetting) setTickerEnabled(enabledSetting.setting_value === 'true');
+      if (bottomMarginSetting) setTickerBottomMargin(parseInt(bottomMarginSetting.setting_value) || 0);
       if (authorSetting) setShowAuthor(authorSetting.setting_value === 'true');
+      if (cardsPerRowSetting) setCardsPerRow(cardsPerRowSetting.setting_value || "3");
+      if (showImageSetting) setShowImage(showImageSetting.setting_value === 'true');
+      if (bgStartSetting) setTickerBgStart(bgStartSetting.setting_value || "");
+      if (bgEndSetting) setTickerBgEnd(bgEndSetting.setting_value || "");
+      if (textColorSetting) setTickerTextColor(textColorSetting.setting_value || "");
     }
   }, [settings]);
 
@@ -64,7 +90,13 @@ export default function NewsSettingsPage() {
       const countSetting = settings.find(s => s.setting_key === 'news_ticker_count');
       const cycleSetting = settings.find(s => s.setting_key === 'news_ticker_cycle_seconds');
       const enabledSetting = settings.find(s => s.setting_key === 'news_ticker_enabled');
+      const bottomMarginSetting = settings.find(s => s.setting_key === 'news_ticker_bottom_margin');
       const authorSetting = settings.find(s => s.setting_key === 'news_show_author');
+      const cardsPerRowSetting = settings.find(s => s.setting_key === 'news_cards_per_row');
+      const showImageSetting = settings.find(s => s.setting_key === 'news_show_image');
+      const bgStartSetting = settings.find(s => s.setting_key === 'news_ticker_bg_start');
+      const bgEndSetting = settings.find(s => s.setting_key === 'news_ticker_bg_end');
+      const textColorSetting = settings.find(s => s.setting_key === 'news_ticker_text_color');
 
       const promises = [];
 
@@ -116,6 +148,22 @@ export default function NewsSettingsPage() {
         );
       }
 
+      if (bottomMarginSetting) {
+        promises.push(
+          base44.entities.SystemSettings.update(bottomMarginSetting.id, {
+            setting_value: tickerBottomMargin.toString()
+          })
+        );
+      } else {
+        promises.push(
+          base44.entities.SystemSettings.create({
+            setting_key: 'news_ticker_bottom_margin',
+            setting_value: tickerBottomMargin.toString(),
+            description: 'Bottom margin for the news ticker in pixels'
+          })
+        );
+      }
+
       if (authorSetting) {
         promises.push(
           base44.entities.SystemSettings.update(authorSetting.id, {
@@ -132,14 +180,96 @@ export default function NewsSettingsPage() {
         );
       }
 
+      if (cardsPerRowSetting) {
+        promises.push(
+          base44.entities.SystemSettings.update(cardsPerRowSetting.id, {
+            setting_value: cardsPerRow
+          })
+        );
+      } else {
+        promises.push(
+          base44.entities.SystemSettings.create({
+            setting_key: 'news_cards_per_row',
+            setting_value: cardsPerRow,
+            description: 'Number of news cards per row on desktop (2, 3, or 4)'
+          })
+        );
+      }
+
+      if (showImageSetting) {
+        promises.push(
+          base44.entities.SystemSettings.update(showImageSetting.id, {
+            setting_value: showImage.toString()
+          })
+        );
+      } else {
+        promises.push(
+          base44.entities.SystemSettings.create({
+            setting_key: 'news_show_image',
+            setting_value: showImage.toString(),
+            description: 'Whether to show feature images on news cards'
+          })
+        );
+      }
+
+      if (bgStartSetting) {
+        promises.push(
+          base44.entities.SystemSettings.update(bgStartSetting.id, {
+            setting_value: tickerBgStart
+          })
+        );
+      } else {
+        promises.push(
+          base44.entities.SystemSettings.create({
+            setting_key: 'news_ticker_bg_start',
+            setting_value: tickerBgStart,
+            description: 'News ticker background gradient start colour'
+          })
+        );
+      }
+
+      if (bgEndSetting) {
+        promises.push(
+          base44.entities.SystemSettings.update(bgEndSetting.id, {
+            setting_value: tickerBgEnd
+          })
+        );
+      } else {
+        promises.push(
+          base44.entities.SystemSettings.create({
+            setting_key: 'news_ticker_bg_end',
+            setting_value: tickerBgEnd,
+            description: 'News ticker background gradient end colour'
+          })
+        );
+      }
+
+      if (textColorSetting) {
+        promises.push(
+          base44.entities.SystemSettings.update(textColorSetting.id, {
+            setting_value: tickerTextColor
+          })
+        );
+      } else {
+        promises.push(
+          base44.entities.SystemSettings.create({
+            setting_key: 'news_ticker_text_color',
+            setting_value: tickerTextColor,
+            description: 'News ticker text colour'
+          })
+        );
+      }
+
       await Promise.all(promises);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['news-ticker-settings'] });
-      toast.success('News ticker settings saved successfully');
+      queryClient.invalidateQueries({ queryKey: ['news-display-settings'] });
+      toast.success('News settings saved successfully');
     },
-    onError: () => {
-      toast.error('Failed to save settings');
+    onError: (error) => {
+      console.error('[NewsSettings] Save failed:', error);
+      toast.error('Failed to save settings: ' + (error?.message || 'Unknown error'));
     }
   });
 
@@ -157,110 +287,264 @@ export default function NewsSettingsPage() {
 
   if (!accessChecked) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-3xl mx-auto">
         <div className="mb-8">
           <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">
-            News Ticker Settings
+            News Settings
           </h1>
-          <p className="text-slate-600">Configure the news ticker displayed at the top of the member portal</p>
+          <p className="text-slate-600">Configure news display and ticker settings</p>
         </div>
 
-        <Card className="border-slate-200 shadow-sm">
-          <CardHeader className="border-b border-slate-200">
-            <CardTitle className="flex items-center gap-2">
-              <Settings className="w-5 h-5" />
-              Ticker Configuration
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pt-6 space-y-6">
-            {isLoading ? (
-              <div className="text-center py-8 text-slate-600">Loading settings...</div>
-            ) : (
-              <>
-                <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-lg mb-6">
-                  <Switch
-                    id="ticker-enabled"
-                    checked={tickerEnabled}
-                    onCheckedChange={setTickerEnabled}
-                  />
-                  <div className="flex-1">
-                    <Label htmlFor="ticker-enabled" className="cursor-pointer font-medium">
-                      Enable News Ticker
-                    </Label>
-                    <p className="text-xs text-slate-500 mt-1">
-                      Show or hide the news ticker bar at the top of the member portal
+        <div className="space-y-6">
+          <Card className="border-slate-200 shadow-sm">
+            <CardHeader className="border-b border-slate-200">
+              <CardTitle className="flex items-center gap-2">
+                <LayoutGrid className="w-5 h-5" />
+                Display Settings
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-6 space-y-6">
+              {isLoading ? (
+                <div className="text-center py-8 text-slate-600">Loading settings...</div>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="cards-per-row">Cards Per Row (Desktop)</Label>
+                    <Select value={cardsPerRow} onValueChange={setCardsPerRow}>
+                      <SelectTrigger id="cards-per-row" className="w-full" data-testid="select-cards-per-row">
+                        <SelectValue placeholder="Select cards per row" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="2">2 cards per row</SelectItem>
+                        <SelectItem value="3">3 cards per row</SelectItem>
+                        <SelectItem value="4">4 cards per row</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-slate-500">
+                      Number of news cards to display per row on desktop screens
                     </p>
                   </div>
-                </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="ticker-count">Number of Articles to Display</Label>
-                  <Input
-                    id="ticker-count"
-                    type="number"
-                    min="1"
-                    max="10"
-                    value={tickerCount}
-                    onChange={(e) => setTickerCount(parseInt(e.target.value) || 1)}
-                  />
-                  <p className="text-xs text-slate-500">
-                    The latest published news articles to cycle through in the ticker
-                  </p>
-                </div>
+                  <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-lg">
+                    <Switch
+                      id="show-image"
+                      checked={showImage}
+                      onCheckedChange={setShowImage}
+                      data-testid="switch-show-image"
+                    />
+                    <div className="flex-1">
+                      <Label htmlFor="show-image" className="cursor-pointer font-medium">
+                        Show Feature Images
+                      </Label>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Display feature images on news cards
+                      </p>
+                    </div>
+                  </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="cycle-seconds">Cycle Time (seconds)</Label>
-                  <Input
-                    id="cycle-seconds"
-                    type="number"
-                    min="2"
-                    max="60"
-                    value={cycleSeconds}
-                    onChange={(e) => setCycleSeconds(parseInt(e.target.value) || 2)}
-                  />
-                  <p className="text-xs text-slate-500">
-                    Time in seconds before switching to the next article (minimum 2 seconds)
-                  </p>
-                </div>
+                  <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-lg">
+                    <Switch
+                      id="show-author"
+                      checked={showAuthor}
+                      onCheckedChange={setShowAuthor}
+                      data-testid="switch-show-author"
+                    />
+                    <div className="flex-1">
+                      <Label htmlFor="show-author" className="cursor-pointer font-medium">
+                        Show Author
+                      </Label>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Display author information on news cards and articles
+                      </p>
+                    </div>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
 
-                <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-lg">
-                  <Switch
-                    id="show-author"
-                    checked={showAuthor}
-                    onCheckedChange={setShowAuthor}
-                  />
-                  <div className="flex-1">
-                    <Label htmlFor="show-author" className="cursor-pointer font-medium">
-                      Show Author
-                    </Label>
-                    <p className="text-xs text-slate-500 mt-1">
-                      Display author information on news cards and articles
+          <Card className="border-slate-200 shadow-sm">
+            <CardHeader className="border-b border-slate-200">
+              <CardTitle className="flex items-center gap-2">
+                <Settings className="w-5 h-5" />
+                Ticker Configuration
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-6 space-y-6">
+              {isLoading ? (
+                <div className="text-center py-8 text-slate-600">Loading settings...</div>
+              ) : (
+                <>
+                  <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-lg mb-6">
+                    <Switch
+                      id="ticker-enabled"
+                      checked={tickerEnabled}
+                      onCheckedChange={setTickerEnabled}
+                      data-testid="switch-ticker-enabled"
+                    />
+                    <div className="flex-1">
+                      <Label htmlFor="ticker-enabled" className="cursor-pointer font-medium">
+                        Enable News Ticker
+                      </Label>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Show or hide the news ticker bar at the top of the member portal
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="ticker-count">Number of Articles to Display</Label>
+                    <Input
+                      id="ticker-count"
+                      type="number"
+                      min="1"
+                      max="10"
+                      value={tickerCount}
+                      onChange={(e) => setTickerCount(parseInt(e.target.value) || 1)}
+                      data-testid="input-ticker-count"
+                    />
+                    <p className="text-xs text-slate-500">
+                      The latest published news articles to cycle through in the ticker
                     </p>
                   </div>
-                </div>
 
-                <div className="pt-4 flex justify-end">
-                  <Button 
-                    onClick={handleSave}
-                    disabled={saveMutation.isPending}
-                    className="bg-blue-600 hover:bg-blue-700 gap-2"
-                  >
-                    <Save className="w-4 h-4" />
-                    Save Settings
-                  </Button>
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
+                  <div className="space-y-2">
+                    <Label htmlFor="cycle-seconds">Cycle Time (seconds)</Label>
+                    <Input
+                      id="cycle-seconds"
+                      type="number"
+                      min="2"
+                      max="60"
+                      value={cycleSeconds}
+                      onChange={(e) => setCycleSeconds(parseInt(e.target.value) || 2)}
+                      data-testid="input-cycle-seconds"
+                    />
+                    <p className="text-xs text-slate-500">
+                      Time in seconds before switching to the next article (minimum 2 seconds)
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="bottom-margin">Bottom Margin (pixels)</Label>
+                    <Input
+                      id="bottom-margin"
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={tickerBottomMargin}
+                      onChange={(e) => setTickerBottomMargin(parseInt(e.target.value) || 0)}
+                      data-testid="input-ticker-bottom-margin"
+                    />
+                    <p className="text-xs text-slate-500">
+                      Space below the news ticker bar (0-100 pixels)
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="ticker-bg-start">Background Start Colour</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        id="ticker-bg-start"
+                        type="color"
+                        value={tickerBgStart || "#9333ea"}
+                        onChange={(e) => setTickerBgStart(e.target.value)}
+                        className="h-9 w-16 p-1 cursor-pointer"
+                        data-testid="input-ticker-bg-start"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setTickerBgStart("")}
+                        disabled={!tickerBgStart}
+                        data-testid="button-reset-ticker-bg-start"
+                      >
+                        Reset to default
+                      </Button>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      Left side of the ticker background gradient. Leave unset for the default purple.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="ticker-bg-end">Background End Colour</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        id="ticker-bg-end"
+                        type="color"
+                        value={tickerBgEnd || "#2563eb"}
+                        onChange={(e) => setTickerBgEnd(e.target.value)}
+                        className="h-9 w-16 p-1 cursor-pointer"
+                        data-testid="input-ticker-bg-end"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setTickerBgEnd("")}
+                        disabled={!tickerBgEnd}
+                        data-testid="button-reset-ticker-bg-end"
+                      >
+                        Reset to default
+                      </Button>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      Right side of the ticker background gradient. Leave unset for the default blue.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="ticker-text-color">Text Colour</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        id="ticker-text-color"
+                        type="color"
+                        value={tickerTextColor || "#ffffff"}
+                        onChange={(e) => setTickerTextColor(e.target.value)}
+                        className="h-9 w-16 p-1 cursor-pointer"
+                        data-testid="input-ticker-text-color"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setTickerTextColor("")}
+                        disabled={!tickerTextColor}
+                        data-testid="button-reset-ticker-text-color"
+                      >
+                        Reset to default
+                      </Button>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      Colour of the ticker label, headlines, and chevron. Leave unset for the default white.
+                    </p>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          <div className="flex justify-end">
+            <Button 
+              onClick={handleSave}
+              disabled={saveMutation.isPending || isLoading}
+              className="bg-blue-600 gap-2"
+              data-testid="button-save-settings"
+            >
+              <Save className="w-4 h-4" />
+              Save Settings
+            </Button>
+          </div>
+        </div>
       </div>
     </div>
   );

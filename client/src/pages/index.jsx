@@ -1,6 +1,11 @@
 import Layout from "./Layout.jsx";
+import { BUILTIN_ARTICLE_ALIASES } from "@shared/articleAliases.js";
+
+import CatchAllNotFound from "./CatchAllNotFound";
 
 import Events from "./Events";
+
+import HomePageRedirect from "./HomePageRedirect";
 
 import Home from "./Home";
 
@@ -10,9 +15,12 @@ import EventDetails from "./EventDetails";
 
 import BuyProgramTickets from "./BuyProgramTickets";
 
-import VerifyMagicLink from "./VerifyMagicLink";
+// VerifyMagicLink removed - using password authentication instead
+// TestLogin removed - no longer needed
 
-import TestLogin from "./TestLogin";
+import Login from "./Login";
+
+import ResetPassword from "./ResetPassword";
 
 import Balances from "./Balances";
 
@@ -26,6 +34,8 @@ import ArticleEditor from "./ArticleEditor";
 
 import ArticleView from "./ArticleView";
 
+import GalleryView from "./GalleryView";
+
 import PublicAbout from "./PublicAbout";
 
 import PublicContact from "./PublicContact";
@@ -34,11 +44,23 @@ import PublicEvents from "./PublicEvents";
 
 import RoleManagement from "./RoleManagement";
 
+import RoleAccessConfigManagement from "./RoleAccessConfigManagement";
+
 import MemberRoleAssignment from "./MemberRoleAssignment";
 
 import TeamMemberManagement from "./TeamMemberManagement";
 
 import DiscountCodeManagement from "./DiscountCodeManagement";
+
+import VoucherManagement from "./VoucherManagement";
+
+import TrainingFundManagement from "./TrainingFundManagement";
+
+import WorkflowManagement from "./WorkflowManagement";
+
+import EmailTemplateManagement from "./EmailTemplateManagement";
+
+import EmailPlaceholders from "./EmailPlaceholders";
 
 import MyTickets from "./MyTickets";
 
@@ -46,11 +68,17 @@ import EventSettings from "./EventSettings";
 
 import Bookings from "./Bookings";
 
+import CancellationRequests from "./CancellationRequests";
+
+import BookingAgentsManagement from "./BookingAgentsManagement";
+
 import TourManagement from "./TourManagement";
 
 import History from "./History";
 
 import TicketSalesAnalytics from "./TicketSalesAnalytics";
+
+import PendingPurchaseOrdersReport from "./PendingPurchaseOrdersReport";
 
 import Resources from "./Resources";
 
@@ -86,13 +114,15 @@ import IEditTemplateManagement from "./IEditTemplateManagement";
 
 import IEditPageEditor from "./IEditPageEditor";
 
+import CanvasPageEditor from "./CanvasPageEditor";
+
 import testpage from "./testpage";
 
 import NavigationManagement from "./NavigationManagement";
 
 import Preferences from "./Preferences";
 
-import MyArticles from "./MyArticles";
+import EmailPreferences from "./EmailPreferences";
 
 import PublicArticles from "./PublicArticles";
 
@@ -128,6 +158,11 @@ import TeamInviteSettings from "./TeamInviteSettings";
 
 import OrganisationDirectory from "./OrganisationDirectory";
 
+import OrganisationsList from "./OrganisationsList";
+
+import MembersList from "./MembersList";
+import MemberDetail from "./MemberDetail";
+
 import FloaterManagement from "./FloaterManagement";
 
 import FormManagement from "./FormManagement";
@@ -136,13 +171,28 @@ import FormBuilder from "./FormBuilder";
 
 import FormView from "./FormView";
 
+import EmbedForm from "./EmbedForm";
+import CaseStudyUpload from "./CaseStudyUpload";
+
+import EmbedResource from "./EmbedResource";
+
+import EmbedEvent from "./EmbedEvent";
+
+import EmbedAlternativeSigner from "./EmbedAlternativeSigner";
+
+import PublicBooking from "./PublicBooking";
+
+import MyBookings from "./MyBookings";
+
 import MemberDirectorySettings from "./MemberDirectorySettings";
 
 import FormSubmissions from "./FormSubmissions";
 
-import NewsEditor from "./NewsEditor";
+import FormSubmissionView from "./FormSubmissionView";
 
-import MyNews from "./MyNews";
+import FormSettings from "./FormSettings";
+
+import NewsEditor from "./NewsEditor";
 
 import NewsView from "./NewsView";
 
@@ -152,9 +202,13 @@ import PublicNews from "./PublicNews";
 
 import NewsSettings from "./NewsSettings";
 
+import NewsPreview from "./NewsPreview";
+
+import ArticlePreview from "./ArticlePreview";
+
 import DataExport from "./DataExport";
 
-import ArticleManagement from "./ArticleManagement";
+import ImportManager from "./ImportManager";
 
 import SiteMap from "./SiteMap";
 
@@ -167,10 +221,27 @@ import PortalNavigationManagement from "./PortalNavigationManagement";
 import CategoryManagement from "./CategoryManagement";
 
 import MemberGroupManagement from "./MemberGroupManagement";
+import MemberGroupSettings from "./MemberGroupSettings";
+
+import MemberGroups from "./MemberGroups";
+
+import MemberGroupDetail from "./MemberGroupDetail";
+
+import VolunteerBoard from "./VolunteerBoard";
+
+import GroupEmail from "./GroupEmail";
+
+import GroupProjects from "./GroupProjects";
+
+import GroupEvents from "./GroupEvents";
 
 import ArticlesSettings from "./ArticlesSettings";
 
 import GuestWriterManagement from "./GuestWriterManagement";
+import SpeakerManagement from "./SpeakerManagement";
+import SponsorManagement from "./SponsorManagement";
+
+import CardDeckManagement from "./CardDeckManagement";
 
 import OrganisationDirectorySettings from "./OrganisationDirectorySettings";
 
@@ -184,7 +255,179 @@ import TeamEngagementReport from "./TeamEngagementReport";
 
 import MemberGroupGuestManagement from "./MemberGroupGuestManagement";
 
+import TeamSettings from "./TeamSettings";
+
+import PreferenceSettings from "./PreferenceSettings";
+
+import CustomFieldsAdmin from "./CustomFieldsAdmin";
+
+import ZoomWebinarProvisioning from "./ZoomWebinarProvisioning";
+
+import CreateEvent from "./CreateEvent";
+
+import EditEvent from "./EditEvent";
+
+import PageVisibilitySettings from "./PageVisibilitySettings";
+
+import CommunicationsManagement from "./CommunicationsManagement";
+
+import EmailCampaignEdit from "./EmailCampaignEdit";
+
+import AdminMemberEdit from "./AdminMemberEdit";
+
+import MyOrganisation from "./MyOrganisation";
+
+import OrganisationPreferences from "./OrganisationPreferences";
+
+import MemberPreferences from "./MemberPreferences";
+
+import MemberRoleReport from "./MemberRoleReport";
+
+import DynamicDirectoryManagement from "./DynamicDirectoryManagement";
+
+import DynamicDirectoryView from "./DynamicDirectoryView";
+
+import RedirectManagement from "./RedirectManagement";
+
+import ProjectBoards from "./ProjectBoards";
+
+import ProjectBoard from "./ProjectBoard";
+
+import ReportsDashboard from "./ReportsDashboard";
+
+import AIReports from "./AIReports";
+import AccessibilityAudits from "./AccessibilityAudits";
+import EventCheckIn from "./EventCheckIn";
+import EventCheckInDashboard from "./EventCheckInDashboard";
+
+import EventRegistrationReport from "./EventRegistrationReport";
+
+import OrganisationEngagementReport from "./OrganisationEngagementReport";
+
+import MembershipTierManagement from "./MembershipTierManagement";
+
+import MembershipSettings from "./MembershipSettings";
+
+import SearchResults from "./SearchResults";
+
+import Forum from "./Forum";
+
+import ForumThread from "./ForumThread";
+
+import ForumManagement from "./ForumManagement";
+
+import FundraisingManagement from "./FundraisingManagement";
+
+import CampaignEdit from "./CampaignEdit";
+
+import DonatePage from "./DonatePage";
+
+import CampaignRegisterPage from "./CampaignRegisterPage";
+
+import FundraiserLoginPage from "./FundraiserLoginPage";
+
+import FundraiserDashboardPage from "./FundraiserDashboardPage";
+
+import CampaignsPage from "./CampaignsPage";
+
+import MembershipFeePage from "./MembershipFeePage";
+import SubmitPOPage from "./SubmitPOPage";
+import GroupBookingPage from "./GroupBookingPage";
+import GuestApprovalPage from "./GuestApprovalPage";
+import MemberGroupRoleInvitePage from "./MemberGroupRoleInvitePage";
+
+import MembershipFees from "./MembershipFees";
+
+import CreateComplexEvent from "./CreateComplexEvent";
+import PublicComplexEvents from "./PublicComplexEvents";
+import ComplexEventDetail from "./ComplexEventDetail";
+
+import TenantSignup from "./TenantSignup";
+import SignupVerify from "./SignupVerify";
+
+import DomainSettings from "./DomainSettings";
+
+import AdminLogin from "./admin/AdminLogin";
+import AdminDashboard from "./admin/AdminDashboard";
+import AdminSettings from "./admin/AdminSettings";
+import OnboardingWizard from "./admin/OnboardingWizard";
+import PlanUsage from "./admin/PlanUsage";
+import AdminBranding from "./admin/AdminBranding";
+import AdminLmicCountries from "./admin/AdminLmicCountries";
+import AdminDomains from "./admin/AdminDomains";
+import AdminTeam from "./admin/AdminTeam";
+import AdminEmailLogs from "./admin/AdminEmailLogs";
+import AdminScheduledTasks from "./admin/AdminScheduledTasks";
+import AdminIntegrations from "./admin/AdminIntegrations";
+import AdminZohoCrmSync from "./admin/AdminZohoCrmSync";
+import SaasLanding from "./admin/SaasLanding";
+
+import PlatformLogin from "./platform/PlatformLogin";
+import PlatformAdmin from "./platform/PlatformAdmin";
+import PlatformSetup from "./platform/PlatformSetup";
+
+import DueDiligenceDashboard from "./DueDiligenceDashboard";
+import DueDiligenceConfig from "./DueDiligenceConfig";
+import ReviewSubmission from "./ReviewSubmission";
+import DueDiligenceReports from "./DueDiligenceReports";
+
+import BriefManagement from "./BriefManagement";
+import BriefDetail from "./BriefDetail";
+import BriefSettings from "./BriefSettings";
+import ExternalWriters from "./ExternalWriters";
+
+import MemberDemo from "./MemberDemo";
+
+import PhotoGalleries from "./PhotoGalleries";
+
+import { useEffect, useRef, lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
+import { LayoutProvider } from '@/contexts/LayoutContext';
+import PlanQuotaDialog from '@/components/PlanQuotaDialog';
+import { ArticleUrlProvider } from '@/contexts/ArticleUrlContext';
+import { useQuery } from '@tanstack/react-query';
+import { publicClient } from '@/api/publicClient';
+const CanvasPageRenderer = lazy(() => import('@/components/canvas/CanvasPageRenderer'));
+
+function SmartLoginRoute() {
+    const { data, isLoading } = useQuery({
+        queryKey: ['public-canvas-login-page'],
+        queryFn: () => publicClient.getPage('login'),
+        staleTime: 60_000,
+        retry: false,
+    });
+    if (isLoading) return null;
+    const page = data?.page;
+    const blocks = (page?.canvas_design?.root?.sections || []).flatMap(s => s.children || []);
+    const hasLoginBlock = blocks.some(b => b.type === 'login-form');
+    if (page?.builder_type === 'canvas' && page?.status === 'published' && hasLoginBlock) {
+        return (
+            <Suspense fallback={null}>
+                <CanvasPageRenderer page={page} symbols={data?.symbols} />
+            </Suspense>
+        );
+    }
+    return <Login />;
+}
+
+// ScrollToTop component - scrolls to top on pathname changes, preserves anchor navigation
+function ScrollToTop() {
+    const { pathname, hash } = useLocation();
+    const prevPathname = useRef(pathname);
+    
+    useEffect(() => {
+        // Only scroll to top when pathname changes (not hash changes)
+        // And only if there's no hash (anchor) in the URL
+        if (prevPathname.current !== pathname) {
+            if (!hash) {
+                window.scrollTo({ top: 0, behavior: 'instant' });
+            }
+            prevPathname.current = pathname;
+        }
+    }, [pathname, hash]);
+    
+    return null;
+}
 
 const PAGES = {
     
@@ -198,9 +441,16 @@ const PAGES = {
     
     BuyProgramTickets: BuyProgramTickets,
     
-    VerifyMagicLink: VerifyMagicLink,
+    // VerifyMagicLink removed - using password authentication
+    // TestLogin removed - no longer needed
     
-    TestLogin: TestLogin,
+    Login: Login,
+    
+    Signup: TenantSignup,
+    
+    DomainSettings: DomainSettings,
+    
+    ResetPassword: ResetPassword,
     
     Balances: Balances,
     
@@ -214,6 +464,8 @@ const PAGES = {
     
     ArticleView: ArticleView,
     
+    GalleryView: GalleryView,
+    
     PublicAbout: PublicAbout,
     
     PublicContact: PublicContact,
@@ -222,11 +474,23 @@ const PAGES = {
     
     RoleManagement: RoleManagement,
     
+    RoleAccessConfigManagement: RoleAccessConfigManagement,
+    
     MemberRoleAssignment: MemberRoleAssignment,
     
     TeamMemberManagement: TeamMemberManagement,
     
     DiscountCodeManagement: DiscountCodeManagement,
+    
+    VoucherManagement: VoucherManagement,
+    
+    TrainingFundManagement: TrainingFundManagement,
+    
+    WorkflowManagement: WorkflowManagement,
+    
+    EmailTemplateManagement: EmailTemplateManagement,
+    
+    EmailPlaceholders: EmailPlaceholders,
     
     MyTickets: MyTickets,
     
@@ -234,11 +498,23 @@ const PAGES = {
     
     Bookings: Bookings,
     
+    CancellationRequests: CancellationRequests,
+    
+    BookingAgentsManagement: BookingAgentsManagement,
+    
     TourManagement: TourManagement,
     
     History: History,
     
     TicketSalesAnalytics: TicketSalesAnalytics,
+    PendingPurchaseOrdersReport: PendingPurchaseOrdersReport,
+    EventRegistrationReport: EventRegistrationReport,
+    OrganisationEngagementReport: OrganisationEngagementReport,
+    MembershipTierManagement: MembershipTierManagement,
+    MembershipSettings: MembershipSettings,
+    MembershipFees: MembershipFees,
+    FundraisingManagement: FundraisingManagement,
+    CampaignEdit: CampaignEdit,
     
     Resources: Resources,
     
@@ -274,13 +550,17 @@ const PAGES = {
     
     IEditPageEditor: IEditPageEditor,
     
+    CanvasPageEditor: CanvasPageEditor,
+    
     testpage: testpage,
     
     NavigationManagement: NavigationManagement,
     
     Preferences: Preferences,
     
-    MyArticles: MyArticles,
+    AboutMe: Preferences,
+    
+    'about-me': Preferences,
     
     PublicArticles: PublicArticles,
     
@@ -316,6 +596,10 @@ const PAGES = {
     
     OrganisationDirectory: OrganisationDirectory,
     
+    OrganisationsList: OrganisationsList,
+    MembersList: MembersList,
+    MemberDetail: MemberDetail,
+    
     FloaterManagement: FloaterManagement,
     
     FormManagement: FormManagement,
@@ -328,9 +612,11 @@ const PAGES = {
     
     FormSubmissions: FormSubmissions,
     
-    NewsEditor: NewsEditor,
+    FormSubmissionView: FormSubmissionView,
     
-    MyNews: MyNews,
+    FormSettings: FormSettings,
+    
+    NewsEditor: NewsEditor,
     
     NewsView: NewsView,
     
@@ -339,10 +625,13 @@ const PAGES = {
     PublicNews: PublicNews,
     
     NewsSettings: NewsSettings,
+
+    NewsPreview: NewsPreview,
+    
+    ArticlePreview: ArticlePreview,
     
     DataExport: DataExport,
-    
-    ArticleManagement: ArticleManagement,
+    ImportManager: ImportManager,
     
     SiteMap: SiteMap,
     
@@ -356,9 +645,28 @@ const PAGES = {
     
     MemberGroupManagement: MemberGroupManagement,
     
+    MemberGroupSettings: MemberGroupSettings,
+    
+    MemberGroups: MemberGroups,
+    
+    MemberGroupDetail: MemberGroupDetail,
+    
+    VolunteerBoard: VolunteerBoard,
+    
+    GroupEmail: GroupEmail,
+    
+    GroupProjects: GroupProjects,
+    
+    GroupEvents: GroupEvents,
+    
     ArticlesSettings: ArticlesSettings,
     
     GuestWriterManagement: GuestWriterManagement,
+    
+    SpeakerManagement: SpeakerManagement,
+    SponsorManagement: SponsorManagement,
+    
+    CardDeckManagement: CardDeckManagement,
     
     OrganisationDirectorySettings: OrganisationDirectorySettings,
     
@@ -372,19 +680,102 @@ const PAGES = {
     
     MemberGroupGuestManagement: MemberGroupGuestManagement,
     
+    TeamSettings: TeamSettings,
+    
+    PreferenceSettings: PreferenceSettings,
+    
+    CustomFieldsAdmin: CustomFieldsAdmin,
+    
+    ZoomWebinarProvisioning: ZoomWebinarProvisioning,
+    
+    CreateEvent: CreateEvent,
+    
+    EditEvent: EditEvent,
+    
+    PageVisibilitySettings: PageVisibilitySettings,
+    
+    CommunicationsManagement: CommunicationsManagement,
+    
+    EmailCampaignEdit: EmailCampaignEdit,
+    
+    AdminMemberEdit: AdminMemberEdit,
+    
+    MyOrganisation: MyOrganisation,
+    
+    MemberRoleReport: MemberRoleReport,
+    
+    DynamicDirectoryManagement: DynamicDirectoryManagement,
+    
+    DynamicDirectoryView: DynamicDirectoryView,
+    
+    SearchResults: SearchResults,
+    Search: SearchResults,
+    search: SearchResults,
+    
+    DueDiligenceDashboard: DueDiligenceDashboard,
+    DueDiligenceConfig: DueDiligenceConfig,
+    ReviewSubmission: ReviewSubmission,
+    
+    BriefManagement: BriefManagement,
+    BriefDetail: BriefDetail,
+    BriefSettings: BriefSettings,
+    ExternalWriters: ExternalWriters,
+
+    MemberDemo: MemberDemo,
+
+    PhotoGalleries: PhotoGalleries,
+    
+    Forum: Forum,
+    ForumThread: ForumThread,
+    ForumManagement: ForumManagement,
+    
+    AIReports: AIReports,
+    AccessibilityAudits: AccessibilityAudits,
+    EventCheckIn: EventCheckIn,
+    EventCheckInDashboard: EventCheckInDashboard,
+    
+    CreateComplexEvent: CreateComplexEvent,
+    PublicComplexEvents: PublicComplexEvents,
+    ComplexEventDetail: ComplexEventDetail,
 }
 
 function _getCurrentPage(url) {
     if (url.endsWith('/')) {
         url = url.slice(0, -1);
     }
+    
+    // Handle parameterized routes like /members/:id
+    const urlParts = url.split('/').filter(Boolean);
+    if (urlParts.length >= 2 && urlParts[0].toLowerCase() === 'members') {
+        return 'MemberDetail';
+    }
+    
+    if (urlParts.length >= 2 && urlParts[0].toLowerCase() === 'events') {
+        return 'EventDetails';
+    }
+    
+    if (urlParts.length >= 2 && urlParts[0].toLowerCase() === 'session-events') {
+        return 'ComplexEventDetail';
+    }
+    
+    if (urlParts.length >= 2 && urlParts[0].toLowerCase() === 'gallery') {
+        return 'GalleryView';
+    }
+    
     let urlLastPart = url.split('/').pop();
     if (urlLastPart.includes('?')) {
         urlLastPart = urlLastPart.split('?')[0];
     }
+    
+    // Handle root path - use HomePageRedirect (which is a hybrid page)
+    if (!urlLastPart || urlLastPart === '') {
+        return 'HomePageRedirect';
+    }
 
     const pageName = Object.keys(PAGES).find(page => page.toLowerCase() === urlLastPart.toLowerCase());
-    return pageName || Object.keys(PAGES)[0];
+    // Return "_DynamicPage" for unrecognized routes (CMS pages like /homely)
+    // This allows Layout to treat them as hybrid pages that handle their own auth
+    return pageName || "_DynamicPage";
 }
 
 // Create a wrapper component that uses useLocation inside the Router context
@@ -393,38 +784,58 @@ function PagesContent() {
     const currentPage = _getCurrentPage(location.pathname);
     
     return (
-        <Layout currentPageName={currentPage}>
-            <Routes>            
+        <>
+            <ScrollToTop />
+            <Layout currentPageName={currentPage}>
+                <Routes>            
                 
-                    <Route path="/" element={<Events />} />
+                    <Route path="/" element={<HomePageRedirect />} />
                 
                 
                 <Route path="/Events" element={<Events />} />
                 
-                <Route path="/Home" element={<Home />} />
+                <Route path="/Home" element={<HomePageRedirect />} />
+                <Route path="/home" element={<HomePageRedirect />} />
                 
                 <Route path="/AdminSetup" element={<AdminSetup />} />
                 
                 <Route path="/EventDetails" element={<EventDetails />} />
+                <Route path="/events/:eventSlug" element={<EventDetails />} />
                 
                 <Route path="/BuyProgramTickets" element={<BuyProgramTickets />} />
                 
-                <Route path="/VerifyMagicLink" element={<VerifyMagicLink />} />
+                {/* VerifyMagicLink route removed - using password auth */}
+                {/* TestLogin routes removed - no longer needed */}
                 
-                <Route path="/TestLogin" element={<TestLogin />} />
+                <Route path="/Login" element={<SmartLoginRoute />} />
+                <Route path="/login" element={<SmartLoginRoute />} />
+                <Route path="/auth/login" element={<SmartLoginRoute />} />
+                
+{/* Signup routes moved outside Layout - see StandaloneRoutes */}
+                
+                <Route path="/ResetPassword" element={<ResetPassword />} />
+                <Route path="/reset-password" element={<ResetPassword />} />
+                <Route path="/auth/reset-password" element={<ResetPassword />} />
                 
                 <Route path="/Balances" element={<Balances />} />
                 
                 <Route path="/Dashboard" element={<Dashboard />} />
                 
+                <Route path="/MemberDemo" element={<MemberDemo />} />
+                
                 <Route path="/UnpackedInternationalEmployability" element={<UnpackedInternationalEmployability />} />
                 
                 <Route path="/Articles" element={<Articles />} />
+                {/* Author listing routes for every article alias - see @shared/articleAliases.js */}
+                {BUILTIN_ARTICLE_ALIASES.map((alias) => (
+                  <Route key={`${alias}-author`} path={`/${alias}/author/:authorHandle`} element={<Articles />} />
+                ))}
                 
                 <Route path="/ArticleEditor" element={<ArticleEditor />} />
                 <Route path="/articleeditor" element={<ArticleEditor />} />
                 
                 <Route path="/ArticleView" element={<ArticleView />} />
+                <Route path="/gallery/:slug" element={<GalleryView />} />
                 
                 <Route path="/PublicAbout" element={<PublicAbout />} />
                 
@@ -434,23 +845,50 @@ function PagesContent() {
                 
                 <Route path="/RoleManagement" element={<RoleManagement />} />
                 
+                <Route path="/RoleAccessConfigManagement" element={<RoleAccessConfigManagement />} />
+                
                 <Route path="/MemberRoleAssignment" element={<MemberRoleAssignment />} />
                 
                 <Route path="/TeamMemberManagement" element={<TeamMemberManagement />} />
                 
                 <Route path="/DiscountCodeManagement" element={<DiscountCodeManagement />} />
                 
+                <Route path="/VoucherManagement" element={<VoucherManagement />} />
+                
+                <Route path="/TrainingFundManagement" element={<TrainingFundManagement />} />
+                
+                <Route path="/WorkflowManagement" element={<WorkflowManagement />} />
+                
+                <Route path="/EmailTemplateManagement" element={<EmailTemplateManagement />} />
+                
+                <Route path="/EmailPlaceholders" element={<EmailPlaceholders />} />
+                <Route path="/emailplaceholders" element={<EmailPlaceholders />} />
+                
                 <Route path="/MyTickets" element={<MyTickets />} />
+                
+                <Route path="/MyBookings" element={<MyBookings />} />
                 
                 <Route path="/EventSettings" element={<EventSettings />} />
                 
                 <Route path="/Bookings" element={<Bookings />} />
+                
+                <Route path="/CancellationRequests" element={<CancellationRequests />} />
+                
+                <Route path="/booking-agents" element={<BookingAgentsManagement />} />
                 
                 <Route path="/TourManagement" element={<TourManagement />} />
                 
                 <Route path="/History" element={<History />} />
                 
                 <Route path="/TicketSalesAnalytics" element={<TicketSalesAnalytics />} />
+                <Route path="/PendingPurchaseOrdersReport" element={<PendingPurchaseOrdersReport />} />
+                <Route path="/EventRegistrationReport" element={<EventRegistrationReport />} />
+                <Route path="/OrganisationEngagementReport" element={<OrganisationEngagementReport />} />
+                <Route path="/MembershipTierManagement" element={<MembershipTierManagement />} />
+                <Route path="/MembershipSettings" element={<MembershipSettings />} />
+                <Route path="/MembershipFees" element={<MembershipFees />} />
+                <Route path="/FundraisingManagement" element={<FundraisingManagement />} />
+                <Route path="/CampaignEdit/:id" element={<CampaignEdit />} />
                 
                 <Route path="/Resources" element={<Resources />} />
                 
@@ -479,6 +917,7 @@ function PagesContent() {
                 <Route path="/MyJobPostings" element={<MyJobPostings />} />
                 
                 <Route path="/PageBannerManagement" element={<PageBannerManagement />} />
+                <Route path="/pagebannermanagement" element={<PageBannerManagement />} />
                 
                 <Route path="/IEditPageManagement" element={<IEditPageManagement />} />
                 
@@ -486,13 +925,16 @@ function PagesContent() {
                 
                 <Route path="/IEditPageEditor" element={<IEditPageEditor />} />
                 
+                <Route path="/CanvasPageEditor" element={<CanvasPageEditor />} />
+                
                 <Route path="/testpage" element={<testpage />} />
                 
                 <Route path="/NavigationManagement" element={<NavigationManagement />} />
                 
+                <Route path="/about-me" element={<Preferences />} />
+                <Route path="/AboutMe" element={<Preferences />} />
                 <Route path="/Preferences" element={<Preferences />} />
-                
-                <Route path="/MyArticles" element={<MyArticles />} />
+                <Route path="/preferences" element={<Preferences />} />
                 
                 <Route path="/PublicArticles" element={<PublicArticles />} />
                 
@@ -528,6 +970,12 @@ function PagesContent() {
                 
                 <Route path="/OrganisationDirectory" element={<OrganisationDirectory />} />
                 
+                <Route path="/organisations/:id" element={<OrganisationsList />} />
+                <Route path="/organisations" element={<OrganisationsList />} />
+                
+                <Route path="/members/:id" element={<MemberDetail />} />
+                <Route path="/members" element={<MembersList />} />
+                
                 <Route path="/FloaterManagement" element={<FloaterManagement />} />
                 
                 <Route path="/FormManagement" element={<FormManagement />} />
@@ -540,9 +988,28 @@ function PagesContent() {
                 
                 <Route path="/FormSubmissions" element={<FormSubmissions />} />
                 
-                <Route path="/NewsEditor" element={<NewsEditor />} />
+                <Route path="/FormSubmission/:submissionId" element={<FormSubmissionView />} />
                 
-                <Route path="/MyNews" element={<MyNews />} />
+                <Route path="/FormSettings" element={<FormSettings />} />
+                
+                <Route path="/DueDiligenceDashboard" element={<DueDiligenceDashboard />} />
+                <Route path="/DueDiligenceConfig" element={<DueDiligenceConfig />} />
+                <Route path="/ReviewSubmission" element={<ReviewSubmission />} />
+                <Route path="/DueDiligenceReports" element={<DueDiligenceReports />} />
+                
+                <Route path="/BriefManagement" element={<BriefManagement />} />
+                <Route path="/BriefDetail" element={<BriefDetail />} />
+                <Route path="/BriefSettings" element={<BriefSettings />} />
+                <Route path="/ExternalWriters" element={<ExternalWriters />} />
+                <Route path="/external-writers" element={<ExternalWriters />} />
+
+                <Route path="/PhotoGalleries" element={<PhotoGalleries />} />
+                
+                <Route path="/Forum" element={<Forum />} />
+                <Route path="/ForumThread" element={<ForumThread />} />
+                <Route path="/ForumManagement" element={<ForumManagement />} />
+                
+                <Route path="/NewsEditor" element={<NewsEditor />} />
                 
                 <Route path="/NewsView" element={<NewsView />} />
                 
@@ -552,9 +1019,12 @@ function PagesContent() {
                 
                 <Route path="/NewsSettings" element={<NewsSettings />} />
                 
-                <Route path="/DataExport" element={<DataExport />} />
+                <Route path="/news-preview/:id" element={<NewsPreview />} />
                 
-                <Route path="/ArticleManagement" element={<ArticleManagement />} />
+                <Route path="/article-preview/:id" element={<ArticlePreview />} />
+                
+                <Route path="/DataExport" element={<DataExport />} />
+                <Route path="/ImportManager" element={<ImportManager />} />
                 
                 <Route path="/SiteMap" element={<SiteMap />} />
                 
@@ -567,10 +1037,28 @@ function PagesContent() {
                 <Route path="/CategoryManagement" element={<CategoryManagement />} />
                 
                 <Route path="/MemberGroupManagement" element={<MemberGroupManagement />} />
+                <Route path="/MemberGroupSettings" element={<MemberGroupSettings />} />
+                
+                <Route path="/MemberGroups" element={<MemberGroups />} />
+                
+                <Route path="/MemberGroupDetail" element={<MemberGroupDetail />} />
+                
+                <Route path="/VolunteerBoard" element={<VolunteerBoard />} />
+                
+                <Route path="/GroupEmail" element={<GroupEmail />} />
+                
+                <Route path="/GroupProjects" element={<GroupProjects />} />
+                
+                <Route path="/GroupEvents" element={<GroupEvents />} />
                 
                 <Route path="/ArticlesSettings" element={<ArticlesSettings />} />
                 
                 <Route path="/GuestWriterManagement" element={<GuestWriterManagement />} />
+                
+                <Route path="/SpeakerManagement" element={<SpeakerManagement />} />
+                <Route path="/SponsorManagement" element={<SponsorManagement />} />
+                
+                <Route path="/CardDeckManagement" element={<CardDeckManagement />} />
                 
                 <Route path="/OrganisationDirectorySettings" element={<OrganisationDirectorySettings />} />
                 
@@ -584,19 +1072,239 @@ function PagesContent() {
                 
                 <Route path="/MemberGroupGuestManagement" element={<MemberGroupGuestManagement />} />
                 
-                <Route path="/auth/verify" element={<VerifyMagicLink />} />
+                <Route path="/TeamSettings" element={<TeamSettings />} />
+                
+                <Route path="/PreferenceSettings" element={<PreferenceSettings />} />
+                
+                <Route path="/CustomFieldsAdmin" element={<CustomFieldsAdmin />} />
+                
+                <Route path="/ZoomWebinarProvisioning" element={<ZoomWebinarProvisioning />} />
+                
+                <Route path="/CreateEvent" element={<CreateEvent />} />
+                
+                <Route path="/EditEvent" element={<EditEvent />} />
+                
+                <Route path="/PageVisibilitySettings" element={<PageVisibilitySettings />} />
+                
+                <Route path="/CommunicationsManagement" element={<CommunicationsManagement />} />
+                
+                <Route path="/EmailCampaignEdit/:id" element={<EmailCampaignEdit />} />
+                
+                <Route path="/AdminMemberEdit" element={<AdminMemberEdit />} />
+                
+                <Route path="/MyOrganisation" element={<MyOrganisation />} />
+                
+                <Route path="/OrganisationPreferences" element={<OrganisationPreferences />} />
+                
+                <Route path="/MemberPreferences" element={<MemberPreferences />} />
+                
+                <Route path="/MemberRoleReport" element={<MemberRoleReport />} />
+                
+                <Route path="/DynamicDirectoryManagement" element={<DynamicDirectoryManagement />} />
+                
+                <Route path="/directory/:slug" element={<DynamicDirectoryView />} />
+                
+                <Route path="/RedirectManagement" element={<RedirectManagement />} />
+                
+                <Route path="/ProjectBoards" element={<ProjectBoards />} />
+                <Route path="/ProjectBoard/:id" element={<ProjectBoard />} />
+                
+                <Route path="/ReportsDashboard" element={<ReportsDashboard />} />
+                <Route path="/AIReports" element={<AIReports />} />
+                <Route path="/AccessibilityAudits" element={<AccessibilityAudits />} />
+                <Route path="/EventCheckIn" element={<EventCheckIn />} />
+                <Route path="/EventCheckInDashboard" element={<EventCheckInDashboard />} />
+                
+                <Route path="/CreateComplexEvent" element={<CreateComplexEvent />} />
+                <Route path="/PublicComplexEvents" element={<PublicComplexEvents />} />
+                <Route path="/ComplexEventDetail" element={<ComplexEventDetail />} />
+                <Route path="/session-events/:eventSlug" element={<ComplexEventDetail />} />
+                
+                <Route path="/DomainSettings" element={<DomainSettings />} />
+                <Route path="/domain-settings" element={<DomainSettings />} />
+                
+                <Route path="/search" element={<SearchResults />} />
+                <Route path="/Search" element={<SearchResults />} />
+                
+                {/* Folder-based article URLs: /{basePath}/{authorHandle}/{slug} */}
+                {/* Aliases come from the shared list in @shared/articleAliases.js */}
+                {BUILTIN_ARTICLE_ALIASES.map((alias) => (
+                  <Route key={alias} path={`/${alias}/:authorHandle/:articleSlug`} element={<ArticleView />} />
+                ))}
+                
+                {/* /auth/verify route removed - using password auth */}
                 
                 {/* Dynamic CMS pages - catch-all route for IEdit pages by slug */}
                 <Route path="/:slug" element={<DynamicPage />} />
+
+                {/* Catch-all for multi-segment URLs that don't match any route above */}
+                <Route path="/*" element={<CatchAllNotFound />} />
             </Routes>
-        </Layout>
+            </Layout>
+        </>
+    );
+}
+
+function StandaloneRoutes() {
+    return (
+        <Routes>
+            <Route path="/signup" element={<TenantSignup />} />
+            <Route path="/Signup" element={<TenantSignup />} />
+            <Route path="/register" element={<TenantSignup />} />
+            <Route path="/signup-verify" element={<SignupVerify />} />
+            <Route path="/embed/form/:slug" element={<EmbedForm />} />
+            <Route path="/embed/resource/:identifier" element={<EmbedResource />} />
+            <Route path="/embed/event/:identifier" element={<EmbedEvent />} />
+            <Route path="/embed/alternative-signer" element={<EmbedAlternativeSigner />} />
+            <Route path="/donate/:token" element={<DonatePage />} />
+            <Route path="/fundraise/:slug" element={<CampaignRegisterPage />} />
+            <Route path="/fundraiser/login" element={<FundraiserLoginPage />} />
+            <Route path="/fundraiser/dashboard" element={<FundraiserDashboardPage />} />
+            <Route path="/campaigns" element={<CampaignsPage />} />
+            <Route path="/membership-fees/:token" element={<MembershipFeePage />} />
+            <Route path="/submit-po/:token" element={<SubmitPOPage />} />
+            <Route path="/group-booking/:token" element={<GroupBookingPage />} />
+            <Route path="/guest-approval/:token" element={<GuestApprovalPage />} />
+            <Route path="/group-role-invite/:token" element={<MemberGroupRoleInvitePage />} />
+            <Route path="/EventDetails" element={<EventDetails />} />
+            <Route path="/events/:eventSlug" element={<EventDetails />} />
+            <Route path="/ComplexEventDetail" element={<ComplexEventDetail />} />
+            <Route path="/session-events/:eventSlug" element={<ComplexEventDetail />} />
+            <Route path="/book/:slug" element={<PublicBooking />} />
+            <Route path="/email-preferences" element={<EmailPreferences />} />
+            <Route path="/CaseStudyUpload" element={<CaseStudyUpload />} />
+            <Route path="/casestudyupload" element={<CaseStudyUpload />} />
+        </Routes>
+    );
+}
+
+function AdminRoutes() {
+    return (
+        <Routes>
+            <Route path="/admin/login" element={<AdminLogin />} />
+            <Route path="/admin/setup-password" element={<AdminLogin />} />
+            <Route path="/admin/dashboard" element={<AdminDashboard />} />
+            <Route path="/admin/settings" element={<AdminSettings />} />
+            <Route path="/admin/branding" element={<AdminBranding />} />
+            <Route path="/admin/lmic-countries" element={<AdminLmicCountries />} />
+            <Route path="/admin/domains" element={<AdminDomains />} />
+            <Route path="/admin/team" element={<AdminTeam />} />
+            <Route path="/admin/email-logs" element={<AdminEmailLogs />} />
+            <Route path="/admin/scheduled-tasks" element={<AdminScheduledTasks />} />
+            <Route path="/admin/integrations" element={<AdminIntegrations />} />
+            <Route path="/admin/zoho-crm-sync" element={<AdminZohoCrmSync />} />
+            <Route path="/admin/onboarding" element={<OnboardingWizard />} />
+            <Route path="/admin/plan-usage" element={<PlanUsage />} />
+            <Route path="/admin" element={<AdminDashboard />} />
+        </Routes>
+    );
+}
+
+function PlatformRoutes() {
+    return (
+        <Routes>
+            <Route path="/platform/setup" element={<PlatformSetup />} />
+            <Route path="/platform/login" element={<PlatformLogin />} />
+            <Route path="/platform/admin" element={<PlatformAdmin />} />
+            <Route path="/platform" element={<PlatformAdmin />} />
+        </Routes>
+    );
+}
+
+function isRootDomain() {
+    const hostname = window.location.hostname;
+    return hostname === 'iconn.app' || 
+           hostname === 'www.iconn.app' ||
+           hostname === 'localhost' && window.location.pathname.startsWith('/saas');
+}
+
+function SaasRoutes() {
+    return (
+        <Routes>
+            <Route path="/" element={<SaasLanding />} />
+            <Route path="/admin/login" element={<AdminLogin />} />
+            <Route path="/admin/setup-password" element={<AdminLogin />} />
+            <Route path="/admin/dashboard" element={<AdminDashboard />} />
+            <Route path="/admin/settings" element={<AdminSettings />} />
+            <Route path="/admin/branding" element={<AdminBranding />} />
+            <Route path="/admin/lmic-countries" element={<AdminLmicCountries />} />
+            <Route path="/admin/domains" element={<AdminDomains />} />
+            <Route path="/admin/team" element={<AdminTeam />} />
+            <Route path="/admin/email-logs" element={<AdminEmailLogs />} />
+            <Route path="/admin/scheduled-tasks" element={<AdminScheduledTasks />} />
+            <Route path="/admin/integrations" element={<AdminIntegrations />} />
+            <Route path="/admin/zoho-crm-sync" element={<AdminZohoCrmSync />} />
+            <Route path="/admin" element={<AdminDashboard />} />
+            <Route path="/platform/setup" element={<PlatformSetup />} />
+            <Route path="/platform/login" element={<PlatformLogin />} />
+            <Route path="/platform/admin" element={<PlatformAdmin />} />
+            <Route path="/platform" element={<PlatformAdmin />} />
+            <Route path="/signup" element={<TenantSignup />} />
+            <Route path="/register" element={<TenantSignup />} />
+            <Route path="/signup-verify" element={<SignupVerify />} />
+            <Route path="/admin/onboarding" element={<OnboardingWizard />} />
+            <Route path="/admin/plan-usage" element={<PlanUsage />} />
+            <Route path="*" element={<SaasLanding />} />
+        </Routes>
+    );
+}
+
+function AppRoutes() {
+    const location = useLocation();
+    
+    if (isRootDomain()) {
+        return <SaasRoutes />;
+    }
+    
+    const standalonePages = ['/signup', '/register', '/signup-verify', '/email-preferences', '/casestudyupload'];
+    const isStandalonePage = standalonePages.some(path => 
+        location.pathname.toLowerCase() === path.toLowerCase()
+    );
+    
+    const isEmbedPage = location.pathname.toLowerCase().startsWith('/embed/');
+    const isBookingPage = location.pathname.toLowerCase().startsWith('/book/');
+    const isDonatePage = location.pathname.toLowerCase().startsWith('/donate/');
+    const isFundraisePage = location.pathname.toLowerCase().startsWith('/fundraise/');
+    const isFundraiserPage = location.pathname.toLowerCase().startsWith('/fundraiser/');
+    const isMembershipFeePage = location.pathname.toLowerCase().startsWith('/membership-fees/');
+    const isSubmitPoPage = location.pathname.toLowerCase().startsWith('/submit-po/');
+    const isGroupBookingPage = location.pathname.toLowerCase().startsWith('/group-booking/');
+    const isGuestApprovalPage = location.pathname.toLowerCase().startsWith('/guest-approval/');
+    const isGroupRoleInvitePage = location.pathname.toLowerCase().startsWith('/group-role-invite/');
+    const isCampaignsPage = location.pathname.toLowerCase() === '/campaigns';
+    
+    // Use window.location.search to reliably detect embed param (works even before routing)
+    const hasEmbedParam = new URLSearchParams(window.location.search).get('embed') === 'true';
+    
+    const isAdminPage = location.pathname.toLowerCase().startsWith('/admin');
+    const isPlatformPage = location.pathname.toLowerCase().startsWith('/platform');
+    
+    if (isStandalonePage || isEmbedPage || isBookingPage || isDonatePage || isFundraisePage || isFundraiserPage || isMembershipFeePage || isSubmitPoPage || isGroupBookingPage || isGuestApprovalPage || isGroupRoleInvitePage || isCampaignsPage || hasEmbedParam) {
+        return <StandaloneRoutes />;
+    }
+    
+    if (isPlatformPage) {
+        return <PlatformRoutes />;
+    }
+    
+    if (isAdminPage) {
+        return <AdminRoutes />;
+    }
+    
+    return (
+        <ArticleUrlProvider>
+            <PagesContent />
+        </ArticleUrlProvider>
     );
 }
 
 export default function Pages() {
     return (
         <Router>
-            <PagesContent />
+            <LayoutProvider>
+                <AppRoutes />
+                <PlanQuotaDialog />
+            </LayoutProvider>
         </Router>
     );
 }

@@ -29,18 +29,18 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 
 export default function GuestWriterManagementPage() {
-  const { isAdmin, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin) {
+      if (isFeatureExcluded('content.guest-writers')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editingWriter, setEditingWriter] = useState(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -54,6 +54,7 @@ export default function GuestWriterManagementPage() {
     job_title: "",
     biography: "",
     profile_photo_url: "",
+    linkedin_url: "",
     is_active: true
   });
 
@@ -62,7 +63,7 @@ export default function GuestWriterManagementPage() {
   const { data: guestWriters = [], isLoading } = useQuery({
     queryKey: ['guest-writers'],
     queryFn: async () => {
-      const writers = await base44.entities.GuestWriter.list('-created_date');
+      const writers = await base44.entities.GuestWriter.list();
       return writers;
     },
   });
@@ -110,6 +111,7 @@ export default function GuestWriterManagementPage() {
         job_title: writer.job_title || "",
         biography: writer.biography || "",
         profile_photo_url: writer.profile_photo_url || "",
+        linkedin_url: writer.linkedin_url || "",
         is_active: writer.is_active !== false
       });
     } else {
@@ -121,6 +123,7 @@ export default function GuestWriterManagementPage() {
         job_title: "",
         biography: "",
         profile_photo_url: "",
+        linkedin_url: "",
         is_active: true
       });
     }
@@ -137,6 +140,7 @@ export default function GuestWriterManagementPage() {
       job_title: "",
       biography: "",
       profile_photo_url: "",
+      linkedin_url: "",
       is_active: true
     });
   };
@@ -184,14 +188,14 @@ export default function GuestWriterManagementPage() {
 
   if (!accessChecked) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-8">
+    <div className="min-h-screen p-8">
       <div className="max-w-6xl mx-auto">
         <div className="flex items-center justify-between mb-8">
           <div>
@@ -422,14 +426,27 @@ export default function GuestWriterManagementPage() {
                 />
               </div>
 
-              {/* Organization */}
+              {/* Organisation */}
               <div className="space-y-2">
-                <Label htmlFor="organization">Organization</Label>
+                <Label htmlFor="organization">Organisation</Label>
                 <Input
                   id="organization"
                   value={formData.organization}
                   onChange={(e) => setFormData({ ...formData, organization: e.target.value })}
                   placeholder="Example University"
+                />
+              </div>
+
+              {/* LinkedIn Profile */}
+              <div className="space-y-2">
+                <Label htmlFor="linkedin_url">LinkedIn Profile</Label>
+                <Input
+                  id="linkedin_url"
+                  type="url"
+                  value={formData.linkedin_url}
+                  onChange={(e) => setFormData({ ...formData, linkedin_url: e.target.value })}
+                  placeholder="https://www.linkedin.com/in/username"
+                  data-testid="input-linkedin-url"
                 />
               </div>
 

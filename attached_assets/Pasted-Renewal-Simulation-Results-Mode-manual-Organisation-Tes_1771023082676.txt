@@ -1,0 +1,101 @@
+Renewal Simulation Results
+Mode: manual | Organisation: Testing New HE | Year: 2025/2026
+
+Start
+Simulating "manual" renewal for organisation 33061f39-825f-4655-a918-176ac97b4739
+
+Lookup Organisation
+Found: Testing New HE
+
+Check Invoicing Settings
+Saved mode: "manual"
+
+Fetch Tier Config
+Active config: "2025-2026", currency: GBP, start: month 8 day 1
+
+Config Resolution
+Scoped config matched — field "Organisation Type" = "University" (organisation value: "University")
+
+Calculate Membership Year
+Current year: 2025/2026, Next year: 2026/2027
+
+Go-Live Date
+Not set - treating as new member (year 1 logic applies)
+
+Check Existing Record
+No existing record for 2025/2026 - creation would proceed
+
+Fetch Tier Bands
+Found 15 band(s)
+
+Get Organisation Field Value
+Current students: 888
+
+Match Tier Band
+Matched: "Tier 1" (range: 0-1000, annual cost: 952.25)
+
+Custom Discounts
+No matching discount rules for this organisation
+
+Check Override
+No override configured for this organisation
+
+Discounts
+Year 99 - no pro-rata, free period, or rollover discounts apply
+
+Calculate Final Cost
+Annual: 952.25, Free discount: 0.00, Final: 952.25 GBP
+
+Xero Settings
+Account code: 4200, Invoice status: AUTHORISED, VAT: 20% (VAT on Income) (OUTPUT2)
+
+Mode: Manual
+Admin triggers renewal manually via the "Renew & Invoice Now" button
+
+Step 1 - Renew (13 February 2026 at 22:50 - when clicked)
+Create membership history record for 2025/2026 with final cost 952.25 GBP
+
+Step 2 - Invoice (13 February 2026 at 22:50 - when clicked)
+Generate and send invoice for 952.25 GBP via Xero immediately
+
+Step 3 - Note (13 February 2026 at 22:50 - when clicked)
+Add organisation note documenting the manual renewal
+
+Would Create History
+Membership history record for 2025/2026: tier "Tier 1", final cost 952.25 GBP
+
+Would Create Note
+Organisation note documenting the manual renewal with invoice details
+
+Invoice Preview - Contact
+Testing New HE
+
+Invoice Preview - Reference
+Membership 2025/2026
+
+Invoice Preview - Status
+AUTHORISED
+
+Invoice Preview - Due Date
+2026-03-15 (30 days from invoice creation date)
+
+Invoice Preview - Line Description
+Membership subscription for 2025/2026. | Tier: Tier 1 | Fee: GBP 952.25
+
+Invoice Preview - Quantity
+1
+
+Invoice Preview - Unit Amount
+GBP 952.25
+
+Invoice Preview - Account Code
+4200
+
+Invoice Preview - VAT / Tax Type
+20% (VAT on Income) (OUTPUT2)
+
+Dry Run Complete
+No records were created or modified
+
+Final Cost
+£952.25

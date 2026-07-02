@@ -1,0 +1,367 @@
+Brief for Replit: Article Briefing and Version Review Module for iConnect
+
+We need a new module within the iConnect platform to manage the lifecycle of article/document creation from initial brief through to final approval.
+
+This should not be treated as a full document editing system. It is a workflow and version control module for managing writing tasks, document submissions, review feedback, and approval status.
+
+Core Purpose
+
+The module should allow internal users to:
+
+create article/document briefs
+manage them in a central list view
+assign them to writers
+allow writers to upload draft documents
+allow reviewers to add structured feedback/comments
+allow writers to respond to feedback by uploading revised versions
+track status/stage throughout the process
+maintain a clear history of versions and review cycles
+
+The overall goal is to create a simple but robust editorial workflow inside iConnect.
+
+High Level Workflow
+
+A typical workflow would be:
+
+An admin/editor creates a new document brief.
+The brief appears in a master list.
+A writer is assigned to the brief.
+The writer views the brief and uploads their first draft.
+A reviewer reviews the uploaded draft and adds comments/feedback.
+The writer sees the comments, makes changes offline, and uploads a new version.
+This review cycle can repeat multiple times.
+The document is eventually marked approved or rejected.
+
+This should feel like a controlled submission and review workflow, not a collaborative live editing tool.
+
+Key Functional Areas
+1. Brief Creation
+
+Users with appropriate permissions should be able to create a new writing brief.
+
+Each brief should ideally include:
+
+Title
+Short summary / objective
+Full brief / instructions
+Target audience
+Tone / writing style guidance
+Word count target
+Deadline
+Priority
+Category or content type
+Supporting notes
+Optional supporting attachments
+
+The brief should become the core record around which the full workflow operates.
+
+2. Brief List / Dashboard
+
+There should be a list view showing all briefs/documents in the system.
+
+This should allow users to quickly see:
+
+Title
+Assigned writer
+Current stage/status
+Deadline
+Latest version date
+Reviewer
+Priority
+
+Useful list functions:
+
+search
+filter by stage/status
+filter by writer
+filter by reviewer/editor
+sort by deadline, newest, oldest, priority
+quick indicator of items awaiting action
+
+The list should act as the main operational view for editors and managers.
+
+3. Assignment
+
+An editor/admin should be able to assign a brief to a specific writer.
+
+Assignment should include:
+
+assigned writer
+assigned date
+optional review owner/editor
+optional internal note on assignment
+
+Once assigned, the brief should move from New to Assigned.
+
+4. Writer View
+
+The writer should have a clean view of the briefs assigned to them.
+
+For each assigned brief they should be able to see:
+
+full brief details
+deadline
+current stage
+previous review comments
+version history
+upload area for new draft submissions
+
+The writer does not need inline editing tools. They will write externally and upload a document file.
+
+Supported upload concept:
+
+upload draft file
+label/version automatically stored
+optional note from writer when submitting new version
+
+Example:
+
+“Updated based on reviewer comments”
+“Final revised version”
+“Addressed structural changes but not yet image captions”
+5. Version Control
+
+Each uploaded file must be stored as a distinct version against the document record.
+
+Version control should include:
+
+version number
+uploaded by
+upload date/time
+optional submission note
+file link/download
+status at time of upload
+
+The system must preserve old versions rather than replacing them.
+
+This is important so editors can see the progression of the document through review cycles.
+
+6. Review and Commenting
+
+Reviewers/editors need to be able to review a submitted draft and leave comments.
+
+Important:
+Comments do not need to be inline on the document itself.
+
+Instead, comments should be added as structured review notes linked to a specific version.
+
+Each review comment should ideally support:
+
+comment text
+category/type (optional, e.g. structure, tone, factual, grammar, missing info)
+created by
+created date
+status
+
+A reviewer should be able to leave one or multiple comments per version.
+
+The writer should then be able to see these comments clearly in the module.
+
+7. Comment Action Tracking
+
+Comments should not just sit as passive notes.
+
+There should be a simple way to track whether feedback has been addressed.
+
+Suggested comment states:
+
+Open
+Acknowledged
+Actioned
+Closed
+
+This gives visibility on whether the writer has seen and dealt with the requested changes.
+
+The writer should be able to mark comments as actioned, and the reviewer/editor should be able to close them once satisfied.
+
+8. Stage / Status Control
+
+The module needs clear stage control for each document.
+
+Suggested core stages:
+
+New
+Assigned
+In Progress
+Under Review
+Approved
+Rejected
+
+Suggested interpretation:
+
+New: brief created but not yet assigned
+Assigned: writer assigned but work not yet started
+In Progress: writer actively working / draft not yet submitted or being revised
+Under Review: a version has been submitted and is awaiting editorial review
+Approved: final version accepted
+Rejected: brief cancelled or submission not accepted
+
+It may also be helpful to consider whether Replit wants to include an additional stage such as:
+
+Changes Requested
+
+That said, if they can handle this cleanly within Under Review plus comment/action states, that may be enough.
+
+Stage changes should be controlled and visible in the audit/history.
+
+9. Activity History / Audit Trail
+
+Each document record should include a chronological activity log.
+
+This should capture events such as:
+
+brief created
+writer assigned
+status changed
+version uploaded
+comments added
+comments actioned
+document approved/rejected
+
+This is important so users can understand the full lifecycle of the piece without guessing what happened.
+
+10. Notifications / Action Cues
+
+At minimum, the system should support clear action visibility.
+
+For example:
+
+writer can see briefs requiring draft upload
+reviewer can see drafts awaiting review
+editor can see overdue items
+users can see when new comments have been added
+
+Actual email or in-platform notification logic can be designed by Replit, but the module should support action-based workflow awareness.
+
+User Roles
+
+At a minimum, the module should account for three role types:
+
+Admin / Editor
+
+Can:
+
+create briefs
+assign writers
+review submissions
+add comments
+change stage/status
+approve/reject
+see all records
+Writer
+
+Can:
+
+view assigned briefs
+upload versions
+add submission notes
+view reviewer comments
+mark comments as actioned/acknowledged
+Reviewer
+
+Can:
+
+access drafts for review
+add comments
+update review-related statuses
+participate in approval workflow if permitted
+
+Depending on iConnect’s permission model, reviewer may simply be an editor subtype.
+
+Suggested Record Structure
+
+At a conceptual level, this module likely needs:
+
+Document Brief Record
+
+The main parent item
+
+Version Records
+
+Child records for each uploaded draft/version
+
+Comment Records
+
+Child records linked to a specific version
+
+Activity Log / History
+
+System-generated events linked to the parent record
+
+Replit can determine the best architecture, but conceptually the parent-child relationship is important.
+
+Useful Interface Areas
+
+A sensible UI might include:
+
+1. Master Brief List
+
+For editors/admins
+
+2. My Assigned Articles
+
+For writers
+
+3. Review Queue
+
+For reviewers/editors
+
+4. Document Detail Page
+
+Showing:
+
+brief details
+assignment
+stage/status
+version history
+comments by version
+upload controls
+activity history
+Suggested MVP Scope
+
+For the first version, the module should focus on doing the basics well.
+
+MVP should include:
+create brief
+list/search/filter briefs
+assign writer
+upload document versions
+review comments linked to versions
+comment status tracking
+document stage/status tracking
+version history
+activity log
+Nice-to-have later:
+deadlines reminders
+approval buttons with permissions
+richer comment categories
+reviewer assignment rules
+dashboard metrics
+overdue indicators
+side-by-side version comparison
+publish handoff to another module
+Reporting / Management Visibility
+
+It would be useful if the module could support simple reporting such as:
+
+briefs by status
+articles by writer
+overdue articles
+items under review
+approval turnaround time
+number of revision cycles per article
+
+This does not need to be advanced initially, but the data structure should allow for it.
+
+Success Criteria
+
+The module will be successful if it allows iConnect users to:
+
+create and manage article briefs clearly
+assign work to writers easily
+keep document versions organised
+manage review feedback in a structured way
+track progress through defined stages
+maintain visibility of who needs to do what next
+
+The result should be a simple, professional editorial workflow that removes confusion from article production and review.

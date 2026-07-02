@@ -1,37 +1,326 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { Mail, MapPin, Phone, ArrowUpRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import PublicHeader from "./PublicHeader";
 import PageBannerDisplay from "../banners/PageBannerDisplay";
+import PortalHeroBanner from "../banners/PortalHeroBanner";
 import FloaterDisplay from "../floaters/FloaterDisplay";
+import { useArticleUrl } from "@/contexts/ArticleUrlContext";
+import { BannerProvider } from "@/contexts/BannerContext";
+import IEditFormElement from "../iedit/elements/IEditFormElement";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
+import { useResolvedSocialIcons } from "@/hooks/useResolvedSocialIcons";
+import { useLayoutContext } from "@/contexts/LayoutContext";
+
+// Map page names to portal page identifiers for banner matching
+// These identifiers must match the PORTAL_PAGES values in PageBannerManagement.jsx
+// Note: Public versions of pages (e.g., PublicArticles, PublicResources) should map to the same identifier
+const pageToPortalPageMap = {
+  'Events': 'portal_events',
+  'PublicEvents': 'portal_events',
+  'Bookings': 'portal_bookings',
+  'MyTickets': 'portal_my_tickets',
+  'BuyProgramTickets': 'portal_buy_tickets',
+  'MemberDirectory': 'portal_member_directory',
+  'OrganisationDirectory': 'portal_org_directory',
+  'Resources': 'portal_resources',
+  'PublicResources': 'portal_resources',
+  'Articles': 'portal_articles',
+  'PublicArticles': 'portal_articles',
+  'Team': 'portal_team',
+  'Balances': 'portal_balances',
+  'History': 'portal_history',
+  'Profile': 'portal_profile',
+  'MyOrganisation': 'portal_my_organisation',
+  'JobBoard': 'portal_job_board',
+  'PublicJobBoard': 'portal_job_board',
+  'News': 'portal_news',
+  'PublicNews': 'portal_news',
+  'NewsView': 'portal_news_view',
+  'MyJobPostings': 'portal_my_job_postings',
+  'Preferences': 'portal_about_me',
+  'about-me': 'portal_about_me',
+  'Support': 'portal_support',
+  'Dashboard': 'portal_dashboard'
+};
 
 export default function PublicLayout({ children, currentPageName }) {
+  // Per-page public chrome control (set by DynamicPage / ViewPage from the
+  // page's `public_chrome` field). Defaults to showing both header and footer.
+  // `chromeReady` is false while the page query is in-flight; we suppress
+  // header/footer until we know the correct value to prevent a flicker where
+  // the default 'both' paints for one frame before being hidden.
+  const { publicChrome, chromeReady } = useLayoutContext();
+  const showHeader = chromeReady && (publicChrome === 'both' || publicChrome === 'header');
+  const showFooter = chromeReady && (publicChrome === 'both' || publicChrome === 'footer');
+  const { getPublicArticlesUrl, articleDisplayName, urlSlug, publicSlug, isCustomSlug, isLoading: articleUrlLoading } = useArticleUrl();
+  const { branding, hasBranding } = useTenantBranding();
   const [banners, setBanners] = useState([]);
   const [loadingBanners, setLoadingBanners] = useState(true);
   const [showNewsletterDialog, setShowNewsletterDialog] = useState(false);
+  const [socialIcons, setSocialIcons] = useState(null);
+  const [newsletterFormSlug, setNewsletterFormSlug] = useState(null);
+  const [footerNavItems, setFooterNavItems] = useState([]);
+  const [navFormModalOpen, setNavFormModalOpen] = useState(false);
+  const [activeNavFormSlug, setActiveNavFormSlug] = useState(null);
+  const [typographyStyles, setTypographyStyles] = useState([]);
+  const [platformDefaults, setPlatformDefaults] = useState({
+    platformBrandingText: 'Powered by isaasi',
+    platformBrandingUrl: 'https://isaasi.co.uk'
+  });
 
-  // Fetch banners for current page
+  const tenantFooterConfig = branding?.footerConfig || {};
+  const resolvedFooterSocialSvgs = useResolvedSocialIcons(branding?.brandingConfig?.socialIconCustomSvgs || {});
+  // Neutral, tenant-agnostic placeholder used until branding loads (or when it is genuinely
+  // absent) so no GFI-specific identity flashes before the real branding arrives.
+  const NEUTRAL_PRIMARY_COLOR = '#64748B';
+  const NEUTRAL_GRADIENT_HORIZONTAL = 'linear-gradient(to right, #F8FAFC, #E2E8F0)';
+  const NEUTRAL_GRADIENT_DIAGONAL = 'linear-gradient(to top right, #F8FAFC, #E2E8F0)';
+  const tenantPrimaryColor = branding?.primaryColor || NEUTRAL_PRIMARY_COLOR;
+  const footerTextColor = tenantFooterConfig.textColor || '#FFFFFF';
+  
+  // Helper to adjust color opacity - with validation
+  const adjustColorOpacity = (hex, opacity) => {
+    if (!hex || typeof hex !== 'string' || !hex.startsWith('#')) {
+      return `rgba(255, 255, 255, ${opacity})`;
+    }
+    try {
+      const cleanHex = hex.length === 4 
+        ? `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`
+        : hex;
+      const r = parseInt(cleanHex.slice(1, 3), 16);
+      const g = parseInt(cleanHex.slice(3, 5), 16);
+      const b = parseInt(cleanHex.slice(5, 7), 16);
+      if (isNaN(r) || isNaN(g) || isNaN(b)) {
+        return `rgba(255, 255, 255, ${opacity})`;
+      }
+      return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+    } catch {
+      return `rgba(255, 255, 255, ${opacity})`;
+    }
+  };
+  
+  const footerSecondaryTextColor = tenantFooterConfig.textColor ? adjustColorOpacity(tenantFooterConfig.textColor, 0.7) : 'rgb(203, 213, 225)';
+  
+  const getGradientStyle = () => {
+    if (!branding) {
+      return NEUTRAL_GRADIENT_HORIZONTAL;
+    }
+    if (tenantFooterConfig.gradientColors?.length > 0) {
+      return `linear-gradient(to right, ${tenantFooterConfig.gradientColors.join(', ')})`;
+    }
+    return `linear-gradient(to right, ${tenantPrimaryColor}, #BA0087, #EE00C3, #FF4229, #FFB000)`;
+  };
+  
+  const getButtonGradientStyle = () => {
+    if (!branding) {
+      return NEUTRAL_GRADIENT_DIAGONAL;
+    }
+    if (tenantFooterConfig.gradientColors?.length > 0) {
+      return `linear-gradient(to top right, ${tenantFooterConfig.gradientColors.join(', ')})`;
+    }
+    return `linear-gradient(to top right, ${tenantPrimaryColor}, #BA0087, #EE00C3, #FF4229, #FFB000)`;
+  };
+
+  // Fetch social icons, footer configuration, and newsletter form slug
+  useEffect(() => {
+    const fetchConfigs = async () => {
+      try {
+        const allSettings = await publicClient.listSystemSettings();
+        
+        const socialSetting = allSettings.find(s => s.setting_key === 'social_icons_config');
+        if (socialSetting?.setting_value) {
+          try {
+            setSocialIcons(JSON.parse(socialSetting.setting_value));
+          } catch (e) {
+            console.error('Failed to parse social icons config:', e);
+          }
+        }
+
+        const newsletterSetting = allSettings.find(s => s.setting_key === 'newsletter_signup_form_id');
+        if (newsletterSetting?.setting_value && newsletterSetting.setting_value !== 'none') {
+          // Fetch the form to get its slug using public endpoint
+          try {
+            const form = await publicClient.getForm(newsletterSetting.setting_value);
+            if (form?.is_active && form?.slug) {
+              setNewsletterFormSlug(form.slug);
+            } else {
+              setNewsletterFormSlug(null);
+            }
+          } catch (e) {
+            console.error('Failed to fetch newsletter form:', e);
+            setNewsletterFormSlug(null);
+          }
+        } else {
+          setNewsletterFormSlug(null);
+        }
+
+        // Fetch footer navigation items
+        try {
+          const navItems = await publicClient.listNavigationItems();
+          const footerItems = navItems.filter(item => item.location === 'footer' && item.is_active);
+          setFooterNavItems(footerItems);
+        } catch (e) {
+          console.error('Failed to fetch footer navigation items:', e);
+        }
+
+        // Fetch typography styles for heading content blocks
+        try {
+          const styles = await publicClient.listTypographyStyles();
+          setTypographyStyles(styles || []);
+        } catch (e) {
+          console.error('Failed to fetch typography styles:', e);
+        }
+
+        // Fetch platform defaults for branding text
+        try {
+          const defaultsRes = await fetch('/api/public/platform-defaults');
+          if (defaultsRes.ok) {
+            const defaultsData = await defaultsRes.json();
+            setPlatformDefaults(prev => ({
+              ...prev,
+              ...defaultsData
+            }));
+          }
+        } catch (e) {
+          console.error('Failed to fetch platform defaults:', e);
+        }
+      } catch (error) {
+        console.error('Failed to fetch configs:', error);
+      }
+    };
+
+    fetchConfigs();
+  }, []);
+
+  const handleNewsletterDialogChange = (open) => {
+    setShowNewsletterDialog(open);
+  };
+
+  // Manage robots meta tag for SEO indexing control (client-side backup for JS-capable crawlers)
+  // Note: Primary enforcement is via /robots.txt endpoint for non-JS crawlers
+  useEffect(() => {
+    const robotsMetaId = 'tenant-robots-meta';
+    let robotsMeta = document.getElementById(robotsMetaId);
+    
+    // Dev domains should never be indexed regardless of tenant settings
+    const isDevDomain = window.location.hostname.endsWith('.dev.iconn.app');
+
+    if (isDevDomain) {
+      if (!robotsMeta) {
+        robotsMeta = document.createElement('meta');
+        robotsMeta.id = robotsMetaId;
+        robotsMeta.name = 'robots';
+        document.head.appendChild(robotsMeta);
+      }
+      robotsMeta.content = 'noindex, nofollow';
+    } else if (hasBranding) {
+      if (!branding?.allowSearchIndexing) {
+        if (!robotsMeta) {
+          robotsMeta = document.createElement('meta');
+          robotsMeta.id = robotsMetaId;
+          robotsMeta.name = 'robots';
+          document.head.appendChild(robotsMeta);
+        }
+        robotsMeta.content = 'noindex, nofollow';
+      } else {
+        if (robotsMeta) {
+          robotsMeta.remove();
+        }
+      }
+    }
+    
+    // Cleanup: only remove our specific meta tag when component unmounts
+    return () => {
+      const meta = document.getElementById(robotsMetaId);
+      if (meta) {
+        meta.remove();
+      }
+    };
+  }, [hasBranding, branding?.allowSearchIndexing]);
+
+  // Resolve page name to portal page ID, accounting for dynamic article URL remapping
+  const resolvePortalPageId = (pageName) => {
+    // First check static map
+    if (pageToPortalPageMap[pageName]) {
+      return pageToPortalPageMap[pageName];
+    }
+    
+    // Handle dynamic article slugs - if articles are renamed (e.g., to "Blog"),
+    // the URLs change but banners are still associated with portal_articles
+    // Check both when isCustomSlug is true AND by matching common article-related patterns
+    const lowerPageName = pageName?.toLowerCase() || '';
+    const lowerUrlSlug = urlSlug?.toLowerCase() || '';
+    const lowerPublicSlug = publicSlug?.toLowerCase() || '';
+    
+    // Check if this page matches the custom article slugs or common article patterns
+    if (lowerPageName === lowerUrlSlug || 
+        lowerPageName === lowerPublicSlug ||
+        lowerPageName === 'articles' ||
+        lowerPageName === 'publicarticles' ||
+        // Also check for blog-related patterns as common renames
+        lowerPageName === 'blog' ||
+        lowerPageName === 'publicblog' ||
+        lowerPageName === 'blogs' ||
+        lowerPageName === 'publicblogs') {
+      return 'portal_articles';
+    }
+    
+    return null;
+  };
+
+  // Fetch banners for current page - wait for article URL context to load first
+  // Uses public API endpoint to ensure banners load for logged-out users
   useEffect(() => {
     const fetchBanners = async () => {
+      // Wait for article URL context to finish loading before resolving page IDs
+      if (articleUrlLoading) {
+        return;
+      }
+      
       if (!currentPageName) {
         setLoadingBanners(false);
         return;
       }
 
       try {
-        const allBanners = await base44.entities.PageBanner.filter({
-          is_active: true
-        });
+        // Use public API endpoint that doesn't require authentication
+        const allBanners = await publicClient.listBanners();
         
-        // Filter banners that include this page
+        // Get the portal page identifier for this page (handles dynamic article slugs)
+        const portalPageId = resolvePortalPageId(currentPageName);
+        
+        console.log('[PublicLayout] Fetching banners for page:', currentPageName, 'portalPageId:', portalPageId, 'isCustomSlug:', isCustomSlug, 'urlSlug:', urlSlug);
+        console.log('[PublicLayout] All banners found:', allBanners?.length);
+        console.log('[PublicLayout] pageToPortalPageMap keys:', Object.keys(pageToPortalPageMap));
+        
+        // Debug: log all banners with their associated_pages for MyOrganisation troubleshooting
+        if (currentPageName === 'MyOrganisation') {
+          console.log('[PublicLayout] MyOrganisation DEBUG - looking for portal_my_organisation');
+          allBanners.forEach(b => {
+            console.log('[PublicLayout] Banner:', b.name, 'associated_pages:', b.associated_pages);
+          });
+        }
+        
+        // Filter banners that include this page (check both portal ID and page name for compatibility)
         const pageBanners = allBanners
-          .filter(banner => banner.associated_pages && banner.associated_pages.includes(currentPageName))
+          .filter(banner => {
+            if (!banner.associated_pages) return false;
+            const matches = banner.associated_pages.includes(portalPageId) || 
+                   banner.associated_pages.includes(currentPageName);
+            if (matches) {
+              console.log('[PublicLayout] Matched banner:', banner.name, banner.associated_pages);
+            }
+            return matches;
+          })
           .sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
         
+        console.log('[PublicLayout] Matched banners:', pageBanners.length);
         setBanners(pageBanners);
       } catch (error) {
         console.error('Failed to fetch banners:', error);
@@ -41,7 +330,23 @@ export default function PublicLayout({ children, currentPageName }) {
     };
 
     fetchBanners();
-  }, [currentPageName]);
+  }, [currentPageName, isCustomSlug, urlSlug, publicSlug, articleUrlLoading]);
+
+  // Split banners by page_position
+  const topBanners = useMemo(() => 
+    banners.filter(b => !b.page_position || b.page_position === 'top'),
+    [banners]
+  );
+  
+  const belowFirstElementBanners = useMemo(() => 
+    banners.filter(b => b.page_position === 'below_first_element'),
+    [banners]
+  );
+
+  // Task #939: BNMS tenant uses Urbanist (headings) + extra Poppins weights.
+  // Tenant-gated additive font loader — other tenants are byte-for-byte unaffected.
+  const BNMS_TENANT_ID = 'ff2df806-b321-4254-b651-3af11fccf1db';
+  const isBnmsTenant = branding?.id === BNMS_TENANT_ID;
 
   return (
     <>
@@ -50,6 +355,7 @@ export default function PublicLayout({ children, currentPageName }) {
         <style>
           {`
             @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap');
+            ${isBnmsTenant ? `@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Urbanist:wght@500;600;700;800&display=swap');` : ''}
 
             @font-face {
               font-family: 'Degular Medium';
@@ -64,199 +370,633 @@ export default function PublicLayout({ children, currentPageName }) {
             }
             
             .nav-link:hover {
-              color: #5C0085 !important;
+              color: ${tenantPrimaryColor} !important;
             }
           `}
         </style>
 
-        {/* Public Header - Now using dedicated component */}
-        <PublicHeader />
+        {/* Skip to main content (accessibility) */}
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[100] focus:bg-background focus:text-foreground focus:px-3 focus:py-2 focus:rounded-md focus:shadow-md focus:outline-none focus:ring-2 focus:ring-ring"
+          data-testid="link-skip-to-main"
+        >
+          Skip to main content
+        </a>
 
-        {/* Page Banners - Displayed between header and main content */}
-        {!loadingBanners && banners.length > 0 && (
+        {/* Public Header - Now using dedicated component */}
+        {showHeader && <PublicHeader />}
+
+        {/* Top Page Banners - Displayed between header and main content */}
+        {!loadingBanners && topBanners.length > 0 && (
           <div className="w-full">
-            {banners.map((banner) => (
-              <PageBannerDisplay key={banner.id} banner={banner} />
+            {topBanners.map((banner) => (
+              banner.banner_type === 'image'
+                ? <PageBannerDisplay key={banner.id} banner={banner} />
+                : <PortalHeroBanner key={banner.id} banner={banner} />
             ))}
           </div>
         )}
 
-        {/* Main Content Area */}
-        <main className="flex-1">
-          {children}
+        {/* Main Content Area - wrapped in BannerProvider for below-first-element banners */}
+        <main id="main-content" tabIndex={-1} className="flex-1 focus:outline-none">
+          <BannerProvider belowFirstElementBanners={belowFirstElementBanners}>
+            {children}
+          </BannerProvider>
         </main>
 
         {/* Public Footer */}
-        <footer className="bg-slate-900 text-white">
-          <div className="max-w-7xl mx-auto px-4 py-12">
-            <div className="grid md:grid-cols-4 gap-8">
-              {/* About Section */}
-              <div className="md:col-span-2">
-                <div className="flex items-center gap-3 mb-4">
-                  <img
-                    src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68efc20f3e0a30fafad6dde7/6cfe73a57_agcasRoundall.jpg"
-                    alt="AGCAS"
-                    className="w-10 h-10 object-contain"
-                  />
-                  <h3 className="text-xl font-bold">AGCAS</h3>
-                </div>
-                <p className="text-slate-300 mb-4 text-sm">
-                  The Association of Graduate Careers Advisory Services represents careers and employability services in higher education across the UK and Ireland.
-                </p>
+        {showFooter && (
+        <footer 
+          style={{ 
+            backgroundColor: tenantFooterConfig.backgroundColor || '#000000',
+            color: footerTextColor
+          }}
+        >
+          {/* Gradient Bar */}
+          <div 
+            className="w-full"
+            style={{ 
+              height: '5px',
+              background: getGradientStyle()
+            }}
+          />
+          <div className="max-w-7xl mx-auto px-4 py-16">
+            {/* Dynamic Footer Columns from Navigation Items */}
+            {(() => {
+              const footerColumns = tenantFooterConfig.columns || 4;
+              const buttonStyles = branding?.buttonStyles || {};
+              
+              // Helper to get button style CSS
+              const getButtonStyle = (styleName) => {
+                const style = buttonStyles[styleName] || {};
                 
-                {/* Newsletter Button */}
-                <Button
-                  onClick={() => setShowNewsletterDialog(true)}
-                  className="text-white font-bold hover:opacity-90 transition-opacity px-6 py-5 rounded-none mt-4"
-                  style={{
-                    fontFamily: 'Poppins, sans-serif',
-                    background: 'linear-gradient(to top right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)'
+                // Handle both flat legacy format (style.background as string) and nested format (style.background as object)
+                const bgConfig = typeof style.background === 'object' ? style.background : null;
+                
+                let backgroundCss = {};
+                if (bgConfig) {
+                  // Nested format
+                  if (bgConfig.type === 'solid') {
+                    backgroundCss = { backgroundColor: bgConfig.solidColor || tenantPrimaryColor };
+                  } else if (bgConfig.gradientStops && bgConfig.gradientStops.length >= 2) {
+                    // New format with gradientStops
+                    const angle = bgConfig.gradientAngle ?? 90;
+                    const stops = [...bgConfig.gradientStops]
+                      .sort((a, b) => a.position - b.position)
+                      .map(stop => `${stop.color} ${stop.position}%`)
+                      .join(', ');
+                    backgroundCss = { background: `linear-gradient(${angle}deg, ${stops})` };
+                  } else if (bgConfig.gradientStart && bgConfig.gradientEnd) {
+                    // Old nested format with gradientStart/gradientEnd
+                    const directionToAngle = {
+                      'to right': 90, 'to left': 270, 'to bottom': 180,
+                      'to top': 0, 'to bottom right': 135, 'to bottom left': 225
+                    };
+                    const angle = directionToAngle[bgConfig.gradientDirection] || 90;
+                    backgroundCss = { background: `linear-gradient(${angle}deg, ${bgConfig.gradientStart} 0%, ${bgConfig.gradientEnd} 100%)` };
+                  } else {
+                    backgroundCss = { backgroundColor: styleName === 'primary' ? tenantPrimaryColor : 'transparent' };
+                  }
+                } else if (typeof style.background === 'string' && style.background) {
+                  // Flat legacy format: background is a color string or gradient string
+                  if (style.background.includes('gradient')) {
+                    backgroundCss = { background: style.background };
+                  } else {
+                    backgroundCss = { backgroundColor: style.background };
+                  }
+                } else {
+                  backgroundCss = { backgroundColor: styleName === 'primary' ? tenantPrimaryColor : 'transparent' };
+                }
+                
+                // Handle both nested border object and flat borderColor/borderWidth/borderRadius
+                const borderColor = style.border?.color || style.borderColor || 'transparent';
+                const borderWidth = style.border?.width ?? style.borderWidth ?? 0;
+                const borderRadius = style.radius ?? style.borderRadius ?? 0;
+                
+                return {
+                  ...backgroundCss,
+                  color: style.textColor || '#ffffff',
+                  borderColor: borderColor,
+                  borderWidth: typeof borderWidth === 'number' ? `${borderWidth}px` : borderWidth,
+                  borderRadius: typeof borderRadius === 'number' ? `${borderRadius}px` : borderRadius,
+                  borderStyle: 'solid'
+                };
+              };
+              
+              // Render a content block based on its type
+              const renderContentBlock = (item) => {
+                const blockType = item.content_block_type;
+                
+                switch (blockType) {
+                  case 'heading':
+                    // Look up the typography style if one is configured
+                    const headingStyleId = item.typography_style_id;
+                    const headingStyle = headingStyleId ? typographyStyles.find(s => s.id === headingStyleId) : null;
+                    
+                    // Apply typography style or use default styling
+                    // font_size_override takes precedence over the typography style's font size
+                    const fontSize = item.font_size_override 
+                      ? `${item.font_size_override}px` 
+                      : (headingStyle ? `${headingStyle.font_size || 14}px` : '14px');
+                    
+                    const headingStyles = headingStyle ? {
+                      fontFamily: headingStyle.font_family || 'Poppins, sans-serif',
+                      fontSize: fontSize,
+                      fontWeight: headingStyle.font_weight || 600,
+                      lineHeight: headingStyle.line_height || 1.2,
+                      letterSpacing: headingStyle.letter_spacing ? `${headingStyle.letter_spacing}px` : '0px',
+                      textTransform: headingStyle.text_transform || 'none',
+                      marginBottom: headingStyle.margin_bottom ? `${headingStyle.margin_bottom}px` : '12px',
+                      color: headingStyle.color || footerTextColor
+                    } : {
+                      fontFamily: 'Poppins, sans-serif', 
+                      textTransform: 'uppercase', 
+                      letterSpacing: '5px',
+                      color: footerTextColor,
+                      fontSize: fontSize,
+                      marginBottom: '12px'
+                    };
+                    
+                    const headingTitle = (tenantFooterConfig.newsletterText && item.title === 'Sign up to our newsletter')
+                      ? tenantFooterConfig.newsletterText
+                      : (item.title || 'Section');
+                    
+                    return (
+                      <div key={item.id}>
+                        <h4 
+                          className="text-sm" 
+                          style={headingStyles}
+                        >
+                          {headingTitle}
+                        </h4>
+                        {!headingStyle && (
+                          <div className="mb-4" style={{ width: '36px', height: '2px', backgroundColor: adjustColorOpacity(footerTextColor, 0.5) }} />
+                        )}
+                      </div>
+                    );
+                  case 'logo':
+                    return (
+                      <div key={item.id} className="mb-4">
+                        {branding?.logoUrl ? (
+                          <img 
+                            src={branding.logoUrl} 
+                            alt={branding?.name || 'Logo'} 
+                            className={`object-contain${branding?.brandingConfig?.footerLogoInvert ? ' brightness-0 invert' : ''}`}
+                            style={{
+                              width: 'auto',
+                              height: 'auto',
+                              maxHeight: branding?.brandingConfig?.footerLogoHeight ? `${branding.brandingConfig.footerLogoHeight}px` : '96px',
+                              maxWidth: branding?.brandingConfig?.footerLogoWidth ? `min(${branding.brandingConfig.footerLogoWidth}px, 100%)` : '100%'
+                            }}
+                          />
+                        ) : (
+                          <span className="text-2xl font-bold" style={{ color: footerTextColor }}>{branding?.name || ''}</span>
+                        )}
+                      </div>
+                    );
+                  case 'social':
+                    const footerSocialColor = branding?.brandingConfig?.footerSocialIconColor || '#FFFFFF';
+                    // Resolved to same-origin data URIs; a cross-origin URL in mask-image
+                    // is unreliable and paints a solid coloured square instead of the icon.
+                    const footerSocialCustomSvgs = resolvedFooterSocialSvgs;
+                    const socialIconBorderStyle = {
+                      border: `1px solid ${adjustColorOpacity(footerSocialColor, 0.3)}`,
+                    };
+                    // Render a footer social glyph: paint an uploaded custom SVG as a
+                    // monochrome silhouette in the footer colour via CSS mask, else the
+                    // built-in inline <svg>.
+                    const renderFooterGlyph = (customSvg, builtin) => customSvg ? (
+                      <span
+                        className="w-5 h-5"
+                        style={{
+                          display: 'inline-block',
+                          backgroundColor: footerSocialColor,
+                          WebkitMaskImage: `url("${customSvg}")`,
+                          maskImage: `url("${customSvg}")`,
+                          WebkitMaskRepeat: 'no-repeat',
+                          maskRepeat: 'no-repeat',
+                          WebkitMaskPosition: 'center',
+                          maskPosition: 'center',
+                          WebkitMaskSize: 'contain',
+                          maskSize: 'contain'
+                        }}
+                      />
+                    ) : builtin;
+                    return socialIcons ? (
+                      <div key={item.id}>
+                        {item.title && (
+                          <>
+                            <h4 className="text-sm mb-3" style={{ fontFamily: 'Poppins, sans-serif', textTransform: 'uppercase', letterSpacing: '5px', color: footerTextColor }}>
+                              {item.title}
+                            </h4>
+                            <div className="mb-4" style={{ width: '36px', height: '2px', backgroundColor: adjustColorOpacity(footerTextColor, 0.5) }} />
+                          </>
+                        )}
+                        <div className="flex gap-4 flex-wrap">
+                          {socialIcons.linkedin?.enabled && socialIcons.linkedin?.url && (
+                            <a href={socialIcons.linkedin.url} target="_blank" rel="noopener noreferrer" className="w-10 h-10 rounded-full flex items-center justify-center transition-opacity hover:opacity-80" style={socialIconBorderStyle}>
+                              {renderFooterGlyph(footerSocialCustomSvgs.linkedin, (
+                                <svg viewBox="0 0 24 24" className="w-5 h-5" fill={footerSocialColor}><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" /></svg>
+                              ))}
+                            </a>
+                          )}
+                          {socialIcons.twitter?.enabled && socialIcons.twitter?.url && (
+                            <a href={socialIcons.twitter.url} target="_blank" rel="noopener noreferrer" className="w-10 h-10 rounded-full flex items-center justify-center transition-opacity hover:opacity-80" style={socialIconBorderStyle}>
+                              {renderFooterGlyph(footerSocialCustomSvgs.twitter, (
+                                <svg viewBox="0 0 24 24" className="w-5 h-5" fill={footerSocialColor}><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                              ))}
+                            </a>
+                          )}
+                          {socialIcons.facebook?.enabled && socialIcons.facebook?.url && (
+                            <a href={socialIcons.facebook.url} target="_blank" rel="noopener noreferrer" className="w-10 h-10 rounded-full flex items-center justify-center transition-opacity hover:opacity-80" style={socialIconBorderStyle}>
+                              {renderFooterGlyph(footerSocialCustomSvgs.facebook, (
+                                <svg viewBox="0 0 24 24" className="w-5 h-5" fill={footerSocialColor}><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+                              ))}
+                            </a>
+                          )}
+                          {socialIcons.instagram?.enabled && socialIcons.instagram?.url && (
+                            <a href={socialIcons.instagram.url} target="_blank" rel="noopener noreferrer" className="w-10 h-10 rounded-full flex items-center justify-center transition-opacity hover:opacity-80" style={socialIconBorderStyle}>
+                              {renderFooterGlyph(footerSocialCustomSvgs.instagram, (
+                                <svg viewBox="0 0 24 24" className="w-5 h-5" fill={footerSocialColor}><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>
+                              ))}
+                            </a>
+                          )}
+                          {socialIcons.youtube?.enabled && socialIcons.youtube?.url && (
+                            <a href={socialIcons.youtube.url} target="_blank" rel="noopener noreferrer" className="w-10 h-10 rounded-full flex items-center justify-center transition-opacity hover:opacity-80" style={socialIconBorderStyle}>
+                              {renderFooterGlyph(footerSocialCustomSvgs.youtube, (
+                                <svg viewBox="0 0 24 24" className="w-5 h-5" fill={footerSocialColor}><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+                              ))}
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    ) : null;
+                  case 'address':
+                    return (
+                      <div key={item.id}>
+                        <h4 className="text-sm mb-3" style={{ fontFamily: 'Poppins, sans-serif', textTransform: 'uppercase', letterSpacing: '5px', color: footerTextColor }}>
+                          ADDRESS
+                        </h4>
+                        <div className="mb-4" style={{ width: '36px', height: '2px', backgroundColor: adjustColorOpacity(footerTextColor, 0.5) }} />
+                        <div className="text-sm leading-relaxed" style={{ fontFamily: 'Poppins, sans-serif', color: footerSecondaryTextColor }}>
+                          {tenantFooterConfig.address?.name && <p>{tenantFooterConfig.address.name}</p>}
+                          {tenantFooterConfig.address?.lines?.map((line, i) => <p key={i}>{line}</p>)}
+                        </div>
+                      </div>
+                    );
+                  case 'contact':
+                    return (
+                      <div key={item.id}>
+                        <h4 className="text-sm mb-3" style={{ fontFamily: 'Poppins, sans-serif', textTransform: 'uppercase', letterSpacing: '5px', color: footerTextColor }}>
+                          CONTACT US
+                        </h4>
+                        <div className="mb-4" style={{ width: '36px', height: '2px', backgroundColor: adjustColorOpacity(footerTextColor, 0.5) }} />
+                        <ul className="space-y-3 text-sm" style={{ fontFamily: 'Poppins, sans-serif', color: footerSecondaryTextColor }}>
+                          {tenantFooterConfig.contact?.phone && (
+                            <li className="flex items-center gap-3">
+                              <Phone className="w-4 h-4 shrink-0" />
+                              <span>{tenantFooterConfig.contact.phone}</span>
+                            </li>
+                          )}
+                          {tenantFooterConfig.contact?.email && (
+                            <li className="flex items-center gap-3">
+                              <Mail className="w-4 h-4 shrink-0" />
+                              <span>{tenantFooterConfig.contact.email}</span>
+                            </li>
+                          )}
+                        </ul>
+                      </div>
+                    );
+                  case 'newsletter':
+                    return newsletterFormSlug ? (
+                      <div key={item.id}>
+                        <h2 className="text-2xl mb-6" style={{ fontFamily: "'Degular Medium', sans-serif", color: footerTextColor }}>
+                          {tenantFooterConfig.newsletterText || 'Sign up to our newsletter'}
+                        </h2>
+                        <Button 
+                          onClick={() => setShowNewsletterDialog(true)}
+                          className="text-white font-bold hover:opacity-90 transition-opacity px-6 py-4"
+                          style={{ 
+                            fontFamily: 'Poppins, sans-serif',
+                            ...(item.display_type === 'button' ? getButtonStyle(item.button_style || 'primary') : { background: getButtonGradientStyle() })
+                          }}
+                          data-testid="button-newsletter-signup"
+                        >
+                          Sign up
+                          <ArrowUpRight className="ml-0.5 w-5 h-5" strokeWidth={2.5} />
+                        </Button>
+                      </div>
+                    ) : null;
+                  case 'cta':
+                    return (
+                      <div key={item.id}>
+                        {item.url ? (
+                          <Link 
+                            to={item.link_type === 'internal' ? createPageUrl(item.url) : item.url}
+                            target={item.open_in_new_tab ? '_blank' : undefined}
+                            rel={item.open_in_new_tab ? 'noopener noreferrer' : undefined}
+                          >
+                            <Button 
+                              className="text-white font-bold hover:opacity-90 transition-opacity px-6 py-4"
+                              style={{ 
+                                fontFamily: 'Poppins, sans-serif',
+                                ...getButtonStyle(item.button_style || 'primary')
+                              }}
+                            >
+                              {item.title || 'Learn More'}
+                              <ArrowUpRight className="ml-0.5 w-5 h-5" strokeWidth={2.5} />
+                            </Button>
+                          </Link>
+                        ) : (
+                          <h2 className="text-2xl mb-6" style={{ fontFamily: "'Degular Medium', sans-serif", color: footerTextColor }}>
+                            {item.title || 'Get Started'}
+                          </h2>
+                        )}
+                      </div>
+                    );
+                  case 'legal':
+                    return (
+                      <div key={item.id} className="text-sm" style={{ fontFamily: 'Poppins, sans-serif', color: footerSecondaryTextColor }}>
+                        {tenantFooterConfig.legalText && <p className="mb-3">{tenantFooterConfig.legalText}</p>}
+                        <div className="flex flex-col gap-2">
+                          {tenantFooterConfig.termsAndConditionsUrl && (
+                            <a href={tenantFooterConfig.termsAndConditionsUrl} target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity" style={{ color: footerTextColor }}>
+                              Terms and Conditions
+                            </a>
+                          )}
+                          {tenantFooterConfig.privacyPolicyUrl && (
+                            <a href={tenantFooterConfig.privacyPolicyUrl} target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity" style={{ color: footerTextColor }}>
+                              Privacy Policy
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  case 'spacer':
+                    const spacerHeight = item.font_size_override || 24;
+                    return (
+                      <div key={item.id} style={{ height: `${spacerHeight}px` }} aria-hidden="true" />
+                    );
+                  default:
+                    return null;
+                }
+              };
+              
+              // Render a navigation item (link or button)
+              const renderNavItem = (item) => {
+                if (item.link_type === 'content_block') {
+                  return renderContentBlock(item);
+                }
+                
+                // Form modal link type - opens a form in a dialog instead of navigating
+                if (item.link_type === 'form_modal') {
+                  // Don't render if form_slug is missing (invalid configuration)
+                  if (!item.form_slug) {
+                    return null;
+                  }
+                  return (
+                    <div key={item.id} className="mb-3">
+                      <Button 
+                        onClick={() => {
+                          setActiveNavFormSlug(item.form_slug);
+                          setNavFormModalOpen(true);
+                        }}
+                        className="text-white font-bold hover:opacity-90 transition-opacity px-6 py-4 cursor-pointer"
+                        style={{ 
+                          fontFamily: 'Poppins, sans-serif',
+                          ...getButtonStyle(item.button_style || 'primary')
+                        }}
+                      >
+                        {item.title}
+                        <ArrowUpRight className="ml-0.5 w-4 h-4" />
+                      </Button>
+                    </div>
+                  );
+                }
+                
+                const linkUrl = item.link_type === 'internal' ? createPageUrl(item.url) : item.url;
+                const isButton = item.display_type === 'button';
+                
+                if (isButton) {
+                  return (
+                    <div key={item.id} className="mb-3">
+                      <Link to={linkUrl} target={item.open_in_new_tab ? '_blank' : undefined}>
+                        <Button 
+                          className="text-white font-bold hover:opacity-90 transition-opacity px-6 py-4"
+                          style={{ 
+                            fontFamily: 'Poppins, sans-serif',
+                            ...getButtonStyle(item.button_style || 'primary')
+                          }}
+                        >
+                          {item.title}
+                          {item.open_in_new_tab && <ArrowUpRight className="ml-0.5 w-4 h-4" />}
+                        </Button>
+                      </Link>
+                    </div>
+                  );
+                }
+                
+                return (
+                  <Link 
+                    key={item.id}
+                    to={linkUrl}
+                    target={item.open_in_new_tab ? '_blank' : undefined}
+                    className="block text-sm transition-opacity mb-2 hover:opacity-80"
+                    style={{ fontFamily: 'Poppins, sans-serif', color: footerSecondaryTextColor }}
+                  >
+                    {item.title}
+                  </Link>
+                );
+              };
+              
+              // Group items by column - items in columns beyond configured count go to last column
+              const itemsByColumn = {};
+              for (let i = 1; i <= footerColumns; i++) {
+                itemsByColumn[i] = [];
+              }
+              footerNavItems.forEach(item => {
+                const assignedColumn = item.footer_column || 1;
+                // Clamp to configured columns range
+                const targetColumn = Math.min(Math.max(assignedColumn, 1), footerColumns);
+                itemsByColumn[targetColumn].push(item);
+              });
+              // Sort items within each column
+              for (let i = 1; i <= footerColumns; i++) {
+                itemsByColumn[i].sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+              }
+              
+              return (
+                <div 
+                  className="grid gap-8"
+                  style={{ 
+                    gridTemplateColumns: `repeat(${Math.min(footerColumns, 6)}, minmax(0, 1fr))` 
                   }}
                 >
-                  Subscribe to Newsletter
-                  <ArrowUpRight className="ml-0.5 w-5 h-5" strokeWidth={2.5} />
-                </Button>
-              </div>
-
-              {/* Quick Links */}
-              <div>
-                <h4 className="font-semibold mb-4">Quick Links</h4>
-                <ul className="space-y-2 text-sm">
-                  <li>
-                    <Link to={createPageUrl('PublicEvents')} className="text-slate-300 hover:text-white transition-colors">
-                      Events
-                    </Link>
-                  </li>
-                  <li>
-                    <Link to={createPageUrl('PublicResources')} className="text-slate-300 hover:text-white transition-colors">
-                      Resources
-                    </Link>
-                  </li>
-                  <li>
-                    <Link to={createPageUrl('PublicArticles')} className="text-slate-300 hover:text-white transition-colors">
-                      Articles
-                    </Link>
-                  </li>
-                  <li>
-                    <Link to={createPageUrl('JobBoard')} className="text-slate-300 hover:text-white transition-colors">
-                      Job Board
-                    </Link>
-                  </li>
-                  <li>
-                    <Link to={createPageUrl('PublicAbout')} className="text-slate-300 hover:text-white transition-colors">
-                      About Us
-                    </Link>
-                  </li>
-                  <li>
-                    <Link to={createPageUrl('PublicContact')} className="text-slate-300 hover:text-white transition-colors">
-                      Contact
-                    </Link>
-                  </li>
-                  <li>
-                    <Link to={createPageUrl('Home')} className="text-slate-300 hover:text-white transition-colors">
-                      Member Login
-                    </Link>
-                  </li>
-                </ul>
-              </div>
-
-              {/* Contact Info */}
-              <div>
-                <h4 className="font-semibold mb-4">Contact Us</h4>
-                <ul className="space-y-3 text-sm text-slate-300">
-                  <li className="flex items-start gap-2">
-                    <Mail className="w-4 h-4 mt-0.5 shrink-0" />
-                    <span>info@graduatefutures.org.uk</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <Phone className="w-4 h-4 mt-0.5 shrink-0" />
-                    <span>+44 (0)114 251 5750</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <MapPin className="w-4 h-4 mt-0.5 shrink-0" />
-                    <span>Sheffield, United Kingdom</span>
-                  </li>
-                </ul>
-              </div>
-            </div>
+                  {Array.from({ length: footerColumns }, (_, i) => i + 1).map(colNum => {
+                    const colItems = itemsByColumn[colNum] || [];
+                    if (colItems.length === 0) return <div key={colNum} />;
+                    
+                    const columnAlignment = tenantFooterConfig.columnAlignments?.[colNum] || 'left';
+                    const alignmentClass = columnAlignment === 'center' ? 'items-center text-center' 
+                      : columnAlignment === 'right' ? 'items-end text-right' 
+                      : 'items-start text-left';
+                    
+                    return (
+                      <div key={colNum} className={`flex flex-col space-y-4 ${alignmentClass}`}>
+                        {colItems.map(item => renderNavItem(item))}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+          })()}
 
             {/* Bottom Bar */}
-            <div className="border-t border-slate-800 mt-8 pt-8">
-              <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-                <p className="text-sm text-slate-400">
-                  © {new Date().getFullYear()} AGCAS. All rights reserved.
-                </p>
-                <div className="flex gap-6 text-sm text-slate-400">
-                  <a href="#" className="hover:text-white transition-colors">Privacy Policy</a>
-                  <a href="#" className="hover:text-white transition-colors">Terms of Service</a>
-                  <a href="#" className="hover:text-white transition-colors">Accessibility</a>
+            <div className="mt-12">
+              {/* Horizontal line */}
+              <div 
+                className="w-full mb-6"
+                style={{ 
+                  height: '1px', 
+                  backgroundColor: adjustColorOpacity(footerTextColor, 0.3) 
+                }}
+              />
+              
+              {/* Two column layout - 70/30 */}
+              <div className="grid md:grid-cols-10 gap-8">
+                {/* 70% column - Legal/Charity text */}
+                <div className="md:col-span-7">
+                  {(tenantFooterConfig.legalText || !hasBranding) && (
+                    <p 
+                      className="text-sm leading-relaxed"
+                      style={{ fontFamily: 'Poppins, sans-serif', color: footerTextColor }}
+                    >
+                      {tenantFooterConfig.legalText || `© ${new Date().getFullYear()} ${branding?.name || 'All rights reserved'}`}
+                    </p>
+                  )}
+                </div>
+                
+                {/* 30% column - Links */}
+                <div className="md:col-span-3 flex flex-col md:items-end gap-2">
+                  {tenantFooterConfig?.termsAndConditionsUrl ? (
+                    <a 
+                      href={tenantFooterConfig.termsAndConditionsUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm hover:opacity-80 transition-opacity"
+                      style={{ fontFamily: 'Poppins, sans-serif', color: footerTextColor }}
+                      data-testid="link-terms-conditions"
+                    >
+                      Terms and conditions
+                    </a>
+                  ) : (
+                    <span 
+                      className="text-sm opacity-60"
+                      style={{ fontFamily: 'Poppins, sans-serif', color: footerTextColor }}
+                    >
+                      Terms and conditions
+                    </span>
+                  )}
+                  {tenantFooterConfig?.privacyPolicyUrl ? (
+                    <a 
+                      href={tenantFooterConfig.privacyPolicyUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm hover:opacity-80 transition-opacity"
+                      style={{ fontFamily: 'Poppins, sans-serif', color: footerTextColor }}
+                      data-testid="link-privacy-policy"
+                    >
+                      Privacy policy
+                    </a>
+                  ) : (
+                    <span 
+                      className="text-sm opacity-60"
+                      style={{ fontFamily: 'Poppins, sans-serif', color: footerTextColor }}
+                    >
+                      Privacy policy
+                    </span>
+                  )}
                 </div>
               </div>
               
-              {/* Powered by isaasi */}
-              <div className="text-center mt-6">
-                <a
-                  href="https://isaasi.co.uk"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-block hover:opacity-80 transition-opacity"
+              {/* Platform Branding */}
+              {(branding?.platformBranding?.showPlatformBranding !== false) && (
+                <div 
+                  className="text-center mt-8 py-4 -mx-4 sm:-mx-8 md:-mx-16 -mb-8 sm:-mb-12 md:-mb-16 px-4 sm:px-8 md:px-16"
+                  style={{ backgroundColor: branding?.platformBranding?.backgroundColor || '#000000' }}
                 >
-                  <img
-                    src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68efc20f3e0a30fafad6dde7/fe03f7c5e_linked-aa.png"
-                    alt="isaasi"
-                    className="w-[40px] mx-auto mb-2"
-                  />
-                </a>
-                <p className="text-xs text-slate-500">
-                  <span style={{ color: '#eb008c' }}>i</span>Connect by{' '}
                   <a
-                    href="https://isaasi.co.uk"
+                    href={platformDefaults.platformBrandingUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="hover:opacity-80 transition-opacity"
-                    style={{ color: '#eb008c' }}
+                    className="inline-block hover:opacity-80 transition-opacity"
                   >
-                    isaasi
+                    <img
+                      src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68efc20f3e0a30fafad6dde7/fe03f7c5e_linked-aa.png"
+                      alt="Platform logo"
+                      className="w-[40px] mx-auto mb-2"
+                    />
                   </a>
-                </p>
-              </div>
+                  <p 
+                    className="text-xs"
+                    style={{ color: branding?.platformBranding?.textColor || '#64748b' }}
+                  >
+                    {platformDefaults.platformBrandingText}
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </footer>
+        )}
 
         {/* Floater Display for Public Pages */}
         <FloaterDisplay location="public" />
       </div>
-
-      {/* Newsletter Dialog */}
-      <Dialog open={showNewsletterDialog} onOpenChange={setShowNewsletterDialog}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-hidden">
-          <DialogHeader>
-            <DialogTitle className="text-2xl">Subscribe to Our Newsletter</DialogTitle>
-          </DialogHeader>
-          
-          <div className="space-y-4 py-4">
-            <p className="text-slate-600">
-              Stay up to date with the latest news, events, and resources from Graduate Futures. 
-              Join our community and never miss an important update!
-            </p>
-            
-            {/* Zoho Form Iframe */}
-            <div className="w-full" style={{ minHeight: '500px' }}>
-              <iframe
-                src="https://forms.zohopublic.eu/isaasiagcas1/form/Newsletter/formperma/VRkTs4kbQec4LDCN5z0pRWyTRH7HGIqxhDx-dT35YTI"
-                width="100%"
-                height="600"
-                frameBorder="0"
-                marginHeight="0"
-                marginWidth="0"
-                title="Newsletter Signup Form"
-                className="rounded-lg"
-              >
-                Loading newsletter form...
-              </iframe>
+      {/* Newsletter Dialog - uses IEditFormElement for full form rendering */}
+      <Dialog open={showNewsletterDialog} onOpenChange={handleNewsletterDialogChange}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-0">
+          {newsletterFormSlug ? (
+            <IEditFormElement 
+              element={{
+                content: {
+                  form_slug: newsletterFormSlug,
+                  background_type: 'color',
+                  background_color: 'transparent'
+                }
+              }}
+              memberInfo={null}
+              organizationInfo={null}
+            />
+          ) : (
+            <div className="text-center py-8 px-6">
+              <p className="text-slate-600">Newsletter signup form not found or inactive.</p>
             </div>
-          </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Navigation Item Form Modal Dialog */}
+      <Dialog open={navFormModalOpen} onOpenChange={setNavFormModalOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-0">
+          {activeNavFormSlug ? (
+            <IEditFormElement 
+              element={{
+                content: {
+                  form_slug: activeNavFormSlug,
+                  background_type: 'color',
+                  background_color: 'transparent'
+                }
+              }}
+              memberInfo={null}
+              organizationInfo={null}
+            />
+          ) : (
+            <div className="text-center py-8 px-6">
+              <p className="text-slate-600">Form not found or inactive.</p>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </>

@@ -1,0 +1,150 @@
+index-BsIZYDxl.js:1076 [publicClient] Detected tenant from subdomain: gsf
+index-BsIZYDxl.js:1161 GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.84.0) 2026-01-24T17:21:57.471Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+Jg @ index-BsIZYDxl.js:1161
+index-BsIZYDxl.js:1465 [usePendingPurchaseOrders] memberInfo: null
+index-BsIZYDxl.js:1465 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BsIZYDxl.js:1465 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BsIZYDxl.js:1465 [Layout] currentPageName: DueDiligenceConfig currentPortalPageId: null
+index-BsIZYDxl.js:1465 [usePendingPurchaseOrders] memberInfo: Object
+index-BsIZYDxl.js:1465 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BsIZYDxl.js:1465 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BsIZYDxl.js:1465 [Layout] currentPageName: DueDiligenceConfig currentPortalPageId: null
+index-BsIZYDxl.js:1465 [usePendingPurchaseOrders] Query running, memberInfo.id: b24e022f-adcc-4930-8952-63a34cc16925
+index-BsIZYDxl.js:1465 [usePendingPurchaseOrders] memberInfo: Object
+index-BsIZYDxl.js:1465 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BsIZYDxl.js:1465 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BsIZYDxl.js:1465 [Layout] currentPageName: DueDiligenceConfig currentPortalPageId: null
+index-BsIZYDxl.js:1465 [usePendingPurchaseOrders] memberInfo: Object
+index-BsIZYDxl.js:1465 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BsIZYDxl.js:1465 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BsIZYDxl.js:1465 [Layout] currentPageName: DueDiligenceConfig currentPortalPageId: null
+index-BsIZYDxl.js:1431 Error loading member record: Object
+queryFn @ index-BsIZYDxl.js:1431
+await in queryFn
+i @ index-BsIZYDxl.js:1076
+b @ index-BsIZYDxl.js:1076
+start @ index-BsIZYDxl.js:1076
+fetch @ index-BsIZYDxl.js:1076
+Gf @ index-BsIZYDxl.js:1076
+onSubscribe @ index-BsIZYDxl.js:1076
+subscribe @ index-BsIZYDxl.js:1076
+(anonymous) @ index-BsIZYDxl.js:1076
+A$ @ index-BsIZYDxl.js:38
+Zy @ index-BsIZYDxl.js:40
+ux @ index-BsIZYDxl.js:40
+nZ @ index-BsIZYDxl.js:40
+tm @ index-BsIZYDxl.js:40
+yF @ index-BsIZYDxl.js:40
+Tu @ index-BsIZYDxl.js:38
+(anonymous) @ index-BsIZYDxl.js:40
+setTimeout
+r @ index-BsIZYDxl.js:1076
+l @ index-BsIZYDxl.js:1076
+batch @ index-BsIZYDxl.js:1076
+Mc @ index-BsIZYDxl.js:1076
+setData @ index-BsIZYDxl.js:1076
+onSuccess @ index-BsIZYDxl.js:1076
+m @ index-BsIZYDxl.js:1076
+Promise.then
+b @ index-BsIZYDxl.js:1076
+start @ index-BsIZYDxl.js:1076
+fetch @ index-BsIZYDxl.js:1076
+Gf @ index-BsIZYDxl.js:1076
+onSubscribe @ index-BsIZYDxl.js:1076
+subscribe @ index-BsIZYDxl.js:1076
+(anonymous) @ index-BsIZYDxl.js:1076
+A$ @ index-BsIZYDxl.js:38
+Zy @ index-BsIZYDxl.js:40
+ux @ index-BsIZYDxl.js:40
+(anonymous) @ index-BsIZYDxl.js:40
+N @ index-BsIZYDxl.js:25
+E @ index-BsIZYDxl.js:25
+index-BsIZYDxl.js:1465 [usePendingPurchaseOrders] memberInfo: Object
+index-BsIZYDxl.js:1465 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BsIZYDxl.js:1465 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BsIZYDxl.js:1465 [Layout] currentPageName: DueDiligenceConfig currentPortalPageId: null
+index-BsIZYDxl.js:1465 [Layout] Server session found: mat.the.diver@googlemail.com
+index-BsIZYDxl.js:1465 [usePendingPurchaseOrders] memberInfo: Object
+index-BsIZYDxl.js:1465 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BsIZYDxl.js:1465 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BsIZYDxl.js:1465 [Layout] currentPageName: DueDiligenceConfig currentPortalPageId: null
+index-BsIZYDxl.js:1465 [usePendingPurchaseOrders] memberInfo: Object
+index-BsIZYDxl.js:1465 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BsIZYDxl.js:1465 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BsIZYDxl.js:1465 [Layout] currentPageName: DueDiligenceConfig currentPortalPageId: null
+index-BsIZYDxl.js:1465 [usePendingPurchaseOrders] memberInfo: Object
+index-BsIZYDxl.js:1465 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BsIZYDxl.js:1465 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BsIZYDxl.js:1465 [Layout] currentPageName: DueDiligenceConfig currentPortalPageId: null
+index-BsIZYDxl.js:1465 [usePendingPurchaseOrders] memberInfo: Object
+index-BsIZYDxl.js:1465 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BsIZYDxl.js:1465 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BsIZYDxl.js:1465 [Layout] currentPageName: DueDiligenceConfig currentPortalPageId: null
+index-BsIZYDxl.js:1465 [usePendingPurchaseOrders] memberInfo: Object
+index-BsIZYDxl.js:1465 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BsIZYDxl.js:1465 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BsIZYDxl.js:1465 [Layout] currentPageName: DueDiligenceConfig currentPortalPageId: null
+index-BsIZYDxl.js:1465 [usePendingPurchaseOrders] memberInfo: Object
+index-BsIZYDxl.js:1465 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BsIZYDxl.js:1465 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BsIZYDxl.js:1465 [Layout] currentPageName: DueDiligenceConfig currentPortalPageId: null
+index-BsIZYDxl.js:1465 [usePendingPurchaseOrders] memberInfo: Object
+index-BsIZYDxl.js:1465 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BsIZYDxl.js:1465 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BsIZYDxl.js:1465 [Layout] currentPageName: DueDiligenceConfig currentPortalPageId: null
+index-BsIZYDxl.js:1465 [usePendingPurchaseOrders] Fetched bookings count: 0
+index-BsIZYDxl.js:1465 [usePendingPurchaseOrders] Pending PO bookings: 0
+index-BsIZYDxl.js:1465 [usePendingPurchaseOrders] memberInfo: Object
+index-BsIZYDxl.js:1465 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BsIZYDxl.js:1465 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BsIZYDxl.js:1465 [Layout] currentPageName: DueDiligenceConfig currentPortalPageId: null
+index-BsIZYDxl.js:1465 [usePendingPurchaseOrders] memberInfo: Object
+index-BsIZYDxl.js:1465 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BsIZYDxl.js:1465 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BsIZYDxl.js:1465 [Layout] currentPageName: DueDiligenceConfig currentPortalPageId: null
+index-BsIZYDxl.js:40 Error: A <Select.Item /> must have a value prop that is not an empty string. This is because the Select value can be set to an empty string to clear the selection and show the placeholder.
+    at index-BsIZYDxl.js:1431:133558
+    at d4 (index-BsIZYDxl.js:38:17018)
+    at dF (index-BsIZYDxl.js:40:1571)
+    at gI (index-BsIZYDxl.js:40:46033)
+    at xI (index-BsIZYDxl.js:40:39790)
+    at sZ (index-BsIZYDxl.js:40:39718)
+    at Tj (index-BsIZYDxl.js:40:39570)
+    at _C (index-BsIZYDxl.js:40:35934)
+    at yF (index-BsIZYDxl.js:40:36738)
+    at Tu (index-BsIZYDxl.js:38:3279)
+dC @ index-BsIZYDxl.js:40
+index-BsIZYDxl.js:40 Error: A <Select.Item /> must have a value prop that is not an empty string. This is because the Select value can be set to an empty string to clear the selection and show the placeholder.
+    at index-BsIZYDxl.js:1431:133558
+    at d4 (index-BsIZYDxl.js:38:17018)
+    at dF (index-BsIZYDxl.js:40:1571)
+    at gI (index-BsIZYDxl.js:40:46033)
+    at xI (index-BsIZYDxl.js:40:39790)
+    at sZ (index-BsIZYDxl.js:40:39718)
+    at Tj (index-BsIZYDxl.js:40:39570)
+    at _C (index-BsIZYDxl.js:40:35934)
+    at yF (index-BsIZYDxl.js:40:36738)
+    at Tu (index-BsIZYDxl.js:38:3279)
+dC @ index-BsIZYDxl.js:40
+index-BsIZYDxl.js:1431 Uncaught Error: A <Select.Item /> must have a value prop that is not an empty string. This is because the Select value can be set to an empty string to clear the selection and show the placeholder.
+    at index-BsIZYDxl.js:1431:133558
+    at d4 (index-BsIZYDxl.js:38:17018)
+    at dF (index-BsIZYDxl.js:40:1571)
+    at gI (index-BsIZYDxl.js:40:46033)
+    at xI (index-BsIZYDxl.js:40:39790)
+    at sZ (index-BsIZYDxl.js:40:39718)
+    at Tj (index-BsIZYDxl.js:40:39570)
+    at _C (index-BsIZYDxl.js:40:35934)
+    at yF (index-BsIZYDxl.js:40:36738)
+    at Tu (index-BsIZYDxl.js:38:3279)
+(anonymous) @ index-BsIZYDxl.js:1431
+d4 @ index-BsIZYDxl.js:38
+dF @ index-BsIZYDxl.js:40
+gI @ index-BsIZYDxl.js:40
+xI @ index-BsIZYDxl.js:40
+sZ @ index-BsIZYDxl.js:40
+Tj @ index-BsIZYDxl.js:40
+_C @ index-BsIZYDxl.js:40
+yF @ index-BsIZYDxl.js:40
+Tu @ index-BsIZYDxl.js:38
+(anonymous) @ index-BsIZYDxl.js:40

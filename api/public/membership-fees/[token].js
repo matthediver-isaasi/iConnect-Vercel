@@ -1,0 +1,881 @@
+import { createClient } from '@supabase/supabase-js';
+
+export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    return res.status(503).json({ error: 'Database not configured' });
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+  const { token } = req.query;
+
+  if (!token) {
+    return res.status(400).json({ error: 'Token is required' });
+  }
+
+  try {
+    const { data: feeToken, error: tokenError } = await supabase
+      .from('membership_fee_token')
+      .select('*')
+      .eq('token', token)
+      .single();
+
+    if (tokenError || !feeToken) {
+      return res.status(404).json({ error: 'Fee link not found or has expired' });
+    }
+
+    if (new Date(feeToken.expires_at) < new Date()) {
+      if (feeToken.status === 'pending') {
+        await supabase
+          .from('membership_fee_token')
+          .update({ status: 'expired' })
+          .eq('id', feeToken.id);
+      }
+      return res.status(410).json({ error: 'This fee link has expired' });
+    }
+
+    if (feeToken.status === 'cancelled') {
+      return res.status(410).json({ error: 'This fee link has been cancelled' });
+    }
+
+    if (req.method === 'GET') {
+      const { data: org } = await supabase
+        .from('organization')
+        .select('name')
+        .eq('id', feeToken.organization_id)
+        .single();
+
+      let tenantBranding = null;
+      try {
+        const { data: tenant } = await supabase
+          .from('tenant')
+          .select('name, slug, logo_url, primary_color, secondary_color')
+          .eq('id', feeToken.tenant_id)
+          .single();
+        tenantBranding = tenant;
+      } catch {}
+
+      let stripePublishableKey = null;
+      try {
+        const { getConfigForOrganisation } = await import('../../_lib/membershipConfigResolver.js');
+        const tierConfig = await getConfigForOrganisation(feeToken.tenant_id, feeToken.organization_id);
+        if (tierConfig?.online_card_payment) {
+          const { getStripeCredentials } = await import('../../_lib/stripeCredentials.js');
+          const creds = await getStripeCredentials(feeToken.tenant_id, 'membership');
+          if (creds?.is_enabled && creds?.publishable_key) {
+            stripePublishableKey = creds.publishable_key;
+          }
+        }
+      } catch {}
+
+      const breakdown = feeToken.cost_breakdown || {};
+
+      if (breakdown.freeDiscount > 0 && !breakdown.freePeriodUnit) {
+        try {
+          const { simulateMembershipForOrg } = await import('../../_lib/membershipSimulation.js');
+          const simResult = await simulateMembershipForOrg(feeToken.tenant_id, feeToken.organization_id, {
+            source: 'token-enrich',
+            targetYear: feeToken.membership_year,
+          });
+          if (simResult.success) {
+            breakdown.freePeriodUnit = simResult.freePeriodUnit;
+            breakdown.freePeriodAmount = simResult.freePeriodAmount;
+            breakdown.yearNumber = simResult.yearNumber;
+            if (!breakdown.freePeriodDaysApplied) {
+              breakdown.freePeriodDaysApplied = simResult.freePeriodDaysApplied || 0;
+            }
+          }
+        } catch {}
+      }
+
+      const tokenVatRate = breakdown.vatRatePercent || null;
+      const tokenVatAmount = breakdown.vatAmount || 0;
+      const tokenTotalWithVat = breakdown.totalWithVat || parseFloat(feeToken.final_cost);
+
+      // If the token carries a pre-created Xero invoice id but no online URL
+      // yet (e.g. the cron created the invoice but the URL fetch failed at
+      // the time, or the invoice was in DRAFT and has since been authorised),
+      // try once more to resolve the online URL so we can show it on the
+      // confirmation screen.
+      let xeroOnlineInvoiceUrl = feeToken.xero_online_invoice_url || null;
+      if (feeToken.xero_invoice_id && !xeroOnlineInvoiceUrl) {
+        try {
+          const { getAccountingProvider } = await import('../../_lib/accountingProvider.js');
+          const _provider = await getAccountingProvider(feeToken.tenant_id);
+          const { accessToken, tenantId: xeroTenantId } = await _provider.getRawAccessToken(feeToken.tenant_id);
+          const r = await fetch(`https://api.xero.com/api.xro/2.0/Invoices/${feeToken.xero_invoice_id}/OnlineInvoice`, {
+            headers: { 'Authorization': `Bearer ${accessToken}`, 'xero-tenant-id': xeroTenantId, 'Accept': 'application/json' },
+          });
+          if (r.ok) {
+            const d = await r.json();
+            xeroOnlineInvoiceUrl = d?.OnlineInvoices?.[0]?.OnlineInvoiceUrl || null;
+            if (xeroOnlineInvoiceUrl) {
+              await supabase.from('membership_fee_token').update({ xero_online_invoice_url: xeroOnlineInvoiceUrl, updated_at: new Date().toISOString() }).eq('id', feeToken.id);
+            }
+          }
+        } catch {}
+      }
+
+      return res.json({
+        status: feeToken.status,
+        organizationName: org?.name || 'Organisation',
+        membershipYear: feeToken.membership_year,
+        finalCost: parseFloat(feeToken.final_cost),
+        vatRatePercent: tokenVatRate,
+        vatAmount: tokenVatAmount,
+        totalWithVat: tokenTotalWithVat,
+        currency: feeToken.currency || 'GBP',
+        tierLabel: feeToken.tier_label,
+        costBreakdown: breakdown,
+        poNumber: feeToken.po_number || null,
+        stripeEnabled: !!stripePublishableKey,
+        stripePublishableKey,
+        xeroInvoiceNumber: feeToken.xero_invoice_number || null,
+        xeroOnlineInvoiceUrl,
+        tenant: tenantBranding ? {
+          name: tenantBranding.name,
+          logoUrl: tenantBranding.logo_url,
+          primaryColor: tenantBranding.primary_color || '#5C0085',
+        } : null,
+        ...(await (async () => {
+          try {
+            const { data: s } = await supabase.from('system_settings').select('setting_value').eq('setting_key', 'membership_require_approval').eq('tenant_id', feeToken.tenant_id).maybeSingle();
+            if (s?.setting_value !== 'true') return { approvalPending: false, approvalMessage: null };
+            const { data: inv } = await supabase.from('organisation_membership_invoicing').select('fees_approved').eq('tenant_id', feeToken.tenant_id).eq('organization_id', feeToken.organization_id).eq('membership_year', feeToken.membership_year).maybeSingle();
+            if (inv?.fees_approved) return { approvalPending: false, approvalMessage: null };
+            const { data: msgSetting } = await supabase.from('system_settings').select('setting_value').eq('setting_key', 'membership_custom_message').eq('tenant_id', feeToken.tenant_id).maybeSingle();
+            return { approvalPending: true, approvalMessage: msgSetting?.setting_value || null };
+          } catch { return { approvalPending: false, approvalMessage: null }; }
+        })()),
+      });
+    }
+
+    if (req.method === 'POST') {
+      const { action } = req.body;
+
+      // Task #1112 — confirm_payment must be able to recover a stuck-paid
+      // token (status='paid' but no history row). Skip the "already paid"
+      // short-circuit for that action and let its own idempotency probe
+      // (further down) decide whether to return success or surface a 409.
+      if (feeToken.status === 'paid' && action !== 'confirm_payment') {
+        return res.status(400).json({ error: 'This membership fee has already been paid' });
+      }
+
+      if (action === 'submit_po') {
+        const { poNumber } = req.body;
+        if (!poNumber || !poNumber.trim()) {
+          return res.status(400).json({ error: 'Purchase order number is required' });
+        }
+
+        try {
+          const { data: approvalSetting } = await supabase
+            .from('system_settings')
+            .select('setting_value')
+            .eq('setting_key', 'membership_require_approval')
+            .eq('tenant_id', feeToken.tenant_id)
+            .maybeSingle();
+
+          if (approvalSetting?.setting_value === 'true') {
+            const { data: invoicing } = await supabase
+              .from('organisation_membership_invoicing')
+              .select('fees_approved')
+              .eq('tenant_id', feeToken.tenant_id)
+              .eq('organization_id', feeToken.organization_id)
+              .eq('membership_year', feeToken.membership_year)
+              .maybeSingle();
+
+            if (!invoicing?.fees_approved) {
+              return res.status(400).json({ error: 'Fees have not yet been approved. Please contact your administrator.' });
+            }
+          }
+        } catch {}
+
+        const { error: updateError } = await supabase
+          .from('membership_fee_token')
+          .update({
+            po_number: poNumber.trim(),
+            status: 'po_submitted',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', feeToken.id);
+
+        if (updateError) {
+          console.error('[Public Fee] Error updating PO:', updateError);
+          return res.status(500).json({ error: 'Failed to save purchase order number' });
+        }
+
+        let poSyncWarning = null;
+        try {
+          try {
+            await supabase.rpc('exec_sql', {
+              sql_text: `
+                ALTER TABLE organisation_membership_invoicing ADD COLUMN IF NOT EXISTS purchase_order_number TEXT;
+                ALTER TABLE organisation_membership_invoicing ADD COLUMN IF NOT EXISTS membership_year TEXT;
+                ALTER TABLE organisation_membership_invoicing ADD COLUMN IF NOT EXISTS po_source TEXT;
+              `
+            });
+          } catch (colErr) {
+            console.warn('[Public Fee] exec_sql unavailable for column ensure:', colErr?.message || colErr);
+          }
+
+          const { data: existingInvoicing, error: lookupErr } = await supabase
+            .from('organisation_membership_invoicing')
+            .select('id')
+            .eq('tenant_id', feeToken.tenant_id)
+            .eq('organization_id', feeToken.organization_id)
+            .eq('membership_year', feeToken.membership_year)
+            .maybeSingle();
+
+          if (lookupErr) {
+            console.error('[Public Fee] Error looking up invoicing row:', lookupErr);
+            poSyncWarning = 'PO number saved on token but could not sync to admin invoicing tab. The admin may need to add the purchase_order_number column manually.';
+          } else if (existingInvoicing) {
+            const { error: updErr } = await supabase
+              .from('organisation_membership_invoicing')
+              .update({ purchase_order_number: poNumber.trim(), po_source: 'member', updated_at: new Date().toISOString() })
+              .eq('id', existingInvoicing.id);
+            if (updErr) {
+              console.error('[Public Fee] Error updating PO on invoicing row:', updErr);
+              poSyncWarning = 'PO number saved on token but failed to sync to admin invoicing tab.';
+            }
+          } else {
+            const { error: insErr } = await supabase
+              .from('organisation_membership_invoicing')
+              .insert({
+                tenant_id: feeToken.tenant_id,
+                organization_id: feeToken.organization_id,
+                membership_year: feeToken.membership_year,
+                invoicing_mode: 'manual',
+                purchase_order_number: poNumber.trim(),
+                po_source: 'member',
+              });
+            if (insErr) {
+              console.error('[Public Fee] Error inserting invoicing row with PO:', insErr);
+              poSyncWarning = 'PO number saved on token but failed to sync to admin invoicing tab.';
+            }
+          }
+        } catch (syncErr) {
+          console.error('[Public Fee] Error syncing PO to invoicing:', syncErr);
+          poSyncWarning = 'PO number saved on token but could not sync to admin invoicing tab.';
+        }
+
+        // If the token carries a pre-created Xero invoice id (cron-created
+        // auto-renewal path, Task #990), push the submitted PO into the Xero
+        // invoice's Reference field so finance sees it on the invoice itself.
+        let xeroPoWarning = null;
+        if (feeToken.xero_invoice_id) {
+          try {
+            const { getAccountingProvider } = await import('../../_lib/accountingProvider.js');
+            const _provider = await getAccountingProvider(feeToken.tenant_id);
+            const reference = `Membership ${feeToken.membership_year} - PO: ${poNumber.trim()}`;
+            const xeroResult = await _provider.pushPurchaseOrder({
+              appTenantId: feeToken.tenant_id,
+              xeroInvoiceId: feeToken.xero_invoice_id,
+              purchaseOrderNumber: reference,
+              contextLabel: 'Public Fee PO',
+            });
+            if (!xeroResult.xeroUpdated && xeroResult.xeroError) {
+              xeroPoWarning = `PO saved but could not be pushed to Xero invoice: ${xeroResult.xeroError}`;
+            }
+          } catch (xeroErr) {
+            console.error('[Public Fee] Xero PO push failed:', xeroErr.message);
+            xeroPoWarning = 'PO saved but could not be pushed to Xero invoice.';
+          }
+        }
+
+        // Mirror PO onto the membership history record so admin views show it.
+        if (feeToken.history_record_id) {
+          try {
+            await supabase
+              .from('organisation_membership_history')
+              .update({ purchase_order_number: poNumber.trim() })
+              .eq('id', feeToken.history_record_id);
+          } catch (histErr) {
+            console.warn('[Public Fee] history PO update failed:', histErr.message);
+          }
+        }
+
+        try {
+          await supabase.from('organization_note').insert({
+            organization_id: feeToken.organization_id,
+            member_id: null,
+            content: `[Membership Fee - PO Submitted] Purchase order ${poNumber.trim()} submitted via fee link for ${feeToken.membership_year}.${feeToken.xero_invoice_number ? ` Xero invoice: ${feeToken.xero_invoice_number}.` : ''}`,
+            attachments: [],
+          });
+        } catch {}
+
+        const response = {
+          success: true,
+          message: 'Purchase order number submitted successfully',
+          xeroInvoiceNumber: feeToken.xero_invoice_number || null,
+          xeroOnlineInvoiceUrl: feeToken.xero_online_invoice_url || null,
+        };
+        if (poSyncWarning) response.warning = poSyncWarning;
+        if (xeroPoWarning) response.xeroWarning = xeroPoWarning;
+        return res.json(response);
+      }
+
+      if (action === 'create_payment') {
+        try {
+          const { data: approvalSetting } = await supabase
+            .from('system_settings')
+            .select('setting_value')
+            .eq('setting_key', 'membership_require_approval')
+            .eq('tenant_id', feeToken.tenant_id)
+            .maybeSingle();
+
+          if (approvalSetting?.setting_value === 'true') {
+            const { data: invoicing } = await supabase
+              .from('organisation_membership_invoicing')
+              .select('fees_approved')
+              .eq('tenant_id', feeToken.tenant_id)
+              .eq('organization_id', feeToken.organization_id)
+              .eq('membership_year', feeToken.membership_year)
+              .maybeSingle();
+
+            if (!invoicing?.fees_approved) {
+              return res.status(400).json({ error: 'Fees have not yet been approved for payment. Please contact your administrator.' });
+            }
+          }
+        } catch {}
+
+        const { getStripeCredentials, findOrCreateStripeCustomer } = await import('../../_lib/stripeCredentials.js');
+        const Stripe = (await import('stripe')).default;
+
+        const stripeCredentials = await getStripeCredentials(feeToken.tenant_id, 'membership');
+        if (!stripeCredentials?.secret_key) {
+          return res.status(503).json({ error: 'Payment processing is not available' });
+        }
+
+        const stripe = new Stripe(stripeCredentials.secret_key);
+        const tokenBreakdown = feeToken.cost_breakdown || {};
+        const chargeTotal = tokenBreakdown.totalWithVat || parseFloat(feeToken.final_cost);
+        const amount = Math.round(chargeTotal * 100);
+        const STRIPE_MIN_CENTS = { gbp: 30, usd: 50, eur: 50, aud: 50, nzd: 50 };
+        const cur = (feeToken.currency || 'GBP').toLowerCase();
+        const minCents = STRIPE_MIN_CENTS[cur] || 50;
+        if (amount < minCents) {
+          return res.status(400).json({ error: `Amount is below the minimum charge for ${cur.toUpperCase()}` });
+        }
+
+        const { data: org } = await supabase
+          .from('organization')
+          .select('name')
+          .eq('id', feeToken.organization_id)
+          .single();
+
+        const stripeCustomer = feeToken.recipient_email
+          ? await findOrCreateStripeCustomer(stripe, {
+              email: feeToken.recipient_email,
+              name: org?.name || undefined,
+              metadata: { tenant_id: feeToken.tenant_id, organization_id: feeToken.organization_id, organization_name: org?.name || '' },
+            })
+          : null;
+
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount,
+          currency: (feeToken.currency || 'GBP').toLowerCase(),
+          customer: stripeCustomer?.id || undefined,
+          receipt_email: feeToken.recipient_email || undefined,
+          metadata: {
+            token_id: feeToken.id,
+            organization_id: feeToken.organization_id,
+            membership_year: feeToken.membership_year,
+            tenant_id: feeToken.tenant_id,
+          },
+          description: `Membership fee for ${org?.name || 'Organisation'} - ${feeToken.membership_year}`,
+        });
+
+        await supabase
+          .from('membership_fee_token')
+          .update({
+            stripe_payment_intent_id: paymentIntent.id,
+            stripe_client_secret: paymentIntent.client_secret,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', feeToken.id);
+
+        return res.json({
+          clientSecret: paymentIntent.client_secret,
+          paymentIntentId: paymentIntent.id,
+        });
+      }
+
+      if (action === 'confirm_payment') {
+        // -----------------------------------------------------------------
+        // Task #1112 — Hardened confirm_payment flow.
+        //
+        // Failure-mode policy (documented per task spec): on any error
+        // between Stripe capture and history-row insert, the system AUTO-
+        // REFUNDS the Stripe payment and resets the fee token so the user
+        // can retry from scratch. We deliberately do NOT leave a paid
+        // token without a backing history row.
+        //
+        // Sequencing (was: token→paid, then sim, then insert):
+        //   1. Verify Stripe PI succeeded + amount matches.
+        //   2. Stamp the PI onto the token (status still pending) so a
+        //      refund/cron can recover even if this process dies mid-flow.
+        //   3. Run the simulator. If success=false → log full error+steps
+        //      at error level, auto-refund, clear PI, return 500.
+        //   4. Insert the history row.
+        //   5. Only NOW flip the token to status='paid'.
+        //   6. Attempt to create/apply the accounting invoice. Failures
+        //      here are NOT silently swallowed — the history row is
+        //      flagged with accounting_sync_status='failed' +
+        //      accounting_sync_error and the API response carries a
+        //      warning so the admin UI can show a retry affordance.
+        //
+        // Idempotency (was: only checked history_history.stripe_payment_intent_id):
+        //   The new probe consults BOTH the history table AND the fee
+        //   token. A stuck-paid token (status='paid', PI set, no history
+        //   row) returns 409 with a recovery hint instead of silently
+        //   re-running the entire flow.
+        // -----------------------------------------------------------------
+
+        const { paymentIntentId } = req.body;
+        if (!paymentIntentId) {
+          return res.status(400).json({ error: 'paymentIntentId is required' });
+        }
+
+        // Idempotency probe — by history row first (the original path).
+        const { data: existingByPI } = await supabase
+          .from('organisation_membership_history')
+          .select('id')
+          .eq('stripe_payment_intent_id', paymentIntentId)
+          .maybeSingle();
+
+        if (existingByPI) {
+          console.log(`[Public Fee] Idempotent return: history row already exists for PI ${paymentIntentId}`);
+          if (feeToken.status !== 'paid') {
+            await supabase.from('membership_fee_token').update({ status: 'paid', paid_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', feeToken.id);
+          }
+          return res.json({ success: true, already_processed: true, recordCreated: true, message: 'Payment already confirmed' });
+        }
+
+        // Idempotency probe — token already paid with this PI but no
+        // history row. This is the stuck-token state. Surface it loudly
+        // instead of silently re-driving Stripe verification + simulator
+        // on every retry.
+        if (feeToken.status === 'paid' && feeToken.stripe_payment_intent_id === paymentIntentId) {
+          console.error(`[Public Fee] STUCK TOKEN: token ${feeToken.id} is paid with PI ${paymentIntentId} but no history row exists. Manual recovery required (admin can run scripts/backfill-stuck-membership-fee-tokens.mjs).`);
+          return res.status(409).json({
+            error: 'This payment was received but the membership record was not created. The administrator has been notified and will resolve this within one business day; please do not retry.',
+            stuckTokenId: feeToken.id,
+          });
+        }
+
+        try {
+          const { data: approvalSetting } = await supabase
+            .from('system_settings')
+            .select('setting_value')
+            .eq('setting_key', 'membership_require_approval')
+            .eq('tenant_id', feeToken.tenant_id)
+            .maybeSingle();
+
+          if (approvalSetting?.setting_value === 'true') {
+            const { data: invoicing } = await supabase
+              .from('organisation_membership_invoicing')
+              .select('fees_approved')
+              .eq('tenant_id', feeToken.tenant_id)
+              .eq('organization_id', feeToken.organization_id)
+              .eq('membership_year', feeToken.membership_year)
+              .maybeSingle();
+
+            if (!invoicing?.fees_approved) {
+              return res.status(400).json({ error: 'Fees have not yet been approved for payment. Please contact your administrator.' });
+            }
+          }
+        } catch {}
+
+        const { getStripeCredentials } = await import('../../_lib/stripeCredentials.js');
+        const Stripe = (await import('stripe')).default;
+
+        const stripeCredentials = await getStripeCredentials(feeToken.tenant_id, 'membership');
+        if (!stripeCredentials?.secret_key) {
+          return res.status(503).json({ error: 'Payment verification not available' });
+        }
+
+        if (feeToken.stripe_payment_intent_id && feeToken.stripe_payment_intent_id !== paymentIntentId) {
+          return res.status(400).json({ error: 'Payment intent does not match this fee token' });
+        }
+
+        const stripe = new Stripe(stripeCredentials.secret_key);
+        const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+
+        if (paymentIntent.status !== 'succeeded') {
+          return res.status(400).json({ error: 'Payment has not been completed', status: paymentIntent.status });
+        }
+
+        const confirmBreakdown = feeToken.cost_breakdown || {};
+        const confirmTotal = confirmBreakdown.totalWithVat || parseFloat(feeToken.final_cost);
+        const expectedAmount = Math.round(confirmTotal * 100);
+        if (paymentIntent.amount !== expectedAmount) {
+          console.error(`[Public Fee] Amount mismatch: expected ${expectedAmount}, got ${paymentIntent.amount}`);
+          return res.status(400).json({ error: 'Payment amount does not match expected fee' });
+        }
+
+        // Task #1112 — stamp the PI on the token (status still pending) so
+        // any subsequent failure path can locate this payment for refund/
+        // recovery. DO NOT flip status to 'paid' yet — that only happens
+        // after the history row has been successfully inserted below.
+        await supabase
+          .from('membership_fee_token')
+          .update({
+            stripe_payment_intent_id: paymentIntentId,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', feeToken.id);
+
+        const { simulateMembershipForOrg } = await import('../../_lib/membershipSimulation.js');
+        const simResult = await simulateMembershipForOrg(feeToken.tenant_id, feeToken.organization_id, {
+          source: 'stripe-payment',
+          mode: 'manual',
+          targetYear: feeToken.membership_year,
+        });
+
+        // Task #1112 — explicit handling of simResult.success === false.
+        // Previously this dropped through to the (recordCreated=false)
+        // branch which returned success:true with no history row + no
+        // invoice — silent loss. We now auto-refund (consistent with the
+        // history-insert failure path further down) and surface a 500.
+        if (!simResult.success) {
+          console.error('[Public Fee] simulateMembershipForOrg returned success=false during confirm_payment:', {
+            tokenId: feeToken.id,
+            paymentIntentId,
+            tenantId: feeToken.tenant_id,
+            organizationId: feeToken.organization_id,
+            membershipYear: feeToken.membership_year,
+            error: simResult.error,
+            steps: simResult.steps,
+          });
+          try {
+            await stripe.refunds.create({
+              payment_intent: paymentIntentId,
+              reason: 'requested_by_customer',
+              metadata: { reason: 'membership_simulation_failed', token_id: feeToken.id },
+            });
+            console.log(`[Public Fee] Auto-refund issued for PI ${paymentIntentId} after simulation failure`);
+            await supabase
+              .from('membership_fee_token')
+              .update({ stripe_payment_intent_id: null, updated_at: new Date().toISOString() })
+              .eq('id', feeToken.id);
+          } catch (refundErr) {
+            console.error(`[Public Fee] Auto-refund FAILED for PI ${paymentIntentId} after sim failure:`, refundErr.message);
+          }
+          return res.status(500).json({
+            error: 'Could not create your membership record because the fee structure could not be re-verified. A refund has been initiated. Please contact your administrator if you do not see it within 5-10 business days.',
+          });
+        }
+
+        let recordCreated = false;
+        let historyRecord = null;
+        if (simResult.success && simResult.existingRecord) {
+          // Cron-created path (Task #990): a history record already exists
+          // (created by the auto-renewal cron). Load it and stamp the Stripe
+          // PI for traceability so confirm-payment is idempotent against
+          // existing-record tokens too.
+          try {
+            const { data: existing } = await supabase
+              .from('organisation_membership_history')
+              .select('*')
+              .eq('id', feeToken.history_record_id || '00000000-0000-0000-0000-000000000000')
+              .maybeSingle();
+            historyRecord = existing
+              || (await supabase
+                .from('organisation_membership_history')
+                .select('*')
+                .eq('tenant_id', feeToken.tenant_id)
+                .eq('organization_id', feeToken.organization_id)
+                .eq('membership_year', feeToken.membership_year)
+                .maybeSingle()).data;
+            if (historyRecord && !historyRecord.stripe_payment_intent_id) {
+              await supabase
+                .from('organisation_membership_history')
+                .update({ payment_method: 'stripe', stripe_payment_intent_id: paymentIntentId })
+                .eq('id', historyRecord.id);
+            }
+            recordCreated = !!historyRecord;
+          } catch (linkErr) {
+            console.warn('[Public Fee] Could not link existing history record:', linkErr.message);
+          }
+        }
+        if (simResult.success && !simResult.existingRecord) {
+          const { data: insertedRecord, error: insertError } = await supabase
+            .from('organisation_membership_history')
+            .insert({
+              tenant_id: feeToken.tenant_id,
+              organization_id: feeToken.organization_id,
+              membership_year: simResult.membershipYear.label,
+              config_id: simResult.config?.id || null,
+              band_id: simResult.matchedBand?.id || null,
+              tier_label: simResult.tierLabel,
+              field_value: simResult.fieldValue,
+              annual_cost: simResult.annualCost,
+              prorata_cost: simResult.prorataCost,
+              free_period_discount: simResult.freeDiscount || 0,
+              rollover_discount: simResult.rolloverDiscount || 0,
+              custom_discount_total: simResult.customDiscountTotal || 0,
+              custom_discount_details: simResult.customDiscountDetails?.length > 0 ? simResult.customDiscountDetails : null,
+              final_cost: parseFloat(feeToken.final_cost),
+              currency: feeToken.currency || 'GBP',
+              billing_period: simResult.billingPeriod || 'annual',
+              purchase_order_number: feeToken.po_number || null,
+              vat_rate_percent: simResult.vatRatePercent || null,
+              vat_amount: simResult.vatAmount || 0,
+              total_with_vat: simResult.totalWithVat || parseFloat(feeToken.final_cost),
+              year_number: simResult.yearNumber || null,
+              prorata_days: simResult.prorataDays || null,
+              free_period_days_applied: simResult.freePeriodDaysApplied || 0,
+              override_applied: simResult.overrideApplied || false,
+              override_type: simResult.overrideType || null,
+              payment_method: 'stripe',
+              stripe_payment_intent_id: paymentIntentId,
+              status: 'active',
+              notes: `Payment received via Stripe (${paymentIntentId}). Fee link: ${token.substring(0, 8)}...`,
+            })
+            .select()
+            .single();
+
+          if (!insertError) {
+            recordCreated = true;
+            historyRecord = insertedRecord;
+          } else if (insertError.code === '23505') {
+            console.log(`[Public Fee] Duplicate constraint hit for PI ${paymentIntentId} - already processed`);
+            recordCreated = true;
+          } else {
+            console.error('[Public Fee] Error creating history record:', insertError);
+            // Auto-refund: record creation failed after payment succeeded.
+            // Task #1112 — also clear the PI off the token so the token is
+            // back to a clean 'pending' state (token status was never
+            // flipped to 'paid' in this revised sequence).
+            try {
+              await stripe.refunds.create({
+                payment_intent: paymentIntentId,
+                reason: 'requested_by_customer',
+                metadata: { reason: 'membership_record_creation_failed', token_id: feeToken.id }
+              });
+              console.log(`[Public Fee] Auto-refund issued for PI ${paymentIntentId} after record creation failure`);
+              await supabase
+                .from('membership_fee_token')
+                .update({ stripe_payment_intent_id: null, updated_at: new Date().toISOString() })
+                .eq('id', feeToken.id);
+            } catch (refundErr) {
+              console.error(`[Public Fee] Auto-refund FAILED for PI ${paymentIntentId}:`, refundErr.message);
+            }
+            return res.status(500).json({ error: 'Failed to create membership record. A refund has been initiated. Please contact support if you do not see it within 5-10 business days.' });
+          }
+        }
+
+        // Task #1112 — history row is now safely persisted (or already
+        // existed). NOW we can flip the token to 'paid'. Doing this
+        // earlier would have left the token in a misleading state if any
+        // of the steps above failed.
+        if (recordCreated && feeToken.status !== 'paid') {
+          await supabase
+            .from('membership_fee_token')
+            .update({
+              status: 'paid',
+              paid_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', feeToken.id);
+        }
+
+        let xeroInvoice = null;
+        let accountingSyncError = null;
+        if (recordCreated) {
+          try {
+            if (feeToken.xero_invoice_id) {
+              // Cron-created invoice already exists (Task #990). Apply the
+              // Stripe payment to it instead of minting a duplicate. Route
+              // through the provider facade so the same flow works for both
+              // Xero and QuickBooks (the column is named xero_invoice_id for
+              // legacy reasons, but holds whichever provider's invoice id
+              // was minted by the cron).
+              const { getAccountingProvider, buildInvoiceColumnUpdate } = await import('../../_lib/accountingProvider.js');
+              const provider = await getAccountingProvider(feeToken.tenant_id);
+              xeroInvoice = await provider.applyStripePaymentToInvoice({
+                appTenantId: feeToken.tenant_id,
+                invoiceId: feeToken.xero_invoice_id,
+                stripePaymentIntentId: paymentIntentId,
+              });
+              if (xeroInvoice?.online_invoice_url) {
+                try {
+                  await supabase
+                    .from('membership_fee_token')
+                    .update({ xero_online_invoice_url: xeroInvoice.online_invoice_url, updated_at: new Date().toISOString() })
+                    .eq('id', feeToken.id);
+                } catch {}
+              }
+              if (historyRecord && !historyRecord.xero_invoice_id && !historyRecord.accounting_invoice_id) {
+                try {
+                  await supabase
+                    .from('organisation_membership_history')
+                    .update(buildInvoiceColumnUpdate({
+                      invoice_id: feeToken.xero_invoice_id,
+                      invoice_number: feeToken.xero_invoice_number,
+                      provider: provider.name,
+                    }))
+                    .eq('id', historyRecord.id);
+                } catch {}
+              }
+            } else {
+              const { getAccountingProvider, buildInvoiceColumnUpdate } = await import('../../_lib/accountingProvider.js');
+              const { data: org } = await supabase
+                .from('organization')
+                .select('name, invoicing_address, invoicing_email')
+                .eq('id', feeToken.organization_id)
+                .single();
+
+              const reference = feeToken.po_number
+                ? `Membership ${feeToken.membership_year} - PO: ${feeToken.po_number}`
+                : `Membership ${feeToken.membership_year}`;
+
+              const _provider = await getAccountingProvider(feeToken.tenant_id);
+              xeroInvoice = await _provider.createMembershipInvoice({
+                appTenantId: feeToken.tenant_id,
+                organizationName: org?.name || 'Organisation',
+                invoicingEmail: org?.invoicing_email || null,
+                invoicingAddress: org?.invoicing_address,
+                membershipYear: feeToken.membership_year,
+                tierLabel: feeToken.tier_label,
+                finalCost: parseFloat(feeToken.final_cost),
+                currency: feeToken.currency || 'GBP',
+                reference,
+                vatRate: simResult.taxType || simResult.matchedBand?.vat_rate || null,
+                markAsPaid: true,
+                stripePaymentIntentId: paymentIntentId,
+                invoiceDescription: simResult.config?.invoice_description || null,
+              });
+              // Task #1017 — persist invoice id/number on the history row so
+              // the inline reconciliation below (and the cron, if it falls
+              // through) can locate it.
+              if (xeroInvoice && historyRecord) {
+                try {
+                  await supabase
+                    .from('organisation_membership_history')
+                    .update(buildInvoiceColumnUpdate({
+                      invoice_id: xeroInvoice.invoice_id,
+                      invoice_number: xeroInvoice.invoice_number,
+                      provider: _provider.name,
+                    }))
+                    .eq('id', historyRecord.id);
+                } catch {}
+              }
+            }
+          } catch (xeroErr) {
+            // Task #1112 — was previously logged and silently swallowed.
+            // The membership payment is captured AND the history row is
+            // persisted; only the accounting-side invoice failed. Flag
+            // the history row so the admin UI can show a warning + retry
+            // button instead of pretending everything succeeded.
+            console.error('[Public Fee] Accounting invoice failed for PI ' + paymentIntentId + ':', xeroErr);
+            accountingSyncError = xeroErr?.message || String(xeroErr) || 'Unknown accounting provider error';
+            if (historyRecord?.id) {
+              try {
+                await supabase
+                  .from('organisation_membership_history')
+                  .update({
+                    accounting_sync_status: 'failed',
+                    accounting_sync_error: accountingSyncError.slice(0, 1000),
+                  })
+                  .eq('id', historyRecord.id);
+              } catch (flagErr) {
+                console.error('[Public Fee] Failed to flag accounting_sync_status on history row:', flagErr.message);
+              }
+            }
+          }
+
+          // Task #1017 — fire workflow immediately for both the pre-created
+          // invoice path AND the newly-created-on-confirm path. The helper
+          // is idempotent and a no-op when the row is already in a terminal
+          // payment state.
+          if (xeroInvoice && historyRecord?.id) {
+            try {
+              const { reconcileMembershipInvoicePayment } = await import('../../_lib/membershipPaymentReconciliation.js');
+              await reconcileMembershipInvoicePayment({
+                table: 'organisation_membership_history',
+                recordId: historyRecord.id,
+              });
+            } catch (reconcileErr) {
+              console.warn('[Public Fee] inline payment reconciliation failed (non-fatal):', reconcileErr.message);
+            }
+          }
+
+          if (xeroInvoice && historyRecord) {
+            try {
+              const { sendMembershipInvoiceEmail } = await import('../../_lib/membershipInvoiceEmail.js');
+              const { data: emailOrg } = await supabase
+                .from('organization')
+                .select('name')
+                .eq('id', feeToken.organization_id)
+                .single();
+
+              const tokenBreakdownForEmail = feeToken.cost_breakdown || {};
+              await sendMembershipInvoiceEmail({
+                tenantId: feeToken.tenant_id,
+                organizationId: feeToken.organization_id,
+                organizationName: emailOrg?.name || 'Organisation',
+                membershipYear: feeToken.membership_year,
+                finalCost: parseFloat(feeToken.final_cost),
+                currency: feeToken.currency || 'GBP',
+                tierLabel: feeToken.tier_label,
+                xeroInvoiceNumber: xeroInvoice.invoice_number,
+                xeroInvoiceId: xeroInvoice.invoice_id,
+                historyRecordId: historyRecord.id,
+                vatAmount: tokenBreakdownForEmail.vatAmount || 0,
+                totalWithVat: tokenBreakdownForEmail.totalWithVat || parseFloat(feeToken.final_cost),
+                onlineInvoiceUrl: xeroInvoice.online_invoice_url || null,
+                tierConfig: simResult?.config,
+              });
+            } catch (emailErr) {
+              console.error('[Public Fee] Invoice email failed (non-fatal):', emailErr.message);
+            }
+          }
+        }
+
+        try {
+          const invoiceNote = xeroInvoice
+            ? ` Xero invoice ${xeroInvoice.invoice_number} created.`
+            : recordCreated ? ` Accounting invoice could not be created${accountingSyncError ? ` (${accountingSyncError})` : ''}; flagged for admin retry.` : '';
+          await supabase.from('organization_note').insert({
+            organization_id: feeToken.organization_id,
+            member_id: null,
+            content: `[Membership Fee - Stripe Payment] Payment received for ${feeToken.membership_year}. Amount: ${feeToken.currency} ${parseFloat(confirmTotal).toFixed(2)}${confirmBreakdown.vatAmount > 0 ? ` (incl. VAT ${parseFloat(confirmBreakdown.vatAmount).toFixed(2)})` : ''}. Stripe PI: ${paymentIntentId}.${invoiceNote}`,
+            attachments: [],
+          });
+        } catch {}
+
+        return res.json({
+          success: true,
+          recordCreated,
+          xeroInvoice: xeroInvoice ? { invoice_number: xeroInvoice.invoice_number } : null,
+          xeroInvoiceNumber: xeroInvoice?.invoice_number || feeToken.xero_invoice_number || null,
+          xeroOnlineInvoiceUrl: xeroInvoice?.online_invoice_url || feeToken.xero_online_invoice_url || null,
+          accountingSyncError: accountingSyncError || null,
+          warning: accountingSyncError
+            ? 'Your payment was received and your membership is recorded, but the accounting invoice could not be generated automatically. The administrator has been notified and will issue it manually.'
+            : null,
+          message: 'Payment confirmed successfully',
+        });
+      }
+
+      return res.status(400).json({ error: 'Unknown action' });
+    }
+
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (error) {
+    console.error('[Public Fee] Error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}

@@ -7,8 +7,6 @@ export const Organization = base44.entities.Organization;
 
 export const Event = base44.entities.Event;
 
-export const ZohoToken = base44.entities.ZohoToken;
-
 export const Booking = base44.entities.Booking;
 
 export const ProgramTicketTransaction = base44.entities.ProgramTicketTransaction;
@@ -81,6 +79,10 @@ export const OfflineAward = base44.entities.OfflineAward;
 
 export const OfflineAwardAssignment = base44.entities.OfflineAwardAssignment;
 
+export const EngagementAward = base44.entities.EngagementAward;
+
+export const EngagementAwardAssignment = base44.entities.EngagementAwardAssignment;
+
 export const WallOfFameSection = base44.entities.WallOfFameSection;
 
 export const WallOfFameCategory = base44.entities.WallOfFameCategory;
@@ -92,6 +94,7 @@ export const Floater = base44.entities.Floater;
 export const Form = base44.entities.Form;
 
 export const FormSubmission = base44.entities.FormSubmission;
+export const FormSubmissionSavedView = base44.entities.FormSubmissionSavedView;
 
 export const NewsPost = base44.entities.NewsPost;
 
@@ -105,6 +108,8 @@ export const MemberGroup = base44.entities.MemberGroup;
 
 export const MemberGroupAssignment = base44.entities.MemberGroupAssignment;
 
+export const MemberGroupClassification = base44.entities.MemberGroupClassification;
+
 export const GuestWriter = base44.entities.GuestWriter;
 
 export const PortalMenu = base44.entities.PortalMenu;
@@ -115,7 +120,37 @@ export const AwardSublevel = base44.entities.AwardSublevel;
 
 export const MemberGroupGuest = base44.entities.MemberGroupGuest;
 
+export const Speaker = base44.entities.Speaker;
 
+export const DynamicDirectory = base44.entities.DynamicDirectory;
+
+export const EmailTemplate = base44.entities.EmailTemplate;
+
+export const Workflow = base44.entities.Workflow;
+
+export const WorkflowLog = base44.entities.WorkflowLog;
+
+export const TrainingFundTransaction = base44.entities.TrainingFundTransaction;
+
+export const ForumCategory = base44.entities.ForumCategory;
+
+export const ForumThread = base44.entities.ForumThread;
+
+export const ForumPost = base44.entities.ForumPost;
+
+export const ForumReaction = base44.entities.ForumReaction;
+
+export const ForumReport = base44.entities.ForumReport;
+
+export const ForumModerationLog = base44.entities.ForumModerationLog;
+
+export const ArticleBrief = base44.entities.ArticleBrief;
+
+export const ArticleBriefVersion = base44.entities.ArticleBriefVersion;
+
+export const ArticleBriefComment = base44.entities.ArticleBriefComment;
+
+export const ArticleBriefActivity = base44.entities.ArticleBriefActivity;
 
 // auth sdk:
 export const User = base44.auth;

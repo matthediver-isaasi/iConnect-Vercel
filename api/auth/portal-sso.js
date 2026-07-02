@@ -1,0 +1,295 @@
+import { getSession, createSession, updateSession } from '../_lib/session.js';
+import { supabase } from '../_lib/database.js';
+
+export default async function handler(req, res) {
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  if (!supabase) {
+    return res.status(503).json({ error: 'Database not configured' });
+  }
+
+  const { token } = req.query;
+
+  if (!token) {
+    return res.redirect('/login?error=invalid_token');
+  }
+
+  try {
+    const { data: ssoToken, error: tokenError } = await supabase
+      .from('portal_sso_token')
+      .select('*')
+      .eq('token', token)
+      .is('used_at', null)
+      .single();
+
+    if (tokenError || !ssoToken) {
+      console.log('[Portal SSO] Token not found or already used');
+      return res.redirect('/login?error=invalid_token');
+    }
+
+    if (new Date(ssoToken.expires_at) < new Date()) {
+      console.log('[Portal SSO] Token expired');
+      await supabase.from('portal_sso_token').delete().eq('id', ssoToken.id);
+      return res.redirect('/login?error=token_expired');
+    }
+
+    await supabase
+      .from('portal_sso_token')
+      .update({ used_at: new Date().toISOString() })
+      .eq('id', ssoToken.id);
+
+    const { data: member, error: memberError } = await supabase
+      .from('member')
+      .select(`
+        id, email, first_name, last_name, login_enabled, status, handle, tenant_id,
+        role_id, organization_id,
+        role:role_id(id, name, excluded_features, default_landing_page),
+        organization:organization_id(id, name, tenant_id)
+      `)
+      .eq('id', ssoToken.member_id)
+      .single();
+
+    if (memberError || !member) {
+      console.log('[Portal SSO] Member not found:', ssoToken.member_id);
+      return res.redirect('/login?error=account_not_found');
+    }
+
+    if (!member.login_enabled || member.status !== 'active') {
+      console.log('[Portal SSO] Member account disabled');
+      return res.redirect('/login?error=account_disabled');
+    }
+
+    // Log member data for debugging handle generation
+    console.log('[Portal SSO] Member data for handle check:', {
+      memberId: member.id,
+      email: member.email,
+      firstName: member.first_name,
+      lastName: member.last_name,
+      existingHandle: member.handle,
+      tenantId: member.tenant_id,
+      organizationId: member.organization_id,
+      organizationTenantId: member.organization?.tenant_id
+    });
+
+    // Auto-generate handle if member doesn't have one (tenant-scoped uniqueness)
+    if (member.handle) {
+      console.log('[Portal SSO] Member already has handle:', member.handle);
+    } else if (!member.first_name && !member.last_name && !member.email) {
+      console.log('[Portal SSO] Cannot generate handle: no name or email data available');
+    } else {
+      console.log('[Portal SSO] Member has no handle, generating one...');
+      
+      try {
+        const generateSlug = (text) => {
+          return text
+            .toLowerCase()
+            .trim()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '');
+        };
+
+        // Get tenant_id for scoped uniqueness check (prefer direct tenant_id, fall back to organization)
+        const tenantId = member.tenant_id || member.organization?.tenant_id;
+        
+        if (!tenantId) {
+          console.log('[Portal SSO] Cannot generate handle: no tenant_id available');
+        } else {
+          // Fetch all organization IDs belonging to this tenant for legacy member lookup
+          const { data: tenantOrgs, error: orgError } = await supabase
+            .from('organization')
+            .select('id')
+            .eq('tenant_id', tenantId);
+          
+          if (orgError) {
+            console.error('[Portal SSO] Error fetching tenant organizations:', orgError.message);
+            throw new Error('Failed to fetch tenant organizations for handle generation');
+          }
+          
+          const orgIds = (tenantOrgs || []).map((o) => o.id);
+          
+          // Helper function to check if a handle exists in the tenant (fully deterministic)
+          const handleExistsInTenant = async (candidateHandle) => {
+            // Check direct tenant_id match
+            const { count: directCount, error: directError } = await supabase
+              .from('member')
+              .select('id', { count: 'exact', head: true })
+              .eq('tenant_id', tenantId)
+              .eq('handle', candidateHandle);
+            
+            if (directError) throw directError;
+            if (directCount > 0) return true;
+            
+            // Check legacy org-based members if tenant has orgs
+            if (orgIds.length > 0) {
+              const { count: orgCount, error: orgError } = await supabase
+                .from('member')
+                .select('id', { count: 'exact', head: true })
+                .in('organization_id', orgIds)
+                .is('tenant_id', null)
+                .eq('handle', candidateHandle);
+              
+              if (orgError) throw orgError;
+              if (orgCount > 0) return true;
+            }
+            
+            return false;
+          };
+
+          let baseHandle = '';
+          if (member.first_name && member.last_name) {
+            baseHandle = `${generateSlug(member.first_name)}-${generateSlug(member.last_name)}`;
+          } else if (member.first_name) {
+            baseHandle = generateSlug(member.first_name);
+          } else if (member.last_name) {
+            baseHandle = generateSlug(member.last_name);
+          } else if (member.email) {
+            baseHandle = generateSlug(member.email.split('@')[0]);
+          }
+          
+          if (baseHandle.length < 3) baseHandle = 'member';
+          if (baseHandle.length > 30) baseHandle = baseHandle.substring(0, 30);
+
+          let handle = baseHandle;
+          let counter = 1;
+          const maxAttempts = 100;
+          
+          while (await handleExistsInTenant(handle) && counter < maxAttempts) {
+            const suffix = `-${counter}`;
+            handle = baseHandle.substring(0, 30 - suffix.length) + suffix;
+            counter++;
+          }
+          
+          if (counter >= maxAttempts) {
+            console.error('[Portal SSO] Could not generate unique handle after', maxAttempts, 'attempts');
+            throw new Error('Could not generate unique handle');
+          }
+
+          const { error: updateError } = await supabase
+            .from('member')
+            .update({ handle })
+            .eq('id', member.id);
+
+          if (!updateError) {
+            member.handle = handle;
+            console.log('[Portal SSO] Generated and saved handle:', handle, 'for tenant:', tenantId);
+          } else {
+            console.error('[Portal SSO] Error saving handle:', updateError.message);
+          }
+        }
+      } catch (handleError) {
+        console.error('[Portal SSO] Error generating handle:', handleError.message);
+      }
+    }
+
+    // Check if there's an existing session with admin context to preserve
+    const existingSession = await getSession(req);
+    const preserveAdminContext = existingSession?.data?.tenantUserId && existingSession?.data?.userType === 'tenant_user';
+    
+    console.log('[Portal SSO] Session check for admin context:', {
+      hasExistingSession: !!existingSession,
+      sessionId: existingSession?.id?.substring(0, 8),
+      tenantUserId: existingSession?.data?.tenantUserId,
+      userType: existingSession?.data?.userType,
+      identityId: existingSession?.data?.identityId,
+      preserveAdminContext
+    });
+    
+    if (preserveAdminContext) {
+      // Update existing session to add member context while preserving admin context
+      const updatedSessionData = {
+        ...existingSession.data,
+        // Add member context
+        memberId: member.id,
+        memberEmail: member.email,
+        organizationId: member.organization_id,
+        roleId: member.role_id,
+        // Switch active context to member for portal use
+        userType: 'member',
+        // Preserve admin context for return (including identityId and tenantId)
+        preservedTenantUserId: existingSession.data.tenantUserId,
+        preservedTenantUserEmail: existingSession.data.tenantUserEmail,
+        preservedIdentityId: existingSession.data.identityId,
+        preservedTenantId: existingSession.data.tenantId,
+        preservedTenantUserType: 'tenant_user'
+      };
+      
+      console.log(`[Portal SSO] Preserving admin context:`, {
+        sessionId: existingSession.id?.substring(0, 8),
+        originalTenantUserId: existingSession.data.tenantUserId,
+        originalIdentityId: existingSession.data.identityId,
+        newMemberId: member.id,
+        preservedTenantUserId: updatedSessionData.preservedTenantUserId,
+        preservedIdentityId: updatedSessionData.preservedIdentityId
+      });
+      
+      const updateSuccess = await updateSession(existingSession.id, updatedSessionData);
+      if (!updateSuccess) {
+        console.error(`[Portal SSO] FAILED to update session with member context for tenant_user ${existingSession.data.tenantUserId}`);
+        // Fall back to creating a new session with preserved context
+        console.log(`[Portal SSO] Falling back to createSession with preserved context`);
+        await createSession(res, updatedSessionData, { req, replaceSessionId: existingSession.id });
+      } else {
+        console.log(`[Portal SSO] Successfully updated session with member context, preserved admin context for tenant_user ${existingSession.data.tenantUserId}`);
+      }
+    } else {
+      // No admin session found via cookie (may be on custom domain where iconn.app cookies aren't sent)
+      // Check if SSO token has tenant_user_id - this indicates the session was initiated from admin area
+      console.log('[Portal SSO] No admin context to preserve, creating new member session', {
+        ssoTokenHasTenantUserId: !!ssoToken.tenant_user_id,
+        tenantUserId: ssoToken.tenant_user_id
+      });
+      
+      let sessionData = {
+        memberId: member.id,
+        memberEmail: member.email,
+        organizationId: member.organization_id,
+        tenantId: member.organization?.tenant_id,
+        roleId: member.role_id,
+        identityId: member.identity_id || null,
+        userType: 'member'
+      };
+      
+      // If SSO token has tenant_user_id, derive preserved admin context from it
+      // SECURITY: Only derive admin context from verified tenant_user_id in the token
+      if (ssoToken.tenant_user_id) {
+        console.log(`[Portal SSO] SSO token has tenant_user_id, fetching admin context for Admin Dashboard link`);
+        
+        const { data: tenantUser } = await supabase
+          .from('tenant_user')
+          .select('id, email, identity_id, tenant_id')
+          .eq('id', ssoToken.tenant_user_id)
+          .single();
+        
+        if (tenantUser) {
+          sessionData.preservedTenantUserId = tenantUser.id;
+          sessionData.preservedTenantUserEmail = tenantUser.email;
+          sessionData.preservedIdentityId = tenantUser.identity_id;
+          sessionData.preservedTenantId = tenantUser.tenant_id;
+          sessionData.preservedTenantUserType = 'tenant_user';
+          
+          console.log(`[Portal SSO] Derived admin context from SSO token:`, {
+            preservedTenantUserId: tenantUser.id,
+            preservedIdentityId: tenantUser.identity_id
+          });
+        }
+      } else {
+        console.log(`[Portal SSO] No tenant_user_id in token, admin context not available`);
+      }
+      
+      await createSession(res, sessionData, { req });
+      console.log(`[Portal SSO] Created member session for ${member.id}`, 
+        sessionData.preservedTenantUserId ? `with preserved admin context for tenant_user ${sessionData.preservedTenantUserId}` : '(no admin context)');
+    }
+
+    const landingPage = member.role?.default_landing_page || 'Dashboard';
+    
+    console.log(`[Portal SSO] Successfully logged in member ${member.id} from SSO token`);
+    
+    res.redirect(`/${landingPage}`);
+  } catch (error) {
+    console.error('[Portal SSO] Error:', error);
+    res.redirect('/login?error=sso_failed');
+  }
+}

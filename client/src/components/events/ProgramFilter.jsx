@@ -13,7 +13,11 @@ export default function ProgramFilter({ programs, selectedProgram, onProgramChan
         <SelectContent>
           {programs.map(program => (
             <SelectItem key={program} value={program}>
-              {program === "all" ? "All Programs" : program}
+              {program === "all" 
+                ? "All Events" 
+                : program === "one-off" 
+                  ? "One-off Events" 
+                  : program}
             </SelectItem>
           ))}
         </SelectContent>

@@ -1,0 +1,200 @@
+import { createClient } from '@supabase/supabase-js';
+import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import { resolveBlogPostAuthors } from '../_lib/blogPostAuthors.js';
+
+// Public API endpoint for fetching a single article by slug and author handle
+export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    return res.status(503).json({ error: 'Supabase not configured' });
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+  try {
+    const tenant = await resolveTenantFromRequest(req);
+
+    if (!tenant) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+
+    const { slug, authorHandle } = req.query;
+
+    if (!slug) {
+      return res.status(400).json({ error: 'Article slug is required' });
+    }
+
+    let article = null;
+
+    if (authorHandle && authorHandle !== 'guest') {
+      const { data: member } = await supabase
+        .from('member')
+        .select('id')
+        .eq('tenant_id', tenant.id)
+        .eq('handle', authorHandle)
+        .single();
+
+      if (member) {
+        const { data: foundArticle } = await supabase
+          .from('blog_post')
+          .select(`
+            id,
+            title,
+            slug,
+            summary,
+            content,
+            feature_image_url,
+            feature_image_focal_point,
+            published_date,
+            author_id,
+            guest_writer_id,
+            status,
+            subcategories,
+            tags,
+            seo_title,
+            seo_description,
+            og_image_url
+          `)
+          .eq('tenant_id', tenant.id)
+          .eq('status', 'published')
+          .eq('author_id', member.id)
+          .or(`slug.eq.${slug},slug.like.${slug}-by-%`)
+          .single();
+
+        article = foundArticle;
+      }
+    } else if (authorHandle === 'guest') {
+      const { data: foundArticle } = await supabase
+        .from('blog_post')
+        .select(`
+          id,
+          title,
+          slug,
+          summary,
+          content,
+          feature_image_url,
+          feature_image_focal_point,
+          published_date,
+          author_id,
+          guest_writer_id,
+          status,
+          subcategories,
+          tags,
+          seo_title,
+          seo_description,
+          og_image_url
+        `)
+        .eq('tenant_id', tenant.id)
+        .eq('status', 'published')
+        .not('guest_writer_id', 'is', null)
+        .or(`slug.eq.${slug},slug.like.${slug}-by-%`)
+        .single();
+
+      article = foundArticle;
+    } else {
+      const { data: foundArticle } = await supabase
+        .from('blog_post')
+        .select(`
+          id,
+          title,
+          slug,
+          summary,
+          content,
+          feature_image_url,
+          feature_image_focal_point,
+          published_date,
+          author_id,
+          guest_writer_id,
+          status,
+          subcategories,
+          tags,
+          seo_title,
+          seo_description,
+          og_image_url
+        `)
+        .eq('tenant_id', tenant.id)
+        .eq('status', 'published')
+        .or(`slug.eq.${slug},slug.like.${slug}-by-%`)
+        .single();
+
+      article = foundArticle;
+    }
+
+    if (!article) {
+      return res.status(404).json({ error: 'Article not found' });
+    }
+
+    let author = null;
+    let guestWriter = null;
+
+    if (article.author_id) {
+      console.log('[Public Article] Looking up author with id:', article.author_id);
+      
+      const { data: member, error: memberError } = await supabase
+        .from('member')
+        .select('id, first_name, last_name, handle, profile_image_url, job_title, biography, linkedin_url, email')
+        .eq('id', article.author_id)
+        .single();
+
+      console.log('[Public Article] Member lookup result:', { found: !!member, error: memberError?.message });
+
+      if (member) {
+        author = {
+          id: member.id,
+          name: `${member.first_name || ''} ${member.last_name || ''}`.trim(),
+          handle: member.handle,
+          profilePicture: member.profile_image_url,
+          jobTitle: member.job_title,
+          shortBio: member.biography,
+          linkedinUrl: member.linkedin_url,
+          email: member.email
+        };
+      }
+    }
+
+    if (article.guest_writer_id) {
+      const { data: gw } = await supabase
+        .from('guest_writer')
+        .select('id, full_name, email, organization, job_title, biography, profile_photo_url, linkedin_url, is_active, tenant_id')
+        .eq('id', article.guest_writer_id)
+        .single();
+
+      if (gw) {
+        guestWriter = gw;
+      }
+    }
+
+    // Task #1222: ordered co-author list (primary author first). Existing
+    // author / guestWriter fields are kept for back-compat.
+    let authors = [];
+    try {
+      authors = await resolveBlogPostAuthors(supabase, article);
+    } catch (e) {
+      console.error('[Public Article] Author list resolve error:', e.message || e);
+    }
+
+    res.json({
+      article,
+      author,
+      guestWriter,
+      authors
+    });
+  } catch (error) {
+    console.error('[Public Article] Error:', error);
+    res.status(500).json({ error: 'Failed to fetch article' });
+  }
+}

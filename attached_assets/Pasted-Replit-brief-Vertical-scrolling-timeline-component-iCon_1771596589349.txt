@@ -1,0 +1,130 @@
+Replit brief: Vertical scrolling timeline component (iConnect CMS block)
+
+Goal
+Build a reusable vertical scrolling timeline component for iConnect that can be embedded as a CMS/iedit content block. It should display a left-hand “rail” with a vertical line and clickable year markers, and a right-hand content column with year sections. As the user scrolls, the active year marker should automatically highlight based on the section currently in view.
+
+UI / Layout
+
+Component is full-width inside the normal iConnect content container.
+
+Two-column layout:
+
+Left column (sticky): vertical line + year markers.
+
+Right column (scrolling): content blocks/sections for each year.
+
+Left column should remain visible while scrolling (e.g., position: sticky; top: <headerOffset>).
+
+Year markers are stacked vertically; each corresponds to a year section.
+
+Behaviour
+
+Scroll spy highlight
+
+As the user scrolls the right column, the currently “active” year marker highlights automatically.
+
+Use IntersectionObserver (preferred) to detect which year section is in view.
+
+Active state should update smoothly (no flicker); choose a sensible threshold / rootMargin.
+
+Account for a fixed header (offset) so highlight matches what the user actually sees.
+
+Click-to-scroll
+
+Clicking a year marker scrolls to the matching year section.
+
+Use smooth scrolling (scrollIntoView({ behavior: 'smooth' }) or equivalent).
+
+After click-scroll, active marker should update correctly (either via observer or forced state update).
+
+Deep linking (optional but nice)
+
+If URL contains a hash like #year-1998, auto-scroll to that section on load.
+
+When user clicks a marker, update the hash.
+
+Data model (CMS-friendly)
+
+The timeline should be driven by JSON (or whatever structure our iedit CMS stores), for example:
+
+{
+  "title": "Our History",
+  "items": [
+    {
+      "year": "1984",
+      "heading": "Founded",
+      "body": "<p>…rich text…</p>",
+      "media": { "type": "image", "src": "/path.jpg", "alt": "…" }
+    },
+    {
+      "year": "1992",
+      "heading": "Expanded",
+      "body": "<p>…</p>",
+      "media": { "type": "video", "src": "https://…" }
+    }
+  ]
+}
+
+Rendering requirements
+
+Support rich text in body (HTML string or editor output).
+
+Optional media per year: image/video (keep it simple; image first is fine).
+
+Years should be displayed in chronological order (as supplied).
+
+Styling
+
+Vertical line in left column spanning the marker list.
+
+Markers:
+
+Default: neutral/grey.
+
+Active: visually distinct (colour + weight + maybe a filled dot).
+
+Hover: clear affordance.
+
+Mobile:
+
+If narrow width, switch to a stacked layout:
+
+Year markers become a horizontal scroll row or collapse above content.
+
+Keep it usable, not perfect.
+
+Accessibility
+
+Year markers must be keyboard reachable (button or a).
+
+aria-current="true" on active marker.
+
+Respect reduced motion (prefers-reduced-motion) by disabling smooth scroll when enabled.
+
+Performance
+
+No heavy scroll handlers. Prefer IntersectionObserver.
+
+Should handle ~50–100 items without lag.
+
+Deliverables
+
+A React component: TimelineVertical.tsx (or .jsx)
+
+Example usage with mock data
+
+Minimal CSS/Tailwind styling included
+
+Notes where to connect to our iedit CMS block schema (what props it expects)
+
+Acceptance criteria (definition of done)
+
+Left sticky rail stays in place while the user scrolls the timeline content.
+
+Clicking a year marker smoothly scrolls to the correct section with correct offset.
+
+Active year marker updates correctly while scrolling up/down.
+
+Works with fixed header (configurable offset).
+
+Mobile layout doesn’t break and remains navigable.

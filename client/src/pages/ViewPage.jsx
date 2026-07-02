@@ -1,17 +1,23 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useLayoutEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
+import { useLayoutContext } from "@/contexts/LayoutContext";
+import { ScreenReaderProvider } from "@/contexts/ScreenReaderContext";
 import PublicLayout from "../components/layouts/PublicLayout";
 import IEditElementRenderer from "../components/iedit/IEditElementRenderer";
 
 export default function ViewPage() {
+  const { branding } = useTenantBranding();
+  const { setForceBlankLayout, setForcePublicLayout, setChromeReady, setPublicChrome } = useLayoutContext();
   const urlParams = new URLSearchParams(window.location.search);
   const pageSlug = urlParams.get('slug');
 
   const { data: page, isLoading: pageLoading } = useQuery({
     queryKey: ['iedit-page-by-slug', pageSlug],
     queryFn: async () => {
-      const pages = await base44.entities.IEditPage.list();
+      const result = await base44.entities.IEditPage.list();
+      const pages = Array.isArray(result) ? result : [];
       return pages.find(p => p.slug === pageSlug && p.status === 'published');
     },
     enabled: !!pageSlug,
@@ -20,7 +26,8 @@ export default function ViewPage() {
   const { data: elements, isLoading: elementsLoading } = useQuery({
     queryKey: ['iedit-page-elements', page?.id],
     queryFn: async () => {
-      const allElements = await base44.entities.IEditPageElement.list();
+      const result = await base44.entities.IEditPageElement.list();
+      const allElements = Array.isArray(result) ? result : [];
       return allElements
         .filter(e => e.page_id === page.id)
         .sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
@@ -30,7 +37,7 @@ export default function ViewPage() {
 
   useEffect(() => {
     if (page) {
-      document.title = page.meta_title || page.title || 'AGCAS';
+      document.title = page.meta_title || page.title || branding?.name || 'Portal';
       
       if (page.meta_description) {
         let metaDesc = document.querySelector('meta[name="description"]');
@@ -43,6 +50,56 @@ export default function ViewPage() {
       }
     }
   }, [page]);
+
+  useLayoutEffect(() => {
+    setChromeReady(false);
+    return () => {
+      setChromeReady(true);
+      setForceBlankLayout(false);
+      setPublicChrome('both');
+    };
+  }, [pageSlug, setChromeReady, setForceBlankLayout, setPublicChrome]);
+
+  useLayoutEffect(() => {
+    if (pageLoading || !page) return;
+    if (page.hide_chrome) {
+      setForcePublicLayout(false);
+      setForceBlankLayout(true);
+    } else if (page.layout_type !== 'member') {
+      // Public-layout page: honour its per-page header/footer choice.
+      setPublicChrome(page.public_chrome || 'both');
+    }
+    setChromeReady(true);
+  }, [page, pageLoading, setForceBlankLayout, setForcePublicLayout, setChromeReady, setPublicChrome]);
+
+  // Handle anchor scrolling after elements are loaded
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (elements && elements.length > 0 && !elementsLoading && hash) {
+      const anchorId = hash.substring(1); // Remove the # prefix
+      
+      // Use a small timeout to ensure DOM has fully updated after React render
+      const scrollTimeout = setTimeout(() => {
+        const targetElement = document.getElementById(anchorId);
+        if (targetElement) {
+          // Get the sticky header height to offset the scroll position
+          const header = document.querySelector('header.sticky, header[class*="sticky"]');
+          const headerHeight = header ? header.offsetHeight : 0;
+          
+          // Calculate the target scroll position with header offset
+          const elementPosition = targetElement.getBoundingClientRect().top;
+          const offsetPosition = elementPosition + window.pageYOffset - headerHeight - 20; // 20px extra padding
+          
+          window.scrollTo({
+            top: offsetPosition,
+            behavior: 'smooth'
+          });
+        }
+      }, 100);
+
+      return () => clearTimeout(scrollTimeout);
+    }
+  }, [elements, elementsLoading]);
 
   if (pageLoading || elementsLoading) {
     return (
@@ -69,30 +126,42 @@ export default function ViewPage() {
     );
   }
 
-  const LayoutComponent = page.layout_type === 'member' 
-    ? ({ children }) => <div className="min-h-screen">{children}</div>
-    : PublicLayout;
+  const BareWrapper = ({ children }) => <div className="min-h-screen">{children}</div>;
+  const LayoutComponent = page.hide_chrome
+    ? BareWrapper
+    : page.layout_type === 'member' 
+      ? BareWrapper
+      : PublicLayout;
+
+  const srOptimised = !!page.screen_reader_optimised;
 
   return (
-    <LayoutComponent currentPageName="ViewPage">
-      <div className="w-full">
-        {elements && elements.length > 0 ? (
-          elements.map((element) => (
-            <IEditElementRenderer
-              key={element.id}
-              element={element}
-              memberInfo={null}
-              organizationInfo={null}
-            />
-          ))
-        ) : (
-          <div className="min-h-screen flex items-center justify-center">
-            <div className="text-center">
-              <p className="text-slate-600">This page has no content yet.</p>
+    <ScreenReaderProvider optimised={srOptimised}>
+      <LayoutComponent currentPageName="ViewPage">
+        <div className="w-full">
+          {srOptimised && (
+            <h1 className="sr-only" data-testid="text-sr-page-h1">
+              {page.title}
+            </h1>
+          )}
+          {elements && elements.length > 0 ? (
+            elements.map((element) => (
+              <IEditElementRenderer
+                key={element.id}
+                element={element}
+                memberInfo={null}
+                organizationInfo={null}
+              />
+            ))
+          ) : (
+            <div className="min-h-screen flex items-center justify-center">
+              <div className="text-center">
+                <p className="text-slate-600">This page has no content yet.</p>
+              </div>
             </div>
-          </div>
-        )}
-      </div>
-    </LayoutComponent>
+          )}
+        </div>
+      </LayoutComponent>
+    </ScreenReaderProvider>
   );
 }

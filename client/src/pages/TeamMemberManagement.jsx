@@ -16,7 +16,7 @@ import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 export default function TeamMemberManagementPage() {
-  const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [editingTeamMember, setEditingTeamMember] = useState(null);
   const [showDialog, setShowDialog] = useState(false);
@@ -28,13 +28,13 @@ export default function TeamMemberManagementPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_TeamMemberManagement')) {
+      if (isFeatureExcluded('page_TeamMemberManagement')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady, isFeatureExcluded]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: teamMembers = [], isLoading: loadingTeamMembers } = useQuery({
     queryKey: ['team-members'],
@@ -154,9 +154,10 @@ export default function TeamMemberManagementPage() {
     return role?.name || 'Unknown Role';
   };
 
+  // Deprecated - admin concept removed, access controlled by feature exclusions
+  // Kept for backwards compatibility but always returns false
   const getRoleIsAdmin = (roleId) => {
-    const role = roles.find(r => r.id === roleId);
-    return role?.is_admin || false;
+    return false;
   };
 
   const filteredTeamMembers = teamMembers.filter(tm => {
@@ -172,14 +173,14 @@ export default function TeamMemberManagementPage() {
 
   if (!accessChecked) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-8">
           <div>
@@ -265,7 +266,7 @@ export default function TeamMemberManagementPage() {
                         <Shield className="w-3 h-3 text-slate-400" />
                         <span className="text-xs text-slate-600">{getRoleName(teamMember.role_id)}</span>
                         {getRoleIsAdmin(teamMember.role_id) && (
-                          <Badge className="bg-amber-100 text-amber-700 text-xs">Admin</Badge>
+                          <Badge className="bg-warning/10 text-warning text-xs">Admin</Badge>
                         )}
                       </div>
                     </div>
@@ -358,9 +359,6 @@ export default function TeamMemberManagementPage() {
                           <div className="flex items-center gap-2">
                             <Shield className="w-3 h-3" />
                             {role.name}
-                            {role.is_admin && (
-                              <span className="text-xs text-amber-600">(Admin)</span>
-                            )}
                           </div>
                         </SelectItem>
                       ))}
@@ -386,7 +384,7 @@ export default function TeamMemberManagementPage() {
                   <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                     <AlertCircle className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
                     <p className="text-xs text-blue-800">
-                      After creating this team member, they can log in using the magic link system on the home page.
+                      After creating this team member, they can log in using their email on the login page. On first login, they will be prompted to create a password.
                     </p>
                   </div>
                 )}

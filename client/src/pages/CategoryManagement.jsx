@@ -19,22 +19,23 @@ import { createPageUrl } from "@/utils";
 const CONTENT_TYPE_OPTIONS = [
   { value: 'Articles', label: 'Articles' },
   { value: 'Resources', label: 'Resources' },
-  { value: 'News', label: 'News' }
+  { value: 'News', label: 'News' },
+  { value: 'Events', label: 'Events' }
 ];
 
 export default function CategoryManagementPage() {
-  const { isAdmin, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin) {
+      if (isFeatureExcluded('content.categories')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
   const [editingCategory, setEditingCategory] = useState(null);
   const [showCategoryDialog, setShowCategoryDialog] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -95,19 +96,26 @@ export default function CategoryManagementPage() {
 
   const renameMutation = useMutation({
     mutationFn: async ({ categoryId, oldName, newName }) => {
-      const response = await renameResourceSubcategory({ 
+      const data = await renameResourceSubcategory({ 
         categoryId, 
         oldSubcategoryName: oldName, 
         newSubcategoryName: newName 
       });
-      return response.data;
+      if (!data?.success) {
+        throw new Error(data?.error || 'Failed to rename subcategory');
+      }
+      return data;
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['resource-categories'] });
       setShowRenameDialog(false);
       setEditingSubcategory(null);
       setRenameValue("");
-      toast.success(data.message || 'Subcategory renamed successfully');
+      if (data.partialFailure) {
+        toast.warning(data.message || 'Subcategory renamed, but some group links could not be updated');
+      } else {
+        toast.success(data.message || 'Subcategory renamed successfully');
+      }
     },
     onError: (error) => {
       toast.error('Failed to rename subcategory: ' + error.message);
@@ -240,14 +248,14 @@ export default function CategoryManagementPage() {
 
   if (!accessChecked) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-8">
           <div>

@@ -1,0 +1,21 @@
+2026-01-31 17:19:04.595 [info] [createJobPostingMember] Creating job posting
+2026-01-31 17:19:04.595 [info] [createJobPostingMember] Provided email: sharon.bacon@agcas.org.uk
+2026-01-31 17:19:04.849 [info] [TenantContext] About to call getSessionTenantUser
+2026-01-31 17:19:04.850 [info] [Session] getSession: Looking up session: c6b1da8b
+2026-01-31 17:19:04.991 [info] [Session] getSession: Session found, userType: member
+2026-01-31 17:19:04.991 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"c6b1da8b","userType":"member","memberId":"b20bf94c-9e33-4ba4-99e7-0fb6a2e20186","identityId":"3dc2ccec-26ee-45b4-8bf2-f9add70b5774","tenantId":"fd82da65-aab7-4a5c-85b8-b2febeb2003d"}
+2026-01-31 17:19:04.991 [info] [Session] Found member session with identityId, attempting promotion
+2026-01-31 17:19:05.256 [info] [Session] No tenant_user record found for identity promotion
+2026-01-31 17:19:05.256 [info] [Session] Member session promotion failed
+2026-01-31 17:19:05.256 [info] [TenantContext] getSessionTenantUser returned: null
+2026-01-31 17:19:05.256 [info] [TenantContext] Checking for member session...
+2026-01-31 17:19:05.256 [info] [Session] getSession: Looking up session: c6b1da8b
+2026-01-31 17:19:05.396 [info] [Session] getSession: Session found, userType: member
+2026-01-31 17:19:05.396 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"c6b1da8b","userType":"member","memberId":"b20bf94c-9e33-4ba4-99e7-0fb6a2e20186"}
+2026-01-31 17:19:05.536 [info] [TenantContext] Member found: {
+  memberId: 'b20bf94c-9e33-4ba4-99e7-0fb6a2e20186',
+  organizationId: 'ccbbbd4d-12e8-4e9e-b49e-cd29979623ae'
+}
+2026-01-31 17:19:05.536 [info] [TenantContext] Tenant from member.organization: fd82da65-aab7-4a5c-85b8-b2febeb2003d
+2026-01-31 17:19:05.536 [info] [createJobPostingMember] Tenant context: {"tenantId":"fd82da65-aab7-4a5c-85b8-b2febeb2003d","memberId":"b20bf94c-9e33-4ba4-99e7-0fb6a2e20186","isAuthenticated":true}
+2026-01-31 17:19:05.711 [info] [createJobPostingMember] Found member via tenant context: b20bf94c-9e33-4ba4-99e7-0fb6a2e20186 sharon.bacon@agcas.org.uk

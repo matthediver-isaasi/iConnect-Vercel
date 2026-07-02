@@ -1,11 +1,18 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { createPortal } from "react-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { createPageUrl } from "@/utils";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { useNavigationRealtime } from "@/hooks/useNavigationRealtime";
-import { Search, User, ArrowUpRight, LogOut, ChevronDown, ChevronRight, Calendar, Building, Briefcase, FileText, Users, Sparkles, Home, Mail, Phone } from "lucide-react";
+import { useResolvedSocialIcons } from "@/hooks/useResolvedSocialIcons";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
+import { Search, User, ArrowUpRight, LogOut, ChevronDown, ChevronRight, Calendar, Building, Briefcase, FileText, Users, Sparkles, Home, Mail, Phone, Menu, X, Loader2, Newspaper, BookOpen, FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import IEditFormElement from "@/components/iedit/elements/IEditFormElement";
 
 // Icon mapping for commonly used Lucide icons
 const iconMap = {
@@ -23,21 +30,499 @@ const iconMap = {
   ChevronDown
 };
 
+// Type icon mapping for search results
+const typeIconMap = {
+  event: Calendar,
+  article: BookOpen,
+  news: Newspaper,
+  resource: FolderOpen
+};
+
+
+const DEFAULT_GRADIENT_STOPS = [
+  { color: '#FFFFFF', position: 0 },
+  { color: '#FFFFFF', position: 30 },
+  { color: '#5C0085', position: 50 },
+  { color: '#BA0087', position: 65 },
+  { color: '#EE00C3', position: 80 },
+  { color: '#FF4229', position: 90 },
+  { color: '#FFB000', position: 100 }
+];
+// Neutral, tenant-agnostic placeholder shown while branding is still loading so
+// no tenant-specific identity (e.g. GFI's purple) flashes before the real branding arrives.
+const NEUTRAL_GRADIENT_STOPS = [
+  { color: '#F8FAFC', position: 0 },
+  { color: '#E2E8F0', position: 100 }
+];
+const NEUTRAL_SOCIAL_ICON_COLOR = '#64748B';
+const BUTTON_ACCENT_GRADIENT = 'linear-gradient(to top right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)';
+const BUTTON_ACCENT_GRADIENT_HORIZONTAL = 'linear-gradient(to right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)';
+
+// Helper to generate background CSS from a background config object
+const generateBackgroundCss = (bgConfig, fallbackColor = '#3b82f6') => {
+  if (!bgConfig) return fallbackColor;
+  
+  if (bgConfig.type === 'solid') {
+    return bgConfig.solidColor || fallbackColor;
+  }
+  
+  // New format with gradientStops array
+  if (bgConfig.gradientStops && bgConfig.gradientStops.length >= 2) {
+    const angle = bgConfig.gradientAngle ?? 90;
+    const stops = [...bgConfig.gradientStops]
+      .sort((a, b) => a.position - b.position)
+      .map(stop => `${stop.color} ${stop.position}%`)
+      .join(', ');
+    return `linear-gradient(${angle}deg, ${stops})`;
+  }
+  
+  // Old nested format with gradientStart/gradientEnd
+  if (bgConfig.gradientStart && bgConfig.gradientEnd) {
+    const directionToAngle = {
+      'to right': 90, 'to left': 270, 'to bottom': 180,
+      'to top': 0, 'to bottom right': 135, 'to bottom left': 225
+    };
+    const angle = directionToAngle[bgConfig.gradientDirection] || 90;
+    return `linear-gradient(${angle}deg, ${bgConfig.gradientStart} 0%, ${bgConfig.gradientEnd} 100%)`;
+  }
+  
+  return fallbackColor;
+};
+
+// Helper to generate CSS styles from button style config (returns both normal and hover)
+const getButtonStyles = (buttonStyleConfig) => {
+  if (!buttonStyleConfig) return null;
+  
+  const bg = buttonStyleConfig.background || {};
+  const border = buttonStyleConfig.border || {};
+  const radius = buttonStyleConfig.radius || 0;
+  const textColor = buttonStyleConfig.textColor || '#FFFFFF';
+  const hoverTextColor = buttonStyleConfig.hoverTextColor || textColor;
+  const hover = buttonStyleConfig.hover || {};
+  
+  // Generate normal background using the unified helper
+  const background = generateBackgroundCss(bg, '#3b82f6');
+  
+  // Generate hover background using the unified helper
+  let hoverBackground;
+  if (hover && (hover.type || hover.gradientStops || hover.gradientStart || hover.solidColor)) {
+    hoverBackground = generateBackgroundCss(hover, background);
+  } else {
+    hoverBackground = background; // fallback to same as normal
+  }
+  
+  // Handle border - support both nested and flat formats
+  const borderWidth = border.width ?? buttonStyleConfig.borderWidth ?? 0;
+  const borderStyle = border.style || buttonStyleConfig.borderStyle || 'solid';
+  const borderColor = border.color || buttonStyleConfig.borderColor || 'transparent';
+  
+  const baseStyle = {
+    borderWidth: borderWidth ? `${borderWidth}px` : '0',
+    borderStyle: borderWidth ? borderStyle : 'none',
+    borderColor: borderColor,
+    borderRadius: `${radius}px`,
+  };
+  
+  return {
+    normal: {
+      ...baseStyle,
+      background,
+      color: textColor,
+    },
+    hover: {
+      ...baseStyle,
+      background: hoverBackground,
+      color: hoverTextColor,
+    }
+  };
+};
+
+// Styled navigation button component with hover state
+function StyledNavButton({ styleConfig, children, className = '' }) {
+  const [isHovered, setIsHovered] = useState(false);
+  
+  const styles = getButtonStyles(styleConfig);
+  const currentStyle = styles ? (isHovered ? styles.hover : styles.normal) : {
+    background: BUTTON_ACCENT_GRADIENT,
+    color: '#FFFFFF'
+  };
+  
+  return (
+    <Button 
+      className={`font-bold transition-all px-6 py-5 ${className}`}
+      style={{ 
+        fontFamily: 'Poppins, sans-serif',
+        ...currentStyle
+      }}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
+      {children}
+    </Button>
+  );
+}
+
+// Styled navigation div for mobile with hover state
+function StyledNavDiv({ styleConfig, children, className = '' }) {
+  const [isHovered, setIsHovered] = useState(false);
+  
+  const styles = getButtonStyles(styleConfig);
+  const currentStyle = styles ? (isHovered ? styles.hover : styles.normal) : {
+    background: BUTTON_ACCENT_GRADIENT,
+    color: '#FFFFFF'
+  };
+  
+  return (
+    <div 
+      className={`font-bold transition-all ${className}`}
+      style={currentStyle}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
+      {children}
+    </div>
+  );
+}
+
+const convertLegacyGradientColors = (colors) => {
+  if (!colors || colors.length === 0) return DEFAULT_GRADIENT_STOPS;
+  if (colors.length === 1) {
+    return [
+      { color: '#FFFFFF', position: 0 },
+      { color: '#FFFFFF', position: 30 },
+      { color: colors[0], position: 100 }
+    ];
+  }
+  const colorStops = colors.map((color, index) => ({
+    color,
+    position: Math.round((index / (colors.length - 1)) * 70) + 30
+  }));
+  return [
+    { color: '#FFFFFF', position: 0 },
+    { color: '#FFFFFF', position: 30 },
+    ...colorStops
+  ];
+};
+
+const getGradientStops = (headerConfig) => {
+  if (headerConfig?.gradientStops && headerConfig.gradientStops.length > 0) {
+    return headerConfig.gradientStops;
+  }
+  if (headerConfig?.gradientColors && headerConfig.gradientColors.length > 0) {
+    return convertLegacyGradientColors(headerConfig.gradientColors);
+  }
+  return DEFAULT_GRADIENT_STOPS;
+};
+
+const buildGradientFromStops = (stops) => {
+  const sortedStops = [...stops].sort((a, b) => a.position - b.position);
+  return `linear-gradient(to right, ${sortedStops.map(s => `${s.color} ${s.position}%`).join(', ')})`;
+};
+
+const getColorStopsOnly = (stops) => {
+  return stops.filter(s => s.color.toUpperCase() !== '#FFFFFF');
+};
+
+// Render a single social glyph. When a tenant has uploaded a custom SVG for the
+// platform, paint it as a monochrome silhouette in `color` via CSS mask so it
+// matches the configured social-icon colour (the SVG's own fills are ignored).
+// Otherwise fall back to the built-in inline <svg> node.
+function renderSocialGlyph({ customSvg, color, sizeClassName, builtin }) {
+  if (customSvg) {
+    return (
+      <span
+        className={sizeClassName}
+        style={{
+          display: 'inline-block',
+          backgroundColor: color,
+          WebkitMaskImage: `url("${customSvg}")`,
+          maskImage: `url("${customSvg}")`,
+          WebkitMaskRepeat: 'no-repeat',
+          maskRepeat: 'no-repeat',
+          WebkitMaskPosition: 'center',
+          maskPosition: 'center',
+          WebkitMaskSize: 'contain',
+          maskSize: 'contain'
+        }}
+      />
+    );
+  }
+  return builtin;
+}
+
+// Social platforms rendered in the header social-icons element. Each entry holds
+// the built-in glyph path; custom uploaded SVGs override the built-in glyph.
+const SOCIAL_PLATFORMS = [
+  { key: 'linkedin', path: 'M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z' },
+  { key: 'twitter', path: 'M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z' },
+  { key: 'facebook', path: 'M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z' },
+  { key: 'instagram', path: 'M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z' },
+  { key: 'youtube', path: 'M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z' }
+];
+
+// Special navigation elements that render header controls instead of links.
+const HEADER_CONTENT_BLOCK_TYPES = ['search', 'social', 'account'];
+
 export default function PublicHeader() {
+  const { branding } = useTenantBranding() || {};
+  const buttonStyles = branding?.brandingConfig?.button_styles || {};
+  const headerSocialIconColor = branding?.brandingConfig?.headerSocialIconColor || NEUTRAL_SOCIAL_ICON_COLOR;
+  const socialIconCustomSvgs = branding?.brandingConfig?.socialIconCustomSvgs || {};
+  const resolvedSocialSvgs = useResolvedSocialIcons(socialIconCustomSvgs);
+  const headerLogoUrl = branding?.headerLogoUrl || null;
+  const tenantName = branding?.name || "";
+  const hasLogoUrl = !!headerLogoUrl;
+  const headerLogoHeight = branding?.headerConfig?.logoHeight;
+  const headerLogoWidth = branding?.headerConfig?.logoWidth;
+  // Optional scroll-shrink: when enabled, the logo (and its containing box)
+  // animate to a smaller height once the page is scrolled down, and back to
+  // full size at the top. No-op when the toggle is off / unset.
+  const logoShrinkOnScroll = !!branding?.headerConfig?.logoShrinkOnScroll;
+  const logoScrolledHeight = branding?.headerConfig?.logoScrolledHeight;
+  const [isLogoScrolled, setIsLogoScrolled] = useState(false);
+
+  // Scroll listener for the optional logo shrink. Only attached when the
+  // setting is enabled, and removed on unmount or when it is turned off.
+  useEffect(() => {
+    if (!logoShrinkOnScroll) {
+      setIsLogoScrolled(false);
+      return;
+    }
+    const onScroll = () => {
+      setIsLogoScrolled(window.scrollY > 20);
+    };
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [logoShrinkOnScroll]);
+
+  // Effective logo height (px). When shrink is active and the page is scrolled,
+  // use the scrolled height; otherwise the configured/default full height.
+  const baseLogoHeightPx = headerLogoHeight ? parseInt(headerLogoHeight, 10) : 158;
+  const scrolledLogoHeightPx = logoScrolledHeight ? parseInt(logoScrolledHeight, 10) : baseLogoHeightPx;
+  const isLogoShrunk = logoShrinkOnScroll && isLogoScrolled;
+  const activeLogoHeightPx = isLogoShrunk ? scrolledLogoHeightPx : baseLogoHeightPx;
+  // Transition applied to the logo image + its containing box so the size
+  // change animates smoothly. Empty when the feature is disabled.
+  const logoShrinkTransition = logoShrinkOnScroll ? 'height 0.3s ease, max-height 0.3s ease, padding 0.3s ease, line-height 0.3s ease' : undefined;
+
+  const logoBackground = branding?.headerConfig?.logoBackground;
+  const logoBorderRadiusTopLeft = branding?.headerConfig?.logoBorderRadiusTopLeft || branding?.headerConfig?.logoBorderRadius;
+  const logoBorderRadiusTopRight = branding?.headerConfig?.logoBorderRadiusTopRight || branding?.headerConfig?.logoBorderRadius;
+  const logoBorderRadiusBottomLeft = branding?.headerConfig?.logoBorderRadiusBottomLeft || branding?.headerConfig?.logoBorderRadius;
+  const logoBorderRadiusBottomRight = branding?.headerConfig?.logoBorderRadiusBottomRight || branding?.headerConfig?.logoBorderRadius;
+  const logoBorderWidth = branding?.headerConfig?.logoBorderWidth;
+  const logoBorderColor = branding?.headerConfig?.logoBorderColor;
+  const logoShadow = branding?.headerConfig?.logoShadow || 'none';
+  const logoPadding = branding?.headerConfig?.logoPadding;
+  const logoPaddingTop = branding?.headerConfig?.logoPaddingTop || branding?.headerConfig?.logoPadding;
+  const logoPaddingRight = branding?.headerConfig?.logoPaddingRight || branding?.headerConfig?.logoPadding;
+  const logoPaddingBottom = branding?.headerConfig?.logoPaddingBottom || branding?.headerConfig?.logoPadding;
+  const logoPaddingLeft = branding?.headerConfig?.logoPaddingLeft || branding?.headerConfig?.logoPadding;
+  const logoMarginTop = branding?.headerConfig?.logoMarginTop;
+  const logoMarginLeft = branding?.headerConfig?.logoMarginLeft;
+  const gradientStops = branding ? getGradientStops(branding.headerConfig) : NEUTRAL_GRADIENT_STOPS;
+  
+  const getShadowStyle = (shadowType) => {
+    switch (shadowType) {
+      case 'sm': return '0 1px 2px 0 rgb(0 0 0 / 0.05)';
+      case 'md': return '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)';
+      case 'lg': return '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)';
+      case 'xl': return '0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)';
+      default: return 'none';
+    }
+  };
+  
+  const hasLogoContainerStyles = logoBackground || logoBorderRadiusTopLeft || logoBorderRadiusTopRight || logoBorderRadiusBottomLeft || logoBorderRadiusBottomRight || logoBorderWidth || logoShadow !== 'none' || logoPadding || logoPaddingTop || logoPaddingRight || logoPaddingBottom || logoPaddingLeft;
+  
+  const logoContainerStyle = {
+    backgroundColor: logoBackground || 'transparent',
+    borderTopLeftRadius: logoBorderRadiusTopLeft ? `${logoBorderRadiusTopLeft}px` : '0',
+    borderTopRightRadius: logoBorderRadiusTopRight ? `${logoBorderRadiusTopRight}px` : '0',
+    borderBottomLeftRadius: logoBorderRadiusBottomLeft ? `${logoBorderRadiusBottomLeft}px` : '0',
+    borderBottomRightRadius: logoBorderRadiusBottomRight ? `${logoBorderRadiusBottomRight}px` : '0',
+    borderWidth: logoBorderWidth ? `${logoBorderWidth}px` : '0',
+    borderStyle: logoBorderWidth ? 'solid' : 'none',
+    borderColor: logoBorderColor || '#000000',
+    paddingTop: logoPaddingTop ? `${logoPaddingTop}px` : '0',
+    paddingRight: logoPaddingRight ? `${logoPaddingRight}px` : '0',
+    paddingBottom: logoPaddingBottom ? `${logoPaddingBottom}px` : '0',
+    paddingLeft: logoPaddingLeft ? `${logoPaddingLeft}px` : '0',
+    boxShadow: getShadowStyle(logoShadow)
+  };
+  const topBarGradient = buildGradientFromStops(gradientStops);
+  const topBarHeight = branding?.headerConfig?.topBarHeight;
+  const secondaryBarConfig = branding?.headerConfig?.secondaryBar;
+  const secondaryBarEnabled = !!secondaryBarConfig?.enabled;
+  const secondaryBarHeight = secondaryBarConfig?.height || 48;
+  const secondaryBarStops = (secondaryBarConfig?.gradientStops && secondaryBarConfig.gradientStops.length > 0)
+    ? secondaryBarConfig.gradientStops
+    : [{ color: '#5C0085', position: 0 }, { color: '#BA0087', position: 100 }];
+  const secondaryBarGradient = buildGradientFromStops(secondaryBarStops);
+  // Combined bar that hosts the main nav: uses the secondary bar gradient/height
+  // when enabled, otherwise falls back to a plain white bar so disabling the
+  // gradient does not hide the menu.
+  const combinedBarHeight = secondaryBarEnabled ? secondaryBarHeight : 72;
+  // Per-bar link text color/size. Defaults: top bar = light text on gradient;
+  // combined bar = light default when the gradient is on, dark when it falls
+  // back to white (so existing tenants don't regress either way).
+  const topNavTextColor = branding?.headerConfig?.topNavTextColor || '#FFFFFF';
+  const topNavFontSize = branding?.headerConfig?.topNavFontSize;
+  const secondaryBarTextColor = secondaryBarConfig?.textColor || (secondaryBarEnabled ? '#FFFFFF' : '#0F172A');
+  const secondaryBarFontSize = secondaryBarConfig?.fontSize;
+  // Per-bar hover color, link font weight, base font family. All optional;
+  // when unset the bar keeps today's defaults.
+  const topNavHoverColor = branding?.headerConfig?.topNavHoverColor;
+  const topNavFontWeight = branding?.headerConfig?.topNavFontWeight;
+  const topNavFontFamily = branding?.headerConfig?.topNavFontFamily;
+  const topNavIndicator = branding?.headerConfig?.topNavIndicator;
+  // How the desktop top-row Search control is presented: 'icon' | 'label' | 'both'.
+  // Governs appearance only; on/off visibility is the separate Header Icons toggle.
+  const searchDisplay = ['icon', 'label', 'both'].includes(branding?.headerConfig?.searchDisplay)
+    ? branding.headerConfig.searchDisplay
+    : 'both';
+  const secondaryBarHoverColor = secondaryBarConfig?.hoverColor;
+  const secondaryBarFontWeight = secondaryBarConfig?.fontWeight;
+  const secondaryBarFontFamily = secondaryBarConfig?.fontFamily;
+  const secondaryBarIndicator = secondaryBarConfig?.indicator;
+
+  // Header action-link (Login / Member Area) styling. Each state has its own
+  // config so it can be styled and labelled independently. Defaults reproduce
+  // today's plain-text link: asButton off, positioned left of the social icons.
+  // resolveHeaderLink derives the rendered style + label for a given config.
+  const resolveHeaderLink = (linkConfig, defaultLabel) => {
+    const asButton = !!linkConfig?.asButton;
+    const background = (linkConfig?.backgroundMode === 'gradient'
+      && Array.isArray(linkConfig?.gradientStops) && linkConfig.gradientStops.length > 0)
+      ? buildGradientFromStops(linkConfig.gradientStops)
+      : (linkConfig?.solidColor || '#5C0085');
+    const buttonHeight = parseInt(linkConfig?.height, 10);
+    const buttonWidth = parseInt(linkConfig?.width, 10);
+    const buttonStyle = asButton ? {
+      background,
+      borderRadius: `${parseInt(linkConfig?.cornerRadius, 10) || 0}px`,
+      borderWidth: `${parseInt(linkConfig?.borderWidth, 10) || 0}px`,
+      borderStyle: linkConfig?.borderStyle || 'solid',
+      borderColor: linkConfig?.borderColor || 'transparent',
+      ...(buttonHeight > 0 ? { height: `${buttonHeight}px` } : {}),
+      ...(buttonWidth > 0 ? { width: `${buttonWidth}px`, justifyContent: 'center' } : {})
+    } : {};
+    // Label color falls back to the top-nav text color when not explicitly set.
+    const labelColor = (asButton && linkConfig?.labelColor) || topNavTextColor;
+    const label = (typeof linkConfig?.label === 'string' && linkConfig.label.trim())
+      ? linkConfig.label.trim()
+      : defaultLabel;
+    return { asButton, buttonStyle, labelColor, label };
+  };
+
+  const loginLinkConfig = branding?.headerConfig?.loginLink;
+  // Member Area link config (logged-in state). Falls back to the login link
+  // config when absent so the styled-button appearance is preserved.
+  const memberAreaLinkConfig = branding?.headerConfig?.memberAreaLink || loginLinkConfig;
+  const colorStops = getColorStopsOnly(gradientStops);
+  const navIndicatorGradient = colorStops.length > 0 
+    ? `linear-gradient(to right, ${colorStops.map(s => s.color).join(', ')})`
+    : BUTTON_ACCENT_GRADIENT_HORIZONTAL;
+
+  // Resolve the active-item indicator config for a given bar. Falls back to
+  // today's behavior when unset: the main-nav bar shows a 5px derived-gradient
+  // indicator, the top bar shows none.
+  const resolveBarIndicator = (isTopNav) => {
+    const cfg = isTopNav ? topNavIndicator : secondaryBarIndicator;
+    const enabled = (cfg && typeof cfg.enabled === 'boolean') ? cfg.enabled : !isTopNav;
+    const height = (cfg && Number.isFinite(parseInt(cfg.height, 10))) ? parseInt(cfg.height, 10) : 5;
+    const gradient = (cfg && Array.isArray(cfg.gradientStops) && cfg.gradientStops.length > 0)
+      ? buildGradientFromStops(cfg.gradientStops)
+      : navIndicatorGradient;
+    return { enabled, height, gradient };
+  };
+  
   const [searchOpen, setSearchOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [memberLandingPage, setMemberLandingPage] = useState('Events');
+
+  // Login styling/label for the positionable Account element (logged-out state).
+  const loginLink = resolveHeaderLink(loginLinkConfig, 'Login');
+  // Member Area styling/label for the positionable Account element (logged-in state).
+  const memberAreaLink = resolveHeaderLink(memberAreaLinkConfig, 'Member Area');
+
+  // Fetch article display name setting
+  const { data: articleDisplayName } = useQuery({
+    queryKey: ['public-article-display-name-setting'],
+    queryFn: async () => {
+      const setting = await publicClient.getSystemSetting('article_display_name');
+      return setting?.setting_value || 'Article';
+    },
+    staleTime: 5 * 60 * 1000
+  });
+
+  // Dynamic type label that uses custom article display name
+  const getTypeLabel = useCallback((type) => {
+    if (type === 'article') {
+      const name = articleDisplayName || 'Article';
+      return name.endsWith('s') ? name.slice(0, -1) : name;
+    }
+    const labels = { event: 'Event', news: 'News', resource: 'Resource' };
+    return labels[type] || type;
+  }, [articleDisplayName]);
   const [navItems, setNavItems] = useState({ topNav: [], mainNav: [] });
   const [hoveredMenu, setHoveredMenu] = useState(null);
   const [hoveredSubmenu, setHoveredSubmenu] = useState(null);
   const [socialIcons, setSocialIcons] = useState(null);
+  const [headerIconsConfig, setHeaderIconsConfig] = useState({ login: true, search: true, social: true, logo: true });
   const [closeTimeout, setCloseTimeout] = useState(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [mobileExpandedMenus, setMobileExpandedMenus] = useState({});
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [mobileSearchQuery, setMobileSearchQuery] = useState('');
+  const [mobileSearchResults, setMobileSearchResults] = useState([]);
+  const [isMobileSearching, setIsMobileSearching] = useState(false);
+  const [formModalOpen, setFormModalOpen] = useState(false);
+  const [activeFormSlug, setActiveFormSlug] = useState(null);
+  const searchTimeoutRef = useRef(null);
+  const mobileSearchTimeoutRef = useRef(null);
   const location = useLocation();
+  const navigate = useNavigate();
+
+  // Close mobile menu on route change
+  useEffect(() => {
+    setMobileMenuOpen(false);
+    setMobileExpandedMenus({});
+  }, [location.pathname]);
+
+  // Prevent body scroll when mobile menu is open
+  useEffect(() => {
+    if (mobileMenuOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [mobileMenuOpen]);
 
   useEffect(() => {
-    // Check if user is logged in
-    const checkLoginStatus = () => {
-      const storedMember = sessionStorage.getItem('agcas_member');
+    // Check if user is logged in and fetch their role's landing page
+    const checkLoginStatus = async () => {
+      const storedMember = localStorage.getItem('agcas_member');
       setIsLoggedIn(!!storedMember);
+      
+      if (storedMember) {
+        try {
+          const member = JSON.parse(storedMember);
+          if (member.role_id) {
+            const role = await base44.entities.Role.get(member.role_id);
+            if (role?.default_landing_page) {
+              setMemberLandingPage(role.default_landing_page);
+            }
+          }
+        } catch (error) {
+          console.error('Failed to fetch member role:', error);
+        }
+      }
     };
 
     checkLoginStatus();
@@ -53,9 +538,8 @@ export default function PublicHeader() {
   // Function to fetch navigation items
   const fetchNavItems = useCallback(async () => {
     try {
-      // Fetch all items and filter client-side to bypass any SDK caching
-      const allItems = await base44.entities.NavigationItem.list('display_order');
-      const items = allItems.filter(item => item.is_active);
+      // Use public endpoint that doesn't require authentication
+      const items = await publicClient.listNavigationItems();
       
       // Build hierarchy
       const buildTree = (parentId, location) => {
@@ -98,9 +582,7 @@ export default function PublicHeader() {
   useEffect(() => {
     const fetchSocialConfig = async () => {
       try {
-        const allSettings = await base44.entities.SystemSettings.list();
-        const setting = allSettings.find(s => s.setting_key === 'social_icons_config');
-        
+        const setting = await publicClient.getSystemSetting('social_icons_config');
         if (setting?.setting_value) {
           try {
             setSocialIcons(JSON.parse(setting.setting_value));
@@ -116,10 +598,140 @@ export default function PublicHeader() {
     fetchSocialConfig();
   }, []);
 
-  const handleLogout = () => {
-    sessionStorage.removeItem('agcas_member');
+  // Fetch header icons visibility configuration
+  useEffect(() => {
+    const fetchHeaderIconsConfig = async () => {
+      try {
+        const setting = await publicClient.getSystemSetting('header_icons_config');
+        if (setting?.setting_value) {
+          try {
+            const parsed = JSON.parse(setting.setting_value);
+            setHeaderIconsConfig({
+              login: parsed.login !== false,
+              search: parsed.search !== false,
+              social: parsed.social !== false,
+              logo: parsed.logo !== false,
+            });
+          } catch (e) {
+            console.error('Failed to parse header icons config:', e);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch header icons config:', error);
+      }
+    };
+
+    fetchHeaderIconsConfig();
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { 
+        method: 'POST', 
+        credentials: 'include' 
+      });
+    } catch (error) {
+      console.log('[PublicHeader] Server logout error:', error);
+    }
+    localStorage.removeItem('agcas_member');
+    localStorage.removeItem('agcas_organization');
+    setMobileMenuOpen(false);
     window.location.href = createPageUrl('Home');
   };
+
+  // Debounced search handler for desktop
+  const handleSearch = useCallback((query) => {
+    setSearchQuery(query);
+    
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+    
+    if (!query || query.trim().length < 2) {
+      setSearchResults([]);
+      setIsSearching(false);
+      return;
+    }
+    
+    setIsSearching(true);
+    
+    searchTimeoutRef.current = setTimeout(async () => {
+      try {
+        const data = await publicClient.search(query.trim());
+        setSearchResults(data.results || []);
+      } catch (error) {
+        console.error('Search error:', error);
+        setSearchResults([]);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 300);
+  }, []);
+
+  // Debounced search handler for mobile
+  const handleMobileSearch = useCallback((query) => {
+    setMobileSearchQuery(query);
+    
+    if (mobileSearchTimeoutRef.current) {
+      clearTimeout(mobileSearchTimeoutRef.current);
+    }
+    
+    if (!query || query.trim().length < 2) {
+      setMobileSearchResults([]);
+      setIsMobileSearching(false);
+      return;
+    }
+    
+    setIsMobileSearching(true);
+    
+    mobileSearchTimeoutRef.current = setTimeout(async () => {
+      try {
+        const data = await publicClient.search(query.trim());
+        setMobileSearchResults(data.results || []);
+      } catch (error) {
+        console.error('Mobile search error:', error);
+        setMobileSearchResults([]);
+      } finally {
+        setIsMobileSearching(false);
+      }
+    }, 300);
+  }, []);
+
+  // Handle clicking a search result
+  const handleResultClick = (url) => {
+    setSearchOpen(false);
+    setSearchQuery('');
+    setSearchResults([]);
+    navigate(url);
+  };
+
+  // Handle clicking a mobile search result
+  const handleMobileResultClick = (url) => {
+    setMobileMenuOpen(false);
+    setMobileSearchQuery('');
+    setMobileSearchResults([]);
+    navigate(url);
+  };
+
+  // Navigate to search results page
+  const handleViewAllResults = () => {
+    if (searchQuery.trim()) {
+      setSearchOpen(false);
+      navigate(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
+    }
+  };
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+      if (mobileSearchTimeoutRef.current) {
+        clearTimeout(mobileSearchTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Check if a navigation item is active
   const isActive = (item) => {
@@ -131,8 +743,491 @@ export default function PublicHeader() {
     return currentPath === itemPath;
   };
 
-  // Render navigation item with icon support and active state
+  // Toggle mobile submenu expansion
+  const toggleMobileSubmenu = (itemId) => {
+    setMobileExpandedMenus(prev => ({
+      ...prev,
+      [itemId]: !prev[itemId]
+    }));
+  };
+
+  // --- Positionable header control elements (content_block nav items) -------
+  // These render the Search popover, Social icons, and Account (Login/Logout)
+  // controls inline wherever the admin places the matching nav item.
+
+  // Social icons row. textColor drives the built-in glyph background; custom
+  // uploaded SVGs render transparent. hoverClass applies the per-bar hover.
+  const renderSocialIcons = (textColor, hoverClass = '') => {
+    if (!socialIcons) return null;
+    return (
+      <div className="flex items-center gap-2">
+        {SOCIAL_PLATFORMS.map(({ key, path }) => {
+          const cfg = socialIcons[key];
+          if (!cfg?.enabled || !cfg?.url) return null;
+          const customSvg = resolvedSocialSvgs[key];
+          return (
+            <a
+              key={key}
+              href={cfg.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`w-7 h-7 rounded flex items-center justify-center transition-colors ${hoverClass}`}
+              style={{ backgroundColor: customSvg ? 'transparent' : textColor, color: headerSocialIconColor }}
+              data-testid={`link-social-${key}`}
+            >
+              {renderSocialGlyph({
+                customSvg,
+                color: 'currentColor',
+                sizeClassName: 'w-4 h-4',
+                builtin: (
+                  <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor">
+                    <path d={path} />
+                  </svg>
+                )
+              })}
+            </a>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // Desktop search control: toggle button + popover. isTopNav drives colours.
+  const renderSearchControl = (isTopNav) => {
+    const color = isTopNav ? topNavTextColor : secondaryBarTextColor;
+    const fontSize = isTopNav ? (topNavFontSize || 14) : (secondaryBarFontSize || 16);
+    const hoverClass = isTopNav ? 'ph-topnav-link' : 'ph-secnav-link';
+    return (
+      <div className="relative">
+        <button
+          onClick={() => setSearchOpen(!searchOpen)}
+          className={`flex items-center gap-2 ${hoverClass} transition-colors`}
+          style={{
+            color,
+            fontSize: `${fontSize}px`,
+            ...(isTopNav && topNavFontWeight ? { fontWeight: topNavFontWeight } : {}),
+            ...(isTopNav && topNavFontFamily ? { fontFamily: topNavFontFamily } : {})
+          }}
+          data-testid="button-search-toggle"
+        >
+          {searchDisplay !== 'label' && <Search className="w-4 h-4" />}
+          {searchDisplay !== 'icon' && <span>Search</span>}
+        </button>
+
+        {searchOpen && (
+          <div className="absolute top-full right-0 mt-2 w-96 bg-white rounded-lg shadow-xl border border-slate-200 z-50">
+            <div className="p-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  {isSearching ? (
+                    <Loader2 className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400 animate-spin" />
+                  ) : (
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  )}
+                  <Input
+                    type="text"
+                    placeholder="Search events, articles, news, resources..."
+                    className="pl-10 pr-10"
+                    autoFocus
+                    value={searchQuery}
+                    onChange={(e) => handleSearch(e.target.value)}
+                    data-testid="input-search"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => handleSearch('')}
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+                <button
+                  onClick={() => {
+                    setSearchOpen(false);
+                    setSearchQuery('');
+                    setSearchResults([]);
+                  }}
+                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-md transition-colors"
+                  data-testid="button-close-search"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {searchQuery.length >= 2 && (
+              <div className="max-h-80 overflow-y-auto">
+                {searchResults.length > 0 ? (
+                  <>
+                    {searchResults.map((result) => {
+                      const TypeIcon = typeIconMap[result.type] || FileText;
+                      return (
+                        <button
+                          key={`${result.type}-${result.id}`}
+                          onClick={() => handleResultClick(result.url)}
+                          className="w-full px-4 py-3 flex items-start gap-3 hover:bg-slate-50 transition-colors text-left border-b border-slate-50 last:border-0"
+                          data-testid={`search-result-${result.type}-${result.id}`}
+                        >
+                          <div className="flex-shrink-0 w-8 h-8 bg-slate-100 rounded flex items-center justify-center">
+                            <TypeIcon className="w-4 h-4 text-slate-600" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-medium text-purple-600 uppercase">{getTypeLabel(result.type)}</span>
+                            </div>
+                            <p className="font-medium text-slate-900 truncate">{result.title}</p>
+                            {result.description && (
+                              <p className="text-sm text-slate-500 line-clamp-1">{result.description}</p>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                    <button
+                      onClick={handleViewAllResults}
+                      className="w-full px-4 py-3 text-center text-sm font-medium text-purple-600 hover:bg-slate-50 transition-colors"
+                      data-testid="button-view-all-results"
+                    >
+                      View all results
+                    </button>
+                  </>
+                ) : !isSearching && (
+                  <div className="px-4 py-8 text-center text-slate-500">
+                    <Search className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                    <p className="text-sm">No results found for "{searchQuery}"</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {searchQuery.length < 2 && (
+              <div className="px-4 py-6 text-center text-slate-400 text-sm">
+                Type at least 2 characters to search
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Desktop account control: Login link (logged out) or Logout button (logged in).
+  const renderAccountControl = (isTopNav) => {
+    const plainColor = isTopNav ? topNavTextColor : secondaryBarTextColor;
+    const hoverClass = isTopNav ? 'ph-topnav-link' : 'ph-secnav-link';
+    if (isLoggedIn) {
+      return (
+        <div className="flex items-center gap-2">
+          <Link
+            to={createPageUrl(memberLandingPage)}
+            className={`${memberAreaLink.asButton ? '' : `${hoverClass} `}flex items-center gap-1 hover:opacity-80 transition-opacity text-sm font-semibold${memberAreaLink.asButton ? ' px-3 py-1.5' : ''}`}
+            style={{ ...memberAreaLink.buttonStyle, color: memberAreaLink.asButton ? memberAreaLink.labelColor : plainColor }}
+            data-testid="link-header-member-area"
+          >
+            <User className="w-4 h-4" />
+            <span>{memberAreaLink.label}</span>
+          </Link>
+          <button
+            onClick={handleLogout}
+            className={`${hoverClass} flex items-center transition-colors`}
+            style={{ color: plainColor }}
+            title="Logout"
+            data-testid="button-header-logout"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
+        </div>
+      );
+    }
+    return (
+      <Link
+        to="/login"
+        className={`flex items-center gap-1 hover:opacity-80 transition-opacity text-sm font-semibold${loginLink.asButton ? ' px-3 py-1.5' : ''}`}
+        style={{ ...loginLink.buttonStyle, color: loginLink.asButton ? loginLink.labelColor : plainColor }}
+        data-testid="link-header-login"
+      >
+        <User className="w-4 h-4" />
+        <span>{loginLink.label}</span>
+      </Link>
+    );
+  };
+
+  // Mobile variants of the header control elements (rendered inside the drawer).
+  const renderMobileSearchControl = (item) => (
+    <div key={item.id} className="p-4 border-b border-slate-200">
+      <div className="relative">
+        {isMobileSearching ? (
+          <Loader2 className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400 animate-spin" />
+        ) : (
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
+        )}
+        <Input
+          type="text"
+          placeholder="Search events, articles, news..."
+          className="pl-10 pr-10 w-full"
+          value={mobileSearchQuery}
+          onChange={(e) => handleMobileSearch(e.target.value)}
+          data-testid="input-mobile-search"
+        />
+        {mobileSearchQuery && (
+          <button
+            onClick={() => handleMobileSearch('')}
+            className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+
+      {mobileSearchQuery.length >= 2 && (
+        <div className="mt-3 max-h-60 overflow-y-auto rounded-lg border border-slate-200 bg-white">
+          {mobileSearchResults.length > 0 ? (
+            <>
+              {mobileSearchResults.map((result) => {
+                const TypeIcon = typeIconMap[result.type] || FileText;
+                return (
+                  <button
+                    key={`mobile-${result.type}-${result.id}`}
+                    onClick={() => handleMobileResultClick(result.url)}
+                    className="w-full px-3 py-2.5 flex items-start gap-2 hover:bg-slate-50 transition-colors text-left border-b border-slate-100 last:border-0"
+                    data-testid={`mobile-search-result-${result.type}-${result.id}`}
+                  >
+                    <div className="flex-shrink-0 w-6 h-6 bg-slate-100 rounded flex items-center justify-center">
+                      <TypeIcon className="w-3 h-3 text-slate-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-xs font-medium text-purple-600 uppercase">{getTypeLabel(result.type)}</span>
+                      <p className="font-medium text-slate-900 text-sm truncate">{result.title}</p>
+                    </div>
+                  </button>
+                );
+              })}
+              <button
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  navigate(`/search?q=${encodeURIComponent(mobileSearchQuery.trim())}`);
+                }}
+                className="w-full px-3 py-2 text-center text-sm font-medium text-purple-600 hover:bg-slate-50 transition-colors"
+                data-testid="button-mobile-view-all-results"
+              >
+                View all results
+              </button>
+            </>
+          ) : !isMobileSearching && (
+            <div className="px-3 py-4 text-center text-slate-500 text-sm">
+              No results found
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
+  const renderMobileSocialControl = (item) => {
+    if (!socialIcons) return null;
+    return (
+      <div key={item.id} className="px-4 py-3 border-b border-slate-200">
+        {renderSocialIcons('#475569', '')}
+      </div>
+    );
+  };
+
+  const renderMobileAccountControl = (item) => (
+    <div key={item.id} className="px-4 py-3 border-b border-slate-200">
+      {isLoggedIn ? (
+        <div className="flex flex-col gap-1">
+          <Link
+            to={createPageUrl(memberLandingPage)}
+            onClick={() => setMobileMenuOpen(false)}
+            className="flex items-center gap-2 py-2 text-slate-900 font-medium"
+            data-testid="link-mobile-member-area"
+          >
+            <User className="w-5 h-5 text-slate-600" />
+            {memberAreaLink.label}
+          </Link>
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-2 py-2 text-red-600 font-medium"
+            data-testid="button-mobile-logout"
+          >
+            <LogOut className="w-5 h-5" />
+            Logout
+          </button>
+        </div>
+      ) : (
+        <Link
+          to="/login"
+          onClick={() => setMobileMenuOpen(false)}
+          className="flex items-center gap-2 py-2 text-slate-900 font-medium"
+          data-testid="link-mobile-login"
+        >
+          <User className="w-5 h-5 text-slate-600" />
+          {loginLink.label}
+        </Link>
+      )}
+    </div>
+  );
+
+  // Render mobile navigation item
+  const renderMobileNavItem = (item, level = 0) => {
+    // Special header control elements render dedicated controls.
+    if (item.link_type === 'content_block') {
+      if (item.content_block_type === 'search') return renderMobileSearchControl(item);
+      if (item.content_block_type === 'social') return renderMobileSocialControl(item);
+      if (item.content_block_type === 'account') return renderMobileAccountControl(item);
+      return null;
+    }
+    const hasChildren = item.children && item.children.length > 0;
+    const Icon = item.icon && iconMap[item.icon] ? iconMap[item.icon] : null;
+    const active = isActive(item);
+    const isExpanded = mobileExpandedMenus[item.id];
+
+    // Determine link props
+    const linkProps = item.link_type === 'external' 
+      ? {
+          href: item.url,
+          target: item.open_in_new_tab ? '_blank' : '_self',
+          rel: item.open_in_new_tab ? 'noopener noreferrer' : undefined
+        }
+      : {
+          to: createPageUrl(item.url)
+        };
+
+    const LinkComponent = item.link_type === 'external' ? 'a' : Link;
+
+    const paddingLeft = 16 + (level * 16);
+
+    // Form modal link type - opens a form in a dialog instead of navigating
+    if (item.link_type === 'form_modal') {
+      // Don't render if form_slug is missing (invalid configuration)
+      if (!item.form_slug) {
+        return null;
+      }
+      const styleName = item.button_style || 'primary';
+      const styleConfig = buttonStyles[styleName];
+      
+      return (
+        <button 
+          key={item.id}
+          onClick={() => {
+            setMobileMenuOpen(false);
+            setActiveFormSlug(item.form_slug);
+            setFormModalOpen(true);
+          }}
+          className="w-full"
+        >
+          <StyledNavDiv 
+            styleConfig={styleConfig}
+            className="mx-4 my-2 py-3 px-4 flex items-center justify-center gap-2"
+          >
+            {Icon && <Icon className="w-4 h-4" />}
+            {item.title}
+            <ArrowUpRight className="w-4 h-4" strokeWidth={2.5} />
+          </StyledNavDiv>
+        </button>
+      );
+    }
+
+    // Button display type - renders with custom button style from branding
+    if (item.display_type === 'button') {
+      const styleName = item.button_style || 'primary';
+      const styleConfig = buttonStyles[styleName];
+      
+      return (
+        <LinkComponent 
+          key={item.id} 
+          {...linkProps}
+          onClick={() => setMobileMenuOpen(false)}
+        >
+          <StyledNavDiv 
+            styleConfig={styleConfig}
+            className="mx-4 my-2 py-3 px-4 flex items-center justify-center gap-2"
+          >
+            {Icon && <Icon className="w-4 h-4" />}
+            {item.title}
+            <ArrowUpRight className="w-4 h-4" strokeWidth={2.5} />
+          </StyledNavDiv>
+        </LinkComponent>
+      );
+    }
+
+    // Gradient button style (legacy highlight_style support)
+    if (item.highlight_style === 'gradient_button') {
+      return (
+        <LinkComponent 
+          key={item.id} 
+          {...linkProps}
+          onClick={() => setMobileMenuOpen(false)}
+        >
+          <StyledNavDiv 
+            styleConfig={null}
+            className="mx-4 my-2 py-3 px-4 flex items-center justify-center gap-2"
+          >
+            {Icon && <Icon className="w-4 h-4" />}
+            {item.title}
+            <ArrowUpRight className="w-4 h-4" strokeWidth={2.5} />
+          </StyledNavDiv>
+        </LinkComponent>
+      );
+    }
+
+    if (hasChildren) {
+      return (
+        <div key={item.id}>
+          <button
+            onClick={() => toggleMobileSubmenu(item.id)}
+            className="w-full flex items-center justify-between py-3 text-slate-900 hover:bg-slate-50 transition-colors"
+            style={{ paddingLeft: `${paddingLeft}px`, paddingRight: '16px' }}
+          >
+            <div className="flex items-center gap-3">
+              {Icon && <Icon className="w-5 h-5 text-slate-600" />}
+              <span className={active ? 'font-bold' : 'font-medium'}>{item.title}</span>
+            </div>
+            <ChevronDown 
+              className={`w-4 h-4 text-slate-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} 
+            />
+          </button>
+          
+          {isExpanded && (
+            <div className="bg-slate-50">
+              {item.children.map(child => renderMobileNavItem(child, level + 1))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    return (
+      <LinkComponent 
+        key={item.id} 
+        {...linkProps}
+        className="flex items-center gap-3 py-3 text-slate-900 hover:bg-slate-50 transition-colors"
+        style={{ paddingLeft: `${paddingLeft}px`, paddingRight: '16px' }}
+        onClick={() => setMobileMenuOpen(false)}
+      >
+        {Icon && <Icon className="w-5 h-5 text-slate-600" />}
+        <span className={active ? 'font-bold' : 'font-medium'}>{item.title}</span>
+      </LinkComponent>
+    );
+  };
+
+  // Render navigation item with icon support and active state (Desktop)
   const renderNavItem = (item, isTopNav = false) => {
+    // Special header control elements render dedicated controls inline.
+    if (item.link_type === 'content_block') {
+      if (item.content_block_type === 'search') {
+        return <div key={item.id} className="flex items-center">{renderSearchControl(isTopNav)}</div>;
+      }
+      if (item.content_block_type === 'social') {
+        const social = renderSocialIcons(isTopNav ? topNavTextColor : secondaryBarTextColor, isTopNav ? 'ph-topnav-link' : 'ph-secnav-link');
+        return social ? <div key={item.id} className="flex items-center">{social}</div> : null;
+      }
+      if (item.content_block_type === 'account') {
+        return <div key={item.id} className="flex items-center">{renderAccountControl(isTopNav)}</div>;
+      }
+      return null;
+    }
     const hasChildren = item.children && item.children.length > 0;
     const Icon = item.icon && iconMap[item.icon] ? iconMap[item.icon] : null;
     const active = isActive(item);
@@ -150,30 +1245,93 @@ export default function PublicHeader() {
 
     const LinkComponent = item.link_type === 'external' ? 'a' : Link;
 
-    // Build className with proper font weight handling
+    // Build className with proper font weight handling. Link text colour and
+    // size are driven by per-bar branding settings (applied via navLinkStyle),
+    // so the colour/size classes are intentionally omitted here.
     const getFontClass = () => {
       if (active) return 'font-bold';
-      if (isTopNav) return 'font-semibold text-sm';
+      if (isTopNav) return 'font-semibold';
       return 'font-medium';
     };
 
-    const baseClassName = `nav-link text-${isTopNav ? 'white' : 'slate-900'} transition-colors ${getFontClass()} flex items-center gap-1`;
+    // Per-bar hover colour class (CSS injected once in the header render) so
+    // links transition to the configured hover colour. When no hover colour is
+    // set the class is harmless (no matching rule).
+    const hoverClass = isTopNav ? 'ph-topnav-link' : 'ph-secnav-link';
+    const baseClassName = `nav-link transition-colors ${getFontClass()} ${hoverClass} flex items-center gap-1`;
 
-    // Gradient button style
-    if (item.highlight_style === 'gradient_button') {
+    // Per-bar link colour + size. Top bar defaults to white at 14px; combined
+    // (main nav) bar defaults to its configured colour at 16px with Poppins.
+    // Configured font weight / base font family override the defaults per bar.
+    const navLinkStyle = isTopNav
+      ? {
+          color: topNavTextColor,
+          fontSize: `${topNavFontSize || 14}px`,
+          ...(topNavFontWeight ? { fontWeight: topNavFontWeight } : {}),
+          ...(topNavFontFamily ? { fontFamily: topNavFontFamily } : {})
+        }
+      : {
+          color: secondaryBarTextColor,
+          fontSize: `${secondaryBarFontSize || 16}px`,
+          fontFamily: secondaryBarFontFamily || 'Poppins, sans-serif',
+          ...(secondaryBarFontWeight ? { fontWeight: secondaryBarFontWeight } : {})
+        };
+
+    // Active-item indicator config for this bar.
+    const barIndicator = resolveBarIndicator(isTopNav);
+
+    // Form modal link type - opens a form in a dialog instead of navigating
+    if (item.link_type === 'form_modal') {
+      // Don't render if form_slug is missing (invalid configuration)
+      if (!item.form_slug) {
+        return null;
+      }
+      const styleName = item.button_style || 'primary';
+      const styleConfig = buttonStyles[styleName];
+      
       return (
-        <LinkComponent key={item.id} {...linkProps}>
-          <Button 
-            className="text-white font-bold hover:opacity-90 transition-opacity px-6 py-5 rounded-none" 
-            style={{ 
-              fontFamily: 'Poppins, sans-serif',
-              background: 'linear-gradient(to top right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)'
-            }}
-          >
+        <button 
+          key={item.id}
+          onClick={() => {
+            setActiveFormSlug(item.form_slug);
+            setFormModalOpen(true);
+          }}
+          className="cursor-pointer"
+        >
+          <StyledNavButton styleConfig={styleConfig}>
             {Icon && <Icon className="w-4 h-4 mr-2" />}
             {item.title}
             <ArrowUpRight className="ml-0.5 w-5 h-5" strokeWidth={2.5} />
-          </Button>
+          </StyledNavButton>
+        </button>
+      );
+    }
+
+    // Button display type - renders with custom button style from branding
+    if (item.display_type === 'button') {
+      const styleName = item.button_style || 'primary';
+      const styleConfig = buttonStyles[styleName];
+      
+      return (
+        <LinkComponent key={item.id} {...linkProps}>
+          <StyledNavButton styleConfig={styleConfig}>
+            {Icon && <Icon className="w-4 h-4 mr-2" />}
+            {item.title}
+            <ArrowUpRight className="ml-0.5 w-5 h-5" strokeWidth={2.5} />
+          </StyledNavButton>
+        </LinkComponent>
+      );
+    }
+
+    // Gradient button style (legacy highlight_style support)
+    if (item.highlight_style === 'gradient_button') {
+      return (
+        <LinkComponent key={item.id} {...linkProps}>
+          <StyledNavButton styleConfig={null}>
+            {Icon && <Icon className="w-4 h-4 mr-2" />}
+            {item.title}
+            <ArrowUpRight className="ml-0.5 w-5 h-5" strokeWidth={2.5} />
+          </StyledNavButton>
         </LinkComponent>
       );
     }
@@ -202,19 +1360,21 @@ export default function PublicHeader() {
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
         >
-          <button className={baseClassName}>
+          <button className={baseClassName} style={navLinkStyle}>
             {Icon && <Icon className="w-4 h-4" />}
             {item.title}
             <ChevronDown className="w-4 h-4" />
           </button>
 
-          {/* Active indicator - positioned at bottom of nav container */}
-          {!isTopNav && active && (
+          {/* Active indicator - positioned at bottom of the bar. Per-bar
+              toggle/height/gradient; also supported on the top bar now. */}
+          {barIndicator.enabled && active && (
             <div 
-              className="absolute left-0 right-0 h-[5px]"
+              className="absolute left-0 right-0"
               style={{
-                bottom: '-33px',
-                background: 'linear-gradient(to right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)'
+                bottom: 0,
+                height: `${barIndicator.height}px`,
+                background: barIndicator.gradient
               }}
             />
           )}
@@ -322,19 +1482,21 @@ export default function PublicHeader() {
         <LinkComponent 
           {...linkProps}
           className={baseClassName}
-          style={isTopNav ? {} : { fontFamily: 'Poppins, sans-serif' }}
+          style={navLinkStyle}
         >
           {Icon && <Icon className="w-4 h-4" />}
           {item.title}
         </LinkComponent>
 
-        {/* Active indicator - positioned at bottom of nav container */}
-        {!isTopNav && active && (
+        {/* Active indicator - positioned at bottom of the bar. Per-bar
+            toggle/height/gradient; also supported on the top bar now. */}
+        {barIndicator.enabled && active && (
           <div 
-            className="absolute left-0 right-0 h-[5px]"
+            className="absolute left-0 right-0"
             style={{
-              bottom: '-33px',
-              background: 'linear-gradient(to right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)'
+              bottom: 0,
+              height: `${barIndicator.height}px`,
+              background: barIndicator.gradient
             }}
           />
         )}
@@ -343,193 +1505,287 @@ export default function PublicHeader() {
   };
 
   return (
-    <header className="bg-white shadow-sm sticky top-0 z-40 relative">
-      {/* Overlapping Logo */}
-      <img
-        src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68efc20f3e0a30fafad6dde7/26710cf5a_GFIheaderlogo.png"
-        alt="Graduate Futures Institute"
-        className="mt-4 absolute z-50"
-        style={{
-          top: '0',
-          left: 'max(1rem, calc((100vw - 80rem) / 2))',
-          width: 'auto',
-          height: '158px',
-          transform: 'translateY(-10px)'
-        }}
-      />
-
-      {/* Top Row - Gradient Header */}
-      <div
-        className="py-2 relative"
-        style={{
-          background: 'linear-gradient(to right, white 0%, white 33%, #5C0085 50%)'
-        }}
-      >
-        <div className="max-w-7xl mx-auto px-4">
-          <div className="flex justify-end items-center">
-            <div className="flex items-center gap-6">
-              {/* Dynamic Top Nav Items */}
-              {navItems.topNav?.map(item => renderNavItem(item, true))}
-
-              {/* Static Items - Login / Member Area */}
-              <Link
-                to={isLoggedIn ? createPageUrl('Events') : createPageUrl('Home')}
-                className="flex items-center gap-1 text-white hover:opacity-80 transition-opacity text-sm font-semibold"
+    <>
+      {(topNavHoverColor || secondaryBarHoverColor) && (
+        <style>{`
+          ${topNavHoverColor ? `.ph-topnav-link:hover { color: ${topNavHoverColor} !important; }` : ''}
+          ${secondaryBarHoverColor ? `.ph-secnav-link:hover { color: ${secondaryBarHoverColor} !important; }` : ''}
+        `}</style>
+      )}
+      <header className="bg-white shadow-sm sticky top-0 z-40 relative">
+        {/* Desktop: Overlapping Logo */}
+        {headerIconsConfig.logo && (
+        <Link 
+          to="/"
+          className="absolute z-50 hidden lg:block"
+          style={{
+            top: logoMarginTop ? `${logoMarginTop}px` : '0',
+            left: logoMarginLeft ? `calc(max(1rem, calc((100vw - 80rem) / 2)) + ${logoMarginLeft}px)` : 'max(1rem, calc((100vw - 80rem) / 2))'
+          }}
+          data-testid="link-header-logo"
+        >
+          <div style={{ ...(hasLogoContainerStyles ? logoContainerStyle : {}), transition: logoShrinkTransition }}>
+            {hasLogoUrl ? (
+              <img
+                src={headerLogoUrl}
+                alt={tenantName}
+                style={{
+                  width: headerLogoWidth ? `${headerLogoWidth}px` : 'auto',
+                  height: `${activeLogoHeightPx}px`,
+                  maxWidth: headerLogoWidth ? `${headerLogoWidth}px` : 'none',
+                  maxHeight: `${activeLogoHeightPx}px`,
+                  objectFit: 'contain',
+                  display: 'block',
+                  transition: logoShrinkTransition
+                }}
+              />
+            ) : (
+              <span 
+                className="font-bold text-slate-900"
+                style={{
+                  fontSize: `${Math.min(activeLogoHeightPx * 0.4, 48)}px`,
+                  lineHeight: `${activeLogoHeightPx}px`,
+                  display: 'block',
+                  whiteSpace: 'nowrap',
+                  transition: logoShrinkTransition
+                }}
               >
-                <User className="w-4 h-4" />
-                <span>{isLoggedIn ? 'Member Area' : 'Login'}</span>
-              </Link>
+                {tenantName}
+              </span>
+            )}
+          </div>
+        </Link>
+        )}
 
-              {/* Search */}
-              <div className="relative">
-                <button
-                  onClick={() => setSearchOpen(!searchOpen)}
-                  className="flex items-center gap-2 text-white hover:opacity-80 transition-opacity text-sm font-semibold"
-                >
-                  <Search className="w-4 h-4" />
-                  <span>Search</span>
-                </button>
+        {/* Mobile: Floating Logo in white box with shadow */}
+        {headerIconsConfig.logo && (
+        <Link 
+          to="/"
+          className="absolute z-50 lg:hidden"
+          style={{
+            top: logoMarginTop ? `${logoMarginTop}px` : '8px',
+            left: logoMarginLeft ? `${parseInt(logoMarginLeft) + 12}px` : '12px',
+            ...(hasLogoContainerStyles ? logoContainerStyle : { 
+              backgroundColor: 'white', 
+              borderRadius: '4px', 
+              padding: '8px',
+              boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)'
+            }),
+            transition: logoShrinkTransition
+          }}
+          data-testid="link-header-logo-mobile-floating"
+        >
+          {hasLogoUrl ? (
+            <img
+              src={headerLogoUrl}
+              alt={tenantName}
+              style={{
+                height: `${Math.min(activeLogoHeightPx, 96)}px`,
+                width: 'auto',
+                maxWidth: headerLogoWidth ? `${headerLogoWidth}px` : 'none',
+                objectFit: 'contain',
+                display: 'block',
+                transition: logoShrinkTransition
+              }}
+            />
+          ) : (
+            <span 
+              className="font-bold text-slate-900"
+              style={{
+                fontSize: '18px',
+                lineHeight: '24px',
+                display: 'block',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              {tenantName}
+            </span>
+          )}
+        </Link>
+        )}
 
-                {searchOpen && (
-                  <div className="absolute top-full right-0 mt-2 w-80 bg-white rounded-lg shadow-xl border border-slate-200 p-4 z-50">
-                    <div className="flex gap-2">
-                      <div className="relative flex-1">
-                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
-                        <Input
-                          type="text"
-                          placeholder="Search..."
-                          className="pl-10"
-                          autoFocus
-                        />
-                      </div>
-                      <Button
-                        variant="outline"
-                        onClick={() => setSearchOpen(false)}
-                      >
-                        Close
-                      </Button>
-                    </div>
-                    <p className="text-xs text-slate-500 mt-3">
-                      Search functionality coming soon
-                    </p>
-                  </div>
-                )}
+        {/* Top Row - Gradient Header (Desktop only) */}
+        <div
+          className={`relative hidden lg:flex items-center ${topBarHeight ? '' : 'py-2'}`}
+          style={{
+            background: topBarGradient,
+            ...(topBarHeight ? { height: `${topBarHeight}px` } : {})
+          }}
+        >
+          <div className="max-w-7xl w-full mx-auto px-4">
+            <div className="flex justify-end items-center">
+              <div className="flex items-center gap-6">
+                {/* Dynamic Top Nav Items */}
+                {navItems.topNav?.map(item => renderNavItem(item, true))}
+
               </div>
-
-              {/* Logout Icon */}
-              {isLoggedIn && (
-                <button
-                  onClick={handleLogout}
-                  className="flex items-center gap-2 text-white hover:opacity-80 transition-opacity text-sm font-semibold"
-                  title="Logout"
-                >
-                  <LogOut className="w-4 h-4" />
-                </button>
-              )}
-
-              {/* Social Media Icons */}
-              {socialIcons && (
-                <div className="flex items-center gap-2">
-                  {socialIcons.linkedin?.enabled && socialIcons.linkedin?.url && (
-                    <a
-                      href={socialIcons.linkedin.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="w-7 h-7 bg-white rounded flex items-center justify-center hover:opacity-80 transition-opacity"
-                    >
-                      <svg viewBox="0 0 24 24" className="w-4 h-4" fill="#5C0085">
-                        <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" />
-                      </svg>
-                    </a>
-                  )}
-                  {socialIcons.twitter?.enabled && socialIcons.twitter?.url && (
-                    <a
-                      href={socialIcons.twitter.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="w-7 h-7 bg-white rounded flex items-center justify-center hover:opacity-80 transition-opacity"
-                    >
-                      <svg viewBox="0 0 24 24" className="w-4 h-4" fill="#5C0085">
-                        <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-                      </svg>
-                    </a>
-                  )}
-                  {socialIcons.facebook?.enabled && socialIcons.facebook?.url && (
-                    <a
-                      href={socialIcons.facebook.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="w-7 h-7 bg-white rounded flex items-center justify-center hover:opacity-80 transition-opacity"
-                    >
-                      <svg viewBox="0 0 24 24" className="w-4 h-4" fill="#5C0085">
-                        <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
-                      </svg>
-                    </a>
-                  )}
-                  {socialIcons.instagram?.enabled && socialIcons.instagram?.url && (
-                    <a
-                      href={socialIcons.instagram.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="w-7 h-7 bg-white rounded flex items-center justify-center hover:opacity-80 transition-opacity"
-                    >
-                      <svg viewBox="0 0 24 24" className="w-4 h-4" fill="#5C0085">
-                        <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/>
-                      </svg>
-                    </a>
-                  )}
-                  {socialIcons.youtube?.enabled && socialIcons.youtube?.url && (
-                    <a
-                      href={socialIcons.youtube.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="w-7 h-7 bg-white rounded flex items-center justify-center hover:opacity-80 transition-opacity"
-                    >
-                      <svg viewBox="0 0 24 24" className="w-4 h-4" fill="#5C0085">
-                        <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
-                      </svg>
-                    </a>
-                  )}
-                </div>
-              )}
             </div>
           </div>
         </div>
-      </div>
 
-      {/* Bottom Row - Main Navigation */}
-      <div className="bg-white border-b border-slate-200">
-        <div className="max-w-7xl mx-auto px-4 py-6">
-          <div className="flex justify-between items-center h-full">
-            <div style={{ width: '210px' }}></div>
-            
-            <nav className="hidden md:flex items-center gap-8 h-full">
-              {/* Dynamic Main Nav Items */}
-              {navItems.mainNav?.map(item => renderNavItem(item, false))}
+        {/* Combined Navigation Bar - hosts the main nav inside the styled
+            secondary bar (gradient + height from branding). Falls back to a
+            plain white bar when the secondary bar is disabled so the menu is
+            never hidden. */}
+        <div data-testid="secondary-nav-bar">
+          {/* Desktop: single styled bar carrying the main nav */}
+          <div
+            className="relative hidden lg:block"
+            style={secondaryBarEnabled
+              ? { background: secondaryBarGradient }
+              : { background: '#FFFFFF', borderBottom: '1px solid #E2E8F0' }}
+          >
+            <div className="max-w-7xl mx-auto px-4">
+              <div
+                className="flex justify-between items-center"
+                style={{ height: `${combinedBarHeight}px` }}
+              >
+                {/* Desktop spacer for floating logo */}
+                <div style={{ width: '210px' }}></div>
 
-              {/* Static Join Us Button */}
-              <Link to={createPageUrl('PublicJoinUs')}>
-                <Button 
-                  className="text-white font-bold hover:opacity-90 transition-opacity px-6 py-5 rounded-none" 
-                  style={{ 
-                    fontFamily: 'Poppins, sans-serif',
-                    background: 'linear-gradient(to top right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)'
-                  }}
+                {/* Desktop Navigation */}
+                <nav className="flex items-center gap-8 h-full">
+                  {/* Dynamic Main Nav Items */}
+                  {navItems.mainNav?.map(item => renderNavItem(item, false))}
+                </nav>
+              </div>
+            </div>
+          </div>
+
+          {/* Mobile/tablet: white bar with hamburger (unchanged) */}
+          <div className="lg:hidden bg-white border-b border-slate-200">
+            <div className="max-w-7xl mx-auto px-4 py-3">
+              <div className="flex justify-between items-center">
+                {/* Mobile spacer for floating logo */}
+                <div style={{ width: '120px' }}></div>
+
+                {/* Mobile Menu Button */}
+                <button 
+                  className="p-2 -mr-2"
+                  onClick={() => setMobileMenuOpen(true)}
+                  aria-label="Open menu"
                 >
-                  Join Us
-                  <ArrowUpRight className="ml-0.5 w-5 h-5" strokeWidth={2.5} />
-                </Button>
-              </Link>
-            </nav>
-
-            <button className="md:hidden p-2">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
-            </button>
+                  <Menu className="w-6 h-6 text-slate-900" />
+                </button>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
-    </header>
+      </header>
+
+      {/* Mobile Menu - rendered via portal to escape transformed ancestors */}
+      {typeof document !== 'undefined' && createPortal(
+        <div 
+          className={`fixed inset-0 z-50 overflow-hidden lg:hidden ${
+            mobileMenuOpen ? 'pointer-events-auto' : 'pointer-events-none'
+          }`}
+        >
+          {/* Backdrop */}
+          <div 
+            className={`absolute inset-0 bg-black/50 transition-opacity duration-300 ${
+              mobileMenuOpen ? 'opacity-100' : 'opacity-0'
+            }`}
+            onClick={() => setMobileMenuOpen(false)}
+          />
+
+          {/* Drawer Panel - slides in from right */}
+          <div 
+            className={`absolute top-0 right-0 h-full w-[90vw] bg-white transform transition-transform duration-300 ease-in-out ${
+              mobileMenuOpen ? 'translate-x-0' : 'translate-x-full'
+            }`}
+          >
+        {/* Mobile Menu Header */}
+        <div className="flex items-center justify-between p-4 border-b border-slate-200">
+          {headerIconsConfig.logo ? (
+          <Link 
+            to="/" 
+            onClick={() => setMobileMenuOpen(false)}
+            data-testid="link-mobile-drawer-logo"
+          >
+            <div style={hasLogoContainerStyles ? {
+              ...logoContainerStyle,
+              paddingTop: logoPaddingTop ? `${Math.min(parseInt(logoPaddingTop), 8)}px` : '0',
+              paddingRight: logoPaddingRight ? `${Math.min(parseInt(logoPaddingRight), 8)}px` : '0',
+              paddingBottom: logoPaddingBottom ? `${Math.min(parseInt(logoPaddingBottom), 8)}px` : '0',
+              paddingLeft: logoPaddingLeft ? `${Math.min(parseInt(logoPaddingLeft), 8)}px` : '0'
+            } : {}}>
+              {hasLogoUrl ? (
+                <img
+                  src={headerLogoUrl}
+                  alt={tenantName}
+                  style={{
+                    height: '40px',
+                    width: 'auto',
+                    maxWidth: headerLogoWidth ? `${Math.min(parseInt(headerLogoWidth), 150)}px` : '150px',
+                    objectFit: 'contain',
+                    display: 'block'
+                  }}
+                />
+              ) : (
+                <span 
+                  className="font-bold text-slate-900"
+                  style={{
+                    fontSize: '18px',
+                    lineHeight: '40px',
+                    display: 'block',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  {tenantName}
+                </span>
+              )}
+            </div>
+          </Link>
+          ) : <div />}
+          <button 
+            onClick={() => setMobileMenuOpen(false)}
+            className="p-2 -mr-2 hover:bg-slate-100 rounded-lg transition-colors"
+            aria-label="Close menu"
+          >
+            <X className="w-6 h-6 text-slate-900" />
+          </button>
+        </div>
+
+        {/* Mobile Menu Content */}
+        <div className="flex flex-col h-[calc(100%-73px)] overflow-y-auto">
+
+          {/* Navigation Items */}
+          <div className="flex-1 py-2">
+            {/* Top Nav Items */}
+            {navItems.topNav?.map(item => renderMobileNavItem(item))}
+            
+            {/* Main Nav Items */}
+            {navItems.mainNav?.map(item => renderMobileNavItem(item))}
+          </div>
+
+        </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Form Modal Dialog - displays form when triggered by form_modal nav items */}
+      <Dialog open={formModalOpen} onOpenChange={setFormModalOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-0">
+          {activeFormSlug ? (
+            <IEditFormElement 
+              element={{
+                content: {
+                  form_slug: activeFormSlug,
+                  background_type: 'color',
+                  background_color: 'transparent'
+                }
+              }}
+              memberInfo={null}
+              organizationInfo={null}
+            />
+          ) : (
+            <div className="text-center py-8 px-6">
+              <p className="text-slate-600">Form not found or inactive.</p>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

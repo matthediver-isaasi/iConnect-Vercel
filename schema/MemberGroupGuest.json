@@ -17,7 +17,7 @@
       },
       "organisation": {
         "type": "string",
-        "description": "Guest's organisation name"
+        "description": "Guest's organisation name (text only, not a managed org)"
       },
       "job_title": {
         "type": "string",
@@ -27,6 +27,11 @@
         "type": "boolean",
         "default": true,
         "description": "Whether this guest is active"
+      },
+      "member_id": {
+        "type": "string",
+        "format": "uuid",
+        "description": "ID of the provisioned member record linked to this guest marker row"
       }
     },
     "required": [

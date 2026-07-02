@@ -1,0 +1,96 @@
+// Shared helpers for form field validation/prefill logic.
+// Used by both the standalone FormView page and IEdit-embedded forms so that
+// fixes to either helper apply everywhere at once.
+
+export const isFieldValueFilled = (field, value) => {
+  if (field.type === 'grouped_question') {
+    const subQuestions = Array.isArray(field.sub_questions) ? field.sub_questions : [];
+    const rawMin = Number(field.min_completed);
+    const minRequired = Number.isFinite(rawMin)
+      ? Math.max(0, Math.min(rawMin, subQuestions.length))
+      : subQuestions.length;
+    const rawMax = Number(field.max_completed);
+    const maxAllowed = Number.isFinite(rawMax)
+      ? Math.max(minRequired, Math.min(rawMax, subQuestions.length))
+      : subQuestions.length;
+    const answers = (value && typeof value === 'object') ? value : {};
+    const answeredCount = subQuestions.reduce((count, sq) => {
+      const answer = answers[sq.id];
+      return count + (typeof answer === 'string' && answer.trim() ? 1 : 0);
+    }, 0);
+    if (answeredCount > maxAllowed) return false;
+    if (minRequired === 0) return true;
+    return answeredCount >= minRequired;
+  }
+
+  if (!value) return false;
+
+  if (field.type === 'countries') {
+    return Array.isArray(value) && value.length > 0;
+  }
+
+  if (field.type === 'contact') {
+    if (typeof value !== 'object') return false;
+    if (!field.required) return Object.values(value).some(v => typeof v === 'string' && v.trim());
+    const subDefaults = { firstName: { visible: true, required: true }, lastName: { visible: true, required: true }, jobTitle: { visible: true, required: false }, organisation: { visible: true, required: false }, email: { visible: true, required: true } };
+    const subFields = field.contact_sub_fields || subDefaults;
+    const requiredKeys = Object.keys(subDefaults).filter(k => {
+      const cfg = subFields[k] || subDefaults[k];
+      return cfg.visible !== false && cfg.required === true;
+    });
+    return requiredKeys.every(k => !!value[k]?.trim());
+  }
+
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+
+  if (typeof value === 'string') {
+    return value.length > 0;
+  }
+
+  if (typeof value === 'boolean') {
+    return true;
+  }
+
+  if (typeof value === 'object') {
+    return Object.keys(value).length > 0;
+  }
+
+  return true;
+};
+
+export const parseCustomFieldValue = (cfv, fieldType) => {
+  if (!cfv || cfv.value === undefined || cfv.value === null) return null;
+  let parsedValue = cfv.value;
+  if (fieldType === 'list' || fieldType === 'countries') {
+    if (Array.isArray(cfv.value)) {
+      parsedValue = cfv.value;
+    } else if (typeof cfv.value === 'string') {
+      try {
+        const parsed = JSON.parse(cfv.value);
+        parsedValue = Array.isArray(parsed) ? parsed : (cfv.value ? [cfv.value] : []);
+      } catch {
+        parsedValue = cfv.value ? [cfv.value] : [];
+      }
+    } else {
+      parsedValue = [];
+    }
+  } else if (fieldType === 'custom_field') {
+    // For wrapped custom_field form fields we don't know the underlying type here.
+    // Only attempt JSON-parse when the raw value LOOKS like a JSON array string,
+    // so list/countries custom fields get an array but text/boolean/etc are untouched.
+    if (typeof cfv.value === 'string') {
+      const trimmed = cfv.value.trim();
+      if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (Array.isArray(parsed)) parsedValue = parsed;
+        } catch {
+          // leave as raw string
+        }
+      }
+    }
+  }
+  return parsedValue;
+};

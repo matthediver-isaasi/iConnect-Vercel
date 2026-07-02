@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,24 +9,45 @@ import { Badge } from "@/components/ui/badge";
 import { Search, MapPin, Building2, Clock, Briefcase, Plus, Star, AlertCircle, ArrowUpDown } from "lucide-react";
 import { format, differenceInDays, isPast } from "date-fns";
 import { createPageUrl } from "@/utils";
+import { parseJobClosingDate, startOfLocalToday } from "@/lib/jobDate";
 import { Link } from "react-router-dom";
+import { useLayoutContext } from "@/contexts/LayoutContext";
+import { useBelowFirstElementBanners } from "@/contexts/BannerContext";
+import PortalHeroBanner from "@/components/banners/PortalHeroBanner";
+import PageBannerDisplay from "@/components/banners/PageBannerDisplay";
+
+const stripHtml = (html) => {
+  if (!html) return '';
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  return doc.body.textContent || '';
+};
 
 export default function JobBoardPage() {
+  const { hasBanner, memberInfo, sessionValidated } = useLayoutContext();
+  const belowFirstElementBanners = useBelowFirstElementBanners();
   const [searchQuery, setSearchQuery] = useState("");
   const [locationFilter, setLocationFilter] = useState("");
   const [jobTypeFilter, setJobTypeFilter] = useState("all");
   const [hoursFilter, setHoursFilter] = useState("all");
   const [sortBy, setSortBy] = useState("posted-newest");
 
+  const isAuthenticated = !!memberInfo && !!sessionValidated;
+
   const { data: jobs = [], isLoading } = useQuery({
-    queryKey: ['public-jobs'],
+    queryKey: ['public-jobs', isAuthenticated ? 'authenticated' : 'public'],
     queryFn: async () => {
-      const allJobs = await base44.entities.JobPosting.filter({ status: 'active' });
-      // Filter out expired jobs (based on closing_date)
-      const now = new Date();
-      return allJobs.filter(job => {
+      let allJobs;
+      if (isAuthenticated) {
+        allJobs = await base44.entities.JobPosting.filter({ status: 'active' });
+      } else {
+        allJobs = await publicClient.listJobPostings();
+      }
+      // Filter out expired jobs (based on closing_date, treated as a local calendar date)
+      const today = startOfLocalToday();
+      return (allJobs || []).filter(job => {
         if (!job.closing_date) return true; // Keep jobs without closing date
-        return new Date(job.closing_date) > now;
+        const closing = parseJobClosingDate(job.closing_date);
+        return closing && closing >= today;
       });
     },
     staleTime: 0,
@@ -34,9 +56,14 @@ export default function JobBoardPage() {
 
   // Fetch job type options from settings
   const { data: jobTypeSettings = [] } = useQuery({
-    queryKey: ['job-type-settings'],
+    queryKey: ['job-type-settings', isAuthenticated ? 'authenticated' : 'public'],
     queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list();
+      let allSettings;
+      if (isAuthenticated) {
+        allSettings = await base44.entities.SystemSettings.list();
+      } else {
+        allSettings = await publicClient.listSystemSettings();
+      }
       const setting = allSettings.find(s => s.setting_key === 'job_types');
       if (setting) {
         try {
@@ -53,9 +80,14 @@ export default function JobBoardPage() {
 
   // Fetch hours options from settings
   const { data: hoursSettings = [] } = useQuery({
-    queryKey: ['hours-settings'],
+    queryKey: ['hours-settings', isAuthenticated ? 'authenticated' : 'public'],
     queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list();
+      let allSettings;
+      if (isAuthenticated) {
+        allSettings = await base44.entities.SystemSettings.list();
+      } else {
+        allSettings = await publicClient.listSystemSettings();
+      }
       const setting = allSettings.find(s => s.setting_key === 'job_hours');
       if (setting) {
         try {
@@ -75,7 +107,7 @@ export default function JobBoardPage() {
       const matchesSearch = !searchQuery || 
         job.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         job.company_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        job.description?.toLowerCase().includes(searchQuery.toLowerCase());
+        stripHtml(job.description).toLowerCase().includes(searchQuery.toLowerCase());
       
       const matchesLocation = !locationFilter ||
         job.location?.toLowerCase().includes(locationFilter.toLowerCase());
@@ -98,18 +130,24 @@ export default function JobBoardPage() {
           return new Date(b.created_date) - new Date(a.created_date);
         case 'posted-oldest':
           return new Date(a.created_date) - new Date(b.created_date);
-        case 'closing-soonest':
+        case 'closing-soonest': {
           // Jobs without closing date go to the end
-          if (!a.closing_date && !b.closing_date) return 0;
-          if (!a.closing_date) return 1;
-          if (!b.closing_date) return -1;
-          return new Date(a.closing_date) - new Date(b.closing_date);
-        case 'closing-latest':
+          const ad = parseJobClosingDate(a.closing_date);
+          const bd = parseJobClosingDate(b.closing_date);
+          if (!ad && !bd) return 0;
+          if (!ad) return 1;
+          if (!bd) return -1;
+          return ad - bd;
+        }
+        case 'closing-latest': {
           // Jobs without closing date go to the end
-          if (!a.closing_date && !b.closing_date) return 0;
-          if (!a.closing_date) return 1;
-          if (!b.closing_date) return -1;
-          return new Date(b.closing_date) - new Date(a.closing_date);
+          const ad = parseJobClosingDate(a.closing_date);
+          const bd = parseJobClosingDate(b.closing_date);
+          if (!ad && !bd) return 0;
+          if (!ad) return 1;
+          if (!bd) return -1;
+          return bd - ad;
+        }
         default:
           return new Date(b.created_date) - new Date(a.created_date);
       }
@@ -121,36 +159,49 @@ export default function JobBoardPage() {
   // Helper to check if job is closing soon (within 7 days)
   const isClosingSoon = (closingDate) => {
     if (!closingDate) return false;
-    const daysUntilClosing = differenceInDays(new Date(closingDate), new Date());
+    const parsed = parseJobClosingDate(closingDate);
+    if (!parsed) return false;
+    const daysUntilClosing = differenceInDays(parsed, startOfLocalToday());
     return daysUntilClosing >= 0 && daysUntilClosing <= 7;
   };
 
   return (
-    <div className="bg-white min-h-screen">
-      {/* Hero Section */}
-      <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-20">
-        <div className="max-w-7xl mx-auto px-4">
-          <h1 className="text-4xl md:text-5xl font-bold mb-6">Career Opportunities</h1>
-          <p className="text-xl text-blue-100 max-w-3xl mb-8">
-            Find your next career opportunity in careers education, information, advice and guidance
-          </p>
-          <Button 
-            onClick={() => window.location.href = createPageUrl('PostJob')}
-            size="lg"
-            className="bg-white text-blue-600 hover:bg-blue-50"
-          >
-            <Plus className="w-5 h-5 mr-2" />
-            Post a Job
-          </Button>
-        </div>
-      </div>
-
-      {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-4 py-12">
+    <div className="min-h-screen p-4 md:p-8 overflow-x-hidden">
+      <div className="max-w-7xl mx-auto w-full">
+        {/* Header - hidden when custom banner is present */}
+        {!hasBanner && belowFirstElementBanners.length === 0 && (
+          <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">Job Board</h1>
+              <p className="text-slate-600">Find your next career opportunity</p>
+            </div>
+            {isAuthenticated && (
+              <Button 
+                onClick={() => window.location.href = createPageUrl('PostJob')}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Post a Job
+              </Button>
+            )}
+          </div>
+        )}
+        
+        {/* Below-first-element banners */}
+        {belowFirstElementBanners.length > 0 && (
+          <div className="w-full mb-8 -mx-4 md:-mx-8">
+            {belowFirstElementBanners.map((banner) => (
+              banner.banner_type === 'image'
+                ? <PageBannerDisplay key={banner.id} banner={banner} />
+                : <PortalHeroBanner key={banner.id} banner={banner} />
+            ))}
+          </div>
+        )}
+        
         {/* Filters */}
         <Card className="border-slate-200 shadow-sm mb-8">
-          <CardContent className="p-6">
-            <div className="grid md:grid-cols-5 gap-4">
+          <CardContent className="p-4 md:p-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 md:gap-4">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <Input
@@ -215,7 +266,7 @@ export default function JobBoardPage() {
 
         {/* Job Listings - 2 Column Grid */}
         {isLoading ? (
-          <div className="grid md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
             {Array(6).fill(0).map((_, i) => (
               <Card key={i} className="animate-pulse border-slate-200">
                 <CardContent className="p-6">
@@ -234,22 +285,23 @@ export default function JobBoardPage() {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
             {filteredJobs.map((job) => {
               const closingSoon = job.closing_date && isClosingSoon(job.closing_date);
-              const daysUntilClosing = job.closing_date ? differenceInDays(new Date(job.closing_date), new Date()) : null;
+              const closingDateParsed = parseJobClosingDate(job.closing_date);
+              const daysUntilClosing = closingDateParsed ? differenceInDays(closingDateParsed, startOfLocalToday()) : null;
 
               return (
-                <Link key={job.id} to={createPageUrl(`JobDetails?id=${job.id}`)}>
-                  <Card className={`border-slate-200 hover:shadow-xl transition-all cursor-pointer h-full group ${
-                    closingSoon ? 'border-l-4 border-l-amber-500 hover:border-amber-300' : 'hover:border-blue-300'
+                <Link key={job.id} to={createPageUrl(`JobDetails?id=${job.id}`)} className="min-w-0">
+                  <Card className={`border-slate-200 hover:shadow-xl transition-all cursor-pointer h-full group overflow-hidden ${
+                    closingSoon ? 'border-l-4 border-l-amber-500 hover:border-warning/30' : 'hover:border-blue-300'
                   }`}>
-                    <CardContent className="p-6">
+                    <CardContent className="p-4 md:p-6">
                       {/* Closing Soon Banner */}
                       {closingSoon && (
-                        <div className="mb-4 -mx-6 -mt-6 px-6 py-2 bg-gradient-to-r from-amber-50 to-orange-50 border-b border-amber-200 flex items-center gap-2">
-                          <AlertCircle className="w-4 h-4 text-amber-600" />
-                          <span className="text-sm font-medium text-amber-900">
+                        <div className="mb-4 -mx-4 md:-mx-6 -mt-4 md:-mt-6 px-4 md:px-6 py-2 bg-gradient-to-r from-amber-50 to-orange-50 border-b border-warning/30 flex items-center gap-2">
+                          <AlertCircle className="w-4 h-4 text-warning" />
+                          <span className="text-sm font-medium text-warning">
                             Closing {daysUntilClosing === 0 ? 'today' : `in ${daysUntilClosing} ${daysUntilClosing === 1 ? 'day' : 'days'}`}
                           </span>
                         </div>
@@ -276,7 +328,7 @@ export default function JobBoardPage() {
                               {job.title}
                             </h3>
                             {job.featured && (
-                              <Star className="w-5 h-5 text-amber-500 fill-amber-500 flex-shrink-0" />
+                              <Star className="w-5 h-5 text-warning fill-amber-500 flex-shrink-0" />
                             )}
                           </div>
                           <p className="text-sm font-medium text-slate-700 mt-1">{job.company_name}</p>
@@ -296,8 +348,8 @@ export default function JobBoardPage() {
                         {job.closing_date && (
                           <div className="flex items-center gap-2 text-sm">
                             <Clock className="w-4 h-4 flex-shrink-0 text-slate-600" />
-                            <span className={closingSoon ? 'font-semibold text-amber-700' : 'text-slate-600'}>
-                              Closes {format(new Date(job.closing_date), 'd MMM, yyyy')}
+                            <span className={closingSoon ? 'font-semibold text-warning' : 'text-slate-600'}>
+                              Closes {format(closingDateParsed, 'd MMM, yyyy')}
                             </span>
                           </div>
                         )}
@@ -324,7 +376,7 @@ export default function JobBoardPage() {
 
                       {/* Description Preview */}
                       <p className="text-sm text-slate-600 line-clamp-3 leading-relaxed">
-                        {job.description?.substring(0, 180)}...
+                        {stripHtml(job.description).substring(0, 180)}...
                       </p>
 
                       {/* View Details Link */}

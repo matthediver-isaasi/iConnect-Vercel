@@ -1,0 +1,32 @@
+2026-01-21 09:37:26.153 [info] [Session] getSession: Looking up session: d5663fe6
+2026-01-21 09:37:26.288 [info] [Session] getSession: Session found, userType: tenant_user
+2026-01-21 09:37:26.288 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"d5663fe6","userType":"tenant_user","tenantUserId":"11ee8b69-e967-45d5-9bfa-dff5a52c4ae6","preservedTenantUserId":"11ee8b69-e967-45d5-9bfa-dff5a52c4ae6","memberId":"b24e022f-adcc-4930-8952-63a34cc16925","identityId":"545269d1-326b-4fff-90d0-b8a4e0cab9bb","tenantId":"21296ad6-1350-483a-a90c-1b06ece70501"}
+2026-01-21 09:37:26.288 [info] [Session] Found tenant_user session, continuing with normal handling
+2026-01-21 09:37:26.518 [info] [Session] Verified via unified identity system: mat.the.diver@googlemail.com
+2026-01-21 09:37:26.628 [info] [Session] Elevating role from tenant_user table: owner
+2026-01-21 09:37:26.628 [info] [Session] getSession: Looking up session: d5663fe6
+2026-01-21 09:37:26.748 [info] [Session] getSession: Session found, userType: tenant_user
+2026-01-21 09:37:26.748 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"d5663fe6","userType":"tenant_user","memberId":"b24e022f-adcc-4930-8952-63a34cc16925","preservedTenantUserId":"11ee8b69-e967-45d5-9bfa-dff5a52c4ae6","preservedIdentityId":"545269d1-326b-4fff-90d0-b8a4e0cab9bb"}
+2026-01-21 09:37:26.860 [info] [Session] Attaching preserved admin context to member: {
+  memberId: 'b24e022f-adcc-4930-8952-63a34cc16925',
+  preservedTenantUserId: '11ee8b69-e967-45d5-9bfa-dff5a52c4ae6'
+}
+2026-01-21 09:37:26.861 [info] [Session] Attaching preserved identity to member: {
+  memberId: 'b24e022f-adcc-4930-8952-63a34cc16925',
+  preservedIdentityId: '545269d1-326b-4fff-90d0-b8a4e0cab9bb'
+}
+2026-01-21 09:37:26.861 [info] [Entity PATCH] Entity: "Organization", ID: 5c8b11a2-880b-4e56-980b-baf45f2deb9a, Body: {"name":"testorga","phone":"","website_url":"","invoicing_email":"","invoicing_address":"","description":"","training_fund_balance":0}
+2026-01-21 09:37:26.861 [info] [Entity PATCH] Normalized entity: "organization"
+2026-01-21 09:37:26.861 [info] [Entity PATCH] isPreferenceValueEntity: false
+2026-01-21 09:37:27.090 [info] [Entity PATCH] Derived baseUrl: "https://gsf.iconn.app"
+2026-01-21 09:37:27.090 [info] [Workflows] triggerWorkflows called: entityType=organization, entityId=5c8b11a2-880b-4e56-980b-baf45f2deb9a, triggerType=field_change
+2026-01-21 09:37:27.090 [info] [Workflows] afterData.tenant_id=21296ad6-1350-483a-a90c-1b06ece70501, beforeData.tenant_id=21296ad6-1350-483a-a90c-1b06ece70501
+2026-01-21 09:37:27.090 [info] [Workflows] Initial tenantId from data: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-01-21 09:37:27.090 [info] [Workflows] Querying workflows: entity_type=organization, tenant_id=21296ad6-1350-483a-a90c-1b06ece70501, is_active=true
+2026-01-21 09:37:27.206 [info] [Workflows] Query result: 2 workflows found, error: null
+2026-01-21 09:37:27.206 [info] [Workflows] Evaluating 2 workflows for organization:5c8b11a2-880b-4e56-980b-baf45f2deb9a (tenant: 21296ad6-1350-483a-a90c-1b06ece70501)
+2026-01-21 09:37:27.206 [info] [Workflows] Checking workflow "Send SO long form": trigger_type="record_create", incoming triggerType="field_change"
+2026-01-21 09:37:27.206 [info] [Workflows] Skipping "Send SO long form" - trigger type mismatch (workflow: record_create, event: field_change)
+2026-01-21 09:37:27.206 [info] [Workflows] Checking workflow "TEST": trigger_type="field_change", incoming triggerType="field_change"
+2026-01-21 09:37:27.206 [info] [Workflows] Skipping custom field workflow "TEST" - handled by preference value update
+2026-01-21 09:37:27.206 [info] [Entity PATCH] Not a preference value entity or no data: isPreferenceValueEntity=false, data=true

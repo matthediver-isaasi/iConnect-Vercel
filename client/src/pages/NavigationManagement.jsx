@@ -10,11 +10,39 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Navigation, Plus, Pencil, Trash2, ChevronRight, ChevronDown, Menu, Sparkles, Calendar, Building, Briefcase, FileText, Users, Home, Mail, Phone, X } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Navigation, Plus, Pencil, Trash2, ChevronRight, ChevronDown, Menu, Sparkles, Calendar, Building, Briefcase, FileText, Users, Home, Mail, Phone, X, Newspaper, PenLine, Globe, Folder, Image, MessageSquare, Bell, Star, Heart, Eye, Link, ExternalLink, Tag, Award, Bookmark, Clock, Search, MapPin, Video, Music, Camera, Mic, Headphones, Tv, Radio, Rss, Share2, Gift, Zap, Target, Flag, Layers, Grid, List, Layout, Monitor, Smartphone, Tablet, Laptop, Server, Database, Cloud, Lock, Key, UserCheck, UserPlus, UserMinus, Users2, MessageCircle, Send, Inbox, Archive, CreditCard, Ticket, Wallet, ShoppingCart, History, Settings, BookOpen, HelpCircle, Shield, BarChart3, FileEdit, AtSign, FolderTree, Trophy, MousePointer2, Download, Type, AlignLeft, AlignCenter, AlignRight, Minus, GripVertical, ArrowLeftRight } from "lucide-react";
 import SocialIconsConfig from "../components/navigation/SocialIconsConfig";
+import HeaderIconsConfig from "../components/navigation/HeaderIconsConfig";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+
+// Footer content block types that reference branding configuration sections
+const footerContentBlocks = [
+  { type: 'heading', label: 'Heading', icon: Type, description: 'Display a styled heading text' },
+  { type: 'logo', label: 'Logo', icon: Image, description: 'Display tenant logo from branding settings' },
+  { type: 'social', label: 'Social Icons', icon: Share2, description: 'Display social media icons from settings' },
+  { type: 'address', label: 'Address', icon: MapPin, description: 'Display address from branding settings' },
+  { type: 'contact', label: 'Contact', icon: Phone, description: 'Display phone & email from branding settings' },
+  { type: 'cta', label: 'Call to Action', icon: Zap, description: 'Display CTA button from branding settings' },
+  { type: 'newsletter', label: 'Newsletter', icon: Mail, description: 'Display newsletter signup from branding settings' },
+  { type: 'legal', label: 'Legal', icon: FileText, description: 'Display legal text, terms & privacy links' },
+  { type: 'spacer', label: 'Spacer', icon: Minus, description: 'Add vertical spacing between elements' }
+];
+
+// Header control elements that can be positioned in the Top Bar or Main Nav.
+// These render live controls (Search popover, Social icons, Login/Logout) in the
+// public header wherever the admin places them. Each type may appear once.
+const headerContentBlocks = [
+  { type: 'search', label: 'Search', icon: Search, description: 'Search box and results popover' },
+  { type: 'social', label: 'Social Icons', icon: Share2, description: 'Social media icons from settings' },
+  { type: 'account', label: 'Account', icon: UserCheck, description: 'Login link, or Logout when signed in' }
+];
+const HEADER_CONTENT_BLOCK_TYPES = headerContentBlocks.map(b => b.type);
 
 // Available Lucide icons for navigation
 const availableIcons = [
@@ -28,43 +56,287 @@ const availableIcons = [
   { name: "Mail", component: Mail },
   { name: "Phone", component: Phone },
   { name: "Menu", component: Menu },
-  { name: "Navigation", component: Navigation }
+  { name: "Navigation", component: Navigation },
+  { name: "Newspaper", component: Newspaper },
+  { name: "PenLine", component: PenLine },
+  { name: "Globe", component: Globe },
+  { name: "Folder", component: Folder },
+  { name: "Image", component: Image },
+  { name: "MessageSquare", component: MessageSquare },
+  { name: "Bell", component: Bell },
+  { name: "Star", component: Star },
+  { name: "Heart", component: Heart },
+  { name: "Eye", component: Eye },
+  { name: "Link", component: Link },
+  { name: "ExternalLink", component: ExternalLink },
+  { name: "Tag", component: Tag },
+  { name: "Award", component: Award },
+  { name: "Bookmark", component: Bookmark },
+  { name: "Clock", component: Clock },
+  { name: "Search", component: Search },
+  { name: "MapPin", component: MapPin },
+  { name: "Video", component: Video },
+  { name: "Music", component: Music },
+  { name: "Camera", component: Camera },
+  { name: "Mic", component: Mic },
+  { name: "Headphones", component: Headphones },
+  { name: "Tv", component: Tv },
+  { name: "Radio", component: Radio },
+  { name: "Rss", component: Rss },
+  { name: "Share2", component: Share2 },
+  { name: "Gift", component: Gift },
+  { name: "Zap", component: Zap },
+  { name: "Target", component: Target },
+  { name: "Flag", component: Flag },
+  { name: "Layers", component: Layers },
+  { name: "Grid", component: Grid },
+  { name: "List", component: List },
+  { name: "Layout", component: Layout },
+  { name: "Monitor", component: Monitor },
+  { name: "Smartphone", component: Smartphone },
+  { name: "Tablet", component: Tablet },
+  { name: "Laptop", component: Laptop },
+  { name: "Server", component: Server },
+  { name: "Database", component: Database },
+  { name: "Cloud", component: Cloud },
+  { name: "Lock", component: Lock },
+  { name: "Key", component: Key },
+  { name: "UserCheck", component: UserCheck },
+  { name: "UserPlus", component: UserPlus },
+  { name: "UserMinus", component: UserMinus },
+  { name: "Users2", component: Users2 },
+  { name: "MessageCircle", component: MessageCircle },
+  { name: "Send", component: Send },
+  { name: "Inbox", component: Inbox },
+  { name: "Archive", component: Archive },
+  { name: "CreditCard", component: CreditCard },
+  { name: "Ticket", component: Ticket },
+  { name: "Wallet", component: Wallet },
+  { name: "ShoppingCart", component: ShoppingCart },
+  { name: "History", component: History },
+  { name: "Settings", component: Settings },
+  { name: "BookOpen", component: BookOpen },
+  { name: "HelpCircle", component: HelpCircle },
+  { name: "Shield", component: Shield },
+  { name: "BarChart3", component: BarChart3 },
+  { name: "FileEdit", component: FileEdit },
+  { name: "AtSign", component: AtSign },
+  { name: "FolderTree", component: FolderTree },
+  { name: "Trophy", component: Trophy },
+  { name: "MousePointer2", component: MousePointer2 },
+  { name: "Download", component: Download }
 ];
 
-// Hardcoded public pages that are always available
+// Sortable footer item component for drag and drop
+function SortableFooterItem({ item, onEdit, onDelete }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: item.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  const isContentBlock = item.link_type === 'content_block';
+  const blockDef = isContentBlock ? footerContentBlocks.find(b => b.type === item.content_block_type) : null;
+  const IconComponent = isContentBlock 
+    ? blockDef?.icon 
+    : availableIcons.find(i => i.name === item.icon)?.component;
+
+  return (
+    <div 
+      ref={setNodeRef}
+      style={style}
+      className={`flex items-center gap-2 p-2 rounded-lg transition-colors ${
+        isContentBlock 
+          ? 'bg-purple-50 border border-purple-200 hover:bg-purple-100' 
+          : 'bg-slate-50 hover:bg-slate-100'
+      } ${isDragging ? 'shadow-lg z-50' : ''}`}
+    >
+      <div 
+        {...attributes} 
+        {...listeners}
+        className="cursor-grab active:cursor-grabbing p-1 hover:bg-slate-200 rounded"
+      >
+        <GripVertical className="w-4 h-4 text-slate-400" />
+      </div>
+      {IconComponent && <IconComponent className={`w-4 h-4 ${isContentBlock ? 'text-purple-600' : 'text-slate-500'}`} />}
+      <div className="flex-1 min-w-0">
+        <span className="text-sm font-medium text-slate-800 truncate block">{item.title}</span>
+        <div className="flex items-center gap-1">
+          {isContentBlock ? (
+            <Badge variant="outline" className="text-xs text-purple-600 border-purple-300">
+              {blockDef?.label || 'Content Block'}
+            </Badge>
+          ) : (
+            <span className="text-xs text-slate-500 truncate">{item.url}</span>
+          )}
+          {item.display_type === 'button' && (
+            <Badge variant="outline" className={`text-xs ml-1 ${item.button_style === 'secondary' ? 'text-blue-600 border-blue-300' : 'text-green-600 border-green-300'}`}>
+              {item.button_style === 'secondary' ? 'Secondary' : 'Primary'}
+            </Badge>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-1">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => onEdit(item)}
+          className="h-7 w-7 p-0"
+          data-testid={`button-edit-footer-${item.id}`}
+        >
+          <Pencil className="w-3 h-3" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => onDelete(item)}
+          className="h-7 w-7 p-0 text-red-600"
+          data-testid={`button-delete-footer-${item.id}`}
+        >
+          <Trash2 className="w-3 h-3" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// All available pages for navigation (matching PortalMenuManagement)
 const hardcodedPublicPages = [
+  { name: "AdminSetup", label: "Admin Setup" },
+  { name: "Articles", label: "Articles" },
+  { name: "ArticlesSettings", label: "Articles Settings" },
+  { name: "ArticleEditor", label: "Article Editor" },
+  { name: "ArticleView", label: "Article View" },
+  { name: "AwardManagement", label: "Award Management" },
+  { name: "Balances", label: "Balances" },
+  { name: "Bookings", label: "Bookings" },
+  { name: "BorderRadiusSettings", label: "Border Radius Settings" },
+  { name: "ButtonElements", label: "Button Elements" },
+  { name: "ButtonStyleManagement", label: "Button Styles" },
+  { name: "BuyProgramTickets", label: "Buy Program Tickets" },
+  { name: "CardDeckManagement", label: "Card Deck Management" },
+  { name: "CategoryManagement", label: "Category Management" },
+  { name: "Dashboard", label: "Dashboard" },
+  { name: "DataExport", label: "Data Export" },
+  { name: "DiscountCodeManagement", label: "Discount Code Management" },
+  { name: "DynamicPage", label: "Dynamic Page" },
+  { name: "EventDetails", label: "Event Details" },
+  { name: "Events", label: "Events" },
+  { name: "EventSettings", label: "Event Settings" },
+  { name: "FileManagement", label: "File Management" },
+  { name: "FloaterManagement", label: "Floater Management" },
+  { name: "FormBuilder", label: "Form Builder" },
+  { name: "FormManagement", label: "Form Management" },
+  { name: "FormSubmissions", label: "Form Submissions" },
+  { name: "FormView", label: "Form View" },
+  { name: "GuestWriterManagement", label: "Guest Writer Management" },
+  { name: "History", label: "History" },
   { name: "Home", label: "Home" },
-  { name: "PublicEvents", label: "Public Events" },
-  { name: "PublicAbout", label: "About Us" },
-  { name: "PublicContact", label: "Contact" },
-  { name: "PublicResources", label: "Resources" },
-  { name: "PublicArticles", label: "Articles" },
-  { name: "PublicNews", label: "News" },
+  { name: "IEditPageEditor", label: "Page Editor" },
+  { name: "IEditPageManagement", label: "Page Builder - Pages" },
+  { name: "IEditTemplateManagement", label: "Page Builder - Templates" },
+  { name: "InstalledFonts", label: "Installed Fonts" },
   { name: "JobBoard", label: "Job Board" },
-  { name: "PostJob", label: "Post a Job" },
-  { name: "OrganisationDirectory", label: "Organisation Directory" }
+  { name: "JobBoardSettings", label: "Job Board Settings" },
+  { name: "JobDetails", label: "Job Details" },
+  { name: "JobPostingManagement", label: "Job Posting Management" },
+  { name: "JobPostSuccess", label: "Job Post Success" },
+  { name: "MemberDirectory", label: "Member Directory" },
+  { name: "MemberDirectorySettings", label: "Member Directory Settings" },
+  { name: "MemberGroupAssignmentReport", label: "Member Group Assignment Report" },
+  { name: "MemberGroupGuestManagement", label: "Member Group Guest Management" },
+  { name: "MemberGroupManagement", label: "Member Group Management" },
+  { name: "MemberHandleManagement", label: "Member Handle Management" },
+  { name: "MembershipFees", label: "Membership Fees" },
+  { name: "MemberRoleAssignment", label: "Member Role Assignment" },
+  { name: "members", label: "Members (CRM)" },
+  { name: "MyJobPostings", label: "My Job Postings" },
+  { name: "MyTickets", label: "My Tickets" },
+  { name: "NavigationManagement", label: "Navigation Items" },
+  { name: "News", label: "News" },
+  { name: "NewsEditor", label: "News Editor" },
+  { name: "NewsSettings", label: "News Settings" },
+  { name: "NewsView", label: "News View" },
+  { name: "OrganisationDirectory", label: "Organisation Directory" },
+  { name: "OrganisationDirectorySettings", label: "Organisation Directory Settings" },
+  { name: "organisations", label: "Organisations (CRM)" },
+  { name: "PageBannerManagement", label: "Page Banners" },
+  { name: "PageVisibilitySettings", label: "Page Visibility Settings" },
+  { name: "PortalMenuManagement", label: "Portal Menu Management" },
+  { name: "PortalNavigationManagement", label: "Portal Navigation Management" },
+  { name: "PostJob", label: "Post Job" },
+  { name: "PreferenceSettings", label: "Preference Settings" },
+  { name: "AboutMe", label: "About Me" },
+  { name: "PublicAbout", label: "Public - About" },
+  { name: "PublicArticles", label: "Public - Articles" },
+  { name: "PublicContact", label: "Public - Contact" },
+  { name: "PublicEvents", label: "Public - Events" },
+  { name: "PublicNews", label: "Public - News" },
+  { name: "PublicResources", label: "Public - Resources" },
+  { name: "Resources", label: "Resources" },
+  { name: "ResourceManagement", label: "Resource Management" },
+  { name: "ResourceSettings", label: "Resource Settings" },
+  { name: "RoleManagement", label: "Role Management" },
+  { name: "SiteMap", label: "Site Map" },
+  { name: "Support", label: "Support" },
+  { name: "SupportManagement", label: "Support Management" },
+  { name: "TagManagement", label: "Tag Management" },
+  { name: "Team", label: "Team" },
+  { name: "TeamEngagementReport", label: "Team Engagement Report" },
+  { name: "TeamInviteSettings", label: "Team Invite Settings" },
+  { name: "TeamMemberManagement", label: "Team Member Management" },
+  { name: "TeamSettings", label: "Team Settings" },
+  { name: "TicketSalesAnalytics", label: "Ticket Sales Analytics" },
+  { name: "TourManagement", label: "Tour Management" },
+  { name: "UnpackedInternationalEmployability", label: "Unpacked International Employability" },
+  { name: "ViewPage", label: "View Page" },
+  { name: "WallOfFameManagement", label: "Wall of Fame" },
+  { name: "ZoomWebinarProvisioning", label: "Zoom Webinar Management" }
 ];
 
 export default function NavigationManagementPage() {
-  const { isAdmin, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [showDialog, setShowDialog] = useState(false);
   const [filterLocation, setFilterLocation] = useState("all");
   const [showIconSelector, setShowIconSelector] = useState(false);
   const [expandedItems, setExpandedItems] = useState({});
+  const [activeTab, setActiveTab] = useState("header");
+  const [footerFilterColumn, setFooterFilterColumn] = useState("all");
 
   const queryClient = useQueryClient();
 
+  // Drag and drop sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin) {
+      if (isFeatureExcluded('site-builder.navigation')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: navItems = [], isLoading } = useQuery({
     queryKey: ['navigation-items'],
@@ -85,10 +357,137 @@ export default function NavigationManagementPage() {
     refetchOnMount: true,
   });
 
-  // Combine hardcoded and dynamic pages
+  // Fetch active dynamic directories
+  const { data: dynamicDirectories = [] } = useQuery({
+    queryKey: ['dynamic-directories-for-nav'],
+    queryFn: async () => {
+      try {
+        const directories = await base44.entities.DynamicDirectory.list({
+          filter: { is_active: true }
+        });
+        return (directories || []).map(dir => ({
+          name: `directory/${dir.slug}`,
+          label: `Directory: ${dir.name}`
+        }));
+      } catch {
+        return [];
+      }
+    },
+    staleTime: 60 * 1000,
+  });
+
+  // Fetch typography styles for heading content blocks
+  const { data: typographyStyles = [] } = useQuery({
+    queryKey: ['typography-styles'],
+    queryFn: async () => {
+      try {
+        return await base44.entities.TypographyStyle.list({ filter: { is_active: true } });
+      } catch {
+        return [];
+      }
+    },
+    staleTime: 60 * 1000,
+  });
+
+  // Fetch active forms for form modal link type
+  const { data: availableForms = [] } = useQuery({
+    queryKey: ['forms-for-nav'],
+    queryFn: async () => {
+      try {
+        const forms = await base44.entities.Form.list();
+        return (forms || []).filter(form => form.is_active);
+      } catch {
+        return [];
+      }
+    },
+    staleTime: 60 * 1000,
+  });
+
+  // Fetch tenant branding for footer columns setting (admin endpoint only — this is an admin page)
+  const {
+    data: tenantBranding,
+    refetch: refetchBranding,
+    error: brandingError,
+    isLoading: brandingLoading,
+  } = useQuery({
+    queryKey: ['tenant-branding'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/tenant-branding', { credentials: 'include' });
+      if (!res.ok) {
+        const err = new Error(`Failed to load branding settings (${res.status})`);
+        err.status = res.status;
+        throw err;
+      }
+      return res.json();
+    },
+    staleTime: 0,
+    retry: false,
+  });
+  const brandingData = tenantBranding?.branding;
+  const footerColumns = brandingData?.footer_config?.columns || 4;
+  const columnAlignments = brandingData?.footer_config?.columnAlignments || {};
+
+  const getBrandingErrorMessage = () => {
+    if (!brandingError) return null;
+    if (brandingError.status === 401 || brandingError.status === 403) {
+      return "Couldn't load branding settings — please sign in again with an admin account.";
+    }
+    return "Couldn't load branding settings. Please refresh and try again.";
+  };
+
+  useEffect(() => {
+    if (brandingError) {
+      toast.error(getBrandingErrorMessage());
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [brandingError]);
+
+  const handleColumnAlignmentChange = async (colNum, alignment) => {
+    if (brandingError) {
+      toast.error(getBrandingErrorMessage());
+      return;
+    }
+    if (brandingLoading || !brandingData) {
+      toast.error('Branding settings are still loading — please try again in a moment.');
+      return;
+    }
+
+    try {
+      const updatedAlignments = {
+        ...columnAlignments,
+        [colNum]: alignment
+      };
+
+      const response = await fetch('/api/admin/tenant-branding', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          footer_config: {
+            ...(brandingData.footer_config || {}),
+            columnAlignments: updatedAlignments
+          }
+        })
+      });
+
+      if (response.ok) {
+        await refetchBranding();
+        await queryClient.invalidateQueries({ queryKey: ['tenant-branding'] });
+        toast.success(`Column ${colNum} alignment updated`);
+      } else if (response.status === 401 || response.status === 403) {
+        toast.error("Couldn't save — please sign in again with an admin account.");
+      } else {
+        throw new Error('Failed to save');
+      }
+    } catch (error) {
+      toast.error('Failed to update column alignment');
+    }
+  };
+
+  // Combine hardcoded, dynamic CMS pages, and dynamic directories
   const availablePages = useMemo(() => {
-    return [...hardcodedPublicPages, ...ieditPages].sort((a, b) => a.label.localeCompare(b.label));
-  }, [ieditPages]);
+    return [...hardcodedPublicPages, ...ieditPages, ...dynamicDirectories].sort((a, b) => a.label.localeCompare(b.label));
+  }, [ieditPages, dynamicDirectories]);
 
   const createMutation = useMutation({
     mutationFn: (data) => base44.entities.NavigationItem.create(data),
@@ -141,7 +540,7 @@ export default function NavigationManagementPage() {
   const navHierarchy = useMemo(() => {
     const buildTree = (parentId) => {
       return navItems
-        .filter(item => item.parent_id === parentId && item.is_active)
+        .filter(item => item.parent_id === parentId && item.is_active && item.location !== 'footer')
         .sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
         .map(item => ({
           ...item,
@@ -150,6 +549,25 @@ export default function NavigationManagementPage() {
     };
     return buildTree(null);
   }, [navItems]);
+
+  // Footer navigation items (flat, grouped by column)
+  const footerItems = useMemo(() => {
+    return navItems
+      .filter(item => item.location === 'footer')
+      .sort((a, b) => {
+        // Sort by column first, then by display_order
+        const colA = a.footer_column || 1;
+        const colB = b.footer_column || 1;
+        if (colA !== colB) return colA - colB;
+        return (a.display_order || 0) - (b.display_order || 0);
+      });
+  }, [navItems]);
+
+  // Filter footer items by column
+  const filteredFooterItems = useMemo(() => {
+    if (footerFilterColumn === "all") return footerItems;
+    return footerItems.filter(item => String(item.footer_column || 1) === footerFilterColumn);
+  }, [footerItems, footerFilterColumn]);
 
   // Filter by location
   const filteredItems = useMemo(() => {
@@ -169,7 +587,70 @@ export default function NavigationManagementPage() {
       open_in_new_tab: false,
       icon: "",
       description: "",
-      highlight_style: "none"
+      display_type: "link",
+      button_style: null
+    });
+    setShowDialog(true);
+  };
+
+  const handleCreateFooter = (column = 1, contentBlockType = null) => {
+    if (contentBlockType) {
+      // Creating a content block
+      const blockDef = footerContentBlocks.find(b => b.type === contentBlockType);
+      setEditingItem({
+        title: blockDef?.label || contentBlockType,
+        url: "",
+        link_type: "content_block",
+        content_block_type: contentBlockType,
+        location: "footer",
+        footer_column: column,
+        display_order: footerItems.length + 1,
+        is_active: true,
+        open_in_new_tab: false,
+        icon: null,
+        parent_id: null,
+        display_type: 'link',
+        button_style: 'primary'
+      });
+    } else {
+      // Creating a regular link
+      setEditingItem({
+        title: "",
+        url: "",
+        link_type: "internal",
+        location: "footer",
+        parent_id: null,
+        display_order: navItems.filter(i => i.location === 'footer' && i.footer_column === column).length,
+        is_active: true,
+        open_in_new_tab: false,
+        icon: "",
+        description: "",
+        display_type: "link",
+        button_style: null,
+        footer_column: column
+      });
+    }
+    setShowDialog(true);
+  };
+
+  // Create a positionable header control element (search / social / account).
+  // Defaults to the Top Bar; admins can move it to the Main Nav afterwards.
+  const handleCreateHeaderBlock = (contentBlockType, location = 'top_nav') => {
+    const blockDef = headerContentBlocks.find(b => b.type === contentBlockType);
+    setEditingItem({
+      title: blockDef?.label || contentBlockType,
+      url: "",
+      link_type: "content_block",
+      content_block_type: contentBlockType,
+      location,
+      parent_id: null,
+      display_order: navItems.filter(i => i.location === location && i.parent_id === null).length,
+      is_active: true,
+      open_in_new_tab: false,
+      icon: null,
+      description: "",
+      display_type: "link",
+      button_style: null
     });
     setShowDialog(true);
   };
@@ -180,16 +661,43 @@ export default function NavigationManagementPage() {
   };
 
   const handleSave = () => {
-    if (!editingItem.title || !editingItem.url) {
-      toast.error('Title and URL are required');
+    // Content blocks don't require a URL
+    if (!editingItem.title) {
+      toast.error('Title is required');
       return;
+    }
+    if (editingItem.link_type !== 'content_block' && editingItem.link_type !== 'form_modal' && !editingItem.url) {
+      toast.error('URL is required');
+      return;
+    }
+    if (editingItem.link_type === 'form_modal' && !editingItem.form_slug) {
+      toast.error('Please select a form to display');
+      return;
+    }
+    // Header control elements (search/social/account) may only exist once across
+    // the Top Bar and Main Nav combined.
+    if (editingItem.link_type === 'content_block' && HEADER_CONTENT_BLOCK_TYPES.includes(editingItem.content_block_type)) {
+      const duplicate = navItems.some(i =>
+        i.id !== editingItem.id &&
+        i.link_type === 'content_block' &&
+        i.content_block_type === editingItem.content_block_type &&
+        (i.location === 'top_nav' || i.location === 'main_nav')
+      );
+      if (duplicate) {
+        const def = headerContentBlocks.find(b => b.type === editingItem.content_block_type);
+        toast.error(`${def?.label || 'This element'} is already in your header. Move or remove the existing one first.`);
+        return;
+      }
     }
 
     if (editingItem.id) {
-      const { id, created_date, updated_date, created_by, ...dataToUpdate } = editingItem;
+      // Remove fields that shouldn't be sent to the API (config doesn't exist in DB schema)
+      const { id, created_date, updated_date, created_by, children, config, ...dataToUpdate } = editingItem;
       updateMutation.mutate({ id, data: dataToUpdate });
     } else {
-      createMutation.mutate(editingItem);
+      // Also strip children and config from new items
+      const { children, config, ...dataToCreate } = editingItem;
+      createMutation.mutate(dataToCreate);
     }
   };
 
@@ -213,6 +721,36 @@ export default function NavigationManagementPage() {
   const handleSelectIcon = (iconName) => {
     setEditingItem({ ...editingItem, icon: iconName });
     setShowIconSelector(false);
+  };
+
+  // Handle drag end for footer column reordering
+  const handleDragEnd = async (event, columnItems) => {
+    const { active, over } = event;
+    
+    if (!over || active.id === over.id) {
+      return;
+    }
+
+    const oldIndex = columnItems.findIndex(item => item.id === active.id);
+    const newIndex = columnItems.findIndex(item => item.id === over.id);
+    
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const reorderedItems = arrayMove(columnItems, oldIndex, newIndex);
+    
+    // Update display_order for all items in the new order
+    try {
+      await Promise.all(
+        reorderedItems.map((item, index) => 
+          base44.entities.NavigationItem.update(item.id, { display_order: index + 1 })
+        )
+      );
+      queryClient.invalidateQueries({ queryKey: ['navigation-items'] });
+      toast.success('Items reordered');
+    } catch (error) {
+      toast.error('Failed to reorder items');
+      console.error('Reorder error:', error);
+    }
   };
 
   const moveItem = async (itemId, direction) => {
@@ -247,6 +785,50 @@ export default function NavigationManagementPage() {
     toast.success('Navigation order updated');
   };
 
+  const moveToOtherBar = async (itemId) => {
+    const item = navItems.find(i => i.id === itemId);
+    if (!item || (item.location !== 'top_nav' && item.location !== 'main_nav')) return;
+
+    const targetLocation = item.location === 'top_nav' ? 'main_nav' : 'top_nav';
+
+    const targetTopLevel = navItems.filter(
+      i => i.location === targetLocation && i.parent_id === null
+    );
+    const maxOrder = targetTopLevel.reduce(
+      (max, i) => Math.max(max, i.display_order || 0),
+      -1
+    );
+
+    const collectDescendants = (parentId) => {
+      const directChildren = navItems.filter(i => i.parent_id === parentId);
+      return directChildren.reduce(
+        (acc, child) => [...acc, child, ...collectDescendants(child.id)],
+        []
+      );
+    };
+
+    try {
+      await base44.entities.NavigationItem.update(item.id, {
+        location: targetLocation,
+        display_order: maxOrder + 1
+      });
+
+      const descendants = collectDescendants(item.id);
+      for (const descendant of descendants) {
+        await base44.entities.NavigationItem.update(descendant.id, {
+          location: targetLocation
+        });
+      }
+
+      await queryClient.invalidateQueries({ queryKey: ['navigation-items'] });
+      toast.success(
+        `Moved to ${targetLocation === 'top_nav' ? 'Top Bar' : 'Main Nav'}`
+      );
+    } catch (error) {
+      toast.error('Failed to move item: ' + error.message);
+    }
+  };
+
   const toggleExpand = (itemId) => {
     setExpandedItems(prev => ({ ...prev, [itemId]: !prev[itemId] }));
   };
@@ -254,7 +836,12 @@ export default function NavigationManagementPage() {
   // Render item tree recursively
   const renderItemTree = (items, level = 0) => {
     return items.map((item) => {
-      const IconComponent = availableIcons.find(i => i.name === item.icon)?.component;
+      const headerBlockDef = item.link_type === 'content_block'
+        ? headerContentBlocks.find(b => b.type === item.content_block_type)
+        : null;
+      const IconComponent = headerBlockDef
+        ? headerBlockDef.icon
+        : availableIcons.find(i => i.name === item.icon)?.component;
       const hasChildren = item.children && item.children.length > 0;
       const isExpanded = expandedItems[item.id];
       const indentClass = level > 0 ? `ml-${Math.min(level * 8, 16)}` : '';
@@ -280,9 +867,14 @@ export default function NavigationManagementPage() {
                 <Badge className="text-xs" variant={item.location === 'top_nav' ? 'default' : 'secondary'}>
                   {item.location === 'top_nav' ? 'Top Bar' : 'Main Nav'}
                 </Badge>
-                {item.highlight_style === 'gradient_button' && (
+                {item.display_type === 'button' && (
                   <Badge className="text-xs bg-gradient-to-r from-purple-500 to-pink-500 text-white">
-                    Featured
+                    Button
+                  </Badge>
+                )}
+                {headerBlockDef && (
+                  <Badge variant="outline" className="text-xs text-purple-600 border-purple-300">
+                    {headerBlockDef.label}
                   </Badge>
                 )}
                 {hasChildren && (
@@ -291,21 +883,29 @@ export default function NavigationManagementPage() {
                   </Badge>
                 )}
               </div>
-              <div className="text-sm text-slate-500 truncate">
-                {item.link_type === 'external' ? '🔗 ' : '📄 '}{item.url}
-              </div>
+              {headerBlockDef ? (
+                <div className="text-sm text-slate-500 truncate">
+                  {headerBlockDef.description}
+                </div>
+              ) : (
+                <div className="text-sm text-slate-500 truncate">
+                  {item.link_type === 'external' ? '🔗 ' : '📄 '}{item.url}
+                </div>
+              )}
             </div>
 
             <div className="flex items-center gap-1">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => handleCreate(item.location, item.id)}
-                className="h-8 px-2"
-                title="Add submenu item"
-              >
-                <Plus className="w-4 h-4" />
-              </Button>
+              {!headerBlockDef && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleCreate(item.location, item.id)}
+                  className="h-8 px-2"
+                  title="Add submenu item"
+                >
+                  <Plus className="w-4 h-4" />
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="sm"
@@ -321,6 +921,17 @@ export default function NavigationManagementPage() {
                 className="h-8 w-8 p-0"
               >
                 ▼
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => moveToOtherBar(item.id)}
+                className="h-8 w-8 p-0"
+                title={`Move to ${item.location === 'top_nav' ? 'Main Nav' : 'Top Bar'}`}
+                aria-label={`Move to ${item.location === 'top_nav' ? 'Main Nav' : 'Top Bar'}`}
+                data-testid={`button-move-bar-${item.id}`}
+              >
+                <ArrowLeftRight className="w-4 h-4" />
               </Button>
               <Button
                 variant="ghost"
@@ -351,9 +962,12 @@ export default function NavigationManagementPage() {
     });
   };
 
+  const isHeaderContentBlock = editingItem?.link_type === 'content_block'
+    && HEADER_CONTENT_BLOCK_TYPES.includes(editingItem?.content_block_type);
+
   if (!accessChecked) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <Card>
           <CardContent className="p-8 text-center">
             <p className="text-slate-600">Loading...</p>
@@ -364,7 +978,7 @@ export default function NavigationManagementPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-6xl mx-auto">
         <div className="flex items-center justify-between mb-8">
           <div>
@@ -372,86 +986,363 @@ export default function NavigationManagementPage() {
               Navigation Management
             </h1>
             <p className="text-slate-600">
-              Manage public header navigation items and create mega-menus
+              Manage header and footer navigation for your public website
             </p>
           </div>
         </div>
 
-        {/* Info Banner */}
-        <Card className="border-blue-200 bg-blue-50 mb-6">
-          <CardContent className="p-4">
-            <div className="flex items-start gap-3">
-              <Sparkles className="w-5 h-5 text-blue-600 mt-0.5" />
-              <div className="flex-1">
-                <h3 className="font-semibold text-blue-900 mb-1">Dynamic Navigation</h3>
-                <p className="text-sm text-blue-700">
-                  Create custom navigation items for the public header. Static items (Login/Logout, Member Area, Join Us button) are managed separately and will always appear in their designated positions.
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+          <TabsList className="grid w-full grid-cols-3 max-w-lg">
+            <TabsTrigger value="header" data-testid="tab-header-nav">Header Navigation</TabsTrigger>
+            <TabsTrigger value="footer" data-testid="tab-footer-nav">Footer Navigation</TabsTrigger>
+            <TabsTrigger value="social" data-testid="tab-social">Social Media</TabsTrigger>
+          </TabsList>
+
+          {/* Header Navigation Tab */}
+          <TabsContent value="header" className="space-y-6">
+            {/* Header Icons Toggles */}
+            <HeaderIconsConfig />
+
+            {/* Header Elements (positionable controls) */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Header Elements</CardTitle>
+                <p className="text-sm text-slate-500">
+                  Add the search box, social icons, or login/account control as a navigation item. Once added you can position it anywhere in the Top or Main bar, just like any other item. Each element can be used once.
                 </p>
+              </CardHeader>
+              <CardContent>
+                <div className="grid sm:grid-cols-3 gap-3">
+                  {headerContentBlocks.map((block) => {
+                    const ElementIcon = block.icon;
+                    const alreadyAdded = navItems.some(i =>
+                      i.link_type === 'content_block' &&
+                      i.content_block_type === block.type &&
+                      (i.location === 'top_nav' || i.location === 'main_nav')
+                    );
+                    return (
+                      <Button
+                        key={block.type}
+                        variant="outline"
+                        className="h-auto py-3 flex flex-col items-center gap-2 whitespace-normal"
+                        disabled={alreadyAdded}
+                        onClick={() => handleCreateHeaderBlock(block.type)}
+                        data-testid={`button-add-header-${block.type}`}
+                      >
+                        <ElementIcon className="w-5 h-5" />
+                        <span className="font-medium">{block.label}</span>
+                        <span className="text-xs text-slate-500">
+                          {alreadyAdded ? 'Already added' : block.description}
+                        </span>
+                      </Button>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Info Banner */}
+            <Card className="border-blue-200 bg-blue-50">
+              <CardContent className="p-4">
+                <div className="flex items-start gap-3">
+                  <Sparkles className="w-5 h-5 text-blue-600 mt-0.5" />
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-blue-900 mb-1">Dynamic Navigation</h3>
+                    <p className="text-sm text-blue-700">
+                      Create custom navigation items for the public header. The search box, social icons, and login/account control can be added as Header Elements above and positioned anywhere in the Top or Main bar.
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Filters and Actions */}
+            <div className="flex gap-4">
+              <Select value={filterLocation} onValueChange={setFilterLocation}>
+                <SelectTrigger className="w-48">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Locations</SelectItem>
+                  <SelectItem value="top_nav">Top Navigation Bar</SelectItem>
+                  <SelectItem value="main_nav">Main Navigation Bar</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <div className="flex gap-2 ml-auto">
+                <Button onClick={() => handleCreate('top_nav')} variant="outline">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Top Nav Item
+                </Button>
+                <Button onClick={() => handleCreate('main_nav')} className="bg-blue-600 hover:bg-blue-700">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Main Nav Item
+                </Button>
               </div>
             </div>
-          </CardContent>
-        </Card>
 
-        {/* Social Icons Configuration */}
-        <SocialIconsConfig />
+            {/* Navigation Items List */}
+            {isLoading ? (
+              <Card>
+                <CardContent className="p-12 text-center">
+                  <p className="text-slate-600">Loading navigation items...</p>
+                </CardContent>
+              </Card>
+            ) : filteredItems.length === 0 ? (
+              <Card>
+                <CardContent className="p-12 text-center">
+                  <Navigation className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                  <h3 className="text-xl font-semibold text-slate-900 mb-2">No Navigation Items</h3>
+                  <p className="text-slate-600 mb-6">
+                    {filterLocation === "all" 
+                      ? "Create your first navigation item to get started"
+                      : `No items in ${filterLocation === 'top_nav' ? 'Top Navigation' : 'Main Navigation'}`}
+                  </p>
+                  <Button onClick={() => handleCreate('main_nav')} className="bg-blue-600 hover:bg-blue-700">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Create First Item
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : (
+              <Card>
+                <CardContent className="p-6">
+                  <div className="space-y-3">
+                    {renderItemTree(filteredItems)}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
 
-        {/* Filters and Actions */}
-        <div className="flex gap-4 mb-6">
-          <Select value={filterLocation} onValueChange={setFilterLocation}>
-            <SelectTrigger className="w-48">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Locations</SelectItem>
-              <SelectItem value="top_nav">Top Navigation Bar</SelectItem>
-              <SelectItem value="main_nav">Main Navigation Bar</SelectItem>
-            </SelectContent>
-          </Select>
+          {/* Footer Navigation Tab */}
+          <TabsContent value="footer" className="space-y-6">
+            {/* Info Banner */}
+            <Card className="border-green-200 bg-green-50">
+              <CardContent className="p-4">
+                <div className="flex items-start gap-3">
+                  <Layers className="w-5 h-5 text-green-600 mt-0.5" />
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-green-900 mb-1">Footer Navigation</h3>
+                    <p className="text-sm text-green-700">
+                      Add links to display in the footer columns. You have <strong>{footerColumns} columns</strong> configured.
+                      Change the number of columns in <a href="/admin/branding" className="underline font-medium">Admin Branding</a> &gt; Footer Configuration.
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
 
-          <div className="flex gap-2 ml-auto">
-            <Button onClick={() => handleCreate('top_nav')} variant="outline">
-              <Plus className="w-4 h-4 mr-2" />
-              Add Top Nav Item
-            </Button>
-            <Button onClick={() => handleCreate('main_nav')} className="bg-blue-600 hover:bg-blue-700">
-              <Plus className="w-4 h-4 mr-2" />
-              Add Main Nav Item
-            </Button>
-          </div>
-        </div>
+            {/* Footer Filters and Actions */}
+            <div className="flex flex-col gap-4">
+              <div className="flex gap-4 items-center">
+                <Select value={footerFilterColumn} onValueChange={setFooterFilterColumn}>
+                  <SelectTrigger className="w-48" data-testid="select-filter-footer-column">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Columns</SelectItem>
+                    {Array.from({ length: footerColumns }, (_, i) => (
+                      <SelectItem key={i + 1} value={String(i + 1)}>Column {i + 1}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
 
-        {/* Navigation Items List */}
-        {isLoading ? (
-          <Card>
-            <CardContent className="p-12 text-center">
-              <p className="text-slate-600">Loading navigation items...</p>
-            </CardContent>
-          </Card>
-        ) : filteredItems.length === 0 ? (
-          <Card>
-            <CardContent className="p-12 text-center">
-              <Navigation className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-slate-900 mb-2">No Navigation Items</h3>
-              <p className="text-slate-600 mb-6">
-                {filterLocation === "all" 
-                  ? "Create your first navigation item to get started"
-                  : `No items in ${filterLocation === 'top_nav' ? 'Top Navigation' : 'Main Navigation'}`}
-              </p>
-              <Button onClick={() => handleCreate('main_nav')} className="bg-blue-600 hover:bg-blue-700">
-                <Plus className="w-4 h-4 mr-2" />
-                Create First Item
-              </Button>
-            </CardContent>
-          </Card>
-        ) : (
-          <Card>
-            <CardContent className="p-6">
-              <div className="space-y-3">
-                {renderItemTree(filteredItems)}
+                <div className="flex gap-2 ml-auto flex-wrap">
+                  {Array.from({ length: footerColumns }, (_, i) => (
+                    <Button 
+                      key={i + 1}
+                      onClick={() => handleCreateFooter(i + 1)} 
+                      variant="outline"
+                      data-testid={`button-add-footer-col-${i + 1}`}
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add Link to Col {i + 1}
+                    </Button>
+                  ))}
+                </div>
               </div>
-            </CardContent>
-          </Card>
-        )}
+              
+              {/* Content Blocks Section */}
+              <Card className="border-slate-200 bg-slate-50">
+                <CardContent className="p-4">
+                  <div className="flex flex-col gap-3">
+                    <h4 className="text-sm font-medium text-slate-700">Add Content Blocks</h4>
+                    <p className="text-xs text-slate-500">
+                      Content blocks display information from your branding settings (address, contact info, etc.)
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {footerContentBlocks.map(block => {
+                        const IconComponent = block.icon;
+                        return (
+                          <div key={block.type} className="flex items-center gap-2 bg-white border rounded-lg p-2">
+                            <div className="flex items-center gap-2">
+                              <IconComponent className="w-4 h-4 text-slate-500" />
+                              <span className="text-sm font-medium">{block.label}</span>
+                            </div>
+                            <Select onValueChange={(col) => handleCreateFooter(parseInt(col, 10), block.type)}>
+                              <SelectTrigger className="w-28 h-8" data-testid={`select-add-block-${block.type}`}>
+                                <SelectValue placeholder="Add to..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {Array.from({ length: footerColumns }, (_, i) => (
+                                  <SelectItem key={i + 1} value={String(i + 1)}>Column {i + 1}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Footer Navigation Items List */}
+            {isLoading ? (
+              <Card>
+                <CardContent className="p-12 text-center">
+                  <p className="text-slate-600">Loading footer navigation items...</p>
+                </CardContent>
+              </Card>
+            ) : filteredFooterItems.length === 0 ? (
+              <Card>
+                <CardContent className="p-12 text-center">
+                  <Layers className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                  <h3 className="text-xl font-semibold text-slate-900 mb-2">No Footer Navigation Items</h3>
+                  <p className="text-slate-600 mb-6">
+                    Add links to your footer columns to help visitors navigate your site.
+                  </p>
+                  <Button onClick={() => handleCreateFooter(1)} className="bg-green-600 hover:bg-green-700">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add First Footer Link
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="grid gap-4" style={{ 
+                gridTemplateColumns: footerFilterColumn === 'all' 
+                  ? `repeat(${footerColumns}, 1fr)` 
+                  : '1fr' 
+              }}>
+                {(footerFilterColumn === 'all' 
+                  ? Array.from({ length: footerColumns }, (_, i) => i + 1)
+                  : [parseInt(footerFilterColumn, 10)]
+                ).map(colNum => {
+                  // Match public footer behavior: clamp items to valid column range
+                  // Items in columns beyond footerColumns appear in the last column
+                  const colItems = footerItems.filter(item => {
+                    const assignedCol = item.footer_column || 1;
+                    const targetCol = Math.min(Math.max(assignedCol, 1), footerColumns);
+                    return targetCol === colNum;
+                  });
+                  return (
+                    <Card key={colNum}>
+                      <CardHeader className="pb-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <CardTitle className="text-sm font-medium text-slate-600">
+                            Column {colNum}
+                          </CardTitle>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant={columnAlignments[colNum] === 'left' || !columnAlignments[colNum] ? 'default' : 'ghost'}
+                              size="sm"
+                              className="h-7 w-7 p-0"
+                              onClick={() => handleColumnAlignmentChange(colNum, 'left')}
+                              title="Align left"
+                              data-testid={`button-align-left-col-${colNum}`}
+                            >
+                              <AlignLeft className="w-3 h-3" />
+                            </Button>
+                            <Button
+                              variant={columnAlignments[colNum] === 'center' ? 'default' : 'ghost'}
+                              size="sm"
+                              className="h-7 w-7 p-0"
+                              onClick={() => handleColumnAlignmentChange(colNum, 'center')}
+                              title="Align center"
+                              data-testid={`button-align-center-col-${colNum}`}
+                            >
+                              <AlignCenter className="w-3 h-3" />
+                            </Button>
+                            <Button
+                              variant={columnAlignments[colNum] === 'right' ? 'default' : 'ghost'}
+                              size="sm"
+                              className="h-7 w-7 p-0"
+                              onClick={() => handleColumnAlignmentChange(colNum, 'right')}
+                              title="Align right"
+                              data-testid={`button-align-right-col-${colNum}`}
+                            >
+                              <AlignRight className="w-3 h-3" />
+                            </Button>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        {colItems.length === 0 ? (
+                          <p className="text-sm text-slate-400 italic">No items</p>
+                        ) : (
+                          <DndContext
+                            sensors={sensors}
+                            collisionDetection={closestCenter}
+                            onDragEnd={(event) => handleDragEnd(event, colItems)}
+                          >
+                            <SortableContext
+                              items={colItems.map(item => item.id)}
+                              strategy={verticalListSortingStrategy}
+                            >
+                              <div className="space-y-2">
+                                {colItems.map(item => (
+                                  <SortableFooterItem
+                                    key={item.id}
+                                    item={item}
+                                    onEdit={handleEdit}
+                                    onDelete={handleDelete}
+                                  />
+                                ))}
+                              </div>
+                            </SortableContext>
+                          </DndContext>
+                        )}
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className="w-full text-slate-500"
+                          onClick={() => handleCreateFooter(colNum)}
+                          data-testid={`button-add-footer-inline-${colNum}`}
+                        >
+                          <Plus className="w-3 h-3 mr-1" />
+                          Add Link
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
+          </TabsContent>
+
+          {/* Social Media Tab */}
+          <TabsContent value="social" className="space-y-6">
+            {/* Info Banner */}
+            <Card className="border-purple-200 bg-purple-50">
+              <CardContent className="p-4">
+                <div className="flex items-start gap-3">
+                  <Share2 className="w-5 h-5 text-purple-600 mt-0.5" />
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-purple-900 mb-1">Social Media Icons</h3>
+                    <p className="text-sm text-purple-700">
+                      Configure which social media icons appear in both the header and footer navigation. 
+                      Icon colors can be customized in <a href="/admin/branding" className="underline font-medium">Admin Branding</a>.
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <SocialIconsConfig />
+          </TabsContent>
+        </Tabs>
 
         {/* Edit/Create Dialog */}
         <Dialog open={showDialog} onOpenChange={setShowDialog}>
@@ -476,26 +1367,60 @@ export default function NavigationManagementPage() {
 
                 <div className="grid md:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="link_type">Link Type</Label>
-                    <Select
-                      value={editingItem.link_type}
-                      onValueChange={(value) => setEditingItem({ ...editingItem, link_type: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="internal">Internal Page</SelectItem>
-                        <SelectItem value="external">External URL</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <Label htmlFor="link_type">
+                      {isHeaderContentBlock ? 'Element Type' : 'Item Type'}
+                    </Label>
+                    {isHeaderContentBlock ? (
+                      <Input
+                        id="link_type"
+                        value={headerContentBlocks.find(b => b.type === editingItem.content_block_type)?.label || 'Header Element'}
+                        disabled
+                        data-testid="display-header-element-type"
+                      />
+                    ) : (
+                      <Select
+                        value={editingItem.link_type}
+                        onValueChange={(value) => setEditingItem({ 
+                          ...editingItem, 
+                          link_type: value,
+                          // Clear URL when switching to content block or form modal
+                          url: (value === 'content_block' || value === 'form_modal') ? '' : editingItem.url,
+                          // Set default content block type
+                          content_block_type: value === 'content_block' ? (editingItem.content_block_type || 'address') : null,
+                          // Clear form_slug when switching away from form_modal
+                          form_slug: value === 'form_modal' ? (editingItem.form_slug || '') : null,
+                          // Buttons work best with form modals
+                          display_type: value === 'form_modal' ? 'button' : editingItem.display_type
+                        })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="internal">Internal Page</SelectItem>
+                          <SelectItem value="external">External URL</SelectItem>
+                          <SelectItem value="form_modal">Open Form</SelectItem>
+                          {editingItem.location === 'footer' && (
+                            <SelectItem value="content_block">Content Block</SelectItem>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    )}
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="location">Navigation Bar</Label>
+                    <Label htmlFor="location">Navigation Area</Label>
                     <Select
                       value={editingItem.location}
-                      onValueChange={(value) => setEditingItem({ ...editingItem, location: value })}
+                      onValueChange={(value) => setEditingItem({ 
+                        ...editingItem, 
+                        location: value, 
+                        footer_column: value === 'footer' ? 1 : null,
+                        // Reset link_type only for footer content blocks; header
+                        // control elements keep their content_block type in either bar.
+                        link_type: (value !== 'footer' && editingItem.link_type === 'content_block' && !HEADER_CONTENT_BLOCK_TYPES.includes(editingItem.content_block_type)) ? 'internal' : editingItem.link_type,
+                        content_block_type: (value !== 'footer' && !HEADER_CONTENT_BLOCK_TYPES.includes(editingItem.content_block_type)) ? null : editingItem.content_block_type
+                      })}
                     >
                       <SelectTrigger>
                         <SelectValue />
@@ -503,46 +1428,204 @@ export default function NavigationManagementPage() {
                       <SelectContent>
                         <SelectItem value="top_nav">Top Navigation Bar</SelectItem>
                         <SelectItem value="main_nav">Main Navigation Bar</SelectItem>
+                        {!isHeaderContentBlock && (
+                          <SelectItem value="footer">Footer</SelectItem>
+                        )}
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="url">
-                    {editingItem.link_type === 'internal' ? 'Page *' : 'URL *'}
-                  </Label>
-                  {editingItem.link_type === 'internal' ? (
+                {/* Footer Column Selector - only show when location is footer */}
+                {editingItem.location === 'footer' && (
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="footer_column">Footer Column</Label>
+                      <Select
+                        value={String(editingItem.footer_column || 1)}
+                        onValueChange={(value) => setEditingItem({ ...editingItem, footer_column: parseInt(value, 10) })}
+                      >
+                        <SelectTrigger data-testid="select-footer-column">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {Array.from({ length: footerColumns }, (_, i) => (
+                            <SelectItem key={i + 1} value={String(i + 1)}>Column {i + 1}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    
+                    {/* Content Block Type Selector - only show when link_type is content_block */}
+                    {editingItem.link_type === 'content_block' && !isHeaderContentBlock && (
+                      <div className="space-y-2">
+                        <Label htmlFor="content_block_type">Content Block Type</Label>
+                        <Select
+                          value={editingItem.content_block_type || 'address'}
+                          onValueChange={(value) => setEditingItem({ ...editingItem, content_block_type: value })}
+                        >
+                          <SelectTrigger data-testid="select-content-block-type">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {footerContentBlocks.map(block => (
+                              <SelectItem key={block.type} value={block.type}>
+                                {block.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-slate-500">
+                          This block will display content from your branding settings
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Typography Style selector - only show for heading content blocks */}
+                    {editingItem.link_type === 'content_block' && editingItem.content_block_type === 'heading' && (
+                      <>
+                        <div className="space-y-2">
+                          <Label htmlFor="typography_style">Typography Style</Label>
+                          <Select
+                            value={editingItem.typography_style_id || 'default'}
+                            onValueChange={(value) => setEditingItem({ 
+                              ...editingItem, 
+                              typography_style_id: value === 'default' ? null : value 
+                            })}
+                          >
+                            <SelectTrigger data-testid="select-typography-style">
+                              <SelectValue placeholder="Select a typography style..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="default">Default (Uppercase)</SelectItem>
+                              {typographyStyles.map(style => (
+                                <SelectItem key={style.id} value={style.id}>
+                                  {style.name} ({style.style_type?.toUpperCase()})
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <p className="text-xs text-slate-500">
+                            Select a typography style from your settings, or use the default style
+                          </p>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="font_size_override">Font Size Override (px)</Label>
+                          <Input
+                            id="font_size_override"
+                            type="number"
+                            min="8"
+                            max="200"
+                            value={editingItem.font_size_override || ''}
+                            onChange={(e) => setEditingItem({ 
+                              ...editingItem, 
+                              font_size_override: e.target.value ? parseInt(e.target.value, 10) : null 
+                            })}
+                            placeholder="Leave empty to use style default"
+                          />
+                          <p className="text-xs text-slate-500">
+                            Override the font size from the typography style (optional)
+                          </p>
+                        </div>
+                      </>
+                    )}
+
+                    {/* Spacer height - only show for spacer content blocks */}
+                    {editingItem.link_type === 'content_block' && editingItem.content_block_type === 'spacer' && (
+                      <div className="space-y-2">
+                        <Label htmlFor="spacer_height">Spacer Height (px)</Label>
+                        <Input
+                          id="spacer_height"
+                          type="number"
+                          min="4"
+                          max="200"
+                          value={editingItem.font_size_override || 24}
+                          onChange={(e) => setEditingItem({ 
+                            ...editingItem, 
+                            font_size_override: e.target.value ? parseInt(e.target.value, 10) : 24 
+                          })}
+                          placeholder="24"
+                          data-testid="input-spacer-height"
+                        />
+                        <p className="text-xs text-slate-500">
+                          Vertical gap in pixels between elements
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* URL/Page selector - hide for content blocks except CTA, and hide for form_modal */}
+                {editingItem.link_type !== 'form_modal' && (editingItem.link_type !== 'content_block' || editingItem.content_block_type === 'cta') && (
+                  <div className="space-y-2">
+                    <Label htmlFor="url">
+                      {editingItem.link_type === 'internal' ? 'Page *' : 
+                       editingItem.content_block_type === 'cta' ? 'Button Link URL *' : 'URL *'}
+                    </Label>
+                    {editingItem.link_type === 'internal' ? (
+                      <Select
+                        value={editingItem.url}
+                        onValueChange={(value) => setEditingItem({ ...editingItem, url: value })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a page..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {availablePages.map(page => (
+                            <SelectItem key={page.name} value={page.name}>
+                              {page.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        id="url"
+                        value={editingItem.url}
+                        onChange={(e) => setEditingItem({ ...editingItem, url: e.target.value })}
+                        placeholder="e.g., https://example.com"
+                      />
+                    )}
+                    <p className="text-xs text-slate-500">
+                      {editingItem.link_type === 'internal' 
+                        ? 'Select from available public pages'
+                        : editingItem.content_block_type === 'cta' 
+                          ? 'Enter the URL the button should link to'
+                          : 'Enter the full URL including https://'}
+                    </p>
+                  </div>
+                )}
+
+                {/* Form selector - show when link_type is form_modal */}
+                {editingItem.link_type === 'form_modal' && (
+                  <div className="space-y-2">
+                    <Label htmlFor="form_slug">Form to Display *</Label>
                     <Select
-                      value={editingItem.url}
-                      onValueChange={(value) => setEditingItem({ ...editingItem, url: value })}
+                      value={editingItem.form_slug || ''}
+                      onValueChange={(value) => setEditingItem({ ...editingItem, form_slug: value })}
                     >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a page..." />
+                      <SelectTrigger data-testid="select-form-modal">
+                        <SelectValue placeholder="Select a form..." />
                       </SelectTrigger>
                       <SelectContent>
-                        {availablePages.map(page => (
-                          <SelectItem key={page.name} value={page.name}>
-                            {page.label}
-                          </SelectItem>
-                        ))}
+                        {availableForms.length === 0 ? (
+                          <SelectItem value="" disabled>No active forms available</SelectItem>
+                        ) : (
+                          availableForms.map(form => (
+                            <SelectItem key={form.id} value={form.slug}>
+                              {form.name}
+                            </SelectItem>
+                          ))
+                        )}
                       </SelectContent>
                     </Select>
-                  ) : (
-                    <Input
-                      id="url"
-                      value={editingItem.url}
-                      onChange={(e) => setEditingItem({ ...editingItem, url: e.target.value })}
-                      placeholder="e.g., https://example.com"
-                    />
-                  )}
-                  <p className="text-xs text-slate-500">
-                    {editingItem.link_type === 'internal' 
-                      ? 'Select from available public pages'
-                      : 'Enter the full URL including https://'}
-                  </p>
-                </div>
+                    <p className="text-xs text-slate-500">
+                      Clicking this button will open the selected form in a modal dialog
+                    </p>
+                  </div>
+                )}
 
+                {!isHeaderContentBlock && (
                 <div className="space-y-2">
                   <Label htmlFor="parent">Parent Item (for sub-menu)</Label>
                   <Select
@@ -598,6 +1681,7 @@ export default function NavigationManagementPage() {
                     Create nested sub-menus by selecting a parent item (supports multiple levels)
                   </p>
                 </div>
+                )}
 
                 <div className="space-y-2">
                   <Label htmlFor="description">Description (Optional)</Label>
@@ -610,7 +1694,48 @@ export default function NavigationManagementPage() {
                   />
                 </div>
 
+                {!isHeaderContentBlock && (
                 <div className="grid md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="display_type">Display Type</Label>
+                    <Select
+                      value={editingItem.display_type || 'link'}
+                      onValueChange={(value) => setEditingItem({ ...editingItem, display_type: value, button_style: value === 'button' ? (editingItem.button_style || 'primary') : null })}
+                    >
+                      <SelectTrigger data-testid="select-display-type">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="link">Link</SelectItem>
+                        <SelectItem value="button">Button</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-slate-500">
+                      Buttons display with custom styling from Button Style Creator
+                    </p>
+                  </div>
+
+                  {editingItem.display_type === 'button' && (
+                    <div className="space-y-2">
+                      <Label htmlFor="button_style">Button Style</Label>
+                      <Select
+                        value={editingItem.button_style || 'primary'}
+                        onValueChange={(value) => setEditingItem({ ...editingItem, button_style: value })}
+                      >
+                        <SelectTrigger data-testid="select-button-style">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="primary">Primary Style</SelectItem>
+                          <SelectItem value="secondary">Secondary Style</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-slate-500">
+                        Choose from styles defined in Button Style Creator
+                      </p>
+                    </div>
+                  )}
+
                   <div className="space-y-2">
                     <Label>Icon (Optional)</Label>
                     <Button
@@ -641,23 +1766,8 @@ export default function NavigationManagementPage() {
                       </Button>
                     )}
                   </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="highlight">Highlight Style</Label>
-                    <Select
-                      value={editingItem.highlight_style}
-                      onValueChange={(value) => setEditingItem({ ...editingItem, highlight_style: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">None</SelectItem>
-                        <SelectItem value="gradient_button">Gradient Button</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
                 </div>
+                )}
 
                 <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-lg">
                   <div className="flex items-center gap-3 flex-1">

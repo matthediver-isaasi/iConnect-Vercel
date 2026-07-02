@@ -1,0 +1,73 @@
+{
+  "attempted": true,
+  "remainingBalance": 100,
+  "paymentMethod": "account",
+  "conditionsMet": true,
+  "settingEnabled": true,
+  "settingValue": "true",
+  "tokenFound": true,
+  "tenantIdFound": true,
+  "contactId": "6559f8c1-836f-4fc6-acd5-7e28762179f8",
+  "invoiceResponseStatus": 400,
+  "invoiceResponseBody": {
+    "ErrorNumber": 10,
+    "Type": "ValidationException",
+    "Message": "A validation exception occurred",
+    "Elements": [
+      {
+        "Type": "ACCREC",
+        "InvoiceID": "00000000-0000-0000-0000-000000000000",
+        "Reference": "OOE-1764767684281-WCNID",
+        "Payments": [],
+        "CreditNotes": [],
+        "Prepayments": [],
+        "Overpayments": [],
+        "IsDiscounted": false,
+        "InvoiceAddresses": [],
+        "HasErrors": true,
+        "InvoicePaymentServices": [],
+        "Contact": {
+          "ContactID": "6559f8c1-836f-4fc6-acd5-7e28762179f8",
+          "Addresses": [],
+          "Phones": [],
+          "ContactGroups": [],
+          "ContactPersons": [],
+          "HasValidationErrors": false,
+          "ValidationErrors": []
+        },
+        "DateString": "2025-12-03T00:00:00",
+        "Date": "/Date(1764720000000+0000)/",
+        "Status": "AUTHORISED",
+        "LineAmountTypes": "Exclusive",
+        "LineItems": [
+          {
+            "Description": "Ticke test - 1 attendee\nRef: INTREFA",
+            "UnitAmount": 100,
+            "TaxType": "OUTPUT2",
+            "TaxAmount": 20,
+            "LineAmount": 100,
+            "AccountCode": "200",
+            "Tracking": [],
+            "Quantity": 1,
+            "AccountID": "e5339e3d-fc44-4870-a6d0-f2b83a4aa3c5",
+            "ValidationErrors": []
+          }
+        ],
+        "SubTotal": 100,
+        "TotalTax": 20,
+        "Total": 120,
+        "CurrencyCode": "GBP",
+        "ValidationErrors": [
+          {
+            "Message": "The document DueDate field must be specified."
+          },
+          {
+            "Message": "Account code '200' has been archived, or has been deleted. Each line item must reference a valid account."
+          }
+        ]
+      }
+    ]
+  },
+  "error": null,
+  "invoiceResponseRaw": "{\r\n  \"ErrorNumber\": 10,\r\n  \"Type\": \"ValidationException\",\r\n  \"Message\": \"A validation exception occurred\",\r\n  \"Elements\": [\r\n    {\r\n      \"Type\": \"ACCREC\",\r\n      \"InvoiceID\": \"00000000-0000-0000-0000-000000000000\",\r\n      \"Reference\": \"OOE-1764767684281-WCNID\",\r\n      \"Payments\": [],\r\n      \"CreditNotes\": [],\r\n      \"Prepayments\": [],\r\n      \"Overpayments\": [],\r\n      \"IsDiscounted\": false,\r\n      \"InvoiceAddresses\": [],\r\n      \"HasErrors\": true,\r\n      \"InvoicePaymentServices\": [],\r\n      \"Con"
+}

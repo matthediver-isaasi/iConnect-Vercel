@@ -1,38 +1,42 @@
 import React, { useState, useMemo } from "react";
-import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PaginationPageButton } from "@/components/ui/PaginationPageButton";
 import { FileQuestion, ChevronLeft, ChevronRight, SlidersHorizontal } from "lucide-react";
 import { createPageUrl } from "@/utils";
+import { publicClient } from "@/api/publicClient";
 import ArticleFilter from "../components/blog/ArticleFilter";
 import ArticleCard from "../components/blog/ArticleCard";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useBlogPostRealtime } from "@/hooks/useBlogPostRealtime";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
+
+const DEFAULT_ARTICLE_CATEGORY_TITLE_COLOR = '#7e22ce';
 
 export default function PublicArticlesPage() {
   useBlogPostRealtime(['public-articles']);
+  const tenantBranding = useTenantBranding()?.branding;
+  const categoryTitleColor = tenantBranding?.brandingConfig?.resourceCategoryTitleColor || DEFAULT_ARTICLE_CATEGORY_TITLE_COLOR;
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSubcategories, setSelectedSubcategories] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [sortBy, setSortBy] = useState("newest");
   const [itemsPerPage, setItemsPerPage] = useState(6);
 
-  const { data: articles = [], isLoading: articlesLoading } = useQuery({
+  const { data: articlesData = { articles: [], authors: {}, guestWriters: {} }, isLoading: articlesLoading } = useQuery({
     queryKey: ['public-articles'],
-    queryFn: async () => {
-      const allArticles = await base44.entities.BlogPost.list('-published_date');
-      return allArticles.filter(article => article.status === 'published');
-    },
-    staleTime: 0, // Always fetch fresh content for articles feed
+    queryFn: async () => await publicClient.listArticles() || { articles: [], authors: {}, guestWriters: {} },
+    staleTime: 0,
   });
+
+  const articles = articlesData.articles || [];
 
   const { data: categories = [], isLoading: categoriesLoading } = useQuery({
     queryKey: ['resourceCategories-articles'],
     queryFn: async () => {
-      const cats = await base44.entities.ResourceCategory.list();
+      const cats = await publicClient.listResourceCategories();
       const articleCategories = cats.filter(c =>
-        c.is_active &&
         c.applies_to_content_types &&
         c.applies_to_content_types.includes("Articles")
       );
@@ -41,42 +45,41 @@ export default function PublicArticlesPage() {
     refetchOnMount: true
   });
 
-  // Fetch all views for sorting
-  const { data: allViews = [] } = useQuery({
-    queryKey: ['all-article-views'],
-    queryFn: async () => {
-      return await base44.entities.ArticleView.list();
-    }
-  });
+  const authorHandles = useMemo(() => {
+    const handles = {};
+    Object.entries(articlesData.authors || {}).forEach(([id, data]) => {
+      if (data.handle) {
+        handles[id] = data.handle;
+      }
+    });
+    return handles;
+  }, [articlesData.authors]);
 
-  // Fetch all reactions for sorting
-  const { data: allReactions = [] } = useQuery({
-    queryKey: ['all-article-reactions'],
-    queryFn: async () => {
-      return await base44.entities.ArticleReaction.list();
-    }
-  });
+  const authorNames = useMemo(() => {
+    const names = {};
+    Object.entries(articlesData.authors || {}).forEach(([id, data]) => {
+      if (data.name) {
+        names[id] = data.name;
+      }
+    });
+    Object.entries(articlesData.guestWriters || {}).forEach(([id, data]) => {
+      if (data.name) {
+        names[`guest_${id}`] = data.name;
+      }
+    });
+    return names;
+  }, [articlesData.authors, articlesData.guestWriters]);
 
-  const { data: articleDisplayName = 'Articles' } = useQuery({
-    queryKey: ['article-display-name'],
-    queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list();
-      const setting = allSettings.find(s => s.setting_key === 'article_display_name');
-      return setting?.setting_value || 'Articles';
-    }
-  });
-
-  // Calculate view and like counts per article
   const articleStats = useMemo(() => {
     const stats = {};
     articles.forEach(article => {
       stats[article.id] = {
-        viewCount: allViews.filter(v => v.article_id === article.id).length,
-        likeCount: allReactions.filter(r => r.article_id === article.id && r.reaction_type === 'up').length
+        viewCount: 0,
+        likeCount: 0
       };
     });
     return stats;
-  }, [articles, allViews, allReactions]);
+  }, [articles]);
 
   const filteredArticles = useMemo(() => {
     return articles.filter(article => {
@@ -122,6 +125,28 @@ export default function PublicArticlesPage() {
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
   const paginatedArticles = sortedArticles.slice(startIndex, endIndex);
+
+  // Task #1225: fetch ordered author lists for the visible cards so co-authors
+  // can be shown alongside the primary author.
+  const visibleArticleIdsKey = paginatedArticles.map(a => a.id).join(',');
+  const { data: cardCoAuthorsData } = useQuery({
+    queryKey: ['card-co-authors', visibleArticleIdsKey],
+    queryFn: async () => {
+      if (!visibleArticleIdsKey) return { authors: {} };
+      const r = await fetch(`/api/articles/co-authors?ids=${encodeURIComponent(visibleArticleIdsKey)}`);
+      if (!r.ok) return { authors: {} };
+      return r.json();
+    },
+    enabled: !!visibleArticleIdsKey,
+    staleTime: 60000,
+  });
+  const getCoAuthorsForArticle = (article) => {
+    const list = cardCoAuthorsData?.authors?.[article.id] || [];
+    return list.filter(a =>
+      !(a.type === 'member' && String(a.author_id) === String(article.author_id)) &&
+      !(a.type === 'guest' && String(a.guest_writer_id) === String(article.guest_writer_id))
+    );
+  };
 
   const getPageNumbers = () => {
     const pages = [];
@@ -198,6 +223,7 @@ export default function PublicArticlesPage() {
                 onClearSearch={() => setSearchQuery("")}
                 isLoading={false}
                 displayName={articleDisplayName}
+                categoryTitleColor={categoryTitleColor}
               />
             </div>
           </div>
@@ -259,6 +285,9 @@ export default function PublicArticlesPage() {
                       key={article.id} 
                       article={article}
                       displayName={articleDisplayName}
+                      authorHandles={authorHandles}
+                      authorNames={authorNames}
+                      coAuthors={getCoAuthorsForArticle(article)}
                     />
                   ))}
                 </div>
@@ -304,14 +333,13 @@ export default function PublicArticlesPage() {
                               {page === '...' ? (
                                 <span className="px-2 text-slate-400">...</span>
                               ) : (
-                                <Button
-                                  variant={currentPage === page ? "default" : "outline"}
-                                  size="sm"
+                                <PaginationPageButton
+                                  active={currentPage === page}
                                   onClick={() => handlePageChange(page)}
-                                  className={currentPage === page ? "bg-blue-600 hover:bg-blue-700" : ""}
+                                  className="min-w-[40px]"
                                 >
                                   {page}
-                                </Button>
+                                </PaginationPageButton>
                               )}
                             </React.Fragment>
                           ))}

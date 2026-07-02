@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
+import { useScreenReader } from "@/contexts/ScreenReaderContext";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, Plus, Trash2, Upload, Loader2, GripVertical, Copy } from "lucide-react";
 import { toast } from "sonner";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 
 export function IEditBannerCarouselElementEditor({ element, onChange }) {
@@ -69,7 +71,7 @@ export function IEditBannerCarouselElementEditor({ element, onChange }) {
       updateBanner(index, 'backgroundImage', response.file_url);
       toast.success('Image uploaded');
     } catch (error) {
-      toast.error('Upload failed: ' + error.message);
+      showUploadErrorToast(error, 'Upload failed');
     } finally {
       setUploadingIndex(null);
     }
@@ -87,6 +89,28 @@ export function IEditBannerCarouselElementEditor({ element, onChange }) {
 
   return (
     <div className="space-y-4">
+      {/* Anchor ID Field */}
+      <div className="border rounded-lg p-3 bg-slate-50">
+        <label className="block text-sm font-medium mb-1">Anchor ID</label>
+        <input
+          type="text"
+          value={content.anchor || ''}
+          onChange={(e) => {
+            const sanitized = e.target.value
+              .toLowerCase()
+              .replace(/\s+/g, '-')
+              .replace(/[^a-z0-9-_]/g, '');
+            updateContent('anchor', sanitized);
+          }}
+          placeholder="e.g., carousel-section"
+          className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+          data-testid="input-bannercarousel-anchor"
+        />
+        <p className="text-xs text-slate-500 mt-1">
+          Used for linking directly to this section (e.g., /page#anchor-id)
+        </p>
+      </div>
+
       <div className="flex items-center justify-between">
         <Label>Banners ({(content.banners || []).length})</Label>
         <Button onClick={addBanner} size="sm" type="button">
@@ -260,7 +284,10 @@ export function IEditBannerCarouselElementEditor({ element, onChange }) {
 
 export function IEditBannerCarouselElementRenderer({ element }) {
   const content = element.content || { banners: [], autoplayInterval: 5 };
+  const { anchor } = content;
   const [currentIndex, setCurrentIndex] = useState(0);
+  const { optimised: srOptimised } = useScreenReader();
+  const BannerHeadingTag = srOptimised ? 'h2' : 'h1';
 
   const banners = content.banners || [];
   const autoplayInterval = content.autoplayInterval || 5;
@@ -298,7 +325,17 @@ export function IEditBannerCarouselElementRenderer({ element }) {
   const currentBanner = banners[currentIndex];
 
   return (
-    <div className="relative w-full overflow-hidden">
+    <div
+      id={anchor || undefined}
+      className="relative w-full overflow-hidden"
+      {...(srOptimised
+        ? {
+            role: 'region',
+            'aria-roledescription': 'carousel',
+            'aria-label': 'Featured banners',
+          }
+        : {})}
+    >
       {/* Banner Container */}
       <div className="relative h-[500px] md:h-[600px]">
         {/* Background Image */}
@@ -317,9 +354,9 @@ export function IEditBannerCarouselElementRenderer({ element }) {
         <div className="relative h-full flex items-center justify-center text-center px-4">
           <div className="max-w-4xl mx-auto text-white">
             {currentBanner.headerText && (
-              <h1 className="text-4xl md:text-6xl font-bold mb-6 animate-fade-in">
+              <BannerHeadingTag className="text-4xl md:text-6xl font-bold mb-6 animate-fade-in">
                 {currentBanner.headerText}
-              </h1>
+              </BannerHeadingTag>
             )}
             {currentBanner.paragraphText && (
               <p className="text-lg md:text-xl mb-8 max-w-2xl mx-auto opacity-90 animate-fade-in">

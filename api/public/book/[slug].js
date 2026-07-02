@@ -1,0 +1,651 @@
+import { supabase } from '../../_lib/database.js';
+import { resolveTenantFromRequest } from '../../_lib/tenantResolver.js';
+import { createCalendarEvent, getOutlookConnectionForIdentity } from '../../outlook/calendar.js';
+import { getZoomAccessTokenForTenant } from '../../_lib/zoomClient.js';
+import { formatInTimeZone } from 'date-fns-tz';
+import { sendEmail } from '../../_lib/emailService.js';
+
+/**
+ * Build a single human-readable "how to join" block for a booking confirmation
+ * email, based on the meeting type the host configured on the meeting template.
+ *
+ * Returns inline HTML (uses <a> and <br>) so it drops cleanly into the
+ * HTML-rendered email body and reads sensibly without conditional template
+ * logic. For meeting types where we don't actually store join details
+ * (phone, in_person, google_meet), it returns a friendly fallback message
+ * rather than an empty string.
+ */
+function escapeHtml(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function buildMeetingJoinDetails({ meetingType, zoomJoinUrl, zoomPassword, teamsJoinUrl }) {
+  const type = (meetingType || '').toLowerCase();
+
+  if (type === 'zoom') {
+    if (!zoomJoinUrl) {
+      return 'Your host will be in touch shortly with the Zoom joining details.';
+    }
+    const url = escapeHtml(zoomJoinUrl);
+    const link = `Join Zoom Meeting: <a href="${url}">${url}</a>`;
+    return zoomPassword ? `${link}<br>Passcode: ${escapeHtml(zoomPassword)}` : link;
+  }
+
+  if (type === 'teams') {
+    if (!teamsJoinUrl) {
+      return 'Your host will be in touch shortly with the Microsoft Teams joining details.';
+    }
+    const url = escapeHtml(teamsJoinUrl);
+    return `Join Microsoft Teams Meeting: <a href="${url}">${url}</a>`;
+  }
+
+  if (type === 'phone') {
+    return 'This meeting will take place by phone. Your host will call you on the number you provided.';
+  }
+
+  if (type === 'in_person') {
+    return 'This is an in-person meeting. Your host will be in touch with the location details.';
+  }
+
+  if (type === 'google_meet') {
+    return 'This meeting will take place over Google Meet. Your host will be in touch with the joining link.';
+  }
+
+  return 'Your host will be in touch shortly with the joining details.';
+}
+
+export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  if (!supabase) {
+    return res.status(503).json({ error: 'Database not configured' });
+  }
+
+  const { slug } = req.query;
+  if (!slug) {
+    return res.status(400).json({ error: 'Booking slug required' });
+  }
+
+  try {
+    const tenant = await resolveTenantFromRequest(req);
+    
+    console.log('[Booking] Tenant resolved:', tenant?.slug);
+
+    if (!tenant) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+    
+    const tenantId = tenant.id;
+
+    // Find member by handle (the slug is now the member's handle)
+    console.log('[Booking] Looking up member by handle:', slug, 'tenant:', tenantId);
+    const { data: member, error: memberError } = await supabase
+      .from('member')
+      .select('id, first_name, last_name, email, handle, organization_id')
+      .eq('handle', slug)
+      .eq('tenant_id', tenantId)
+      .single();
+
+    console.log('[Booking] Member lookup result:', { found: !!member, error: memberError?.message, member_id: member?.id });
+    
+    if (memberError || !member) {
+      return res.status(404).json({ error: 'Booking page not found' });
+    }
+
+    // Find the identity linked to this member via tenant_membership
+    console.log('[Booking] Looking up tenant_membership for member_id:', member.id);
+    const { data: membership, error: membershipError } = await supabase
+      .from('tenant_membership')
+      .select('identity_id, identity:identity_id(id, first_name, last_name, email, avatar_url)')
+      .eq('member_id', member.id)
+      .eq('tenant_id', tenantId)
+      .single();
+
+    console.log('[Booking] Membership lookup result:', { 
+      found: !!membership, 
+      identity_id: membership?.identity_id,
+      error: membershipError?.message 
+    });
+
+    if (!membership?.identity_id) {
+      return res.status(404).json({ error: 'Booking page not found - no membership' });
+    }
+
+    // Use member data for display, identity for system lookups
+    const identity = {
+      id: membership.identity_id,
+      first_name: member.first_name,
+      last_name: member.last_name,
+      email: member.email,
+      avatar_url: membership.identity?.avatar_url
+    };
+
+    // Find availability profile for this identity AND this specific tenant
+    console.log('[Booking] Looking up availability profile for identity:', identity.id);
+    const { data: profile, error: profileError } = await supabase
+      .from('agent_availability_profile')
+      .select('*')
+      .eq('identity_id', identity.id)
+      .eq('tenant_id', tenantId)
+      .eq('is_active', true)
+      .single();
+
+    console.log('[Booking] Profile lookup result:', { 
+      found: !!profile, 
+      error: profileError?.message 
+    });
+
+    if (profileError || !profile) {
+      return res.status(404).json({ error: 'Booking page not active for this organization' });
+    }
+
+    // Fetch meeting templates assigned to this agent
+    const { data: agentTemplates } = await supabase
+      .from('agent_meeting_template')
+      .select(`
+        id,
+        is_active,
+        custom_duration_minutes,
+        template:meeting_template_id(
+          id, slug, name, description, duration_minutes, meeting_type, is_active, sort_order, max_days_ahead, zoom_user_id, zoom_user_email, confirmation_email_template_id
+        )
+      `)
+      .eq('tenant_id', tenantId)
+      .eq('identity_id', identity.id)
+      .eq('is_active', true);
+
+    // Filter active templates and format them
+    const meetingTypes = (agentTemplates || [])
+      .filter(at => at.template?.is_active)
+      .map(at => ({
+        id: at.template.id,
+        slug: at.template.slug,
+        name: at.template.name,
+        description: at.template.description,
+        duration_minutes: at.custom_duration_minutes || at.template.duration_minutes,
+        meeting_type: at.template.meeting_type,
+        sort_order: at.template.sort_order,
+        max_days_ahead: at.template.max_days_ahead || 30,
+        zoom_user_id: at.template.zoom_user_id || null,
+        zoom_user_email: at.template.zoom_user_email || null,
+        confirmation_email_template_id: at.template.confirmation_email_template_id || null
+      }))
+      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+
+    if (req.method === 'GET') {
+      return res.json({
+        agent: {
+          name: `${identity.first_name || ''} ${identity.last_name || ''}`.trim() || identity.email,
+          avatar: identity.avatar_url
+        },
+        profile: {
+          timezone: profile.timezone,
+          slotMinutes: profile.default_slot_minutes,
+          bufferMinutes: profile.buffer_minutes,
+          workingHours: profile.working_hours,
+          title: profile.booking_title,
+          description: profile.booking_description
+        },
+        meetingTypes,
+        tenant: tenant ? {
+          name: tenant.name,
+          logo: tenant.logo_url,
+          color: tenant.primary_color
+        } : null
+      });
+    }
+
+    if (req.method === 'POST') {
+      const {
+        attendee_name,
+        attendee_email,
+        attendee_phone,
+        attendee_timezone,
+        attendee_notes,
+        starts_at,
+        duration_minutes,
+        meeting_template_id,
+        meeting_template_slug
+      } = req.body;
+
+      if (!attendee_name || !attendee_email || !starts_at) {
+        return res.status(400).json({ error: 'Name, email, and time slot are required' });
+      }
+
+      // Resolve meeting template if specified - must be from agent's assigned templates
+      let selectedTemplate = null;
+      if (meeting_template_id) {
+        selectedTemplate = meetingTypes.find(mt => mt.id === meeting_template_id);
+        if (!selectedTemplate && meetingTypes.length > 0) {
+          return res.status(400).json({ error: 'Invalid meeting template for this agent' });
+        }
+      } else if (meeting_template_slug) {
+        selectedTemplate = meetingTypes.find(mt => mt.slug === meeting_template_slug);
+        if (!selectedTemplate && meetingTypes.length > 0) {
+          return res.status(400).json({ error: 'Invalid meeting template for this agent' });
+        }
+      }
+
+      const startTime = new Date(starts_at);
+      const duration = selectedTemplate?.duration_minutes || duration_minutes || profile.default_slot_minutes;
+      const endTime = new Date(startTime.getTime() + duration * 60 * 1000);
+      const meetingType = selectedTemplate?.meeting_type || 'phone';
+
+      const { data: conflicts } = await supabase
+        .from('agent_booking')
+        .select('id')
+        .eq('identity_id', identity.id)
+        .eq('tenant_id', tenantId)
+        .neq('status', 'cancelled')
+        .or(`and(starts_at.lt.${endTime.toISOString()},ends_at.gt.${startTime.toISOString()})`);
+
+      if (conflicts && conflicts.length > 0) {
+        return res.status(409).json({ error: 'This time slot is no longer available' });
+      }
+
+      const { data: memberMatch } = await supabase
+        .from('member')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .ilike('email', attendee_email)
+        .limit(1);
+
+      if (meetingType === 'teams') {
+        const outlookConn = await getOutlookConnectionForIdentity(identity.id, tenantId);
+        if (!outlookConn) {
+          return res.status(400).json({ error: 'Microsoft Teams meetings require the agent to have a connected Outlook account. Please contact the organiser.' });
+        }
+      }
+
+      const meetingTitle = selectedTemplate 
+        ? `${selectedTemplate.name} with ${attendee_name}`
+        : `Meeting with ${attendee_name}`;
+
+      const { data: booking, error: bookingError } = await supabase
+        .from('agent_booking')
+        .insert({
+          tenant_id: tenantId,
+          identity_id: identity.id,
+          attendee_name,
+          attendee_email: attendee_email.toLowerCase(),
+          attendee_phone,
+          attendee_timezone: attendee_timezone || profile.timezone,
+          attendee_notes,
+          title: meetingTitle,
+          starts_at: startTime.toISOString(),
+          ends_at: endTime.toISOString(),
+          duration_minutes: duration,
+          status: 'confirmed',
+          member_id: memberMatch?.[0]?.id || null,
+          meeting_template_id: selectedTemplate?.id || null,
+          meeting_type: meetingType
+        })
+        .select()
+        .single();
+
+      if (bookingError) {
+        console.error('[Public Booking] Create error:', bookingError);
+        return res.status(500).json({ error: 'Failed to create booking' });
+      }
+
+      // Create Zoom meeting if meeting type is zoom
+      let zoomMeetingData = null;
+      if (meetingType === 'zoom' && selectedTemplate?.zoom_user_id) {
+        try {
+          const zoomToken = await getZoomAccessTokenForTenant(tenantId);
+          const zoomUserId = selectedTemplate.zoom_user_id;
+          const agentTimezone = profile.timezone || 'Europe/London';
+
+          const zoomPayload = {
+            topic: meetingTitle,
+            type: 2,
+            start_time: formatInTimeZone(startTime, agentTimezone, "yyyy-MM-dd'T'HH:mm:ss"),
+            duration: duration,
+            timezone: agentTimezone,
+            agenda: `Booking with ${attendee_name} (${attendee_email})${attendee_notes ? '\n\nNotes: ' + attendee_notes : ''}`,
+            settings: {
+              host_video: true,
+              participant_video: true,
+              join_before_host: false,
+              mute_upon_entry: false,
+              waiting_room: true,
+              audio: 'both',
+              auto_recording: 'none'
+            }
+          };
+
+          console.log('[Public Booking] Creating Zoom meeting for user:', zoomUserId);
+          const zoomResponse = await fetch(`https://api.zoom.us/v2/users/${zoomUserId}/meetings`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${zoomToken}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(zoomPayload)
+          });
+
+          if (zoomResponse.ok) {
+            zoomMeetingData = await zoomResponse.json();
+            console.log('[Public Booking] Zoom meeting created:', zoomMeetingData.id);
+
+            const { error: zoomUpdateError } = await supabase
+              .from('agent_booking')
+              .update({
+                zoom_meeting_id: String(zoomMeetingData.id),
+                zoom_join_url: zoomMeetingData.join_url,
+                zoom_start_url: zoomMeetingData.start_url,
+                zoom_password: zoomMeetingData.password || null
+              })
+              .eq('id', booking.id);
+
+            if (zoomUpdateError) {
+              console.error('[Public Booking] Failed to save Zoom meeting details:', zoomUpdateError);
+            }
+          } else {
+            const errorText = await zoomResponse.text();
+            console.error('[Public Booking] Zoom meeting creation failed:', zoomResponse.status, errorText);
+          }
+        } catch (zoomError) {
+          console.error('[Public Booking] Zoom meeting creation error:', zoomError);
+        }
+      }
+
+      // Create calendar event in agent's Outlook calendar if connected
+      let calendarEventId = null;
+      let teamsMeetingData = null;
+      try {
+        const outlookConnection = await getOutlookConnectionForIdentity(identity.id, tenantId);
+        if (outlookConnection) {
+          const agentTimezone = profile.timezone || 'UTC';
+          const startLocalStr = formatInTimeZone(startTime, agentTimezone, "yyyy-MM-dd'T'HH:mm:ss");
+          const endLocalStr = formatInTimeZone(endTime, agentTimezone, "yyyy-MM-dd'T'HH:mm:ss");
+          
+          const zoomSection = zoomMeetingData
+            ? `<p><strong>Zoom Meeting:</strong> <a href="${zoomMeetingData.join_url}">${zoomMeetingData.join_url}</a></p>
+               ${zoomMeetingData.password ? `<p><strong>Meeting Password:</strong> ${zoomMeetingData.password}</p>` : ''}`
+            : '';
+
+          const isTeamsMeeting = meetingType === 'teams';
+          const useOnlineMeeting = isTeamsMeeting || !!zoomMeetingData;
+
+          const calendarEvent = await createCalendarEvent(outlookConnection, {
+            subject: `Meeting with ${attendee_name}`,
+            body: `<p>Booking via ${tenant?.name || 'iconn.app'}</p>
+                   <p><strong>Attendee:</strong> ${attendee_name}</p>
+                   <p><strong>Email:</strong> ${attendee_email}</p>
+                   ${attendee_phone ? `<p><strong>Phone:</strong> ${attendee_phone}</p>` : ''}
+                   ${attendee_notes ? `<p><strong>Notes:</strong> ${attendee_notes}</p>` : ''}
+                   ${zoomSection}`,
+            startDateTime: startLocalStr,
+            endDateTime: endLocalStr,
+            timeZone: agentTimezone,
+            attendees: [{ email: attendee_email, name: attendee_name }],
+            isOnlineMeeting: useOnlineMeeting
+          });
+          
+          calendarEventId = calendarEvent?.id;
+          console.log('[Public Booking] Created Outlook calendar event:', calendarEventId);
+
+          if (isTeamsMeeting && calendarEvent?.onlineMeeting?.joinUrl) {
+            teamsMeetingData = {
+              joinUrl: calendarEvent.onlineMeeting.joinUrl
+            };
+            console.log('[Public Booking] Teams meeting created with join URL');
+
+            const { error: teamsUpdateError } = await supabase
+              .from('agent_booking')
+              .update({ teams_join_url: teamsMeetingData.joinUrl })
+              .eq('id', booking.id);
+
+            if (teamsUpdateError) {
+              console.error('[Public Booking] Failed to save Teams join URL:', teamsUpdateError);
+            }
+          }
+          
+          if (calendarEventId) {
+            const { error: updateEventIdError } = await supabase
+              .from('agent_booking')
+              .update({ outlook_event_id: calendarEventId })
+              .eq('id', booking.id);
+            
+            if (updateEventIdError) {
+              console.error('[Public Booking] Failed to save outlook_event_id:', updateEventIdError);
+            } else {
+              console.log('[Public Booking] Saved outlook_event_id to booking:', booking.id);
+            }
+          }
+        } else {
+          if (meetingType === 'teams') {
+            console.error('[Public Booking] Teams meeting requested but no Outlook connection for agent');
+          }
+          console.log('[Public Booking] No Outlook connection for agent, skipping calendar event');
+        }
+      } catch (calendarError) {
+        console.error('[Public Booking] Calendar event creation failed:', calendarError);
+      }
+
+      // Check if this booking completes any pending DD meeting requests (first-past-the-post)
+      let linkedMeetingRequestId = null;
+      try {
+        // Check for dd_request parameter in URL (passed from booking link)
+        const ddRequestId = req.body.dd_request_id || req.query.dd_request;
+        
+        let winningRequest = null;
+        
+        if (ddRequestId) {
+          // Use precise matching via dd_request_id from URL
+          const { data: directMatch } = await supabase
+            .from('dd_meeting_request')
+            .select('id, form_submission_id, meeting_template_id')
+            .eq('id', ddRequestId)
+            .eq('tenant_id', tenantId)
+            .eq('status', 'pending')
+            .single();
+          
+          if (directMatch) {
+            winningRequest = directMatch;
+          }
+        }
+        
+        // Fallback: try to match by email + template + tenant (case-insensitive)
+        if (!winningRequest && selectedTemplate?.id) {
+          const { data: emailMatches } = await supabase
+            .from('dd_meeting_request')
+            .select('id, form_submission_id, meeting_template_id')
+            .eq('tenant_id', tenantId)
+            .eq('meeting_template_id', selectedTemplate.id)
+            .ilike('recipient_email', attendee_email)
+            .eq('status', 'pending')
+            .limit(1);
+          
+          if (emailMatches && emailMatches.length > 0) {
+            winningRequest = emailMatches[0];
+          }
+        }
+
+        if (winningRequest) {
+          // Mark the winning request as booked
+          const { error: linkError } = await supabase
+            .from('dd_meeting_request')
+            .update({
+              status: 'booked',
+              agent_booking_id: booking.id
+            })
+            .eq('id', winningRequest.id);
+          
+          if (!linkError) {
+            linkedMeetingRequestId = winningRequest.id;
+            console.log(`[Public Booking] Linked DD meeting request ${winningRequest.id} to booking ${booking.id}`);
+            
+            // Update the booking with form_submission_id for traceability
+            await supabase
+              .from('agent_booking')
+              .update({ form_submission_id: winningRequest.form_submission_id })
+              .eq('id', booking.id);
+            
+            // Add history log entry to the DD submission
+            try {
+              const { data: ddSubmission } = await supabase
+                .from('form_submission_due_diligence')
+                .select('id, history_log')
+                .eq('form_submission_id', winningRequest.form_submission_id)
+                .eq('tenant_id', tenantId)
+                .single();
+              
+              if (ddSubmission) {
+                const historyLog = ddSubmission.history_log || [];
+                historyLog.push({
+                  timestamp: new Date().toISOString(),
+                  event_type: 'meeting_booked',
+                  user_email: attendee_email,
+                  details: {
+                    meeting_name: selectedTemplate?.name || meetingTitle,
+                    date_time: startTime.toISOString(),
+                    attendee: attendee_name,
+                    agent_name: profile?.first_name ? `${profile.first_name} ${profile.last_name || ''}`.trim() : null
+                  }
+                });
+                
+                await supabase
+                  .from('form_submission_due_diligence')
+                  .update({ history_log: historyLog })
+                  .eq('id', ddSubmission.id);
+                
+                console.log('[Public Booking] Added meeting_booked history log to DD submission');
+              }
+            } catch (historyError) {
+              console.error('[Public Booking] Failed to add history log:', historyError);
+            }
+            
+            // Cancel ALL other pending requests for the same form_submission + meeting_template (first-past-the-post)
+            const { data: othersToCancel } = await supabase
+              .from('dd_meeting_request')
+              .select('id')
+              .eq('form_submission_id', winningRequest.form_submission_id)
+              .eq('meeting_template_id', winningRequest.meeting_template_id)
+              .eq('tenant_id', tenantId)
+              .eq('status', 'pending')
+              .neq('id', winningRequest.id);
+            
+            if (othersToCancel && othersToCancel.length > 0) {
+              const otherIds = othersToCancel.map(r => r.id);
+              await supabase
+                .from('dd_meeting_request')
+                .update({ status: 'cancelled' })
+                .in('id', otherIds);
+              console.log(`[Public Booking] Cancelled ${otherIds.length} other pending requests for same submission/template`);
+            }
+          }
+        }
+      } catch (linkError) {
+        console.error('[Public Booking] Error linking DD meeting request:', linkError);
+        // Don't fail the booking if linking fails
+      }
+
+      // Send booking confirmation email if template is configured
+      if (selectedTemplate?.confirmation_email_template_id) {
+        try {
+          const { data: confirmTemplate } = await supabase
+            .from('email_template')
+            .select('*')
+            .eq('id', selectedTemplate.confirmation_email_template_id)
+            .eq('tenant_id', tenantId)
+            .single();
+
+          if (confirmTemplate) {
+            const agentName = `${identity.first_name || ''} ${identity.last_name || ''}`.trim();
+            const agentTimezone = attendee_timezone || profile.timezone || 'Europe/London';
+            const formattedDate = formatInTimeZone(startTime, agentTimezone, 'EEEE, d MMMM yyyy');
+            const formattedTime = formatInTimeZone(startTime, agentTimezone, 'h:mm a');
+            const formattedEndTime = formatInTimeZone(endTime, agentTimezone, 'h:mm a');
+
+            const zoomJoinUrl = zoomMeetingData?.join_url || '';
+            const zoomPassword = zoomMeetingData?.password || '';
+            const teamsJoinUrl = teamsMeetingData?.joinUrl || '';
+            const meetingJoinDetails = buildMeetingJoinDetails({
+              meetingType,
+              zoomJoinUrl,
+              zoomPassword,
+              teamsJoinUrl
+            });
+
+            const bookingPlaceholders = {
+              attendee_name: attendee_name || '',
+              attendee_email: attendee_email || '',
+              meeting_date: formattedDate,
+              meeting_time: formattedTime,
+              meeting_end_time: formattedEndTime,
+              meeting_timezone: agentTimezone,
+              agent_name: agentName,
+              meeting_type: selectedTemplate.name || '',
+              duration: `${duration} minutes`,
+              meeting_title: meetingTitle,
+              zoom_join_url: zoomJoinUrl,
+              zoom_password: zoomPassword,
+              teams_join_url: teamsJoinUrl,
+              meeting_join_details: meetingJoinDetails,
+              tenant_name: tenant?.name || '',
+              attendee_notes: attendee_notes || ''
+            };
+
+            let subject = confirmTemplate.subject || 'Booking Confirmation';
+            let body = confirmTemplate.body_html || confirmTemplate.body || '';
+
+            Object.entries(bookingPlaceholders).forEach(([key, value]) => {
+              const regex = new RegExp(`\\{\\{${key}\\}\\}`, 'gi');
+              subject = subject.replace(regex, value);
+              body = body.replace(regex, value);
+            });
+
+            await sendEmail({
+              to: attendee_email,
+              subject,
+              html: body,
+              from: confirmTemplate.from_email,
+              replyTo: confirmTemplate.reply_to,
+              tenantId
+            });
+            console.log(`[Public Booking] Confirmation email sent to ${attendee_email}`);
+          }
+        } catch (confirmEmailError) {
+          console.error('[Public Booking] Confirmation email failed:', confirmEmailError);
+        }
+      }
+
+      return res.status(201).json({
+        success: true,
+        booking: {
+          id: booking.id,
+          starts_at: booking.starts_at,
+          ends_at: booking.ends_at,
+          status: booking.status,
+          calendarEventCreated: !!calendarEventId,
+          linkedMeetingRequestId,
+          zoom_join_url: zoomMeetingData?.join_url || null,
+          zoom_meeting_id: zoomMeetingData?.id ? String(zoomMeetingData.id) : null,
+          teams_join_url: teamsMeetingData?.joinUrl || null
+        },
+        agent: {
+          name: `${identity.first_name || ''} ${identity.last_name || ''}`.trim(),
+          email: identity.email
+        }
+      });
+    }
+
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (err) {
+    console.error('[Public Booking] Error:', err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+}

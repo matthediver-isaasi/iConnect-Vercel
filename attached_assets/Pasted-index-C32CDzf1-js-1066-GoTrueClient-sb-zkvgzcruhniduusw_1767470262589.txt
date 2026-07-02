@@ -1,0 +1,87 @@
+index-C32CDzf1.js:1066 GoTrueClient@sb-zkvgzcruhniduuswbfyh-auth-token:1 (2.84.0) 2026-01-03T19:56:53.120Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+mg @ index-C32CDzf1.js:1066
+Kie @ index-C32CDzf1.js:1067
+_initSupabaseAuthClient @ index-C32CDzf1.js:1067
+Gie @ index-C32CDzf1.js:1067
+T4 @ index-C32CDzf1.js:1067
+(anonymous) @ index-C32CDzf1.js:2074
+(anonymous) @ index-C32CDzf1.js:1
+(anonymous) @ index-C32CDzf1.js:2503
+index-C32CDzf1.js:1066 GoTrueClient@sb-zkvgzcruhniduuswbfyh-auth-token:2 (2.84.0) 2026-01-03T19:56:53.123Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+mg @ index-C32CDzf1.js:1066
+Kie @ index-C32CDzf1.js:1067
+_initSupabaseAuthClient @ index-C32CDzf1.js:1067
+Gie @ index-C32CDzf1.js:1067
+T4 @ index-C32CDzf1.js:1067
+(anonymous) @ index-C32CDzf1.js:2452
+(anonymous) @ index-C32CDzf1.js:1
+(anonymous) @ index-C32CDzf1.js:2503
+index-C32CDzf1.js:1370 [usePendingPurchaseOrders] memberInfo: null
+index-C32CDzf1.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-C32CDzf1.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-C32CDzf1.js:1370 [Layout] currentPageName: FormView currentPortalPageId: null
+index-C32CDzf1.js:1370 [usePendingPurchaseOrders] memberInfo: null
+index-C32CDzf1.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-C32CDzf1.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-C32CDzf1.js:1370 [Layout] currentPageName: FormView currentPortalPageId: null
+index-C32CDzf1.js:1370 [usePendingPurchaseOrders] memberInfo: null
+index-C32CDzf1.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-C32CDzf1.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-C32CDzf1.js:1370 [Layout] currentPageName: FormView currentPortalPageId: null
+index-C32CDzf1.js:1370 [usePendingPurchaseOrders] memberInfo: null
+index-C32CDzf1.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-C32CDzf1.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-C32CDzf1.js:1370 [Layout] currentPageName: FormView currentPortalPageId: null
+index-C32CDzf1.js:2408 [FormView] entity_pipelines.members: undefined
+index-C32CDzf1.js:2408 [FormView] primaryMember: undefined
+index-C32CDzf1.js:2408 [FormView] Extracted primaryMemberRoleId: null
+index-C32CDzf1.js:2408 [FormView] Capacity check state: {primaryMemberRoleId: null, isCheckingCapacity: false, roleCapacity: undefined, formSlug: 'hos-join', formLoaded: false, …}
+index-C32CDzf1.js:2408 [FormView Init] Initial hidden fields from starts_hidden: []
+index-C32CDzf1.js:2408 [FormView Init] All fields with starts_hidden property: undefined
+index-C32CDzf1.js:1067 [useNavigationRealtime] Setting up realtime subscription for navigation_item table
+index-C32CDzf1.js:2408 [FormView] Capacity check state: {primaryMemberRoleId: null, isCheckingCapacity: false, roleCapacity: undefined, formSlug: 'hos-join', formLoaded: false, …}
+index-C32CDzf1.js:1370 [usePendingPurchaseOrders] memberInfo: null
+index-C32CDzf1.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-C32CDzf1.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-C32CDzf1.js:1370 [Layout] currentPageName: FormView currentPortalPageId: null
+index-C32CDzf1.js:1370 [usePendingPurchaseOrders] memberInfo: null
+index-C32CDzf1.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-C32CDzf1.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-C32CDzf1.js:1370 [Layout] currentPageName: FormView currentPortalPageId: null
+index-C32CDzf1.js:1370 [usePendingPurchaseOrders] memberInfo: null
+index-C32CDzf1.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-C32CDzf1.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-C32CDzf1.js:1370 [Layout] currentPageName: FormView currentPortalPageId: null
+index-C32CDzf1.js:1370 [Layout] Server returned null for /api/auth/me - member deleted or disabled
+index-C32CDzf1.js:2408 [FormView] entity_pipelines.members: [{…}]
+index-C32CDzf1.js:2408 [FormView] primaryMember: undefined
+index-C32CDzf1.js:2408 [FormView] Extracted primaryMemberRoleId: null
+index-C32CDzf1.js:2408 [FormView] Capacity check state: {primaryMemberRoleId: null, isCheckingCapacity: false, roleCapacity: undefined, formSlug: 'hos-join', formLoaded: true, …}
+index-C32CDzf1.js:2408 [FormView Init] Field "Which area does your role align to?" (field_1765695184695) has starts_hidden=true, adding to initial hidden
+index-C32CDzf1.js:2408 [FormView Init] Initial hidden fields from starts_hidden: ['field_1765695184695']
+index-C32CDzf1.js:2408 [FormView Init] All fields with starts_hidden property: (12) [{…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}]
+index-C32CDzf1.js:2408 [FormView] Capacity block decision: {primaryMemberRoleId: null, roleCapacity: undefined, hasCapacity: undefined, shouldBlockForCapacity: null}
+index-C32CDzf1.js:2408 [FormView Init] Hidden field "Which area does your role align to?" (field_1765695184695) initialized with empty string (no default_value)
+index-C32CDzf1.js:2408 [FormView] Capacity check state: {primaryMemberRoleId: null, isCheckingCapacity: false, roleCapacity: undefined, formSlug: 'hos-join', formLoaded: true, …}
+index-C32CDzf1.js:2408 [FormView] Capacity block decision: {primaryMemberRoleId: null, roleCapacity: undefined, hasCapacity: undefined, shouldBlockForCapacity: null}
+index-C32CDzf1.js:1067 [useNavigationRealtime] Subscription status: SUBSCRIBED
+index-C32CDzf1.js:2408 [FormView] Capacity check state: {primaryMemberRoleId: null, isCheckingCapacity: false, roleCapacity: undefined, formSlug: 'hos-join', formLoaded: true, …}
+index-C32CDzf1.js:2408 [FormView] Capacity block decision: {primaryMemberRoleId: null, roleCapacity: undefined, hasCapacity: undefined, shouldBlockForCapacity: null}
+index-C32CDzf1.js:2408 [FormView] Capacity check state: {primaryMemberRoleId: null, isCheckingCapacity: false, roleCapacity: undefined, formSlug: 'hos-join', formLoaded: true, …}
+index-C32CDzf1.js:2408 [FormView] Capacity block decision: {primaryMemberRoleId: null, roleCapacity: undefined, hasCapacity: undefined, shouldBlockForCapacity: null}
+index-C32CDzf1.js:2408 [FormView] Capacity check state: {primaryMemberRoleId: null, isCheckingCapacity: false, roleCapacity: undefined, formSlug: 'hos-join', formLoaded: true, …}
+index-C32CDzf1.js:2408 [FormView] Capacity block decision: {primaryMemberRoleId: null, roleCapacity: undefined, hasCapacity: undefined, shouldBlockForCapacity: null}
+index-C32CDzf1.js:2408 [FormView] Capacity check state: {primaryMemberRoleId: null, isCheckingCapacity: false, roleCapacity: undefined, formSlug: 'hos-join', formLoaded: true, …}
+index-C32CDzf1.js:2408 [FormView] Capacity block decision: {primaryMemberRoleId: null, roleCapacity: undefined, hasCapacity: undefined, shouldBlockForCapacity: null}
+index-C32CDzf1.js:2408 [FormView Prefill] Starting prefill
+index-C32CDzf1.js:2408 [FormView Prefill] Member entity: undefined
+index-C32CDzf1.js:2408 [FormView Prefill] Org entity: {id: '55a86410-7f60-4451-a45c-5760d93ccf1a', name: 'Abertay University', logo_url: 'https://zkvgzcruhniduuswbfyh.supabase.co/storage/v…tory/uploads/1767000308365-nowlg19-abertayPNG.png', zoho_account_id: '883813000001519844', domain: 'abertay.ac.uk', …}
+index-C32CDzf1.js:2408 [FormView Prefill] Fields with prefill_field configured: [{…}]
+index-C32CDzf1.js:2408 [FormView Prefill] Total newValues to apply: 1 {field_1765017571083: '55a86410-7f60-4451-a45c-5760d93ccf1a'}
+index-C32CDzf1.js:2408 [FormView Prefill] Merged formValues: {field_1765019805833: true, field_1765695184695: '', field_1765017571083: '55a86410-7f60-4451-a45c-5760d93ccf1a'}
+index-C32CDzf1.js:2408 [FormView] Capacity check state: {primaryMemberRoleId: null, isCheckingCapacity: false, roleCapacity: undefined, formSlug: 'hos-join', formLoaded: true, …}
+index-C32CDzf1.js:2408 [FormView] Capacity block decision: {primaryMemberRoleId: null, roleCapacity: undefined, hasCapacity: undefined, shouldBlockForCapacity: null}
+index-C32CDzf1.js:1336 [PublicLayout] Fetching banners for page: FormView portalPageId: null isCustomSlug: true urlSlug: blogs
+index-C32CDzf1.js:1336 [PublicLayout] All banners found: 14
+index-C32CDzf1.js:1336 [PublicLayout] pageToPortalPageMap keys: (26) ['Events', 'PublicEvents', 'Bookings', 'MyTickets', 'BuyProgramTickets', 'MemberDirectory', 'OrganisationDirectory', 'Resources', 'PublicResources', 'Articles', 'PublicArticles', 'Team', 'Balances', 'History', 'Profile', 'MyOrganisation', 'JobBoard', 'PublicJobBoard', 'News', 'PublicNews', 'NewsView', 'MyJobPostings', 'Preferences', 'about-me', 'Support', 'Dashboard']
+index-C32CDzf1.js:1336 [PublicLayout] Matched banners: 0

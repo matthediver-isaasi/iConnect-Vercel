@@ -6,13 +6,17 @@ import { Calendar, CreditCard, Ticket, Wallet, ArrowRight, CheckCircle2 } from "
 import { createPageUrl } from "@/utils";
 import { Link } from "react-router-dom";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
+import DashboardWidgetBuilder from "@/components/dashboard/DashboardWidgetBuilder";
 
 export default function DashboardPage() {
   const { memberInfo, organizationInfo } = useMemberAccess();
+  const { branding } = useTenantBranding();
+  const tenantName = branding?.name;
 
   if (!memberInfo || !organizationInfo) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading...</div>
       </div>
     );
@@ -26,7 +30,9 @@ export default function DashboardPage() {
     {
       icon: Calendar,
       title: "Browse Events",
-      description: "Explore our comprehensive calendar of professional development events, training sessions, and networking opportunities tailored for AGCAS members.",
+      description: tenantName 
+        ? `Explore our comprehensive calendar of professional development events, training sessions, and networking opportunities tailored for ${tenantName} members.`
+        : 'Explore our comprehensive calendar of professional development events, training sessions, and networking opportunities.',
       link: createPageUrl('Events'),
       linkText: "View Events",
       color: "blue"
@@ -50,7 +56,7 @@ export default function DashboardPage() {
     {
       icon: Wallet,
       title: "Account Balances",
-      description: "Monitor your organization's training fund balance and available vouchers. Keep track of your professional development budget.",
+      description: "Monitor your organisation's training fund balance and available vouchers. Keep track of your professional development budget.",
       link: createPageUrl('Balances'),
       linkText: "View Balances",
       color: "indigo"
@@ -59,7 +65,7 @@ export default function DashboardPage() {
 
   const steps = [
     "Browse available events and filter by program",
-    "Check your organization's available tickets and vouchers",
+    "Check your organisation's available tickets and vouchers",
     "Register yourself or colleagues for events",
     "Manage your bookings and track attendance"
   ];
@@ -72,7 +78,10 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+    <div className="min-h-screen">
+      {/* Dynamic widget builder (renders nothing for users with no widgets and no manage permissions) */}
+      <DashboardWidgetBuilder />
+
       {/* Hero Section */}
       <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-16 px-4 md:px-8">
         <div className="max-w-7xl mx-auto">
@@ -81,7 +90,7 @@ export default function DashboardPage() {
               Welcome back, {memberInfo.first_name}!
             </h1>
             <p className="text-xl text-blue-100 mb-8">
-              Your professional development journey starts here. Book training events, manage your tickets, and stay connected with the AGCAS community.
+              Your professional development journey starts here. Book training events, manage your tickets, and stay connected with {tenantName ? `the ${tenantName} community` : 'our community'}.
             </p>
             <div className="flex flex-wrap gap-4">
               <Link to={createPageUrl('Events')}>
@@ -153,7 +162,7 @@ export default function DashboardPage() {
           <CardHeader className="border-b border-slate-200">
             <CardTitle className="text-2xl">How to Use This Portal</CardTitle>
             <CardDescription className="text-base mt-2">
-              Follow these simple steps to make the most of your AGCAS membership
+              Follow these simple steps to make the most of your {tenantName ? `${tenantName} membership` : 'membership'}
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-6">
@@ -213,7 +222,7 @@ export default function DashboardPage() {
             <h3 className="text-2xl font-bold text-slate-900 mb-3">Need Help?</h3>
             <p className="text-slate-600 mb-6 max-w-2xl mx-auto">
               If you have any questions about using the portal, booking events, or managing your account, 
-              please don't hesitate to contact your AGCAS membership administrator.
+              please don't hesitate to contact your {tenantName ? `${tenantName} membership` : 'membership'} administrator.
             </p>
             <div className="flex flex-wrap justify-center gap-4">
               <CheckCircle2 className="w-5 h-5 text-green-600" />

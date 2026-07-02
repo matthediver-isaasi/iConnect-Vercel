@@ -6,10 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft, Save, Trash2, Upload, X, Loader2, CheckCircle2, Clock } from "lucide-react";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { ArrowLeft, Save, Trash2, Upload, X, Loader2, CheckCircle2, Clock, Share2, Copy, Check, Crosshair, Eye, EyeOff } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { createPageUrl } from "@/utils";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { format } from "date-fns";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
@@ -20,7 +23,7 @@ import SEOSettings from "../components/blog/SEOSettings";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 export default function NewsEditorPage() {
-  const { memberInfo, isAdmin } = useMemberAccess();
+  const { memberInfo, isFeatureExcluded, isAccessReady } = useMemberAccess();
   const urlParams = new URLSearchParams(window.location.search);
   const newsId = urlParams.get('id');
   const isEditing = !!newsId;
@@ -38,24 +41,36 @@ export default function NewsEditorPage() {
   const [status, setStatus] = useState("draft");
   const [seoTitle, setSeoTitle] = useState("");
   const [seoDescription, setSeoDescription] = useState("");
+  const [ogImageUrl, setOgImageUrl] = useState("");
   const [publishedDate, setPublishedDate] = useState(new Date().toISOString());
   const [uploadingImage, setUploadingImage] = useState(false);
   const [autoSaving, setAutoSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showShareDialog, setShowShareDialog] = useState(false);
+  const [sharePassword, setSharePassword] = useState("");
+  const [focalPoint, setFocalPoint] = useState({ x: 50, y: 50 });
+  const [showSafeArea, setShowSafeArea] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedPassword, setCopiedPassword] = useState(false);
 
-  // Fetch current member
+  // Fetch current member by ID (efficient single record fetch)
   const { data: currentMember, isLoading: memberLoading } = useQuery({
-    queryKey: ['current-member', memberInfo?.email],
+    queryKey: ['current-member', memberInfo?.id],
     queryFn: async () => {
-      const allMembers = await base44.entities.Member.list();
-      return allMembers.find(m => m.email === memberInfo?.email) || null;
+      if (memberInfo?.id) {
+        return await base44.entities.Member.get(memberInfo.id);
+      }
+      // Fallback to filter by email if no ID
+      const members = await base44.entities.Member.filter({ email: memberInfo.email });
+      return members[0] || null;
     },
-    enabled: !!memberInfo
+    enabled: !!memberInfo?.id || !!memberInfo?.email
   });
 
-  // Fetch categories
-  const { data: categories = [] } = useQuery({
-    queryKey: ['resourceCategories'],
+  // Fetch categories for News content type
+  const { data: categories = [], isLoading: categoriesLoading } = useQuery({
+    queryKey: ['resourceCategories', 'News'],
     queryFn: async () => {
       const cats = await base44.entities.ResourceCategory.list();
       return cats
@@ -63,6 +78,9 @@ export default function NewsEditorPage() {
         .sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
     }
   });
+  
+  // Check if we have any categories with subcategories
+  const hasCategories = categories.length > 0 && categories.some(c => c.subcategories?.length > 0);
 
   // Fetch existing news if editing
   const { data: news, isLoading: newsLoading } = useQuery({
@@ -88,6 +106,11 @@ export default function NewsEditorPage() {
       setPublishedDate(news.published_date || new Date().toISOString());
       setSeoTitle(news.seo_title || "");
       setSeoDescription(news.seo_description || "");
+      setOgImageUrl(news.og_image_url || "");
+      setSharePassword(news.share_password || "");
+      if (news.feature_image_focal_point) {
+        setFocalPoint(news.feature_image_focal_point);
+      }
     }
   }, [news]);
 
@@ -116,12 +139,14 @@ export default function NewsEditorPage() {
             summary,
             content,
             feature_image_url: featureImage,
+            feature_image_focal_point: focalPoint,
             subcategories,
             tags,
             status,
             published_date: publishedDate,
             seo_title: seoTitle,
             seo_description: seoDescription,
+            og_image_url: ogImageUrl,
           });
           setLastSaved(new Date());
         } catch (error) {
@@ -133,7 +158,7 @@ export default function NewsEditorPage() {
     }, 3000);
 
     return () => clearTimeout(autoSaveTimer);
-  }, [title, slug, summary, content, featureImage, subcategories, tags, status, publishedDate, seoTitle, seoDescription, isEditing, newsId, memberInfo, currentMember]);
+  }, [title, slug, summary, content, featureImage, focalPoint, subcategories, tags, status, publishedDate, seoTitle, seoDescription, ogImageUrl, isEditing, newsId, memberInfo, currentMember]);
 
   const saveMutation = useMutation({
     mutationFn: async ({ publishNow }) => {
@@ -149,12 +174,14 @@ export default function NewsEditorPage() {
         summary,
         content,
         feature_image_url: featureImage,
+        feature_image_focal_point: focalPoint,
         subcategories,
         tags,
         status: publishNow ? 'published' : status,
         published_date: publishedDate,
         seo_title: seoTitle,
         seo_description: seoDescription,
+        og_image_url: ogImageUrl,
       };
 
       if (isEditing) {
@@ -165,11 +192,12 @@ export default function NewsEditorPage() {
     },
     onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['news'] });
+      queryClient.invalidateQueries({ queryKey: ['news-posts'], exact: false });
       toast.success(variables.publishNow ? 'News published successfully!' : 'News saved successfully!');
       setLastSaved(new Date());
       
       if (!isEditing) {
-        window.location.href = `${createPageUrl('NewsEditor')}?id=${data.id}`;
+        window.location.href = createPageUrl('News');
       }
     },
     onError: (error) => {
@@ -181,13 +209,74 @@ export default function NewsEditorPage() {
     mutationFn: () => base44.entities.NewsPost.delete(newsId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['news'] });
+      queryClient.invalidateQueries({ queryKey: ['news-posts'], exact: false });
       toast.success('News deleted successfully');
-      window.location.href = createPageUrl('MyNews');
+      window.location.href = createPageUrl('News');
     },
     onError: () => {
       toast.error('Failed to delete news');
     },
   });
+
+  // Generate a random 4-digit password
+  const generateSharePassword = () => {
+    return Math.floor(1000 + Math.random() * 9000).toString();
+  };
+
+  // Share mutation to save password
+  const shareMutation = useMutation({
+    mutationFn: async (password) => {
+      return await base44.entities.NewsPost.update(newsId, { share_password: password });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['news'] });
+      queryClient.invalidateQueries({ queryKey: ['news-posts'], exact: false });
+      toast.success('Share link generated!');
+    },
+    onError: () => {
+      toast.error('Failed to generate share link');
+    },
+  });
+
+  const handleShare = () => {
+    // Generate new password if none exists
+    const password = sharePassword || generateSharePassword();
+    if (!sharePassword) {
+      setSharePassword(password);
+      shareMutation.mutate(password);
+    }
+    setShowShareDialog(true);
+    setCopiedLink(false);
+    setCopiedPassword(false);
+  };
+
+  const regeneratePassword = () => {
+    const newPassword = generateSharePassword();
+    setSharePassword(newPassword);
+    shareMutation.mutate(newPassword);
+    setCopiedPassword(false);
+  };
+
+  const getShareUrl = () => {
+    const baseUrl = window.location.origin;
+    return `${baseUrl}/news-preview/${newsId}`;
+  };
+
+  const copyToClipboard = async (text, type) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      if (type === 'link') {
+        setCopiedLink(true);
+        setTimeout(() => setCopiedLink(false), 2000);
+      } else {
+        setCopiedPassword(true);
+        setTimeout(() => setCopiedPassword(false), 2000);
+      }
+      toast.success(`${type === 'link' ? 'Link' : 'Password'} copied!`);
+    } catch (err) {
+      toast.error('Failed to copy');
+    }
+  };
 
   const handleFeatureImageUpload = async (e) => {
     const file = e.target.files?.[0];
@@ -199,7 +288,7 @@ export default function NewsEditorPage() {
       setFeatureImage(file_url);
       toast.success('Image uploaded successfully');
     } catch (error) {
-      toast.error('Failed to upload image');
+      showUploadErrorToast(error, 'Failed to upload image');
     } finally {
       setUploadingImage(false);
     }
@@ -222,7 +311,7 @@ export default function NewsEditorPage() {
         }
         toast.success('Image inserted');
       } catch (error) {
-        toast.error('Failed to upload image');
+        showUploadErrorToast(error, 'Failed to upload image');
       }
     };
     input.click();
@@ -246,14 +335,17 @@ export default function NewsEditorPage() {
   }), []);
 
   const handleDelete = () => {
-    if (window.confirm('Are you sure you want to delete this news article? This action cannot be undone.')) {
-      deleteMutation.mutate();
-    }
+    setShowDeleteConfirm(true);
   };
 
-  if (!isAdmin) {
+  const confirmDelete = () => {
+    deleteMutation.mutate();
+    setShowDeleteConfirm(false);
+  };
+
+  if (isFeatureExcluded('content.news-editor')) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <Card className="border-red-200">
           <CardContent className="p-8 text-center">
             <p className="text-red-600">Administrator access required</p>
@@ -265,7 +357,7 @@ export default function NewsEditorPage() {
 
   if (!memberInfo) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading...</div>
       </div>
     );
@@ -273,17 +365,17 @@ export default function NewsEditorPage() {
 
   if (isEditing && (newsLoading || memberLoading)) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading news...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-6">
-          <Link to={createPageUrl('MyNews')} className="inline-flex items-center gap-2 text-slate-600 hover:text-slate-900">
+          <Link to={createPageUrl('News')} className="inline-flex items-center gap-2 text-slate-600 hover:text-slate-900">
             <ArrowLeft className="w-4 h-4" />
             Back to News
           </Link>
@@ -302,22 +394,27 @@ export default function NewsEditorPage() {
               </span>
             )}
             
-            <Button
-              variant="outline"
-              onClick={() => saveMutation.mutate({ publishNow: false })}
-              disabled={saveMutation.isPending || !title}
-              className="gap-2"
-            >
-              <Save className="w-4 h-4" />
-              Save Draft
-            </Button>
+            {isEditing && (
+              <Button
+                variant="outline"
+                onClick={handleShare}
+                disabled={shareMutation.isPending}
+                className="gap-2"
+                data-testid="button-share-news"
+              >
+                <Share2 className="w-4 h-4" />
+                Share Draft
+              </Button>
+            )}
             
             <Button
-              onClick={() => saveMutation.mutate({ publishNow: true })}
+              onClick={() => saveMutation.mutate({ publishNow: false })}
               disabled={saveMutation.isPending || !title || !slug}
               className="bg-blue-600 hover:bg-blue-700 gap-2"
+              data-testid="button-save-news"
             >
-              {status === 'published' ? 'Update' : 'Publish'}
+              <Save className="w-4 h-4" />
+              Save
             </Button>
           </div>
         </div>
@@ -333,7 +430,8 @@ export default function NewsEditorPage() {
                     placeholder="Enter news title..."
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
-                    className="text-2xl font-bold border-0 px-0 focus-visible:ring-0"
+                    className="text-xl font-semibold"
+                    data-testid="input-news-title"
                   />
                 </div>
 
@@ -384,23 +482,64 @@ export default function NewsEditorPage() {
             <Card className="border-slate-200 shadow-sm">
               <CardHeader>
                 <CardTitle className="text-base">Feature Image</CardTitle>
+                <p className="text-xs text-slate-500 mt-1">Recommended: 1200 x 630px. Keep text and key content in the centre of the image as edges may be cropped.</p>
               </CardHeader>
               <CardContent className="space-y-4">
                 {featureImage ? (
-                  <div className="relative">
-                    <img 
-                      src={featureImage} 
-                      alt="Feature" 
-                      className="w-full h-48 object-cover rounded-lg"
-                    />
-                    <Button
-                      variant="destructive"
-                      size="icon"
-                      className="absolute top-2 right-2"
-                      onClick={() => setFeatureImage("")}
+                  <div className="space-y-3">
+                    <div 
+                      className="relative rounded-lg overflow-hidden cursor-crosshair"
+                      onClick={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const x = Math.round(((e.clientX - rect.left) / rect.width) * 100);
+                        const y = Math.round(((e.clientY - rect.top) / rect.height) * 100);
+                        setFocalPoint({ x: Math.max(0, Math.min(100, x)), y: Math.max(0, Math.min(100, y)) });
+                      }}
+                      data-testid="focal-point-picker"
                     >
-                      <X className="w-4 h-4" />
-                    </Button>
+                      <img 
+                        src={featureImage} 
+                        alt="Feature" 
+                        className="w-full h-48 object-cover"
+                        style={{ objectPosition: `${focalPoint.x}% ${focalPoint.y}%` }}
+                      />
+                      <div 
+                        className="absolute pointer-events-none"
+                        style={{ left: `${focalPoint.x}%`, top: `${focalPoint.y}%`, transform: 'translate(-50%, -50%)' }}
+                      >
+                        <Crosshair className="w-6 h-6 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]" />
+                      </div>
+                      {showSafeArea && (
+                        <div className="absolute inset-0 pointer-events-none">
+                          <div className="absolute inset-0 border-[3px] border-white/60" style={{ top: '10%', left: '10%', right: '10%', bottom: '10%', borderStyle: 'dashed' }} />
+                          <div className="absolute top-0 left-0 right-0 bg-black/40" style={{ height: '10%' }} />
+                          <div className="absolute bottom-0 left-0 right-0 bg-black/40" style={{ height: '10%' }} />
+                          <div className="absolute bg-black/40" style={{ top: '10%', bottom: '10%', left: 0, width: '10%' }} />
+                          <div className="absolute bg-black/40" style={{ top: '10%', bottom: '10%', right: 0, width: '10%' }} />
+                          <span className="absolute text-[10px] text-white/80 font-medium" style={{ top: '10%', left: '10%', transform: 'translate(4px, 4px)' }}>Safe area</span>
+                        </div>
+                      )}
+                      <Button
+                        variant="destructive"
+                        size="icon"
+                        className="absolute top-2 right-2"
+                        onClick={(e) => { e.stopPropagation(); setFeatureImage(""); setFocalPoint({ x: 50, y: 50 }); }}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs text-slate-500">Click image to set focal point ({focalPoint.x}%, {focalPoint.y}%)</p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowSafeArea(!showSafeArea)}
+                        data-testid="button-toggle-safe-area"
+                      >
+                        {showSafeArea ? <EyeOff className="w-3 h-3 mr-1" /> : <Eye className="w-3 h-3 mr-1" />}
+                        Safe area
+                      </Button>
+                    </div>
                   </div>
                 ) : (
                   <label className="block">
@@ -426,19 +565,23 @@ export default function NewsEditorPage() {
               </CardContent>
             </Card>
 
-            <Card className="border-slate-200 shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-base">Organization</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <SubcategorySelector 
-                  categories={categories}
-                  selectedSubcategories={subcategories}
-                  onChange={setSubcategories}
-                />
-                <TagInput tags={tags} onChange={setTags} />
-              </CardContent>
-            </Card>
+            {/* Only show Organisation card if there are categories or tags functionality is needed */}
+            {(categoriesLoading || hasCategories) && (
+              <Card className="border-slate-200 shadow-sm">
+                <CardHeader>
+                  <CardTitle className="text-base">Organisation</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <SubcategorySelector 
+                    categories={categories}
+                    selectedSubcategories={subcategories}
+                    onChange={setSubcategories}
+                    isLoading={categoriesLoading}
+                  />
+                  <TagInput tags={tags} onChange={setTags} />
+                </CardContent>
+              </Card>
+            )}
 
             <Card className="border-slate-200 shadow-sm">
               <CardHeader>
@@ -452,7 +595,11 @@ export default function NewsEditorPage() {
                   <Input
                     id="published-date"
                     type="datetime-local"
-                    value={publishedDate ? new Date(publishedDate).toISOString().slice(0, 16) : ''}
+                    value={publishedDate ? (() => {
+                      const d = new Date(publishedDate);
+                      const pad = (n) => String(n).padStart(2, '0');
+                      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+                    })() : ''}
                     onChange={(e) => {
                       const dateValue = e.target.value ? new Date(e.target.value).toISOString() : new Date().toISOString();
                       setPublishedDate(dateValue);
@@ -470,19 +617,26 @@ export default function NewsEditorPage() {
               </CardContent>
             </Card>
 
-            <SEOSettings
-              seoTitle={seoTitle}
-              seoDescription={seoDescription}
-              onSeoTitleChange={setSeoTitle}
-              onSeoDescriptionChange={setSeoDescription}
-            />
+            {!isFeatureExcluded('content.news-editor.seo-settings') && (
+              <SEOSettings
+                seoTitle={seoTitle}
+                seoDescription={seoDescription}
+                onSeoTitleChange={setSeoTitle}
+                onSeoDescriptionChange={setSeoDescription}
+                ogImageUrl={ogImageUrl}
+                onOgImageUrlChange={setOgImageUrl}
+                defaultTitle={title}
+                defaultDescription={summary}
+              />
+            )}
 
-            {isEditing && (
+            {isEditing && !isFeatureExcluded('content.news.delete') && (
               <Button
                 variant="destructive"
                 onClick={handleDelete}
                 disabled={deleteMutation.isPending}
                 className="w-full gap-2"
+                data-testid="button-delete-news"
               >
                 <Trash2 className="w-4 h-4" />
                 Delete News
@@ -491,6 +645,95 @@ export default function NewsEditorPage() {
           </div>
         </div>
       </div>
+
+      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete News Article</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this news article? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDelete}
+              className="bg-red-600 hover:bg-red-700"
+              data-testid="button-confirm-delete"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog open={showShareDialog} onOpenChange={setShowShareDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Share Draft Article</DialogTitle>
+            <DialogDescription>
+              Share this draft with others using the link and password below.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Preview Link</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  readOnly
+                  value={getShareUrl()}
+                  className="flex-1 text-sm bg-slate-50"
+                  data-testid="input-share-link"
+                />
+                <Button
+                  size="icon"
+                  variant="outline"
+                  onClick={() => copyToClipboard(getShareUrl(), 'link')}
+                  data-testid="button-copy-link"
+                >
+                  {copiedLink ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
+                </Button>
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Access Password</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  readOnly
+                  value={sharePassword}
+                  className="flex-1 text-lg font-mono tracking-widest text-center bg-slate-50"
+                  data-testid="input-share-password"
+                />
+                <Button
+                  size="icon"
+                  variant="outline"
+                  onClick={() => copyToClipboard(sharePassword, 'password')}
+                  data-testid="button-copy-password"
+                >
+                  {copiedPassword ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
+                </Button>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={regeneratePassword}
+                disabled={shareMutation.isPending}
+                className="text-xs text-slate-500 hover:text-slate-700"
+                data-testid="button-regenerate-password"
+              >
+                Generate new password
+              </Button>
+            </div>
+
+            <div className="p-3 bg-warning/10 rounded-lg border border-warning/30">
+              <p className="text-sm text-warning">
+                Anyone with this link and password can view the draft article.
+              </p>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

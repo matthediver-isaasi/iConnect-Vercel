@@ -1,0 +1,30 @@
+2026-03-09 17:23:19.113 [info] [TenantResolver] resolveTenantFromRequest called
+2026-03-09 17:23:19.114 [info] [TenantResolver] Params - tenant: undefined domain: undefined
+2026-03-09 17:23:19.116 [info] [TenantResolver] Falling back to host-based resolution, hostname: gsf.dev.iconn.app
+2026-03-09 17:23:19.116 [info] [TenantResolver] resolveTenantFromHost called with: gsf.dev.iconn.app
+2026-03-09 17:23:19.116 [info] [TenantResolver] Parsed host: gsf.dev.iconn.app
+2026-03-09 17:23:19.116 [info] [TenantResolver] Preview environment detected, environment: dev
+2026-03-09 17:23:19.116 [info] [TenantResolver] Subdomain detected, slug: gsf
+2026-03-09 17:23:19.116 [info] [TenantResolver] Looking up by slug: gsf
+2026-03-09 17:23:19.147 [error] (node:4) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+2026-03-09 17:23:19.407 [info] [TenantResolver] Found tenant by slug: gsf
+2026-03-09 17:23:19.407 [info] [TenantContext] About to call getSessionTenantUser
+2026-03-09 17:23:19.407 [info] [Session] getSession: Looking up session: b8c9bbe0
+2026-03-09 17:23:19.569 [info] [Session] getSession: Session found, userType: member
+2026-03-09 17:23:19.569 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"b8c9bbe0","userType":"member","memberId":"d2ac15a7-ec87-4230-921e-822f9c7a2770","identityId":"5cd0ba6a-f8d7-4751-9146-f61c163d02d6","tenantId":"21296ad6-1350-483a-a90c-1b06ece70501"}
+2026-03-09 17:23:19.570 [info] [Session] Found member session with identityId, attempting promotion
+2026-03-09 17:23:19.836 [info] [Session] No tenant_user record found for identity promotion
+2026-03-09 17:23:19.836 [info] [Session] Member session promotion failed
+2026-03-09 17:23:19.836 [info] [TenantContext] getSessionTenantUser returned: null
+2026-03-09 17:23:19.836 [info] [TenantContext] Checking for member session...
+2026-03-09 17:23:19.836 [info] [Session] getSession: Looking up session: b8c9bbe0
+2026-03-09 17:23:19.963 [info] [Session] getSession: Session found, userType: member
+2026-03-09 17:23:19.963 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"b8c9bbe0","userType":"member","memberId":"d2ac15a7-ec87-4230-921e-822f9c7a2770"}
+2026-03-09 17:23:20.093 [info] [TenantContext] Member found: {
+  memberId: 'd2ac15a7-ec87-4230-921e-822f9c7a2770',
+  organizationId: '7a097c15-1028-4e12-acde-c5ababb7201e'
+}
+2026-03-09 17:23:20.095 [info] [TenantContext] Tenant from member: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-03-09 17:23:20.103 [info] [Outlook OAuth] Host resolution: query=gsf.dev.iconn.app, x-forwarded-host=gsf.dev.iconn.app, host=gsf.dev.iconn.app, resolved=gsf.dev.iconn.app
+2026-03-09 17:23:20.103 [info] [Outlook OAuth] Initiating auth for identity: d2ac15a7-ec87-4230-921e-822f9c7a2770

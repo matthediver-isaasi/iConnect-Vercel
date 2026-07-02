@@ -1,0 +1,192 @@
+injected.js:214  GET https://51721687-13aa-4a89-b774-fd4b2602af8d-00-36xqev3k1njvo.kirk.replit.dev/api/auth/me 401 (Unauthorized)
+apply @ injected.js:214
+_apiRequest @ base44Client.js:325
+me @ base44Client.js:115
+queryFn @ Resources.jsx:31
+fetchFn @ @tanstack_react-query.js?v=52c99814:840
+run @ @tanstack_react-query.js?v=52c99814:494
+start @ @tanstack_react-query.js?v=52c99814:536
+fetch @ @tanstack_react-query.js?v=52c99814:926
+executeFetch_fn @ @tanstack_react-query.js?v=52c99814:2211
+onSubscribe @ @tanstack_react-query.js?v=52c99814:1898
+subscribe @ @tanstack_react-query.js?v=52c99814:24
+(anonymous) @ @tanstack_react-query.js?v=52c99814:3022
+subscribeToStore @ chunk-NFC5BX5N.js?v=52c99814:11984
+commitHookEffectListMount @ chunk-NFC5BX5N.js?v=52c99814:16915
+commitPassiveMountOnFiber @ chunk-NFC5BX5N.js?v=52c99814:18156
+commitPassiveMountEffects_complete @ chunk-NFC5BX5N.js?v=52c99814:18129
+commitPassiveMountEffects_begin @ chunk-NFC5BX5N.js?v=52c99814:18119
+commitPassiveMountEffects @ chunk-NFC5BX5N.js?v=52c99814:18109
+flushPassiveEffectsImpl @ chunk-NFC5BX5N.js?v=52c99814:19490
+flushPassiveEffects @ chunk-NFC5BX5N.js?v=52c99814:19447
+performSyncWorkOnRoot @ chunk-NFC5BX5N.js?v=52c99814:18868
+flushSyncCallbacks @ chunk-NFC5BX5N.js?v=52c99814:9119
+commitRootImpl @ chunk-NFC5BX5N.js?v=52c99814:19432
+commitRoot @ chunk-NFC5BX5N.js?v=52c99814:19277
+finishConcurrentRender @ chunk-NFC5BX5N.js?v=52c99814:18805
+performConcurrentWorkOnRoot @ chunk-NFC5BX5N.js?v=52c99814:18718
+workLoop @ chunk-NFC5BX5N.js?v=52c99814:197
+flushWork @ chunk-NFC5BX5N.js?v=52c99814:176
+performWorkUntilDeadline @ chunk-NFC5BX5N.js?v=52c99814:384
+injected.js:37 Warning: Invalid prop `data-replit-metadata` supplied to `React.Fragment`. React.Fragment can only have `key` and `children` props.
+    at ResourcesPage (https://51721687-13aa-4a89-b774-fd4b2602af8d-00-36xqev3k1njvo.kirk.replit.dev/src/pages/Resources.jsx?t=1764402448283:32:47)
+    at RenderedRoute (https://51721687-13aa-4a89-b774-fd4b2602af8d-00-36xqev3k1njvo.kirk.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/react-router-dom.js?v=52c99814:6111:26)
+    at Routes (https://51721687-13aa-4a89-b774-fd4b2602af8d-00-36xqev3k1njvo.kirk.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/react-router-dom.js?v=52c99814:6905:3)
+    at main
+    at div
+    at div
+    at Provider (https://51721687-13aa-4a89-b774-fd4b2602af8d-00-36xqev3k1njvo.kirk.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-ORCULYZI.js?v=52c99814:38:15)
+    at TooltipProvider (https://51721687-13aa-4a89-b774-fd4b2602af8d-00-36xqev3k1njvo.kirk.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=52c99814:59:5)
+    at https://51721687-13aa-4a89-b774-fd4b2602af8d-00-36xqev3k1njvo.kirk.replit.dev/src/components/ui/sidebar.jsx:52:3
+    at div
+    at Layout (https://51721687-13aa-4a89-b774-fd4b2602af8d-00-36xqev3k1njvo.kirk.replit.dev/src/pages/Layout.jsx:403:34)
+    at PagesContent (https://51721687-13aa-4a89-b774-fd4b2602af8d-00-36xqev3k1njvo.kirk.replit.dev/src/pages/index.jsx?t=1764402448283:223:20)
+    at Router (https://51721687-13aa-4a89-b774-fd4b2602af8d-00-36xqev3k1njvo.kirk.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/react-router-dom.js?v=52c99814:6848:13)
+    at BrowserRouter (https://51721687-13aa-4a89-b774-fd4b2602af8d-00-36xqev3k1njvo.kirk.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/react-router-dom.js?v=52c99814:9968:3)
+    at Pages
+    at App
+    at QueryClientProvider (https://51721687-13aa-4a89-b774-fd4b2602af8d-00-36xqev3k1njvo.kirk.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/@tanstack_react-query.js?v=52c99814:2805:3)
+(anonymous) @ injected.js:37
+(anonymous) @ injected.js:37
+(anonymous) @ injected.js:37
+(anonymous) @ injected.js:37
+(anonymous) @ injected.js:37
+(anonymous) @ injected.js:37
+(anonymous) @ injected.js:37
+(anonymous) @ injected.js:37
+(anonymous) @ injected.js:37
+(anonymous) @ injected.js:37
+(anonymous) @ injected.js:37
+(anonymous) @ injected.js:37
+(anonymous) @ injected.js:37
+(anonymous) @ injected.js:37
+printWarning @ react_jsx-dev-runtime.js?v=52c99814:64
+error @ react_jsx-dev-runtime.js?v=52c99814:48
+validateFragmentProps @ react_jsx-dev-runtime.js?v=52c99814:796
+jsxWithValidation @ react_jsx-dev-runtime.js?v=52c99814:874
+(anonymous) @ Resources.jsx:451
+ResourcesPage @ Resources.jsx:450
+renderWithHooks @ chunk-NFC5BX5N.js?v=52c99814:11548
+updateFunctionComponent @ chunk-NFC5BX5N.js?v=52c99814:14582
+beginWork @ chunk-NFC5BX5N.js?v=52c99814:15924
+beginWork$1 @ chunk-NFC5BX5N.js?v=52c99814:19753
+performUnitOfWork @ chunk-NFC5BX5N.js?v=52c99814:19198
+workLoopSync @ chunk-NFC5BX5N.js?v=52c99814:19137
+renderRootSync @ chunk-NFC5BX5N.js?v=52c99814:19116
+performSyncWorkOnRoot @ chunk-NFC5BX5N.js?v=52c99814:18874
+flushSyncCallbacks @ chunk-NFC5BX5N.js?v=52c99814:9119
+(anonymous) @ chunk-NFC5BX5N.js?v=52c99814:18627
+setTimeout
+scheduleFn @ @tanstack_react-query.js?v=52c99814:555
+flush @ @tanstack_react-query.js?v=52c99814:569
+batch @ @tanstack_react-query.js?v=52c99814:587
+dispatch_fn @ @tanstack_react-query.js?v=52c99814:996
+setData @ @tanstack_react-query.js?v=52c99814:696
+onSuccess @ @tanstack_react-query.js?v=52c99814:897
+resolve @ @tanstack_react-query.js?v=52c99814:456
+Promise.then
+run @ @tanstack_react-query.js?v=52c99814:498
+start @ @tanstack_react-query.js?v=52c99814:536
+fetch @ @tanstack_react-query.js?v=52c99814:926
+executeFetch_fn @ @tanstack_react-query.js?v=52c99814:2211
+onSubscribe @ @tanstack_react-query.js?v=52c99814:1898
+subscribe @ @tanstack_react-query.js?v=52c99814:24
+(anonymous) @ @tanstack_react-query.js?v=52c99814:3022
+subscribeToStore @ chunk-NFC5BX5N.js?v=52c99814:11984
+commitHookEffectListMount @ chunk-NFC5BX5N.js?v=52c99814:16915
+commitPassiveMountOnFiber @ chunk-NFC5BX5N.js?v=52c99814:18156
+commitPassiveMountEffects_complete @ chunk-NFC5BX5N.js?v=52c99814:18129
+commitPassiveMountEffects_begin @ chunk-NFC5BX5N.js?v=52c99814:18119
+commitPassiveMountEffects @ chunk-NFC5BX5N.js?v=52c99814:18109
+flushPassiveEffectsImpl @ chunk-NFC5BX5N.js?v=52c99814:19490
+flushPassiveEffects @ chunk-NFC5BX5N.js?v=52c99814:19447
+performSyncWorkOnRoot @ chunk-NFC5BX5N.js?v=52c99814:18868
+flushSyncCallbacks @ chunk-NFC5BX5N.js?v=52c99814:9119
+commitRootImpl @ chunk-NFC5BX5N.js?v=52c99814:19432
+commitRoot @ chunk-NFC5BX5N.js?v=52c99814:19277
+finishConcurrentRender @ chunk-NFC5BX5N.js?v=52c99814:18805
+performConcurrentWorkOnRoot @ chunk-NFC5BX5N.js?v=52c99814:18718
+workLoop @ chunk-NFC5BX5N.js?v=52c99814:197
+flushWork @ chunk-NFC5BX5N.js?v=52c99814:176
+performWorkUntilDeadline @ chunk-NFC5BX5N.js?v=52c99814:384
+injected.js:37 Warning: Invalid prop `data-replit-metadata` supplied to `React.Fragment`. React.Fragment can only have `key` and `children` props.
+    at ResourcesPage (https://51721687-13aa-4a89-b774-fd4b2602af8d-00-36xqev3k1njvo.kirk.replit.dev/src/pages/Resources.jsx?t=1764402448283:32:47)
+    at RenderedRoute (https://51721687-13aa-4a89-b774-fd4b2602af8d-00-36xqev3k1njvo.kirk.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/react-router-dom.js?v=52c99814:6111:26)
+    at Routes (https://51721687-13aa-4a89-b774-fd4b2602af8d-00-36xqev3k1njvo.kirk.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/react-router-dom.js?v=52c99814:6905:3)
+    at main
+    at div
+    at div
+    at Provider (https://51721687-13aa-4a89-b774-fd4b2602af8d-00-36xqev3k1njvo.kirk.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-ORCULYZI.js?v=52c99814:38:15)
+    at TooltipProvider (https://51721687-13aa-4a89-b774-fd4b2602af8d-00-36xqev3k1njvo.kirk.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=52c99814:59:5)
+    at https://51721687-13aa-4a89-b774-fd4b2602af8d-00-36xqev3k1njvo.kirk.replit.dev/src/components/ui/sidebar.jsx:52:3
+    at div
+    at Layout (https://51721687-13aa-4a89-b774-fd4b2602af8d-00-36xqev3k1njvo.kirk.replit.dev/src/pages/Layout.jsx:403:34)
+    at PagesContent (https://51721687-13aa-4a89-b774-fd4b2602af8d-00-36xqev3k1njvo.kirk.replit.dev/src/pages/index.jsx?t=1764402448283:223:20)
+    at Router (https://51721687-13aa-4a89-b774-fd4b2602af8d-00-36xqev3k1njvo.kirk.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/react-router-dom.js?v=52c99814:6848:13)
+    at BrowserRouter (https://51721687-13aa-4a89-b774-fd4b2602af8d-00-36xqev3k1njvo.kirk.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/react-router-dom.js?v=52c99814:9968:3)
+    at Pages
+    at App
+    at QueryClientProvider (https://51721687-13aa-4a89-b774-fd4b2602af8d-00-36xqev3k1njvo.kirk.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/@tanstack_react-query.js?v=52c99814:2805:3)
+(anonymous) @ injected.js:37
+(anonymous) @ injected.js:37
+(anonymous) @ injected.js:37
+(anonymous) @ injected.js:37
+(anonymous) @ injected.js:37
+(anonymous) @ injected.js:37
+(anonymous) @ injected.js:37
+(anonymous) @ injected.js:37
+(anonymous) @ injected.js:37
+(anonymous) @ injected.js:37
+(anonymous) @ injected.js:37
+(anonymous) @ injected.js:37
+(anonymous) @ injected.js:37
+(anonymous) @ injected.js:37
+printWarning @ react_jsx-dev-runtime.js?v=52c99814:64
+error @ react_jsx-dev-runtime.js?v=52c99814:48
+validateFragmentProps @ react_jsx-dev-runtime.js?v=52c99814:796
+jsxWithValidation @ react_jsx-dev-runtime.js?v=52c99814:874
+(anonymous) @ Resources.jsx:451
+ResourcesPage @ Resources.jsx:450
+renderWithHooks @ chunk-NFC5BX5N.js?v=52c99814:11548
+updateFunctionComponent @ chunk-NFC5BX5N.js?v=52c99814:14582
+beginWork @ chunk-NFC5BX5N.js?v=52c99814:15924
+beginWork$1 @ chunk-NFC5BX5N.js?v=52c99814:19753
+performUnitOfWork @ chunk-NFC5BX5N.js?v=52c99814:19198
+workLoopSync @ chunk-NFC5BX5N.js?v=52c99814:19137
+renderRootSync @ chunk-NFC5BX5N.js?v=52c99814:19116
+performSyncWorkOnRoot @ chunk-NFC5BX5N.js?v=52c99814:18874
+flushSyncCallbacks @ chunk-NFC5BX5N.js?v=52c99814:9119
+(anonymous) @ chunk-NFC5BX5N.js?v=52c99814:18627
+setTimeout
+scheduleFn @ @tanstack_react-query.js?v=52c99814:555
+flush @ @tanstack_react-query.js?v=52c99814:569
+batch @ @tanstack_react-query.js?v=52c99814:587
+dispatch_fn @ @tanstack_react-query.js?v=52c99814:996
+setData @ @tanstack_react-query.js?v=52c99814:696
+onSuccess @ @tanstack_react-query.js?v=52c99814:897
+resolve @ @tanstack_react-query.js?v=52c99814:456
+Promise.then
+run @ @tanstack_react-query.js?v=52c99814:498
+start @ @tanstack_react-query.js?v=52c99814:536
+fetch @ @tanstack_react-query.js?v=52c99814:926
+executeFetch_fn @ @tanstack_react-query.js?v=52c99814:2211
+onSubscribe @ @tanstack_react-query.js?v=52c99814:1898
+subscribe @ @tanstack_react-query.js?v=52c99814:24
+(anonymous) @ @tanstack_react-query.js?v=52c99814:3022
+subscribeToStore @ chunk-NFC5BX5N.js?v=52c99814:11984
+commitHookEffectListMount @ chunk-NFC5BX5N.js?v=52c99814:16915
+commitPassiveMountOnFiber @ chunk-NFC5BX5N.js?v=52c99814:18156
+commitPassiveMountEffects_complete @ chunk-NFC5BX5N.js?v=52c99814:18129
+commitPassiveMountEffects_begin @ chunk-NFC5BX5N.js?v=52c99814:18119
+commitPassiveMountEffects @ chunk-NFC5BX5N.js?v=52c99814:18109
+flushPassiveEffectsImpl @ chunk-NFC5BX5N.js?v=52c99814:19490
+flushPassiveEffects @ chunk-NFC5BX5N.js?v=52c99814:19447
+performSyncWorkOnRoot @ chunk-NFC5BX5N.js?v=52c99814:18868
+flushSyncCallbacks @ chunk-NFC5BX5N.js?v=52c99814:9119
+commitRootImpl @ chunk-NFC5BX5N.js?v=52c99814:19432
+commitRoot @ chunk-NFC5BX5N.js?v=52c99814:19277
+finishConcurrentRender @ chunk-NFC5BX5N.js?v=52c99814:18805
+performConcurrentWorkOnRoot @ chunk-NFC5BX5N.js?v=52c99814:18718
+workLoop @ chunk-NFC5BX5N.js?v=52c99814:197
+flushWork @ chunk-NFC5BX5N.js?v=52c99814:176
+performWorkUntilDeadline @ chunk-NFC5BX5N.js?v=52c99814:384

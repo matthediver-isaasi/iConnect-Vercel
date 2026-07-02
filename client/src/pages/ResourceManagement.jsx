@@ -10,15 +10,16 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Pencil, Trash2, FileText, Search, X, Image as ImageIcon, Shield, Folder, FolderOpen, FolderPlus, MoveHorizontal, ChevronRight, Home, GripVertical, ChevronLeft, Calendar, Clock } from "lucide-react";
+import { Plus, Pencil, Trash2, FileText, Search, X, Image as ImageIcon, Shield, Folder, FolderOpen, FolderPlus, MoveHorizontal, ChevronRight, Home, GripVertical, ChevronLeft, Calendar, Clock, Link2, Check, Copy, Code, ExternalLink } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
+import SEOSettings from "@/components/blog/SEOSettings";
 import { format } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 
 export default function ResourceManagementPage() {
-  const { isAdmin, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [editingResource, setEditingResource] = useState(null);
   const [showDialog, setShowDialog] = useState(false);
@@ -46,11 +47,23 @@ export default function ResourceManagementPage() {
   // File selector folder navigation states
   const [fileSelectorFolder, setFileSelectorFolder] = useState(null);
   const [fileSelectorExpandedFolders, setFileSelectorExpandedFolders] = useState({});
+  
+  // File selector pagination and search states
+  const [fileSelectorPage, setFileSelectorPage] = useState(1);
+  const [fileSelectorItemsPerPage] = useState(12);
+  const [fileSelectorSearch, setFileSelectorSearch] = useState("");
 
   // Drag and drop states
   const [draggedResources, setDraggedResources] = useState([]);
   const [dragOverFolder, setDragOverFolder] = useState(null);
   const [autoExpandTimeout, setAutoExpandTimeout] = useState(null);
+  
+  // Copy link state
+  const [copiedResourceId, setCopiedResourceId] = useState(null);
+
+  // Linked events state
+  const [eventSearchQuery, setEventSearchQuery] = useState("");
+  const [showEventSearch, setShowEventSearch] = useState(false);
 
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
@@ -60,17 +73,22 @@ export default function ResourceManagementPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin) {
+      if (isFeatureExcluded('content.resource-management')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: resources = [], isLoading } = useQuery({
     queryKey: ['admin-resources'],
-    queryFn: () => base44.entities.Resource.list('-created_date'),
+    queryFn: async () => {
+      const all = await base44.entities.Resource.list('-release_date');
+      // Group resources (member_group_id set) are managed on MemberGroupDetail,
+      // not in the tenant-wide resource library.
+      return all.filter((r) => !r.member_group_id);
+    },
     staleTime: 0,
     refetchOnMount: true,
   });
@@ -87,7 +105,7 @@ export default function ResourceManagementPage() {
 
   const { data: repositoryFiles = [] } = useQuery({
     queryKey: ['file-repository'],
-    queryFn: () => base44.entities.FileRepository.list('-created_date'),
+    queryFn: () => base44.entities.FileRepository.list(),
     staleTime: 0,
     refetchOnMount: true,
   });
@@ -118,7 +136,7 @@ export default function ResourceManagementPage() {
 
   const { data: members = [] } = useQuery({
     queryKey: ['members'],
-    queryFn: () => base44.entities.Member.list(),
+    queryFn: () => base44.entities.Member.listAll(),
     staleTime: 0,
     refetchOnMount: true,
   });
@@ -135,6 +153,45 @@ export default function ResourceManagementPage() {
     queryFn: () => base44.entities.ResourceFolder.list('display_order'),
     staleTime: 0,
     refetchOnMount: true,
+  });
+
+  const { data: currentTenant } = useQuery({
+    queryKey: ['current-tenant'],
+    queryFn: async () => {
+      const response = await fetch('/api/functions/get-current-tenant');
+      const data = await response.json();
+      return data.tenant;
+    },
+    staleTime: 60000,
+  });
+
+  const { data: allEvents = [] } = useQuery({
+    queryKey: ['admin-events-for-linking'],
+    queryFn: () => base44.entities.Event.list('-start_date'),
+    staleTime: 60000,
+  });
+
+  const { data: complexEventSessions = [] } = useQuery({
+    queryKey: ['admin-complex-event-sessions'],
+    queryFn: async () => {
+      const complexEvents = allEvents.filter(e => e.is_complex);
+      if (complexEvents.length === 0) return [];
+      const allSessions = [];
+      for (const ce of complexEvents) {
+        try {
+          const response = await fetch(`/api/complex-event-sessions?event_id=${ce.id}`);
+          if (response.ok) {
+            const sessions = await response.json();
+            allSessions.push(...(sessions || []).map(s => ({ ...s, event_id: ce.id })));
+          }
+        } catch (e) {
+          console.error('[ResourceMgmt] Error fetching sessions for event', ce.id, e);
+        }
+      }
+      return allSessions;
+    },
+    enabled: allEvents.some(e => e.is_complex),
+    staleTime: 60000,
   });
 
   // Get available authors based on selected roles in settings
@@ -310,20 +367,66 @@ export default function ResourceManagementPage() {
     });
   }, [resources, selectedFolder, filterCategory, searchQuery, categories]);
 
-  // Filter files in file selector by selected folder
+  // Filter files in file selector by selected folder and search
   const filteredRepositoryFiles = useMemo(() => {
     return repositoryFiles.filter(file => {
       const matchesFolder = fileSelectorFolder === null
         ? !file.folder_id
         : file.folder_id === fileSelectorFolder;
       
+      // Filter by search query
+      const matchesSearch = !fileSelectorSearch || 
+        file.file_name?.toLowerCase().includes(fileSelectorSearch.toLowerCase()) ||
+        file.description?.toLowerCase().includes(fileSelectorSearch.toLowerCase());
+      
       // Filter by type if needed
       if (showFileSelector === 'image') {
-        return matchesFolder && file.file_type === 'image';
+        return matchesFolder && matchesSearch && file.file_type === 'image';
       }
-      return matchesFolder;
+      return matchesFolder && matchesSearch;
     });
-  }, [repositoryFiles, fileSelectorFolder, showFileSelector]);
+  }, [repositoryFiles, fileSelectorFolder, showFileSelector, fileSelectorSearch]);
+
+  // Reset file selector page when folder or search changes
+  useEffect(() => {
+    setFileSelectorPage(1);
+  }, [fileSelectorFolder, fileSelectorSearch, showFileSelector]);
+
+  // File selector pagination calculations
+  const fileSelectorTotalPages = Math.ceil(filteredRepositoryFiles.length / fileSelectorItemsPerPage);
+  const fileSelectorStartIndex = (fileSelectorPage - 1) * fileSelectorItemsPerPage;
+  const fileSelectorEndIndex = fileSelectorStartIndex + fileSelectorItemsPerPage;
+  const paginatedRepositoryFiles = filteredRepositoryFiles.slice(fileSelectorStartIndex, fileSelectorEndIndex);
+
+  // Generate page numbers for file selector pagination
+  const getFileSelectorPageNumbers = () => {
+    const pages = [];
+    const maxVisible = 5;
+    
+    if (fileSelectorTotalPages <= maxVisible) {
+      for (let i = 1; i <= fileSelectorTotalPages; i++) {
+        pages.push(i);
+      }
+    } else {
+      if (fileSelectorPage <= 3) {
+        for (let i = 1; i <= 4; i++) pages.push(i);
+        if (fileSelectorTotalPages > 5) pages.push('...');
+        pages.push(fileSelectorTotalPages);
+      } else if (fileSelectorPage >= fileSelectorTotalPages - 2) {
+        pages.push(1);
+        if (fileSelectorTotalPages > 5) pages.push('...');
+        for (let i = fileSelectorTotalPages - 3; i <= fileSelectorTotalPages; i++) pages.push(i);
+      } else {
+        pages.push(1);
+        pages.push('...');
+        for (let i = fileSelectorPage - 1; i <= fileSelectorPage + 1; i++) pages.push(i);
+        pages.push('...');
+        pages.push(fileSelectorTotalPages);
+      }
+    }
+    
+    return pages;
+  };
 
   // Reset to page 1 when filters change
   useEffect(() => {
@@ -767,12 +870,15 @@ export default function ResourceManagementPage() {
       release_date: new Date().toISOString(), // Changed from published_date
       is_public: true,
       allowed_role_ids: [],
+      linked_events: [],
       tags: [],
       author_id: "",
       author_name: "",
-      folder_id: selectedFolder, // Pre-fill folder_id based on current view
-      status: "active" // Default to active
+      folder_id: selectedFolder,
+      status: "active"
     });
+    setEventSearchQuery("");
+    setShowEventSearch(false);
     setImageFromRepository(false);
     setTargetFromRepository(false);
     setTargetFileName(""); // Reset target file name
@@ -784,12 +890,15 @@ export default function ResourceManagementPage() {
       ...resource,
       subcategories: resource.subcategories || [],
       allowed_role_ids: resource.allowed_role_ids || [],
+      linked_events: resource.linked_events || [],
       open_in_new_tab: resource.open_in_new_tab !== false,
       author_id: resource.author_id || "",
       author_name: resource.author_name || "",
-      status: resource.status || "active", // Default to active if not set
-      release_date: resource.release_date || resource.published_date || new Date().toISOString() // Ensure release_date is present, falling back to published_date
+      status: resource.status || "active",
+      release_date: resource.release_date || resource.published_date || new Date().toISOString()
     });
+    setEventSearchQuery("");
+    setShowEventSearch(false);
     // Check if the image URL is from repository
     const isImageFromRepo = resource.image_url ? repositoryFiles.some(f => f.file_url === resource.image_url) : false;
     setImageFromRepository(isImageFromRepo);
@@ -810,6 +919,25 @@ export default function ResourceManagementPage() {
     }
 
     setShowDialog(true);
+  };
+
+  // Copy resource link to clipboard (for sharing/testing the login redirect flow)
+  const handleCopyResourceLink = async (resource) => {
+    const baseUrl = window.location.origin;
+    const resourceLink = `${baseUrl}/resources?resourceId=${resource.id}`;
+    
+    try {
+      await navigator.clipboard.writeText(resourceLink);
+      setCopiedResourceId(resource.id);
+      toast.success('Resource link copied to clipboard');
+      
+      // Reset the copied state after 2 seconds
+      setTimeout(() => {
+        setCopiedResourceId(null);
+      }, 2000);
+    } catch (err) {
+      toast.error('Failed to copy link');
+    }
   };
 
   const handleSave = () => {
@@ -844,11 +972,15 @@ export default function ResourceManagementPage() {
       release_date: editingResource.release_date, // Changed from published_date
       is_public: editingResource.is_public,
       allowed_role_ids: editingResource.allowed_role_ids || [],
+      linked_events: editingResource.linked_events || [],
       tags: editingResource.tags || [],
       author_id: editingResource.author_id || "",
       author_name: editingResource.author_name || "",
       folder_id: editingResource.folder_id || null, // Include folder_id in save payload
-      status: editingResource.status || "active" // Include status in payload
+      status: editingResource.status || "active", // Include status in payload
+      seo_title: editingResource.seo_title || null,
+      seo_description: editingResource.seo_description || null,
+      og_image_url: editingResource.og_image_url || null
     };
 
     if (editingResource.id) {
@@ -1161,7 +1293,7 @@ export default function ResourceManagementPage() {
 
   if (!accessChecked) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <Card>
           <CardContent className="p-8 text-center">
             <p className="text-slate-600">Loading...</p>
@@ -1172,7 +1304,7 @@ export default function ResourceManagementPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
@@ -1468,7 +1600,7 @@ export default function ResourceManagementPage() {
                             {accessText}
                           </Badge>
                           {resource.status === 'draft' && (
-                            <Badge className="bg-amber-100 text-amber-700">
+                            <Badge className="bg-warning/10 text-warning">
                               Draft
                             </Badge>
                           )}
@@ -1506,6 +1638,23 @@ export default function ResourceManagementPage() {
                         >
                           <Pencil className="w-3 h-3 mr-1" />
                           Edit
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCopyResourceLink(resource);
+                          }}
+                          className={copiedResourceId === resource.id ? "text-green-600 hover:text-green-700 hover:bg-green-50" : ""}
+                          title="Copy shareable link"
+                          data-testid={`button-copy-link-${resource.id}`}
+                        >
+                          {copiedResourceId === resource.id ? (
+                            <Check className="w-3 h-3" />
+                          ) : (
+                            <Link2 className="w-3 h-3" />
+                          )}
                         </Button>
                         {!bulkMoveMode && (
                           <Select
@@ -2075,6 +2224,17 @@ export default function ResourceManagementPage() {
                   )}
                 </div>
 
+                <SEOSettings
+                  seoTitle={editingResource.seo_title || ''}
+                  onSeoTitleChange={(v) => setEditingResource({ ...editingResource, seo_title: v })}
+                  seoDescription={editingResource.seo_description || ''}
+                  onSeoDescriptionChange={(v) => setEditingResource({ ...editingResource, seo_description: v })}
+                  ogImageUrl={editingResource.og_image_url || ''}
+                  onOgImageUrlChange={(v) => setEditingResource({ ...editingResource, og_image_url: v })}
+                  defaultTitle={editingResource.title}
+                  defaultDescription={editingResource.description}
+                />
+
                 <div className="space-y-2">
                   <Label>Tags</Label>
                   <div className="relative">
@@ -2230,12 +2390,193 @@ export default function ResourceManagementPage() {
                             className="flex-1 cursor-pointer text-sm"
                           >
                             {role.name}
-                            {role.is_admin && (
-                              <Badge className="ml-2 bg-amber-100 text-amber-700 text-xs">Admin</Badge>
-                            )}
                           </Label>
                         </div>
                       ))}
+                    </div>
+                  </div>
+                )}
+
+                {!editingResource.is_public && (
+                  <div className="p-4 bg-warning/10 rounded-lg border border-warning/30 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="w-4 h-4 text-warning" />
+                      <Label className="font-medium text-warning">Linked Events</Label>
+                    </div>
+                    <p className="text-xs text-warning">
+                      Restrict access to members who attended specific events. Members need a confirmed booking for at least one linked event to see this resource.
+                    </p>
+
+                    {(editingResource.linked_events || []).length > 0 && (
+                      <div className="space-y-2">
+                        {(editingResource.linked_events || []).map((le, idx) => {
+                          const event = allEvents.find(e => e.id === le.event_id);
+                          const isComplex = event?.is_complex;
+                          const eventSessions = complexEventSessions.filter(s => s.event_id === le.event_id);
+                          const session = le.session_id ? eventSessions.find(s => s.id === le.session_id) : null;
+                          return (
+                            <div key={idx} className="flex items-center gap-2 p-2 bg-white rounded border border-warning/30" data-testid={`linked-event-entry-${idx}`}>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm font-medium truncate">{event?.title || le.event_id}</div>
+                                {isComplex && (
+                                  <div className="mt-1">
+                                    <Select
+                                      value={le.session_id || "__none__"}
+                                      onValueChange={(val) => {
+                                        const updated = [...(editingResource.linked_events || [])];
+                                        updated[idx] = { ...updated[idx], session_id: val === "__none__" ? undefined : val };
+                                        if (val === "__none__") delete updated[idx].session_id;
+                                        setEditingResource({ ...editingResource, linked_events: updated });
+                                      }}
+                                    >
+                                      <SelectTrigger className="h-7 text-xs" data-testid={`select-session-${idx}`}>
+                                        <SelectValue placeholder="All sessions (general attendance)" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="__none__">All sessions (general attendance)</SelectItem>
+                                        {eventSessions.map(s => (
+                                          <SelectItem key={s.id} value={s.id}>{s.title}</SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                )}
+                                {session && <div className="text-xs text-warning mt-0.5">Session: {session.title}</div>}
+                              </div>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => {
+                                  const updated = (editingResource.linked_events || []).filter((_, i) => i !== idx);
+                                  setEditingResource({ ...editingResource, linked_events: updated });
+                                }}
+                                data-testid={`button-remove-linked-event-${idx}`}
+                              >
+                                <X className="w-4 h-4 text-red-500" />
+                              </Button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    <div className="relative">
+                      <div className="flex gap-2">
+                        <Input
+                          placeholder="Search events to link..."
+                          value={eventSearchQuery}
+                          onChange={(e) => {
+                            setEventSearchQuery(e.target.value);
+                            setShowEventSearch(true);
+                          }}
+                          onFocus={() => setShowEventSearch(true)}
+                          className="text-sm"
+                          data-testid="input-event-search"
+                        />
+                      </div>
+                      {showEventSearch && eventSearchQuery.trim() && (
+                        <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                          {allEvents
+                            .filter(e => {
+                              const alreadyLinked = (editingResource.linked_events || []).some(le => le.event_id === e.id);
+                              const matchesSearch = e.title?.toLowerCase().includes(eventSearchQuery.toLowerCase());
+                              return !alreadyLinked && matchesSearch;
+                            })
+                            .slice(0, 10)
+                            .map(event => (
+                              <div
+                                key={event.id}
+                                className="p-2 hover:bg-warning/10 cursor-pointer text-sm flex items-center gap-2"
+                                onClick={() => {
+                                  const updated = [...(editingResource.linked_events || []), { event_id: event.id }];
+                                  setEditingResource({ ...editingResource, linked_events: updated });
+                                  setEventSearchQuery("");
+                                  setShowEventSearch(false);
+                                }}
+                                data-testid={`event-option-${event.id}`}
+                              >
+                                <div className="flex-1 min-w-0">
+                                  <div className="font-medium truncate">{event.title}</div>
+                                  <div className="text-xs text-slate-500">
+                                    {event.start_date ? format(new Date(event.start_date), 'dd MMM yyyy') : 'No date'}
+                                    {event.is_complex && <Badge variant="outline" className="ml-2 text-xs py-0">Complex</Badge>}
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          {allEvents.filter(e => !((editingResource.linked_events || []).some(le => le.event_id === e.id)) && e.title?.toLowerCase().includes(eventSearchQuery.toLowerCase())).length === 0 && (
+                            <div className="p-3 text-sm text-slate-500 text-center">No matching events found</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Embed on External Websites */}
+                {editingResource?.id && currentTenant?.slug && (
+                  <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Code className="w-4 h-4 text-slate-600" />
+                      <Label className="font-medium text-slate-900">Embed on External Websites</Label>
+                    </div>
+                    <p className="text-xs text-slate-600">
+                      Use this embed code to display this resource on your website. {!editingResource.is_public && (
+                        <span className="text-warning">
+                          Note: Private resources will show a login button.
+                        </span>
+                      )}
+                    </p>
+                    <div className="space-y-2">
+                      <Label className="text-xs text-slate-500">iFrame Embed Code</Label>
+                      {(() => {
+                        const tenantSlug = currentTenant.slug;
+                        const embedUrl = `https://${tenantSlug}.iconn.app/embed/resource/${editingResource.id}?tenant=${tenantSlug}`;
+                        const embedCode = `<iframe src="${embedUrl}" style="width: 100%; min-height: 400px; border: none;" loading="lazy"></iframe>
+<script>
+  window.addEventListener('message', function(e) {
+    if (e.data.type === 'iconn-resource-resize') {
+      var iframe = document.querySelector('iframe[src*="${editingResource.id}"]');
+      if (iframe) iframe.style.height = e.data.height + 'px';
+    }
+  });
+</script>`;
+                        return (
+                          <>
+                            <div className="relative">
+                              <textarea
+                                readOnly
+                                value={embedCode}
+                                className="w-full p-3 pr-10 bg-slate-100 border border-slate-300 rounded-lg text-xs font-mono resize-none"
+                                rows={6}
+                                data-testid="input-resource-embed-code"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(embedCode);
+                                  toast.success("Embed code copied to clipboard");
+                                }}
+                                className="absolute top-2 right-2 p-1.5 bg-white hover:bg-slate-100 rounded border border-slate-300"
+                                title="Copy embed code"
+                                data-testid="button-copy-embed-code"
+                              >
+                                <Copy className="w-4 h-4 text-slate-600" />
+                              </button>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => window.open(`https://${tenantSlug}.iconn.app/embed/resource/${editingResource.id}?tenant=${tenantSlug}`, '_blank')}
+                              data-testid="button-preview-embed"
+                            >
+                              <ExternalLink className="w-4 h-4 mr-2" />
+                              Preview Embedded Resource
+                            </Button>
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
                 )}
@@ -2274,17 +2615,39 @@ export default function ResourceManagementPage() {
           setShowFileSelector(null);
           setFileSelectorFolder(null);
           setFileSelectorExpandedFolders({});
+          setFileSelectorSearch("");
+          setFileSelectorPage(1);
         }}>
           <DialogContent className="max-w-6xl max-h-[90vh] grid grid-rows-[auto_1fr_auto] gap-4">
             <DialogHeader>
               <DialogTitle>
                 Select {showFileSelector === 'image' ? 'Image' : 'File'} from Repository
               </DialogTitle>
+              <div className="pt-2">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <Input
+                    placeholder="Search files by name or description..."
+                    value={fileSelectorSearch}
+                    onChange={(e) => setFileSelectorSearch(e.target.value)}
+                    className="pl-10"
+                    data-testid="input-file-selector-search"
+                  />
+                  {fileSelectorSearch && (
+                    <button
+                      onClick={() => setFileSelectorSearch("")}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
             </DialogHeader>
 
-            <div className="grid md:grid-cols-4 gap-4 py-4">
+            <div className="grid md:grid-cols-4 gap-4 py-4 overflow-hidden min-h-0">
               {/* Folder Navigation Sidebar */}
-              <div className="md:col-span-1 border-r border-slate-200 pr-4">
+              <div className="md:col-span-1 border-r border-slate-200 pr-4 overflow-y-auto">
                 <h3 className="text-sm font-semibold text-slate-700 mb-3">Folders</h3>
                 
                 {/* Breadcrumb */}
@@ -2332,46 +2695,110 @@ export default function ResourceManagementPage() {
               </div>
 
               {/* Files Grid */}
-              <div className="md:col-span-3 overflow-y-auto">
-                {filteredRepositoryFiles.length === 0 ? (
-                  <div className="text-center py-12">
-                    <FileText className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-                    <p className="text-slate-600">No files in this folder</p>
-                    <p className="text-sm text-slate-500 mt-2">
-                      {fileSelectorFolder 
-                        ? "Try selecting a different folder"
-                        : "Upload files in the File Repository page"}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    {filteredRepositoryFiles.map((file) => (
-                      <button
-                        key={file.id}
-                        onClick={() => handleSelectFile(file.file_url, showFileSelector, file.file_name)}
-                        className="text-left border-2 border-slate-200 rounded-lg hover:border-blue-500 transition-colors p-2"
-                      >
-                        {file.file_type === 'image' ? (
-                          <img
-                            src={file.file_url}
-                            alt={file.file_name}
-                            className="w-full h-32 object-cover rounded mb-2"
-                          />
-                        ) : (
-                          <div className="w-full h-32 bg-slate-100 rounded flex items-center justify-center mb-2">
-                            <FileText className="w-12 h-12 text-slate-400" />
-                          </div>
-                        )}
-                        <p className="text-sm font-medium text-slate-900 truncate">
-                          {file.file_name}
-                        </p>
-                        {file.description && (
-                          <p className="text-xs text-slate-500 truncate mt-1">
-                            {file.description}
+              <div className="md:col-span-3 flex flex-col min-h-0">
+                {/* File count and info */}
+                <div className="flex items-center justify-between mb-3 text-sm text-slate-600">
+                  <span>
+                    {filteredRepositoryFiles.length} file{filteredRepositoryFiles.length !== 1 ? 's' : ''} 
+                    {fileSelectorSearch && ` matching "${fileSelectorSearch}"`}
+                  </span>
+                  {fileSelectorTotalPages > 1 && (
+                    <span>
+                      Page {fileSelectorPage} of {fileSelectorTotalPages}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex-1 overflow-y-auto min-h-0">
+                  {filteredRepositoryFiles.length === 0 ? (
+                    <div className="text-center py-12">
+                      <FileText className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                      <p className="text-slate-600">
+                        {fileSelectorSearch 
+                          ? "No files match your search"
+                          : "No files in this folder"}
+                      </p>
+                      <p className="text-sm text-slate-500 mt-2">
+                        {fileSelectorSearch 
+                          ? "Try a different search term or browse folders"
+                          : fileSelectorFolder 
+                            ? "Try selecting a different folder"
+                            : "Upload files in the File Repository page"}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                      {paginatedRepositoryFiles.map((file) => (
+                        <button
+                          key={file.id}
+                          onClick={() => handleSelectFile(file.file_url, showFileSelector, file.file_name)}
+                          className="text-left border-2 border-slate-200 rounded-lg hover:border-blue-500 transition-colors p-2"
+                          data-testid={`file-select-${file.id}`}
+                        >
+                          {file.file_type === 'image' ? (
+                            <img
+                              src={file.file_url}
+                              alt={file.file_name}
+                              className="w-full h-32 object-cover rounded mb-2"
+                            />
+                          ) : (
+                            <div className="w-full h-32 bg-slate-100 rounded flex items-center justify-center mb-2">
+                              <FileText className="w-12 h-12 text-slate-400" />
+                            </div>
+                          )}
+                          <p className="text-sm font-medium text-slate-900 truncate">
+                            {file.file_name}
                           </p>
-                        )}
-                      </button>
+                          {file.description && (
+                            <p className="text-xs text-slate-500 truncate mt-1">
+                              {file.description}
+                            </p>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Pagination Controls */}
+                {fileSelectorTotalPages > 1 && (
+                  <div className="flex items-center justify-center gap-2 mt-4 pt-4 border-t border-slate-200">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setFileSelectorPage(p => Math.max(1, p - 1))}
+                      disabled={fileSelectorPage === 1}
+                      data-testid="button-file-selector-prev"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </Button>
+                    
+                    {getFileSelectorPageNumbers().map((page, idx) => (
+                      page === '...' ? (
+                        <span key={`ellipsis-${idx}`} className="px-2 text-slate-400">...</span>
+                      ) : (
+                        <Button
+                          key={page}
+                          variant={fileSelectorPage === page ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => setFileSelectorPage(page)}
+                          className={fileSelectorPage === page ? "bg-blue-600 hover:bg-blue-700" : ""}
+                          data-testid={`button-file-selector-page-${page}`}
+                        >
+                          {page}
+                        </Button>
+                      )
                     ))}
+                    
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setFileSelectorPage(p => Math.min(fileSelectorTotalPages, p + 1))}
+                      disabled={fileSelectorPage === fileSelectorTotalPages}
+                      data-testid="button-file-selector-next"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </Button>
                   </div>
                 )}
               </div>
@@ -2382,6 +2809,8 @@ export default function ResourceManagementPage() {
                 setShowFileSelector(null);
                 setFileSelectorFolder(null);
                 setFileSelectorExpandedFolders({});
+                setFileSelectorSearch("");
+                setFileSelectorPage(1);
               }}>
                 Cancel
               </Button>

@@ -1,0 +1,47 @@
+2026-01-30 20:54:29.022 [info] [TenantContext] About to call getSessionTenantUser
+2026-01-30 20:54:29.023 [info] [Session] getSession: Looking up session: 5ee51951
+2026-01-30 20:54:29.155 [info] [Session] getSession: Session found, userType: tenant_user
+2026-01-30 20:54:29.155 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"5ee51951","userType":"tenant_user","tenantUserId":"baed1877-0c08-4959-943e-c90448d792e9","memberId":"48b25075-51da-437f-af20-17836a892bfe","identityId":"2d4067d6-1b12-43b3-84cf-c76ba181e7ab","tenantId":"fd82da65-aab7-4a5c-85b8-b2febeb2003d"}
+2026-01-30 20:54:29.155 [info] [Session] Found tenant_user session, continuing with normal handling
+2026-01-30 20:54:29.412 [info] [Session] Verified via unified identity system: mat@isaasi.co.uk
+2026-01-30 20:54:29.412 [info] [TenantContext] getSessionTenantUser returned: tenant_user found
+2026-01-30 20:54:29.412 [info] [Session] getSession: Looking up session: 5ee51951
+2026-01-30 20:54:29.557 [info] [Session] getSession: Session found, userType: tenant_user
+2026-01-30 20:54:29.557 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"5ee51951","userType":"tenant_user","memberId":"48b25075-51da-437f-af20-17836a892bfe"}
+2026-01-30 20:54:29.699 [info] [Session] getSession: Looking up session: 5ee51951
+2026-01-30 20:54:29.845 [info] [Session] getSession: Session found, userType: tenant_user
+2026-01-30 20:54:29.845 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"5ee51951","userType":"tenant_user","tenantUserId":"baed1877-0c08-4959-943e-c90448d792e9","memberId":"48b25075-51da-437f-af20-17836a892bfe","identityId":"2d4067d6-1b12-43b3-84cf-c76ba181e7ab","tenantId":"fd82da65-aab7-4a5c-85b8-b2febeb2003d"}
+2026-01-30 20:54:29.845 [info] [Session] Found tenant_user session, continuing with normal handling
+2026-01-30 20:54:30.111 [info] [Session] Verified via unified identity system: mat@isaasi.co.uk
+2026-01-30 20:54:37.729 [error] [ZohoCampaigns] Add subscriber error for email: anthony.caston@skynet.be Error: {
+  code: '2708',
+  message: 'The confirmation email cannot be sent at this time due to multiple recent requests.',
+  status: 'error'
+}
+2026-01-30 20:54:37.994 [error] [ZohoCampaigns] Add subscriber error for email: tony.watts@zen.co.uk Error: {
+  code: '2708',
+  message: 'The confirmation email cannot be sent at this time due to multiple recent requests.',
+  status: 'error'
+}
+2026-01-30 20:54:38.078 [error] [ZohoCampaigns] Add subscriber error for email: vsmetcalfe@gmail.com Error: {
+  code: '2708',
+  message: 'The confirmation email cannot be sent at this time due to multiple recent requests.',
+  status: 'error'
+}
+2026-01-30 20:54:38.132 [error] [ZohoCampaigns] Add subscriber error for email: rmayszy@btinternet.com Error: {
+  code: '2708',
+  message: 'The confirmation email cannot be sent at this time due to multiple recent requests.',
+  status: 'error'
+}
+2026-01-30 20:54:38.724 [error] [ZohoCampaigns] Add subscriber error for email: robert.porrer@virginmedia.com Error: {
+  code: '2708',
+  message: 'The confirmation email cannot be sent at this time due to multiple recent requests.',
+  status: 'error'
+}
+2026-01-30 20:54:38.748 [error] [ZohoCampaigns] Add subscriber error for email: richard@lidwell.com Error: {
+  code: '2708',
+  message: 'The confirmation email cannot be sent at this time due to multiple recent requests.',
+  status: 'error'
+}
+2026-01-30 20:54:50.156 [info] [ZohoCampaigns] Contact not on list (already unsubscribed): carli.macmahon@ed.ac.uk
+2026-01-30 20:55:29.021 [error] Vercel Runtime Timeout Error: Task timed out after 60 seconds

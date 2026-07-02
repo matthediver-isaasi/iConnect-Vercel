@@ -31,7 +31,7 @@ export default function ButtonStyleSelector({
   const { data: buttonStyles = [], isLoading } = useQuery({
     queryKey: ['activeButtonStyles'],
     queryFn: async () => {
-      const styles = await base44.entities.ButtonStyle.list('-created_date');
+      const styles = await base44.entities.ButtonStyle.list('-created_at');
       return styles.filter(s => s.is_active);
     }
   });

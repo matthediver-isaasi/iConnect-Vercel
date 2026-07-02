@@ -1,0 +1,254 @@
+import { createClient } from '@supabase/supabase-js';
+import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import { stripHtml } from '../_lib/searchTextBuilder.js';
+
+function extractSnippet(text, searchTerm, maxLength = 150) {
+  if (!text || !searchTerm) return '';
+  const plain = stripHtml(text);
+  const lowerPlain = plain.toLowerCase();
+  const lowerTerm = searchTerm.toLowerCase();
+  const idx = lowerPlain.indexOf(lowerTerm);
+  if (idx === -1) return plain.substring(0, maxLength);
+  const snippetStart = Math.max(0, idx - 60);
+  const snippetEnd = Math.min(plain.length, idx + searchTerm.length + 90);
+  let snippet = plain.substring(snippetStart, snippetEnd).trim();
+  if (snippetStart > 0) snippet = '...' + snippet;
+  if (snippetEnd < plain.length) snippet = snippet + '...';
+  return snippet;
+}
+
+export default async function handler(req, res) {
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    return res.status(503).json({ error: 'Supabase not configured' });
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+  try {
+    const tenant = await resolveTenantFromRequest(req);
+    if (!tenant) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+
+    const { q, limit = '20' } = req.query;
+    
+    if (!q || q.trim().length < 2) {
+      return res.json({ results: [], query: q || '', total: 0 });
+    }
+
+    const searchTerm = q.trim();
+    const searchPattern = `%${searchTerm}%`;
+    const limitNum = Math.min(parseInt(limit) || 20, 50);
+
+    const results = [];
+
+    const [eventsResult, articlesResult, newsResult, resourcesResult, pagesResult, complexEventsResult] = await Promise.all([
+      supabase
+        .from('event')
+        .select('id, title, description, start_date, end_date, image_url, status, search_text')
+        .eq('tenant_id', tenant.id)
+        .is('member_group_id', null)
+        .or(`title.ilike.${searchPattern},description.ilike.${searchPattern},search_text.ilike.${searchPattern}`)
+        .gte('start_date', new Date().toISOString())
+        .limit(limitNum),
+      
+      supabase
+        .from('blog_post')
+        .select('id, title, summary, content, feature_image_url, feature_image_focal_point, published_date, slug, search_text')
+        .eq('tenant_id', tenant.id)
+        .or(`title.ilike.${searchPattern},summary.ilike.${searchPattern},search_text.ilike.${searchPattern}`)
+        .eq('status', 'published')
+        .limit(limitNum),
+      
+      supabase
+        .from('news_post')
+        .select('id, title, summary, content, feature_image_url, feature_image_focal_point, published_date, slug, search_text')
+        .eq('tenant_id', tenant.id)
+        .or(`title.ilike.${searchPattern},summary.ilike.${searchPattern},search_text.ilike.${searchPattern}`)
+        .eq('status', 'published')
+        .limit(limitNum),
+      
+      supabase
+        .from('resource')
+        .select('id, title, description, image_url, resource_type, is_public, search_text')
+        .eq('tenant_id', tenant.id)
+        .or(`title.ilike.${searchPattern},description.ilike.${searchPattern},search_text.ilike.${searchPattern}`)
+        .eq('status', 'active')
+        .limit(limitNum),
+      
+      supabase
+        .from('i_edit_page')
+        .select('id, title, slug, description, published_at, search_text')
+        .eq('tenant_id', tenant.id)
+        .or(`title.ilike.${searchPattern},description.ilike.${searchPattern},slug.ilike.${searchPattern},search_text.ilike.${searchPattern}`)
+        .eq('status', 'published')
+        .limit(limitNum),
+
+      supabase
+        .from('complex_event')
+        .select('id, title, description, summary, slug, image_url, start_date, end_date, location, search_text')
+        .eq('tenant_id', tenant.id)
+        .or(`title.ilike.${searchPattern},search_text.ilike.${searchPattern}`)
+        .in('status', ['published', 'tbc'])
+        .limit(limitNum)
+    ]);
+
+    if (eventsResult.data) {
+      eventsResult.data.forEach(event => {
+        const titleMatch = event.title?.toLowerCase().includes(searchTerm.toLowerCase());
+        const descMatch = event.description && stripHtml(event.description).toLowerCase().includes(searchTerm.toLowerCase());
+        let description;
+        if (titleMatch || descMatch) {
+          description = stripHtml(event.description)?.substring(0, 150) || '';
+        } else {
+          description = extractSnippet(event.search_text || event.description, searchTerm);
+        }
+        results.push({
+          type: 'event',
+          id: event.id,
+          title: event.title,
+          description,
+          image: event.image_url,
+          url: `/EventDetails?id=${event.id}`,
+          date: event.start_date
+        });
+      });
+    }
+
+    if (articlesResult.data) {
+      articlesResult.data.forEach(article => {
+        const titleMatch = article.title?.toLowerCase().includes(searchTerm.toLowerCase());
+        const summaryMatch = article.summary?.toLowerCase().includes(searchTerm.toLowerCase());
+        let description;
+        if (titleMatch || summaryMatch) {
+          description = article.summary?.substring(0, 150) || '';
+        } else {
+          description = extractSnippet(article.search_text || article.content, searchTerm);
+        }
+        results.push({
+          type: 'article',
+          id: article.id,
+          title: article.title,
+          description,
+          image: article.feature_image_url,
+          url: `/ArticleView?slug=${article.slug || article.id}`,
+          date: article.published_date
+        });
+      });
+    }
+
+    if (newsResult.data) {
+      newsResult.data.forEach(news => {
+        const titleMatch = news.title?.toLowerCase().includes(searchTerm.toLowerCase());
+        const summaryMatch = news.summary?.toLowerCase().includes(searchTerm.toLowerCase());
+        let description;
+        if (titleMatch || summaryMatch) {
+          description = news.summary?.substring(0, 150) || '';
+        } else {
+          description = extractSnippet(news.search_text || news.content, searchTerm);
+        }
+        results.push({
+          type: 'news',
+          id: news.id,
+          title: news.title,
+          description,
+          image: news.feature_image_url,
+          url: `/NewsView?slug=${news.slug || news.id}`,
+          date: news.published_date
+        });
+      });
+    }
+
+    if (resourcesResult.data) {
+      resourcesResult.data.forEach(resource => {
+        const titleMatch = resource.title?.toLowerCase().includes(searchTerm.toLowerCase());
+        const descMatch = resource.description?.toLowerCase().includes(searchTerm.toLowerCase());
+        let description;
+        if (titleMatch || descMatch) {
+          description = resource.description?.substring(0, 150) || '';
+        } else {
+          description = extractSnippet(resource.search_text || resource.description, searchTerm);
+        }
+        results.push({
+          type: 'resource',
+          id: resource.id,
+          title: resource.title,
+          description,
+          image: resource.image_url,
+          url: `/resources?resourceId=${resource.id}`,
+          date: null,
+          isPublic: resource.is_public ?? false
+        });
+      });
+    }
+
+    if (pagesResult.data) {
+      pagesResult.data.forEach(page => {
+        const titleMatch = page.title?.toLowerCase().includes(searchTerm.toLowerCase());
+        const descMatch = page.description?.toLowerCase().includes(searchTerm.toLowerCase());
+        let description;
+        if (titleMatch || descMatch) {
+          description = page.description || '';
+        } else {
+          description = extractSnippet(page.search_text, searchTerm);
+        }
+        results.push({
+          type: 'page',
+          id: page.id,
+          title: page.title,
+          description,
+          image: null,
+          url: `/${page.slug}`,
+          date: page.published_at
+        });
+      });
+    }
+
+    if (complexEventsResult.data) {
+      complexEventsResult.data.forEach(event => {
+        const titleMatch = event.title?.toLowerCase().includes(searchTerm.toLowerCase());
+        let description;
+        if (titleMatch) {
+          description = stripHtml(event.description)?.substring(0, 150) || event.summary?.substring(0, 150) || '';
+        } else {
+          description = extractSnippet(event.search_text || event.description, searchTerm);
+        }
+        results.push({
+          type: 'complex_event',
+          id: event.id,
+          title: event.title,
+          description,
+          image: event.image_url,
+          url: `/session-events/${event.slug || event.id}`,
+          date: event.start_date
+        });
+      });
+    }
+
+    results.sort((a, b) => {
+      if (a.date && b.date) {
+        return new Date(b.date) - new Date(a.date);
+      }
+      if (a.date) return -1;
+      if (b.date) return 1;
+      return 0;
+    });
+
+    return res.json({
+      results: results.slice(0, limitNum),
+      query: searchTerm,
+      total: results.length
+    });
+
+  } catch (error) {
+    console.error('Search error:', error);
+    return res.status(500).json({ error: 'Search failed' });
+  }
+}

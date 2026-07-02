@@ -1,0 +1,366 @@
+index-CNkqUC4y.js:1086 [publicClient] Detected tenant from subdomain: gfi
+index-CNkqUC4y.js:1171 GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.84.0) 2026-01-26T07:45:18.196Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+Jf @ index-CNkqUC4y.js:1171
+kce @ index-CNkqUC4y.js:1172
+_initSupabaseAuthClient @ index-CNkqUC4y.js:1172
+Ece @ index-CNkqUC4y.js:1172
+bB @ index-CNkqUC4y.js:1172
+(anonymous) @ index-CNkqUC4y.js:2154
+(anonymous) @ index-CNkqUC4y.js:1
+(anonymous) @ index-CNkqUC4y.js:2569
+index-CNkqUC4y.js:1475 [usePendingPurchaseOrders] memberInfo: null
+index-CNkqUC4y.js:1475 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CNkqUC4y.js:1475 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CNkqUC4y.js:1475 [Layout] currentPageName: HomePageRedirect currentPortalPageId: null
+index-CNkqUC4y.js:1475 [usePendingPurchaseOrders] memberInfo: null
+index-CNkqUC4y.js:1475 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CNkqUC4y.js:1475 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CNkqUC4y.js:1475 [Layout] currentPageName: HomePageRedirect currentPortalPageId: null
+index-CNkqUC4y.js:1475 [usePendingPurchaseOrders] memberInfo: null
+index-CNkqUC4y.js:1475 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CNkqUC4y.js:1475 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CNkqUC4y.js:1475 [Layout] currentPageName: HomePageRedirect currentPortalPageId: null
+index-CNkqUC4y.js:1475 [usePendingPurchaseOrders] memberInfo: null
+index-CNkqUC4y.js:1475 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CNkqUC4y.js:1475 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CNkqUC4y.js:1475 [Layout] currentPageName: HomePageRedirect currentPortalPageId: null
+index-CNkqUC4y.js:1475 [usePendingPurchaseOrders] memberInfo: null
+index-CNkqUC4y.js:1475 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CNkqUC4y.js:1475 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CNkqUC4y.js:1475 [Layout] currentPageName: HomePageRedirect currentPortalPageId: null
+index-CNkqUC4y.js:1172 [useNavigationRealtime] Setting up realtime subscription for navigation_item table
+index-CNkqUC4y.js:1086 [publicClient] Detected tenant from subdomain: gfi
+index-CNkqUC4y.js:1475 [usePendingPurchaseOrders] memberInfo: null
+index-CNkqUC4y.js:1475 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CNkqUC4y.js:1475 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CNkqUC4y.js:1475 [Layout] currentPageName: HomePageRedirect currentPortalPageId: null
+index-CNkqUC4y.js:1519 [Events] Debug - accessibleEvents count: 0
+index-CNkqUC4y.js:1519 [Events] Debug - searchQuery: 
+index-CNkqUC4y.js:1519 [Events] Debug - showPastEvents: false
+index-CNkqUC4y.js:1519 [Events] Debug - memberInfo exists: false
+index-CNkqUC4y.js:1519 [Events] Debug - memberInfo source: none
+index-CNkqUC4y.js:1519 [Events] Debug - filteredEvents count: 0
+index-CNkqUC4y.js:1172 [useNavigationRealtime] Subscription status: SUBSCRIBED
+index-CNkqUC4y.js:1441 [PublicLayout] Fetching banners for page: HomePageRedirect portalPageId: null isCustomSlug: true urlSlug: blogs
+index-CNkqUC4y.js:1441 [PublicLayout] All banners found: 15
+index-CNkqUC4y.js:1441 [PublicLayout] pageToPortalPageMap keys: (26) ['Events', 'PublicEvents', 'Bookings', 'MyTickets', 'BuyProgramTickets', 'MemberDirectory', 'OrganisationDirectory', 'Resources', 'PublicResources', 'Articles', 'PublicArticles', 'Team', 'Balances', 'History', 'Profile', 'MyOrganisation', 'JobBoard', 'PublicJobBoard', 'News', 'PublicNews', 'NewsView', 'MyJobPostings', 'Preferences', 'about-me', 'Support', 'Dashboard']
+index-CNkqUC4y.js:1441 [PublicLayout] Matched banners: 0
+index-CNkqUC4y.js:1475 [Layout] Server returned null for /api/auth/me - member deleted or disabled
+index-CNkqUC4y.js:1475 [usePendingPurchaseOrders] memberInfo: null
+index-CNkqUC4y.js:1475 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CNkqUC4y.js:1475 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CNkqUC4y.js:1475 [Layout] currentPageName: HomePageRedirect currentPortalPageId: null
+index-CNkqUC4y.js:1519 [Events] Debug - accessibleEvents count: 0
+index-CNkqUC4y.js:1519 [Events] Debug - searchQuery: 
+index-CNkqUC4y.js:1519 [Events] Debug - showPastEvents: false
+index-CNkqUC4y.js:1519 [Events] Debug - memberInfo exists: false
+index-CNkqUC4y.js:1519 [Events] Debug - memberInfo source: none
+index-CNkqUC4y.js:1519 [Events] Debug - filteredEvents count: 0
+index-CNkqUC4y.js:1086  GET https://gfi.iconn.app/api/public/form/d11afd07-df3c-4187-b627-ea8e3a692907?tenant=gfi 404 (Not Found)
+sse @ index-CNkqUC4y.js:1086
+_fetch @ index-CNkqUC4y.js:1086
+getForm @ index-CNkqUC4y.js:1086
+(anonymous) @ index-CNkqUC4y.js:1441
+await in (anonymous)
+(anonymous) @ index-CNkqUC4y.js:1441
+Xy @ index-CNkqUC4y.js:40
+ux @ index-CNkqUC4y.js:40
+iX @ index-CNkqUC4y.js:40
+tm @ index-CNkqUC4y.js:40
+yF @ index-CNkqUC4y.js:40
+Au @ index-CNkqUC4y.js:38
+(anonymous) @ index-CNkqUC4y.js:40
+setTimeout
+r @ index-CNkqUC4y.js:1086
+l @ index-CNkqUC4y.js:1086
+batch @ index-CNkqUC4y.js:1086
+Ac @ index-CNkqUC4y.js:1086
+setData @ index-CNkqUC4y.js:1086
+onSuccess @ index-CNkqUC4y.js:1086
+m @ index-CNkqUC4y.js:1086
+Promise.then
+b @ index-CNkqUC4y.js:1086
+start @ index-CNkqUC4y.js:1086
+fetch @ index-CNkqUC4y.js:1086
+Kg @ index-CNkqUC4y.js:1086
+onSubscribe @ index-CNkqUC4y.js:1086
+subscribe @ index-CNkqUC4y.js:1086
+(anonymous) @ index-CNkqUC4y.js:1086
+A$ @ index-CNkqUC4y.js:38
+Xy @ index-CNkqUC4y.js:40
+ux @ index-CNkqUC4y.js:40
+(anonymous) @ index-CNkqUC4y.js:40
+N @ index-CNkqUC4y.js:25
+E @ index-CNkqUC4y.js:25
+index-CNkqUC4y.js:1441 Failed to fetch newsletter form: Error: Public API Error (404): Form not found or inactive
+    at sse (index-CNkqUC4y.js:1086:41722)
+    at async index-CNkqUC4y.js:1441:265537
+(anonymous) @ index-CNkqUC4y.js:1441
+await in (anonymous)
+(anonymous) @ index-CNkqUC4y.js:1441
+Xy @ index-CNkqUC4y.js:40
+ux @ index-CNkqUC4y.js:40
+iX @ index-CNkqUC4y.js:40
+tm @ index-CNkqUC4y.js:40
+yF @ index-CNkqUC4y.js:40
+Au @ index-CNkqUC4y.js:38
+(anonymous) @ index-CNkqUC4y.js:40
+setTimeout
+r @ index-CNkqUC4y.js:1086
+l @ index-CNkqUC4y.js:1086
+batch @ index-CNkqUC4y.js:1086
+Ac @ index-CNkqUC4y.js:1086
+setData @ index-CNkqUC4y.js:1086
+onSuccess @ index-CNkqUC4y.js:1086
+m @ index-CNkqUC4y.js:1086
+Promise.then
+b @ index-CNkqUC4y.js:1086
+start @ index-CNkqUC4y.js:1086
+fetch @ index-CNkqUC4y.js:1086
+Kg @ index-CNkqUC4y.js:1086
+onSubscribe @ index-CNkqUC4y.js:1086
+subscribe @ index-CNkqUC4y.js:1086
+(anonymous) @ index-CNkqUC4y.js:1086
+A$ @ index-CNkqUC4y.js:38
+Xy @ index-CNkqUC4y.js:40
+ux @ index-CNkqUC4y.js:40
+(anonymous) @ index-CNkqUC4y.js:40
+N @ index-CNkqUC4y.js:25
+E @ index-CNkqUC4y.js:25
+index-CNkqUC4y.js:1826 [PageHeaderHero] RENDER START - content: {"hasContent":true,"contentType":"object","contentKeys":["anchor","image_fit","image_url","header_text","height_type","header_color","line_spacing","background_type","header_position","subheading_text"],"header_text_preview":"<p>Shaping futures, together</","background_type":"image"}
+index-CNkqUC4y.js:1826 [PageHeaderHero] Typography hook called, getStyleById type: function
+index-CNkqUC4y.js:1826 [PageHeaderHero] About to render: {instanceId: 'hero-r6', background_type: 'image', background_color: '#1e3a5f', effectiveMobileBgType: 'image', header_text: '<p>Shaping futures, together</', …}
+index-CNkqUC4y.js:40 TypeError: d.find is not a function
+    at index-CNkqUC4y.js:1683:27234
+    at Array.map (<anonymous>)
+    at index-CNkqUC4y.js:1683:27057
+    at Object.q$ [as useMemo] (index-CNkqUC4y.js:38:21401)
+    at Ka.useMemo (index-CNkqUC4y.js:9:6223)
+    at H4e (index-CNkqUC4y.js:1683:27029)
+    at d4 (index-CNkqUC4y.js:38:17018)
+    at uC (index-CNkqUC4y.js:40:3139)
+    at fI (index-CNkqUC4y.js:40:44833)
+    at xI (index-CNkqUC4y.js:40:39790)
+dC @ index-CNkqUC4y.js:40
+Y$.a.callback @ index-CNkqUC4y.js:40
+sF @ index-CNkqUC4y.js:38
+bF @ index-CNkqUC4y.js:40
+dI @ index-CNkqUC4y.js:40
+tX @ index-CNkqUC4y.js:40
+iX @ index-CNkqUC4y.js:40
+tm @ index-CNkqUC4y.js:40
+yF @ index-CNkqUC4y.js:40
+Au @ index-CNkqUC4y.js:38
+(anonymous) @ index-CNkqUC4y.js:40
+setTimeout
+r @ index-CNkqUC4y.js:1086
+l @ index-CNkqUC4y.js:1086
+batch @ index-CNkqUC4y.js:1086
+Ac @ index-CNkqUC4y.js:1086
+setData @ index-CNkqUC4y.js:1086
+onSuccess @ index-CNkqUC4y.js:1086
+m @ index-CNkqUC4y.js:1086
+Promise.then
+b @ index-CNkqUC4y.js:1086
+start @ index-CNkqUC4y.js:1086
+fetch @ index-CNkqUC4y.js:1086
+Kg @ index-CNkqUC4y.js:1086
+onSubscribe @ index-CNkqUC4y.js:1086
+subscribe @ index-CNkqUC4y.js:1086
+(anonymous) @ index-CNkqUC4y.js:1086
+A$ @ index-CNkqUC4y.js:38
+Xy @ index-CNkqUC4y.js:40
+ux @ index-CNkqUC4y.js:40
+iX @ index-CNkqUC4y.js:40
+tm @ index-CNkqUC4y.js:40
+yF @ index-CNkqUC4y.js:40
+Au @ index-CNkqUC4y.js:38
+(anonymous) @ index-CNkqUC4y.js:40
+setTimeout
+r @ index-CNkqUC4y.js:1086
+l @ index-CNkqUC4y.js:1086
+batch @ index-CNkqUC4y.js:1086
+Ac @ index-CNkqUC4y.js:1086
+setData @ index-CNkqUC4y.js:1086
+onSuccess @ index-CNkqUC4y.js:1086
+m @ index-CNkqUC4y.js:1086
+Promise.then
+b @ index-CNkqUC4y.js:1086
+start @ index-CNkqUC4y.js:1086
+fetch @ index-CNkqUC4y.js:1086
+Kg @ index-CNkqUC4y.js:1086
+setOptions @ index-CNkqUC4y.js:1086
+(anonymous) @ index-CNkqUC4y.js:1086
+Xy @ index-CNkqUC4y.js:40
+ux @ index-CNkqUC4y.js:40
+iX @ index-CNkqUC4y.js:40
+tm @ index-CNkqUC4y.js:40
+yF @ index-CNkqUC4y.js:40
+Au @ index-CNkqUC4y.js:38
+(anonymous) @ index-CNkqUC4y.js:40
+setTimeout
+r @ index-CNkqUC4y.js:1086
+l @ index-CNkqUC4y.js:1086
+batch @ index-CNkqUC4y.js:1086
+Ac @ index-CNkqUC4y.js:1086
+setData @ index-CNkqUC4y.js:1086
+onSuccess @ index-CNkqUC4y.js:1086
+m @ index-CNkqUC4y.js:1086
+Promise.then
+b @ index-CNkqUC4y.js:1086
+start @ index-CNkqUC4y.js:1086
+fetch @ index-CNkqUC4y.js:1086
+Kg @ index-CNkqUC4y.js:1086
+onSubscribe @ index-CNkqUC4y.js:1086
+subscribe @ index-CNkqUC4y.js:1086
+(anonymous) @ index-CNkqUC4y.js:1086
+A$ @ index-CNkqUC4y.js:38
+Xy @ index-CNkqUC4y.js:40
+ux @ index-CNkqUC4y.js:40
+iX @ index-CNkqUC4y.js:40
+tm @ index-CNkqUC4y.js:40
+yF @ index-CNkqUC4y.js:40
+Au @ index-CNkqUC4y.js:38
+(anonymous) @ index-CNkqUC4y.js:40
+setTimeout
+r @ index-CNkqUC4y.js:1086
+l @ index-CNkqUC4y.js:1086
+batch @ index-CNkqUC4y.js:1086
+Ac @ index-CNkqUC4y.js:1086
+setData @ index-CNkqUC4y.js:1086
+onSuccess @ index-CNkqUC4y.js:1086
+m @ index-CNkqUC4y.js:1086
+Promise.then
+b @ index-CNkqUC4y.js:1086
+start @ index-CNkqUC4y.js:1086
+fetch @ index-CNkqUC4y.js:1086
+Kg @ index-CNkqUC4y.js:1086
+onSubscribe @ index-CNkqUC4y.js:1086
+subscribe @ index-CNkqUC4y.js:1086
+(anonymous) @ index-CNkqUC4y.js:1086
+A$ @ index-CNkqUC4y.js:38
+Xy @ index-CNkqUC4y.js:40
+ux @ index-CNkqUC4y.js:40
+(anonymous) @ index-CNkqUC4y.js:40
+N @ index-CNkqUC4y.js:25
+E @ index-CNkqUC4y.js:25
+index-CNkqUC4y.js:1683 Uncaught TypeError: d.find is not a function
+    at index-CNkqUC4y.js:1683:27234
+    at Array.map (<anonymous>)
+    at index-CNkqUC4y.js:1683:27057
+    at Object.q$ [as useMemo] (index-CNkqUC4y.js:38:21401)
+    at Ka.useMemo (index-CNkqUC4y.js:9:6223)
+    at H4e (index-CNkqUC4y.js:1683:27029)
+    at d4 (index-CNkqUC4y.js:38:17018)
+    at uC (index-CNkqUC4y.js:40:3139)
+    at fI (index-CNkqUC4y.js:40:44833)
+    at xI (index-CNkqUC4y.js:40:39790)
+(anonymous) @ index-CNkqUC4y.js:1683
+(anonymous) @ index-CNkqUC4y.js:1683
+q$ @ index-CNkqUC4y.js:38
+Ka.useMemo @ index-CNkqUC4y.js:9
+H4e @ index-CNkqUC4y.js:1683
+d4 @ index-CNkqUC4y.js:38
+uC @ index-CNkqUC4y.js:40
+fI @ index-CNkqUC4y.js:40
+xI @ index-CNkqUC4y.js:40
+nX @ index-CNkqUC4y.js:40
+Tj @ index-CNkqUC4y.js:40
+_C @ index-CNkqUC4y.js:40
+yF @ index-CNkqUC4y.js:40
+Au @ index-CNkqUC4y.js:38
+(anonymous) @ index-CNkqUC4y.js:40
+setTimeout
+r @ index-CNkqUC4y.js:1086
+l @ index-CNkqUC4y.js:1086
+batch @ index-CNkqUC4y.js:1086
+Ac @ index-CNkqUC4y.js:1086
+setData @ index-CNkqUC4y.js:1086
+onSuccess @ index-CNkqUC4y.js:1086
+m @ index-CNkqUC4y.js:1086
+Promise.then
+b @ index-CNkqUC4y.js:1086
+start @ index-CNkqUC4y.js:1086
+fetch @ index-CNkqUC4y.js:1086
+Kg @ index-CNkqUC4y.js:1086
+onSubscribe @ index-CNkqUC4y.js:1086
+subscribe @ index-CNkqUC4y.js:1086
+(anonymous) @ index-CNkqUC4y.js:1086
+A$ @ index-CNkqUC4y.js:38
+Xy @ index-CNkqUC4y.js:40
+ux @ index-CNkqUC4y.js:40
+iX @ index-CNkqUC4y.js:40
+tm @ index-CNkqUC4y.js:40
+yF @ index-CNkqUC4y.js:40
+Au @ index-CNkqUC4y.js:38
+(anonymous) @ index-CNkqUC4y.js:40
+setTimeout
+r @ index-CNkqUC4y.js:1086
+l @ index-CNkqUC4y.js:1086
+batch @ index-CNkqUC4y.js:1086
+Ac @ index-CNkqUC4y.js:1086
+setData @ index-CNkqUC4y.js:1086
+onSuccess @ index-CNkqUC4y.js:1086
+m @ index-CNkqUC4y.js:1086
+Promise.then
+b @ index-CNkqUC4y.js:1086
+start @ index-CNkqUC4y.js:1086
+fetch @ index-CNkqUC4y.js:1086
+Kg @ index-CNkqUC4y.js:1086
+setOptions @ index-CNkqUC4y.js:1086
+(anonymous) @ index-CNkqUC4y.js:1086
+Xy @ index-CNkqUC4y.js:40
+ux @ index-CNkqUC4y.js:40
+iX @ index-CNkqUC4y.js:40
+tm @ index-CNkqUC4y.js:40
+yF @ index-CNkqUC4y.js:40
+Au @ index-CNkqUC4y.js:38
+(anonymous) @ index-CNkqUC4y.js:40
+setTimeout
+r @ index-CNkqUC4y.js:1086
+l @ index-CNkqUC4y.js:1086
+batch @ index-CNkqUC4y.js:1086
+Ac @ index-CNkqUC4y.js:1086
+setData @ index-CNkqUC4y.js:1086
+onSuccess @ index-CNkqUC4y.js:1086
+m @ index-CNkqUC4y.js:1086
+Promise.then
+b @ index-CNkqUC4y.js:1086
+start @ index-CNkqUC4y.js:1086
+fetch @ index-CNkqUC4y.js:1086
+Kg @ index-CNkqUC4y.js:1086
+onSubscribe @ index-CNkqUC4y.js:1086
+subscribe @ index-CNkqUC4y.js:1086
+(anonymous) @ index-CNkqUC4y.js:1086
+A$ @ index-CNkqUC4y.js:38
+Xy @ index-CNkqUC4y.js:40
+ux @ index-CNkqUC4y.js:40
+iX @ index-CNkqUC4y.js:40
+tm @ index-CNkqUC4y.js:40
+yF @ index-CNkqUC4y.js:40
+Au @ index-CNkqUC4y.js:38
+(anonymous) @ index-CNkqUC4y.js:40
+setTimeout
+r @ index-CNkqUC4y.js:1086
+l @ index-CNkqUC4y.js:1086
+batch @ index-CNkqUC4y.js:1086
+Ac @ index-CNkqUC4y.js:1086
+setData @ index-CNkqUC4y.js:1086
+onSuccess @ index-CNkqUC4y.js:1086
+m @ index-CNkqUC4y.js:1086
+Promise.then
+b @ index-CNkqUC4y.js:1086
+start @ index-CNkqUC4y.js:1086
+fetch @ index-CNkqUC4y.js:1086
+Kg @ index-CNkqUC4y.js:1086
+onSubscribe @ index-CNkqUC4y.js:1086
+subscribe @ index-CNkqUC4y.js:1086
+(anonymous) @ index-CNkqUC4y.js:1086
+A$ @ index-CNkqUC4y.js:38
+Xy @ index-CNkqUC4y.js:40
+ux @ index-CNkqUC4y.js:40
+(anonymous) @ index-CNkqUC4y.js:40
+N @ index-CNkqUC4y.js:25
+E @ index-CNkqUC4y.js:25
+index-CNkqUC4y.js:1172 [useNavigationRealtime] Cleaning up realtime subscription
+index-CNkqUC4y.js:1172 [useNavigationRealtime] Subscription status: CLOSED

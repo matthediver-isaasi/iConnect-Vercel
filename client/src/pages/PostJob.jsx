@@ -1,20 +1,26 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import ReactQuill from 'react-quill';
+import 'react-quill/dist/quill.snow.css';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Briefcase, CheckCircle, ArrowRight, Mail, ExternalLink, Upload, X, FileText, Image as ImageIcon, FileCheck, CreditCard, AlertCircle } from "lucide-react";
+import { Loader2, Briefcase, CheckCircle, ArrowRight, Mail, ExternalLink, Upload, X, FileText, Image as ImageIcon, FileCheck, CreditCard, AlertCircle, ArrowLeft, Building2, Search } from "lucide-react";
+import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { toast } from "sonner";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 // Load Stripe outside component to avoid recreating on every render
 let stripePromise = null;
@@ -110,7 +116,18 @@ function StripePaymentForm({ clientSecret, onSuccess, onCancel, amount }) {
 }
 
 export default function PostJobPage() {
-  const { memberInfo, organizationInfo } = useMemberAccess();
+  const { memberInfo, organizationInfo, isFeatureExcluded } = useMemberAccess();
+  const { branding } = useTenantBranding();
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const editJobId = urlParams.get('editJobId');
+  const returnTo = urlParams.get('from');
+
+  const [isEditMode, setIsEditMode] = useState(!!editJobId);
+  const [editJobLoaded, setEditJobLoaded] = useState(false);
+  const [editLoadError, setEditLoadError] = useState(null);
+  const isEditRef = useRef(!!editJobId);
+  const editDataRef = useRef(null);
 
   const [step, setStep] = useState('email'); // 'email', 'form', 'submitting'
   const [email, setEmail] = useState('');
@@ -126,6 +143,31 @@ export default function PostJobPage() {
   const [stripeClientSecret, setStripeClientSecret] = useState(null);
   const [stripePaymentIntentId, setStripePaymentIntentId] = useState(null);
   const [paymentAmount, setPaymentAmount] = useState(50.00);
+  const [showErrorDialog, setShowErrorDialog] = useState(false);
+  const [submissionError, setSubmissionError] = useState({ title: '', message: '', details: [] });
+  
+  // Organisation search state
+  const [selectedOrganization, setSelectedOrganization] = useState(null);
+  const [orgSearchOpen, setOrgSearchOpen] = useState(false);
+  const [orgSearchQuery, setOrgSearchQuery] = useState('');
+  
+  // Check if user can post on behalf of other organisations
+  const canPostOnBehalfOfOrg = isLoggedIn && !isFeatureExcluded('feature_PostJobOnBehalfOfOrg');
+  
+  // Fetch organisations for search (only if user has permission)
+  const { data: allOrganizations = [] } = useQuery({
+    queryKey: ['organizations-for-job-posting'],
+    queryFn: () => base44.entities.Organization.list(),
+    enabled: canPostOnBehalfOfOrg,
+  });
+  
+  // Filter organizations based on search query
+  const filteredOrganizations = useMemo(() => {
+    if (!orgSearchQuery) return allOrganizations.slice(0, 50); // Show first 50 by default
+    return allOrganizations.filter(org => 
+      org.name?.toLowerCase().includes(orgSearchQuery.toLowerCase())
+    ).slice(0, 50);
+  }, [allOrganizations, orgSearchQuery]);
 
   const [formData, setFormData] = useState({
     title: '',
@@ -141,14 +183,37 @@ export default function PostJobPage() {
     application_value: '',
     contact_name: '',
     attachment_urls: [],
-    attachment_names: []
+    attachment_names: [],
+    posting_organization_id: null // For posting on behalf of another organisation
   });
+
+  // Rich text editor configuration
+  const quillModules = useMemo(() => ({
+    toolbar: [
+      [{ 'header': [1, 2, 3, false] }],
+      ['bold', 'italic', 'underline'],
+      [{ 'color': [] }],
+      [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+      [{ 'align': [] }],
+      ['link'],
+      ['clean']
+    ],
+  }), []);
+
+  const quillFormats = [
+    'header',
+    'bold', 'italic', 'underline',
+    'color',
+    'list',
+    'align',
+    'link'
+  ];
 
   // Initialize Stripe
   useEffect(() => {
     const initStripe = async () => {
       try {
-        const response = await base44.functions.invoke('getStripePublishableKey');
+        const response = await base44.functions.invoke('getStripePublishableKey', { feature: 'jobs' });
         if (response.data.publishableKey) {
           stripePromise = loadStripe(response.data.publishableKey);
         } else {
@@ -160,6 +225,23 @@ export default function PostJobPage() {
     };
     initStripe();
   }, []);
+
+  // Fetch terms and conditions from settings
+  const { data: termsSettings } = useQuery({
+    queryKey: ['job-terms-settings'],
+    queryFn: async () => {
+      const allSettings = await base44.entities.SystemSettings.list();
+      const setting = allSettings.find((s) => s.setting_key === 'job_posting_terms');
+      if (setting) {
+        try {
+          return JSON.parse(setting.setting_value);
+        } catch (e) {
+          return null;
+        }
+      }
+      return null;
+    }
+  });
 
   // Fetch job type options from settings
   const { data: jobTypeSettings = [] } = useQuery({
@@ -225,25 +307,51 @@ export default function PostJobPage() {
     }
   }, [jobPostingPrice]);
 
+  // Handle organization selection
+  const handleOrganizationSelect = (org) => {
+    setSelectedOrganization(org);
+    setFormData((prev) => ({
+      ...prev,
+      company_name: org.name || '',
+      company_logo_url: org.logo_url || '',
+      posting_organization_id: org.id
+    }));
+    setOrgSearchOpen(false);
+    setOrgSearchQuery('');
+  };
+  
+  // Reset to user's own organization
+  const handleResetToOwnOrg = () => {
+    setSelectedOrganization(null);
+    setFormData((prev) => ({
+      ...prev,
+      company_name: organizationInfo?.name || '',
+      company_logo_url: organizationInfo?.logo_url || '',
+      posting_organization_id: null
+    }));
+  };
+
   // Initialize from props (portal mode) or sessionStorage (public mode)
   useEffect(() => {
     if (memberInfo) {
-      // Portal mode - member is logged in via props
       setIsLoggedIn(true);
       setIsMember(true);
       setEmail(memberInfo.email);
       setStep('form');
 
-      setFormData((prev) => ({
-        ...prev,
-        company_name: organizationInfo?.name || '',
-        contact_name: `${memberInfo.first_name} ${memberInfo.last_name}`,
-        job_type: jobTypeSettings[0] || '',
-        hours: hoursSettings[0] || ''
-      }));
+      if (!isEditRef.current) {
+        setFormData((prev) => ({
+          ...prev,
+          company_name: organizationInfo?.name || '',
+          company_logo_url: organizationInfo?.logo_url || '',
+          contact_name: `${memberInfo.first_name} ${memberInfo.last_name}`,
+          job_type: jobTypeSettings[0] || '',
+          hours: hoursSettings[0] || ''
+        }));
+        setSelectedOrganization(null);
+      }
     } else {
-      // Public mode - check sessionStorage
-      const member = sessionStorage.getItem('agcas_member');
+      const member = localStorage.getItem('agcas_member');
       if (member) {
         const memberData = JSON.parse(member);
         setIsLoggedIn(true);
@@ -251,30 +359,77 @@ export default function PostJobPage() {
         setEmail(memberData.email);
         setStep('form');
 
-        const fetchOrganization = async () => {
-          if (memberData.organization_id) {
-            try {
-              const allOrgs = await base44.entities.Organization.list();
-              const org = allOrgs.find((o) => o.id === memberData.organization_id);
-              if (org) {
-                setFormData((prev) => ({
-                  ...prev,
-                  company_name: org.name,
-                  contact_name: `${memberData.first_name} ${memberData.last_name}`,
-                  job_type: jobTypeSettings[0] || '',
-                  hours: hoursSettings[0] || ''
-                }));
+        if (!isEditRef.current) {
+          const fetchOrganization = async () => {
+            if (memberData.organization_id) {
+              try {
+                const allOrgs = await base44.entities.Organization.list();
+                const org = allOrgs.find((o) => o.id === memberData.organization_id);
+                if (org) {
+                  setFormData((prev) => ({
+                    ...prev,
+                    company_name: org.name,
+                    company_logo_url: org.logo_url || '',
+                    contact_name: `${memberData.first_name} ${memberData.last_name}`,
+                    job_type: jobTypeSettings[0] || '',
+                    hours: hoursSettings[0] || ''
+                  }));
+                }
+              } catch (error) {
+                console.error('Failed to fetch organization:', error);
               }
-            } catch (error) {
-              console.error('Failed to fetch organization:', error);
             }
-          }
-        };
-
-        fetchOrganization();
+          };
+          fetchOrganization();
+        }
       }
     }
   }, [memberInfo, organizationInfo, jobTypeSettings, hoursSettings]);
+
+  useEffect(() => {
+    if (editJobId) {
+      const fetchJobForEdit = async () => {
+        try {
+          const job = await base44.entities.JobPosting.get(editJobId);
+          if (job) {
+            const newFormData = {
+              title: job.title || '',
+              description: job.description || '',
+              company_name: job.company_name || '',
+              company_logo_url: job.company_logo_url || '',
+              location: job.location || '',
+              salary_range: job.salary_range || '',
+              job_type: job.job_type || '',
+              hours: job.hours || '',
+              closing_date: job.closing_date || '',
+              application_method: job.application_method || 'email',
+              application_value: job.application_value || '',
+              contact_name: job.contact_name || '',
+              attachment_urls: job.attachment_urls || [],
+              attachment_names: job.attachment_names || [],
+              posting_organization_id: job.posting_organization_id || null
+            };
+            editDataRef.current = newFormData;
+            setFormData(() => newFormData);
+            setIsEditMode(true);
+            isEditRef.current = true;
+            setEditJobLoaded(true);
+            setStep('form');
+            setIsLoggedIn(true);
+            setAgreedToTerms(true);
+          } else {
+            setEditLoadError('Job posting not found.');
+            setEditJobLoaded(true);
+          }
+        } catch (error) {
+          console.error('Failed to fetch job for editing:', error);
+          setEditLoadError('Failed to load job posting.');
+          setEditJobLoaded(true);
+        }
+      };
+      fetchJobForEdit();
+    }
+  }, [editJobId]);
 
   const handleEmailCheck = async (e) => {
     e.preventDefault();
@@ -282,14 +437,28 @@ export default function PostJobPage() {
 
     try {
       const response = await base44.functions.invoke('checkMemberStatusByEmail', { email });
+      
+      // Debug logging - remove after testing
+      console.log('[PostJob] checkMemberStatusByEmail response:', JSON.stringify(response.data, null, 2));
 
-      if (response.data.is_member) {
+      if (response.data.is_member && response.data.has_job_posting_access) {
+        // Member with job posting access - redirect to login
         setIsMember(true);
-        toast.info('Please log in to post your job for free');
+        toast.info('You are a member with job posting access. Please log in to post for free.');
         setTimeout(() => {
-          window.location.href = createPageUrl('Home') + '?returnTo=' + encodeURIComponent(window.location.pathname);
+          window.location.href = '/login?returnTo=' + encodeURIComponent('/postjob');
         }, 2000);
+      } else if (response.data.is_member && !response.data.has_job_posting_access) {
+        // Member without job posting access - treat as non-member (pay to post)
+        setIsMember(false);
+        setFormData((prev) => ({
+          ...prev,
+          job_type: jobTypeSettings[0] || '',
+          hours: hoursSettings[0] || ''
+        }));
+        setStep('form');
       } else {
+        // Not a member - proceed to form (pay to post)
         setIsMember(false);
         setFormData((prev) => ({
           ...prev,
@@ -330,7 +499,7 @@ export default function PostJobPage() {
       }));
       toast.success('Logo uploaded successfully');
     } catch (error) {
-      toast.error('Failed to upload logo. Please try again.');
+      showUploadErrorToast(error, 'Failed to upload logo. Please try again.');
     } finally {
       setUploadingLogo(false);
     }
@@ -404,26 +573,86 @@ export default function PostJobPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    console.log('[PostJob] handleSubmit called');
+    console.log('[PostJob] formData:', JSON.stringify(formData, null, 2));
+    console.log('[PostJob] isLoggedIn:', isLoggedIn);
+    console.log('[PostJob] email:', email);
+    console.log('[PostJob] agreedToTerms:', agreedToTerms);
+
+    // Validate required fields
+    if (!formData.title?.trim()) {
+      toast.error('Please enter a job title');
+      return;
+    }
+
+    if (!formData.company_name?.trim()) {
+      toast.error('Please enter a company name');
+      return;
+    }
+
+    // Check description - ReactQuill returns "<p><br></p>" for empty content
+    const descriptionText = formData.description?.replace(/<[^>]*>/g, '').trim();
+    if (!descriptionText) {
+      console.log('[PostJob] Missing description');
+      toast.error('Please enter a job description');
+      return;
+    }
 
     if (!formData.closing_date) {
+      console.log('[PostJob] Missing closing_date');
       toast.error('Please select a closing date');
       return;
     }
 
-    if (!agreedToTerms) {
+    if (!agreedToTerms && !isEditMode) {
+      console.log('[PostJob] Terms not agreed');
       toast.error('Please agree to the Terms and Conditions');
       return;
     }
 
+    if (isEditMode && editJobId) {
+      setStep('submitting');
+      try {
+        await base44.entities.JobPosting.update(editJobId, {
+          title: formData.title,
+          description: formData.description,
+          company_name: formData.company_name,
+          company_logo_url: formData.company_logo_url,
+          location: formData.location,
+          salary_range: formData.salary_range,
+          job_type: formData.job_type,
+          hours: formData.hours,
+          closing_date: formData.closing_date,
+          application_method: formData.application_method,
+          application_value: formData.application_value,
+          contact_name: formData.contact_name,
+          attachment_urls: formData.attachment_urls,
+          attachment_names: formData.attachment_names
+        });
+        toast.success('Job posting updated successfully!');
+        setTimeout(() => {
+          window.location.href = createPageUrl(returnTo || 'JobPostingManagement');
+        }, 500);
+      } catch (error) {
+        console.error('[PostJob] Update error:', error);
+        toast.error('Failed to update job posting: ' + (error.message || 'Unknown error'));
+        setStep('form');
+      }
+      return;
+    }
+
+    console.log('[PostJob] Validation passed, setting step to submitting');
     setStep('submitting');
 
     try {
       if (isLoggedIn) {
         // Member posting - free
+        console.log('[PostJob] Calling createJobPostingMember API with email:', email);
         const response = await base44.functions.invoke('createJobPostingMember', {
           ...formData,
           memberEmail: email
         });
+        console.log('[PostJob] API response:', JSON.stringify(response, null, 2));
 
         if (response.data.success) {
           toast.success('Job posting submitted successfully!');
@@ -467,25 +696,114 @@ export default function PostJobPage() {
         }
       }
     } catch (error) {
-      toast.error(error.message || 'Failed to submit job posting');
+      console.error('[PostJob] Submission error caught:', error);
+      console.error('[PostJob] Error message:', error.message);
+      console.error('[PostJob] Error stack:', error.stack);
+      
+      // Parse error message to show helpful dialog
+      const errorMessage = error.message || 'Failed to submit job posting';
+      let errorDetails = [];
+      let errorTitle = 'Unable to Submit Job Posting';
+      
+      if (errorMessage.includes('Member not found')) {
+        errorTitle = 'Member Account Not Found';
+        errorDetails = [
+          'Your email address could not be matched to a member account in our system.',
+          'This may happen if you registered with a different email address.',
+          'Please try logging in again or contact support for assistance.'
+        ];
+      } else if (errorMessage.includes('Stripe') || errorMessage.includes('payment')) {
+        errorTitle = 'Payment Configuration Issue';
+        errorDetails = [
+          'Job posting payments are not currently configured.',
+          'Please contact the administrator to set up payment processing.',
+          'If you are a member, try logging in to post for free.'
+        ];
+      } else if (errorMessage.includes('price') || errorMessage.includes('ticket')) {
+        errorTitle = 'Pricing Not Configured';
+        errorDetails = [
+          'Job posting pricing has not been configured by the administrator.',
+          'Please contact support to enable job posting functionality.'
+        ];
+      } else {
+        errorDetails = [errorMessage];
+      }
+      
+      setSubmissionError({
+        title: errorTitle,
+        message: 'We encountered an issue while processing your job posting:',
+        details: errorDetails
+      });
+      setShowErrorDialog(true);
       setStep('form');
     }
   };
 
   const handleStripePaymentSuccess = async () => {
     setShowPaymentModal(false);
-    toast.success('Payment successful! Your job posting has been submitted for approval.');
+    
+    // Confirm payment and update job posting status
+    try {
+      const confirmResponse = await base44.functions.invoke('confirmJobPostingPayment', {
+        jobPostingId: jobPostingId,
+        paymentIntentId: stripePaymentIntentId
+      });
+      
+      if (confirmResponse.data.success) {
+        toast.success('Payment successful! Your job posting has been submitted for approval.');
+      } else {
+        console.error('[PostJob] Payment confirmation failed:', confirmResponse.data.error);
+        // Payment succeeded but confirmation failed - still redirect as payment went through
+        toast.success('Payment received! Your job posting is being processed.');
+      }
+    } catch (error) {
+      console.error('[PostJob] Error confirming payment:', error);
+      // Payment succeeded but confirmation call failed - still show success
+      toast.success('Payment received! Your job posting is being processed.');
+    }
 
     setTimeout(() => {
       window.location.href = createPageUrl('JobPostSuccess');
     }, 1500);
   };
 
+  // Recovery: if edit data was fetched but formData is empty, restore from ref
+  useEffect(() => {
+    if (editDataRef.current && editJobLoaded && !formData.title) {
+      setFormData(() => ({ ...editDataRef.current }));
+    }
+  });
+
+  if (editJobId && (!editJobLoaded || editLoadError)) {
+    return (
+      <div className="bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center min-h-[400px] px-4">
+        <Card className="max-w-md w-full border-slate-200 shadow-xl">
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            {editLoadError ? (
+              <>
+                <AlertCircle className="w-10 h-10 text-red-500 mb-4" />
+                <p className="text-slate-700 text-sm font-medium mb-4">{editLoadError}</p>
+                {returnTo && (
+                  <a href={returnTo} className="text-blue-600 hover:underline text-sm">Go back</a>
+                )}
+              </>
+            ) : (
+              <>
+                <Loader2 className="w-10 h-10 text-blue-600 animate-spin mb-4" />
+                <p className="text-slate-600 text-sm font-medium">Loading job posting...</p>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   // PRIORITY CHECK: If member is logged in (via props or sessionStorage), skip email check
   // Only show email check form if NOT logged in AND step is 'email'
   if (!isLoggedIn && step === 'email') {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="bg-gradient-to-br from-slate-50 to-blue-50 flex items-start justify-center pt-12 px-4 pb-12">
         <Card className="max-w-md w-full border-slate-200 shadow-xl">
           <CardHeader>
             <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mb-4">
@@ -493,7 +811,7 @@ export default function PostJobPage() {
             </div>
             <CardTitle>Post a Job</CardTitle>
             <CardDescription>
-              Enter your email to get started. AGCAS members can post for free!
+              Enter your email to get started. {branding?.name ? `${branding.name} members` : 'Members'} can post for free!
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -535,22 +853,31 @@ export default function PostJobPage() {
 
   // All other cases: show the job posting form
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="bg-gradient-to-br from-slate-50 to-blue-50 pt-12 px-4 pb-12">
       <div className="max-w-3xl mx-auto">
+        {/* Back to Job Board link */}
+        <Link 
+          to={returnTo ? createPageUrl(returnTo) : createPageUrl('JobBoard')} 
+          className="inline-flex items-center text-sm text-slate-600 hover:text-blue-600 mb-4"
+          data-testid="link-back-to-jobboard"
+        >
+          <ArrowLeft className="w-4 h-4 mr-1" />
+          {returnTo === 'JobPostingManagement' ? 'Back to Job Management' : 'Back to Job Board'}
+        </Link>
+
         <Card className="border-slate-200 shadow-xl">
           <CardHeader>
             <CardTitle>
-              {isLoggedIn ? 'Post a Job (Free for Members)' : 'Post a Job'}
+              {isEditMode ? 'Edit Job Posting' : (isLoggedIn ? 'Post a Job (Free for Members)' : 'Post a Job')}
             </CardTitle>
             <CardDescription>
-              {isLoggedIn ?
+              {isEditMode ? 'Update the details below and save your changes' : (isLoggedIn ?
               'Fill in the details below to post your job listing' :
-              'Complete the form below. Payment will be processed after submission.'}
+              'Complete the form below. Payment will be processed after submission.')}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
-              {/* ... keep all existing form fields exactly as they are ... */}
               <div className="space-y-2">
                 <Label htmlFor="title">Job Title *</Label>
                 <Input
@@ -562,97 +889,241 @@ export default function PostJobPage() {
 
               </div>
 
+              {/* Organisation Selection - for users with permission to post on behalf of other orgs */}
+              {canPostOnBehalfOfOrg && (
+                <div className="space-y-3 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                  <div className="flex items-center gap-2">
+                    <Building2 className="w-5 h-5 text-blue-600" />
+                    <h3 className="font-semibold text-blue-900">Post on Behalf of Organisation</h3>
+                  </div>
+                  <p className="text-sm text-blue-700">
+                    You can post this job on behalf of another organisation. Search and select an organisation below, or leave as your own.
+                  </p>
+                  
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Popover open={orgSearchOpen} onOpenChange={setOrgSearchOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={orgSearchOpen}
+                          className="justify-between min-w-[280px] bg-white"
+                          data-testid="button-org-search"
+                        >
+                          <span className="truncate">
+                            {selectedOrganization ? selectedOrganization.name : "Search for an organisation..."}
+                          </span>
+                          <Search className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[350px] p-0" align="start">
+                        <Command>
+                          <CommandInput 
+                            placeholder="Type to search organisations..." 
+                            value={orgSearchQuery}
+                            onValueChange={setOrgSearchQuery}
+                            data-testid="input-org-search"
+                          />
+                          <CommandList>
+                            <CommandEmpty>No organisation found.</CommandEmpty>
+                            <CommandGroup>
+                              {filteredOrganizations.map((org) => (
+                                <CommandItem
+                                  key={org.id}
+                                  value={org.name}
+                                  onSelect={() => handleOrganizationSelect(org)}
+                                  className="cursor-pointer"
+                                  data-testid={`org-option-${org.id}`}
+                                >
+                                  <div className="flex items-center gap-3">
+                                    {org.logo_url ? (
+                                      <img 
+                                        src={org.logo_url} 
+                                        alt="" 
+                                        className="w-8 h-8 rounded object-contain bg-slate-100"
+                                      />
+                                    ) : (
+                                      <div className="w-8 h-8 rounded bg-slate-200 flex items-center justify-center">
+                                        <Building2 className="w-4 h-4 text-slate-500" />
+                                      </div>
+                                    )}
+                                    <span className="truncate">{org.name}</span>
+                                  </div>
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                    
+                    {selectedOrganization && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleResetToOwnOrg}
+                        className="text-blue-600 hover:text-blue-700"
+                        data-testid="button-reset-org"
+                      >
+                        <X className="w-4 h-4 mr-1" />
+                        Reset to my organisation
+                      </Button>
+                    )}
+                  </div>
+                  
+                  {selectedOrganization && (
+                    <div className="flex items-center gap-3 p-3 bg-white rounded-lg border border-blue-200">
+                      {selectedOrganization.logo_url ? (
+                        <img 
+                          src={selectedOrganization.logo_url} 
+                          alt="" 
+                          className="w-12 h-12 rounded object-contain bg-slate-100"
+                        />
+                      ) : (
+                        <div className="w-12 h-12 rounded bg-slate-200 flex items-center justify-center">
+                          <Building2 className="w-6 h-6 text-slate-500" />
+                        </div>
+                      )}
+                      <div>
+                        <p className="font-medium text-slate-900">{selectedOrganization.name}</p>
+                        <p className="text-xs text-slate-500">Posting on behalf of this organisation</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="space-y-2">
-                <Label htmlFor="company_name">Company/Organization *</Label>
+                <Label htmlFor="company_name">Company/Organisation *</Label>
                 <Input
                   id="company_name"
                   placeholder="e.g., University of Example"
                   value={formData.company_name}
                   onChange={(e) => setFormData({ ...formData, company_name: e.target.value })}
-                  disabled={isLoggedIn && organizationInfo}
-                  className={isLoggedIn && organizationInfo ? 'bg-slate-100 cursor-not-allowed' : ''}
+                  disabled={!isEditMode && isLoggedIn && (organizationInfo || selectedOrganization)}
+                  className={!isEditMode && isLoggedIn && (organizationInfo || selectedOrganization) ? 'bg-slate-100 cursor-not-allowed' : ''}
                   required />
 
-                {isLoggedIn && organizationInfo &&
+                {isLoggedIn && organizationInfo && !selectedOrganization &&
                 <p className="text-xs text-slate-500">
-                    Your organization details are automatically filled from your member profile
+                    Your organisation details are automatically filled from your member profile
+                  </p>
+                }
+                {selectedOrganization &&
+                <p className="text-xs text-blue-600">
+                    Using selected organisation's details
                   </p>
                 }
               </div>
 
-              {/* ... keep all remaining form fields unchanged ... */}
+              {/* Company Logo Section */}
               <div className="space-y-4 p-4 bg-slate-50 rounded-lg">
                 <div>
                   <h3 className="font-semibold text-slate-900 mb-1">Company Logo</h3>
-                  <p className="text-sm text-slate-600">Upload your company logo (max 5MB, images only)</p>
+                  <p className="text-sm text-slate-600">
+                    {isLoggedIn && organizationInfo 
+                      ? "Your organisation's logo will be used for this job posting"
+                      : "Upload your company logo (max 5MB, images only)"}
+                  </p>
                 </div>
 
-                {formData.company_logo_url ?
-                <div className="space-y-3">
+                {/* Logged-in member view - show org logo (read-only) */}
+                {isLoggedIn && organizationInfo && !isEditMode ? (
+                  formData.company_logo_url ? (
                     <div className="flex items-center gap-4 p-4 bg-white rounded-lg border border-slate-200">
                       <div className="w-24 h-24 flex-shrink-0 bg-slate-50 rounded-lg p-2 border border-slate-200">
                         <img
-                        src={formData.company_logo_url}
-                        alt="Company logo"
-                        className="w-full h-full object-contain" />
-
+                          src={formData.company_logo_url}
+                          alt="Organisation logo"
+                          className="w-full h-full object-contain"
+                        />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-slate-900">Logo uploaded successfully</p>
+                        <p className="text-sm font-medium text-slate-900">Organisation Logo</p>
+                        <p className="text-xs text-slate-500">From your organisation profile</p>
                       </div>
-                      <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={handleRemoveLogo}
-                      className="text-red-600 hover:text-red-700 hover:bg-red-50 flex-shrink-0">
-
-                        <X className="w-4 h-4" />
-                      </Button>
                     </div>
-                    <Label htmlFor="logo-change" className="cursor-pointer">
-                      <div className="flex items-center justify-center gap-2 px-4 py-2 border-2 border-dashed border-slate-300 rounded-md hover:border-blue-400 hover:bg-blue-50 transition-colors">
-                        <Upload className="w-4 h-4 text-slate-600" />
-                        <span className="text-sm font-medium text-slate-600">Change Logo</span>
+                  ) : (
+                    <div className="flex items-center gap-4 p-4 bg-white rounded-lg border border-slate-200">
+                      <div className="w-24 h-24 flex-shrink-0 bg-slate-100 rounded-lg flex items-center justify-center border border-slate-200">
+                        <ImageIcon className="w-8 h-8 text-slate-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-900">No logo set</p>
+                        <p className="text-xs text-slate-500">Your organisation doesn't have a logo uploaded</p>
+                      </div>
+                    </div>
+                  )
+                ) : (
+                  /* Non-member view - show upload functionality */
+                  formData.company_logo_url ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-4 p-4 bg-white rounded-lg border border-slate-200">
+                        <div className="w-24 h-24 flex-shrink-0 bg-slate-50 rounded-lg p-2 border border-slate-200">
+                          <img
+                            src={formData.company_logo_url}
+                            alt="Company logo"
+                            className="w-full h-full object-contain"
+                          />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-slate-900">Logo uploaded successfully</p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={handleRemoveLogo}
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50 flex-shrink-0"
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
+                      </div>
+                      <Label htmlFor="logo-change" className="cursor-pointer">
+                        <div className="flex items-center justify-center gap-2 px-4 py-2 border-2 border-dashed border-slate-300 rounded-md hover:border-blue-400 hover:bg-blue-50 transition-colors">
+                          <Upload className="w-4 h-4 text-slate-600" />
+                          <span className="text-sm font-medium text-slate-600">Change Logo</span>
+                        </div>
+                        <input
+                          id="logo-change"
+                          type="file"
+                          accept="image/*"
+                          onChange={handleLogoUpload}
+                          className="hidden"
+                          disabled={uploadingLogo}
+                        />
+                      </Label>
+                    </div>
+                  ) : (
+                    <Label htmlFor="logo-upload" className="cursor-pointer">
+                      <div className="flex flex-col items-center justify-center gap-3 p-8 border-2 border-dashed border-slate-300 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-colors">
+                        {uploadingLogo ? (
+                          <>
+                            <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+                            <span className="text-sm font-medium text-slate-600">Uploading...</span>
+                          </>
+                        ) : (
+                          <>
+                            <ImageIcon className="w-8 h-8 text-slate-400" />
+                            <div className="text-center">
+                              <span className="text-sm font-medium text-slate-900 block">Upload Company Logo</span>
+                              <span className="text-xs text-slate-500">Click to browse or drag and drop</span>
+                            </div>
+                          </>
+                        )}
                       </div>
                       <input
-                      id="logo-change"
-                      type="file"
-                      accept="image/*"
-                      onChange={handleLogoUpload}
-                      className="hidden"
-                      disabled={uploadingLogo} />
-
+                        id="logo-upload"
+                        type="file"
+                        accept="image/*"
+                        onChange={handleLogoUpload}
+                        className="hidden"
+                        disabled={uploadingLogo}
+                      />
                     </Label>
-                  </div> :
-
-                <Label htmlFor="logo-upload" className="cursor-pointer">
-                    <div className="flex flex-col items-center justify-center gap-3 p-8 border-2 border-dashed border-slate-300 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-colors">
-                      {uploadingLogo ?
-                    <>
-                          <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
-                          <span className="text-sm font-medium text-slate-600">Uploading...</span>
-                        </> :
-
-                    <>
-                          <ImageIcon className="w-8 h-8 text-slate-400" />
-                          <div className="text-center">
-                            <span className="text-sm font-medium text-slate-900 block">Upload Company Logo</span>
-                            <span className="text-xs text-slate-500">Click to browse or drag and drop</span>
-                          </div>
-                        </>
-                    }
-                    </div>
-                    <input
-                    id="logo-upload"
-                    type="file"
-                    accept="image/*"
-                    onChange={handleLogoUpload}
-                    className="hidden"
-                    disabled={uploadingLogo} />
-
-                  </Label>
-                }
+                  )
+                )}
               </div>
 
               <div className="grid md:grid-cols-2 gap-4">
@@ -729,14 +1200,17 @@ export default function PostJobPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="description">Job Description *</Label>
-                <Textarea
-                  id="description"
-                  placeholder="Describe the role, responsibilities, requirements, etc."
-                  rows={10}
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  required />
-
+                <div className="bg-white rounded-md border border-slate-200">
+                  <ReactQuill
+                    theme="snow"
+                    value={formData.description}
+                    onChange={(value) => setFormData({ ...formData, description: value })}
+                    modules={quillModules}
+                    formats={quillFormats}
+                    placeholder="Describe the role, responsibilities, requirements, etc."
+                    className="[&_.ql-container]:min-h-[200px] [&_.ql-editor]:min-h-[200px]"
+                  />
+                </div>
               </div>
 
               <div className="space-y-4 p-4 bg-slate-50 rounded-lg">
@@ -838,7 +1312,7 @@ export default function PostJobPage() {
                 </div>
               </div>
 
-              {!isLoggedIn &&
+              {!isLoggedIn && !isEditMode &&
               <div className="space-y-2">
                   <Label htmlFor="contact_name">Your Name *</Label>
                   <Input
@@ -851,6 +1325,7 @@ export default function PostJobPage() {
                 </div>
               }
 
+              {!isEditMode && (
               <div className="space-y-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
                 <div className="flex items-center gap-2">
                   <FileCheck className="w-5 h-5 text-blue-600" />
@@ -870,20 +1345,20 @@ export default function PostJobPage() {
                         type="button"
                         onClick={() => setShowTermsDialog(true)}
                         className="text-blue-600 hover:text-blue-700 underline font-medium">
-
-                        Graduate Futures Job Advertising Terms and Conditions
+                        {termsSettings?.title || 'Terms and Conditions'}
                       </button>
                       {' '}*
                     </Label>
                   </div>
                 </div>
               </div>
+              )}
 
               <div className="flex gap-4 pt-4">
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => window.location.href = createPageUrl('JobBoard')}
+                  onClick={() => window.location.href = isEditMode && returnTo ? createPageUrl(returnTo) : createPageUrl('JobBoard')}
                   className="flex-1">
 
                   Cancel
@@ -891,13 +1366,15 @@ export default function PostJobPage() {
                 <Button
                   type="submit"
                   className="flex-1 bg-blue-600 hover:bg-blue-700"
-                  disabled={step === 'submitting' || uploadingFiles || uploadingLogo || !agreedToTerms}>
+                  disabled={step === 'submitting' || uploadingFiles || uploadingLogo || (!agreedToTerms && !isEditMode)}
+                  onClick={() => console.log('[PostJob] Submit button clicked, agreedToTerms:', agreedToTerms, 'step:', step)}>
 
                   {step === 'submitting' ?
                   <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Processing...
+                      {isEditMode ? 'Saving...' : 'Processing...'}
                     </> :
+                  isEditMode ? 'Save Changes' :
                   isLoggedIn ?
                   'Submit for Approval' :
 
@@ -952,93 +1429,22 @@ export default function PostJobPage() {
       <Dialog open={showTermsDialog} onOpenChange={setShowTermsDialog}>
         <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-2xl">Graduate Futures Job Advertising Terms and Conditions</DialogTitle>
+            <DialogTitle className="text-2xl">
+              {termsSettings?.title || 'Graduate Futures Job Advertising Terms and Conditions'}
+            </DialogTitle>
           </DialogHeader>
           
-          <div className="space-y-6 py-4">
-            <div className="text-sm text-slate-600 space-y-1">
-              <p><strong>Effective date:</strong> January 2026</p>
-              <p><strong>Last reviewed:</strong> January 2026</p>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900 mb-2">1. Introduction</h3>
-                <div className="text-slate-700 space-y-2">
-                  <p>These Terms apply to all job advertisements placed on the Graduate Futures website (&quot;Job Board&quot;).</p>
-                  <p>By submitting a vacancy, you agree to these Terms and the Privacy Policy.</p>
-                </div>
+          <div className="py-4">
+            {termsSettings?.content ? (
+              <div 
+                className="prose prose-slate max-w-none prose-headings:text-slate-900 prose-h3:text-lg prose-h3:font-semibold prose-h3:mb-2 prose-p:text-slate-700 prose-li:text-slate-700 prose-ul:space-y-1 prose-a:text-blue-600 hover:prose-a:underline"
+                dangerouslySetInnerHTML={{ __html: termsSettings.content }}
+              />
+            ) : (
+              <div className="space-y-4 text-slate-700">
+                <p>Terms and conditions have not been configured. Please contact the administrator.</p>
               </div>
-
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900 mb-2">2. Eligibility and Content</h3>
-                <ul className="list-disc list-inside text-slate-700 space-y-2 ml-2">
-                  <li>Graduate Futures will only publish job vacancies directly relevant to the higher education careers and employability sector.</li>
-                  <li>Graduate Futures reserves the right to edit or decline any advert that does not meet these criteria.</li>
-                  <li>The Client is responsible for ensuring that all job descriptions and information are true, accurate, and non-discriminatory.</li>
-                  <li>The Client agrees that all job advertisements submitted to the Graduate Futures Job Board comply with applicable UK employment legislation, including but not limited to the Equality Act 2010.</li>
-                  <li>All data submitted by the client must comply with the UK GDPR and Graduate Futures Privacy Policy.</li>
-                </ul>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900 mb-2">3. Submission and Publication</h3>
-                <ul className="list-disc list-inside text-slate-700 space-y-2 ml-2">
-                  <li>Job adverts can be submitted online via the GRADUATE FUTURES Job Board.</li>
-                  <li>Publication is subject to GRADUATE FUTURES approval and full payment (where applicable).</li>
-                  <li>GRADUATE FUTURES aims to publish approved adverts within 24 hours.</li>
-                </ul>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900 mb-2">4. Fees and Payment</h3>
-                <ul className="list-disc list-inside text-slate-700 space-y-2 ml-2">
-                  <li>Non-member adverts are subject to the published rate (currently £515 + VAT).</li>
-                  <li>Members may post vacancies in accordance with their membership benefits.</li>
-                  <li>Payment must be made by credit/debit card.</li>
-                  <li>All fees are payable in pounds sterling and exclusive of VAT.</li>
-                </ul>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900 mb-2">5. Duration and Removal</h3>
-                <ul className="list-disc list-inside text-slate-700 space-y-2 ml-2">
-                  <li>Adverts will remain live on the website until the specified closing date, unless otherwise agreed.</li>
-                  <li>Graduate Futures reserves the right to remove adverts early if they breach these Terms or upon the Client&apos;s written request.</li>
-                  <li>Fees are non-refundable once an advert has gone live.</li>
-                </ul>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900 mb-2">6. Refunds</h3>
-                <div className="text-slate-700 space-y-2">
-                  <p>Refunds may only be issued where an advert cannot be published due to Graduate Futures error or technical failure.</p>
-                  <p>Requests should be made in writing to <a href="mailto:info@graduatefutures.org.uk" className="text-blue-600 hover:underline">info@graduatefutures.org.uk</a>.</p>
-                </div>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900 mb-2">7. Liability</h3>
-                <p className="text-slate-700 mb-2">Graduate Futures accepts no responsibility for:</p>
-                <ul className="list-disc list-inside text-slate-700 space-y-2 ml-2">
-                  <li>Errors in content supplied by the Client;</li>
-                  <li>Failure of an advert to attract candidates; or</li>
-                  <li>Any indirect or consequential loss.</li>
-                </ul>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900 mb-2">8. Contact</h3>
-                <p className="text-slate-700">
-                  <a href="mailto:info@graduatefutures.org.uk" className="text-blue-600 hover:underline">info@graduatefutures.org.uk</a>
-                </p>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900 mb-2">9. Right to amend</h3>
-                <p className="text-slate-700">Graduate Futures reserves the right to amend these Terms at any time.</p>
-              </div>
-            </div>
+            )}
           </div>
 
           <div className="flex gap-2 mt-4">
@@ -1048,14 +1454,52 @@ export default function PostJobPage() {
                 setShowTermsDialog(false);
               }}
               className="bg-blue-600 hover:bg-blue-700">
-
               I Agree to Terms
             </Button>
             <Button
               variant="outline"
               onClick={() => setShowTermsDialog(false)}>
-
               Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Submission Error Dialog */}
+      <Dialog open={showErrorDialog} onOpenChange={setShowErrorDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertCircle className="w-5 h-5" />
+              {submissionError.title}
+            </DialogTitle>
+            <DialogDescription>
+              {submissionError.message}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="py-4 space-y-3">
+            {submissionError.details.map((detail, index) => (
+              <div key={index} className="flex items-start gap-2 text-sm text-slate-700">
+                <span className="text-slate-400 mt-0.5">•</span>
+                <span>{detail}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex gap-2 mt-2">
+            <Button
+              onClick={() => setShowErrorDialog(false)}
+              className="flex-1">
+              Understood
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowErrorDialog(false);
+                window.location.href = '/support';
+              }}>
+              Contact Support
             </Button>
           </div>
         </DialogContent>

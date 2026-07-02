@@ -50,13 +50,13 @@ export default function BarePublicLayout({ children }) {
             />
           </a>
           <p className="text-sm text-slate-600">
-            <span style={{ color: '#eb008c' }}>i</span>Connect by{' '}
+            <span style={{ color: '#a30062' }}>i</span>Connect by{' '}
             <a 
               href="https://isaasi.co.uk" 
               target="_blank" 
               rel="noopener noreferrer"
-              className="hover:opacity-80 transition-opacity font-medium"
-              style={{ color: '#eb008c' }}
+              className="hover:opacity-80 transition-opacity font-medium underline"
+              style={{ color: '#a30062' }}
             >
               isaasi
             </a>
