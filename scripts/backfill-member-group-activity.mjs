@@ -42,7 +42,7 @@ async function run() {
   while (true) {
     const { data: assignments, error: assignErr } = await supabase
       .from('member_group_assignment')
-      .select('id, tenant_id, member_id, group_id')
+      .select('id, tenant_id, member_id, group_id, created_at')
       .not('member_id', 'is', null)
       .not('group_id', 'is', null)
       .order('id', { ascending: true })
