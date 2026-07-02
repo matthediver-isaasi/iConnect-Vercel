@@ -111,7 +111,11 @@ export default function CategoryManagementPage() {
       setShowRenameDialog(false);
       setEditingSubcategory(null);
       setRenameValue("");
-      toast.success(data.message || 'Subcategory renamed successfully');
+      if (data.partialFailure) {
+        toast.warning(data.message || 'Subcategory renamed, but some group links could not be updated');
+      } else {
+        toast.success(data.message || 'Subcategory renamed successfully');
+      }
     },
     onError: (error) => {
       toast.error('Failed to rename subcategory: ' + error.message);

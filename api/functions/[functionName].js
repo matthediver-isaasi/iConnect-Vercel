@@ -5171,21 +5171,32 @@ const functionHandlers = {
     }
 
     // Step 3: Update member_group.resource_subcategories arrays that reference the old name.
-    const { data: groups } = await supabase
+    let groupsUpdated = 0;
+    const groupUpdateFailures = [];
+    const { data: groups, error: groupFetchError } = await supabase
       .from('member_group')
       .select('id, resource_subcategories')
       .eq('tenant_id', tenantId);
 
-    if (Array.isArray(groups)) {
+    if (groupFetchError) {
+      console.warn(`[renameResourceSubcategory] Failed to fetch member groups for tenant ${tenantId}: ${groupFetchError.message}. Group-scoped resource links may still reference the old name "${oldSubcategoryName}".`);
+      groupUpdateFailures.push({ groupId: null, error: groupFetchError.message });
+    } else if (Array.isArray(groups)) {
       for (const group of groups) {
         const linked = Array.isArray(group.resource_subcategories) ? group.resource_subcategories : [];
         if (linked.includes(oldSubcategoryName)) {
           const updatedLinked = linked.map((s) => (s === oldSubcategoryName ? newSubcategoryName : s));
-          await supabase
+          const { error: groupUpdateError } = await supabase
             .from('member_group')
             .update({ resource_subcategories: updatedLinked })
             .eq('id', group.id)
             .eq('tenant_id', tenantId);
+          if (groupUpdateError) {
+            console.warn(`[renameResourceSubcategory] Failed to update member_group ${group.id} resource_subcategories from "${oldSubcategoryName}" to "${newSubcategoryName}": ${groupUpdateError.message}`);
+            groupUpdateFailures.push({ groupId: group.id, error: groupUpdateError.message });
+          } else {
+            groupsUpdated++;
+          }
         }
       }
     }
@@ -5204,11 +5215,23 @@ const functionHandlers = {
       return { success: false, error: 'Failed to update member category preferences: ' + memberPrefUpdateError.message };
     }
 
-    const message = resourceCount > 0
+    const partialFailure = groupUpdateFailures.length > 0;
+
+    let message = resourceCount > 0
       ? `Subcategory renamed successfully (${resourceCount} resource${resourceCount !== 1 ? 's' : ''} updated)`
       : 'Subcategory renamed successfully';
+    if (partialFailure) {
+      message += `. Warning: ${groupUpdateFailures.length} member group link${groupUpdateFailures.length !== 1 ? 's' : ''} could not be updated and may still reference the old name — run scripts/resync-resource-subcategories.mjs --fix-groups to repair.`;
+    }
 
-    return { success: true, updated: resourceCount, message };
+    return {
+      success: true,
+      updated: resourceCount,
+      groupsUpdated,
+      partialFailure,
+      groupUpdateFailures,
+      message,
+    };
   },
 
   async handleJobPostingPaymentWebhook(params, req) {

@@ -18,6 +18,9 @@
  *   --tenant=<uuid>          Scope to a single tenant (recommended for production runs)
  *   --map=<old>:<new>        One or more explicit rename mappings to apply.
  *                            Can be repeated: --map="Old Name:New Name" --map="Foo:Bar"
+ *   --fix-groups             Also repair stale member_group.resource_subcategories
+ *                            entries (group-scoped resource links left pointing at an
+ *                            old name after a rename step partially failed).
  *   --apply                  Write changes to the database. Without this flag the
  *                            script is a dry run and prints what it would change.
  *   --help                   Print this help text.
@@ -70,6 +73,7 @@ left behind by a subcategory rename bug (now fixed). Dry-run by default.
 Options:
   --tenant=<uuid>    Scope to a single tenant
   --map=<old>:<new>  Old→new name mapping (repeatable)
+  --fix-groups       Also repair stale member_group.resource_subcategories entries
   --apply            Write changes (without this flag: dry run only)
   --help             Show this help
 
@@ -79,6 +83,7 @@ See script header for full workflow.
 }
 
 const applyChanges = args.includes('--apply');
+const fixGroups = args.includes('--fix-groups');
 
 const tenantArg = args.find(a => a.startsWith('--tenant='));
 const tenantFilter = tenantArg ? tenantArg.split('=').slice(1).join('=') : null;
@@ -255,7 +260,8 @@ async function main() {
   if (renameMap.size === 0) {
     console.log('No --map flags supplied. Review the diagnosis above, determine the correct');
     console.log('old→new mappings, then re-run with --map="Old Name:New Name" (repeatable).');
-    console.log('Add --apply to write changes.\n');
+    console.log('Add --apply to write changes.');
+    console.log('Add --fix-groups to also repair member_group.resource_subcategories.\n');
     return;
   }
 
@@ -367,11 +373,64 @@ async function main() {
     }
   }
 
+  // ── Repair member groups ──────────────────────────────────────────────────
+
+  let totalGroupsUpdated = 0;
+  if (fixGroups) {
+    console.log();
+    console.log('─'.repeat(72));
+    console.log('  Repairing member_group.resource_subcategories …');
+    console.log('─'.repeat(72));
+
+    let groupQuery = supabase
+      .from('member_group')
+      .select('id, name, tenant_id, resource_subcategories');
+    if (tenantFilter) groupQuery = groupQuery.eq('tenant_id', tenantFilter);
+
+    const allGroups = await fetchAllPages(groupQuery);
+
+    for (const group of allGroups) {
+      const linked = Array.isArray(group.resource_subcategories) ? group.resource_subcategories : [];
+      if (linked.length === 0) continue;
+
+      const hasStale = linked.some(s => renameMap.has(s));
+      if (!hasStale) continue;
+
+      const newLinked = [...new Set(linked.map(s => renameMap.has(s) ? renameMap.get(s) : s))];
+
+      if (!applyChanges) {
+        console.log(`  [DRY RUN] group ${group.id} (${group.name || 'unnamed'}): ${JSON.stringify(linked)} → ${JSON.stringify(newLinked)}`);
+        totalGroupsUpdated++;
+        continue;
+      }
+
+      const { error } = await supabase
+        .from('member_group')
+        .update({ resource_subcategories: newLinked })
+        .eq('id', group.id)
+        .eq('tenant_id', group.tenant_id);
+
+      if (error) {
+        console.error(`  [ERROR] group ${group.id}: ${error.message}`);
+      } else {
+        console.log(`  [OK] group ${group.id} (${group.name || 'unnamed'}): ${JSON.stringify(linked)} → ${JSON.stringify(newLinked)}`);
+        totalGroupsUpdated++;
+      }
+    }
+
+    if (totalGroupsUpdated === 0) {
+      console.log('  No member groups referenced any of the supplied old names.');
+    }
+  }
+
   console.log();
   console.log('─'.repeat(72));
   console.log(`  Resources updated        : ${totalUpdated}`);
   console.log(`  Resources skipped        : ${totalSkipped} (no mapping provided)`);
   console.log(`  Member preferences fixed : ${totalMemberPrefsUpdated}`);
+  if (fixGroups) {
+    console.log(`  Member groups updated    : ${totalGroupsUpdated}`);
+  }
   if (!applyChanges) {
     console.log('\n  This was a DRY RUN. Re-run with --apply to write changes.');
   } else {
