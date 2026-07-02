@@ -16,7 +16,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { Image as ImageIcon, Lock, ChevronLeft, ChevronRight } from "lucide-react";
+import { Image as ImageIcon, Lock, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { useScreenReader } from "@/contexts/ScreenReaderContext";
 
 /**
@@ -143,19 +143,45 @@ export function IEditGalleryElementRenderer({ element, memberInfo }) {
     queryFn: async () => {
       if (isMember) {
         const list = (await base44.entities.Gallery.list("display_order")) || [];
-        // Page through every photo (listAll) rather than a single list() call.
-        // A plain list() is subject to PostgREST's ~1000-row cap, so on tenants
-        // with many gallery photos the galleries near the end of the list would
-        // open a Lightbox missing photos and show an under-counted photo total.
-        const photoList = (await base44.entities.GalleryPhoto.listAll({
-          sort: { display_order: "asc", created_at: "asc" },
-        })) || [];
-        const photosByGallery = new Map();
-        for (const p of photoList) {
-          if (!photosByGallery.has(p.gallery_id)) photosByGallery.set(p.gallery_id, []);
-          photosByGallery.get(p.gallery_id).push(p);
-        }
-        return list.map((g) => ({ ...g, photos: photosByGallery.get(g.id) || [] }));
+        // Load ONLY what the grid needs up front: an exact per-gallery photo
+        // count plus a cover photo. A gallery's actual photos are fetched
+        // lazily when its Lightbox opens (see openGalleryLightbox). Previously
+        // this branch paged through EVERY gallery photo across the tenant via
+        // listAll() so a member visiting a page with the widget downloaded
+        // metadata for all photos before opening a single gallery, which made
+        // the widget slow to first render on large tenants.
+        const enriched = await Promise.all(
+          list.map(async (g) => {
+            try {
+              // count: "exact" returns the full match total regardless of the
+              // limit, so limit:1 gives us both the count and a fallback cover.
+              const result = await base44.entities.GalleryPhoto.list({
+                filter: { gallery_id: g.id },
+                sort: { display_order: "asc", created_at: "asc" },
+                limit: 1,
+                queryParams: { count: "exact" },
+              });
+              const rows = Array.isArray(result?.data) ? result.data : [];
+              const photoCount = Number.isFinite(result?.count)
+                ? result.count
+                : rows.length;
+              let coverPhoto = rows[0] || null;
+              // Honour an explicit cover photo when it isn't the first photo.
+              if (g.cover_photo_id && coverPhoto?.id !== g.cover_photo_id) {
+                try {
+                  const c = await base44.entities.GalleryPhoto.get(g.cover_photo_id);
+                  if (c) coverPhoto = c;
+                } catch {
+                  // fall back to the first photo already resolved above
+                }
+              }
+              return { ...g, photoCount, coverPhoto };
+            } catch {
+              return { ...g, photoCount: 0, coverPhoto: null };
+            }
+          })
+        );
+        return enriched;
       }
       return await publicClient.listGalleries();
     },
@@ -171,6 +197,39 @@ export function IEditGalleryElementRenderer({ element, memberInfo }) {
 
   const [openGallery, setOpenGallery] = useState(null);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [lightboxPhotos, setLightboxPhotos] = useState([]);
+  const [lightboxLoading, setLightboxLoading] = useState(false);
+
+  const closeLightbox = () => {
+    setOpenGallery(null);
+    setLightboxPhotos([]);
+    setLightboxLoading(false);
+  };
+
+  const openGalleryLightbox = async (g) => {
+    setActiveIndex(0);
+    setOpenGallery(g);
+    // Public galleries already arrive with their photos loaded, so there is
+    // nothing to fetch. Member galleries only carry a cover + count up front,
+    // so fetch this single gallery's photos on demand (all of them, paging
+    // past PostgREST's ~1000-row cap so the Lightbox is complete).
+    if (!isMember) {
+      setLightboxPhotos(Array.isArray(g.photos) ? g.photos : []);
+      return;
+    }
+    setLightboxLoading(true);
+    try {
+      const photos = await base44.entities.GalleryPhoto.listAll({
+        filter: { gallery_id: g.id },
+        sort: { display_order: "asc", created_at: "asc" },
+      });
+      setLightboxPhotos(Array.isArray(photos) ? photos : []);
+    } catch {
+      setLightboxPhotos([]);
+    } finally {
+      setLightboxLoading(false);
+    }
+  };
 
   if (isLoading) {
     return <div className="container mx-auto px-4 text-sm text-slate-500">Loading galleries…</div>;
@@ -199,10 +258,16 @@ export function IEditGalleryElementRenderer({ element, memberInfo }) {
       <div className={`grid ${gridCols} gap-4`}>
         {visible.map((g) => {
           const galleryPhotos = Array.isArray(g.photos) ? g.photos : [];
-          // Prefer the cover resolved by the public list endpoint (cap-safe);
-          // fall back to deriving it from the loaded photos for the member path.
+          // Member path carries an exact photoCount up front; public path
+          // ships the full photos array, so fall back to its length.
+          const photoCount =
+            typeof g.photoCount === "number" ? g.photoCount : galleryPhotos.length;
+          // Prefer the cover resolved by the public list endpoint (cap-safe)
+          // or the member path's pre-fetched coverPhoto; otherwise derive it
+          // from any loaded photos.
           const cover =
             g.cover_photo ||
+            g.coverPhoto ||
             galleryPhotos.find((p) => p.id === g.cover_photo_id) ||
             galleryPhotos[0] ||
             null;
@@ -210,10 +275,7 @@ export function IEditGalleryElementRenderer({ element, memberInfo }) {
             <Card
               key={g.id}
               className="overflow-hidden cursor-pointer hover-elevate"
-              onClick={() => {
-                setOpenGallery(g);
-                setActiveIndex(0);
-              }}
+              onClick={() => openGalleryLightbox(g)}
               data-testid={`card-gallery-${g.id}`}
             >
               <div className="relative aspect-[4/3] bg-slate-100 flex items-center justify-center">
@@ -248,7 +310,7 @@ export function IEditGalleryElementRenderer({ element, memberInfo }) {
                   <p className="text-sm text-slate-600 mt-1 line-clamp-2">{g.description}</p>
                 )}
                 <p className="text-xs text-slate-500 mt-2">
-                  {galleryPhotos.length} photo{galleryPhotos.length === 1 ? "" : "s"}
+                  {photoCount} photo{photoCount === 1 ? "" : "s"}
                 </p>
               </div>
             </Card>
@@ -257,13 +319,31 @@ export function IEditGalleryElementRenderer({ element, memberInfo }) {
       </div>
 
       {openGallery && (
-        <Lightbox
-          gallery={openGallery}
-          activeIndex={activeIndex}
-          onIndexChange={setActiveIndex}
-          onClose={() => setOpenGallery(null)}
-          srOptimised={srOptimised}
-        />
+        lightboxLoading ? (
+          <Dialog open={true} onOpenChange={(open) => { if (!open) closeLightbox(); }}>
+            <DialogContent
+              className="max-w-[95vw] w-[95vw] sm:max-w-4xl bg-black/95 border-none p-0 overflow-hidden"
+              data-testid="lightbox-gallery-loading"
+            >
+              <DialogHeader className="sr-only">
+                <DialogTitle>{openGallery.title || "Photo gallery"}</DialogTitle>
+                <DialogDescription>Loading photos…</DialogDescription>
+              </DialogHeader>
+              <div className="flex items-center justify-center min-h-[60vh] text-white">
+                <Loader2 className="w-8 h-8 animate-spin" aria-hidden="true" />
+                <span className="sr-only" aria-live="polite">Loading photos…</span>
+              </div>
+            </DialogContent>
+          </Dialog>
+        ) : lightboxPhotos.length > 0 ? (
+          <Lightbox
+            gallery={{ ...openGallery, photos: lightboxPhotos }}
+            activeIndex={activeIndex}
+            onIndexChange={setActiveIndex}
+            onClose={closeLightbox}
+            srOptimised={srOptimised}
+          />
+        ) : null
       )}
     </div>
   );
