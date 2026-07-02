@@ -646,6 +646,28 @@ export default function HistoryPage({ hasBanner }) {
     );
   };
 
+  // Shared date presentation: stacked fixed-width column on desktop, hidden on mobile
+  const TransactionDateColumn = ({ date }) => (
+    <div className="hidden sm:block w-20 shrink-0 text-center">
+      {date ? (
+        <div className="flex flex-col">
+          <span className="text-lg font-bold text-slate-900">{format(date, 'd')}</span>
+          <span className="text-xs text-slate-600 uppercase">{format(date, 'MMM yyyy')}</span>
+          <span className="text-xs text-slate-500">{format(date, 'h:mm a')}</span>
+        </div>
+      ) : (
+        <span className="text-xs text-slate-400">No date</span>
+      )}
+    </div>
+  );
+
+  // Shared date presentation: compact inline line on mobile, hidden on desktop
+  const TransactionDateInline = ({ date }) => (
+    <div className="sm:hidden text-xs text-slate-500 mb-1">
+      {date ? format(date, 'd MMM yyyy • h:mm a') : 'No date'}
+    </div>
+  );
+
   // Component for standard ticket booking group with date column
   const BookingGroupCard = ({ group, loadingBookingInvoice, handleViewBookingInvoice, handleDownloadBookingInvoice, canAccessInvoices }) => {
     const { reference, bookings, firstBooking, event } = group;
@@ -659,25 +681,16 @@ export default function HistoryPage({ hasBanner }) {
 
     return (
       <div className="flex flex-col gap-3 p-4 bg-slate-50 rounded-lg border border-slate-200">
-        <div className="flex items-start gap-4">
-          {/* Date Column */}
-          <div className="w-20 shrink-0 text-center">
-            {transactionDate ? (
-              <div className="flex flex-col">
-                <span className="text-lg font-bold text-slate-900">{format(transactionDate, 'd')}</span>
-                <span className="text-xs text-slate-600 uppercase">{format(transactionDate, 'MMM yyyy')}</span>
-                <span className="text-xs text-slate-500">{format(transactionDate, 'h:mm a')}</span>
-              </div>
-            ) : (
-              <span className="text-xs text-slate-400">No date</span>
-            )}
-          </div>
+        <div className="flex items-start gap-3 sm:gap-4">
+          {/* Date Column (desktop) */}
+          <TransactionDateColumn date={transactionDate} />
           
-          <div className="p-3 rounded-lg bg-blue-100 text-blue-600">
-            <CreditCard className="w-5 h-5" />
+          <div className="p-2 sm:p-3 rounded-lg bg-blue-100 text-blue-600 shrink-0">
+            <CreditCard className="w-4 h-4 sm:w-5 sm:h-5" />
           </div>
           
           <div className="flex-1 min-w-0">
+            <TransactionDateInline date={transactionDate} />
             <div className="flex items-center gap-2 mb-1 flex-wrap">
               <h3 className="font-semibold text-slate-900">{eventTitle}</h3>
               <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200">
@@ -713,7 +726,7 @@ export default function HistoryPage({ hasBanner }) {
         </div>
         
         {/* Attendees list */}
-        <div className="pl-24">
+        <div className="pl-0 sm:pl-24">
           <div className="text-xs text-slate-500 mb-2">Attendees:</div>
           <div className="flex flex-wrap gap-2">
             {bookings.slice(0, 5).map((booking, idx) => (
@@ -794,26 +807,17 @@ export default function HistoryPage({ hasBanner }) {
     const transactionDate = transaction.created_date ? new Date(transaction.created_date) : null;
 
     return (
-      <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
-        {/* Date Column */}
-        <div className="w-20 shrink-0 text-center">
-          {transactionDate ? (
-            <div className="flex flex-col">
-              <span className="text-lg font-bold text-slate-900">{format(transactionDate, 'd')}</span>
-              <span className="text-xs text-slate-600 uppercase">{format(transactionDate, 'MMM yyyy')}</span>
-              <span className="text-xs text-slate-500">{format(transactionDate, 'h:mm a')}</span>
-            </div>
-          ) : (
-            <span className="text-xs text-slate-400">No date</span>
-          )}
+      <div className="flex items-start sm:items-center gap-3 sm:gap-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
+        {/* Date Column (desktop) */}
+        <TransactionDateColumn date={transactionDate} />
+        
+        <div className={`p-2 sm:p-3 rounded-lg shrink-0 ${colorClass}`}>
+          <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
         </div>
         
-        <div className={`p-3 rounded-lg ${colorClass}`}>
-          <Icon className="w-5 h-5" />
-        </div>
-        
-        <div className="flex-1">
-          <div className="flex items-center gap-2 mb-1">
+        <div className="flex-1 min-w-0">
+          <TransactionDateInline date={transactionDate} />
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
             <h3 className="font-semibold text-slate-900">{label}</h3>
             <Badge variant="outline" className="text-xs">
               {transaction.program_name}
@@ -915,25 +919,16 @@ export default function HistoryPage({ hasBanner }) {
       : null;
 
     return (
-      <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
-        {/* Date Column */}
-        <div className="w-20 shrink-0 text-center">
-          {transactionDate ? (
-            <div className="flex flex-col">
-              <span className="text-lg font-bold text-slate-900">{format(transactionDate, 'd')}</span>
-              <span className="text-xs text-slate-600 uppercase">{format(transactionDate, 'MMM yyyy')}</span>
-              <span className="text-xs text-slate-500">{format(transactionDate, 'h:mm a')}</span>
-            </div>
-          ) : (
-            <span className="text-xs text-slate-400">No date</span>
-          )}
+      <div className="flex items-start sm:items-center gap-3 sm:gap-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
+        {/* Date Column (desktop) */}
+        <TransactionDateColumn date={transactionDate} />
+        
+        <div className={`p-2 sm:p-3 rounded-lg shrink-0 ${typeInfo.color}`}>
+          <Wallet className="w-4 h-4 sm:w-5 sm:h-5" />
         </div>
         
-        <div className={`p-3 rounded-lg ${typeInfo.color}`}>
-          <Wallet className="w-5 h-5" />
-        </div>
-        
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
+          <TransactionDateInline date={transactionDate} />
           <div className="flex items-center gap-2 mb-1 flex-wrap">
             <h3 className="font-semibold text-slate-900">Training Fund</h3>
             <Badge variant="outline" className={`text-xs ${typeInfo.color}`}>
@@ -988,25 +983,16 @@ export default function HistoryPage({ hasBanner }) {
     const transactionDate = transaction.created_at ? new Date(transaction.created_at) : null;
 
     return (
-      <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
-        {/* Date Column */}
-        <div className="w-20 shrink-0 text-center">
-          {transactionDate ? (
-            <div className="flex flex-col">
-              <span className="text-lg font-bold text-slate-900">{format(transactionDate, 'd')}</span>
-              <span className="text-xs text-slate-600 uppercase">{format(transactionDate, 'MMM yyyy')}</span>
-              <span className="text-xs text-slate-500">{format(transactionDate, 'h:mm a')}</span>
-            </div>
-          ) : (
-            <span className="text-xs text-slate-400">No date</span>
-          )}
+      <div className="flex items-start sm:items-center gap-3 sm:gap-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
+        {/* Date Column (desktop) */}
+        <TransactionDateColumn date={transactionDate} />
+        
+        <div className={`p-2 sm:p-3 rounded-lg shrink-0 ${typeInfo.color}`}>
+          <Gift className="w-4 h-4 sm:w-5 sm:h-5" />
         </div>
         
-        <div className={`p-3 rounded-lg ${typeInfo.color}`}>
-          <Gift className="w-5 h-5" />
-        </div>
-        
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
+          <TransactionDateInline date={transactionDate} />
           <div className="flex items-center gap-2 mb-1 flex-wrap">
             <h3 className="font-semibold text-slate-900">Training Voucher</h3>
             <Badge variant="outline" className={`text-xs ${typeInfo.color}`}>
@@ -1047,24 +1033,15 @@ export default function HistoryPage({ hasBanner }) {
 
     return (
       <div className="flex flex-col gap-3 p-4 bg-slate-50 rounded-lg border border-slate-200">
-        <div className="flex items-start gap-4">
-          <div className="w-20 shrink-0 text-center">
-            {transactionDate ? (
-              <div className="flex flex-col">
-                <span className="text-lg font-bold text-slate-900">{format(transactionDate, 'd')}</span>
-                <span className="text-xs text-slate-600 uppercase">{format(transactionDate, 'MMM yyyy')}</span>
-                <span className="text-xs text-slate-500">{format(transactionDate, 'h:mm a')}</span>
-              </div>
-            ) : (
-              <span className="text-xs text-slate-400">No date</span>
-            )}
-          </div>
+        <div className="flex items-start gap-3 sm:gap-4">
+          <TransactionDateColumn date={transactionDate} />
           
-          <div className="p-3 rounded-lg bg-indigo-100 text-indigo-600">
-            <Crown className="w-5 h-5" />
+          <div className="p-2 sm:p-3 rounded-lg bg-indigo-100 text-indigo-600 shrink-0">
+            <Crown className="w-4 h-4 sm:w-5 sm:h-5" />
           </div>
           
           <div className="flex-1 min-w-0">
+            <TransactionDateInline date={transactionDate} />
             <div className="flex items-center gap-2 mb-1 flex-wrap">
               <h3 className="font-semibold text-slate-900">Membership {record.membership_year}</h3>
               <Badge variant="outline" className="text-xs bg-indigo-50 text-indigo-700 border-indigo-200">
@@ -1252,7 +1229,7 @@ export default function HistoryPage({ hasBanner }) {
               </div>
             ) : (
               <Tabs value={activeTab} onValueChange={setActiveTab}>
-                <TabsList className="mb-4 flex-wrap">
+                <TabsList className="mb-4 flex flex-wrap h-auto gap-1">
                   <TabsTrigger value="all" data-testid="tab-all">All</TabsTrigger>
                   <TabsTrigger value="tickets" data-testid="tab-tickets">
                     Standard Tickets ({bookingGroups.length})
