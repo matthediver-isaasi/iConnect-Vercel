@@ -12,6 +12,7 @@ import {
   Send,
   Check,
   Users2,
+  Lock,
 } from "lucide-react";
 
 const COMMITMENT_UNIT_LABELS = {
@@ -109,6 +110,7 @@ export default function VacancyCard({
   positionsRemaining,
   onExpressInterest,
   expressDisabled = false,
+  joinLocked = false,
   adminActions = null,
   groupName = null,
   groupUrl = null,
@@ -230,7 +232,17 @@ export default function VacancyCard({
 
       {!isClosed && (
         <div className="mt-4">
-          {alreadyApplied && !vacancy.application_form_id ? (
+          {joinLocked ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled
+              data-testid={`button-join-locked-${vacancy.id}`}
+            >
+              <Lock className="w-4 h-4 mr-2" />
+              Join group to access
+            </Button>
+          ) : alreadyApplied && !vacancy.application_form_id ? (
             <div
               className="inline-flex items-center text-sm text-green-700"
               data-testid={`text-vacancy-applied-${vacancy.id}`}

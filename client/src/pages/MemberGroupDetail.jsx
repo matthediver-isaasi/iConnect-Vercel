@@ -1254,6 +1254,10 @@ export default function MemberGroupDetailPage() {
 
   // --- Group events section ---
   const isEventAdmin = !isFeatureExcluded("events.browse-events.create");
+
+  // Non-members see all content (resources, events, vacancies) but with locked
+  // CTAs. Tenant-level admins (isEventAdmin) are also treated as having access.
+  const canAccessGroupContent = isJoined || isGroupAdmin || isEventAdmin;
   const { eventTypes } = useEventTypes();
 
   const { data: systemSettings = [] } = useQuery({
@@ -1277,12 +1281,16 @@ export default function MemberGroupDetailPage() {
   const [eventSort, setEventSort] = useState("date-asc");
 
   // Apply group-event audience rules: public group events for everyone,
-  // group-only events only for admins or members of THIS group. Dormant
-  // bespoke RSVP events are hidden by the shared helper.
+  // group-only events only for admins or members of THIS group. On this
+  // group's own detail page non-members also see group-only events (they get
+  // locked CTAs instead). Dormant bespoke RSVP events are hidden by the
+  // shared helper.
   const accessibleGroupEvents = useMemo(() => {
     const visible = filterGroupEventVisibility(groupEventsRaw, {
       isAdmin: isEventAdmin,
-      myGroupIds: isJoined ? [groupId] : [],
+      // Always pass groupId so non-members see this group's private events too;
+      // the lock is applied at the CTA level via canAccessGroupContent.
+      myGroupIds: [groupId],
     });
     return visible.filter((event) => {
       const isDraft =
@@ -1474,10 +1482,10 @@ export default function MemberGroupDetailPage() {
     for (const r of groupResources) byId.set(r.id, r);
     for (const r of linkedTenantResources) if (!byId.has(r.id)) byId.set(r.id, r);
     const merged = Array.from(byId.values());
-    if (isGroupAdmin || isJoined) return merged;
-    // Non-member, non-admin viewers only see public resources.
-    return merged.filter((r) => r.is_public === true);
-  }, [groupResources, linkedTenantResources, isGroupAdmin, isJoined]);
+    // All merged resources are shown to everyone on this group detail page;
+    // non-members see them but get a locked CTA via canAccessGroupContent.
+    return merged;
+  }, [groupResources, linkedTenantResources]);
 
   const filteredResources = useMemo(() => {
     const q = resourceSearch.trim().toLowerCase();
@@ -2357,6 +2365,7 @@ export default function MemberGroupDetailPage() {
                       positionsRemaining={positionsRemaining}
                       onExpressInterest={handleExpressInterest}
                       expressDisabled={!memberInfo?.id}
+                      joinLocked={!canAccessGroupContent}
                       adminActions={adminActions}
                     />
                   );
@@ -2531,6 +2540,7 @@ export default function MemberGroupDetailPage() {
                           isAdmin={isEventAdmin}
                           systemSettings={systemSettings}
                           memberInfo={memberInfo}
+                          joinLocked={!canAccessGroupContent}
                         />
                       ))}
                     </div>
@@ -2686,6 +2696,7 @@ export default function MemberGroupDetailPage() {
                             key={resource.id}
                             resource={resource}
                             isAuthenticated={isAuthenticated}
+                            joinLocked={!canAccessGroupContent}
                             onEdit={canManage ? openEditResourceDialog : undefined}
                             onDelete={
                               canManage

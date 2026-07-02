@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { Calendar, MapPin, Users, Clock, Ticket, AlertCircle, ShoppingCart, Pencil, Trash2, Video, Globe, UsersRound, Download, Upload, Search, ChevronLeft, ChevronRight, Loader2, CheckCircle2, XCircle, AlertTriangle, Send, Plus, Copy } from "lucide-react";
+import { Calendar, MapPin, Users, Clock, Ticket, AlertCircle, ShoppingCart, Pencil, Trash2, Video, Globe, UsersRound, Download, Upload, Search, ChevronLeft, ChevronRight, Loader2, CheckCircle2, XCircle, AlertTriangle, Send, Plus, Copy, Lock } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { createPageUrl, getEventUrl } from "@/utils";
 import { parseEventTypes } from "@/lib/utils";
@@ -173,7 +173,7 @@ const getCheapestTicketPrice = (event) => {
   return null;
 };
 
-export default function EventCard({ event, organizationInfo, isFeatureExcluded, isAdmin, onEventDeleted, joinLinkSettings, webinars, systemSettings = [], memberInfo }) {
+export default function EventCard({ event, organizationInfo, isFeatureExcluded, isAdmin, onEventDeleted, joinLinkSettings, webinars, systemSettings = [], memberInfo, joinLocked = false }) {
   const queryClient = useQueryClient();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
@@ -1013,14 +1013,26 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                     Event Ended
                   </Button>
                 ) : needsTickets ? (
-                  <Button 
-                    className="w-full bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700"
-                    onClick={() => window.location.href = createPageUrl('BuyProgramTickets')}
-                    data-testid={`button-buy-tickets-${event.id}`}
-                  >
-                    <ShoppingCart className="w-4 h-4 mr-2" />
-                    Buy Tickets
-                  </Button>
+                  joinLocked ? (
+                    <Button
+                      className="w-full"
+                      variant="secondary"
+                      disabled
+                      data-testid={`button-join-locked-${event.id}`}
+                    >
+                      <Lock className="w-4 h-4 mr-2" />
+                      Join group to access
+                    </Button>
+                  ) : (
+                    <Button 
+                      className="w-full bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700"
+                      onClick={() => window.location.href = createPageUrl('BuyProgramTickets')}
+                      data-testid={`button-buy-tickets-${event.id}`}
+                    >
+                      <ShoppingCart className="w-4 h-4 mr-2" />
+                      Buy Tickets
+                    </Button>
+                  )
                 ) : (() => {
                   const ctaConfig = getCtaButtonConfig(systemSettings);
                   const isSoldOut = !hasUnlimitedCapacity && event.available_seats === 0;
@@ -1055,6 +1067,20 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                         data-testid={`button-register-event-${event.id}`}
                       >
                         {buttonLabel}
+                      </Button>
+                    );
+                  }
+
+                  if (joinLocked) {
+                    return (
+                      <Button
+                        className="w-full"
+                        variant="secondary"
+                        disabled
+                        data-testid={`button-join-locked-${event.id}`}
+                      >
+                        <Lock className="w-4 h-4 mr-2" />
+                        Join group to access
                       </Button>
                     );
                   }

@@ -30,7 +30,7 @@ const iconMap = {
   Plus,
 };
 
-export default function ResourceCard({ resource, isLocked = false, isEventLocked = false, buttonStyles = [], enabledSocialIcons = ['x', 'linkedin', 'email'], isAuthenticated = true, viewCount = null, onResourceView, onEdit, onDelete }) {
+export default function ResourceCard({ resource, isLocked = false, isEventLocked = false, joinLocked = false, buttonStyles = [], enabledSocialIcons = ['x', 'linkedin', 'email'], isAuthenticated = true, viewCount = null, onResourceView, onEdit, onDelete }) {
   const [copied, setCopied] = useState(false);
   
   // Get button style from props instead of fetching
@@ -128,6 +128,21 @@ export default function ResourceCard({ resource, isLocked = false, isEventLocked
         >
           <Lock className="w-4 h-4 mr-2" />
           Member login required
+        </Button>
+      );
+    }
+
+    // Show locked CTA for non-members of the group on a group detail page
+    if (joinLocked) {
+      return (
+        <Button
+          className="w-full"
+          variant="secondary"
+          disabled
+          data-testid={`button-join-locked-${resource.id}`}
+        >
+          <Lock className="w-4 h-4 mr-2" />
+          Join group to access
         </Button>
       );
     }
