@@ -1,0 +1,52 @@
+{
+  "name": "ComplexEventSessionCheckin",
+  "type": "object",
+  "properties": {
+    "complex_event_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Reference to the complex event this check-in belongs to"
+    },
+    "booking_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Reference to the complex_event_booking being checked in"
+    },
+    "session_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Reference to the complex_event_session being checked in"
+    },
+    "token": {
+      "type": "string",
+      "description": "Per-(booking, session) QR check-in token"
+    },
+    "checked_in_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the attendee was checked in. Null when never checked in or when a check-in has been reversed (deregistered)."
+    },
+    "checked_in_by": {
+      "type": "string",
+      "description": "Label of who performed the check-in"
+    },
+    "check_in_reversed_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When a check-in was reversed (deregistered)"
+    },
+    "check_in_reversed_by": {
+      "type": "string",
+      "description": "Label of who reversed the check-in"
+    },
+    "check_in_reversal_reason": {
+      "type": "string",
+      "description": "Optional reason a check-in was reversed"
+    }
+  },
+  "required": [
+    "complex_event_id",
+    "booking_id",
+    "session_id"
+  ]
+}

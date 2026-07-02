@@ -185,6 +185,7 @@ export const entityTenantScope = {
   'ComplexEventSession': TENANT_SCOPE.TENANT,
   'ComplexEventTicketClass': TENANT_SCOPE.TENANT,
   'ComplexEventBooking': TENANT_SCOPE.TENANT,
+  'ComplexEventSessionCheckin': TENANT_SCOPE.TENANT,
 
   // CRM Tag colours - per-tenant tag colour assignments
   'CrmTagColor': TENANT_SCOPE.TENANT,

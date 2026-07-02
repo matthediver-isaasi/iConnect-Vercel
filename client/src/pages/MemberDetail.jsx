@@ -530,6 +530,52 @@ export default function MemberDetail() {
     }
   });
 
+  const complexBookingIds = useMemo(() => {
+    const ids = new Set();
+    for (const b of complexBookings) {
+      if (b?.id) ids.add(b.id);
+    }
+    return Array.from(ids);
+  }, [complexBookings]);
+
+  const { data: complexCheckins = [], isLoading: complexCheckinsLoading } = useQuery({
+    queryKey: ['member-detail-complex-checkins', complexBookingIds],
+    enabled: activeTab === 'activity' && complexBookingIds.length > 0,
+    queryFn: async () => {
+      try {
+        return await base44.entities.ComplexEventSessionCheckin.list({
+          filter: { booking_id: { in: complexBookingIds } }
+        }) || [];
+      } catch (err) {
+        console.error('[MemberDetail] member-detail-complex-checkins query failed', err);
+        return [];
+      }
+    }
+  });
+
+  const checkinSessionIds = useMemo(() => {
+    const ids = new Set();
+    for (const ci of complexCheckins) {
+      if (ci?.checked_in_at && ci?.session_id) ids.add(ci.session_id);
+    }
+    return Array.from(ids);
+  }, [complexCheckins]);
+
+  const { data: checkinSessions = [] } = useQuery({
+    queryKey: ['member-detail-checkin-sessions', checkinSessionIds],
+    enabled: activeTab === 'activity' && checkinSessionIds.length > 0,
+    queryFn: async () => {
+      try {
+        return await base44.entities.ComplexEventSession.list({
+          filter: { id: { in: checkinSessionIds } }
+        }) || [];
+      } catch (err) {
+        console.error('[MemberDetail] member-detail-checkin-sessions query failed', err);
+        return [];
+      }
+    }
+  });
+
   const unifiedBookings = useMemo(() => {
     const buildAttendeeName = (b) => {
       const first = (b?.attendee_first_name || '').trim();
@@ -589,12 +635,44 @@ export default function MemberDetail() {
       date: ev.created_at || null,
     }));
 
-    return [...simpleItems, ...complexItems, ...groupItems]
+    // Simple-event check-ins: derived from live booking state. A reversed
+    // (deregistered) check-in nulls checked_in_at, so it drops out here.
+    const simpleCheckinItems = (memberBookings || [])
+      .filter(b => b?.checked_in_at)
+      .map(b => {
+        const event = events.find(e => e.id === b.event_id);
+        return {
+          key: `checkin-simple-${b.id}`,
+          id: b.id,
+          source: 'checkin',
+          title: event?.title || 'Unknown Event',
+          sessionName: null,
+          date: b.checked_in_at,
+        };
+      });
+
+    // Complex-event per-session check-ins. Same reversal semantics.
+    const complexCheckinItems = (complexCheckins || [])
+      .filter(ci => ci?.checked_in_at)
+      .map(ci => {
+        const ev = complexEvents.find(e => e.id === ci.complex_event_id);
+        const session = checkinSessions.find(s => s.id === ci.session_id);
+        return {
+          key: `checkin-complex-${ci.id}`,
+          id: ci.id,
+          source: 'checkin',
+          title: ev?.title || 'Unknown Event',
+          sessionName: session?.title || null,
+          date: ci.checked_in_at,
+        };
+      });
+
+    return [...simpleItems, ...complexItems, ...groupItems, ...simpleCheckinItems, ...complexCheckinItems]
       .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
       .slice(0, 50);
-  }, [memberBookings, complexBookings, events, complexEvents, id, memberEmailLower, groupActivityEvents]);
+  }, [memberBookings, complexBookings, events, complexEvents, id, memberEmailLower, groupActivityEvents, complexCheckins, checkinSessions]);
 
-  const anyBookingsLoading = bookingsLoading || complexBookingsLoading || groupActivityLoading;
+  const anyBookingsLoading = bookingsLoading || complexBookingsLoading || groupActivityLoading || complexCheckinsLoading;
 
   // Categories tab queries
   const { data: resourceCategories = [], isLoading: categoriesLoading } = useQuery({
@@ -2221,6 +2299,36 @@ export default function MemberDetail() {
                               data-testid={`badge-group-activity-action-${item.id}`}
                             >
                               {isJoined ? 'Joined' : 'Left'}
+                            </Badge>
+                          </div>
+                        </div>
+                      );
+                    }
+                    if (item.source === 'checkin') {
+                      return (
+                        <div
+                          key={item.key}
+                          className="flex items-start justify-between gap-3 p-3 bg-slate-50 rounded-lg"
+                          data-testid={`row-checkin-${item.id}`}
+                        >
+                          <div className="flex items-start gap-3 min-w-0 flex-1">
+                            <div className="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center shrink-0">
+                              <UserCheck className="w-5 h-5 text-green-600" />
+                            </div>
+                            <div className="min-w-0 flex-1 space-y-0.5">
+                              <p className="font-medium text-sm" data-testid={`text-checkin-label-${item.id}`}>
+                                Checked in to{' '}
+                                <span className="font-semibold">{item.title}</span>
+                                {item.sessionName ? ` · ${item.sessionName}` : ''}
+                              </p>
+                              <p className="text-xs text-slate-500" data-testid={`text-checkin-date-${item.id}`}>
+                                {item.date ? formatDate(item.date) : '—'}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="shrink-0">
+                            <Badge variant="outline" data-testid={`badge-checkin-${item.id}`}>
+                              Checked in
                             </Badge>
                           </div>
                         </div>

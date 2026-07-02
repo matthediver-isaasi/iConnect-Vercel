@@ -250,6 +250,7 @@ const entityToTable = {
   'MemberGroup': 'member_group',
   'MemberGroupAssignment': 'member_group_assignment',
   'MemberGroupActivity': 'member_group_activity',
+  'ComplexEventSessionCheckin': 'complex_event_session_checkin',
   'MemberGroupClassification': 'member_group_classification',
   'GuestWriter': 'guest_writer',
   'PortalMenu': 'portal_menu',
@@ -918,7 +919,7 @@ export default async function handler(req, res) {
               'CrmTagColor',
               'Vacancy', 'VacancyApplication', 'VacancyAward', 'VacancyDecline', 'VacancyDecisionEmail',
               'Gallery', 'GalleryPhoto', 'CardDeck',
-              'MemberGroupActivity'
+              'MemberGroupActivity', 'ComplexEventSessionCheckin'
             ];
             if (entitiesWithoutOrgId.includes(entity)) {
               // SECURITY: Entities without organization_id column MUST have tenant_id - block access if missing

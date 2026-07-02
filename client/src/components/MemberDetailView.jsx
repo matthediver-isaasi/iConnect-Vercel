@@ -50,6 +50,7 @@ import {
   Trash2,
   MessageSquare,
   Search,
+  UserCheck,
   Plus,
   ChevronLeft,
   ChevronRight,
@@ -363,6 +364,50 @@ export default function MemberDetailView({
 
   const memberEmailLower = (member?.email || '').trim().toLowerCase();
 
+  const complexBookingIds = useMemo(() => {
+    const ids = new Set();
+    for (const b of complexBookings) {
+      if (b?.id) ids.add(b.id);
+    }
+    return Array.from(ids);
+  }, [complexBookings]);
+
+  const { data: complexCheckins = [], isLoading: complexCheckinsLoading } = useQuery({
+    queryKey: ['member-detail-view-complex-checkins', complexBookingIds],
+    enabled: activeTab === 'activity' && complexBookingIds.length > 0,
+    queryFn: async () => {
+      try {
+        return await base44.entities.ComplexEventSessionCheckin.list({
+          filter: { booking_id: { in: complexBookingIds } }
+        }) || [];
+      } catch {
+        return [];
+      }
+    }
+  });
+
+  const checkinSessionIds = useMemo(() => {
+    const ids = new Set();
+    for (const ci of complexCheckins) {
+      if (ci?.checked_in_at && ci?.session_id) ids.add(ci.session_id);
+    }
+    return Array.from(ids);
+  }, [complexCheckins]);
+
+  const { data: checkinSessions = [] } = useQuery({
+    queryKey: ['member-detail-view-checkin-sessions', checkinSessionIds],
+    enabled: activeTab === 'activity' && checkinSessionIds.length > 0,
+    queryFn: async () => {
+      try {
+        return await base44.entities.ComplexEventSession.list({
+          filter: { id: { in: checkinSessionIds } }
+        }) || [];
+      } catch {
+        return [];
+      }
+    }
+  });
+
   const unifiedBookings = useMemo(() => {
     const simpleItems = (memberBookings || []).map(b => {
       const event = events.find(e => e.id === b.event_id);
@@ -393,12 +438,44 @@ export default function MemberDetailView({
       };
     });
 
-    return [...simpleItems, ...complexItems]
+    // Simple-event check-ins derived from live booking state. Reversed
+    // (deregistered) check-ins null checked_in_at and therefore drop out here.
+    const simpleCheckinItems = (memberBookings || [])
+      .filter(b => b?.checked_in_at)
+      .map(b => {
+        const event = events.find(e => e.id === b.event_id);
+        return {
+          key: `checkin-simple-${b.id}`,
+          id: b.id,
+          source: 'checkin',
+          title: event?.title || 'Unknown Event',
+          sessionName: null,
+          date: b.checked_in_at,
+        };
+      });
+
+    // Complex-event per-session check-ins. Same reversal semantics.
+    const complexCheckinItems = (complexCheckins || [])
+      .filter(ci => ci?.checked_in_at)
+      .map(ci => {
+        const ev = complexEvents.find(e => e.id === ci.complex_event_id);
+        const session = checkinSessions.find(s => s.id === ci.session_id);
+        return {
+          key: `checkin-complex-${ci.id}`,
+          id: ci.id,
+          source: 'checkin',
+          title: ev?.title || 'Unknown Event',
+          sessionName: session?.title || null,
+          date: ci.checked_in_at,
+        };
+      });
+
+    return [...simpleItems, ...complexItems, ...simpleCheckinItems, ...complexCheckinItems]
       .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
       .slice(0, 20);
-  }, [memberBookings, complexBookings, events, complexEvents, member?.id, memberEmailLower]);
+  }, [memberBookings, complexBookings, events, complexEvents, member?.id, memberEmailLower, complexCheckins, checkinSessions]);
 
-  const anyBookingsLoading = bookingsLoading || complexBookingsLoading;
+  const anyBookingsLoading = bookingsLoading || complexBookingsLoading || complexCheckinsLoading;
 
   const { data: resourceCategories = [], isLoading: categoriesLoading } = useQuery({
     queryKey: ['resource-categories-for-member-detail'],
@@ -1861,35 +1938,66 @@ export default function MemberDetailView({
                   <p className="text-sm text-slate-500 text-center py-8" data-testid="text-no-bookings">No bookings found</p>
                 ) : (
                   <div className="space-y-3">
-                    {unifiedBookings.map(item => (
-                      <div
-                        key={item.key}
-                        className="flex items-center justify-between gap-3 p-3 bg-slate-50 rounded-lg"
-                        data-testid={`row-booking-${item.source}-${item.id}`}
-                      >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center shrink-0">
-                            <Calendar className="w-5 h-5 text-blue-600" />
+                    {unifiedBookings.map(item => {
+                      if (item.source === 'checkin') {
+                        return (
+                          <div
+                            key={item.key}
+                            className="flex items-center justify-between gap-3 p-3 bg-slate-50 rounded-lg"
+                            data-testid={`row-checkin-${item.id}`}
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center shrink-0">
+                                <UserCheck className="w-5 h-5 text-green-600" />
+                              </div>
+                              <div className="min-w-0">
+                                <p className="font-medium text-sm truncate" data-testid={`text-checkin-label-${item.id}`}>
+                                  Checked in to <span className="font-semibold">{item.title}</span>
+                                  {item.sessionName ? ` · ${item.sessionName}` : ''}
+                                </p>
+                                <p className="text-xs text-slate-500">
+                                  {item.date ? formatDate(item.date) : '—'}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="shrink-0">
+                              <Badge variant="outline" data-testid={`badge-checkin-${item.id}`}>
+                                Checked in
+                              </Badge>
+                            </div>
                           </div>
-                          <div className="min-w-0">
-                            <p className="font-medium text-sm truncate" data-testid={`text-booking-title-${item.source}-${item.id}`}>
-                              {item.title}
-                            </p>
-                            <p className="text-xs text-slate-500">
-                              {item.date ? formatDate(item.date) : '—'}
-                            </p>
+                        );
+                      }
+                      return (
+                        <div
+                          key={item.key}
+                          className="flex items-center justify-between gap-3 p-3 bg-slate-50 rounded-lg"
+                          data-testid={`row-booking-${item.source}-${item.id}`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center shrink-0">
+                              <Calendar className="w-5 h-5 text-blue-600" />
+                            </div>
+                            <div className="min-w-0">
+                              <p className="font-medium text-sm truncate" data-testid={`text-booking-title-${item.source}-${item.id}`}>
+                                {item.title}
+                              </p>
+                              <p className="text-xs text-slate-500">
+                                {item.date ? formatDate(item.date) : '—'}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            {item.isAttendeeOnly && (
+                              <Badge variant="secondary" data-testid={`badge-attendee-${item.source}-${item.id}`}>Attendee</Badge>
+                            )}
+                            <Badge variant="outline" data-testid={`badge-booking-status-${item.source}-${item.id}`}>
+                              {item.status}
+                            </Badge>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          {item.isAttendeeOnly && (
-                            <Badge variant="secondary" data-testid={`badge-attendee-${item.source}-${item.id}`}>Attendee</Badge>
-                          )}
-                          <Badge variant="outline" data-testid={`badge-booking-status-${item.source}-${item.id}`}>
-                            {item.status}
-                          </Badge>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </CardContent>
