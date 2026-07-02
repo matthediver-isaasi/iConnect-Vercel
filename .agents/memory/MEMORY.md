@@ -42,3 +42,4 @@
 - [getTenantIdFromSession only checks membership](tenant-session-admin-gate.md) — admin-only /api endpoints must use getTenantContext + hasAdminAccess; getTenantIdFromSession verifies tenant membership only, not admin role.
 - [Redacted group-admin data surfaces](redacted-group-admin-surfaces.md) — give group admins a tenant-wide signal (count/boolean) by branching the RESPONSE not just auth; redact every success branch so other groups private details never leak.
 - [portal_menu legacy duplicates](portal-menu-legacy-duplicates.md) — base44-migrated tenants have dup nav rows (legacy feature_id + orphaned base44 parent); dedupe via scripts/dedupe-portal-menu.mjs.
+- [member_group_assignment has no join timestamp](member-group-assignment-no-timestamp.md) — table has no created/joined column; activity "joined" backfills must use now(), true historical dates unrecoverable.
