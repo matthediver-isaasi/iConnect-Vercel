@@ -5142,17 +5142,31 @@ const functionHandlers = {
       return { success: false, error: 'Failed to update category subcategories: ' + catUpdateError.message };
     }
 
-    // Step 2: Migrate resource rows that reference the old subcategory name (best-effort).
-    const { data: resources } = await supabase
+    // Step 2: Migrate resource rows whose subcategories array contains the old name.
+    const { data: resources, error: resourceFetchError } = await supabase
       .from('resource')
-      .select('id')
-      .eq('subcategory', oldSubcategoryName)
+      .select('id, subcategories')
+      .contains('subcategories', [oldSubcategoryName])
       .eq('tenant_id', tenantId);
+
+    if (resourceFetchError) {
+      return { success: false, error: 'Failed to fetch resources for migration: ' + resourceFetchError.message };
+    }
 
     const resourceCount = resources?.length || 0;
     if (resourceCount > 0) {
       for (const resource of resources) {
-        await supabase.from('resource').update({ subcategory: newSubcategoryName }).eq('id', resource.id).eq('tenant_id', tenantId);
+        const currentSubs = Array.isArray(resource.subcategories) ? resource.subcategories : [];
+        // Replace old name with new name, dedupe in case new name was already present
+        const newSubs = [...new Set(currentSubs.map((s) => (s === oldSubcategoryName ? newSubcategoryName : s)))];
+        const { error: resourceUpdateError } = await supabase
+          .from('resource')
+          .update({ subcategories: newSubs })
+          .eq('id', resource.id)
+          .eq('tenant_id', tenantId);
+        if (resourceUpdateError) {
+          return { success: false, error: `Failed to update resource ${resource.id}: ` + resourceUpdateError.message };
+        }
       }
     }
 
