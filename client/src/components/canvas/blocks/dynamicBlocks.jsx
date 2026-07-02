@@ -142,10 +142,10 @@ function ResponsiveNumberField({ label, value, onChange, breakpoint, min, max, s
     </Field>
   );
 }
-function SelectField({ label, value, onChange, options, testId }) {
+function SelectField({ label, value, onChange, options, testId, disabled }) {
   return (
     <Field label={label}>
-      <Select value={value || ''} onValueChange={onChange}>
+      <Select value={value || ''} onValueChange={onChange} disabled={disabled}>
         <SelectTrigger className="h-8" data-testid={testId}><SelectValue /></SelectTrigger>
         <SelectContent>
           {options.map((o) => (
@@ -3998,6 +3998,12 @@ function ResourceListRender({ block, breakpoint, asEditor }) {
     staleTime: 60_000,
   });
 
+  const { data: categoriesData } = useQuery({
+    queryKey: ['canvas', 'public-resource-categories'],
+    queryFn: () => publicClient.listResourceCategories(),
+    staleTime: 60_000,
+  });
+
   const items = useMemo(() => {
     let list = Array.isArray(data) ? data.slice() : [];
     if (c.resourceType) {
@@ -4008,18 +4014,35 @@ function ResourceListRender({ block, breakpoint, asEditor }) {
       const tag = String(c.tag).toLowerCase();
       list = list.filter((r) => Array.isArray(r.tags) && r.tags.some((x) => String(x).toLowerCase() === tag));
     }
-    if (c.category) {
-      const cat = String(c.category).toLowerCase();
+    if (c.subcategory) {
+      const sub = String(c.subcategory).toLowerCase();
       list = list.filter((r) =>
-        (Array.isArray(r.subcategories) && r.subcategories.some((x) => String(x).toLowerCase() === cat)) ||
-        (Array.isArray(r.tags) && r.tags.some((x) => String(x).toLowerCase() === cat))
+        Array.isArray(r.subcategories) && r.subcategories.some((x) => String(x).toLowerCase() === sub)
       );
+    } else if (c.category) {
+      const cat = String(c.category).toLowerCase();
+      const cats = Array.isArray(categoriesData) ? categoriesData : [];
+      const matchedCategory = cats.find((cc) => String(cc.name || '').toLowerCase() === cat);
+      if (matchedCategory) {
+        // Known category: match resources belonging to any of its subcategories.
+        const subs = (Array.isArray(matchedCategory.subcategories) ? matchedCategory.subcategories : [])
+          .map((s) => String(s).toLowerCase());
+        list = list.filter((r) =>
+          Array.isArray(r.subcategories) && r.subcategories.some((x) => subs.includes(String(x).toLowerCase()))
+        );
+      } else {
+        // Legacy free-text value: preserve original subcategory-or-tag matching.
+        list = list.filter((r) =>
+          (Array.isArray(r.subcategories) && r.subcategories.some((x) => String(x).toLowerCase() === cat)) ||
+          (Array.isArray(r.tags) && r.tags.some((x) => String(x).toLowerCase() === cat))
+        );
+      }
     }
     if (c.audience === 'public-only') list = list.filter((r) => !r.is_locked);
     else if (c.audience === 'members-only') list = list.filter((r) => r.is_locked);
     if (c.limit && c.limit > 0) list = list.slice(0, c.limit);
     return list;
-  }, [data, c.resourceType, c.tag, c.category, c.audience, c.limit]);
+  }, [data, categoriesData, c.resourceType, c.tag, c.category, c.subcategory, c.audience, c.limit]);
 
   return (
     <div className="w-full h-full overflow-auto" aria-label={block.a11y?.ariaLabel || c.title || 'Resources'}>
@@ -4086,9 +4109,58 @@ function ResourceListRender({ block, breakpoint, asEditor }) {
   );
 }
 
+const ALL_CATEGORIES = '__all__';
+
 function ResourceListInspector({ block, update }) {
   const c = block.content || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+
+  const { data: categoriesData, isLoading: categoriesLoading } = useQuery({
+    queryKey: ['canvas', 'admin-resource-categories'],
+    queryFn: () => base44.entities.ResourceCategory.list('display_order'),
+    staleTime: 60_000,
+  });
+
+  const resourceCategories = useMemo(() => {
+    const cats = Array.isArray(categoriesData) ? categoriesData : [];
+    return cats.filter((cat) => {
+      if (cat.is_active === false) return false;
+      const applies = cat.applies_to_content_types;
+      return !Array.isArray(applies) || applies.length === 0 || applies.includes('Resources');
+    });
+  }, [categoriesData]);
+
+  // Reflect the saved value in the dropdowns. Newer blocks store the category
+  // name in `c.category` and the subcategory in `c.subcategory`. Legacy blocks
+  // stored a single free-text value in `c.category`, which may actually be a
+  // subcategory name — surface it under its parent category when we can match.
+  const { selectedCategoryName, selectedSubcategory } = useMemo(() => {
+    const savedCat = String(c.category || '');
+    if (!savedCat) return { selectedCategoryName: '', selectedSubcategory: '' };
+    const byName = resourceCategories.find(
+      (cat) => String(cat.name || '').toLowerCase() === savedCat.toLowerCase()
+    );
+    if (byName) return { selectedCategoryName: byName.name, selectedSubcategory: c.subcategory || '' };
+    if (!c.subcategory) {
+      const parent = resourceCategories.find(
+        (cat) => Array.isArray(cat.subcategories)
+          && cat.subcategories.some((s) => String(s).toLowerCase() === savedCat.toLowerCase())
+      );
+      if (parent) {
+        const sub = parent.subcategories.find((s) => String(s).toLowerCase() === savedCat.toLowerCase());
+        return { selectedCategoryName: parent.name, selectedSubcategory: sub };
+      }
+    }
+    return { selectedCategoryName: savedCat, selectedSubcategory: c.subcategory || '' };
+  }, [c.category, c.subcategory, resourceCategories]);
+
+  const activeCategory = resourceCategories.find(
+    (cat) => String(cat.name || '').toLowerCase() === String(selectedCategoryName).toLowerCase()
+  );
+  const subcategoryOptions = activeCategory && Array.isArray(activeCategory.subcategories)
+    ? activeCategory.subcategories.filter(Boolean)
+    : [];
+
   return (
     <>
       <TextField label="Heading" value={c.title} onChange={(v) => set({ title: v })} testId="input-resource-list-title" />
@@ -4101,7 +4173,30 @@ function ResourceListInspector({ block, update }) {
       />
       <TextField label="Resource type" value={c.resourceType} onChange={(v) => set({ resourceType: v })} testId="input-resource-list-type" />
       <TextField label="Filter tag" value={c.tag} onChange={(v) => set({ tag: v })} testId="input-resource-list-tag" />
-      <TextField label="Filter category" value={c.category} onChange={(v) => set({ category: v })} testId="input-resource-list-category" />
+      <SelectField
+        label="Filter category"
+        value={selectedCategoryName ? selectedCategoryName : ALL_CATEGORIES}
+        onChange={(v) => set({
+          category: v === ALL_CATEGORIES ? '' : v,
+          subcategory: '',
+        })}
+        options={[
+          { value: ALL_CATEGORIES, label: categoriesLoading ? 'Loading…' : 'All categories' },
+          ...resourceCategories.map((cat) => ({ value: cat.name, label: cat.name })),
+        ]}
+        testId="select-resource-list-category"
+      />
+      <SelectField
+        label="Filter sub-category"
+        value={selectedSubcategory ? selectedSubcategory : ALL_CATEGORIES}
+        onChange={(v) => set({ subcategory: v === ALL_CATEGORIES ? '' : v })}
+        options={[
+          { value: ALL_CATEGORIES, label: 'All sub-categories' },
+          ...subcategoryOptions.map((s) => ({ value: s, label: s })),
+        ]}
+        disabled={!activeCategory || subcategoryOptions.length === 0}
+        testId="select-resource-list-subcategory"
+      />
       <SelectField
         label="Link behaviour"
         value={c.downloadBehavior || 'auto'}
