@@ -427,7 +427,7 @@ export default function WallOfFameDisplay({
                             </div>
                           )}
                           <h4 className="text-lg font-bold text-slate-900 mb-1">
-                            {person.first_name} {person.last_name}
+                            {[person.title_prefix, person.first_name, person.last_name].filter(Boolean).join(' ')}
                           </h4>
                           {showJobTitle && person.job_title && (
                             <p className="text-sm text-slate-600">{person.job_title}</p>
@@ -462,7 +462,7 @@ export default function WallOfFameDisplay({
                           <div className="flex flex-col h-full">
                             <div className="text-center mb-4">
                               <h4 className="text-lg font-bold text-slate-900 mb-1">
-                                {person.first_name} {person.last_name}
+                                {[person.title_prefix, person.first_name, person.last_name].filter(Boolean).join(' ')}
                               </h4>
                               {person.job_title && (
                                 <p className="text-sm text-blue-600 font-medium">{person.job_title}</p>

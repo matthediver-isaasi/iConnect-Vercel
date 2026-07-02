@@ -31,6 +31,7 @@ export default function WallOfFameManagementPage() {
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [expandedCategories, setExpandedCategories] = useState({});
   const [profilePhotoSize, setProfilePhotoSize] = useState("medium");
+  const [titleField, setTitleField] = useState("__none__");
   const [selectedOrganizationForMember, setSelectedOrganizationForMember] = useState("");
   const [memberSearchQuery, setMemberSearchQuery] = useState("");
   const [debouncedMemberSearch, setDebouncedMemberSearch] = useState("");
@@ -111,6 +112,40 @@ export default function WallOfFameManagementPage() {
     refetchOnMount: true
   });
 
+  const { data: titleFieldSetting } = useQuery({
+    queryKey: ['wall-of-fame-title-field'],
+    queryFn: async () => {
+      const allSettings = await base44.entities.SystemSettings.list();
+      const setting = allSettings.find(s => s.setting_key === 'wall_of_fame_title_field');
+      return setting ? { id: setting.id, value: setting.setting_value } : null;
+    },
+    staleTime: 0,
+    refetchOnMount: true
+  });
+
+  // Enumerate member core + custom fields so an admin can pick which one acts
+  // as the "title"/honorific prefix shown before each person's name.
+  const { data: memberFields } = useQuery({
+    queryKey: ['wall-of-fame-member-fields'],
+    queryFn: async () => {
+      const resp = await fetch('/api/imports/fields?entity=member', { credentials: 'include' });
+      if (!resp.ok) throw new Error('Failed to load member fields');
+      return resp.json();
+    },
+  });
+
+  // Resolve the title prefix per person the same way the public display does so
+  // the admin People list matches what visitors see.
+  const { data: titlePrefixMap = {} } = useQuery({
+    queryKey: ['wall-of-fame-title-prefixes', titleFieldSetting?.value],
+    queryFn: async () => {
+      const resp = await fetch('/api/wall-of-fame/title-prefixes', { credentials: 'include' });
+      if (!resp.ok) throw new Error('Failed to load title prefixes');
+      const data = await resp.json();
+      return data?.prefixes || {};
+    },
+  });
+
   useEffect(() => {
     if (isAccessReady) {
       if (isFeatureExcluded('page_WallOfFameManagement')) {
@@ -126,6 +161,10 @@ export default function WallOfFameManagementPage() {
       setProfilePhotoSize(photoSizeSetting.value);
     }
   }, [photoSizeSetting]);
+
+  useEffect(() => {
+    setTitleField(titleFieldSetting?.value || "__none__");
+  }, [titleFieldSetting]);
 
   const sectionMutation = useMutation({
     mutationFn: ({ id, data }) => id ? base44.entities.WallOfFameSection.update(id, data) : base44.entities.WallOfFameSection.create(data),
@@ -198,6 +237,28 @@ export default function WallOfFameManagementPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['wall-of-fame-photo-size'] });
       toast.success('Photo size setting saved');
+    },
+  });
+
+  const saveTitleFieldMutation = useMutation({
+    mutationFn: async (value) => {
+      // "__none__" clears the setting by storing an empty value.
+      const settingValue = value === '__none__' ? '' : value;
+      if (titleFieldSetting?.id) {
+        return await base44.entities.SystemSettings.update(titleFieldSetting.id, {
+          setting_value: settingValue
+        });
+      }
+      return await base44.entities.SystemSettings.create({
+        setting_key: 'wall_of_fame_title_field',
+        setting_value: settingValue,
+        description: 'Member field used as a title/honorific prefix before names on the Wall of Fame'
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['wall-of-fame-title-field'] });
+      queryClient.invalidateQueries({ queryKey: ['wall-of-fame-title-prefixes'] });
+      toast.success('Title field setting saved');
     },
   });
 
@@ -431,7 +492,7 @@ export default function WallOfFameManagementPage() {
                                           )}
                                         </div>
                                         <div className="flex-1 min-w-0">
-                                          <div className="font-medium">{person.first_name} {person.last_name}</div>
+                                          <div className="font-medium">{[titlePrefixMap[person.id], person.first_name, person.last_name].filter(Boolean).join(' ')}</div>
                                           {person.job_title && <div className="text-sm text-slate-600">{person.job_title}</div>}
                                           {person.member_id && <Badge variant="outline" className="text-xs mt-1">Linked Member</Badge>}
                                         </div>
@@ -484,6 +545,37 @@ export default function WallOfFameManagementPage() {
                       <SelectItem value="small">Small</SelectItem>
                       <SelectItem value="medium">Medium (Default)</SelectItem>
                       <SelectItem value="large">Large</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-3">
+                  <Label className="text-base font-semibold">Title Field</Label>
+                  <p className="text-sm text-slate-600">
+                    Choose a member field (e.g. Dr, Professor) to show as a title before the person's name. Only applies to people linked to a member.
+                  </p>
+                  <Select
+                    value={titleField}
+                    onValueChange={(value) => {
+                      setTitleField(value);
+                      saveTitleFieldMutation.mutate(value);
+                    }}
+                  >
+                    <SelectTrigger className="w-64" data-testid="select-title-field">
+                      <SelectValue placeholder="Select a field" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">None</SelectItem>
+                      {(memberFields?.core || []).map((f) => (
+                        <SelectItem key={`core:${f.key}`} value={`core:${f.key}`}>
+                          {f.label}
+                        </SelectItem>
+                      ))}
+                      {(memberFields?.custom || []).length > 0 && (memberFields?.custom || []).map((f) => (
+                        <SelectItem key={f.key} value={f.key}>
+                          {f.label} (Custom)
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>

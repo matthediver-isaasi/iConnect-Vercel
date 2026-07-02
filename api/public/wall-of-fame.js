@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import { resolveWallOfFameTitlePrefixes } from '../_lib/wallOfFameTitlePrefix.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -89,6 +90,7 @@ export default async function handler(req, res) {
           email,
           linkedin_url,
           category_id,
+          member_id,
           is_active,
           display_order
         `)
@@ -107,7 +109,13 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: 'Failed to fetch people' });
       }
 
-      return res.status(200).json(people || []);
+      const prefixes = await resolveWallOfFameTitlePrefixes(supabase, tenant.id, people || []);
+      const peopleWithPrefix = (people || []).map((p) => ({
+        ...p,
+        title_prefix: prefixes.get(p.id) || '',
+      }));
+
+      return res.status(200).json(peopleWithPrefix);
     }
 
     return res.status(400).json({ error: 'Invalid type parameter. Use sections, categories, or people' });
