@@ -2322,7 +2322,9 @@ export default function MemberDetail() {
                                 {item.sessionName ? ` · ${item.sessionName}` : ''}
                               </p>
                               <p className="text-xs text-slate-500" data-testid={`text-checkin-date-${item.id}`}>
-                                {item.date ? formatDate(item.date) : '—'}
+                                {item.date && !isNaN(new Date(item.date).getTime())
+                                  ? `${formatDate(item.date)} · ${format(new Date(item.date), 'HH:mm')}`
+                                  : '—'}
                               </p>
                             </div>
                           </div>

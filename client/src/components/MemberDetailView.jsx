@@ -1956,7 +1956,9 @@ export default function MemberDetailView({
                                   {item.sessionName ? ` · ${item.sessionName}` : ''}
                                 </p>
                                 <p className="text-xs text-slate-500">
-                                  {item.date ? formatDate(item.date) : '—'}
+                                  {item.date && !isNaN(new Date(item.date).getTime())
+                                    ? `${formatDate(item.date)} · ${format(new Date(item.date), 'HH:mm')}`
+                                    : '—'}
                                 </p>
                               </div>
                             </div>
