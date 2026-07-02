@@ -10,7 +10,7 @@ import {
   Calendar, MapPin, FileText, Newspaper, Heart, Users, Layers,
   CalendarDays, Folder, ArrowRight, Loader2, FormInput, Building2,
   ChevronLeft, ChevronRight, Images, User, Mic, ExternalLink, LayoutGrid,
-  Award, ChevronUp, ChevronDown, Lock,
+  Award, ChevronUp, ChevronDown, Lock, AlertTriangle,
 } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -142,7 +142,7 @@ function ResponsiveNumberField({ label, value, onChange, breakpoint, min, max, s
     </Field>
   );
 }
-function SelectField({ label, value, onChange, options, testId, disabled }) {
+function SelectField({ label, value, onChange, options, testId, disabled, warning }) {
   return (
     <Field label={label}>
       <Select value={value || ''} onValueChange={onChange} disabled={disabled}>
@@ -153,6 +153,12 @@ function SelectField({ label, value, onChange, options, testId, disabled }) {
           ))}
         </SelectContent>
       </Select>
+      {warning ? (
+        <p className="flex items-start gap-1 text-[11px] text-warning" data-testid={testId ? `${testId}-warning` : undefined}>
+          <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" aria-hidden="true" />
+          <span>{warning}</span>
+        </p>
+      ) : null}
     </Field>
   );
 }
@@ -4161,6 +4167,23 @@ function ResourceListInspector({ block, update }) {
     ? activeCategory.subcategories.filter(Boolean)
     : [];
 
+  // Warn editors when a saved filter references a category / sub-category that
+  // no longer exists (renamed or deleted in Category Management). We only judge
+  // staleness once the category list has loaded, otherwise every block would
+  // flash a false warning on first render. The category is considered stale
+  // when a value is saved but it neither matches an active category by name nor
+  // resolves as a legacy subcategory value under a parent (i.e. no
+  // `activeCategory`). The sub-category is stale when its parent category is
+  // valid but the saved sub-category is no longer one of that category's
+  // sub-categories.
+  const categoryStale = !categoriesLoading && !!c.category && !activeCategory;
+  const subcategoryStale = !categoriesLoading
+    && !!c.subcategory
+    && !!activeCategory
+    && !subcategoryOptions.some(
+      (s) => String(s).toLowerCase() === String(c.subcategory).toLowerCase()
+    );
+
   return (
     <>
       <TextField label="Heading" value={c.title} onChange={(v) => set({ title: v })} testId="input-resource-list-title" />
@@ -4183,7 +4206,11 @@ function ResourceListInspector({ block, update }) {
         options={[
           { value: ALL_CATEGORIES, label: categoriesLoading ? 'Loading…' : 'All categories' },
           ...resourceCategories.map((cat) => ({ value: cat.name, label: cat.name })),
+          ...(categoryStale ? [{ value: selectedCategoryName, label: `${selectedCategoryName} (no longer exists)` }] : []),
         ]}
+        warning={categoryStale
+          ? `The saved category "${c.category}" no longer exists. Pick a current category, or this list may show nothing.`
+          : undefined}
         testId="select-resource-list-category"
       />
       <SelectField
@@ -4193,8 +4220,12 @@ function ResourceListInspector({ block, update }) {
         options={[
           { value: ALL_CATEGORIES, label: 'All sub-categories' },
           ...subcategoryOptions.map((s) => ({ value: s, label: s })),
+          ...(subcategoryStale ? [{ value: selectedSubcategory, label: `${selectedSubcategory} (no longer exists)` }] : []),
         ]}
-        disabled={!activeCategory || subcategoryOptions.length === 0}
+        disabled={!activeCategory || (subcategoryOptions.length === 0 && !subcategoryStale)}
+        warning={subcategoryStale
+          ? `The saved sub-category "${c.subcategory}" is no longer part of "${selectedCategoryName}". Pick a current sub-category.`
+          : undefined}
         testId="select-resource-list-subcategory"
       />
       <SelectField
