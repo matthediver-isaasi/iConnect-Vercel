@@ -79,6 +79,39 @@ export default function PhotoGalleries() {
     }
   }, [galleriesQuery.data]);
 
+  // Batch-resolve cover photos for the whole list so each admin card can show
+  // a thumbnail without fetching photos gallery-by-gallery.
+  const coverPhotoIds = useMemo(() => {
+    const ids = (galleriesQuery.data || [])
+      .map((g) => g.cover_photo_id)
+      .filter(Boolean);
+    return Array.from(new Set(ids));
+  }, [galleriesQuery.data]);
+
+  const coverUrlsQuery = useQuery({
+    queryKey: ["admin-gallery-cover-urls", coverPhotoIds],
+    enabled: coverPhotoIds.length > 0,
+    queryFn: async () => {
+      const photos = await base44.entities.GalleryPhoto.filter({
+        id: coverPhotoIds,
+      });
+      const photoList = Array.isArray(photos) ? photos : [];
+      const map = {};
+      await Promise.all(
+        photoList.map(async (p) => {
+          try {
+            const url = await resolveFileUrl(p.file_url);
+            if (url) map[p.id] = url;
+          } catch {
+            /* leave unresolved so the card falls back to placeholder */
+          }
+        })
+      );
+      return map;
+    },
+  });
+  const coverUrlByPhotoId = coverUrlsQuery.data || {};
+
   const selectedGallery =
     orderedGalleries.find((g) => g.id === selectedGalleryId) || null;
 
@@ -181,6 +214,11 @@ export default function PhotoGalleries() {
                 <SortableGalleryCard
                   key={g.id}
                   gallery={g}
+                  coverUrl={
+                    g.cover_photo_id
+                      ? coverUrlByPhotoId[g.cover_photo_id]
+                      : null
+                  }
                   onOpen={() => setSelectedGalleryId(g.id)}
                   onEdit={() => setEditing(g)}
                   onDelete={() => setConfirmDelete(g)}
@@ -466,7 +504,7 @@ function GalleryEditDialog({ open, gallery, galleries = [], onClose, onSaved }) 
   );
 }
 
-function SortableGalleryCard({ gallery, onOpen, onEdit, onDelete }) {
+function SortableGalleryCard({ gallery, coverUrl, onOpen, onEdit, onDelete }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: gallery.id,
   });
@@ -486,6 +524,24 @@ function SortableGalleryCard({ gallery, onOpen, onEdit, onDelete }) {
       onClick={onOpen}
       data-testid={`card-admin-gallery-${gallery.id}`}
     >
+      <div className="relative aspect-[16/9] bg-slate-100 rounded-md overflow-hidden mb-3">
+        {coverUrl ? (
+          <img
+            src={coverUrl}
+            alt=""
+            className="w-full h-full object-cover"
+            loading="lazy"
+            data-testid={`img-admin-gallery-cover-${gallery.id}`}
+          />
+        ) : (
+          <div
+            className="w-full h-full flex items-center justify-center"
+            data-testid={`img-admin-gallery-cover-${gallery.id}`}
+          >
+            <ImageIcon className="w-8 h-8 text-slate-300" />
+          </div>
+        )}
+      </div>
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="flex items-center gap-2 min-w-0">
           <button
