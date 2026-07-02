@@ -1043,6 +1043,8 @@ export const BLOCK_DEFAULTS = {
       headingLevel: 2,
       limit: 6,
       paginate: false,
+      searchEnabled: false,
+      searchPlaceholder: 'Search resources…',
       resourceType: '',
       tag: '',
       columns: { desktop: 3, tablet: 2, mobile: 1 },

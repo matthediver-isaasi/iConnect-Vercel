@@ -10,7 +10,7 @@ import {
   Calendar, MapPin, FileText, Newspaper, Heart, Users, Layers,
   CalendarDays, Folder, ArrowRight, Loader2, FormInput, Building2,
   ChevronLeft, ChevronRight, Images, User, Mic, ExternalLink, LayoutGrid,
-  Award, ChevronUp, ChevronDown, Lock, AlertTriangle,
+  Award, ChevronUp, ChevronDown, Lock, AlertTriangle, Search,
 } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -4142,22 +4142,44 @@ function ResourceListRender({ block, breakpoint, asEditor }) {
     return list;
   }, [data, categoriesData, c.resourceType, c.tag, c.category, c.subcategory, c.categories, c.subcategories, c.audience]);
 
+  // Viewer-facing search box narrows the already-configured `items` in real
+  // time. It never widens the block's scope — it only filters what the author
+  // already selected. Off by default so existing pages are unchanged.
+  const searchEnabled = !!c.searchEnabled;
+  const [query, setQuery] = useState('');
+  const searchedItems = useMemo(() => {
+    if (!searchEnabled) return items;
+    const q = query.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter((r) => {
+      if (String(r.title || '').toLowerCase().includes(q)) return true;
+      if (String(r.description || '').toLowerCase().includes(q)) return true;
+      if (String(r.resource_type || '').toLowerCase().includes(q)) return true;
+      if (Array.isArray(r.tags) && r.tags.some((x) => String(x).toLowerCase().includes(q))) return true;
+      return false;
+    });
+  }, [items, query, searchEnabled]);
+
   // Paging model mirrors the Speaker grid: a `paginate` flag reuses the
   // existing `limit` as the per-page size. When paging is off the block keeps
   // its original behaviour — slice the filtered list down to `limit`.
   const hasLimit = !!(c.limit && c.limit > 0);
   const perPage = Math.max(1, Number(c.limit) || 1);
   const paginate = !!c.paginate && hasLimit;
-  const pageCount = paginate ? Math.max(1, Math.ceil(items.length / perPage)) : 1;
+  const pageCount = paginate ? Math.max(1, Math.ceil(searchedItems.length / perPage)) : 1;
   const [page, setPage] = useState(0);
   // Keep the current page in range when filters change the result count.
   useEffect(() => {
     if (page > Math.max(0, pageCount - 1)) setPage(0);
   }, [pageCount, page]);
+  // Reset to the first page whenever the search term changes the result set.
+  useEffect(() => {
+    setPage(0);
+  }, [query]);
   const safePage = Math.min(page, pageCount - 1);
   const visibleItems = paginate
-    ? items.slice(safePage * perPage, safePage * perPage + perPage)
-    : (hasLimit ? items.slice(0, perPage) : items);
+    ? searchedItems.slice(safePage * perPage, safePage * perPage + perPage)
+    : (hasLimit ? searchedItems.slice(0, perPage) : searchedItems);
 
   return (
     <div className="w-full h-full overflow-auto" aria-label={block.a11y?.ariaLabel || c.title || 'Resources'}>
@@ -4170,6 +4192,24 @@ function ResourceListRender({ block, breakpoint, asEditor }) {
       ) : items.length === 0 ? (
         <EmptyState icon={Folder} text={c.emptyText || 'No resources available.'} />
       ) : (
+        <>
+        {searchEnabled ? (
+          <div className="relative mb-3">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true" />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={c.searchPlaceholder || 'Search resources…'}
+              aria-label={c.searchPlaceholder || 'Search resources'}
+              className="w-full rounded-md border border-slate-200 bg-white pl-9 pr-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-300"
+              data-testid="input-resource-list-search"
+            />
+          </div>
+        ) : null}
+        {searchedItems.length === 0 ? (
+          <EmptyState icon={Folder} text={c.emptyText || 'No resources available.'} />
+        ) : (
         <>
         <ul className="list-none m-0 p-0" style={gridStyle(effectiveCols, c.gap)} data-testid="resource-list">
           {visibleItems.map((r) => (
@@ -4249,6 +4289,8 @@ function ResourceListRender({ block, breakpoint, asEditor }) {
             </button>
           </div>
         ) : null}
+        </>
+        )}
         </>
       )}
     </div>
@@ -4475,6 +4517,21 @@ function ResourceListInspector({ block, update }) {
         testId="toggle-resource-list-paginate"
         hint="Page through all matching resources with prev/next controls, showing the limit above as items per page."
       />
+      <ToggleField
+        label="Show search box"
+        value={!!c.searchEnabled}
+        onChange={(v) => set({ searchEnabled: v })}
+        testId="toggle-resource-list-search"
+        hint="Adds a search box above the list so viewers can filter the shown resources by title, description, type or tag."
+      />
+      {c.searchEnabled ? (
+        <TextField
+          label="Search placeholder"
+          value={c.searchPlaceholder}
+          onChange={(v) => set({ searchPlaceholder: v })}
+          testId="input-resource-list-search-placeholder"
+        />
+      ) : null}
       <PerBreakpointColumns value={c.columns} onChange={(v) => set({ columns: v })} />
       <NumberField label="Gap (px)" min={0} value={c.gap || 16} onChange={(v) => set({ gap: Math.max(0, Number(v) || 0) })} testId="input-resource-list-gap" />
       <TextField label="Empty state text" value={c.emptyText} onChange={(v) => set({ emptyText: v })} testId="input-resource-list-empty" />
