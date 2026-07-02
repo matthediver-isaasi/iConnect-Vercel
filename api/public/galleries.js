@@ -48,12 +48,33 @@ export default async function handler(req, res) {
     }
 
     const galleryIds = galleries.map((g) => g.id);
-    const { data: photos, error: pErr } = await supabase
-      .from('gallery_photo')
-      .select('id, gallery_id, file_url, storage_path, bucket, caption, alt_text, display_order, created_at')
-      .in('gallery_id', galleryIds)
-      .order('display_order', { ascending: true })
-      .order('created_at', { ascending: true });
+    // Fetch every photo across all public galleries. PostgREST caps a single
+    // response at ~1000 rows, so on tenants with many public gallery photos a
+    // plain `.in(...)` would silently drop rows — leaving galleries near the
+    // end of the list with an incomplete `photos` array (and thus a Lightbox
+    // missing photos). Page through in batches to stay cap-safe.
+    const PHOTO_PAGE_SIZE = 1000;
+    const photos = [];
+    let pErr = null;
+    for (let offset = 0; ; offset += PHOTO_PAGE_SIZE) {
+      const { data: batch, error } = await supabase
+        .from('gallery_photo')
+        .select('id, gallery_id, file_url, storage_path, bucket, caption, alt_text, display_order, created_at')
+        .in('gallery_id', galleryIds)
+        .order('display_order', { ascending: true })
+        .order('created_at', { ascending: true })
+        .range(offset, offset + PHOTO_PAGE_SIZE - 1);
+      if (error) {
+        pErr = error;
+        break;
+      }
+      if (batch && batch.length > 0) {
+        photos.push(...batch);
+      }
+      if (!batch || batch.length < PHOTO_PAGE_SIZE) {
+        break;
+      }
+    }
 
     if (pErr) {
       console.error('[Public Galleries] Photos query error:', pErr);
