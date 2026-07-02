@@ -42,6 +42,12 @@ import {
 } from '@/lib/canvasDesign';
 import { publicClient } from '@/api/publicClient';
 import { base44 } from '@/api/base44Client';
+import { useTenantBranding } from '@/contexts/TenantBrandingContext';
+import {
+  isTenantButtonVariant,
+  resolveTenantButtonStyle,
+  buildTenantButtonInlineStyle,
+} from '@/lib/tenantButtonStyle';
 import { ComplexEventProgramme } from '@/components/events/ComplexEventSchedule';
 import WallOfFameDisplay from '@/components/walloffame/WallOfFameDisplay';
 import { GalleryImage, Lightbox, resolveAlt } from '@/components/iedit/elements/IEditGalleryElement';
@@ -3989,8 +3995,64 @@ function resolveResourceFilterSelections(c) {
   };
 }
 
+// Standard (non-tenant) CTA variant classes — mirrors `buttonClasses` in
+// registry.jsx so the Resource list CTA matches the Card block CTA.
+function resourceCtaFallbackClasses(variant) {
+  const v = {
+    primary: 'bg-primary text-primary-foreground hover-elevate active-elevate-2',
+    default: 'bg-slate-900 text-white hover-elevate active-elevate-2',
+    outline: 'border border-slate-300 bg-white text-slate-900 hover-elevate active-elevate-2',
+    ghost: 'bg-transparent text-slate-900 hover-elevate active-elevate-2',
+  };
+  return `inline-flex items-center justify-center gap-1.5 rounded-md font-medium h-9 px-4 text-sm ${v[variant] || v.default}`;
+}
+
+// A single resource card's CTA rendered as a styled, tenant-aware button.
+// Mirrors the Card block CTA (registry.jsx): tenant variants route through the
+// shared tenant button-style resolver with hover handling; standard variants
+// fall back to the shared class-based look.
+function ResourceCtaButton({ variant, branding, href, label, newTab, download, asEditor, testId }) {
+  const [hovered, setHovered] = useState(false);
+  const ctaVariant = variant || 'outline';
+  const isTenant = isTenantButtonVariant(ctaVariant);
+  const tenantStyle = isTenant ? resolveTenantButtonStyle(ctaVariant, branding) : null;
+  const linkProps = {
+    href: asEditor ? undefined : (href || '#'),
+    onClick: (e) => { if (asEditor) e.preventDefault(); },
+    target: newTab ? '_blank' : undefined,
+    rel: newTab ? 'noopener noreferrer' : undefined,
+    download: download ? '' : undefined,
+    'data-testid': testId,
+  };
+  if (isTenant && tenantStyle) {
+    return (
+      <a
+        {...linkProps}
+        className="inline-flex items-center justify-center gap-1.5 font-medium whitespace-nowrap"
+        style={buildTenantButtonInlineStyle(tenantStyle, { hovered })}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+      >
+        {label} <ArrowRight className="w-4 h-4" />
+      </a>
+    );
+  }
+  // Fallback: tenant variant chosen but no matching tenant style configured →
+  // render with the standard `outline` classes so the CTA still looks sensible.
+  const fallbackVariant = isTenant ? 'outline' : ctaVariant;
+  return (
+    <a {...linkProps} className={resourceCtaFallbackClasses(fallbackVariant)}>
+      {label} <ArrowRight className="w-4 h-4" />
+    </a>
+  );
+}
+
 function ResourceListRender({ block, breakpoint, asEditor }) {
   const c = block.content || {};
+  const branding = useTenantBranding()?.branding || null;
+  const ctaJustify = c.ctaAlign === 'center'
+    ? 'center'
+    : c.ctaAlign === 'right' ? 'flex-end' : 'flex-start';
   const cols = columnsForBreakpoint(c, breakpoint);
   const layout = c.layout || 'grid';
   const effectiveCols = layout === 'list' ? 1 : cols;
@@ -4123,18 +4185,20 @@ function ResourceListRender({ block, breakpoint, asEditor }) {
                   const behavior = c.downloadBehavior || 'auto';
                   const newTab = behavior === 'new-tab' || (behavior === 'auto' && r.open_in_new_tab);
                   const download = behavior === 'download';
+                  const label = r.is_locked ? 'Login to view' : (download ? 'Download' : 'Open resource');
                   return (
-                    <a
-                      href={asEditor ? undefined : (r.target_url || r.login_redirect_url || '#')}
-                      onClick={(ev) => { if (asEditor) ev.preventDefault(); }}
-                      target={newTab ? '_blank' : undefined}
-                      rel={newTab ? 'noopener noreferrer' : undefined}
-                      download={download ? '' : undefined}
-                      className="text-xs text-blue-600 hover:underline inline-flex items-center gap-1 mt-auto pt-2"
-                      data-testid={`link-resource-${r.id}`}
-                    >
-                      {r.is_locked ? 'Login to view' : (download ? 'Download' : 'Open resource')} <ArrowRight className="w-3 h-3" />
-                    </a>
+                    <div className="mt-auto pt-2 flex" style={{ justifyContent: ctaJustify }}>
+                      <ResourceCtaButton
+                        variant={c.ctaVariant}
+                        branding={branding}
+                        href={r.target_url || r.login_redirect_url || '#'}
+                        label={label}
+                        newTab={newTab}
+                        download={download}
+                        asEditor={asEditor}
+                        testId={`link-resource-${r.id}`}
+                      />
+                    </div>
                   );
                 })()}
               </div>
@@ -4149,6 +4213,20 @@ function ResourceListRender({ block, breakpoint, asEditor }) {
 function ResourceListInspector({ block, update }) {
   const c = block.content || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+
+  // Tenant custom button styles for the CTA variant picker — same enumeration
+  // as the Card inspector so the Resource list CTA offers identical options.
+  const branding = useTenantBranding()?.branding || null;
+  const customStyleEntries = (() => {
+    const styles =
+      branding?.buttonStyles ||
+      branding?.brandingConfig?.button_styles ||
+      null;
+    if (!styles || typeof styles !== 'object') return [];
+    return Object.entries(styles)
+      .filter(([k, v]) => k !== 'primary' && k !== 'secondary' && v && typeof v === 'object')
+      .map(([k, v]) => ({ key: k, label: v.label || k }));
+  })();
 
   const { data: categoriesData, isLoading: categoriesLoading } = useQuery({
     queryKey: ['canvas', 'admin-resource-categories'],
@@ -4359,6 +4437,35 @@ function ResourceListInspector({ block, update }) {
         value={c.cardDescriptionTypographyStyleId}
         onChange={(id) => set({ cardDescriptionTypographyStyleId: id })}
         testId="select-resource-list-description-typography"
+      />
+      <SelectField
+        label="CTA style"
+        value={c.ctaVariant || 'outline'}
+        onChange={(v) => set({ ctaVariant: v })}
+        options={[
+          { value: 'primary', label: 'Primary' },
+          { value: 'default', label: 'Default' },
+          { value: 'outline', label: 'Outline' },
+          { value: 'ghost', label: 'Ghost' },
+          { value: 'tenant-primary', label: 'Tenant primary (branded)' },
+          { value: 'tenant-secondary', label: 'Tenant secondary (branded)' },
+          ...customStyleEntries.map((e) => ({
+            value: `tenant:${e.key}`,
+            label: `Tenant: ${e.label}`,
+          })),
+        ]}
+        testId="select-resource-list-cta-variant"
+      />
+      <SelectField
+        label="CTA alignment"
+        value={c.ctaAlign || 'left'}
+        onChange={(v) => set({ ctaAlign: v })}
+        options={[
+          { value: 'left', label: 'Left' },
+          { value: 'center', label: 'Center' },
+          { value: 'right', label: 'Right' },
+        ]}
+        testId="select-resource-list-cta-align"
       />
     </>
   );

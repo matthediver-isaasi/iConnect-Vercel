@@ -1049,6 +1049,8 @@ export const BLOCK_DEFAULTS = {
       emptyText: 'No resources available.',
       cardTitleTypographyStyleId: '',
       cardDescriptionTypographyStyleId: '',
+      ctaVariant: 'outline',
+      ctaAlign: 'left',
     },
   },
   [BLOCK_TYPES.FORM_EMBED]: {
