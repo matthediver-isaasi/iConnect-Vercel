@@ -1042,6 +1042,7 @@ export const BLOCK_DEFAULTS = {
       title: 'Resources',
       headingLevel: 2,
       limit: 6,
+      paginate: false,
       resourceType: '',
       tag: '',
       columns: { desktop: 3, tablet: 2, mobile: 1 },

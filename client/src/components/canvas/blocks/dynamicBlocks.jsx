@@ -4139,9 +4139,25 @@ function ResourceListRender({ block, breakpoint, asEditor }) {
     }
     if (c.audience === 'public-only') list = list.filter((r) => !r.is_locked);
     else if (c.audience === 'members-only') list = list.filter((r) => r.is_locked);
-    if (c.limit && c.limit > 0) list = list.slice(0, c.limit);
     return list;
-  }, [data, categoriesData, c.resourceType, c.tag, c.category, c.subcategory, c.categories, c.subcategories, c.audience, c.limit]);
+  }, [data, categoriesData, c.resourceType, c.tag, c.category, c.subcategory, c.categories, c.subcategories, c.audience]);
+
+  // Paging model mirrors the Speaker grid: a `paginate` flag reuses the
+  // existing `limit` as the per-page size. When paging is off the block keeps
+  // its original behaviour — slice the filtered list down to `limit`.
+  const hasLimit = !!(c.limit && c.limit > 0);
+  const perPage = Math.max(1, Number(c.limit) || 1);
+  const paginate = !!c.paginate && hasLimit;
+  const pageCount = paginate ? Math.max(1, Math.ceil(items.length / perPage)) : 1;
+  const [page, setPage] = useState(0);
+  // Keep the current page in range when filters change the result count.
+  useEffect(() => {
+    if (page > Math.max(0, pageCount - 1)) setPage(0);
+  }, [pageCount, page]);
+  const safePage = Math.min(page, pageCount - 1);
+  const visibleItems = paginate
+    ? items.slice(safePage * perPage, safePage * perPage + perPage)
+    : (hasLimit ? items.slice(0, perPage) : items);
 
   return (
     <div className="w-full h-full overflow-auto" aria-label={block.a11y?.ariaLabel || c.title || 'Resources'}>
@@ -4154,8 +4170,9 @@ function ResourceListRender({ block, breakpoint, asEditor }) {
       ) : items.length === 0 ? (
         <EmptyState icon={Folder} text={c.emptyText || 'No resources available.'} />
       ) : (
+        <>
         <ul className="list-none m-0 p-0" style={gridStyle(effectiveCols, c.gap)} data-testid="resource-list">
-          {items.map((r) => (
+          {visibleItems.map((r) => (
             <li
               key={r.id}
               className={`rounded-md border border-slate-200 bg-white overflow-hidden ${layout === 'list' ? 'flex flex-row' : 'flex flex-col'}`}
@@ -4205,6 +4222,34 @@ function ResourceListRender({ block, breakpoint, asEditor }) {
             </li>
           ))}
         </ul>
+        {paginate && pageCount > 1 ? (
+          <div className="flex items-center justify-center gap-3 pt-4">
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={safePage <= 0}
+              className="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center shadow-sm disabled:opacity-40"
+              aria-label="Previous page"
+              data-testid="button-resource-list-prev"
+            >
+              <ChevronLeft className="w-4 h-4 text-slate-700" aria-hidden="true" />
+            </button>
+            <span className="text-sm text-slate-600" data-testid="text-resource-list-page">
+              Page {safePage + 1} of {pageCount}
+            </span>
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+              disabled={safePage >= pageCount - 1}
+              className="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center shadow-sm disabled:opacity-40"
+              aria-label="Next page"
+              data-testid="button-resource-list-next"
+            >
+              <ChevronRight className="w-4 h-4 text-slate-700" aria-hidden="true" />
+            </button>
+          </div>
+        ) : null}
+        </>
       )}
     </div>
   );
@@ -4422,7 +4467,14 @@ function ResourceListInspector({ block, update }) {
         ]}
         testId="select-resource-list-layout"
       />
-      <NumberField label="Limit" min={1} max={50} value={c.limit || 6} onChange={(v) => set({ limit: Math.max(1, Number(v) || 1) })} testId="input-resource-list-limit" />
+      <NumberField label={c.paginate ? 'Items per page' : 'Limit'} min={1} max={50} value={c.limit || 6} onChange={(v) => set({ limit: Math.max(1, Math.min(50, Number(v) || 1)) })} testId="input-resource-list-limit" />
+      <ToggleField
+        label="Paginate"
+        value={!!c.paginate}
+        onChange={(v) => set({ paginate: v })}
+        testId="toggle-resource-list-paginate"
+        hint="Page through all matching resources with prev/next controls, showing the limit above as items per page."
+      />
       <PerBreakpointColumns value={c.columns} onChange={(v) => set({ columns: v })} />
       <NumberField label="Gap (px)" min={0} value={c.gap || 16} onChange={(v) => set({ gap: Math.max(0, Number(v) || 0) })} testId="input-resource-list-gap" />
       <TextField label="Empty state text" value={c.emptyText} onChange={(v) => set({ emptyText: v })} testId="input-resource-list-empty" />
