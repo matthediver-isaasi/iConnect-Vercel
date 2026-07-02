@@ -5190,6 +5190,20 @@ const functionHandlers = {
       }
     }
 
+    // Step 4: Update members' saved filter preferences in member_resource_category.
+    // These store subcategory selections as plain strings; without this, a renamed
+    // subcategory silently stops matching and the member's saved filter shows nothing.
+    // Scoped by resource_category_id (already tenant-verified above) so no tenant_id column is needed.
+    const { error: memberPrefUpdateError } = await supabase
+      .from('member_resource_category')
+      .update({ subcategory_name: newSubcategoryName })
+      .eq('resource_category_id', categoryId)
+      .eq('subcategory_name', oldSubcategoryName);
+
+    if (memberPrefUpdateError) {
+      return { success: false, error: 'Failed to update member category preferences: ' + memberPrefUpdateError.message };
+    }
+
     const message = resourceCount > 0
       ? `Subcategory renamed successfully (${resourceCount} resource${resourceCount !== 1 ? 's' : ''} updated)`
       : 'Subcategory renamed successfully';

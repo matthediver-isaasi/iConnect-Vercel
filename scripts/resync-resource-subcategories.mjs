@@ -7,6 +7,10 @@
  * fixed bug that updated a non-existent singular `subcategory` column instead of
  * the plural `subcategories` array.
  *
+ * When applying a rename mapping, this also repairs members' saved filter
+ * preferences in `member_resource_category` (stored as `subcategory_name`
+ * strings), which otherwise silently stop matching after a rename.
+ *
  * Usage:
  *   node scripts/resync-resource-subcategories.mjs [options]
  *
@@ -266,8 +270,20 @@ async function main() {
     }
   }
 
+  // Map canonical subcategory names to their owning category id per tenant, so we can
+  // scope member_resource_category repairs (that table keys on resource_category_id).
+  // tenantSubToCategory: Map<tenantId, Map<subName, categoryId>>
+  const tenantSubToCategory = new Map();
+  for (const cat of resourceCategories) {
+    if (!tenantSubToCategory.has(cat.tenant_id)) tenantSubToCategory.set(cat.tenant_id, new Map());
+    const subMap = tenantSubToCategory.get(cat.tenant_id);
+    const subs = Array.isArray(cat.subcategories) ? cat.subcategories : [];
+    for (const s of subs) subMap.set(s, cat.id);
+  }
+
   let totalUpdated = 0;
   let totalSkipped = 0;
+  let totalMemberPrefsUpdated = 0;
 
   for (const [tid, staleMap] of tenantStale) {
     if (tenantFilter && tid !== tenantFilter) continue;
@@ -309,13 +325,53 @@ async function main() {
           totalUpdated++;
         }
       }
+
+      // Repair members' saved filter preferences in member_resource_category.
+      // The new name must exist as a canonical subcategory to know which category owns it;
+      // scope the update to that category id (the table has no tenant_id column).
+      const categoryId = tenantSubToCategory.get(tid)?.get(newName);
+      if (!categoryId) {
+        console.log(`    [WARN] tenant=${tid}: cannot repair member preferences for "${oldName}" — new name "${newName}" is not a canonical subcategory of any category.`);
+      } else {
+        const { data: memberPrefRows, error: memberPrefFetchError } = await supabase
+          .from('member_resource_category')
+          .select('id')
+          .eq('resource_category_id', categoryId)
+          .eq('subcategory_name', oldName);
+
+        if (memberPrefFetchError) {
+          console.error(`    [ERROR] member_resource_category fetch (category ${categoryId}): ${memberPrefFetchError.message}`);
+        } else {
+          const prefCount = memberPrefRows?.length || 0;
+          if (prefCount > 0) {
+            if (!applyChanges) {
+              console.log(`    [DRY RUN] member preferences: ${prefCount} row(s) in category ${categoryId} "${oldName}" → "${newName}"`);
+              totalMemberPrefsUpdated += prefCount;
+            } else {
+              const { error: memberPrefUpdateError } = await supabase
+                .from('member_resource_category')
+                .update({ subcategory_name: newName })
+                .eq('resource_category_id', categoryId)
+                .eq('subcategory_name', oldName);
+
+              if (memberPrefUpdateError) {
+                console.error(`    [ERROR] member_resource_category update (category ${categoryId}): ${memberPrefUpdateError.message}`);
+              } else {
+                console.log(`    [OK] member preferences: ${prefCount} row(s) in category ${categoryId} "${oldName}" → "${newName}"`);
+                totalMemberPrefsUpdated += prefCount;
+              }
+            }
+          }
+        }
+      }
     }
   }
 
   console.log();
   console.log('─'.repeat(72));
-  console.log(`  Resources updated : ${totalUpdated}`);
-  console.log(`  Resources skipped : ${totalSkipped} (no mapping provided)`);
+  console.log(`  Resources updated        : ${totalUpdated}`);
+  console.log(`  Resources skipped        : ${totalSkipped} (no mapping provided)`);
+  console.log(`  Member preferences fixed : ${totalMemberPrefsUpdated}`);
   if (!applyChanges) {
     console.log('\n  This was a DRY RUN. Re-run with --apply to write changes.');
   } else {
