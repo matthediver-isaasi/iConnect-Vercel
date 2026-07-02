@@ -23,11 +23,16 @@ import { isVisibleOnFront, isVisibleOnBack, isCustomFieldVisibleOnFront, isCusto
 
 export default function DynamicDirectoryView() {
   const { slug } = useParams();
-  const { isAdmin, isFeatureExcluded, memberInfo } = useMemberAccess();
+  const { isAdmin, isFeatureExcluded, memberInfo, authResolved } = useMemberAccess();
   const queryClient = useQueryClient();
 
+  // A guest is a visitor whose auth state has resolved with no member identity.
+  // Guests load the directory via public/tenant-resolved endpoints instead of
+  // the session-only base44 entity API.
+  const isGuest = authResolved && !memberInfo;
+
   const canEditLogos = isAdmin && !isFeatureExcluded('action_org_logo_edit');
-  const canShowDisabledAccounts = !isFeatureExcluded('element_ShowDisabledAccounts');
+  const canShowDisabledAccounts = !!memberInfo && !isFeatureExcluded('element_ShowDisabledAccounts');
   
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -47,7 +52,7 @@ export default function DynamicDirectoryView() {
   const [selectedOrganization, setSelectedOrganization] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
-  const { data: directory, isLoading: isLoadingDirectory } = useQuery({
+  const { data: authDirectory, isLoading: isLoadingAuthDirectory } = useQuery({
     queryKey: ['dynamic-directory', slug],
     queryFn: async () => {
       const directories = await base44.entities.DynamicDirectory.list({
@@ -55,23 +60,41 @@ export default function DynamicDirectoryView() {
       });
       return directories?.[0] || null;
     },
-    enabled: !!slug
+    enabled: !!slug && !isGuest
   });
 
-  const { data: filterField } = useQuery({
+  const { data: publicConfig, isLoading: isLoadingPublicConfig } = useQuery({
+    queryKey: ['directory-public-config', slug],
+    queryFn: async () => {
+      const res = await fetch(`/api/dynamic-directory/config?slug=${encodeURIComponent(slug)}`, { credentials: 'include' });
+      if (res.status === 404) return { notFound: true };
+      if (!res.ok) throw new Error('Failed to fetch directory config');
+      return res.json();
+    },
+    enabled: !!slug && isGuest,
+  });
+
+  // Merged directory config: guests read from the public endpoint, everyone
+  // else from the authenticated entity API.
+  const directory = isGuest
+    ? (publicConfig?.notFound ? null : (publicConfig?.directory || null))
+    : authDirectory;
+  const isLoadingDirectory = isGuest ? isLoadingPublicConfig : isLoadingAuthDirectory;
+
+  const { data: authFilterField } = useQuery({
     queryKey: ['preference-field', directory?.filter_field_id],
-    enabled: !!directory?.filter_field_id,
+    enabled: !!directory?.filter_field_id && !isGuest,
     queryFn: async () => {
       return await base44.entities.PreferenceField.get(directory.filter_field_id);
     }
   });
 
-  const { data: organizations = [], isLoading: isLoadingOrgs } = useQuery({
+  const { data: authOrganizations = [], isLoading: isLoadingOrgs } = useQuery({
     queryKey: ['organizations-dynamic-directory', slug],
     queryFn: async () => {
       return await base44.entities.Organization.list('name');
     },
-    enabled: !!directory && directory.entity_type === 'organization',
+    enabled: !!directory && directory.entity_type === 'organization' && !isGuest,
     refetchOnMount: true
   });
 
@@ -117,17 +140,17 @@ export default function DynamicDirectoryView() {
   const members = memberResponse?.members || [];
   const memberServerTotal = memberResponse?.total || 0;
 
-  const { data: roles = [] } = useQuery({
+  const { data: authRoles = [] } = useQuery({
     queryKey: ['roles'],
     queryFn: async () => base44.entities.Role.list(),
-    enabled: !!directory && (directory.entity_type === 'member' || directory.entity_type === 'organization'),
+    enabled: !!directory && !isGuest && (directory.entity_type === 'member' || directory.entity_type === 'organization'),
     staleTime: 5 * 60 * 1000,
   });
 
-  const { data: allOrganizations = [] } = useQuery({
+  const { data: authAllOrganizations = [] } = useQuery({
     queryKey: ['organizations'],
     queryFn: async () => base44.entities.Organization.list(),
-    enabled: !!directory && directory.entity_type === 'member',
+    enabled: !!directory && directory.entity_type === 'member' && !isGuest,
     staleTime: 5 * 60 * 1000,
   });
 
@@ -137,14 +160,14 @@ export default function DynamicDirectoryView() {
       const allAwards = await base44.entities.Award.list();
       return allAwards.filter(a => a.is_active);
     },
-    enabled: !!directory && directory.entity_type === 'member',
+    enabled: !!directory && directory.entity_type === 'member' && !isGuest,
     staleTime: 5 * 60 * 1000,
   });
 
   const { data: offlineAssignments = [] } = useQuery({
     queryKey: ['offline-assignments'],
     queryFn: async () => base44.entities.OfflineAwardAssignment.list(),
-    enabled: !!directory && directory.entity_type === 'member',
+    enabled: !!directory && directory.entity_type === 'member' && !isGuest,
     staleTime: 60 * 1000,
   });
 
@@ -154,25 +177,25 @@ export default function DynamicDirectoryView() {
       const allAwards = await base44.entities.OfflineAward.list();
       return allAwards.filter(a => a.is_active);
     },
-    enabled: !!directory && directory.entity_type === 'member',
+    enabled: !!directory && directory.entity_type === 'member' && !isGuest,
     staleTime: 5 * 60 * 1000,
   });
 
   const { data: allBookings = [] } = useQuery({
     queryKey: ['all-bookings'],
     queryFn: async () => base44.entities.Booking.list(),
-    enabled: !!directory && directory.entity_type === 'member',
+    enabled: !!directory && directory.entity_type === 'member' && !isGuest,
     staleTime: 60 * 1000,
   });
 
   const { data: allArticles = [] } = useQuery({
     queryKey: ['all-articles'],
     queryFn: async () => base44.entities.BlogPost.list(),
-    enabled: !!directory && directory.entity_type === 'member',
+    enabled: !!directory && directory.entity_type === 'member' && !isGuest,
     staleTime: 60 * 1000,
   });
 
-  const { data: orgDisplaySettings } = useQuery({
+  const { data: authOrgDisplaySettings } = useQuery({
     queryKey: ['organisation-directory-settings'],
     queryFn: async () => {
       const allSettings = await base44.entities.SystemSettings.list();
@@ -215,12 +238,12 @@ export default function DynamicDirectoryView() {
         reverseCardRoleIds: reverseCardRoleIds
       };
     },
-    enabled: !!directory && directory.entity_type === 'organization',
+    enabled: !!directory && directory.entity_type === 'organization' && !isGuest,
     staleTime: 0,
     refetchOnMount: true
   });
 
-  const { data: memberDisplaySettings } = useQuery({
+  const { data: authMemberDisplaySettings } = useQuery({
     queryKey: ['memberDirectoryDisplay'],
     queryFn: async () => {
       const allSettings = await base44.entities.SystemSettings.list();
@@ -242,7 +265,7 @@ export default function DynamicDirectoryView() {
         show_awards: true, show_bio_in_popup: true
       };
     },
-    enabled: !!directory && directory.entity_type === 'member',
+    enabled: !!directory && directory.entity_type === 'member' && !isGuest,
     staleTime: 0,
     refetchOnMount: true,
   });
@@ -250,12 +273,12 @@ export default function DynamicDirectoryView() {
   const { data: allOrgMembersForCount = [] } = useQuery({
     queryKey: ['all-members-for-org-directory-count'],
     queryFn: async () => base44.entities.Member.listAll(),
-    enabled: !!directory && directory.entity_type === 'organization',
+    enabled: !!directory && directory.entity_type === 'organization' && !isGuest,
     staleTime: 0,
     refetchOnMount: true
   });
 
-  const { data: orgCustomFields = [] } = useQuery({
+  const { data: authOrgCustomFields = [] } = useQuery({
     queryKey: ['/api/entities/PreferenceField', 'organization', directory?.id],
     queryFn: async () => {
       const dirId = directory?.id;
@@ -303,10 +326,10 @@ export default function DynamicDirectoryView() {
         }
       }
     },
-    enabled: !!directory && directory.entity_type === 'organization',
+    enabled: !!directory && directory.entity_type === 'organization' && !isGuest,
   });
 
-  const { data: memberCustomFields = [] } = useQuery({
+  const { data: authMemberCustomFields = [] } = useQuery({
     queryKey: ['member-filterable-fields', directory?.id],
     queryFn: async () => {
       const dirId = directory?.id;
@@ -350,11 +373,11 @@ export default function DynamicDirectoryView() {
         }
       }
     },
-    enabled: !!directory && directory.entity_type === 'member',
+    enabled: !!directory && directory.entity_type === 'member' && !isGuest,
     staleTime: 5 * 60 * 1000,
   });
 
-  const { data: directoryCustomFields = [] } = useQuery({
+  const { data: authDirectoryCustomFields = [] } = useQuery({
     queryKey: ['member-directory-custom-fields', directory?.id],
     queryFn: async () => {
       const dirId = directory?.id;
@@ -404,13 +427,13 @@ export default function DynamicDirectoryView() {
         }
       }
     },
-    enabled: !!directory && directory.entity_type === 'member',
+    enabled: !!directory && directory.entity_type === 'member' && !isGuest,
     staleTime: 5 * 60 * 1000,
   });
 
-  const { data: selectedOrgValues = [], isLoading: isLoadingOrgValues } = useQuery({
+  const { data: authSelectedOrgValues = [], isLoading: isLoadingOrgValues } = useQuery({
     queryKey: ['/api/entities/OrganizationPreferenceValue', selectedOrg?.id],
-    enabled: !!selectedOrg?.id,
+    enabled: !!selectedOrg?.id && !isGuest,
     queryFn: async () => {
       if (!selectedOrg?.id) return [];
       try {
@@ -423,6 +446,35 @@ export default function DynamicDirectoryView() {
       }
     }
   });
+
+  const { data: authAllOrgPreferenceValues = [] } = useQuery({
+    queryKey: ['all-org-preference-values', directory?.filter_field_id],
+    enabled: !!directory && directory.entity_type === 'organization' && !isGuest,
+    queryFn: async () => {
+      try {
+        const values = await base44.entities.OrganizationPreferenceValue.listAll();
+        return values || [];
+      } catch {
+        return [];
+      }
+    },
+    staleTime: 60 * 1000,
+  });
+
+  // ---- Merged config: guests read from publicConfig, others from base44 ----
+  const filterField = isGuest ? (publicConfig?.filterField || null) : authFilterField;
+  const roles = isGuest ? (publicConfig?.roles || []) : authRoles;
+  const organizations = isGuest ? (publicConfig?.organizations || []) : authOrganizations;
+  const allOrganizations = isGuest ? (publicConfig?.allOrganizations || []) : authAllOrganizations;
+  const orgDisplaySettings = isGuest ? publicConfig?.displaySettings : authOrgDisplaySettings;
+  const memberDisplaySettings = isGuest ? publicConfig?.displaySettings : authMemberDisplaySettings;
+  const orgCustomFields = isGuest ? (publicConfig?.orgCustomFields || []) : authOrgCustomFields;
+  const memberCustomFields = isGuest ? (publicConfig?.memberCustomFields || []) : authMemberCustomFields;
+  const directoryCustomFields = isGuest ? (publicConfig?.directoryCustomFields || []) : authDirectoryCustomFields;
+  const allOrgPreferenceValues = isGuest ? (publicConfig?.allOrgPreferenceValues || []) : authAllOrgPreferenceValues;
+  const selectedOrgValues = isGuest
+    ? (selectedOrg?.id ? (publicConfig?.allOrgPreferenceValues || []).filter(v => v.organization_id === selectedOrg.id) : [])
+    : authSelectedOrgValues;
 
   const filterableOrgFields = useMemo(() => {
     const baseFilterable = orgCustomFields.filter(f => f.is_filterable && f.id !== directory?.filter_field_id);
@@ -451,20 +503,6 @@ export default function DynamicDirectoryView() {
     }
     return baseFilterable.filter(f => directory.selected_filter_fields.includes(f.id));
   }, [memberCustomFields, directory?.filter_field_id, directory?.selected_filter_fields]);
-
-  const { data: allOrgPreferenceValues = [] } = useQuery({
-    queryKey: ['all-org-preference-values', directory?.filter_field_id],
-    enabled: !!directory && directory.entity_type === 'organization',
-    queryFn: async () => {
-      try {
-        const values = await base44.entities.OrganizationPreferenceValue.listAll();
-        return values || [];
-      } catch {
-        return [];
-      }
-    },
-    staleTime: 60 * 1000,
-  });
 
   const memberIdsForPrefs = useMemo(() => members.map(m => m.id).join(','), [members]);
 
@@ -782,7 +820,7 @@ export default function DynamicDirectoryView() {
     }
   };
 
-  const isLoading = isLoadingDirectory || (directory?.entity_type === 'organization' ? isLoadingOrgs : isLoadingMembers);
+  const isLoading = (!authResolved && !directory) || isLoadingDirectory || (directory?.entity_type === 'organization' ? isLoadingOrgs : isLoadingMembers);
 
   if (isLoading) {
     return (
@@ -1007,7 +1045,7 @@ export default function DynamicDirectoryView() {
                         )}
                       </CardHeader>
                       <CardContent className="space-y-3">
-                        {orgDisplaySettings?.showMemberCount && (
+                        {!isGuest && orgDisplaySettings?.showMemberCount && (
                           <div className="flex items-center justify-center gap-2 pt-2 border-t border-slate-200">
                             <Users className="w-4 h-4 text-slate-400" />
                             <span className="text-sm text-slate-600">Members:</span>
@@ -1139,13 +1177,13 @@ export default function DynamicDirectoryView() {
               </div>
             </DialogHeader>
             <div className="space-y-4 py-4">
-              {showMembersOnCardBack && (
+              {!isGuest && showMembersOnCardBack && (
                 <div className="flex items-center gap-2 text-slate-600">
                   <Users className="w-4 h-4" />
                   <span>{organizationMemberCounts[selectedOrg?.id] || 0} members</span>
                 </div>
               )}
-              {reverseCardContactGroups.length > 0 && (
+              {!isGuest && reverseCardContactGroups.length > 0 && (
                 <div className="space-y-3 pt-2 border-t">
                   <div className="flex items-center gap-2">
                     <Mail className="w-4 h-4 text-blue-600" />
@@ -1267,7 +1305,7 @@ export default function DynamicDirectoryView() {
             </div>
             <DialogFooter className="gap-2 sm:gap-2">
               <Button variant="outline" onClick={() => setSelectedOrg(null)}>Close</Button>
-              {showMembersOnCardBack && (
+              {!isGuest && showMembersOnCardBack && (
                 <Button
                   onClick={() => { window.location.href = `/memberdirectory?org=${selectedOrg?.id}`; }}
                   className="bg-blue-600 hover:bg-blue-700 gap-2"
@@ -1507,7 +1545,7 @@ export default function DynamicDirectoryView() {
                             </a>
                           </div>
                         )}
-                        {isVisibleOnFront(memberDisplaySettings, 'show_events') && (
+                        {!isGuest && isVisibleOnFront(memberDisplaySettings, 'show_events') && (
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                               <Calendar className="w-4 h-4 text-green-600" />
@@ -1516,7 +1554,7 @@ export default function DynamicDirectoryView() {
                             <Badge variant="secondary">{stats.eventsAttended || 0}</Badge>
                           </div>
                         )}
-                        {isVisibleOnFront(memberDisplaySettings, 'show_articles') && (
+                        {!isGuest && isVisibleOnFront(memberDisplaySettings, 'show_articles') && (
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                               <FileText className="w-4 h-4 text-purple-600" />
@@ -1525,7 +1563,7 @@ export default function DynamicDirectoryView() {
                             <Badge variant="secondary">{stats.publishedArticles || 0}</Badge>
                           </div>
                         )}
-                        {isVisibleOnFront(memberDisplaySettings, 'show_awards') && stats.totalAwards > 0 && (
+                        {!isGuest && isVisibleOnFront(memberDisplaySettings, 'show_awards') && stats.totalAwards > 0 && (
                           <div className="pt-3 border-t border-slate-200">
                             <div className="flex items-center gap-2 mb-2">
                               <Trophy className="w-4 h-4 text-warning" />
@@ -1773,7 +1811,7 @@ export default function DynamicDirectoryView() {
               )}
 
               <div className="grid grid-cols-2 gap-4">
-                {isVisibleOnBack(memberDisplaySettings, 'show_events') && (
+                {!isGuest && isVisibleOnBack(memberDisplaySettings, 'show_events') && (
                   <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-4 border border-green-200">
                     <div className="flex items-center gap-2 mb-1">
                       <Calendar className="w-5 h-5 text-green-600" />
@@ -1784,7 +1822,7 @@ export default function DynamicDirectoryView() {
                     </p>
                   </div>
                 )}
-                {isVisibleOnBack(memberDisplaySettings, 'show_articles') && (
+                {!isGuest && isVisibleOnBack(memberDisplaySettings, 'show_articles') && (
                   <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-4 border border-purple-200">
                     <div className="flex items-center gap-2 mb-1">
                       <FileText className="w-5 h-5 text-purple-600" />
@@ -1846,7 +1884,7 @@ export default function DynamicDirectoryView() {
                 );
               })()}
 
-              {isVisibleOnBack(memberDisplaySettings, 'show_awards') && memberStats[viewingMember.id]?.totalAwards > 0 && (
+              {!isGuest && isVisibleOnBack(memberDisplaySettings, 'show_awards') && memberStats[viewingMember.id]?.totalAwards > 0 && (
                 <div className="space-y-3">
                   <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wide flex items-center gap-2">
                     <Trophy className="w-4 h-4 text-warning" />
@@ -1888,6 +1926,7 @@ export default function DynamicDirectoryView() {
               )}
 
               {(() => {
+                if (isGuest) return null;
                 const displayEmail = getDisplayEmail(viewingMember);
                 return (
                   <div className="pt-4 border-t border-slate-200 space-y-3">
