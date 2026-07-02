@@ -2233,7 +2233,7 @@ export default function PreferencesPage() {
         );
 
       case 'groups':
-        if (isFeatureExcluded('user.about-me.groups') || groupAssignments.length === 0) return null;
+        if (isFeatureExcluded('user.about-me.groups') || isFeatureExcluded('membership.member-groups') || groupAssignments.length === 0) return null;
         return (
           <Card key="groups" className="border-slate-200 shadow-sm">
             <CardHeader>
