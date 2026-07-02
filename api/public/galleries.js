@@ -66,10 +66,42 @@ export default async function handler(req, res) {
       photosByGallery.get(p.gallery_id).push(p);
     }
 
-    const result = galleries.map((g) => ({
-      ...g,
-      photos: photosByGallery.get(g.id) || [],
-    }));
+    // Resolve a cover photo per gallery so the public list can render a
+    // thumbnail reliably. The bulk photo fetch above is subject to PostgREST's
+    // default row cap, so a gallery near the end of a large tenant's list can
+    // come back with no photos — which would drop its cover. Fetch the
+    // explicitly-set cover photos directly by id (cap-safe) and only fall back
+    // to the first photo from the batch when no cover is set.
+    const coverPhotoIds = Array.from(
+      new Set(galleries.map((g) => g.cover_photo_id).filter(Boolean))
+    );
+    const coverById = new Map();
+    if (coverPhotoIds.length > 0) {
+      const { data: coverRows, error: cErr } = await supabase
+        .from('gallery_photo')
+        .select('id, gallery_id, file_url, storage_path, bucket, caption, alt_text, display_order, created_at')
+        .in('id', coverPhotoIds);
+      if (cErr) {
+        console.error('[Public Galleries] Cover photos query error:', cErr);
+      } else {
+        for (const p of coverRows || []) coverById.set(p.id, p);
+      }
+    }
+
+    const result = galleries.map((g) => {
+      const galleryPhotos = photosByGallery.get(g.id) || [];
+      // Guard against a cover_photo_id that points at another gallery's photo.
+      const explicitCover =
+        g.cover_photo_id && coverById.get(g.cover_photo_id)?.gallery_id === g.id
+          ? coverById.get(g.cover_photo_id)
+          : null;
+      const cover_photo = explicitCover || galleryPhotos[0] || null;
+      return {
+        ...g,
+        photos: galleryPhotos,
+        cover_photo,
+      };
+    });
 
     res.json(result);
   } catch (error) {

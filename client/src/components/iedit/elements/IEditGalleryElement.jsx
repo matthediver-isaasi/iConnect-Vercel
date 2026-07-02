@@ -192,8 +192,14 @@ export function IEditGalleryElementRenderer({ element, memberInfo }) {
       )}
       <div className={`grid ${gridCols} gap-4`}>
         {visible.map((g) => {
+          const galleryPhotos = Array.isArray(g.photos) ? g.photos : [];
+          // Prefer the cover resolved by the public list endpoint (cap-safe);
+          // fall back to deriving it from the loaded photos for the member path.
           const cover =
-            g.photos.find((p) => p.id === g.cover_photo_id) || g.photos[0] || null;
+            g.cover_photo ||
+            galleryPhotos.find((p) => p.id === g.cover_photo_id) ||
+            galleryPhotos[0] ||
+            null;
           return (
             <Card
               key={g.id}
@@ -236,7 +242,7 @@ export function IEditGalleryElementRenderer({ element, memberInfo }) {
                   <p className="text-sm text-slate-600 mt-1 line-clamp-2">{g.description}</p>
                 )}
                 <p className="text-xs text-slate-500 mt-2">
-                  {g.photos.length} photo{g.photos.length === 1 ? "" : "s"}
+                  {galleryPhotos.length} photo{galleryPhotos.length === 1 ? "" : "s"}
                 </p>
               </div>
             </Card>
