@@ -175,7 +175,7 @@ function ToggleField({ label, value, onChange, testId, hint }) {
 // Simple checkbox-style multi-select. `value` is an array of selected ids;
 // `options` is [{ value, label }]. Toggling adds/removes an id. No selection
 // (empty array) is a meaningful state handled by callers.
-function MultiCheckboxField({ label, value, onChange, options, testId, hint }) {
+function MultiCheckboxField({ label, value, onChange, options, testId, hint, warning }) {
   const selected = Array.isArray(value) ? value.map(String) : [];
   const toggle = (id) => {
     const key = String(id);
@@ -206,6 +206,12 @@ function MultiCheckboxField({ label, value, onChange, options, testId, hint }) {
           );
         })}
       </div>
+      {warning ? (
+        <p className="flex items-start gap-1 text-[11px] text-warning" data-testid={testId ? `${testId}-warning` : undefined}>
+          <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" aria-hidden="true" />
+          <span>{warning}</span>
+        </p>
+      ) : null}
     </Field>
   );
 }
@@ -3966,6 +3972,23 @@ function ArticleListInspector({ block, update }) {
 // ============================================================================
 // RESOURCE LIST
 // ============================================================================
+// Resolve the selected category/sub-category filters from block content,
+// supporting both the newer multi-select arrays (`categories`/`subcategories`)
+// and the legacy single-value fields (`category`/`subcategory`). Arrays take
+// precedence; when neither array has entries we fall back to the singles so
+// existing blocks keep working unchanged.
+function resolveResourceFilterSelections(c) {
+  const catArr = Array.isArray(c.categories) ? c.categories.filter(Boolean).map(String) : [];
+  const subArr = Array.isArray(c.subcategories) ? c.subcategories.filter(Boolean).map(String) : [];
+  if (catArr.length || subArr.length) {
+    return { categories: catArr, subcategories: subArr };
+  }
+  return {
+    categories: c.category ? [String(c.category)] : [],
+    subcategories: c.subcategory ? [String(c.subcategory)] : [],
+  };
+}
+
 function ResourceListRender({ block, breakpoint, asEditor }) {
   const c = block.content || {};
   const cols = columnsForBreakpoint(c, breakpoint);
@@ -4020,35 +4043,43 @@ function ResourceListRender({ block, breakpoint, asEditor }) {
       const tag = String(c.tag).toLowerCase();
       list = list.filter((r) => Array.isArray(r.tags) && r.tags.some((x) => String(x).toLowerCase() === tag));
     }
-    if (c.subcategory) {
-      const sub = String(c.subcategory).toLowerCase();
+    const { categories: selCats, subcategories: selSubs } = resolveResourceFilterSelections(c);
+    if (selSubs.length) {
+      // Sub-category filter takes precedence: include resources matching ANY
+      // of the selected sub-categories.
+      const subSet = new Set(selSubs.map((s) => String(s).toLowerCase()));
       list = list.filter((r) =>
-        Array.isArray(r.subcategories) && r.subcategories.some((x) => String(x).toLowerCase() === sub)
+        Array.isArray(r.subcategories) && r.subcategories.some((x) => subSet.has(String(x).toLowerCase()))
       );
-    } else if (c.category) {
-      const cat = String(c.category).toLowerCase();
+    } else if (selCats.length) {
       const cats = Array.isArray(categoriesData) ? categoriesData : [];
-      const matchedCategory = cats.find((cc) => String(cc.name || '').toLowerCase() === cat);
-      if (matchedCategory) {
-        // Known category: match resources belonging to any of its subcategories.
-        const subs = (Array.isArray(matchedCategory.subcategories) ? matchedCategory.subcategories : [])
-          .map((s) => String(s).toLowerCase());
-        list = list.filter((r) =>
-          Array.isArray(r.subcategories) && r.subcategories.some((x) => subs.includes(String(x).toLowerCase()))
-        );
-      } else {
-        // Legacy free-text value: preserve original subcategory-or-tag matching.
-        list = list.filter((r) =>
-          (Array.isArray(r.subcategories) && r.subcategories.some((x) => String(x).toLowerCase() === cat)) ||
-          (Array.isArray(r.tags) && r.tags.some((x) => String(x).toLowerCase() === cat))
-        );
-      }
+      const subNames = new Set();
+      const freeText = new Set();
+      selCats.forEach((name) => {
+        const lower = String(name).toLowerCase();
+        const matchedCategory = cats.find((cc) => String(cc.name || '').toLowerCase() === lower);
+        if (matchedCategory) {
+          // Known category: match resources belonging to any of its subcategories.
+          (Array.isArray(matchedCategory.subcategories) ? matchedCategory.subcategories : [])
+            .forEach((s) => subNames.add(String(s).toLowerCase()));
+        } else {
+          // Legacy free-text value: preserve original subcategory-or-tag matching.
+          freeText.add(lower);
+        }
+      });
+      list = list.filter((r) => {
+        const rsubs = Array.isArray(r.subcategories) ? r.subcategories.map((x) => String(x).toLowerCase()) : [];
+        const rtags = Array.isArray(r.tags) ? r.tags.map((x) => String(x).toLowerCase()) : [];
+        if (rsubs.some((x) => subNames.has(x))) return true;
+        if (freeText.size && (rsubs.some((x) => freeText.has(x)) || rtags.some((x) => freeText.has(x)))) return true;
+        return false;
+      });
     }
     if (c.audience === 'public-only') list = list.filter((r) => !r.is_locked);
     else if (c.audience === 'members-only') list = list.filter((r) => r.is_locked);
     if (c.limit && c.limit > 0) list = list.slice(0, c.limit);
     return list;
-  }, [data, categoriesData, c.resourceType, c.tag, c.category, c.subcategory, c.audience, c.limit]);
+  }, [data, categoriesData, c.resourceType, c.tag, c.category, c.subcategory, c.categories, c.subcategories, c.audience, c.limit]);
 
   return (
     <div className="w-full h-full overflow-auto" aria-label={block.a11y?.ariaLabel || c.title || 'Resources'}>
@@ -4115,8 +4146,6 @@ function ResourceListRender({ block, breakpoint, asEditor }) {
   );
 }
 
-const ALL_CATEGORIES = '__all__';
-
 function ResourceListInspector({ block, update }) {
   const c = block.content || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
@@ -4160,29 +4189,67 @@ function ResourceListInspector({ block, update }) {
     return { selectedCategoryName: savedCat, selectedSubcategory: c.subcategory || '' };
   }, [c.category, c.subcategory, resourceCategories]);
 
-  const activeCategory = resourceCategories.find(
-    (cat) => String(cat.name || '').toLowerCase() === String(selectedCategoryName).toLowerCase()
-  );
-  const subcategoryOptions = activeCategory && Array.isArray(activeCategory.subcategories)
-    ? activeCategory.subcategories.filter(Boolean)
-    : [];
+  // The category filter now supports multiple selections. Prefer the newer
+  // `categories` array; fall back to the legacy single value (mapped to a real
+  // category name where possible) so existing blocks stay editable.
+  const selectedCategories = useMemo(() => {
+    const arr = Array.isArray(c.categories) ? c.categories.filter(Boolean).map(String) : [];
+    if (arr.length) return arr;
+    return selectedCategoryName ? [selectedCategoryName] : [];
+  }, [c.categories, selectedCategoryName]);
+
+  const selectedSubcategories = useMemo(() => {
+    const arr = Array.isArray(c.subcategories) ? c.subcategories.filter(Boolean).map(String) : [];
+    if (arr.length) return arr;
+    return selectedSubcategory ? [selectedSubcategory] : [];
+  }, [c.subcategories, selectedSubcategory]);
+
+  // Sub-category options are the union of the sub-categories across every
+  // selected (known) category.
+  const subcategoryOptions = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    selectedCategories.forEach((name) => {
+      const cat = resourceCategories.find(
+        (cc) => String(cc.name || '').toLowerCase() === String(name).toLowerCase()
+      );
+      if (cat && Array.isArray(cat.subcategories)) {
+        cat.subcategories.filter(Boolean).forEach((s) => {
+          const key = String(s).toLowerCase();
+          if (!seen.has(key)) { seen.add(key); out.push(s); }
+        });
+      }
+    });
+    return out;
+  }, [selectedCategories, resourceCategories]);
 
   // Warn editors when a saved filter references a category / sub-category that
   // no longer exists (renamed or deleted in Category Management). We only judge
   // staleness once the category list has loaded, otherwise every block would
-  // flash a false warning on first render. The category is considered stale
-  // when a value is saved but it neither matches an active category by name nor
-  // resolves as a legacy subcategory value under a parent (i.e. no
-  // `activeCategory`). The sub-category is stale when its parent category is
-  // valid but the saved sub-category is no longer one of that category's
-  // sub-categories.
-  const categoryStale = !categoriesLoading && !!c.category && !activeCategory;
-  const subcategoryStale = !categoriesLoading
-    && !!c.subcategory
-    && !!activeCategory
-    && !subcategoryOptions.some(
-      (s) => String(s).toLowerCase() === String(c.subcategory).toLowerCase()
-    );
+  // flash a false warning on first render. With multi-select, a selected
+  // category is stale when it no longer matches any active category by name,
+  // and a selected sub-category is stale when it is no longer one of the
+  // available sub-categories for the selected categories.
+  const knownCategoryNames = useMemo(
+    () => new Set(resourceCategories.map((cat) => String(cat.name || '').toLowerCase())),
+    [resourceCategories]
+  );
+  const staleCategories = useMemo(
+    () => (categoriesLoading
+      ? []
+      : selectedCategories.filter((name) => !knownCategoryNames.has(String(name).toLowerCase()))),
+    [categoriesLoading, selectedCategories, knownCategoryNames]
+  );
+  const availableSubSet = useMemo(
+    () => new Set(subcategoryOptions.map((s) => String(s).toLowerCase())),
+    [subcategoryOptions]
+  );
+  const staleSubcategories = useMemo(
+    () => (categoriesLoading
+      ? []
+      : selectedSubcategories.filter((s) => !availableSubSet.has(String(s).toLowerCase()))),
+    [categoriesLoading, selectedSubcategories, availableSubSet]
+  );
 
   return (
     <>
@@ -4196,37 +4263,53 @@ function ResourceListInspector({ block, update }) {
       />
       <TextField label="Resource type" value={c.resourceType} onChange={(v) => set({ resourceType: v })} testId="input-resource-list-type" />
       <TextField label="Filter tag" value={c.tag} onChange={(v) => set({ tag: v })} testId="input-resource-list-tag" />
-      <SelectField
-        label="Filter category"
-        value={selectedCategoryName ? selectedCategoryName : ALL_CATEGORIES}
-        onChange={(v) => set({
-          category: v === ALL_CATEGORIES ? '' : v,
+      <MultiCheckboxField
+        label="Filter categories"
+        value={selectedCategories}
+        options={[
+          ...resourceCategories.map((cat) => ({ value: cat.name, label: cat.name })),
+          ...staleCategories.map((name) => ({ value: name, label: `${name} (no longer exists)` })),
+        ]}
+        onChange={(next) => {
+          // Keep only the sub-categories that still belong to a selected category.
+          const validSubs = new Set();
+          next.forEach((name) => {
+            const cat = resourceCategories.find(
+              (cc) => String(cc.name || '').toLowerCase() === String(name).toLowerCase()
+            );
+            if (cat && Array.isArray(cat.subcategories)) {
+              cat.subcategories.filter(Boolean).forEach((s) => validSubs.add(String(s).toLowerCase()));
+            }
+          });
+          const prunedSubs = selectedSubcategories.filter((s) => validSubs.has(String(s).toLowerCase()));
+          set({ categories: next, subcategories: prunedSubs, category: '', subcategory: '' });
+        }}
+        testId="multiselect-resource-list-categories"
+        hint={categoriesLoading ? 'Loading categories…' : 'Leave all unchecked for every category. Resources matching any selected category are shown.'}
+        warning={staleCategories.length
+          ? `Saved categor${staleCategories.length > 1 ? 'ies' : 'y'} ${staleCategories.map((n) => `"${n}"`).join(', ')} no longer exist. Uncheck ${staleCategories.length > 1 ? 'them' : 'it'} or pick a current category, or this list may show nothing.`
+          : undefined}
+      />
+      <MultiCheckboxField
+        label="Filter sub-categories"
+        value={selectedSubcategories}
+        options={[
+          ...subcategoryOptions.map((s) => ({ value: s, label: s })),
+          ...staleSubcategories.map((s) => ({ value: s, label: `${s} (no longer exists)` })),
+        ]}
+        onChange={(next) => set({
+          categories: selectedCategories,
+          subcategories: next,
+          category: '',
           subcategory: '',
         })}
-        options={[
-          { value: ALL_CATEGORIES, label: categoriesLoading ? 'Loading…' : 'All categories' },
-          ...resourceCategories.map((cat) => ({ value: cat.name, label: cat.name })),
-          ...(categoryStale ? [{ value: selectedCategoryName, label: `${selectedCategoryName} (no longer exists)` }] : []),
-        ]}
-        warning={categoryStale
-          ? `The saved category "${c.category}" no longer exists. Pick a current category, or this list may show nothing.`
+        testId="multiselect-resource-list-subcategories"
+        hint={subcategoryOptions.length === 0
+          ? 'Select one or more categories to choose sub-categories.'
+          : 'Resources matching any selected sub-category are shown.'}
+        warning={staleSubcategories.length
+          ? `Saved sub-categor${staleSubcategories.length > 1 ? 'ies' : 'y'} ${staleSubcategories.map((s) => `"${s}"`).join(', ')} no longer belong to the selected categories. Uncheck ${staleSubcategories.length > 1 ? 'them' : 'it'} or pick a current sub-category.`
           : undefined}
-        testId="select-resource-list-category"
-      />
-      <SelectField
-        label="Filter sub-category"
-        value={selectedSubcategory ? selectedSubcategory : ALL_CATEGORIES}
-        onChange={(v) => set({ subcategory: v === ALL_CATEGORIES ? '' : v })}
-        options={[
-          { value: ALL_CATEGORIES, label: 'All sub-categories' },
-          ...subcategoryOptions.map((s) => ({ value: s, label: s })),
-          ...(subcategoryStale ? [{ value: selectedSubcategory, label: `${selectedSubcategory} (no longer exists)` }] : []),
-        ]}
-        disabled={!activeCategory || (subcategoryOptions.length === 0 && !subcategoryStale)}
-        warning={subcategoryStale
-          ? `The saved sub-category "${c.subcategory}" is no longer part of "${selectedCategoryName}". Pick a current sub-category.`
-          : undefined}
-        testId="select-resource-list-subcategory"
       />
       <SelectField
         label="Link behaviour"
