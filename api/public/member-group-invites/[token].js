@@ -1,5 +1,6 @@
 import { supabase } from '../../_lib/database.js';
 import { buildTermSnapshot, resolveRoleTermDefinition } from '../../_lib/memberGroupTermSnapshot.js';
+import { recordMemberGroupActivity } from '../../_lib/memberGroupActivity.js';
 
 // Public, tokenised member-group role invitation endpoint (Task #1608).
 //
@@ -230,6 +231,18 @@ export default async function handler(req, res) {
           .update({ assignment_id: assignmentId })
           .eq('id', row.id);
       }
+
+      recordMemberGroupActivity({
+        memberId: row.member_id,
+        groupId: row.group_id,
+        groupName: group?.name || '(unknown group)',
+        action: 'joined',
+        actorEmail: member?.email || null,
+        tenantId: row.tenant_id,
+        supabaseClient: supabase,
+      }).catch((err) => {
+        console.warn('[RoleInvite] member-group activity record failed:', err.message || err);
+      });
     }
 
     return res.json(buildResponse({

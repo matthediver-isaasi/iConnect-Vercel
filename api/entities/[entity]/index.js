@@ -10,6 +10,7 @@ import { getSession } from '../../_lib/session.js';
 import { handleMemberGroupEntityChange } from '../../_lib/memberGroupProjectsAccess.js';
 import { handleMemberGroupForumChange, filterForumReadRows } from '../../_lib/memberGroupForumAccess.js';
 import { handleMemberGroupFilesChange } from '../../_lib/memberGroupFilesAccess.js';
+import { recordMemberGroupActivity, resolveActorEmail } from '../../_lib/memberGroupActivity.js';
 import { dispatchWpWebhook } from '../../_lib/wpWebhook.js';
 import { sendBriefNotification } from '../../article-briefs/notify.js';
 import { sendSupportNotification, resolveAreaAssignee } from '../../support/notify.js';
@@ -248,6 +249,7 @@ const entityToTable = {
   'PortalNavigationItem': 'portal_navigation_item',
   'MemberGroup': 'member_group',
   'MemberGroupAssignment': 'member_group_assignment',
+  'MemberGroupActivity': 'member_group_activity',
   'MemberGroupClassification': 'member_group_classification',
   'GuestWriter': 'guest_writer',
   'PortalMenu': 'portal_menu',
@@ -915,7 +917,8 @@ export default async function handler(req, res) {
               'ExternalWriter', 'ExternalWriterDocument',
               'CrmTagColor',
               'Vacancy', 'VacancyApplication', 'VacancyAward', 'VacancyDecline', 'VacancyDecisionEmail',
-              'Gallery', 'GalleryPhoto', 'CardDeck'
+              'Gallery', 'GalleryPhoto', 'CardDeck',
+              'MemberGroupActivity'
             ];
             if (entitiesWithoutOrgId.includes(entity)) {
               // SECURITY: Entities without organization_id column MUST have tenant_id - block access if missing
@@ -1729,6 +1732,23 @@ export default async function handler(req, res) {
           await handleMemberGroupFilesChange({ entityNorm, data, beforeData: null });
         } catch (err) {
           console.error('[Entity POST] member-group files hook failed:', err.message || err);
+        }
+        if (entityNorm === 'membergroupassignment' && data.member_id && data.group_id && data.tenant_id) {
+          try {
+            const { data: grp } = await supabase.from('member_group').select('name').eq('id', data.group_id).maybeSingle();
+            const actorEmail = await resolveActorEmail(tenantCtx.memberId, supabase);
+            await recordMemberGroupActivity({
+              memberId: data.member_id,
+              groupId: data.group_id,
+              groupName: grp?.name || '(unknown group)',
+              action: 'joined',
+              actorEmail,
+              tenantId: data.tenant_id,
+              supabaseClient: supabase,
+            });
+          } catch (err) {
+            console.error('[Entity POST] member-group activity record failed:', err.message || err);
+          }
         }
       }
 

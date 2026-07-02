@@ -9,6 +9,7 @@ import { isMemberGroupAssignmentEntity, authorizeMemberGroupAdminAssignmentChang
 import { getSession } from '../../_lib/session.js';
 import { handleMemberGroupEntityChange } from '../../_lib/memberGroupProjectsAccess.js';
 import { handleMemberGroupForumChange, filterForumReadRows } from '../../_lib/memberGroupForumAccess.js';
+import { recordMemberGroupActivity, resolveActorEmail } from '../../_lib/memberGroupActivity.js';
 import { dispatchWpWebhook } from '../../_lib/wpWebhook.js';
 import { rebuildSearchTextForEntity } from '../../_lib/searchTextBuilder.js';
 import { syncBlogPostAuthors } from '../../_lib/blogPostAuthors.js';
@@ -79,6 +80,7 @@ const entityToTable = {
   'PortalNavigationItem': 'portal_navigation_item',
   'MemberGroup': 'member_group',
   'MemberGroupAssignment': 'member_group_assignment',
+  'MemberGroupActivity': 'member_group_activity',
   'MemberGroupClassification': 'member_group_classification',
   'GuestWriter': 'guest_writer',
   'PortalMenu': 'portal_menu',
@@ -260,7 +262,8 @@ export default async function handler(req, res) {
             'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity',
             'ExternalWriter', 'ExternalWriterDocument',
             'CrmTagColor',
-            'Gallery', 'GalleryPhoto', 'CardDeck'
+            'Gallery', 'GalleryPhoto', 'CardDeck',
+            'MemberGroupActivity'
           ];
           if (tenantCtx.tenantId) {
             query = query.eq('tenant_id', tenantCtx.tenantId);
@@ -396,7 +399,8 @@ export default async function handler(req, res) {
                 'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity',
                 'ExternalWriter', 'ExternalWriterDocument',
                 'CrmTagColor',
-                'Gallery', 'GalleryPhoto', 'CardDeck'
+                'Gallery', 'GalleryPhoto', 'CardDeck',
+                'MemberGroupActivity'
               ];
               if (tenantCtx.tenantId) {
                 beforeQuery = beforeQuery.eq('tenant_id', tenantCtx.tenantId);
@@ -772,7 +776,8 @@ export default async function handler(req, res) {
             'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity',
             'ExternalWriter', 'ExternalWriterDocument',
             'CrmTagColor',
-            'Gallery', 'GalleryPhoto', 'CardDeck'
+            'Gallery', 'GalleryPhoto', 'CardDeck',
+            'MemberGroupActivity'
           ];
           if (tenantCtx.tenantId) {
             patchQuery = patchQuery.eq('tenant_id', tenantCtx.tenantId);
@@ -1239,7 +1244,8 @@ export default async function handler(req, res) {
             'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity',
             'ExternalWriter', 'ExternalWriterDocument',
             'CrmTagColor',
-            'Gallery', 'GalleryPhoto', 'CardDeck'
+            'Gallery', 'GalleryPhoto', 'CardDeck',
+            'MemberGroupActivity'
           ];
           if (tenantCtx.tenantId) {
             verifyQuery = verifyQuery.eq('tenant_id', tenantCtx.tenantId);
@@ -1888,6 +1894,23 @@ export default async function handler(req, res) {
             await handleMemberGroupForumChange({ entityNorm: _entityNormDel, data: null, beforeData: deletedRecord });
           } catch (err) {
             console.error('[Entity DELETE] member-group forum hook failed:', err.message || err);
+          }
+          if (_entityNormDel === 'membergroupassignment' && deletedRecord.member_id && deletedRecord.group_id && deletedRecord.tenant_id) {
+            try {
+              const { data: grp } = await supabase.from('member_group').select('name').eq('id', deletedRecord.group_id).maybeSingle();
+              const actorEmail = await resolveActorEmail(tenantCtx.memberId, supabase);
+              await recordMemberGroupActivity({
+                memberId: deletedRecord.member_id,
+                groupId: deletedRecord.group_id,
+                groupName: grp?.name || '(unknown group)',
+                action: 'left',
+                actorEmail,
+                tenantId: deletedRecord.tenant_id,
+                supabaseClient: supabase,
+              });
+            } catch (err) {
+              console.error('[Entity DELETE] member-group activity record failed:', err.message || err);
+            }
           }
         }
         if (entity === 'IEditPageElement' && deletedRecord.page_id) {

@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/api/supabaseClient";
-import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe, ClipboardList, Calendar, FolderTree, Trophy, StickyNote, Plus, Search, MessageSquare, Trash2, ChevronLeft, ChevronRight, Key, Copy, Check, UserCheck, LayoutGrid, ChevronDown, ChevronUp, ExternalLink, AlertTriangle, Wallet, Settings2, Tag, Lock, ClipboardCheck, Eye } from "lucide-react";
+import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe, ClipboardList, Calendar, FolderTree, Trophy, StickyNote, Plus, Search, MessageSquare, Trash2, ChevronLeft, ChevronRight, Key, Copy, Check, UserCheck, LayoutGrid, ChevronDown, ChevronUp, ExternalLink, AlertTriangle, Wallet, Settings2, Tag, Lock, ClipboardCheck, Eye, UserPlus, UserMinus } from "lucide-react";
 import MemberEmails from "@/components/MemberEmails";
 import MemberMembershipTab from "@/components/MemberMembershipTab";
 import CrmTagInput from "@/components/crm/CrmTagInput";
@@ -517,6 +517,19 @@ export default function MemberDetail() {
 
   const memberEmailLower = (member?.email || '').trim().toLowerCase();
 
+  const { data: groupActivityEvents = [], isLoading: groupActivityLoading } = useQuery({
+    queryKey: ['member-detail-group-activity', id],
+    enabled: !!id && activeTab === 'activity',
+    queryFn: async () => {
+      try {
+        return await base44.entities.MemberGroupActivity.list({ filter: { member_id: id } });
+      } catch (err) {
+        console.error('[MemberDetail] member-detail-group-activity query failed', err);
+        return [];
+      }
+    }
+  });
+
   const unifiedBookings = useMemo(() => {
     const buildAttendeeName = (b) => {
       const first = (b?.attendee_first_name || '').trim();
@@ -567,12 +580,21 @@ export default function MemberDetail() {
       };
     });
 
-    return [...simpleItems, ...complexItems]
-      .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
-      .slice(0, 20);
-  }, [memberBookings, complexBookings, events, complexEvents, id, memberEmailLower]);
+    const groupItems = (groupActivityEvents || []).map(ev => ({
+      key: `group-activity-${ev.id}`,
+      id: ev.id,
+      source: 'group_activity',
+      action: ev.action,
+      groupName: ev.group_name || '(unknown group)',
+      date: ev.created_at || null,
+    }));
 
-  const anyBookingsLoading = bookingsLoading || complexBookingsLoading;
+    return [...simpleItems, ...complexItems, ...groupItems]
+      .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
+      .slice(0, 50);
+  }, [memberBookings, complexBookings, events, complexEvents, id, memberEmailLower, groupActivityEvents]);
+
+  const anyBookingsLoading = bookingsLoading || complexBookingsLoading || groupActivityLoading;
 
   // Categories tab queries
   const { data: resourceCategories = [], isLoading: categoriesLoading } = useQuery({
@@ -2155,7 +2177,7 @@ export default function MemberDetail() {
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
                 <ClipboardList className="w-5 h-5 text-blue-600" />
-                Recent Bookings
+                Activity Timeline
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -2164,49 +2186,87 @@ export default function MemberDetail() {
                   <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
                 </div>
               ) : unifiedBookings.length === 0 ? (
-                <p className="text-sm text-slate-500 text-center py-8" data-testid="text-no-bookings">No bookings found</p>
+                <p className="text-sm text-slate-500 text-center py-8" data-testid="text-no-activity">No activity found</p>
               ) : (
                 <div className="space-y-3">
-                  {unifiedBookings.map(item => (
-                    <div
-                      key={item.key}
-                      className="flex items-start justify-between gap-3 p-3 bg-slate-50 rounded-lg"
-                      data-testid={`row-booking-${item.source}-${item.id}`}
-                    >
-                      <div className="flex items-start gap-3 min-w-0 flex-1">
-                        <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center shrink-0">
-                          <Calendar className="w-5 h-5 text-blue-600" />
-                        </div>
-                        <div className="min-w-0 flex-1 space-y-0.5">
-                          <p className="font-medium text-sm truncate" data-testid={`text-booking-title-${item.source}-${item.id}`}>
-                            {item.title}
-                          </p>
-                          {item.attendeeName && (
-                            <p className="text-xs text-slate-600 truncate" data-testid={`text-booking-attendee-${item.source}-${item.id}`}>
-                              Attendee: {item.attendeeName}
-                              {item.ticketClassName ? ` · ${item.ticketClassName}` : ''}
-                            </p>
-                          )}
-                          <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500">
-                            <span data-testid={`text-booking-event-date-${item.source}-${item.id}`}>
-                              Event: {item.eventDate ? formatDate(item.eventDate) : '—'}
-                            </span>
-                            <span data-testid={`text-booking-booked-on-${item.source}-${item.id}`}>
-                              Booked: {item.bookingDate ? formatDate(item.bookingDate) : '—'}
-                            </span>
+                  {unifiedBookings.map(item => {
+                    if (item.source === 'group_activity') {
+                      const isJoined = item.action === 'joined';
+                      return (
+                        <div
+                          key={item.key}
+                          className="flex items-start justify-between gap-3 p-3 bg-slate-50 rounded-lg"
+                          data-testid={`row-group-activity-${item.id}`}
+                        >
+                          <div className="flex items-start gap-3 min-w-0 flex-1">
+                            <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${isJoined ? 'bg-green-100' : 'bg-slate-100'}`}>
+                              {isJoined
+                                ? <UserPlus className="w-5 h-5 text-green-600" />
+                                : <UserMinus className="w-5 h-5 text-slate-500" />
+                              }
+                            </div>
+                            <div className="min-w-0 flex-1 space-y-0.5">
+                              <p className="font-medium text-sm" data-testid={`text-group-activity-label-${item.id}`}>
+                                {isJoined ? 'Joined group' : 'Left group'}{' '}
+                                <span className="font-semibold">{item.groupName}</span>
+                              </p>
+                              <p className="text-xs text-slate-500" data-testid={`text-group-activity-date-${item.id}`}>
+                                {item.date ? formatDate(item.date) : '—'}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="shrink-0">
+                            <Badge
+                              variant={isJoined ? 'outline' : 'secondary'}
+                              data-testid={`badge-group-activity-action-${item.id}`}
+                            >
+                              {isJoined ? 'Joined' : 'Left'}
+                            </Badge>
                           </div>
                         </div>
+                      );
+                    }
+                    return (
+                      <div
+                        key={item.key}
+                        className="flex items-start justify-between gap-3 p-3 bg-slate-50 rounded-lg"
+                        data-testid={`row-booking-${item.source}-${item.id}`}
+                      >
+                        <div className="flex items-start gap-3 min-w-0 flex-1">
+                          <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center shrink-0">
+                            <Calendar className="w-5 h-5 text-blue-600" />
+                          </div>
+                          <div className="min-w-0 flex-1 space-y-0.5">
+                            <p className="font-medium text-sm truncate" data-testid={`text-booking-title-${item.source}-${item.id}`}>
+                              {item.title}
+                            </p>
+                            {item.attendeeName && (
+                              <p className="text-xs text-slate-600 truncate" data-testid={`text-booking-attendee-${item.source}-${item.id}`}>
+                                Attendee: {item.attendeeName}
+                                {item.ticketClassName ? ` · ${item.ticketClassName}` : ''}
+                              </p>
+                            )}
+                            <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500">
+                              <span data-testid={`text-booking-event-date-${item.source}-${item.id}`}>
+                                Event: {item.eventDate ? formatDate(item.eventDate) : '—'}
+                              </span>
+                              <span data-testid={`text-booking-booked-on-${item.source}-${item.id}`}>
+                                Booked: {item.bookingDate ? formatDate(item.bookingDate) : '—'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {item.isAttendeeOnly && (
+                            <Badge variant="secondary" data-testid={`badge-attendee-${item.source}-${item.id}`}>Attendee</Badge>
+                          )}
+                          <Badge variant="outline" data-testid={`badge-booking-status-${item.source}-${item.id}`}>
+                            {item.status}
+                          </Badge>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        {item.isAttendeeOnly && (
-                          <Badge variant="secondary" data-testid={`badge-attendee-${item.source}-${item.id}`}>Attendee</Badge>
-                        )}
-                        <Badge variant="outline" data-testid={`badge-booking-status-${item.source}-${item.id}`}>
-                          {item.status}
-                        </Badge>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </CardContent>

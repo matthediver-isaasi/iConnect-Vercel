@@ -24,6 +24,7 @@ import {
   canManageGroup,
 } from '../_lib/memberGroupAdminAccess.js';
 import { buildTermSnapshot } from '../_lib/memberGroupTermSnapshot.js';
+import { recordMemberGroupActivity } from '../_lib/memberGroupActivity.js';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -254,6 +255,18 @@ export default async function handler(req, res) {
             ...termSnapshot,
           });
       }
+
+      recordMemberGroupActivity({
+        memberId: resolvedMemberId,
+        groupId: group_id,
+        groupName: group?.name || '(unknown group)',
+        action: 'joined',
+        actorEmail: resolvedMember?.email || null,
+        tenantId,
+        supabaseClient: supabase,
+      }).catch((err) => {
+        console.warn('[vacancy-decision] member-group activity record failed:', err.message || err);
+      });
     }
   } else {
     // Decline: record the declined decision (idempotent on vacancy + source).

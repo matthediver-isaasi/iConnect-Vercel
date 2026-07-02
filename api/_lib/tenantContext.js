@@ -134,6 +134,7 @@ export const entityTenantScope = {
   'WallOfFamePerson': TENANT_SCOPE.TENANT,
   'MemberGroup': TENANT_SCOPE.TENANT,
   'MemberGroupAssignment': TENANT_SCOPE.TENANT,
+  'MemberGroupActivity': TENANT_SCOPE.TENANT,
   'MemberGroupClassification': TENANT_SCOPE.TENANT,
   'MemberGroupGuest': TENANT_SCOPE.TENANT,
   'SupportTicket': TENANT_SCOPE.TENANT,
