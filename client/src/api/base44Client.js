@@ -258,6 +258,7 @@ class EntitiesProxy {
   get PortalNavigationItem() { return this._getEntity('PortalNavigationItem'); }
   get MemberGroup() { return this._getEntity('MemberGroup'); }
   get MemberGroupAssignment() { return this._getEntity('MemberGroupAssignment'); }
+  get MemberGroupActivity() { return this._getEntity('MemberGroupActivity'); }
   get MemberGroupClassification() { return this._getEntity('MemberGroupClassification'); }
   get GuestWriter() { return this._getEntity('GuestWriter'); }
   get PortalMenu() { return this._getEntity('PortalMenu'); }
