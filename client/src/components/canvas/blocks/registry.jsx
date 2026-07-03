@@ -101,7 +101,7 @@ import {
 } from '@/lib/tenantButtonStyle';
 import { useCanvasAnchors } from '../CanvasAnchorContext';
 import { useCanvasSymbols } from '../CanvasSymbolsContext';
-import { useAccordionReflow } from '../AccordionReflowContext';
+import { useReportReflowHeight } from '../AccordionReflowContext';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import {
@@ -1769,31 +1769,7 @@ function TextRender({ block, breakpoint }) {
   // Report our rendered height to the AccordionReflowContext so blocks below
   // reflow down/up as the text grows or shrinks — the same mechanism the
   // FAQ/Accordion block uses.
-  const reflow = useAccordionReflow();
-  const containerRef = useRef(null);
-
-  // Synchronous initial measurement before first paint so blocks below start
-  // at their correct positions on the first committed frame.
-  useLayoutEffect(() => {
-    if (!reflow || !containerRef.current) return;
-    const h = containerRef.current.getBoundingClientRect().height;
-    if (h > 0) reflow.reportHeight(block.id, Math.round(h));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // mount-only; ResizeObserver below handles ongoing content/width changes
-
-  // Ongoing measurement: content edits and width-driven rewraps both change
-  // the rendered height, which the ResizeObserver picks up.
-  useEffect(() => {
-    if (!reflow || !containerRef.current) return;
-    const el = containerRef.current;
-    const report = () => {
-      const h = el.getBoundingClientRect().height;
-      if (h > 0) reflow.reportHeight(block.id, Math.round(h));
-    };
-    const observer = new ResizeObserver(report);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [reflow, block.id]);
+  const containerRef = useReportReflowHeight(block.id);
 
   return (
     <>
@@ -3103,31 +3079,7 @@ function AccordionRender({ block, asEditor }) {
 
   // Report our rendered height to the AccordionReflowContext so that the
   // canvas renderers can shift blocks below us down by the right delta.
-  const reflow = useAccordionReflow();
-  const containerRef = useRef(null);
-
-  // Synchronous initial measurement before first paint so that blocks below
-  // are already at their correct positions on the first committed frame
-  // (avoids a visible layout jump when stored height != natural collapsed height).
-  useLayoutEffect(() => {
-    if (!reflow || !containerRef.current) return;
-    const h = containerRef.current.getBoundingClientRect().height;
-    if (h > 0) reflow.reportHeight(block.id, Math.round(h));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // intentionally mount-only; ResizeObserver below handles ongoing changes
-
-  // Ongoing measurement via ResizeObserver for expand / collapse events.
-  useEffect(() => {
-    if (!reflow || !containerRef.current) return;
-    const el = containerRef.current;
-    const report = () => {
-      const h = el.getBoundingClientRect().height;
-      if (h > 0) reflow.reportHeight(block.id, Math.round(h));
-    };
-    const observer = new ResizeObserver(report);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [reflow, block.id]);
+  const containerRef = useReportReflowHeight(block.id);
 
   return (
     <div

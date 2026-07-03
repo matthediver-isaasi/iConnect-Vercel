@@ -1,9 +1,57 @@
-import { createContext, useContext, useCallback, useState } from 'react';
+import {
+  createContext,
+  useContext,
+  useCallback,
+  useState,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+} from 'react';
 
 const AccordionReflowCtx = createContext(null);
 
 export function useAccordionReflow() {
   return useContext(AccordionReflowCtx);
+}
+
+/**
+ * Shared auto-height reflow measurement for canvas blocks that report their
+ * rendered height back to the AccordionReflowContext (accordion, text, …).
+ *
+ * Returns a ref to attach to the measured element. It encapsulates:
+ *   - a synchronous mount-only useLayoutEffect measurement (so blocks below
+ *     are already at their correct positions on the first committed frame,
+ *     avoiding a visible layout jump when stored height != natural height), and
+ *   - an ongoing ResizeObserver that re-reports on any subsequent size change
+ *     (expand/collapse, content edits, width-driven rewraps, …).
+ *
+ * Safe to use even when there is no surrounding provider (reflow is null): the
+ * effects simply no-op.
+ */
+export function useReportReflowHeight(blockId) {
+  const reflow = useAccordionReflow();
+  const containerRef = useRef(null);
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => {
+    if (!reflow || !containerRef.current) return;
+    const h = containerRef.current.getBoundingClientRect().height;
+    if (h > 0) reflow.reportHeight(blockId, Math.round(h));
+  }, []); // intentionally mount-only; ResizeObserver below handles ongoing changes
+
+  useEffect(() => {
+    if (!reflow || !containerRef.current) return;
+    const el = containerRef.current;
+    const report = () => {
+      const h = el.getBoundingClientRect().height;
+      if (h > 0) reflow.reportHeight(blockId, Math.round(h));
+    };
+    const observer = new ResizeObserver(report);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [reflow, blockId]);
+
+  return containerRef;
 }
 
 /**
