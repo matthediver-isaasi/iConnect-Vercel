@@ -242,10 +242,12 @@ export function SymbolsDialog({ open, onOpenChange, canvasRef }) {
 
   const insertSymbol = (sym) => {
     if (!canvasRef?.current?.addBlocks) return;
+    // Omit x/y so addBlocks drops the symbol centered in the user's current
+    // viewport (see CanvasBuilder.addBlocks) instead of the top-left corner.
     canvasRef.current.addBlocks([{
       type: BLOCK_TYPES.SYMBOL,
       name: sym.name,
-      desktop: { x: 40, y: 40, w: 600, h: 240, hidden: false },
+      desktop: { w: 600, h: 240, hidden: false },
       content: { symbolId: sym.id, symbolName: sym.name },
     }]);
     toast.success('Symbol inserted');

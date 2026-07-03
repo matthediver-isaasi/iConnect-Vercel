@@ -435,10 +435,49 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     // the ids that were actually inserted.
     addBlocks: (blocks) => {
       const arr = Array.isArray(blocks) ? blocks : [blocks];
-      const created = arr.map((b) => createBlock(b.type || BLOCK_TYPES.BOX, b));
+      // Programmatic inserts (symbols, command palette, templates) have no
+      // pointer to anchor to. Unless the caller passes an explicit position,
+      // drop the block centered on whatever the user is currently looking at
+      // (mirrors the pointer-anchored placement used for palette drag/drop),
+      // so it doesn't land at the far top-left off-screen.
+      const center = computeViewportCenter();
+      const created = arr.map((b) => {
+        const type = b.type || BLOCK_TYPES.BOX;
+        const hasExplicitPos =
+          b.desktop && (b.desktop.x != null || b.desktop.y != null);
+        let overrides = b;
+        if (center && !hasExplicitPos) {
+          const defaults = getBlockDefaults(type);
+          const blockW = b.desktop?.w ?? defaults.geom?.w ?? 200;
+          const blockH = b.desktop?.h ?? defaults.geom?.h ?? 120;
+          const x = Math.max(
+            0,
+            Math.round((center.x - blockW / 2) / gridSize) * gridSize,
+          );
+          const y = Math.max(
+            0,
+            Math.round((center.y - blockH / 2) / gridSize) * gridSize,
+          );
+          overrides = { ...b, desktop: { ...(b.desktop || {}), x, y } };
+        }
+        return createBlock(type, overrides);
+      });
       replaceChildren((existing) => [...existing, ...created]);
       const newIds = created.map((c) => c.id);
       setSelectedIds(newIds);
+      // Scroll the first inserted block into view and select it (inspector
+      // opens), matching setSelection's behavior for programmatic navigation.
+      if (newIds[0] && typeof document !== 'undefined') {
+        setTimeout(() => {
+          const stage = document.querySelector('[data-testid="canvas-stage"]');
+          const el = (stage || document).querySelector(
+            `[data-testid="canvas-block-${newIds[0]}"]`,
+          );
+          if (el && typeof el.scrollIntoView === 'function') {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }, 50);
+      }
       return newIds;
     },
     getSelectedIds: () => selectedIds,
@@ -465,7 +504,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
         }, 50);
       }
     },
-  }), [performSave, design, lastSavedSnapshot, replaceChildren, selectedIds, children]);
+  }), [performSave, design, lastSavedSnapshot, replaceChildren, selectedIds, children, zoom, gridSize]);
 
   const updateBlock = useCallback((id, updater) => {
     replaceChildren((arr) =>
@@ -625,6 +664,29 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     replaceChildren((arr) => [...arr, newBlock]);
     setSelectedIds([newBlock.id]);
   };
+
+  // Compute the center of the user's currently-visible stage area in
+  // stage-local coordinates. Uses the same client->stage math as handleDragEnd
+  // (subtract the stage's bounding rect, divide by zoom); because the stage
+  // rect shifts as the scroll container scrolls, this naturally accounts for
+  // the current scroll offset and zoom. Returns grid-snapped, non-negative
+  // coordinates, or null if the stage isn't mounted yet.
+  function computeViewportCenter() {
+    const wrap = stageWrapperRef.current;
+    const stage = document.querySelector('[data-testid="canvas-stage"]');
+    if (!wrap || !stage) return null;
+    const wrapRect = wrap.getBoundingClientRect();
+    const stageRect = stage.getBoundingClientRect();
+    const zoomFactor = zoom || 1;
+    const centerClientX = wrapRect.left + wrap.clientWidth / 2;
+    const centerClientY = wrapRect.top + wrap.clientHeight / 2;
+    const localX = (centerClientX - stageRect.left) / zoomFactor;
+    const localY = (centerClientY - stageRect.top) / zoomFactor;
+    return {
+      x: Math.max(0, Math.round(localX / gridSize) * gridSize),
+      y: Math.max(0, Math.round(localY / gridSize) * gridSize),
+    };
+  }
 
   // Move a block up or down in the children array (= DOM/reading order).
   const moveBlockInReadingOrder = useCallback((id, direction) => {
