@@ -453,7 +453,22 @@ function CanvasStageInner({
           const b = blocks.find((bb) => bb.id === id);
           return b && blockIsFullWidthLike(b);
         });
-        const dx = allFullWidth ? 0 : dxRaw;
+
+        // Full-width blocks keep their x locked; only the remaining "movable"
+        // blocks participate in horizontal movement and in the shared clamp.
+        // Locked blocks must never influence how far the rest of the group
+        // may slide, or their presence would distort the group's layout.
+        const movableIds = interactionState.ids.filter((id) => {
+          const b = blocks.find((bb) => bb.id === id);
+          return b && !blockIsFullWidthLike(b);
+        });
+
+        // Treat a drag as "pure vertical" when the pointer has barely moved
+        // sideways. In that case we suppress ALL horizontal snapping (grid +
+        // sibling/edge) so grid alignment can't inject a uniform sideways
+        // nudge into the whole group — the group's finalDx stays exactly 0.
+        const horizontalIntent = !allFullWidth && Math.abs(dxRaw) > 1;
+        const dx = horizontalIntent ? dxRaw : 0;
 
         // Compute snap for first dragged block; apply same delta to rest
         const firstId = interactionState.ids[0];
@@ -464,38 +479,58 @@ function CanvasStageInner({
           w: firstInitial.w,
           h: firstInitial.h,
         };
-        // Grid snap
-        candidate.x = snap(candidate.x, gridSize);
+        // Grid snap — y always; x only when there is real horizontal intent.
         candidate.y = snap(candidate.y, gridSize);
-        // Sibling snap (skip horizontal snap entirely when fully pinned)
-        if (!allFullWidth) {
-          const siblings = resolvedBlocks
-            .filter(({ block }) => !interactionState.ids.includes(block.id))
-            .map(({ geom }) => geom);
-          const { rect: snappedRect, guides: g } = snapToSiblings(candidate, siblings, canvasWidth, canvasHeight, 6, userGuides);
+        if (horizontalIntent) candidate.x = snap(candidate.x, gridSize);
+
+        // Sibling/edge snap. We always run it for the vertical (y) guides but
+        // only accept its horizontal (x) result when the user is actually
+        // dragging sideways.
+        const siblings = resolvedBlocks
+          .filter(({ block }) => !interactionState.ids.includes(block.id))
+          .map(({ geom }) => geom);
+        const { rect: snappedRect, guides: g } = snapToSiblings(
+          candidate, siblings, canvasWidth, canvasHeight, 6, userGuides,
+        );
+        candidate.y = snappedRect.y;
+        if (horizontalIntent) {
           candidate.x = snappedRect.x;
-          candidate.y = snappedRect.y;
           appliedGuides = g;
         } else {
-          const siblings = resolvedBlocks
-            .filter(({ block }) => !interactionState.ids.includes(block.id))
-            .map(({ geom }) => geom);
-          // Only collect vertical (y) guides; x is fixed at 0.
-          const { rect: snappedRect, guides: g } = snapToSiblings(
-            { ...candidate, x: firstInitial.x }, siblings, canvasWidth, canvasHeight, 6, userGuides,
-          );
-          candidate.y = snappedRect.y;
+          // Vertical-only (or all-full-width) drag: keep x fixed, drop any
+          // vertical (x) guides so we don't flash a sideways snap line.
           appliedGuides = { vertical: [], horizontal: g.horizontal };
         }
 
-        const finalDx = candidate.x - firstInitial.x;
+        let finalDx = horizontalIntent ? candidate.x - firstInitial.x : 0;
         const finalDy = candidate.y - firstInitial.y;
+
+        // Clamp the selection as a rigid whole. Derive the allowable dx range
+        // from the bounding box of the movable blocks versus [0, canvasWidth],
+        // then apply one shared clamped delta to every block. This keeps
+        // relative positions identical even when the group is dragged against
+        // or past a page edge (per-element clamping was the source of drift).
+        if (movableIds.length > 0) {
+          let minX = Infinity;
+          let maxRight = -Infinity;
+          for (const id of movableIds) {
+            const init = interactionState.initialGeoms[id];
+            if (init.x < minX) minX = init.x;
+            if (init.x + init.w > maxRight) maxRight = init.x + init.w;
+          }
+          const minDx = -minX;                    // left edge can't cross 0
+          const maxDx = canvasWidth - maxRight;   // right edge can't cross canvasWidth
+          // When the selection is wider than the canvas, maxDx < minDx; using
+          // min/max here keeps the clamp valid without distorting layout.
+          finalDx = clamp(finalDx, Math.min(minDx, maxDx), Math.max(minDx, maxDx));
+        }
+
         for (const id of interactionState.ids) {
           const init = interactionState.initialGeoms[id];
           const b = blocks.find((bb) => bb.id === id);
           const lockX = blockIsFullWidthLike(b);
           previews[id] = {
-            x: lockX ? init.x : clamp(init.x + finalDx, 0, Math.max(0, canvasWidth - init.w)),
+            x: lockX ? init.x : init.x + finalDx,
             y: Math.max(0, init.y + finalDy),
             w: init.w,
             h: init.h,
@@ -503,7 +538,7 @@ function CanvasStageInner({
         }
         setPreviewGeoms(previews);
         setGuides(appliedGuides);
-        if (!interactionState.hasMoved && (Math.abs(dx) > 1 || Math.abs(dy) > 1)) {
+        if (!interactionState.hasMoved && (Math.abs(dxRaw) > 1 || Math.abs(dy) > 1)) {
           setInteractionState((s) => s ? { ...s, hasMoved: true } : s);
         }
       } else if (interactionState.kind === 'resize') {
