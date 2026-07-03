@@ -217,7 +217,7 @@ export default async function handler(req, res) {
         while (true) {
           const { data: pvData, error: pvError } = await supabase
             .from('organization_preference_value')
-            .select('organization_id, field_id, preference_field_id, value')
+            .select('organization_id, field_id, value')
             .in('organization_id', batch)
             .range(from, from + pageSize - 1);
           if (pvError) {
@@ -225,7 +225,7 @@ export default async function handler(req, res) {
           }
           if (pvData && pvData.length > 0) {
             for (const pv of pvData) {
-              const fieldIdKey = pv.field_id || pv.preference_field_id;
+              const fieldIdKey = pv.field_id;
               if (!fieldIdKey) continue;
               if (!pageRawMap[pv.organization_id]) pageRawMap[pv.organization_id] = {};
               pageRawMap[pv.organization_id][fieldIdKey] = pv.value;
