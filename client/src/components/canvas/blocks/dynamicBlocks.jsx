@@ -4182,25 +4182,19 @@ function ResourceListRender({ block, breakpoint, asEditor }) {
     : (hasLimit ? searchedItems.slice(0, perPage) : searchedItems);
 
   return (
-    <div className="w-full h-full overflow-hidden flex flex-col" aria-label={block.a11y?.ariaLabel || c.title || 'Resources'}>
+    <div className="w-full h-full overflow-auto" aria-label={block.a11y?.ariaLabel || c.title || 'Resources'}>
       {responsiveCss ? <style dangerouslySetInnerHTML={{ __html: responsiveCss }} /> : null}
       {c.title ? <Heading level={c.headingLevel || 2}>{c.title}</Heading> : null}
       {isLoading ? (
-        <div className="flex-1 min-h-0 overflow-auto">
-          <ListSkeleton count={Math.min(c.limit || 6, 6)} columns={effectiveCols} gap={c.gap} />
-        </div>
+        <ListSkeleton count={Math.min(c.limit || 6, 6)} columns={effectiveCols} gap={c.gap} />
       ) : isError ? (
-        <div className="flex-1 min-h-0 overflow-auto">
-          <ErrorState message="Couldn't load resources right now." />
-        </div>
+        <ErrorState message="Couldn't load resources right now." />
       ) : items.length === 0 ? (
-        <div className="flex-1 min-h-0 overflow-auto">
-          <EmptyState icon={Folder} text={c.emptyText || 'No resources available.'} />
-        </div>
+        <EmptyState icon={Folder} text={c.emptyText || 'No resources available.'} />
       ) : (
         <>
         {searchEnabled ? (
-          <div className="relative mb-3 shrink-0">
+          <div className="relative mb-3">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true" />
             <input
               type="search"
@@ -4214,12 +4208,9 @@ function ResourceListRender({ block, breakpoint, asEditor }) {
           </div>
         ) : null}
         {searchedItems.length === 0 ? (
-          <div className="flex-1 min-h-0 overflow-auto">
-            <EmptyState icon={Folder} text={c.emptyText || 'No resources available.'} />
-          </div>
+          <EmptyState icon={Folder} text={c.emptyText || 'No resources available.'} />
         ) : (
         <>
-        <div className="flex-1 min-h-0 overflow-auto">
         <ul className="list-none m-0 p-0" style={gridStyle(effectiveCols, c.gap)} data-testid="resource-list">
           {visibleItems.map((r) => (
             <li
@@ -4271,9 +4262,8 @@ function ResourceListRender({ block, breakpoint, asEditor }) {
             </li>
           ))}
         </ul>
-        </div>
         {paginate && pageCount > 1 ? (
-          <div className="relative z-10 shrink-0 flex items-center justify-center gap-3 pt-4">
+          <div className="relative z-10 flex items-center justify-center gap-3 pt-4">
             <button
               type="button"
               onClick={() => setPage((p) => Math.max(0, p - 1))}
