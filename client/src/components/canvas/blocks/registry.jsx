@@ -1761,6 +1761,40 @@ function TextRender({ block, breakpoint }) {
   if (awaitingStyle) {
     outerStyle.visibility = 'hidden';
   }
+  // Auto-height: the box always tracks the rendered text height plus a fixed
+  // 10px gap below the last line. This padding is baked into the measured
+  // element so the reported reflow height includes it too.
+  outerStyle.paddingBottom = 10;
+
+  // Report our rendered height to the AccordionReflowContext so blocks below
+  // reflow down/up as the text grows or shrinks — the same mechanism the
+  // FAQ/Accordion block uses.
+  const reflow = useAccordionReflow();
+  const containerRef = useRef(null);
+
+  // Synchronous initial measurement before first paint so blocks below start
+  // at their correct positions on the first committed frame.
+  useLayoutEffect(() => {
+    if (!reflow || !containerRef.current) return;
+    const h = containerRef.current.getBoundingClientRect().height;
+    if (h > 0) reflow.reportHeight(block.id, Math.round(h));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // mount-only; ResizeObserver below handles ongoing content/width changes
+
+  // Ongoing measurement: content edits and width-driven rewraps both change
+  // the rendered height, which the ResizeObserver picks up.
+  useEffect(() => {
+    if (!reflow || !containerRef.current) return;
+    const el = containerRef.current;
+    const report = () => {
+      const h = el.getBoundingClientRect().height;
+      if (h > 0) reflow.reportHeight(block.id, Math.round(h));
+    };
+    const observer = new ResizeObserver(report);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [reflow, block.id]);
+
   return (
     <>
       {responsiveTenantCss && (
@@ -1773,7 +1807,8 @@ function TextRender({ block, breakpoint }) {
         <style dangerouslySetInnerHTML={{ __html: tiptapResponsiveCss }} />
       )}
       <Tag
-        className={`prose prose-sm max-w-none w-full h-full overflow-auto [&_h1]:text-3xl [&_h1]:font-bold [&_h2]:text-2xl [&_h2]:font-bold [&_h3]:text-xl [&_h3]:font-semibold [&_h4]:text-lg [&_h4]:font-semibold [&_h5]:text-base [&_h5]:font-semibold [&_h6]:text-sm [&_h6]:font-semibold [&_h6]:uppercase [&_p:last-child]:mb-0 [&_a]:text-blue-600 [&_a]:underline ${headingSizeClass}`}
+        ref={containerRef}
+        className={`prose prose-sm max-w-none w-full [&_h1]:text-3xl [&_h1]:font-bold [&_h2]:text-2xl [&_h2]:font-bold [&_h3]:text-xl [&_h3]:font-semibold [&_h4]:text-lg [&_h4]:font-semibold [&_h5]:text-base [&_h5]:font-semibold [&_h6]:text-sm [&_h6]:font-semibold [&_h6]:uppercase [&_p:last-child]:mb-0 [&_a]:text-blue-600 [&_a]:underline ${headingSizeClass}`}
         style={outerStyle}
         dangerouslySetInnerHTML={{ __html: safeHtml }}
       />
@@ -8470,7 +8505,7 @@ function HeroCarouselInspector({ block, update, breakpoint }) {
 const REGISTRY = {
   [BLOCK_TYPES.SECTION]:      { label: 'Section',        icon: LayoutPanelTop, category: 'layout',   Editor: SectionRender,      Renderer: SectionRender,      Inspector: SectionInspector },
   [BLOCK_TYPES.HERO]:         { label: 'Hero',           icon: LayoutPanelTop, category: 'content',  Editor: HeroRender,         Renderer: HeroRender,         Inspector: HeroInspector,         absoluteFill: true },
-  [BLOCK_TYPES.TEXT]:         { label: 'Text',           icon: Type,           category: 'content',  Editor: TextRender,         Renderer: TextRender,         Inspector: TextInspector },
+  [BLOCK_TYPES.TEXT]:         { label: 'Text',           icon: Type,           category: 'content',  Editor: TextRender,         Renderer: TextRender,         Inspector: TextInspector, autoHeight: true, widthResizeOnly: true },
   [BLOCK_TYPES.IMAGE]:        { label: 'Image',          icon: ImageIcon,      category: 'content',  Editor: ImageRender,        Renderer: ImageRender,        Inspector: ImageInspector },
   [BLOCK_TYPES.BUTTON]:       { label: 'Button / CTA',   icon: MousePointerClick, category: 'content', Editor: ButtonRender,    Renderer: ButtonRender,       Inspector: ButtonInspector },
   [BLOCK_TYPES.VIDEO]:        { label: 'Video / embed',  icon: Film,           category: 'media',    Editor: VideoRender,        Renderer: VideoRender,        Inspector: VideoInspector },

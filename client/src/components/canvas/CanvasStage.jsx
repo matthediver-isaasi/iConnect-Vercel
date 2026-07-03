@@ -16,6 +16,9 @@ const RESIZE_HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
 // Full-width blocks only allow vertical resize; horizontal handles are
 // hidden because width is pinned to the canvas at the current breakpoint.
 const FULL_WIDTH_RESIZE_HANDLES = ['n', 's'];
+// Width-resize-only blocks (auto-height text) expose only the horizontal
+// handles; vertical resize is dropped so it can't fight content-driven height.
+const WIDTH_ONLY_RESIZE_HANDLES = ['e', 'w'];
 
 function snap(value, gridSize) {
   if (!gridSize || gridSize <= 0) return value;
@@ -181,10 +184,18 @@ function CanvasBlockView({
   const isAutoHeight = !!def?.autoHeight;
   const fullWidth = blockIsFullWidthLike(block);
   const noResize = !!def?.noResize;
+  // Width-resize-only blocks (auto-height text) let authors control wrapping
+  // width but never fight the content-driven height, so only the horizontal
+  // handles are offered.
+  const widthResizeOnly = !!def?.widthResizeOnly;
   const cursor = block.locked
     ? 'cursor-not-allowed'
     : (fullWidth ? 'cursor-ns-resize' : 'cursor-move');
-  const handles = noResize ? [] : (fullWidth ? FULL_WIDTH_RESIZE_HANDLES : RESIZE_HANDLES);
+  const handles = noResize
+    ? []
+    : (fullWidth
+      ? FULL_WIDTH_RESIZE_HANDLES
+      : (widthResizeOnly ? WIDTH_ONLY_RESIZE_HANDLES : RESIZE_HANDLES));
   // Anchor (align-to target) gets a thicker, pink outline so users can
   // visually distinguish which block other blocks will align to.
   const outlineClass = isAnchor
