@@ -1164,6 +1164,17 @@ export default async function handler(req, res) {
           } else {
             sanitizedBody.member_id = tenantCtx.memberId;
           }
+
+          // Some MEMBER-scoped tables also carry a required tenant_id column
+          // (e.g. member_inbox_folder, member_inbox_message_state). For those,
+          // force tenant_id from the session so the insert satisfies the NOT NULL
+          // constraint and can never be pointed at another tenant. MEMBER-scoped
+          // entities WITHOUT a tenant_id column are intentionally excluded so we
+          // never send a spurious tenant_id and break their inserts.
+          const memberEntitiesWithTenantId = ['MemberInboxFolder', 'MemberInboxMessageState'];
+          if (memberEntitiesWithTenantId.includes(entity) && tenantCtx.tenantId) {
+            sanitizedBody.tenant_id = tenantCtx.tenantId;
+          }
         } else if (tenantScope === TENANT_SCOPE.ORGANIZATION) {
           // Organization-scoped entities: check role-based cross-org permissions
           // Only members with appropriate role permissions can specify a different organization_id
