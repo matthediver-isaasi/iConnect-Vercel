@@ -146,7 +146,7 @@ function tagForBlock(block) {
   return 'div';
 }
 
-function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint, windowBp }) {
+function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint, windowBp, pinStageWidth }) {
   const def = getBlockDefinition(block.type);
   const Renderer = def?.Renderer;
   const { style, a11y } = block;
@@ -178,7 +178,15 @@ function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint, windowBp }) {
     const heightOverride = resolveBlockHeightCss(block);
     const height = heightOverride || (isAutoHeight ? 'auto' : g.h + sectionGrowth);
     if (fullBleed) {
-      forcedStyle = { position: 'absolute', left: '50%', transform: 'translateX(-50%)', width: '100vw', top, height };
+      // In an embedded, pinned-width preview (the doc-import modal), `100vw`
+      // resolves against the host browser window, not the pinned stage, so
+      // full-bleed sections balloon past the stage and escape the dialog.
+      // Constrain them to the stage instead so they fill it edge-to-edge
+      // without overflowing. Normal/published and `?_bp=` iframe paths keep
+      // using `100vw` (full-bleed intentionally runs edge-to-edge there).
+      forcedStyle = pinStageWidth
+        ? { position: 'absolute', left: 0, right: 'auto', transform: 'none', width: '100%', top, height }
+        : { position: 'absolute', left: '50%', transform: 'translateX(-50%)', width: '100vw', top, height };
     } else if (fullWidth) {
       forcedStyle = { position: 'absolute', left: 0, top, width: '100%', height };
     } else {
@@ -459,6 +467,7 @@ function CanvasPageStage({ children, lcpBlockId, forcedBreakpoint, windowBp, act
           lcpBlockId={lcpBlockId}
           forcedBreakpoint={forcedBreakpoint}
           windowBp={windowBp}
+          pinStageWidth={pinStageWidth}
         />
       ))}
     </main>
