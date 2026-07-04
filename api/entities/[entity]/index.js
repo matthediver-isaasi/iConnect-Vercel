@@ -7,6 +7,7 @@ import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, 
 import { isEventFamilyEntity, authorizeGroupAdminEventWrite } from '../../_lib/groupAdminEventWrite.js';
 import { isResourceEntity, applyGroupResourceSubcategoryDefaults } from '../../_lib/groupAdminResourceWrite.js';
 import { getSession } from '../../_lib/session.js';
+import { getSessionPlatformOwner } from '../../_lib/platformSession.js';
 import { handleMemberGroupEntityChange } from '../../_lib/memberGroupProjectsAccess.js';
 import { handleMemberGroupForumChange, filterForumReadRows } from '../../_lib/memberGroupForumAccess.js';
 import { handleMemberGroupFilesChange } from '../../_lib/memberGroupFilesAccess.js';
@@ -319,6 +320,7 @@ const entityToTable = {
   'VacancyAward': 'vacancy_award',
   'VacancyDecline': 'vacancy_decline',
   'VacancyDecisionEmail': 'vacancy_decision_email',
+  'HelpArticle': 'help_article',
 };
 
 const getTableName = (entity) => entityToTable[entity] || entity.toLowerCase().replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
@@ -368,6 +370,28 @@ export default async function handler(req, res) {
     const isAdmin = await hasAdminAccess(tenantCtx);
     if (!isAdmin) {
       return res.status(403).json({ error: 'Admin access required' });
+    }
+  }
+
+  // Help Center articles are GLOBAL (identical content across tenants). GLOBAL
+  // entities skip tenant filtering, so access MUST be enforced explicitly here:
+  //  - writes MUST be a platform owner (dedicated editor uses /api/platform/*);
+  //  - reads require a logged-in user (identical content for every tenant), and
+  //    non-owners are restricted to published rows so drafts never leak. (Task #2199)
+  let restrictHelpToPublished = false;
+  if (entityNorm === 'helparticle') {
+    const platformOwner = await getSessionPlatformOwner(req);
+    if (req.method !== 'GET') {
+      if (!platformOwner) {
+        return res.status(403).json({ error: 'Platform owner access required' });
+      }
+    } else if (!platformOwner) {
+      const _session = await getSession(req);
+      const isLoggedIn = !!(_session?.data?.memberId || _session?.data?.identityId);
+      if (!isLoggedIn) {
+        return res.status(401).json({ error: 'Authentication required' });
+      }
+      restrictHelpToPublished = true;
     }
   }
 
@@ -983,10 +1007,16 @@ export default async function handler(req, res) {
       }
 
       // Use pre-parsed filter from tenantCtx if available, otherwise parse now
-      const filterObj = tenantCtx.parsedFilter || (filter ? (() => {
+      let filterObj = tenantCtx.parsedFilter || (filter ? (() => {
         try { return JSON.parse(filter); } catch { return null; }
       })() : null);
-      
+
+      // Help Center: non-owner reads are forced to published-only, overriding
+      // whatever status the client requested so drafts never leak. (Task #2199)
+      if (restrictHelpToPublished) {
+        filterObj = { ...(filterObj || {}), status: 'published' };
+      }
+
       if (filterObj) {
         Object.entries(filterObj).forEach(([key, value]) => {
           if (Array.isArray(value)) {

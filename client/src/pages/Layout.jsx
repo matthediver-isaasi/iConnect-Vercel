@@ -169,6 +169,12 @@ const navigationItems = [
     icon: HelpCircle,
     featureId: "page_Support"
   },
+  {
+    title: "Help Center",
+    url: createPageUrl("Help"),
+    icon: BookOpen,
+    featureId: "page_Help"
+  },
   ];
 
 const adminNavigationItems = [

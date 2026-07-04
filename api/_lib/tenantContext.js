@@ -76,6 +76,10 @@ export const entityTenantScope = {
   'IEditElementTemplate': TENANT_SCOPE.GLOBAL,
   'RoleAccessItem': TENANT_SCOPE.GLOBAL,
   'MagicLink': TENANT_SCOPE.GLOBAL, // Magic links are looked up by token, not tenant
+  // Help Center articles are GLOBAL: identical content across every tenant.
+  // Reads are open to any logged-in user; writes are gated to the platform
+  // owner in api/entities/[entity]/index.js and [id].js (Task #2199).
+  'HelpArticle': TENANT_SCOPE.GLOBAL,
   
   // TENANT - Button styles are per-tenant for custom branding
   'ButtonStyle': TENANT_SCOPE.TENANT,

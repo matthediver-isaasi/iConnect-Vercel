@@ -227,6 +227,7 @@ class EntitiesProxy {
   get IEditPage() { return this._getEntity('IEditPage'); }
   get IEditPageElement() { return this._getEntity('IEditPageElement'); }
   get IEditElementTemplate() { return this._getEntity('IEditElementTemplate'); }
+  get HelpArticle() { return this._getEntity('HelpArticle'); }
   get ResourceFolder() { return this._getEntity('ResourceFolder'); }
   get FileRepositoryFolder() { return this._getEntity('FileRepositoryFolder'); }
   get NavigationItem() { return this._getEntity('NavigationItem'); }

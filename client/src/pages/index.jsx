@@ -213,6 +213,8 @@ import ImportManager from "./ImportManager";
 import SiteMap from "./SiteMap";
 
 import Support from "./Support";
+import Help from "./Help";
+import HelpArticleView from "./HelpArticleView";
 
 import SupportManagement from "./SupportManagement";
 
@@ -636,6 +638,8 @@ const PAGES = {
     SiteMap: SiteMap,
     
     Support: Support,
+    Help: Help,
+    HelpArticleView: HelpArticleView,
     
     SupportManagement: SupportManagement,
     
@@ -760,6 +764,10 @@ function _getCurrentPage(url) {
     
     if (urlParts.length >= 2 && urlParts[0].toLowerCase() === 'gallery') {
         return 'GalleryView';
+    }
+    
+    if (urlParts.length >= 2 && urlParts[0].toLowerCase() === 'help') {
+        return 'HelpArticleView';
     }
     
     let urlLastPart = url.split('/').pop();
@@ -1029,6 +1037,9 @@ function PagesContent() {
                 <Route path="/SiteMap" element={<SiteMap />} />
                 
                 <Route path="/Support" element={<Support />} />
+                
+                <Route path="/Help" element={<Help />} />
+                <Route path="/help/:slug" element={<HelpArticleView />} />
                 
                 <Route path="/SupportManagement" element={<SupportManagement />} />
                 

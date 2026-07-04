@@ -7,6 +7,7 @@ import { isEventFamilyEntity, authorizeGroupAdminEventWrite } from '../../_lib/g
 import { isResourceEntity, authorizeGroupAdminResourceWrite } from '../../_lib/groupAdminResourceWrite.js';
 import { isMemberGroupAssignmentEntity, authorizeMemberGroupAdminAssignmentChange } from '../../_lib/groupAdminAssignmentLeave.js';
 import { getSession } from '../../_lib/session.js';
+import { getSessionPlatformOwner } from '../../_lib/platformSession.js';
 import { handleMemberGroupEntityChange } from '../../_lib/memberGroupProjectsAccess.js';
 import { handleMemberGroupForumChange, filterForumReadRows } from '../../_lib/memberGroupForumAccess.js';
 import { recordMemberGroupActivity, resolveActorEmail } from '../../_lib/memberGroupActivity.js';
@@ -133,6 +134,7 @@ const entityToTable = {
   'ExternalWriter': 'external_writer',
   'ExternalWriterDocument': 'external_writer_document',
   'CrmTagColor': 'crm_tag_color',
+  'HelpArticle': 'help_article',
 };
 
 const getTableName = (entity) => entityToTable[entity] || entity.toLowerCase().replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
@@ -176,6 +178,28 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'Admin access required' });
     }
   }
+
+  // Help Center articles are GLOBAL (identical content across tenants). GLOBAL
+  // entities skip tenant filtering, so access MUST be enforced explicitly here:
+  //  - writes MUST be a platform owner (dedicated editor uses /api/platform/*);
+  //  - reads require a logged-in user, and non-owners are restricted to
+  //    published rows so drafts return 404. (Task #2199)
+  let restrictHelpToPublished = false;
+  if (entityNorm === 'helparticle') {
+    const platformOwner = await getSessionPlatformOwner(req);
+    if (req.method !== 'GET') {
+      if (!platformOwner) {
+        return res.status(403).json({ error: 'Platform owner access required' });
+      }
+    } else if (!platformOwner) {
+      const _session = await getSession(req);
+      const isLoggedIn = !!(_session?.data?.memberId || _session?.data?.identityId);
+      if (!isLoggedIn) {
+        return res.status(401).json({ error: 'Authentication required' });
+      }
+      restrictHelpToPublished = true;
+    }
+  }
   
   // For non-global entities, require authentication and valid tenant context
   if (shouldApplyTenantFilter) {
@@ -212,7 +236,13 @@ export default async function handler(req, res) {
         .from(tableName)
         .select(expand || '*')
         .eq('id', id);
-      
+
+      // Help Center: non-owner by-id reads are restricted to published rows so a
+      // draft slug/id returns 404 rather than exposing unpublished content. (Task #2199)
+      if (restrictHelpToPublished) {
+        query = query.eq('status', 'published');
+      }
+
       // Apply tenant isolation filter for single-entity GET (always applied for non-global entities)
       if (shouldApplyTenantFilter) {
         if (tenantScope === TENANT_SCOPE.MEMBER) {
