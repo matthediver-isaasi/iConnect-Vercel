@@ -112,7 +112,7 @@ export function useReportCardContentHeight(blockId) {
  *   blocks      – the flat list of canvas blocks being rendered
  *   resolveGeom – (block) => { x, y, w, h, hidden }  (breakpoint-resolved)
  */
-export function AccordionReflowProvider({ children, blocks, resolveGeom }) {
+export function AccordionReflowProvider({ children, blocks, resolveGeom, editorMode = false }) {
   const [measuredHeights, setMeasuredHeights] = useState(() => new Map());
 
   const reportHeight = useCallback((blockId, height) => {
@@ -194,6 +194,9 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom }) {
    */
   const getOffset = useCallback(
     (blockId, storedY) => {
+      // Editor mode disables all push-down displacement: blocks render at their
+      // stored positions so dragging/dropping never shifts unrelated blocks.
+      if (editorMode) return 0;
       if (rowGroups.length === 0) return 0;
       let offset = 0;
       for (const grp of rowGroups) {
@@ -201,7 +204,7 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom }) {
       }
       return offset;
     },
-    [rowGroups],
+    [editorMode, rowGroups],
   );
 
   /** Measured height for a specific block (undefined if not yet reported). */
@@ -228,12 +231,24 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom }) {
    */
   const getRowHeight = useCallback(
     (blockId) => {
+      // Editor mode: no cross-row equalization. A card renders at its own
+      // content height (auto) unless the author explicitly grew it, in which
+      // case its stored manual height is applied as a min-height floor. This
+      // keeps manually-resized cards from snapping back on drop while never
+      // inflating a card to match its neighbours in the row.
+      if (editorMode) {
+        const block = blocks.find((b) => b.id === blockId);
+        if (!block) return undefined;
+        const g = resolveGeom(block);
+        if (!g || g.hidden) return undefined;
+        return (g.manualHeight && Number.isFinite(g.h)) ? g.h : undefined;
+      }
       for (const grp of rowGroups) {
         if (grp.ids.includes(blockId)) return grp.renderedHeight;
       }
       return undefined;
     },
-    [rowGroups],
+    [editorMode, blocks, resolveGeom, rowGroups],
   );
 
   /**
@@ -243,10 +258,12 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom }) {
    * within the existing CSS height requires no override).
    */
   const getTotalGrowth = useCallback(() => {
+    // Editor mode: stage height derives from stored geometry only.
+    if (editorMode) return 0;
     let total = 0;
     for (const grp of rowGroups) total += grp.growth;
     return total;
-  }, [rowGroups]);
+  }, [editorMode, rowGroups]);
 
   /**
    * Net signed height change (px) that should be added to a containing
@@ -259,6 +276,8 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom }) {
    */
   const getSectionGrowth = useCallback(
     (sectionBlock, sectionGeom) => {
+      // Editor mode: sections keep their stored height (no accordion auto-grow).
+      if (editorMode) return 0;
       if (!sectionGeom || rowGroups.length === 0) return 0;
       let total = 0;
       for (const grp of rowGroups) {

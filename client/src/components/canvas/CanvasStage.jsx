@@ -877,9 +877,14 @@ function CanvasStageInner({
 }
 
 /**
- * Public-facing CanvasStage wraps the inner stage with AccordionReflowProvider
- * so accordion blocks can report their rendered height and the stage can shift
- * blocks below them down by the right delta — without mutating stored geometry.
+ * The editor CanvasStage wraps the inner stage with AccordionReflowProvider in
+ * `editorMode`. In editor mode the provider is present (so card/accordion blocks
+ * can still report their measured heights — used for the card-resize content
+ * floor), but all reflow-driven positioning and sizing is disabled: no push-down
+ * offset, no card-row equalization, no section auto-grow, no stage growth. The
+ * result is a direct "what you place is what you get" surface where dropping or
+ * resizing a block never shifts unrelated blocks. The public renderer
+ * (CanvasPageRenderer) keeps full reflow by omitting `editorMode`.
  */
 export default function CanvasStage(props) {
   const { blocks, breakpoint, canvasWidth } = props;
@@ -888,7 +893,7 @@ export default function CanvasStage(props) {
     [breakpoint, canvasWidth],
   );
   return (
-    <AccordionReflowProvider blocks={blocks} resolveGeom={resolveGeom}>
+    <AccordionReflowProvider blocks={blocks} resolveGeom={resolveGeom} editorMode>
       <CanvasStageInner {...props} />
     </AccordionReflowProvider>
   );
