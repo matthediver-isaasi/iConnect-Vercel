@@ -773,3 +773,111 @@ export function verifyContentPreserved(before, after) {
   }
   return { ok: diffs.length === 0, diffs };
 }
+
+// ---------------------------------------------------------------------------
+// CLEANUP — the "Clean up" multi-page action on /IEditPageManagement.
+//
+// A single, idempotent pass that (in order):
+//   1. Removes sample/placeholder content — the dashed "note" text boxes the
+//      layout engine emits for deferred interactive surfaces (searchable
+//      directories, video embeds, etc.). These are the ONLY blocks treated as
+//      sample content; the signal is deliberately specific (a text block with a
+//      dashed border) so real content is never touched.
+//   2. Equalizes card heights per visual row so a row of cards shares the row's
+//      tallest height (only bp.desktop.h changes — a field the verifier strips).
+//   3. Runs the cluster-preserving spacing/rhythm normalization
+//      (normalizeDesignFull).
+//
+// The result is verified with verifyContentPreserved against the ORIGINAL design
+// minus the intentionally-removed sample blocks, so any accidental content loss
+// is caught. Deterministic and idempotent: a second pass over a cleaned design
+// removes nothing, equalizes nothing, and reflows nothing.
+//
+// Returns { design, changes, removed, verify }.
+// ---------------------------------------------------------------------------
+
+// A sample/placeholder block: a text block rendered inside a dashed frame.
+function isSamplePlaceholder(block) {
+  return block?.type === 'text' && block?.style?.borderStyle === 'dashed';
+}
+
+// Deep-clone a design with the given block ids removed from every section.
+function stripRemoved(design, removedIds) {
+  const clone = JSON.parse(JSON.stringify(design ?? null));
+  for (const s of clone?.root?.sections || []) {
+    s.children = (s.children || []).filter((b) => !removedIds.has(b.id));
+  }
+  return clone;
+}
+
+// Equalize card heights within each visual row (cards whose desktop.y is within
+// rowTol). Mutates children in place; records desktop.h changes.
+function equalizeCardRows(children, changes, rowTol = 24) {
+  const cards = (children || []).filter((b) => b.type === 'card' && deskOf(b) && isFlowVisible(b));
+  if (cards.length < 2) return;
+  const sorted = [...cards].sort((a, b) => (num(deskOf(a).y) ?? 0) - (num(deskOf(b).y) ?? 0));
+  const rows = [];
+  for (const c of sorted) {
+    const y = num(deskOf(c).y) ?? 0;
+    const last = rows[rows.length - 1];
+    if (last && Math.abs(y - last.y) <= rowTol) last.items.push(c);
+    else rows.push({ y, items: [c] });
+  }
+  for (const row of rows) {
+    if (row.items.length < 2) continue;
+    const maxH = Math.max(...row.items.map((c) => num(deskOf(c).h) ?? 0));
+    if (!(maxH > 0)) continue;
+    for (const c of row.items) {
+      const d = deskOf(c);
+      const cur = num(d.h) ?? 0;
+      if (cur !== maxH) {
+        changes.push({ blockId: c.id, field: 'desktop.h', from: cur, to: maxH });
+        d.h = maxH;
+      }
+    }
+  }
+}
+
+export function cleanupDesign(design, opts = {}) {
+  const removeSample = opts.removeSample !== false;
+  const equalizeCards = opts.equalizeCards !== false;
+
+  const work = JSON.parse(JSON.stringify(design ?? null));
+  const changes = [];
+  const removed = [];
+
+  // 1. Sample-content removal.
+  if (removeSample) {
+    for (const s of work?.root?.sections || []) {
+      const kept = [];
+      for (const b of s.children || []) {
+        if (isSamplePlaceholder(b)) {
+          removed.push({ id: b.id, type: b.type, name: b.name || '' });
+          changes.push({ blockId: b.id, field: 'removed', from: 'sample-placeholder', to: null });
+        } else {
+          kept.push(b);
+        }
+      }
+      s.children = kept;
+    }
+  }
+
+  // 2. Card-height equalization (per row, per section).
+  if (equalizeCards) {
+    for (const s of work?.root?.sections || []) {
+      equalizeCardRows(s.children || [], changes);
+    }
+  }
+
+  // 3. Spacing / rhythm normalization (cluster-preserving reflow).
+  const { design: normalized, changes: normChanges } = normalizeDesignFull(work);
+  for (const c of normChanges) changes.push(c);
+
+  // 4. Content-preservation verification against the original minus the blocks
+  // we intentionally removed.
+  const removedIds = new Set(removed.map((r) => r.id));
+  const beforeMinus = stripRemoved(design, removedIds);
+  const verify = verifyContentPreserved(beforeMinus, normalized);
+
+  return { design: normalized, changes, removed, verify };
+}

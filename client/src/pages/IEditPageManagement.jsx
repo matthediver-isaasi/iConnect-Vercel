@@ -16,7 +16,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { FileEdit, Plus, Search, LayoutGrid, List, ArrowUpDown } from "lucide-react";
+import { FileEdit, Plus, Search, LayoutGrid, List, ArrowUpDown, FileText, Sparkles, Loader2, CheckCircle2, XCircle, MinusCircle } from "lucide-react";
 import {
   DndContext,
   DragOverlay,
@@ -87,6 +87,14 @@ export default function IEditPageManagementPage() {
     builder_type: "iedit",
     canvas_template_id: "",
   });
+
+  // Create-from-document + multi-page cleanup state.
+  const [showDocDialog, setShowDocDialog] = useState(false);
+  const [docFile, setDocFile] = useState(null);
+  const [docTitle, setDocTitle] = useState("");
+  const [showCleanupDialog, setShowCleanupDialog] = useState(false);
+  const [cleanupSelected, setCleanupSelected] = useState(() => new Set());
+  const [cleanupResults, setCleanupResults] = useState(null);
 
   // Folder / view state (Task: folders, sorting & pinning)
   const [selectedFolderId, setSelectedFolderId] = useState("all"); // 'all' | 'root' | <folderId>
@@ -278,6 +286,56 @@ export default function IEditPageManagementPage() {
     onError: (error) => {
       toast.error('Failed to create page: ' + error.message);
     }
+  });
+
+  const fromDocMutation = useMutation({
+    mutationFn: async ({ file, title }) => {
+      const fileBase64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+        reader.onerror = () => reject(new Error('Could not read the file'));
+        reader.readAsDataURL(file);
+      });
+      const res = await fetch('/api/admin/canvas-from-doc', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileBase64, filename: file.name, title: title || undefined }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to create page from document');
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['iedit-pages'] });
+      setShowDocDialog(false);
+      setDocFile(null);
+      setDocTitle("");
+      toast.success('Page created from document');
+      if (data?.page?.id) navigate(createPageUrl('CanvasPageEditor') + `?pageId=${data.page.id}`);
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  const cleanupMutation = useMutation({
+    mutationFn: async (pageIds) => {
+      const res = await fetch('/api/admin/canvas-cleanup', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pageIds }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Cleanup failed');
+      return data;
+    },
+    onSuccess: (data) => {
+      setCleanupResults(data.results || []);
+      queryClient.invalidateQueries({ queryKey: ['iedit-pages'] });
+      const cleaned = (data.results || []).filter((r) => r.status === 'cleaned').length;
+      toast.success(cleaned > 0 ? `Cleaned ${cleaned} page${cleaned === 1 ? '' : 's'}` : 'No changes needed');
+    },
+    onError: (error) => toast.error(error.message),
   });
 
   const createLoginPageMutation = useMutation({
@@ -749,10 +807,20 @@ export default function IEditPageManagementPage() {
               Create and manage custom pages with drag-and-drop elements
             </p>
           </div>
-          <Button onClick={() => setShowCreateDialog(true)} className="bg-blue-600 hover:bg-blue-700">
-            <Plus className="w-4 h-4 mr-2" />
-            New Page
-          </Button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              onClick={() => setShowDocDialog(true)}
+              data-testid="button-create-from-doc"
+            >
+              <FileText className="w-4 h-4 mr-2" />
+              From document
+            </Button>
+            <Button onClick={() => setShowCreateDialog(true)} className="bg-blue-600 hover:bg-blue-700" data-testid="button-new-page">
+              <Plus className="w-4 h-4 mr-2" />
+              New Page
+            </Button>
+          </div>
         </div>
 
         {/* Custom login page prompt — shown when no canvas login page exists */}
@@ -831,6 +899,15 @@ export default function IEditPageManagementPage() {
               <List className="w-4 h-4" />
             </Button>
           </div>
+
+          <Button
+            variant="outline"
+            onClick={() => { setCleanupResults(null); setCleanupSelected(new Set()); setShowCleanupDialog(true); }}
+            data-testid="button-cleanup-pages"
+          >
+            <Sparkles className="w-4 h-4 mr-2" />
+            Clean up
+          </Button>
         </div>
 
         {/* Folders + pages */}
@@ -1010,6 +1087,150 @@ export default function IEditPageManagementPage() {
             ) : null}
           </DragOverlay>
         </DndContext>
+
+        {/* Create From Document Dialog */}
+        <Dialog open={showDocDialog} onOpenChange={(o) => { if (!fromDocMutation.isPending) setShowDocDialog(o); }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Create page from document</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <p className="text-sm text-slate-600">
+                Upload a Word document (.docx). We'll turn its content into a Canvas page draft for you to review and publish.
+              </p>
+              <div className="space-y-2">
+                <Label htmlFor="doc-file">Word document (.docx)</Label>
+                <Input
+                  id="doc-file"
+                  type="file"
+                  accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  onChange={(e) => setDocFile(e.target.files?.[0] || null)}
+                  data-testid="input-doc-file"
+                />
+                {docFile && <p className="text-xs text-slate-500" data-testid="text-doc-filename">{docFile.name}</p>}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="doc-title">Page title (optional)</Label>
+                <Input
+                  id="doc-title"
+                  placeholder="Leave blank to use the document's heading"
+                  value={docTitle}
+                  onChange={(e) => setDocTitle(e.target.value)}
+                  data-testid="input-doc-title"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowDocDialog(false)} disabled={fromDocMutation.isPending}>
+                Cancel
+              </Button>
+              <Button
+                onClick={() => docFile && fromDocMutation.mutate({ file: docFile, title: docTitle.trim() })}
+                disabled={!docFile || fromDocMutation.isPending}
+                data-testid="button-submit-from-doc"
+              >
+                {fromDocMutation.isPending ? (
+                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Building page…</>
+                ) : 'Create page'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Clean Up Pages Dialog */}
+        <Dialog open={showCleanupDialog} onOpenChange={(o) => { if (!cleanupMutation.isPending) setShowCleanupDialog(o); }}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Clean up pages</DialogTitle>
+            </DialogHeader>
+            {(() => {
+              const canvasPages = pages.filter((p) => p.builder_type === 'canvas');
+              const resultsById = new Map((cleanupResults || []).map((r) => [r.pageId, r]));
+              const statusIcon = (status) => {
+                if (status === 'cleaned') return <CheckCircle2 className="w-4 h-4 text-green-600 flex-shrink-0" />;
+                if (status === 'unchanged') return <MinusCircle className="w-4 h-4 text-slate-400 flex-shrink-0" />;
+                if (status === 'skipped') return <MinusCircle className="w-4 h-4 text-slate-400 flex-shrink-0" />;
+                return <XCircle className="w-4 h-4 text-destructive flex-shrink-0" />;
+              };
+              const toggle = (id) => setCleanupSelected((prev) => {
+                const next = new Set(prev);
+                if (next.has(id)) next.delete(id); else next.add(id);
+                return next;
+              });
+              const allSelected = canvasPages.length > 0 && canvasPages.every((p) => cleanupSelected.has(p.id));
+              return (
+                <div className="space-y-3">
+                  <p className="text-sm text-slate-600">
+                    Normalizes spacing, removes sample placeholder content, and equalizes card heights.
+                    Every page is backed up first, and changes are verified to preserve your content.
+                  </p>
+                  {canvasPages.length === 0 ? (
+                    <p className="text-sm text-slate-500">There are no Canvas Builder pages to clean up.</p>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-2 pb-1 border-b border-slate-200">
+                        <Checkbox
+                          checked={allSelected}
+                          onCheckedChange={(c) => setCleanupSelected(c ? new Set(canvasPages.map((p) => p.id)) : new Set())}
+                          data-testid="checkbox-cleanup-all"
+                        />
+                        <span className="text-xs font-medium text-slate-600">Select all ({canvasPages.length})</span>
+                      </div>
+                      <div className="max-h-72 overflow-y-auto space-y-1">
+                        {canvasPages.map((p) => {
+                          const r = resultsById.get(p.id);
+                          return (
+                            <label
+                              key={p.id}
+                              className="flex items-center gap-3 rounded-md p-2 hover-elevate cursor-pointer"
+                              data-testid={`row-cleanup-${p.id}`}
+                            >
+                              <Checkbox
+                                checked={cleanupSelected.has(p.id)}
+                                onCheckedChange={() => toggle(p.id)}
+                                data-testid={`checkbox-cleanup-${p.id}`}
+                              />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-slate-800 truncate">{p.title}</p>
+                                <p className="text-xs text-slate-500 truncate">/{p.slug}</p>
+                              </div>
+                              {r && (
+                                <div className="flex items-center gap-1.5" data-testid={`status-cleanup-${p.id}`}>
+                                  {statusIcon(r.status)}
+                                  <span className="text-xs text-slate-600">
+                                    {r.status === 'cleaned'
+                                      ? `${r.changes} change${r.changes === 1 ? '' : 's'}${r.removed ? `, ${r.removed} removed` : ''}`
+                                      : r.status === 'unchanged'
+                                      ? 'Already clean'
+                                      : r.message || r.status}
+                                  </span>
+                                </div>
+                              )}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
+              );
+            })()}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowCleanupDialog(false)} disabled={cleanupMutation.isPending}>
+                Close
+              </Button>
+              <Button
+                onClick={() => cleanupMutation.mutate([...cleanupSelected])}
+                disabled={cleanupSelected.size === 0 || cleanupMutation.isPending}
+                data-testid="button-run-cleanup"
+              >
+                {cleanupMutation.isPending ? (
+                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Cleaning…</>
+                ) : `Clean up ${cleanupSelected.size || ''}`.trim()}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Create Page Dialog */}
         <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
