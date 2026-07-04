@@ -36,6 +36,13 @@ function rowKey(pageId, row) {
   return `${pageId}:${row.blockId}:${cp}${anchor}`;
 }
 
+// A link is "populated" only if it has a real destination. An empty/whitespace
+// value or a bare "#" placeholder counts as not populated.
+function isLinkPopulated(value) {
+  const v = typeof value === "string" ? value.trim() : "";
+  return !!v && v !== "#";
+}
+
 function SetLinkControl({ internalPages, originalValue, stagedValue, onChange }) {
   // The value the control should reflect: the staged (pending) value when one
   // exists, otherwise the currently saved value.
@@ -333,7 +340,9 @@ export default function CanvasLinksManager() {
   const visiblePages = useMemo(() => {
     return pages
       .map((p) => {
-        const links = hidePopulated ? p.links.filter((l) => !l.value) : p.links;
+        const links = hidePopulated
+          ? p.links.filter((l) => !isLinkPopulated(l.value))
+          : p.links;
         return { ...p, visibleLinks: links };
       })
       .filter((p) => p.visibleLinks.length > 0 || !hidePopulated);
@@ -343,25 +352,20 @@ export default function CanvasLinksManager() {
     () => pages.reduce((acc, p) => acc + (p.links?.length || 0), 0),
     [pages]
   );
+  // A link with no real destination (empty/whitespace or a bare "#") is treated
+  // as not populated everywhere, so the "empty" count and the "Current link"
+  // column stay consistent.
   const emptyLinks = useMemo(
-    () => pages.reduce((acc, p) => acc + (p.links?.filter((l) => !l.value).length || 0), 0),
-    [pages]
-  );
-  // Links still needing a real destination: no value at all, or just the
-  // placeholder "#" (which reads as populated to the "empty" count above).
-  const unconfiguredLinks = useMemo(
     () =>
       pages.reduce(
-        (acc, p) =>
-          acc +
-          (p.links?.filter((l) => {
-            const v = typeof l.value === "string" ? l.value.trim() : "";
-            return !v || v === "#";
-          }).length || 0),
+        (acc, p) => acc + (p.links?.filter((l) => !isLinkPopulated(l.value)).length || 0),
         0
       ),
     [pages]
   );
+  // Links still needing a real destination: no value at all, or just the
+  // placeholder "#".
+  const unconfiguredLinks = emptyLinks;
 
   // Total number of pending (staged) changes and a per-page breakdown.
   const stagedCount = useMemo(() => Object.keys(staged).length, [staged]);
@@ -558,7 +562,7 @@ export default function CanvasLinksManager() {
                               ) : null}
                             </TableCell>
                             <TableCell className="align-top">
-                              {row.value ? (
+                              {isLinkPopulated(row.value) ? (
                                 <span className="inline-flex items-center gap-1 break-all text-sm" data-testid={`text-current-${key}`}>
                                   <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" />
                                   {row.value}
