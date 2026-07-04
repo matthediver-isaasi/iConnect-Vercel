@@ -7,16 +7,17 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import {
   BookOpen,
   ChevronRight,
   LifeBuoy,
   Search,
-  Sparkles,
   Loader2,
   ArrowRight,
 } from "lucide-react";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import dougalAvatar from "@assets/ChatGPT_Image_Jul_4,_2026,_06_26_22_PM_1783182456658.png";
 
 const UNCATEGORISED = "General";
 
@@ -72,6 +73,22 @@ export default function Help() {
   };
 
   const answer = askMutation.data;
+
+  const { data: persona } = useQuery({
+    queryKey: ["/ai-help-persona"],
+    queryFn: async () => {
+      const res = await fetch("/api/public/ai-help-persona", {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to load assistant");
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const aiName = (persona?.name || "Dougal").trim() || "Dougal";
+  const aiAvatarUrl = persona?.avatarUrl || dougalAvatar;
+  const aiInitial = aiName.charAt(0).toUpperCase();
 
   const { data: articles, isLoading, isError } = useQuery({
     queryKey: ["/help-articles", "published"],
@@ -140,8 +157,11 @@ export default function Help() {
       <Card className="mb-8">
         <CardContent className="pt-6">
           <div className="mb-3 flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-primary" />
-            <h2 className="text-sm font-semibold">Ask a question</h2>
+            <Avatar className="h-8 w-8">
+              <AvatarImage src={aiAvatarUrl} alt={aiName} />
+              <AvatarFallback>{aiInitial}</AvatarFallback>
+            </Avatar>
+            <h2 className="text-sm font-semibold" data-testid="text-ask-dougal-heading">Ask {aiName}</h2>
           </div>
           <form onSubmit={handleAsk} className="flex flex-wrap items-center gap-2">
             <Input

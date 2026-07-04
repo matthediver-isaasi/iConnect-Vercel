@@ -10,6 +10,7 @@ import TenantManagement from './TenantManagement';
 import TenantProvisioning from './TenantProvisioning';
 import PlatformDefaults from './PlatformDefaults';
 import HelpArticlesEditor from './HelpArticlesEditor';
+import HelpAiPersonaEditor from './HelpAiPersonaEditor';
 
 export default function PlatformAdmin() {
   const navigate = useNavigate();
@@ -137,7 +138,8 @@ export default function PlatformAdmin() {
             <TenantProvisioning />
           </TabsContent>
 
-          <TabsContent value="help">
+          <TabsContent value="help" className="space-y-6">
+            <HelpAiPersonaEditor />
             <HelpArticlesEditor />
           </TabsContent>
         </Tabs>
