@@ -14,7 +14,6 @@ import {
   Search,
   Trash2,
   MoreVertical,
-  ArrowLeft,
   Pencil,
   FolderInput,
 } from "lucide-react";
@@ -49,6 +48,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Sheet,
+  SheetContent,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/use-toast";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useInbox, fetchInboxMessageBody } from "@/hooks/useInbox";
@@ -275,8 +280,8 @@ export default function InboxPage() {
   };
 
   return (
-    <div className="h-[calc(100vh-4rem)] max-w-7xl mx-auto w-full p-4">
-      <div className="grid grid-cols-1 lg:grid-cols-[220px_minmax(0,1fr)_minmax(0,1.4fr)] gap-4 h-full">
+    <div className="h-[calc(100vh-4rem)] w-full p-4">
+      <div className="grid grid-cols-1 lg:grid-cols-[220px_minmax(0,1fr)] gap-4 h-full">
         {/* Folder rail */}
         <Card className="hidden lg:flex flex-col p-3 overflow-hidden">
           <div className="flex flex-col gap-1">{views.map(renderViewButton)}</div>
@@ -366,7 +371,7 @@ export default function InboxPage() {
         </Card>
 
         {/* Message list */}
-        <Card className={`flex flex-col overflow-hidden ${selectedId ? "hidden lg:flex" : "flex"}`}>
+        <Card className="flex flex-col overflow-hidden">
           <div className="p-3 border-b border-border">
             <div className="relative">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -463,40 +468,33 @@ export default function InboxPage() {
           </ScrollArea>
         </Card>
 
-        {/* Reading pane */}
-        <Card className={`flex flex-col overflow-hidden ${selectedId ? "flex" : "hidden lg:flex"}`}>
-          {!selectedMessage ? (
-            <div className="flex-1 flex items-center justify-center text-center p-8">
-              <div className="text-muted-foreground">
-                <MailOpen className="w-10 h-10 mx-auto mb-3 opacity-50" />
-                <p className="text-sm">Select a message to read it.</p>
-              </div>
-            </div>
-          ) : (
+      </div>
+
+      {/* Reading drawer */}
+      <Sheet
+        open={!!selectedId}
+        onOpenChange={(open) => {
+          if (!open) setSelectedId(null);
+        }}
+      >
+        <SheetContent
+          side="right"
+          className="w-full sm:max-w-xl lg:max-w-2xl p-0 gap-0 flex flex-col"
+        >
+          {selectedMessage && (
             <>
-              <div className="p-4 border-b border-border">
-                <div className="flex items-start gap-2">
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="lg:hidden"
-                    onClick={() => setSelectedId(null)}
-                    data-testid="button-back"
-                  >
-                    <ArrowLeft className="w-4 h-4" />
-                  </Button>
-                  <div className="flex-1 min-w-0">
-                    <h2 className="text-lg font-semibold" data-testid="text-subject">
-                      {selectedMessage.subject || "(no subject)"}
-                    </h2>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      {selectedMessage.from_name}
-                      {selectedMessage.from_email ? ` · ${selectedMessage.from_email}` : ""}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {formatDate(selectedMessage.sent_at)}
-                    </p>
-                  </div>
+              <div className="p-4 pr-12 border-b border-border">
+                <div className="min-w-0">
+                  <SheetTitle className="text-lg font-semibold" data-testid="text-subject">
+                    {selectedMessage.subject || "(no subject)"}
+                  </SheetTitle>
+                  <SheetDescription className="text-sm text-muted-foreground mt-1">
+                    {selectedMessage.from_name}
+                    {selectedMessage.from_email ? ` · ${selectedMessage.from_email}` : ""}
+                  </SheetDescription>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {formatDate(selectedMessage.sent_at)}
+                  </p>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 mt-3">
@@ -619,8 +617,8 @@ export default function InboxPage() {
               </div>
             </>
           )}
-        </Card>
-      </div>
+        </SheetContent>
+      </Sheet>
 
       {/* New / rename folder dialog */}
       <Dialog open={folderDialogOpen} onOpenChange={setFolderDialogOpen}>
