@@ -33,6 +33,8 @@ import { useNavigate } from "react-router-dom";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import PageFolderSidebar from "@/components/iedit/PageFolderSidebar";
 import PageManagerItem from "@/components/iedit/PageManagerItem";
+import { Badge } from "@/components/ui/badge";
+import CanvasPageRenderer from "@/components/canvas/CanvasPageRenderer";
 
 const VIEW_MODE_KEY = "iedit-page-view-mode";
 const SORT_MAP_KEY = "iedit-page-sort-map";
@@ -95,6 +97,9 @@ export default function IEditPageManagementPage() {
   const [docTitle, setDocTitle] = useState("");
   const [docMode, setDocMode] = useState("upload"); // 'upload' | 'paste'
   const [docText, setDocText] = useState("");
+  // Holds the generated-but-unsaved design returned by the preview step so the
+  // admin can review it before anything is persisted. null = no preview yet.
+  const [docPreview, setDocPreview] = useState(null);
   const [showCleanupDialog, setShowCleanupDialog] = useState(false);
   const [cleanupSelected, setCleanupSelected] = useState(() => new Set());
   const [cleanupResults, setCleanupResults] = useState(null);
@@ -291,7 +296,18 @@ export default function IEditPageManagementPage() {
     }
   });
 
-  const fromDocMutation = useMutation({
+  const resetDocDialog = () => {
+    setShowDocDialog(false);
+    setDocFile(null);
+    setDocTitle("");
+    setDocText("");
+    setDocMode("upload");
+    setDocPreview(null);
+  };
+
+  // Step 1 — generate a design from an uploaded file OR pasted text WITHOUT
+  // saving anything. The admin reviews the result before it is persisted.
+  const fromDocPreviewMutation = useMutation({
     mutationFn: async ({ file, text, title }) => {
       let payload;
       if (file) {
@@ -301,9 +317,9 @@ export default function IEditPageManagementPage() {
           reader.onerror = () => reject(new Error('Could not read the file'));
           reader.readAsDataURL(file);
         });
-        payload = { fileBase64, filename: file.name, title: title || undefined };
+        payload = { fileBase64, filename: file.name, title: title || undefined, preview: true };
       } else {
-        payload = { text, title: title || undefined };
+        payload = { text, title: title || undefined, preview: true };
       }
       const res = await fetch('/api/admin/canvas-from-doc', {
         method: 'POST',
@@ -312,21 +328,41 @@ export default function IEditPageManagementPage() {
         body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to generate a preview from the content');
+      return data;
+    },
+    onSuccess: (data) => setDocPreview(data),
+    onError: (error) => toast.error(error.message),
+  });
+
+  // Step 2 — persist the previewed design. Only this step creates a page row.
+  const fromDocConfirmMutation = useMutation({
+    mutationFn: async (preview) => {
+      const res = await fetch('/api/admin/canvas-from-doc', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          confirm: true,
+          design: preview.design,
+          title: preview.title,
+          slug: preview.slug,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Failed to create page from document');
       return data;
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['iedit-pages'] });
-      setShowDocDialog(false);
-      setDocFile(null);
-      setDocTitle("");
-      setDocText("");
-      setDocMode("upload");
+      resetDocDialog();
       toast.success('Page created');
       if (data?.page?.id) navigate(createPageUrl('CanvasPageEditor') + `?pageId=${data.page.id}`);
     },
     onError: (error) => toast.error(error.message),
   });
+
+  const docBusy = fromDocPreviewMutation.isPending || fromDocConfirmMutation.isPending;
 
   const cleanupMutation = useMutation({
     mutationFn: async (pageIds) => {
@@ -1100,74 +1136,133 @@ export default function IEditPageManagementPage() {
         </DndContext>
 
         {/* Create From Document Dialog */}
-        <Dialog open={showDocDialog} onOpenChange={(o) => { if (!fromDocMutation.isPending) setShowDocDialog(o); }}>
-          <DialogContent className="max-w-md">
+        <Dialog open={showDocDialog} onOpenChange={(o) => { if (!docBusy) { if (o) setShowDocDialog(true); else resetDocDialog(); } }}>
+          <DialogContent className={docPreview ? "max-w-3xl" : "max-w-md"}>
             <DialogHeader>
-              <DialogTitle>Create page from content</DialogTitle>
+              <DialogTitle>{docPreview ? 'Review generated page' : 'Create page from content'}</DialogTitle>
             </DialogHeader>
-            <div className="space-y-4">
-              <p className="text-sm text-slate-600">
-                Upload a Word document or paste your text (for example from Google Docs). We'll turn it into a Canvas page draft for you to review and publish.
-              </p>
-              <Tabs value={docMode} onValueChange={setDocMode}>
-                <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="upload" data-testid="tab-doc-upload">Upload file</TabsTrigger>
-                  <TabsTrigger value="paste" data-testid="tab-doc-paste">Paste text</TabsTrigger>
-                </TabsList>
-                <TabsContent value="upload" className="space-y-2 mt-4">
-                  <Label htmlFor="doc-file">Word document (.docx)</Label>
-                  <Input
-                    id="doc-file"
-                    type="file"
-                    accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                    onChange={(e) => setDocFile(e.target.files?.[0] || null)}
-                    data-testid="input-doc-file"
-                  />
-                  {docFile && <p className="text-xs text-slate-500" data-testid="text-doc-filename">{docFile.name}</p>}
-                </TabsContent>
-                <TabsContent value="paste" className="space-y-2 mt-4">
-                  <Label htmlFor="doc-text">Paste your text</Label>
-                  <Textarea
-                    id="doc-text"
-                    placeholder="Paste content from Google Docs, an email, or anywhere else…"
-                    value={docText}
-                    onChange={(e) => setDocText(e.target.value)}
-                    className="min-h-40 resize-y"
-                    data-testid="input-doc-text"
-                  />
-                </TabsContent>
-              </Tabs>
-              <div className="space-y-2">
-                <Label htmlFor="doc-title">Page title (optional)</Label>
-                <Input
-                  id="doc-title"
-                  placeholder="Leave blank to use the content's heading"
-                  value={docTitle}
-                  onChange={(e) => setDocTitle(e.target.value)}
-                  data-testid="input-doc-title"
-                />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setShowDocDialog(false)} disabled={fromDocMutation.isPending}>
-                Cancel
-              </Button>
-              <Button
-                onClick={() => {
-                  if (docMode === 'upload') {
-                    if (docFile) fromDocMutation.mutate({ file: docFile, title: docTitle.trim() });
-                  } else if (docText.trim()) {
-                    fromDocMutation.mutate({ text: docText.trim(), title: docTitle.trim() });
-                  }
-                }}
-                disabled={fromDocMutation.isPending || (docMode === 'upload' ? !docFile : !docText.trim())}
-                data-testid="button-submit-from-doc"
-              >
-                {fromDocMutation.isPending ? (
-                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Building page…</>
-                ) : 'Create page'}
-              </Button>
-            </DialogFooter>
+
+            {!docPreview ? (
+              <>
+                <div className="space-y-4">
+                  <p className="text-sm text-slate-600">
+                    Upload a Word document or paste your text (for example from Google Docs). We'll turn it into a Canvas page so you can review it before anything is saved.
+                  </p>
+                  <Tabs value={docMode} onValueChange={setDocMode}>
+                    <TabsList className="grid w-full grid-cols-2">
+                      <TabsTrigger value="upload" data-testid="tab-doc-upload">Upload file</TabsTrigger>
+                      <TabsTrigger value="paste" data-testid="tab-doc-paste">Paste text</TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="upload" className="space-y-2 mt-4">
+                      <Label htmlFor="doc-file">Word document (.docx)</Label>
+                      <Input
+                        id="doc-file"
+                        type="file"
+                        accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        onChange={(e) => setDocFile(e.target.files?.[0] || null)}
+                        data-testid="input-doc-file"
+                      />
+                      {docFile && <p className="text-xs text-slate-500" data-testid="text-doc-filename">{docFile.name}</p>}
+                    </TabsContent>
+                    <TabsContent value="paste" className="space-y-2 mt-4">
+                      <Label htmlFor="doc-text">Paste your text</Label>
+                      <Textarea
+                        id="doc-text"
+                        placeholder="Paste content from Google Docs, an email, or anywhere else…"
+                        value={docText}
+                        onChange={(e) => setDocText(e.target.value)}
+                        className="min-h-40 resize-y"
+                        data-testid="input-doc-text"
+                      />
+                    </TabsContent>
+                  </Tabs>
+                  <div className="space-y-2">
+                    <Label htmlFor="doc-title">Page title (optional)</Label>
+                    <Input
+                      id="doc-title"
+                      placeholder="Leave blank to use the content's heading"
+                      value={docTitle}
+                      onChange={(e) => setDocTitle(e.target.value)}
+                      data-testid="input-doc-title"
+                    />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={resetDocDialog} disabled={docBusy}>
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      if (docMode === 'upload') {
+                        if (docFile) fromDocPreviewMutation.mutate({ file: docFile, title: docTitle.trim() });
+                      } else if (docText.trim()) {
+                        fromDocPreviewMutation.mutate({ text: docText.trim(), title: docTitle.trim() });
+                      }
+                    }}
+                    disabled={docBusy || (docMode === 'upload' ? !docFile : !docText.trim())}
+                    data-testid="button-submit-from-doc"
+                  >
+                    {fromDocPreviewMutation.isPending ? (
+                      <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Generating preview…</>
+                    ) : 'Generate preview'}
+                  </Button>
+                </DialogFooter>
+              </>
+            ) : (
+              <>
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                    <span className="font-medium text-slate-800" data-testid="text-preview-title">{docPreview.title}</span>
+                    <Badge variant="secondary" data-testid="badge-preview-blocks">
+                      {docPreview.blockCount} block{docPreview.blockCount === 1 ? '' : 's'}
+                    </Badge>
+                    {docPreview.summary?.sectionCount != null && (
+                      <Badge variant="secondary" data-testid="badge-preview-sections">
+                        {docPreview.summary.sectionCount} section{docPreview.summary.sectionCount === 1 ? '' : 's'}
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-sm text-slate-600">
+                    This preview hasn't been saved yet. Confirm to create the draft page, or cancel to discard it — nothing is stored until you confirm.
+                  </p>
+                  <div
+                    className="border rounded-md overflow-auto max-h-[55vh] bg-white"
+                    data-testid="container-doc-preview"
+                  >
+                    <div style={{ transform: 'scale(0.5)', transformOrigin: 'top left', width: '200%' }}>
+                      <CanvasPageRenderer page={{ builder_type: 'canvas', canvas_design: docPreview.design }} />
+                    </div>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={() => setDocPreview(null)}
+                    disabled={docBusy}
+                    data-testid="button-preview-back"
+                  >
+                    Back
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={resetDocDialog}
+                    disabled={docBusy}
+                    data-testid="button-preview-cancel"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={() => fromDocConfirmMutation.mutate(docPreview)}
+                    disabled={docBusy}
+                    data-testid="button-confirm-from-doc"
+                  >
+                    {fromDocConfirmMutation.isPending ? (
+                      <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Creating page…</>
+                    ) : 'Confirm & create page'}
+                  </Button>
+                </DialogFooter>
+              </>
+            )}
           </DialogContent>
         </Dialog>
 

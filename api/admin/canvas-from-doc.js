@@ -2,14 +2,22 @@
 // raw pasted text.
 //
 // POST /api/admin/canvas-from-doc
-//   body (JSON): { fileBase64, filename, title?, slug? }  — Word upload
-//            or: { text, title?, slug? }                  — pasted text
+//   body (JSON): { fileBase64, filename, title?, slug?, preview?, confirm?, design? }  — Word upload
+//            or: { text, title?, slug?, preview?, confirm?, design? }                  — pasted text
 //
-// Flow: obtain the document text (decode the .docx zip and extract text, or use
-// the pasted text directly) → ask OpenAI to turn it into a structured page spec
-// → build a tenant-neutral Canvas design with the shared layout engine → insert
-// a DRAFT canvas page. Returns the new page row so the client can open it in the
-// Canvas editor.
+// Content can be supplied either as an uploaded .docx (fileBase64) or as raw
+// pasted text (text). Two-step flow so admins review the AI output before
+// anything is persisted:
+//   1. preview: true  → obtain the document text (decode the .docx zip and
+//      extract text, or use the pasted text directly) → ask OpenAI to turn it
+//      into a structured page spec → build a tenant-neutral Canvas design with
+//      the shared layout engine → RETURN the design WITHOUT inserting a row.
+//   2. confirm: true  → persist the design the admin reviewed (sent back in the
+//      body as `design`) as a DRAFT canvas page. Returns the new page row so the
+//      client can open it in the Canvas editor.
+//
+// For backward compatibility, a request with neither flag runs the full
+// generate-and-insert path in one shot (legacy behaviour).
 //
 // Gated by `site-builder.pages` (tenant admin OR feature access). The page is
 // created as a draft so the admin reviews it before publishing.
@@ -243,6 +251,50 @@ async function generateSpec(client, docText, fallbackTitle) {
   return parsed;
 }
 
+// Insert a draft Canvas page for a fully-built design. Shared by the legacy
+// one-shot path and the two-step confirm path so persistence stays identical.
+async function insertCanvasPage(tenantId, { title, slug, design }) {
+  const { data: inserted, error: insErr } = await supabase
+    .from('i_edit_page')
+    .insert({
+      tenant_id: tenantId,
+      organization_id: null,
+      title,
+      slug,
+      description: '',
+      status: 'draft',
+      layout_type: 'public',
+      public_chrome: 'both',
+      hide_chrome: false,
+      element_ids: [],
+      search_text: title,
+      builder_type: 'canvas',
+      canvas_design: design,
+    })
+    .select('id, title, slug, builder_type, status')
+    .single();
+  if (insErr) {
+    console.error('[canvas-from-doc] insert failed:', insErr.message);
+    throw Object.assign(new Error('Failed to create page'), { httpStatus: 500 });
+  }
+  return inserted;
+}
+
+// Cheap structural validation of a design coming back from the client on
+// confirm. We never trust the client for geometry, but an admin with edit
+// rights can already create arbitrary canvas_design via the editor, so we only
+// guard the shape needed to render/store it.
+function isValidDesign(design) {
+  return !!(
+    design &&
+    typeof design === 'object' &&
+    design.root &&
+    typeof design.root === 'object' &&
+    Array.isArray(design.root.sections) &&
+    design.root.sections.length > 0
+  );
+}
+
 async function uniqueSlug(tenantId, base) {
   let slug = slugify(base);
   const { data } = await supabase
@@ -284,6 +336,28 @@ export default async function handler(req, res) {
   }
 
   const body = req.body || {};
+
+  // Step 2 — persist a design the admin already reviewed in the preview. No
+  // docx / OpenAI work here; we just store exactly what they saw.
+  if (body.confirm === true) {
+    const design = body.design;
+    if (!isValidDesign(design)) {
+      return res.status(400).json({ error: 'A generated design is required to create the page.' });
+    }
+    try {
+      const title = toStr(body.title).trim() || 'Untitled page';
+      const slug = await uniqueSlug(context.tenantId, toStr(body.slug).trim() || title);
+      const inserted = await insertCanvasPage(context.tenantId, { title, slug, design });
+      const blockCount = design.root.sections[0]?.children?.length || 0;
+      return res.status(201).json({ page: inserted, blockCount });
+    } catch (err) {
+      const status = err?.httpStatus || 500;
+      if (status >= 500) console.error('[canvas-from-doc] confirm error:', err?.message || err);
+      return res.status(status).json({ error: err?.message || 'Failed to create page' });
+    }
+  }
+
+  const isPreview = body.preview === true;
   const fileBase64 = toStr(body.fileBase64);
   const pastedText = toStr(body.text);
   if (!fileBase64 && !pastedText.trim()) {
@@ -325,34 +399,32 @@ export default async function handler(req, res) {
     const design = buildNeutralDesign(spec);
 
     const title = toStr(body.title).trim() || spec.hero.headline || fallbackTitle;
-    const slug = await uniqueSlug(context.tenantId, toStr(body.slug).trim() || title);
+    const blockCount = design.root.sections[0].children.length;
 
-    const { data: inserted, error: insErr } = await supabase
-      .from('i_edit_page')
-      .insert({
-        tenant_id: context.tenantId,
-        organization_id: null,
+    // Step 1 — return the generated design for review; nothing is persisted.
+    // The client sends it back with `confirm: true` when the admin approves.
+    if (isPreview) {
+      const sectionSummary = (spec.sections || []).map((s) => ({
+        heading: toStr(s.heading).trim(),
+        type: toStr(s.type).trim() || 'text',
+      }));
+      return res.status(200).json({
+        preview: true,
+        design,
         title,
-        slug,
-        description: '',
-        status: 'draft',
-        layout_type: 'public',
-        public_chrome: 'both',
-        hide_chrome: false,
-        element_ids: [],
-        search_text: title,
-        builder_type: 'canvas',
-        canvas_design: design,
-      })
-      .select('id, title, slug, builder_type, status')
-      .single();
-
-    if (insErr) {
-      console.error('[canvas-from-doc] insert failed:', insErr.message);
-      return res.status(500).json({ error: 'Failed to create page' });
+        slug: slugify(toStr(body.slug).trim() || title),
+        blockCount,
+        summary: {
+          hero: spec.hero.headline,
+          sectionCount: (spec.sections || []).length,
+          sections: sectionSummary,
+        },
+      });
     }
 
-    const blockCount = design.root.sections[0].children.length;
+    // Legacy one-shot path: generate and insert in a single request.
+    const slug = await uniqueSlug(context.tenantId, toStr(body.slug).trim() || title);
+    const inserted = await insertCanvasPage(context.tenantId, { title, slug, design });
     return res.status(201).json({ page: inserted, blockCount });
   } catch (err) {
     const status = err?.httpStatus || 500;
