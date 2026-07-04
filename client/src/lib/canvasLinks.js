@@ -41,13 +41,20 @@ import { BLOCK_TYPES } from './canvasDesign.js';
 //   { field, label }                     -> content[field]
 //   { array, field, label }              -> content[array][i][field]
 //   { extract(content) -> rows[] }       -> fully custom (deeply nested)
+// Optional spec keys:
+//   enabledContentField                  -> block-level boolean toggle; when the
+//                                           content field is explicitly `false`
+//                                           the link never renders, so no row is
+//                                           emitted (missing = enabled). Mirrors
+//                                           the renderer gate (e.g. Card
+//                                           `ctaEnabled !== false`).
 // A returned row is { contentPath: [...], value, label, context? }.
 // ---------------------------------------------------------------------------
 export const LINK_FIELD_SPECS = {
   [BLOCK_TYPES.HERO]: [{ array: 'ctas', field: 'href', label: 'Hero CTA', imageSrcContentField: 'bgImageUrl', buttonLabelField: 'label' }],
   [BLOCK_TYPES.IMAGE]: [{ field: 'href', label: 'Image link', imageSrcField: 'src', imageAltField: 'alt' }],
   [BLOCK_TYPES.BUTTON]: [{ field: 'href', label: 'Button' }],
-  [BLOCK_TYPES.CARD]: [{ field: 'ctaHref', label: 'Card CTA', imageSrcField: 'imageUrl', imageAltField: 'imageAlt', buttonLabelContentField: 'ctaLabel', contextContentField: 'heading' }],
+  [BLOCK_TYPES.CARD]: [{ field: 'ctaHref', label: 'Card CTA', imageSrcField: 'imageUrl', imageAltField: 'imageAlt', buttonLabelContentField: 'ctaLabel', contextContentField: 'heading', enabledContentField: 'ctaEnabled' }],
   [BLOCK_TYPES.LOGO_STRIP]: [{ array: 'logos', field: 'href', label: 'Logo / grid item', imageSrcField: 'src', imageAltField: 'alt' }],
   [BLOCK_TYPES.PRICING_TABLE]: [{ array: 'tiers', field: 'ctaHref', label: 'Pricing CTA', buttonLabelField: 'ctaLabel' }],
   [BLOCK_TYPES.SPEAKER_CAROUSEL]: [{ field: 'ctaHref', label: 'Speaker "see all"' }],
@@ -302,6 +309,14 @@ export function extractCanvasLinks(design) {
             path: { contentPath: r.contentPath },
           });
         }
+        continue;
+      }
+      // Respect a block-level "enabled" toggle. When the spec declares an
+      // enabled field and the block has explicitly turned it off, the link
+      // never renders (mirrors the renderer gate, e.g. Card `ctaEnabled !==
+      // false`), so it must not surface as a phantom row here. A missing flag
+      // is treated as enabled for backward compatibility.
+      if (spec.enabledContentField && content[spec.enabledContentField] === false) {
         continue;
       }
       if (spec.array) {
