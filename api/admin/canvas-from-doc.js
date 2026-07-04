@@ -308,12 +308,13 @@ async function generateSpec(client, docText, fallbackTitle) {
 
 // ---------------------------------------------------------------------------
 // Fidelity: the generated page must contain ONLY the supplied text and ALL of
-// the supplied text. We compare on a whitespace/case-normalised basis (styling
-// and layout are allowed to differ, wording is not).
+// the supplied text. We compare verbatim except for whitespace (styling and
+// layout are allowed to differ, wording — including case — is not).
 // ---------------------------------------------------------------------------
 
-// Strip tags + entities, collapse whitespace, lowercase. Punctuation is kept so
-// invented punctuation/phrasing is still caught.
+// Strip tags + entities and collapse whitespace ONLY. Case and punctuation are
+// preserved so the comparison is verbatim except for whitespace — a case-only or
+// punctuation change (e.g. "NASA" -> "Nasa") must fail fidelity.
 function normalizeForCompare(s) {
   return toStr(s)
     .replace(/<[^>]+>/g, ' ')
@@ -325,8 +326,7 @@ function normalizeForCompare(s) {
     .replace(/&#39;/g, "'")
     .replace(/&apos;/g, "'")
     .replace(/[\s\u00a0]+/g, ' ')
-    .trim()
-    .toLowerCase();
+    .trim();
 }
 
 // Every text field the spec will render, as raw strings.

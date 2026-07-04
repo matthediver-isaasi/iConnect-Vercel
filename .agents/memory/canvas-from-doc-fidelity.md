@@ -19,9 +19,11 @@ The guarantee is enforced by three cooperating mechanisms, not by trusting the L
   string both the fidelity check and the deterministic fallback use.
 
 - **Fidelity guard is bidirectional** (`isSpecFaithful`): every emitted text chunk
-  must be a contiguous verbatim (whitespace/case-normalised) substring of the
-  source, AND source⊆spec (no drop) AND spec⊆source (no add/duplicate) on the word
-  multiset. The LLM spec is accepted only when this passes; otherwise the
+  must be a contiguous verbatim substring of the source, AND source⊆spec (no drop)
+  AND spec⊆source (no add/duplicate) on the word multiset. Comparison
+  (`normalizeForCompare`) collapses whitespace and decodes HTML entities ONLY — it
+  does NOT lowercase, so a case-only change (NASA→Nasa) correctly fails.
+  The LLM spec is accepted only when this passes; otherwise the
   deterministic 1:1 spec is used. Long docs (> MAX_DOC_CHARS) skip the LLM entirely
   and go deterministic, so their full text is never silently truncated.
 
