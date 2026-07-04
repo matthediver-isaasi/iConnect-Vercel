@@ -47,10 +47,12 @@ function decodeXmlEntities(s) {
     .replace(/&amp;/g, '&');
 }
 
-// Extract paragraph text from a .docx buffer. We deliberately keep this simple:
-// one line per Word paragraph, tags stripped. The LLM infers structure from the
-// content, so we do not need style/heading fidelity here.
-async function extractDocxText(buffer) {
+// Extract a STRUCTURED representation of a .docx: an ordered list of blocks,
+// each { type: 'heading' | 'para' | 'listitem', level, text }. Word paragraph
+// styles ("Heading1".."Heading6"/"Title") and numbering (<w:numPr>) are used to
+// classify blocks. This structure is the deterministic source of truth for page
+// copy, so text is preserved verbatim.
+async function extractDocxStructure(buffer) {
   let zip;
   try {
     zip = await JSZip.loadAsync(buffer);
@@ -62,16 +64,49 @@ async function extractDocxText(buffer) {
     throw Object.assign(new Error('The uploaded file is not a valid Word document (missing document.xml).'), { httpStatus: 400 });
   }
   const xml = await docFile.async('string');
-  const paras = xml
-    .split(/<\/w:p>/)
-    .map((p) => {
-      const runs = [...p.matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)].map((m) => decodeXmlEntities(m[1]));
-      // Represent explicit line breaks inside a paragraph.
-      const brs = p.includes('<w:br') ? '' : '';
-      return (runs.join('') + brs).trim();
-    })
-    .filter((t) => t.length > 0);
-  return paras.join('\n');
+  const structure = [];
+  for (const p of xml.split(/<\/w:p>/)) {
+    const runs = [...p.matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)].map((m) => decodeXmlEntities(m[1]));
+    const text = runs.join('').replace(/\s+/g, ' ').trim();
+    if (!text) continue;
+    const styleMatch = p.match(/<w:pStyle\s+w:val="([^"]*)"/);
+    const style = styleMatch ? styleMatch[1] : '';
+    const isList = /<w:numPr[\s>]/.test(p);
+    const headingMatch = /^Heading(\d)/i.exec(style);
+    if (headingMatch) {
+      structure.push({ type: 'heading', level: Math.min(6, Number(headingMatch[1]) || 2), text });
+    } else if (/^(Title|Subtitle)$/i.test(style)) {
+      structure.push({ type: 'heading', level: 1, text });
+    } else if (isList) {
+      structure.push({ type: 'listitem', level: 0, text });
+    } else {
+      structure.push({ type: 'para', level: 0, text });
+    }
+  }
+  return structure;
+}
+
+// Turn a structure into its plain text (one block per line). Used as the
+// verbatim source of truth for the fidelity check.
+function structureToText(structure) {
+  return structure.map((b) => b.text).join('\n');
+}
+
+// Build a structure from pasted plain text. There is no style information, so
+// every non-empty line is kept verbatim as a paragraph (including any leading
+// bullet / number the user typed — that is their content, not decoration).
+function structureFromText(text) {
+  const structure = [];
+  for (const rawLine of String(text || '').split(/\r?\n/)) {
+    const line = rawLine.replace(/\s+/g, ' ').trim();
+    if (!line) continue;
+    // Pasted text is kept verbatim: any leading bullet / number the user typed
+    // is part of their content, so we do NOT strip it (that would drop supplied
+    // text). Every non-empty line becomes a paragraph. The LLM path can still
+    // re-organise this into a richer layout when it stays faithful.
+    structure.push({ type: 'para', level: 0, text: line });
+  }
+  return structure;
 }
 
 // Rough height estimate for a text block so the absolutely-positioned layout
@@ -94,14 +129,22 @@ function toStr(v) {
   return typeof v === 'string' ? v : v == null ? '' : String(v);
 }
 
-// Ensure any body text is HTML. Plain lines become <p> paragraphs.
+function escapeHtml(s) {
+  return toStr(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+// Ensure any body text is HTML. Plain lines become <p> paragraphs (escaped so
+// verbatim characters like < and & survive).
 function ensureHtml(v) {
   const s = toStr(v).trim();
   if (!s) return '<p></p>';
   if (/<\w+[^>]*>/.test(s)) return s;
   return s
     .split(/\n+/)
-    .map((line) => `<p>${line.trim()}</p>`)
+    .map((line) => `<p>${escapeHtml(line.trim())}</p>`)
     .join('');
 }
 
@@ -118,10 +161,13 @@ function slugify(s) {
 function sanitizeSpec(raw, fallbackTitle) {
   const spec = raw && typeof raw === 'object' ? raw : {};
   const heroIn = spec.hero && typeof spec.hero === 'object' ? spec.hero : {};
+  // No fabricated fallbacks: hero copy comes only from the model (verified
+  // against the source downstream); the only permitted default is the page
+  // title the admin already supplied. CTA is emitted only when present.
   const hero = {
-    headline: toStr(heroIn.headline).trim() || fallbackTitle || 'Welcome',
+    headline: toStr(heroIn.headline).trim() || toStr(fallbackTitle).trim(),
     subheadline: toStr(heroIn.subheadline).trim(),
-    ctaLabel: toStr(heroIn.ctaLabel).trim() || 'Learn more',
+    ctaLabel: toStr(heroIn.ctaLabel).trim(),
     bgImageUrl: '',
   };
 
@@ -131,13 +177,13 @@ function sanitizeSpec(raw, fallbackTitle) {
     const html = ensureHtml(spec.intro.html);
     out.intro = {
       icon: toStr(spec.intro.icon).trim(),
-      strapline: toStr(spec.intro.strapline).trim() || hero.headline,
+      strapline: toStr(spec.intro.strapline).trim(),
       html,
       h: estimateHeight(html, { min: 80 }),
     };
   }
 
-  const rawSections = Array.isArray(spec.sections) ? spec.sections.slice(0, 20) : [];
+  const rawSections = Array.isArray(spec.sections) ? spec.sections.slice(0, 40) : [];
   for (const sec of rawSections) {
     if (!sec || typeof sec !== 'object') continue;
     const heading = toStr(sec.heading).trim();
@@ -148,7 +194,7 @@ function sanitizeSpec(raw, fallbackTitle) {
         const html = ensureHtml(c?.html);
         return {
           icon: toStr(c?.icon).trim(),
-          h3: toStr(c?.h3).trim() || 'Details',
+          h3: toStr(c?.h3).trim(),
           html,
           bullets: c?.bullets === true,
           h: estimateHeight(html, { width: 420, min: 80, bullets: c?.bullets === true }),
@@ -156,8 +202,8 @@ function sanitizeSpec(raw, fallbackTitle) {
       });
       if (columns.length) out.sections.push({ heading, type: 'columns', columns });
     } else if (type === 'accordion' && Array.isArray(sec.items)) {
-      const items = sec.items.slice(0, 12).map((it) => ({
-        question: toStr(it?.question || it?.title).trim() || 'Question',
+      const items = sec.items.slice(0, 30).map((it) => ({
+        question: toStr(it?.question || it?.title).trim(),
         answer: ensureHtml(it?.answer || it?.html),
       })).filter((it) => it.question);
       if (items.length) {
@@ -165,9 +211,9 @@ function sanitizeSpec(raw, fallbackTitle) {
       }
     } else if (type === 'cards' && Array.isArray(sec.cards)) {
       const cols = [2, 3, 4].includes(Number(sec.columns)) ? Number(sec.columns) : 3;
-      const cards = sec.cards.slice(0, 12).map((c) => ({
+      const cards = sec.cards.slice(0, 24).map((c) => ({
         icon: toStr(c?.icon).trim(),
-        heading: toStr(c?.heading || c?.title).trim() || 'Card',
+        heading: toStr(c?.heading || c?.title).trim(),
         body: toStr(c?.body).trim(),
         cta: toStr(c?.cta).trim() || undefined,
       }));
@@ -196,42 +242,50 @@ function sanitizeSpec(raw, fallbackTitle) {
     out.sections.push({ heading: '', type: 'text', html: '<p></p>', h: 60 });
   }
 
+  // Closing hero is OPTIONAL: only kept when the model supplies a headline. A
+  // document with no closing call-to-action must not gain a fabricated one.
   const closeIn = spec.closingHero && typeof spec.closingHero === 'object' ? spec.closingHero : {};
-  out.closingHero = {
-    headline: toStr(closeIn.headline).trim() || 'Get in touch',
-    subheadline: toStr(closeIn.subheadline).trim(),
-    ctaLabel: toStr(closeIn.ctaLabel).trim() || 'Contact us',
-    bgImageUrl: '',
-  };
+  const closeHeadline = toStr(closeIn.headline).trim();
+  if (closeHeadline) {
+    out.closingHero = {
+      headline: closeHeadline,
+      subheadline: toStr(closeIn.subheadline).trim(),
+      ctaLabel: toStr(closeIn.ctaLabel).trim(),
+      bgImageUrl: '',
+    };
+  }
 
   return out;
 }
 
-const SPEC_SYSTEM_PROMPT = `You convert a document into a structured spec for a web page builder. Respond ONLY with valid JSON, no prose.
+const SPEC_SYSTEM_PROMPT = `You organise a document into a structured spec for a web page builder. You are NOT an author. You may only GROUP and CLASSIFY the document's existing text into layout blocks and choose block types. Respond ONLY with valid JSON, no prose.
 
 Output shape:
 {
-  "hero": { "headline": string, "subheadline": string, "ctaLabel": string },
-  "intro": { "icon": "", "strapline": string, "html": string } | omitted,
-  "sections": [ Section, ... ],
-  "closingHero": { "headline": string, "subheadline": string, "ctaLabel": string }
+  "hero": { "headline": string, "subheadline": string },
+  "intro": { "strapline": string, "html": string } | omitted,
+  "sections": [ Section, ... ]
 }
 
 A Section is ONE of:
-- { "heading": string, "type": "text", "html": string, "bullets": boolean, "cta": string | omitted }
+- { "heading": string, "type": "text", "html": string, "bullets": boolean }
 - { "heading": string, "type": "columns", "columns": [ { "h3": string, "html": string, "bullets": boolean }, ... up to 2 ] }
-- { "heading": string, "type": "cards", "columns": 2|3|4, "cards": [ { "heading": string, "body": string, "cta": string | omitted }, ... ] }
+- { "heading": string, "type": "cards", "columns": 2|3|4, "cards": [ { "heading": string, "body": string }, ... ] }
 - { "heading": string, "type": "accordion", "items": [ { "question": string, "answer": string }, ... ] }
 
-Rules:
-- Use the document's real content; do not invent facts. Keep the wording faithful.
-- "html" fields may contain simple HTML (<p>, <ul>, <li>, <strong>). Wrap paragraphs in <p>.
-- Pick the section "type" that best fits the content (FAQ-like -> accordion, short repeated items -> cards, side-by-side -> columns, otherwise text).
-- Do NOT include icons, images, colors, sizes, heights, or positions. Leave "icon" empty.
-- The hero headline should be the document title/subject; closingHero is a call to action.`;
+ABSOLUTE FIDELITY RULES (a page that breaks these is rejected):
+- Copy the document's text VERBATIM into the fields. Never paraphrase, summarise, translate, shorten, expand, correct, or reword ANY text. Every headline, heading, sentence, and list item must be an exact character-for-character copy of text that appears in the document.
+- Do NOT invent ANY text. No call-to-action labels, no closing sections, no headlines, no placeholder words ("Learn more", "Get in touch", "Details", "Card", "Welcome", etc.). If the document has no heading for a section, use "".
+- Include ALL of the document's text. Do not drop or omit any paragraph, heading, or list item.
+- The hero headline must be an exact copy of the document's title or first heading. If unsure, use "".
+
+Formatting (structure only, never changes wording):
+- "html" fields may wrap the verbatim text in simple HTML: <p> for paragraphs, <ul><li> for list items, <strong>. Do not add words.
+- Pick the section "type" that best fits (FAQ-like -> accordion, short repeated items -> cards, side-by-side -> columns, otherwise text). When in doubt, use "text".
+- Do NOT include icons, images, colors, sizes, heights, or positions.`;
 
 async function generateSpec(client, docText, fallbackTitle) {
-  const userPrompt = `Document title (best guess): ${fallbackTitle || '(unknown)'}\n\nDocument content:\n"""\n${docText}\n"""`;
+  const userPrompt = `Document title (best guess): ${fallbackTitle || '(unknown)'}\n\nDocument content (copy this text VERBATIM):\n"""\n${docText}\n"""`;
   const completion = await client.chat.completions.create({
     model: 'gpt-4o-mini',
     messages: [
@@ -239,7 +293,8 @@ async function generateSpec(client, docText, fallbackTitle) {
       { role: 'user', content: userPrompt },
     ],
     response_format: { type: 'json_object' },
-    max_completion_tokens: 4000,
+    temperature: 0,
+    max_completion_tokens: 8000,
   });
   const content = completion.choices?.[0]?.message?.content || '';
   let parsed;
@@ -249,6 +304,164 @@ async function generateSpec(client, docText, fallbackTitle) {
     throw Object.assign(new Error('The document could not be interpreted. Please try again.'), { httpStatus: 502 });
   }
   return parsed;
+}
+
+// ---------------------------------------------------------------------------
+// Fidelity: the generated page must contain ONLY the supplied text and ALL of
+// the supplied text. We compare on a whitespace/case-normalised basis (styling
+// and layout are allowed to differ, wording is not).
+// ---------------------------------------------------------------------------
+
+// Strip tags + entities, collapse whitespace, lowercase. Punctuation is kept so
+// invented punctuation/phrasing is still caught.
+function normalizeForCompare(s) {
+  return toStr(s)
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/[\s\u00a0]+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+// Every text field the spec will render, as raw strings.
+function collectSpecTexts(spec) {
+  const out = [];
+  const push = (t) => { const s = toStr(t).trim(); if (s) out.push(s); };
+  if (spec.hero) { push(spec.hero.headline); push(spec.hero.subheadline); push(spec.hero.ctaLabel); }
+  if (spec.intro) { push(spec.intro.strapline); push(spec.intro.html); }
+  for (const sec of spec.sections || []) {
+    push(sec.heading);
+    if (sec.type === 'columns') {
+      for (const c of sec.columns || []) { push(c.h3); push(c.html); }
+    } else if (sec.type === 'accordion') {
+      for (const it of sec.items || []) { push(it.question); push(it.answer); }
+    } else if (sec.type === 'cards') {
+      for (const c of sec.cards || []) { push(c.heading); push(c.body); push(c.cta); }
+    } else {
+      push(sec.html);
+      for (const b of sec.buttons || []) push(b);
+      if (sec.cta) push(sec.cta);
+    }
+  }
+  if (spec.closingHero) { push(spec.closingHero.headline); push(spec.closingHero.subheadline); push(spec.closingHero.ctaLabel); }
+  return out;
+}
+
+function wordMultiset(s) {
+  const m = new Map();
+  for (const w of normalizeForCompare(s).split(' ')) {
+    if (w) m.set(w, (m.get(w) || 0) + 1);
+  }
+  return m;
+}
+
+// True when the spec is faithful to the source:
+//   (a) no injected wording — every emitted chunk is a contiguous, verbatim
+//       (whitespace/case-normalised) substring of the source, AND
+//   (b) nothing dropped — every source word appears in the spec at least as
+//       many times as in the source.
+function isSpecFaithful(spec, sourceText) {
+  const srcNorm = normalizeForCompare(sourceText);
+  if (!srcNorm) return false;
+  const chunks = collectSpecTexts(spec);
+
+  for (const chunk of chunks) {
+    const n = normalizeForCompare(chunk);
+    if (!n) continue;
+    if (!srcNorm.includes(n)) return false; // invented / reworded text
+  }
+
+  const srcWords = wordMultiset(sourceText);
+  const specWords = wordMultiset(chunks.join(' '));
+  for (const [word, count] of srcWords) {
+    if ((specWords.get(word) || 0) < count) return false; // dropped text
+  }
+  // No fabricated OR duplicated wording: the spec must not contain any word more
+  // often than the source does. Combined with the substring check above, this
+  // makes the emitted copy an exact re-grouping of the source words — nothing
+  // added, nothing repeated, nothing dropped.
+  for (const [word, count] of specWords) {
+    if ((srcWords.get(word) || 0) < count) return false;
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Deterministic 1:1 spec built straight from the document structure. Guarantees
+// perfect fidelity (used as the fallback and for content too long for the LLM).
+// Maps headings -> section headings, paragraphs -> text blocks, consecutive
+// list items -> bulleted text blocks. No hero CTA, no closing hero.
+// ---------------------------------------------------------------------------
+function buildDeterministicSpec(structure, fallbackTitle) {
+  const blocks = structure.slice();
+
+  // Hero headline is always verbatim source text: the first heading if the
+  // document opens with one, otherwise the first block. It is NEVER the
+  // admin-supplied page title / filename — that is not part of the document
+  // body, so injecting it would violate fidelity. The consumed block is removed
+  // from the body so it is not rendered twice.
+  let headline = '';
+  if (blocks.length) {
+    headline = blocks.shift().text;
+  }
+  const hero = {
+    headline,
+    subheadline: '',
+    ctaLabel: '',
+    bgImageUrl: '',
+  };
+
+  const sections = [];
+  let pendingHeading = '';
+  let run = null; // { bullets, parts: [] }
+
+  const flushRun = () => {
+    if (run && run.parts.length) {
+      const html = run.parts.map((t) => `<p>${escapeHtml(t)}</p>`).join('');
+      sections.push({
+        heading: pendingHeading,
+        type: 'text',
+        html,
+        bullets: run.bullets,
+        h: estimateHeight(html, { min: 60, bullets: run.bullets }),
+      });
+      pendingHeading = '';
+    }
+    run = null;
+  };
+
+  for (const b of blocks) {
+    if (b.type === 'heading') {
+      flushRun();
+      // A heading with no following body still gets its own (empty) section so
+      // the heading text is not lost.
+      if (pendingHeading) {
+        sections.push({ heading: pendingHeading, type: 'text', html: '<p></p>', bullets: false, h: 60 });
+        pendingHeading = '';
+      }
+      pendingHeading = b.text;
+    } else {
+      const bullet = b.type === 'listitem';
+      if (!run || run.bullets !== bullet) { flushRun(); run = { bullets: bullet, parts: [] }; }
+      run.parts.push(b.text);
+    }
+  }
+  flushRun();
+  if (pendingHeading) {
+    sections.push({ heading: pendingHeading, type: 'text', html: '<p></p>', bullets: false, h: 60 });
+  }
+
+  if (sections.length === 0) {
+    sections.push({ heading: '', type: 'text', html: '<p></p>', h: 60 });
+  }
+
+  return { hero, sections };
 }
 
 // Insert a draft Canvas page for a fully-built design. Shared by the legacy
@@ -406,26 +619,50 @@ export default async function handler(req, res) {
   }
 
   try {
-    let docText;
+    // Build a structured, verbatim representation of the source. This is the
+    // single source of truth for all page copy and drives both the fidelity
+    // check and the deterministic fallback.
+    let structure;
     let filename = '';
     if (buffer) {
-      docText = await extractDocxText(buffer);
-      if (!docText.trim()) {
+      structure = await extractDocxStructure(buffer);
+      if (!structure.length) {
         return res.status(400).json({ error: 'No readable text found in the document.' });
       }
       filename = toStr(body.filename).replace(/\.docx$/i, '').replace(/[-_]+/g, ' ').trim();
     } else {
-      docText = pastedText;
-      if (!docText.trim()) {
+      structure = structureFromText(pastedText);
+      if (!structure.length) {
         return res.status(400).json({ error: 'No readable text found in the pasted content.' });
       }
     }
-    if (docText.length > MAX_DOC_CHARS) docText = docText.slice(0, MAX_DOC_CHARS);
-
+    const docText = structureToText(structure);
     const fallbackTitle = toStr(body.title).trim() || filename || 'Untitled page';
 
-    const rawSpec = await generateSpec(client, docText, fallbackTitle);
-    const spec = sanitizeSpec(rawSpec, fallbackTitle);
+    // Best-effort: let the model organise the text into a richer layout, but
+    // only accept it when it is verifiably faithful (no invented or dropped
+    // wording). Otherwise fall back to a deterministic 1:1 layout that is
+    // faithful by construction. The model is skipped for documents too long to
+    // process in one request, so their full text is never silently truncated.
+    let spec;
+    let faithfulLayout = 'plain';
+    if (docText.length <= MAX_DOC_CHARS) {
+      try {
+        const rawSpec = await generateSpec(client, docText, fallbackTitle);
+        const candidate = sanitizeSpec(rawSpec, fallbackTitle);
+        if (isSpecFaithful(candidate, docText)) {
+          spec = candidate;
+          faithfulLayout = 'ai';
+        }
+      } catch (err) {
+        // Non-fatal: fall back to the deterministic layout below.
+        console.error('[canvas-from-doc] AI layout failed, using deterministic layout:', err?.message || err);
+      }
+    }
+    if (!spec) {
+      spec = buildDeterministicSpec(structure, fallbackTitle);
+    }
+
     const seedStyle = await resolveSeedStyle(context.tenantId, body.seedPageId);
     const design = buildDesignForSpec(spec, seedStyle);
 
@@ -445,6 +682,7 @@ export default async function handler(req, res) {
         title,
         slug: slugify(toStr(body.slug).trim() || title),
         blockCount,
+        layout: faithfulLayout,
         summary: {
           hero: spec.hero.headline,
           sectionCount: (spec.sections || []).length,
@@ -456,7 +694,7 @@ export default async function handler(req, res) {
     // Legacy one-shot path: generate and insert in a single request.
     const slug = await uniqueSlug(context.tenantId, toStr(body.slug).trim() || title);
     const inserted = await insertCanvasPage(context.tenantId, { title, slug, design });
-    return res.status(201).json({ page: inserted, blockCount });
+    return res.status(201).json({ page: inserted, blockCount, layout: faithfulLayout });
   } catch (err) {
     const status = err?.httpStatus || 500;
     if (status >= 500) console.error('[canvas-from-doc] error:', err?.message || err);

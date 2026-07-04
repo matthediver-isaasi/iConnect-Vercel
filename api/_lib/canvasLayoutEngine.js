@@ -176,14 +176,18 @@ function makeHero({ headline, subheadline, ctaLabel, bgImageUrl }, geom) {
     },
     locked: false,
     content: {
-      ctas: [
-        {
-          href: '#',
-          label: ctaLabel,
-          variant: THEME.buttonVariant,
-          labelTypographyStyleId: TYPO_ACTIVE.heroSub,
-        },
-      ],
+      // Only emit a CTA button when the spec supplies a label; a document with
+      // no call-to-action must not gain a fabricated one.
+      ctas: ctaLabel
+        ? [
+            {
+              href: '#',
+              label: ctaLabel,
+              variant: THEME.buttonVariant,
+              labelTypographyStyleId: TYPO_ACTIVE.heroSub,
+            },
+          ]
+        : [],
       bgType: 'image',
       bgColor: 'var(--cb-color-primary, #0f172a)',
       darkWash: 0.4,
@@ -209,6 +213,15 @@ function makeHero({ headline, subheadline, ctaLabel, bgImageUrl }, geom) {
   });
 }
 
+// Escape text destined for an HTML string so literal < > & from the source
+// survive verbatim instead of being parsed away (fidelity requirement).
+function escHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 function makeH2(text, geom, { center = false } = {}) {
   const align = center ? ' style="text-align: center;"' : '';
   return wrap({
@@ -220,7 +233,7 @@ function makeH2(text, geom, { center = false } = {}) {
     style: baseStyle(),
     locked: false,
     content: {
-      html: `<p${align}>${text}</p>`,
+      html: `<p${align}>${escHtml(text)}</p>`,
       colorRole: 'default',
       headingAs: '2',
       bulletIcon: '',
@@ -246,7 +259,7 @@ function makeH3(text, geom) {
     style: baseStyle(),
     locked: false,
     content: {
-      html: `<p><span style="font-size: 28px;">${text}</span></p>`,
+      html: `<p><span style="font-size: 28px;">${escHtml(text)}</span></p>`,
       colorRole: 'default',
       headingAs: '3',
       bulletIcon: '',
@@ -465,7 +478,7 @@ function makeCard({ icon, heading, body, cta }, geom) {
       ctaHref: '#',
       heading,
       ctaAlign: 'left',
-      ctaLabel: cta || 'Learn more',
+      ctaLabel: cta || '',
       iconSize: 47,
       imageAlt: '',
       imageUrl: '',
@@ -690,13 +703,17 @@ export function buildDesign(spec) {
   const bandBottom = y;
   y = bandBottom + 48;
 
-  // Closing hero CTA.
-  const closingHero = makeHero(spec.closingHero, { x: 0, y, w: CANVAS_W, h: CLOSING_HERO_H });
+  // Closing hero CTA — only when the spec supplies one. A document with no
+  // closing call-to-action must not gain a fabricated section.
+  const closingHero =
+    spec.closingHero && String(spec.closingHero.headline || '').trim()
+      ? makeHero(spec.closingHero, { x: 0, y, w: CANVAS_W, h: CLOSING_HERO_H })
+      : null;
 
   // Emit band before its content so content renders on top.
   const band = makeSection({ x: 0, y: bandTop, w: CANVAS_W, h: bandBottom - bandTop });
 
-  const children = [...topBlocks, band, ...sectionBlocks, closingHero];
+  const children = [...topBlocks, band, ...sectionBlocks, ...(closingHero ? [closingHero] : [])];
 
   return {
     version: 1,

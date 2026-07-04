@@ -1545,6 +1545,11 @@ export default function IEditPageManagementPage() {
                   <p className="text-sm text-slate-600">
                     This preview hasn't been saved yet. Confirm to create the draft page, or cancel to discard it — nothing is stored until you confirm.
                   </p>
+                  {docPreview.layout === 'plain' && (
+                    <p className="text-sm text-slate-500" data-testid="text-preview-plain-layout">
+                      This page uses a simple layout that keeps every word from your content exactly as supplied. You can restyle it in the editor after creating it.
+                    </p>
+                  )}
                   <DocPreviewStage design={docPreview.design} />
                 </div>
                 <DialogFooter>
