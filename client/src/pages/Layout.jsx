@@ -456,6 +456,11 @@ const adminNavigationItems = [
         featureId: "page_IEditPageManagement"
       },
       {
+        title: "Canvas Links Manager",
+        url: createPageUrl("CanvasLinksManager"),
+        featureId: "page_admin_CanvasLinksManager"
+      },
+      {
         title: "Element Templates",
         url: createPageUrl("IEditTemplateManagement"),
         featureId: "page_IEditTemplateManagement"
@@ -1320,7 +1325,7 @@ useEffect(() => {
   // "HomePageRedirect" handles the root path "/" and can show either a public IEdit page or Events
   const hybridPages = ["PostJob", "ArticleView", "GalleryView", "NewsView", "icontent", "ViewPage", "OrganisationDirectory", "JobBoard", "JobDetails", "JobPostSuccess", "_DynamicPage", "HomePageRedirect", "Events", "EventDetails", "ComplexEventDetail", "FormView", "Resources"];
   
-  const adminPages = ["AdminSetup", "RoleManagement", "RoleAccessConfigManagement", "MemberRoleAssignment", "TeamMemberManagement", "DiscountCodeManagement", "EventSettings", "CancellationRequests", "TicketSalesAnalytics", "PendingPurchaseOrdersReport", "EventRegistrationReport", "OrganisationEngagementReport", "AIReports", "AccessibilityAudits", "MembershipTierManagement", "MembershipSettings", "ResourceSettings", "ResourceManagement", "TagManagement", "ResourceAuthorSettings", "TourManagement", "FileManagement", "JobPostingManagement", "JobBoardSettings", "IEditPageManagement", "IEditTemplateManagement", "PageBannerManagement", "NavigationManagement", "MemberHandleManagement", "ButtonElements", "ButtonStyleManagement", "AwardManagement", "WallOfFameManagement", "TeamInviteSettings", "FormManagement", "FormSubmissions", "FloaterManagement", "MemberDirectorySettings", "SupportManagement", "PageVisibilitySettings", "CreateComplexEvent", "PhotoGalleries", "EventCheckIn", "EventCheckInDashboard"];
+  const adminPages = ["AdminSetup", "RoleManagement", "RoleAccessConfigManagement", "MemberRoleAssignment", "TeamMemberManagement", "DiscountCodeManagement", "EventSettings", "CancellationRequests", "TicketSalesAnalytics", "PendingPurchaseOrdersReport", "EventRegistrationReport", "OrganisationEngagementReport", "AIReports", "AccessibilityAudits", "MembershipTierManagement", "MembershipSettings", "ResourceSettings", "ResourceManagement", "TagManagement", "ResourceAuthorSettings", "TourManagement", "FileManagement", "JobPostingManagement", "JobBoardSettings", "IEditPageManagement", "IEditTemplateManagement", "PageBannerManagement", "NavigationManagement", "MemberHandleManagement", "ButtonElements", "ButtonStyleManagement", "AwardManagement", "WallOfFameManagement", "TeamInviteSettings", "FormManagement", "FormSubmissions", "FloaterManagement", "MemberDirectorySettings", "SupportManagement", "PageVisibilitySettings", "CreateComplexEvent", "PhotoGalleries", "EventCheckIn", "EventCheckInDashboard", "CanvasLinksManager"];
 
   // Pages that should use the bare layout (no new header/footer)
   const bareLayoutPages = [];
@@ -1436,6 +1441,7 @@ useEffect(() => {
     'OrganisationEngagementReport': 'page_admin_OrganisationEngagementReport',
     'AIReports': 'page_admin_AIReports',
     'AccessibilityAudits': 'page_admin_AccessibilityAudits',
+    'CanvasLinksManager': 'page_admin_CanvasLinksManager',
     'EventCheckInDashboard': 'page_admin_EventCheckInDashboard',
     'MembershipTierManagement': 'page_admin_MembershipTierManagement',
     'MembershipSettings': 'page_MembershipSettings',

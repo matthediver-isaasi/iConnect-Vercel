@@ -299,6 +299,7 @@ import ReportsDashboard from "./ReportsDashboard";
 
 import AIReports from "./AIReports";
 import AccessibilityAudits from "./AccessibilityAudits";
+import CanvasLinksManager from "./CanvasLinksManager";
 import EventCheckIn from "./EventCheckIn";
 import EventCheckInDashboard from "./EventCheckInDashboard";
 
@@ -738,6 +739,7 @@ const PAGES = {
     
     AIReports: AIReports,
     AccessibilityAudits: AccessibilityAudits,
+    CanvasLinksManager: CanvasLinksManager,
     EventCheckIn: EventCheckIn,
     EventCheckInDashboard: EventCheckInDashboard,
     
@@ -1128,6 +1130,7 @@ function PagesContent() {
                 <Route path="/ReportsDashboard" element={<ReportsDashboard />} />
                 <Route path="/AIReports" element={<AIReports />} />
                 <Route path="/AccessibilityAudits" element={<AccessibilityAudits />} />
+                <Route path="/CanvasLinksManager" element={<CanvasLinksManager />} />
                 <Route path="/EventCheckIn" element={<EventCheckIn />} />
                 <Route path="/EventCheckInDashboard" element={<EventCheckInDashboard />} />
                 

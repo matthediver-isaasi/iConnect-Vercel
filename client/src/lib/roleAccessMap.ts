@@ -525,6 +525,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
       {
         id: "site-builder.border-radius",
         label: "Border Radius Settings"
+      },
+      {
+        id: "admin.canvas-links-manager",
+        label: "Canvas Links Manager"
       }
     ]
   },
@@ -1115,6 +1119,7 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_admin_BriefSettings": "content.brief-settings",
   "page_PhotoGalleries": "content.gallery",
   "page_admin_PhotoGalleries": "content.gallery",
+  "page_admin_CanvasLinksManager": "admin.canvas-links-manager",
   "membership.volunteer-board": "jobs.volunteer-board"
 };
 
