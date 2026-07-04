@@ -52,7 +52,7 @@ import { BLOCK_TYPES } from './canvasDesign.js';
 // ---------------------------------------------------------------------------
 export const LINK_FIELD_SPECS = {
   [BLOCK_TYPES.HERO]: [{ array: 'ctas', field: 'href', label: 'Hero CTA', imageSrcContentField: 'bgImageUrl', buttonLabelField: 'label' }],
-  [BLOCK_TYPES.IMAGE]: [{ field: 'href', label: 'Image link', imageSrcField: 'src', imageAltField: 'alt' }],
+  [BLOCK_TYPES.IMAGE]: [{ field: 'href', label: 'Image link', imageSrcField: 'src', imageAltField: 'alt', onlyWhenPopulated: true }],
   [BLOCK_TYPES.BUTTON]: [{ field: 'href', label: 'Button', buttonLabelContentField: 'label' }],
   [BLOCK_TYPES.CARD]: [{ field: 'ctaHref', label: 'Card CTA', imageSrcField: 'imageUrl', imageAltField: 'imageAlt', buttonLabelContentField: 'ctaLabel', contextContentField: 'heading', enabledContentField: 'ctaEnabled' }],
   [BLOCK_TYPES.LOGO_STRIP]: [{ array: 'logos', field: 'href', label: 'Logo / grid item', imageSrcField: 'src', imageAltField: 'alt' }],
@@ -322,6 +322,14 @@ export function extractCanvasLinks(design) {
       if (spec.array) {
         const arr = Array.isArray(content[spec.array]) ? content[spec.array] : [];
         arr.forEach((item, i) => {
+          // Some link fields are optional (e.g. decorative images). When the
+          // spec is flagged `onlyWhenPopulated`, only surface a row once the
+          // link already has a non-empty value, so unlinked items don't appear
+          // as phantom "Empty" rows that need configuring.
+          if (spec.onlyWhenPopulated) {
+            const v = typeof item?.[spec.field] === 'string' ? item[spec.field].trim() : '';
+            if (!v) return;
+          }
           const row = {
             blockId,
             sectionId,
@@ -364,6 +372,12 @@ export function extractCanvasLinks(design) {
           rows.push(row);
         });
       } else {
+        // Optional link fields (e.g. decorative images) only surface once
+        // populated — see `onlyWhenPopulated` note in the array path above.
+        if (spec.onlyWhenPopulated) {
+          const v = typeof content[spec.field] === 'string' ? content[spec.field].trim() : '';
+          if (!v) continue;
+        }
         const row = {
           blockId,
           sectionId,
