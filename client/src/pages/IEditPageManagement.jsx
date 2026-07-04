@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef, useLayoutEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -55,6 +55,77 @@ function loadSortMap() {
   } catch {
     return {};
   }
+}
+
+// Scaled, fit-to-width preview of a generated Canvas design.
+//
+// The preview must be an accurate scaled-down copy of the page that will
+// actually be built. The built page lays auto-height text out at the desktop
+// stage width (1200px); if we let the design reflow to a narrower width the
+// text wraps taller than the server reserved, so fixed-position dividers/
+// titles below it overlap the text. To avoid that we:
+//   1. Force the renderer to desktop geometry (`forceBreakpoint="desktop"`),
+//      independent of the host window size, so text wraps exactly as built.
+//   2. Lay the stage out at the true desktop width, then apply a single
+//      uniform scale to shrink the whole stage to fit the dialog. The layout
+//      width never depends on the dialog width, so blocks never re-wrap.
+function DocPreviewStage({ design }) {
+  const DESKTOP_W = 1200;
+  const containerRef = useRef(null);
+  const innerRef = useRef(null);
+  const [containerW, setContainerW] = useState(DESKTOP_W);
+  const [innerH, setInnerH] = useState(0);
+
+  // Track the available width of the scroll container.
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const measure = () => setContainerW(el.clientWidth);
+    measure();
+    let ro;
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(measure);
+      ro.observe(el);
+    }
+    return () => { if (ro) ro.disconnect(); };
+  }, []);
+
+  // Track the natural (unscaled) height of the rendered stage so the outer
+  // box can collapse to the scaled height (transforms don't affect layout).
+  useLayoutEffect(() => {
+    const el = innerRef.current;
+    if (!el) return;
+    const measure = () => setInnerH(el.scrollHeight || el.offsetHeight || 0);
+    measure();
+    let ro;
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(measure);
+      ro.observe(el);
+    }
+    return () => { if (ro) ro.disconnect(); };
+  }, [design]);
+
+  const scale = containerW > 0 ? Math.min(1, containerW / DESKTOP_W) : 1;
+
+  return (
+    <div
+      ref={containerRef}
+      className="border rounded-md overflow-auto max-h-[55vh] bg-white"
+      data-testid="container-doc-preview"
+    >
+      <div style={{ height: innerH ? innerH * scale : undefined }}>
+        <div
+          ref={innerRef}
+          style={{ width: DESKTOP_W, transform: `scale(${scale})`, transformOrigin: 'top left' }}
+        >
+          <CanvasPageRenderer
+            page={{ builder_type: 'canvas', canvas_design: design }}
+            forceBreakpoint="desktop"
+          />
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function IEditPageManagementPage() {
@@ -1459,14 +1530,7 @@ export default function IEditPageManagementPage() {
                   <p className="text-sm text-slate-600">
                     This preview hasn't been saved yet. Confirm to create the draft page, or cancel to discard it — nothing is stored until you confirm.
                   </p>
-                  <div
-                    className="border rounded-md overflow-auto max-h-[55vh] bg-white"
-                    data-testid="container-doc-preview"
-                  >
-                    <div style={{ transform: 'scale(0.5)', transformOrigin: 'top left', width: '200%' }}>
-                      <CanvasPageRenderer page={{ builder_type: 'canvas', canvas_design: docPreview.design }} />
-                    </div>
-                  </div>
+                  <DocPreviewStage design={docPreview.design} />
                 </div>
                 <DialogFooter>
                   <Button

@@ -9,6 +9,7 @@ import {
   buildThemeCssVars,
   stageHeightForBreakpoint,
   BLOCK_TYPES,
+  BREAKPOINT_WIDTHS,
   blockSupportsFullBleed,
   resolveBlockHeightCss,
 } from "@/lib/canvasDesign";
@@ -413,7 +414,7 @@ function useAnchorSmoothScroll(containerRef, enabled) {
  * The CSS stylesheet sets an explicit `height:` on .canvas-stage; we override
  * it via `minHeight` so blocks that are pushed down are never clipped.
  */
-function CanvasPageStage({ children, lcpBlockId, forcedBreakpoint, windowBp, activeBp }) {
+function CanvasPageStage({ children, lcpBlockId, forcedBreakpoint, windowBp, activeBp, pinStageWidth }) {
   const reflow = useAccordionReflow();
   const growth = reflow ? reflow.getTotalGrowth() : 0;
   // Baseline stage height at the active breakpoint from stored geometry.
@@ -433,12 +434,22 @@ function CanvasPageStage({ children, lcpBlockId, forcedBreakpoint, windowBp, act
         ? { height: Math.max(0, netHeight) }
         : undefined;
 
+  // Embedded previews (forceBreakpoint prop) live in the host document, not
+  // a device-sized iframe, so the viewport-based @media rules in the page
+  // stylesheet would otherwise shrink the stage to the host window's
+  // breakpoint. Pin the stage width to the forced breakpoint so its layout
+  // width is deterministic and auto-height text wraps exactly as the server
+  // assumed — matching the built page and preventing title/divider overlap.
+  const forcedWidthStyle = pinStageWidth && forcedBreakpoint
+    ? { width: BREAKPOINT_WIDTHS[forcedBreakpoint], maxWidth: BREAKPOINT_WIDTHS[forcedBreakpoint] }
+    : null;
+
   return (
     <main
       id="canvas-main-content"
       tabIndex={-1}
       className="canvas-stage focus:outline-none"
-      style={stageStyle}
+      style={{ ...(forcedWidthStyle || {}), ...(stageStyle || {}) }}
       data-testid="canvas-page-stage"
     >
       {children.map((b) => (
@@ -454,7 +465,7 @@ function CanvasPageStage({ children, lcpBlockId, forcedBreakpoint, windowBp, act
   );
 }
 
-export default function CanvasPageRenderer({ page, symbols }) {
+export default function CanvasPageRenderer({ page, symbols, forceBreakpoint }) {
   const baseDesign = useMemo(() => normalizeCanvasDesign(page?.canvas_design), [page?.canvas_design]);
   const symbolsById = useSymbolsForDesign(baseDesign, symbols);
   const theme = useTenantCanvasTheme();
@@ -498,7 +509,11 @@ export default function CanvasPageRenderer({ page, symbols }) {
   );
   const lcpBlockId = useMemo(() => (hasBlocks ? findLcpBlockId(children) : null), [children, hasBlocks]);
 
-  const forcedBreakpoint = useForcedBreakpoint();
+  // An explicit `forceBreakpoint` prop (embedded previews) takes precedence
+  // over the editor iframe's `?_bp=` URL param so a preview can request
+  // desktop geometry without depending on the host window size.
+  const urlForcedBreakpoint = useForcedBreakpoint();
+  const forcedBreakpoint = forceBreakpoint || urlForcedBreakpoint;
 
   // Task #1446: smooth-scroll same-page anchor links to their target block.
   const containerRef = useRef(null);
@@ -641,6 +656,7 @@ export default function CanvasPageRenderer({ page, symbols }) {
           forcedBreakpoint={forcedBreakpoint}
           windowBp={windowBp}
           activeBp={forcedBreakpoint || windowBp || 'desktop'}
+          pinStageWidth={!!forceBreakpoint}
         />
       </AccordionReflowProvider>
     </div>
