@@ -1,0 +1,61 @@
+17:44:16.920 Running build in Washington, D.C., USA (East) – iad1
+17:44:16.921 Build machine configuration: 4 cores, 8 GB
+17:44:18.326 Cloning github.com/matthediver-isaasi/iConnect-Vercel (Branch: help, Commit: ecf08bd)
+17:44:20.865 Cloning completed: 2.539s
+17:44:21.122 Restored build cache from previous deployment (6qupQdpkihVfXGEbqNoJYPjsVXgU)
+17:44:21.366 Running "vercel build"
+17:44:21.380 Vercel CLI 54.19.0
+17:44:23.374 Running "install" command: `npm install`...
+17:44:25.116 npm warn ERESOLVE overriding peer dependency
+17:44:25.118 npm warn While resolving: react-codemirror2@7.3.0
+17:44:25.118 npm warn Found: react@18.3.1
+17:44:25.118 npm warn node_modules/react
+17:44:25.118 npm warn   react@"^18.3.1" from the root project
+17:44:25.118 npm warn   124 more (@arco-design/web-react, @dnd-kit/accessibility, ...)
+17:44:25.118 npm warn
+17:44:25.118 npm warn Could not resolve dependency:
+17:44:25.118 npm warn peer react@">=15.5 <=17.x" from react-codemirror2@7.3.0
+17:44:25.119 npm warn node_modules/react-codemirror2
+17:44:25.119 npm warn   react-codemirror2@"^7.2.1" from easy-email-extensions@4.16.5
+17:44:25.119 npm warn   node_modules/easy-email-extensions
+17:44:25.119 npm warn
+17:44:25.119 npm warn Conflicting peer dependency: react@17.0.2
+17:44:25.119 npm warn node_modules/react
+17:44:25.119 npm warn   peer react@">=15.5 <=17.x" from react-codemirror2@7.3.0
+17:44:25.119 npm warn   node_modules/react-codemirror2
+17:44:25.119 npm warn     react-codemirror2@"^7.2.1" from easy-email-extensions@4.16.5
+17:44:25.120 npm warn     node_modules/easy-email-extensions
+17:44:28.798 
+17:44:28.798 up to date, audited 955 packages in 5s
+17:44:28.798 
+17:44:28.798 194 packages are looking for funding
+17:44:28.798   run `npm fund` for details
+17:44:28.855 
+17:44:28.855 43 vulnerabilities (3 low, 18 moderate, 21 high, 1 critical)
+17:44:28.856 
+17:44:28.856 To address issues that do not require attention, run:
+17:44:28.856   npm audit fix
+17:44:28.856 
+17:44:28.856 To address all issues possible (including breaking changes), run:
+17:44:28.856   npm audit fix --force
+17:44:28.856 
+17:44:28.856 Some issues need review, and may require choosing
+17:44:28.856 a different dependency.
+17:44:28.856 
+17:44:28.856 Run `npm audit` for details.
+17:44:29.436 vite v5.4.20 building for production...
+17:44:29.489 transforming...
+17:44:29.754 Browserslist: browsers data (caniuse-lite) is 9 months old. Please run:
+17:44:29.754   npx update-browserslist-db@latest
+17:44:29.754   Why you should do it regularly: https://github.com/browserslist/update-db#readme
+17:44:38.096 ✓ 2020 modules transformed.
+17:44:38.103 x Build failed in 8.64s
+17:44:38.103 error during build:
+17:44:38.103 [vite:load-fallback] Could not load /vercel/path0/client/src/hooks/use-toast (imported by client/src/pages/CanvasLinksManager.jsx): ENOENT: no such file or directory, open '/vercel/path0/client/src/hooks/use-toast'
+17:44:38.103     at async open (node:internal/fs/promises:640:25)
+17:44:38.103     at async Object.readFile (node:internal/fs/promises:1287:14)
+17:44:38.103     at async Object.load (file:///vercel/path0/node_modules/vite/dist/node/chunks/dep-D_zLpgQd.js:65356:25)
+17:44:38.103     at async PluginDriver.hookFirstAndGetPlugin (file:///vercel/path0/node_modules/rollup/dist/es/shared/node-entry.js:20689:28)
+17:44:38.103     at async file:///vercel/path0/node_modules/rollup/dist/es/shared/node-entry.js:19809:33
+17:44:38.103     at async Queue.work (file:///vercel/path0/node_modules/rollup/dist/es/shared/node-entry.js:20899:32)
+17:44:38.174 Error: Command "npx vite build" exited with 1
