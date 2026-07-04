@@ -161,3 +161,58 @@ export async function reindexArticle(article, { supabase, openai } = {}) {
     removed: false,
   };
 }
+
+// Re-chunk + re-embed every PUBLISHED article (reusing unchanged chunks),
+// optionally scoped to a single `slug`. Shared by the CRON_SECRET-guarded
+// endpoint and the platform-owner "Rebuild AI search index" button so both
+// paths run identical logic. Requires an OpenAI client to embed new/changed
+// chunks; callers should verify one is available and fail loudly if not.
+export async function reindexAllArticles({ supabase, openai, slug = null } = {}) {
+  if (!supabase) throw new Error('reindexAllArticles requires a supabase client');
+
+  const results = {
+    articles: 0,
+    chunks: 0,
+    embedded: 0,
+    reused: 0,
+    errors: 0,
+    details: [],
+  };
+
+  let query = supabase
+    .from('help_article')
+    .select('id, slug, title, body, status, required_feature')
+    .eq('status', 'published');
+  if (slug) query = query.eq('slug', slug);
+
+  const { data: articles, error } = await query;
+  if (error) throw error;
+
+  for (const article of articles || []) {
+    try {
+      const summary = await reindexArticle(article, { supabase, openai });
+      results.articles++;
+      results.chunks += summary.chunks;
+      results.embedded += summary.embedded;
+      results.reused += summary.reused;
+      results.details.push({
+        slug: article.slug,
+        chunks: summary.chunks,
+        embedded: summary.embedded,
+        reused: summary.reused,
+      });
+    } catch (err) {
+      results.errors++;
+      results.details.push({
+        slug: article.slug,
+        error: err?.message || String(err),
+      });
+      console.error(
+        `[reindexAllArticles] slug=${article.slug} error:`,
+        err?.message || err
+      );
+    }
+  }
+
+  return results;
+}

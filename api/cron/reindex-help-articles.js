@@ -15,7 +15,7 @@
 
 import { supabase } from '../_lib/database.js';
 import {
-  reindexArticle,
+  reindexAllArticles,
   getDefaultOpenAIClient,
 } from '../_lib/helpArticleIndexer.js';
 
@@ -54,57 +54,13 @@ export default async function handler(req, res) {
     null;
 
   const startTime = Date.now();
-  const results = {
-    articles: 0,
-    chunks: 0,
-    embedded: 0,
-    reused: 0,
-    errors: 0,
-    details: [],
-  };
 
   try {
-    let query = supabase
-      .from('help_article')
-      .select('id, slug, title, body, status, required_feature')
-      .eq('status', 'published');
-    if (onlySlug) query = query.eq('slug', onlySlug);
-
-    const { data: articles, error } = await query;
-    if (error) {
-      console.error(
-        '[cron/reindex-help-articles] failed to list articles:',
-        error.message
-      );
-      return res.status(500).json({ ok: false, error: error.message });
-    }
-
-    const list = articles || [];
-    for (const article of list) {
-      try {
-        const summary = await reindexArticle(article, { supabase, openai });
-        results.articles++;
-        results.chunks += summary.chunks;
-        results.embedded += summary.embedded;
-        results.reused += summary.reused;
-        results.details.push({
-          slug: article.slug,
-          chunks: summary.chunks,
-          embedded: summary.embedded,
-          reused: summary.reused,
-        });
-      } catch (err) {
-        results.errors++;
-        results.details.push({
-          slug: article.slug,
-          error: err?.message || String(err),
-        });
-        console.error(
-          `[cron/reindex-help-articles] slug=${article.slug} error:`,
-          err?.message || err
-        );
-      }
-    }
+    const results = await reindexAllArticles({
+      supabase,
+      openai,
+      slug: onlySlug || null,
+    });
 
     return res.status(200).json({
       ok: results.errors === 0,
@@ -114,6 +70,6 @@ export default async function handler(req, res) {
     });
   } catch (err) {
     console.error('[cron/reindex-help-articles] fatal:', err);
-    return res.status(500).json({ ok: false, error: err.message, ...results });
+    return res.status(500).json({ ok: false, error: err.message });
   }
 }

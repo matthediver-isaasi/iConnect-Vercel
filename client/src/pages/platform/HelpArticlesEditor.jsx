@@ -8,11 +8,12 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/use-toast';
-import { Loader2, Plus, Pencil, Trash2, ChevronUp, ChevronDown, Eye } from 'lucide-react';
+import { Loader2, Plus, Pencil, Trash2, ChevronUp, ChevronDown, Eye, RefreshCw } from 'lucide-react';
 import HelpArticleContent from '@/components/help/HelpArticleContent';
 import { ROLE_ACCESS_MAP } from '@/lib/roleAccessMap';
 
 const API = '/api/platform/help-articles';
+const REINDEX_API = '/api/platform/help-articles-reindex';
 
 const NO_FEATURE = '__none__';
 
@@ -54,6 +55,7 @@ export default function HelpArticlesEditor() {
   const [form, setForm] = useState(emptyForm);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [reindexing, setReindexing] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -157,6 +159,38 @@ export default function HelpArticlesEditor() {
     }
   };
 
+  const rebuildIndex = async () => {
+    setReindexing(true);
+    try {
+      const res = await fetch(REINDEX_API, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to rebuild AI search index');
+      }
+      const description =
+        `${data.articles} article${data.articles === 1 ? '' : 's'}, ` +
+        `${data.chunks} chunk${data.chunks === 1 ? '' : 's'} ` +
+        `(${data.embedded} embedded, ${data.reused} reused)` +
+        (data.errors ? ` — ${data.errors} failed` : '');
+      toast({
+        title: data.errors
+          ? 'Rebuilt with some errors'
+          : 'AI search index rebuilt',
+        description,
+        variant: data.errors ? 'destructive' : undefined,
+      });
+    } catch (err) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } finally {
+      setReindexing(false);
+    }
+  };
+
   const reorder = async (index, direction) => {
     const target = index + direction;
     if (target < 0 || target >= articles.length) return;
@@ -188,10 +222,25 @@ export default function HelpArticlesEditor() {
             for images — leave the URL out for a placeholder box.
           </p>
         </div>
-        <Button onClick={openCreate} data-testid="button-new-help-article">
-          <Plus className="h-4 w-4" />
-          New Article
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={rebuildIndex}
+            disabled={reindexing}
+            data-testid="button-rebuild-ai-index"
+          >
+            {reindexing ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+            Rebuild AI search index
+          </Button>
+          <Button onClick={openCreate} data-testid="button-new-help-article">
+            <Plus className="h-4 w-4" />
+            New Article
+          </Button>
+        </div>
       </div>
 
       {loading ? (
