@@ -110,10 +110,25 @@ function DocPreviewStage({ design }) {
   return (
     <div
       ref={containerRef}
-      className="border rounded-md overflow-auto max-h-[55vh] bg-white"
+      className="border rounded-md overflow-auto max-h-[55vh] min-w-0 bg-white"
       data-testid="container-doc-preview"
     >
-      <div style={{ height: innerH ? innerH * scale : undefined }}>
+      {/*
+        The stage is laid out at DESKTOP_W (1200px) and shrunk with
+        `transform: scale(...)`. A CSS transform only affects the element
+        visually — its layout box stays 1200px wide, which forces the Radix
+        grid `DialogContent` (grid items default to `min-width: auto`) open to
+        ~1200px. Collapse this wrapper's layout footprint to the *scaled* size
+        in BOTH dimensions (width and height) and clip overflow so the 1200px
+        layout box no longer defines the intrinsic width.
+      */}
+      <div
+        style={{
+          width: DESKTOP_W * scale,
+          height: innerH ? innerH * scale : undefined,
+          overflow: 'hidden',
+        }}
+      >
         <div
           ref={innerRef}
           style={{ width: DESKTOP_W, transform: `scale(${scale})`, transformOrigin: 'top left' }}
@@ -1515,7 +1530,7 @@ export default function IEditPageManagementPage() {
               </>
             ) : (
               <>
-                <div className="space-y-3">
+                <div className="space-y-3 min-w-0 overflow-hidden">
                   <div className="flex flex-wrap items-center gap-2 text-sm">
                     <span className="font-medium text-slate-800" data-testid="text-preview-title">{docPreview.title}</span>
                     <Badge variant="secondary" data-testid="badge-preview-blocks">
