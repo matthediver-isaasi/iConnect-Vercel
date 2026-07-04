@@ -91,6 +91,17 @@ export default function InboxPage() {
   const [selectedView, setSelectedView] = useState("inbox");
   const [selectedId, setSelectedId] = useState(null);
   const [search, setSearch] = useState("");
+  const [isLgUp, setIsLgUp] = useState(
+    typeof window !== "undefined" ? window.matchMedia("(min-width: 1024px)").matches : true
+  );
+
+  useEffect(() => {
+    const mql = window.matchMedia("(min-width: 1024px)");
+    const onChange = () => setIsLgUp(mql.matches);
+    onChange();
+    mql.addEventListener("change", onChange);
+    return () => mql.removeEventListener("change", onChange);
+  }, []);
 
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
   const [folderDraftName, setFolderDraftName] = useState("");
@@ -279,9 +290,112 @@ export default function InboxPage() {
     );
   };
 
+  const renderReadingActions = (msg) => (
+    <div className="flex flex-wrap items-center gap-2 mt-3">
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => handleAction(msg.recipient_id, msg.is_read ? "unread" : "read")}
+        data-testid="button-toggle-read"
+      >
+        {msg.is_read ? (
+          <>
+            <Mail className="w-4 h-4 mr-2" /> Mark unread
+          </>
+        ) : (
+          <>
+            <MailOpen className="w-4 h-4 mr-2" /> Mark read
+          </>
+        )}
+      </Button>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => handleAction(msg.recipient_id, msg.is_pinned ? "unpin" : "pin")}
+        data-testid="button-toggle-pin"
+      >
+        {msg.is_pinned ? (
+          <>
+            <PinOff className="w-4 h-4 mr-2" /> Unpin
+          </>
+        ) : (
+          <>
+            <Pin className="w-4 h-4 mr-2" /> Pin
+          </>
+        )}
+      </Button>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => handleAction(msg.recipient_id, msg.is_archived ? "unarchive" : "archive")}
+        data-testid="button-toggle-archive"
+      >
+        {msg.is_archived ? (
+          <>
+            <ArchiveRestore className="w-4 h-4 mr-2" /> Unarchive
+          </>
+        ) : (
+          <>
+            <Archive className="w-4 h-4 mr-2" /> Archive
+          </>
+        )}
+      </Button>
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button size="sm" variant="outline" data-testid="button-move">
+            <FolderInput className="w-4 h-4 mr-2" /> Move
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          <DropdownMenuLabel>Move to folder</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          {folders.length === 0 && (
+            <DropdownMenuItem disabled>No folders yet</DropdownMenuItem>
+          )}
+          {folders.map((f) => (
+            <DropdownMenuItem
+              key={f.id}
+              onClick={() => handleAction(msg.recipient_id, "move", f.id)}
+            >
+              <Folder className="w-4 h-4 mr-2" />
+              {f.name}
+            </DropdownMenuItem>
+          ))}
+          {msg.folder_id && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => handleAction(msg.recipient_id, "move", null)}
+              >
+                Remove from folder
+              </DropdownMenuItem>
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+
+  const renderReadingBody = () => (
+    <div className="flex-1 overflow-hidden bg-white">
+      {isBodyLoading || !openMessage ? (
+        <div className="p-6 text-sm text-muted-foreground">Loading message…</div>
+      ) : (
+        <iframe
+          title="message-body"
+          srcDoc={openMessage.html || "<p>No content.</p>"}
+          className="w-full h-full border-0"
+          sandbox="allow-popups allow-popups-to-escape-sandbox"
+          data-testid="iframe-body"
+        />
+      )}
+    </div>
+  );
+
   return (
     <div className="h-[calc(100vh-4rem)] w-full p-4">
-      <div className="grid grid-cols-1 lg:grid-cols-[220px_minmax(0,1fr)] gap-4 h-full">
+      <div className="grid grid-cols-1 lg:grid-cols-[220px_minmax(320px,380px)_minmax(0,1fr)] gap-4 h-full">
         {/* Folder rail */}
         <Card className="hidden lg:flex flex-col p-3 overflow-hidden">
           <div className="flex flex-col gap-1">{views.map(renderViewButton)}</div>
@@ -411,14 +525,21 @@ export default function InboxPage() {
               <ul>
                 {filteredMessages.map((m) => {
                   const active = m.recipient_id === selectedId;
+                  let bgClass = "";
+                  if (!m.is_read) {
+                    bgClass = "bg-[hsl(var(--inbox-unread-bg))]";
+                  } else if (m.is_pinned) {
+                    bgClass = "bg-[hsl(var(--inbox-pinned-bg))]";
+                  }
                   return (
                     <li key={m.recipient_id}>
                       <button
                         type="button"
                         onClick={() => setSelectedId(m.recipient_id)}
                         data-testid={`message-${m.recipient_id}`}
-                        className={`w-full text-left px-4 py-3 border-b border-border hover-elevate ${
-                          active ? "bg-accent" : ""
+                        aria-current={active ? "true" : undefined}
+                        className={`w-full text-left px-4 py-3 border-b border-border hover-elevate ${bgClass} ${
+                          active ? "ring-2 ring-inset ring-primary" : ""
                         }`}
                       >
                         <div className="flex items-center gap-2">
@@ -443,7 +564,7 @@ export default function InboxPage() {
                           </span>
                         </div>
                         <div
-                          className={`mt-1 truncate text-sm ${
+                          className={`mt-1 text-sm break-words ${
                             m.is_read ? "text-muted-foreground" : "text-foreground font-medium"
                           }`}
                         >
@@ -468,157 +589,77 @@ export default function InboxPage() {
           </ScrollArea>
         </Card>
 
-      </div>
-
-      {/* Reading drawer */}
-      <Sheet
-        open={!!selectedId}
-        onOpenChange={(open) => {
-          if (!open) setSelectedId(null);
-        }}
-      >
-        <SheetContent
-          side="right"
-          className="w-full sm:max-w-xl lg:max-w-2xl p-0 gap-0 flex flex-col"
-        >
-          {selectedMessage && (
+        {/* Reading pane (desktop, third column) */}
+        <Card className="hidden lg:flex flex-col overflow-hidden">
+          {isLgUp && selectedMessage ? (
             <>
-              <div className="p-4 pr-12 border-b border-border">
+              <div className="p-4 border-b border-border">
                 <div className="min-w-0">
-                  <SheetTitle className="text-lg font-semibold" data-testid="text-subject">
+                  <h2 className="text-lg font-semibold" data-testid="text-subject">
                     {selectedMessage.subject || "(no subject)"}
-                  </SheetTitle>
-                  <SheetDescription className="text-sm text-muted-foreground mt-1">
+                  </h2>
+                  <p className="text-sm text-muted-foreground mt-1">
                     {selectedMessage.from_name}
                     {selectedMessage.from_email ? ` · ${selectedMessage.from_email}` : ""}
-                  </SheetDescription>
+                  </p>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     {formatDate(selectedMessage.sent_at)}
                   </p>
                 </div>
-
-                <div className="flex flex-wrap items-center gap-2 mt-3">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() =>
-                      handleAction(
-                        selectedMessage.recipient_id,
-                        selectedMessage.is_read ? "unread" : "read"
-                      )
-                    }
-                    data-testid="button-toggle-read"
-                  >
-                    {selectedMessage.is_read ? (
-                      <>
-                        <Mail className="w-4 h-4 mr-2" /> Mark unread
-                      </>
-                    ) : (
-                      <>
-                        <MailOpen className="w-4 h-4 mr-2" /> Mark read
-                      </>
-                    )}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() =>
-                      handleAction(
-                        selectedMessage.recipient_id,
-                        selectedMessage.is_pinned ? "unpin" : "pin"
-                      )
-                    }
-                    data-testid="button-toggle-pin"
-                  >
-                    {selectedMessage.is_pinned ? (
-                      <>
-                        <PinOff className="w-4 h-4 mr-2" /> Unpin
-                      </>
-                    ) : (
-                      <>
-                        <Pin className="w-4 h-4 mr-2" /> Pin
-                      </>
-                    )}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() =>
-                      handleAction(
-                        selectedMessage.recipient_id,
-                        selectedMessage.is_archived ? "unarchive" : "archive"
-                      )
-                    }
-                    data-testid="button-toggle-archive"
-                  >
-                    {selectedMessage.is_archived ? (
-                      <>
-                        <ArchiveRestore className="w-4 h-4 mr-2" /> Unarchive
-                      </>
-                    ) : (
-                      <>
-                        <Archive className="w-4 h-4 mr-2" /> Archive
-                      </>
-                    )}
-                  </Button>
-
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button size="sm" variant="outline" data-testid="button-move">
-                        <FolderInput className="w-4 h-4 mr-2" /> Move
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start">
-                      <DropdownMenuLabel>Move to folder</DropdownMenuLabel>
-                      <DropdownMenuSeparator />
-                      {folders.length === 0 && (
-                        <DropdownMenuItem disabled>No folders yet</DropdownMenuItem>
-                      )}
-                      {folders.map((f) => (
-                        <DropdownMenuItem
-                          key={f.id}
-                          onClick={() =>
-                            handleAction(selectedMessage.recipient_id, "move", f.id)
-                          }
-                        >
-                          <Folder className="w-4 h-4 mr-2" />
-                          {f.name}
-                        </DropdownMenuItem>
-                      ))}
-                      {selectedMessage.folder_id && (
-                        <>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            onClick={() =>
-                              handleAction(selectedMessage.recipient_id, "move", null)
-                            }
-                          >
-                            Remove from folder
-                          </DropdownMenuItem>
-                        </>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
+                {renderReadingActions(selectedMessage)}
               </div>
-
-              <div className="flex-1 overflow-hidden bg-white">
-                {isBodyLoading || !openMessage ? (
-                  <div className="p-6 text-sm text-muted-foreground">Loading message…</div>
-                ) : (
-                  <iframe
-                    title="message-body"
-                    srcDoc={openMessage.html || "<p>No content.</p>"}
-                    className="w-full h-full border-0"
-                    sandbox="allow-popups allow-popups-to-escape-sandbox"
-                    data-testid="iframe-body"
-                  />
-                )}
-              </div>
+              {renderReadingBody()}
             </>
+          ) : (
+            <div
+              className="flex-1 flex flex-col items-center justify-center text-center p-10"
+              data-testid="reading-pane-empty"
+            >
+              <InboxIcon className="w-10 h-10 mb-3 text-muted-foreground opacity-50" />
+              <p className="text-sm text-muted-foreground">
+                Select a message to read it here.
+              </p>
+            </div>
           )}
-        </SheetContent>
-      </Sheet>
+        </Card>
+
+      </div>
+
+      {/* Reading drawer (mobile / below lg) */}
+      {!isLgUp && (
+        <Sheet
+          open={!!selectedId}
+          onOpenChange={(open) => {
+            if (!open) setSelectedId(null);
+          }}
+        >
+          <SheetContent
+            side="right"
+            className="w-full sm:max-w-xl p-0 gap-0 flex flex-col"
+          >
+            {selectedMessage && (
+              <>
+                <div className="p-4 pr-12 border-b border-border">
+                  <div className="min-w-0">
+                    <SheetTitle className="text-lg font-semibold" data-testid="text-subject-mobile">
+                      {selectedMessage.subject || "(no subject)"}
+                    </SheetTitle>
+                    <SheetDescription className="text-sm text-muted-foreground mt-1">
+                      {selectedMessage.from_name}
+                      {selectedMessage.from_email ? ` · ${selectedMessage.from_email}` : ""}
+                    </SheetDescription>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {formatDate(selectedMessage.sent_at)}
+                    </p>
+                  </div>
+                  {renderReadingActions(selectedMessage)}
+                </div>
+                {renderReadingBody()}
+              </>
+            )}
+          </SheetContent>
+        </Sheet>
+      )}
 
       {/* New / rename folder dialog */}
       <Dialog open={folderDialogOpen} onOpenChange={setFolderDialogOpen}>

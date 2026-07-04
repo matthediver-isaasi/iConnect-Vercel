@@ -29,6 +29,8 @@
   --destructive-foreground: 0 0% 98%;
   --warning: 26 90% 37%;
   --warning-foreground: 0 0% 98%;
+  --inbox-unread-bg: 142 52% 93%;
+  --inbox-pinned-bg: 32 95% 92%;
   --border: 0 0% 89.8%;
   --input: 0 0% 89.8%;
   --ring: 0 0% 3.9%;
@@ -116,6 +118,8 @@
   --destructive-foreground: 0 0% 98%;
   --warning: 38 92% 60%;
   --warning-foreground: 0 0% 9%;
+  --inbox-unread-bg: 142 32% 14%;
+  --inbox-pinned-bg: 28 45% 16%;
   --border: 0 0% 14.9%;
   --input: 0 0% 14.9%;
   --ring: 0 0% 83.1%;
