@@ -1,6 +1,7 @@
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, hasFeatureAccess } from '../../_lib/tenantContext.js';
 import { stripHiddenDynamicRegions, applyDynamicSlotValues } from '../../_lib/campaignService.js';
+import { resolveTransactionalInboxLabel } from '../../_lib/transactionalInbox.js';
 
 const INBOX_FEATURE = 'communication.inbox';
 
@@ -77,6 +78,63 @@ export default async function handler(req, res) {
     const recipientId = req.query.id;
     if (!recipientId) {
       return res.status(400).json({ error: 'Message id is required' });
+    }
+
+    // Transactional messages store their fully rendered HTML on the row itself.
+    if (req.query.source === 'transactional') {
+      const { data: msg, error: txnErr } = await supabase
+        .from('member_transactional_message')
+        .select(
+          'id, subject, preheader, from_name, from_email, sent_at, body_html, is_read, ' +
+          'communication_category_id, label_key'
+        )
+        .eq('id', recipientId)
+        .eq('member_id', memberId)
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+      if (txnErr) {
+        console.error('[Inbox] transactional fetch error:', txnErr);
+        return res.status(500).json({ error: 'Failed to load message' });
+      }
+      if (!msg) {
+        return res.status(404).json({ error: 'Message not found' });
+      }
+
+      let catName = null;
+      if (msg.communication_category_id) {
+        const { data: cat } = await supabase
+          .from('communication_category')
+          .select('name')
+          .eq('id', msg.communication_category_id)
+          .eq('tenant_id', tenantId)
+          .maybeSingle();
+        catName = cat?.name || null;
+      }
+
+      const nowIso = new Date().toISOString();
+      await supabase
+        .from('member_transactional_message')
+        .update({ is_read: true, read_at: nowIso, updated_at: nowIso })
+        .eq('id', msg.id)
+        .eq('member_id', memberId)
+        .eq('tenant_id', tenantId);
+
+      return res.json({
+        message: {
+          recipient_id: msg.id,
+          campaign_id: null,
+          name: msg.from_name || '',
+          subject: msg.subject || '',
+          preheader: msg.preheader || '',
+          from_name: msg.from_name || '',
+          from_email: msg.from_email || '',
+          sent_at: msg.sent_at || null,
+          source: 'transactional',
+          label: resolveTransactionalInboxLabel(msg.label_key, catName),
+          html: msg.body_html || '',
+          is_read: true,
+        },
+      });
     }
 
     const { data: recipient, error } = await supabase

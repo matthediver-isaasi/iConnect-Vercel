@@ -52,3 +52,4 @@
 - [Canvas layout engine shared](canvas-layout-engine-shared.md) — doc→Canvas builder extracted to api/_lib/canvasLayoutEngine.js; script+endpoint import it, don't re-fork; cleanupDesign in canvasSpacing.mjs.
 - [Help Center RBAC gating](help-center-rbac.md) — /Help articles gated presentation-only by required_feature + {{feature: KEY}} section markers using canonical roleAccessMap keys; content in scripts/seed-help-articles.mjs.
 - [Help AI Q&A retrieval boundary](help-ai-qa-retrieval-boundary.md) — AI help answers use retrieval AS security: per-chunk feature_gates must mirror the HelpArticleContent DSL exactly, resolved server-side, fail-closed; backfill/embeddings need OpenAI key (Vercel/CI only).
+- [Transactional inbox delivery](transactional-inbox-delivery.md) — /inbox unions two backends (campaign state-table vs transactional co-located-state row); every inbox endpoint must branch on a `source` discriminator or one kind silently disappears.

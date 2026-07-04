@@ -34,8 +34,9 @@ const EMPTY_UNREAD_SUMMARY = {
   latestSentAt: null,
 };
 
-export async function fetchInboxMessageBody(recipientId) {
-  const res = await fetch(`${API_BASE}/${recipientId}`, { credentials: "include" });
+export async function fetchInboxMessageBody(recipientId, source) {
+  const qs = source === "transactional" ? "?source=transactional" : "";
+  const res = await fetch(`${API_BASE}/${recipientId}${qs}`, { credentials: "include" });
   if (!res.ok) throw new Error("Failed to load message");
   const data = await res.json();
   return data.message;
@@ -78,18 +79,28 @@ export function useInbox() {
   }, [queryClient]);
 
   const act = useCallback(
-    async (recipientId, action, folderId) => {
-      await postAction({ recipient_id: recipientId, action, folder_id: folderId });
+    async (recipientId, action, folderId, source) => {
+      const body = { action, folder_id: folderId };
+      if (source === "transactional") body.transactional_id = recipientId;
+      else body.recipient_id = recipientId;
+      await postAction(body);
       await invalidate();
     },
     [invalidate]
   );
 
+  // Bulk actions can span both message sources; pass campaign recipient ids and
+  // transactional message ids separately so the endpoint routes each to the
+  // right table.
   const actBulk = useCallback(
-    async (recipientIds, action, folderId) => {
-      const ids = Array.isArray(recipientIds) ? recipientIds.filter(Boolean) : [];
-      if (ids.length === 0) return;
-      await postAction({ recipient_ids: ids, action, folder_id: folderId });
+    async (campaignIds, transactionalIds, action, folderId) => {
+      const cIds = Array.isArray(campaignIds) ? campaignIds.filter(Boolean) : [];
+      const tIds = Array.isArray(transactionalIds) ? transactionalIds.filter(Boolean) : [];
+      if (cIds.length === 0 && tIds.length === 0) return;
+      const body = { action, folder_id: folderId };
+      if (cIds.length > 0) body.recipient_ids = cIds;
+      if (tIds.length > 0) body.transactional_ids = tIds;
+      await postAction(body);
       await invalidate();
     },
     [invalidate]

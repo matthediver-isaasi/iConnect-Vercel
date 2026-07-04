@@ -2,6 +2,7 @@ import Mailgun from 'mailgun.js';
 import formData from 'form-data';
 import { supabase } from './database.js';
 import { generateMemberPreferencesToken } from '../email-preferences/index.js';
+import { recordTransactionalInboxMessage } from './transactionalInbox.js';
 
 const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY;
 const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
@@ -217,7 +218,7 @@ function getMailgunClient() {
 // domain and skip tenant-domain resolution entirely, regardless of tenantId.
 // Tenant→member messages (welcomes, reminders, campaigns, form notifications)
 // continue to resolve off tenantId as before.
-export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bcc, skipFooter = false, tenantId = null, contentWidth = null, enableTracking = false, unsubscribeUrl = null, attachments = null, testMode = false, systemEmail = false }) {
+export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bcc, skipFooter = false, tenantId = null, contentWidth = null, enableTracking = false, unsubscribeUrl = null, attachments = null, testMode = false, systemEmail = false, inboxDelivery = null }) {
   if (!MAILGUN_API_KEY) {
     console.error('[Email Service] MAILGUN_API_KEY not configured');
     return {
@@ -328,10 +329,30 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
       console.log(`[Email Service] Adding ${attachments.length} attachment(s)`);
     }
 
+    // Opt-in inbox delivery: on a successful send, persist the final rendered
+    // HTML to the recipient member's inbox. Swallows its own errors (never
+    // throws) and must not alter sendEmail's return contract. Uses
+    // messageData.from so the fallback-domain identity is captured correctly.
+    const maybeRecordInbox = async () => {
+      if (!inboxDelivery || !inboxDelivery.memberId) return;
+      await recordTransactionalInboxMessage({
+        tenantId,
+        memberId: inboxDelivery.memberId,
+        to,
+        subject,
+        html: finalHtml,
+        fromAddress: messageData.from,
+        preheader: inboxDelivery.preheader || null,
+        communicationCategoryId: inboxDelivery.communicationCategoryId || null,
+        labelKey: inboxDelivery.labelKey || null,
+      });
+    };
+
     // Try sending with the tenant domain first
     try {
       const response = await client.messages.create(domain, messageData);
       console.log(`[Email Service] Email sent successfully. Message ID: ${response.id}`);
+      await maybeRecordInbox();
       return {
         success: true,
         messageId: response.id,
@@ -355,6 +376,7 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
         
         const fallbackResponse = await client.messages.create(DEFAULT_DOMAIN, messageData);
         console.log(`[Email Service] Email sent via fallback domain. Message ID: ${fallbackResponse.id}`);
+        await maybeRecordInbox();
         return {
           success: true,
           messageId: fallbackResponse.id,

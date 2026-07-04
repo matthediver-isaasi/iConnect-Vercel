@@ -34,6 +34,7 @@ async function resolveLatestUnread(memberId, tenantId) {
     }
   }
 
+  let latestCampaign = null;
   const pageSize = 200;
   let from = 0;
   for (;;) {
@@ -49,17 +50,47 @@ async function resolveLatestUnread(memberId, tenantId) {
     const batch = data || [];
     for (const r of batch) {
       if (!suppressed.has(r.id)) {
-        return {
+        latestCampaign = {
           subject: r.email_campaign?.subject || '',
           recipientId: r.id,
           sentAt: r.sent_at || null,
         };
+        break;
       }
     }
-    if (batch.length < pageSize) break;
+    if (latestCampaign || batch.length < pageSize) break;
     from += pageSize;
   }
-  return null;
+
+  // Latest unread transactional message (state co-located on the row).
+  let latestTxn = null;
+  {
+    const { data, error } = await supabase
+      .from('member_transactional_message')
+      .select('id, subject, sent_at')
+      .eq('tenant_id', tenantId)
+      .eq('member_id', memberId)
+      .eq('is_read', false)
+      .eq('is_archived', false)
+      .order('sent_at', { ascending: false })
+      .limit(1);
+    if (error) throw error;
+    if (data && data[0]) {
+      latestTxn = {
+        subject: data[0].subject || '',
+        recipientId: data[0].id,
+        sentAt: data[0].sent_at || null,
+      };
+    }
+  }
+
+  // Return whichever is newer.
+  if (latestCampaign && latestTxn) {
+    const ct = latestCampaign.sentAt ? new Date(latestCampaign.sentAt).getTime() : 0;
+    const tt = latestTxn.sentAt ? new Date(latestTxn.sentAt).getTime() : 0;
+    return tt > ct ? latestTxn : latestCampaign;
+  }
+  return latestCampaign || latestTxn;
 }
 
 // Lightweight unread badge count for the nav / dashboard. Uses head:true count
@@ -93,7 +124,7 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'You do not have access to the inbox' });
     }
 
-    const [deliveredRes, archivedRes, readNonArchivedRes] = await Promise.all([
+    const [deliveredRes, archivedRes, readNonArchivedRes, txnUnreadRes] = await Promise.all([
       supabase
         .from('email_campaign_recipient')
         .select('id, email_campaign!inner(tenant_id)', { count: 'exact', head: true })
@@ -113,17 +144,30 @@ export default async function handler(req, res) {
         .eq('member_id', memberId)
         .eq('is_read', true)
         .eq('is_archived', false),
+      // Transactional unread: state co-located, so count directly.
+      supabase
+        .from('member_transactional_message')
+        .select('id', { count: 'exact', head: true })
+        .eq('tenant_id', tenantId)
+        .eq('member_id', memberId)
+        .eq('is_read', false)
+        .eq('is_archived', false),
     ]);
 
-    if (deliveredRes.error || archivedRes.error || readNonArchivedRes.error) {
-      console.error('[Inbox] unread-count error:', deliveredRes.error || archivedRes.error || readNonArchivedRes.error);
+    if (deliveredRes.error || archivedRes.error || readNonArchivedRes.error || txnUnreadRes.error) {
+      console.error(
+        '[Inbox] unread-count error:',
+        deliveredRes.error || archivedRes.error || readNonArchivedRes.error || txnUnreadRes.error
+      );
       return res.status(500).json({ error: 'Failed to compute unread count' });
     }
 
     const delivered = deliveredRes.count || 0;
     const archived = archivedRes.count || 0;
     const readNonArchived = readNonArchivedRes.count || 0;
-    const unreadCount = Math.max(0, delivered - archived - readNonArchived);
+    const campaignUnread = Math.max(0, delivered - archived - readNonArchived);
+    const txnUnread = txnUnreadRes.count || 0;
+    const unreadCount = campaignUnread + txnUnread;
 
     // When there is at least one unread message, resolve the most recent one so
     // the login popup can preview its subject and use its sent_at as a

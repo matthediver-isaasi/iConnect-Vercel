@@ -1,5 +1,6 @@
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, hasFeatureAccess } from '../../_lib/tenantContext.js';
+import { resolveTransactionalInboxLabel } from '../../_lib/transactionalInbox.js';
 
 const INBOX_FEATURE = 'communication.inbox';
 
@@ -62,8 +63,55 @@ async function fetchAllStates(memberId, tenantId) {
   return byRecipient;
 }
 
-function toMessage(r, state) {
+// Fetch every transactional message for a member, paging past the 1000-row
+// PostgREST cap. State (read/pin/archive/favourite/folder) is co-located on
+// each row, so no separate state join is needed.
+async function fetchAllTransactional(memberId, tenantId) {
+  const pageSize = 1000;
+  let from = 0;
+  const all = [];
+  for (;;) {
+    const { data, error } = await supabase
+      .from('member_transactional_message')
+      .select(
+        'id, subject, preheader, from_name, from_email, sent_at, communication_category_id, label_key, ' +
+        'is_read, is_pinned, is_archived, is_favourite, folder_id, read_at'
+      )
+      .eq('tenant_id', tenantId)
+      .eq('member_id', memberId)
+      .order('sent_at', { ascending: false })
+      .range(from, from + pageSize - 1);
+    if (error) throw error;
+    const batch = data || [];
+    all.push(...batch);
+    if (batch.length < pageSize) break;
+    from += pageSize;
+  }
+  return all;
+}
+
+// Resolve tenant Communication Category names for a set of ids in one query.
+async function fetchCategoryNames(ids, tenantId) {
+  const map = new Map();
+  const unique = [...new Set((ids || []).filter(Boolean))];
+  if (unique.length === 0) return map;
+  const { data, error } = await supabase
+    .from('communication_category')
+    .select('id, name')
+    .eq('tenant_id', tenantId)
+    .in('id', unique);
+  if (error) {
+    console.error('[Inbox] category name lookup error:', error);
+    return map;
+  }
+  for (const c of data || []) map.set(c.id, c.name);
+  return map;
+}
+
+function toMessage(r, state, catMap) {
   const c = r.email_campaign || {};
+  const catName = c.communication_category_id ? catMap.get(c.communication_category_id) : null;
+  const source = c.member_group_id ? 'group' : 'admin';
   return {
     recipient_id: r.id,
     campaign_id: r.campaign_id,
@@ -73,7 +121,8 @@ function toMessage(r, state) {
     from_name: c.from_name || '',
     from_email: c.from_email || '',
     sent_at: r.sent_at || c.sent_at || null,
-    source: c.member_group_id ? 'group' : 'admin',
+    source,
+    label: catName || (source === 'group' ? 'Group' : 'Announcement'),
     member_group_id: c.member_group_id || null,
     is_read: state ? !!state.is_read : false,
     is_pinned: state ? !!state.is_pinned : false,
@@ -81,6 +130,29 @@ function toMessage(r, state) {
     is_favourite: state ? !!state.is_favourite : false,
     folder_id: state ? state.folder_id || null : null,
     read_at: state ? state.read_at || null : null,
+  };
+}
+
+function toTransactionalMessage(t, catMap) {
+  const catName = t.communication_category_id ? catMap.get(t.communication_category_id) : null;
+  return {
+    recipient_id: t.id,
+    campaign_id: null,
+    name: t.from_name || '',
+    subject: t.subject || '',
+    preheader: t.preheader || '',
+    from_name: t.from_name || '',
+    from_email: t.from_email || '',
+    sent_at: t.sent_at || null,
+    source: 'transactional',
+    label: resolveTransactionalInboxLabel(t.label_key, catName),
+    member_group_id: null,
+    is_read: !!t.is_read,
+    is_pinned: !!t.is_pinned,
+    is_archived: !!t.is_archived,
+    is_favourite: !!t.is_favourite,
+    folder_id: t.folder_id || null,
+    read_at: t.read_at || null,
   };
 }
 
@@ -107,7 +179,7 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'GET') {
-      const [recipients, stateMap, foldersRes] = await Promise.all([
+      const [recipients, stateMap, foldersRes, transactional] = await Promise.all([
         fetchAllRecipients(memberId, tenantId),
         fetchAllStates(memberId, tenantId),
         supabase
@@ -116,11 +188,31 @@ export default async function handler(req, res) {
           .eq('tenant_id', tenantId)
           .eq('member_id', memberId)
           .order('name', { ascending: true }),
+        fetchAllTransactional(memberId, tenantId),
       ]);
 
-      const messages = recipients
-        .filter(recipientIsDelivered)
-        .map((r) => toMessage(r, stateMap.get(r.id)));
+      const deliveredRecipients = recipients.filter(recipientIsDelivered);
+
+      // Resolve all referenced Communication Category names in one query so
+      // both campaign and transactional messages can show a human label.
+      const catIds = [];
+      for (const r of deliveredRecipients) {
+        const id = r.email_campaign?.communication_category_id;
+        if (id) catIds.push(id);
+      }
+      for (const t of transactional) {
+        if (t.communication_category_id) catIds.push(t.communication_category_id);
+      }
+      const catMap = await fetchCategoryNames(catIds, tenantId);
+
+      const messages = [
+        ...deliveredRecipients.map((r) => toMessage(r, stateMap.get(r.id), catMap)),
+        ...transactional.map((t) => toTransactionalMessage(t, catMap)),
+      ].sort((a, b) => {
+        const at = a.sent_at ? new Date(a.sent_at).getTime() : 0;
+        const bt = b.sent_at ? new Date(b.sent_at).getTime() : 0;
+        return bt - at;
+      });
 
       const unreadCount = messages.filter((m) => !m.is_read && !m.is_archived).length;
 
@@ -132,40 +224,79 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'POST') {
-      const { recipient_id, recipient_ids, action } = req.body || {};
+      const {
+        recipient_id,
+        recipient_ids,
+        transactional_id,
+        transactional_ids,
+        action,
+      } = req.body || {};
       let { folder_id } = req.body || {};
 
-      // Accept either a single `recipient_id` (existing shape, used across the
-      // app) or a `recipient_ids` array (bulk). Normalise to a de-duped list.
-      const rawIds = Array.isArray(recipient_ids)
+      // Campaign messages are identified by `recipient_id`/`recipient_ids`;
+      // transactional messages by `transactional_id`/`transactional_ids`. A
+      // single request may carry both (mixed bulk selection). Normalise each to
+      // a de-duped list. `isBulk` preserves the legacy single-vs-array response
+      // shape for the campaign-only path.
+      const rawCampaignIds = Array.isArray(recipient_ids)
         ? recipient_ids
         : recipient_id != null
           ? [recipient_id]
           : [];
-      const ids = [...new Set(rawIds.filter(Boolean))];
-      const isBulk = Array.isArray(recipient_ids);
+      const rawTxnIds = Array.isArray(transactional_ids)
+        ? transactional_ids
+        : transactional_id != null
+          ? [transactional_id]
+          : [];
+      const ids = [...new Set(rawCampaignIds.filter(Boolean))];
+      const txnIds = [...new Set(rawTxnIds.filter(Boolean))];
+      const isBulk = Array.isArray(recipient_ids) || Array.isArray(transactional_ids);
 
-      if (ids.length === 0 || !action) {
-        return res.status(400).json({ error: 'recipient_id(s) and action are required' });
+      if (ids.length + txnIds.length === 0 || !action) {
+        return res
+          .status(400)
+          .json({ error: 'recipient_id(s)/transactional_id(s) and action are required' });
       }
       if (!ACTIONS.has(action)) {
         return res.status(400).json({ error: `action must be one of: ${[...ACTIONS].join(', ')}` });
       }
 
-      // Confirm every recipient row belongs to this member within this tenant.
-      const { data: ownedRows, error: recErr } = await supabase
-        .from('email_campaign_recipient')
-        .select('id, member_id, email_campaign!inner(tenant_id)')
-        .in('id', ids)
-        .eq('member_id', memberId)
-        .eq('email_campaign.tenant_id', tenantId);
-      if (recErr) {
-        console.error('[Inbox] recipient lookup error:', recErr);
-        return res.status(500).json({ error: 'Failed to verify message' });
+      // Confirm every campaign recipient row belongs to this member/tenant.
+      let ownedIds = [];
+      if (ids.length > 0) {
+        const { data: ownedRows, error: recErr } = await supabase
+          .from('email_campaign_recipient')
+          .select('id, member_id, email_campaign!inner(tenant_id)')
+          .in('id', ids)
+          .eq('member_id', memberId)
+          .eq('email_campaign.tenant_id', tenantId);
+        if (recErr) {
+          console.error('[Inbox] recipient lookup error:', recErr);
+          return res.status(500).json({ error: 'Failed to verify message' });
+        }
+        ownedIds = (ownedRows || []).map((r) => r.id);
+        if (ownedIds.length !== ids.length) {
+          return res.status(404).json({ error: 'Message not found' });
+        }
       }
-      const ownedIds = (ownedRows || []).map((r) => r.id);
-      if (ownedIds.length !== ids.length) {
-        return res.status(404).json({ error: 'Message not found' });
+
+      // Confirm every transactional message row belongs to this member/tenant.
+      let ownedTxnIds = [];
+      if (txnIds.length > 0) {
+        const { data: ownedTxn, error: txnErr } = await supabase
+          .from('member_transactional_message')
+          .select('id')
+          .in('id', txnIds)
+          .eq('member_id', memberId)
+          .eq('tenant_id', tenantId);
+        if (txnErr) {
+          console.error('[Inbox] transactional lookup error:', txnErr);
+          return res.status(500).json({ error: 'Failed to verify message' });
+        }
+        ownedTxnIds = (ownedTxn || []).map((r) => r.id);
+        if (ownedTxnIds.length !== txnIds.length) {
+          return res.status(404).json({ error: 'Message not found' });
+        }
       }
 
       const patch = {};
@@ -219,28 +350,51 @@ export default async function handler(req, res) {
           break;
       }
 
-      const { data: states, error: upErr } = await supabase
-        .from('member_inbox_message_state')
-        .upsert(
-          ownedIds.map((rid) => ({
-            tenant_id: tenantId,
-            member_id: memberId,
-            recipient_id: rid,
-            ...patch,
-            updated_at: nowIso,
-          })),
-          { onConflict: 'member_id,recipient_id' }
-        )
-        .select('recipient_id, is_read, is_pinned, is_archived, is_favourite, folder_id, read_at');
-      if (upErr) {
-        console.error('[Inbox] state upsert error:', upErr);
-        return res.status(500).json({ error: 'Failed to update message' });
+      let states = [];
+      if (ownedIds.length > 0) {
+        const { data: upserted, error: upErr } = await supabase
+          .from('member_inbox_message_state')
+          .upsert(
+            ownedIds.map((rid) => ({
+              tenant_id: tenantId,
+              member_id: memberId,
+              recipient_id: rid,
+              ...patch,
+              updated_at: nowIso,
+            })),
+            { onConflict: 'member_id,recipient_id' }
+          )
+          .select('recipient_id, is_read, is_pinned, is_archived, is_favourite, folder_id, read_at');
+        if (upErr) {
+          console.error('[Inbox] state upsert error:', upErr);
+          return res.status(500).json({ error: 'Failed to update message' });
+        }
+        states = upserted || [];
       }
 
-      if (isBulk) {
-        return res.json({ states: states || [], updated: (states || []).length });
+      // Transactional state is co-located on the message row, so this is a plain
+      // update (the rows already exist and ownership is verified above).
+      let txnStates = [];
+      if (ownedTxnIds.length > 0) {
+        const { data: updated, error: txnUpErr } = await supabase
+          .from('member_transactional_message')
+          .update({ ...patch, updated_at: nowIso })
+          .in('id', ownedTxnIds)
+          .eq('member_id', memberId)
+          .eq('tenant_id', tenantId)
+          .select('id, is_read, is_pinned, is_archived, is_favourite, folder_id, read_at');
+        if (txnUpErr) {
+          console.error('[Inbox] transactional update error:', txnUpErr);
+          return res.status(500).json({ error: 'Failed to update message' });
+        }
+        txnStates = (updated || []).map((r) => ({ ...r, recipient_id: r.id }));
       }
-      return res.json({ state: (states || [])[0] || null });
+
+      const allStates = [...states, ...txnStates];
+      if (isBulk) {
+        return res.json({ states: allStates, updated: allStates.length });
+      }
+      return res.json({ state: allStates[0] || null });
     }
 
     return res.status(405).json({ error: 'Method not allowed' });

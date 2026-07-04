@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Inbox as InboxIcon,
@@ -135,7 +135,7 @@ export default function InboxPage() {
   const queryClient = useQueryClient();
   const { data: openMessage, isLoading: isBodyLoading } = useQuery({
     queryKey: ["inbox", "message", selectedId],
-    queryFn: () => fetchInboxMessageBody(selectedId),
+    queryFn: () => fetchInboxMessageBody(selectedId, msgById.get(selectedId)?.source),
     enabled: !!selectedId,
     staleTime: 30000,
   });
@@ -223,6 +223,14 @@ export default function InboxPage() {
   const selectedMessage =
     messages.find((m) => m.recipient_id === selectedId) || openMessage || null;
 
+  // Map every message by its client-facing id so actions can look up which table
+  // (campaign vs transactional) a given id belongs to via its `source`.
+  const msgById = useMemo(
+    () => new Map(messages.map((m) => [m.recipient_id, m])),
+    [messages]
+  );
+  const sourceOf = useCallback((id) => msgById.get(id)?.source, [msgById]);
+
   const filteredIds = useMemo(
     () => filteredMessages.map((m) => m.recipient_id),
     [filteredMessages]
@@ -262,7 +270,7 @@ export default function InboxPage() {
 
   async function handleAction(recipientId, action, folderId) {
     try {
-      await act(recipientId, action, folderId);
+      await act(recipientId, action, folderId, sourceOf(recipientId));
     } catch (err) {
       toast({
         title: "Something went wrong",
@@ -275,8 +283,12 @@ export default function InboxPage() {
   async function handleBulkAction(action, folderId) {
     const ids = selectedInView;
     if (ids.length === 0) return;
+    // Split the selection by source so campaign and transactional messages are
+    // routed to their respective tables server-side.
+    const campaignIds = ids.filter((id) => sourceOf(id) !== "transactional");
+    const transactionalIds = ids.filter((id) => sourceOf(id) === "transactional");
     try {
-      await actBulk(ids, action, folderId);
+      await actBulk(campaignIds, transactionalIds, action, folderId);
       clearSelection();
       toast({
         title: `${ids.length} message${ids.length === 1 ? "" : "s"} updated`,
@@ -828,8 +840,8 @@ export default function InboxPage() {
                           {m.subject || "(no subject)"}
                         </div>
                         <div className="mt-1 flex items-center gap-2">
-                          <Badge variant="secondary">
-                            {m.source === "group" ? "Group" : "Announcement"}
+                          <Badge variant="secondary" data-testid={`label-${m.recipient_id}`}>
+                            {m.label || (m.source === "group" ? "Group" : "Announcement")}
                           </Badge>
                           {m.preheader && (
                             <span className="text-xs text-muted-foreground truncate">
@@ -855,6 +867,11 @@ export default function InboxPage() {
                   <h2 className="text-lg font-semibold" data-testid="text-subject">
                     {selectedMessage.subject || "(no subject)"}
                   </h2>
+                  {selectedMessage.label && (
+                    <Badge variant="secondary" className="mt-1" data-testid="text-message-label">
+                      {selectedMessage.label}
+                    </Badge>
+                  )}
                   <p className="text-sm text-muted-foreground mt-1">
                     {selectedMessage.from_name}
                     {selectedMessage.from_email ? ` · ${selectedMessage.from_email}` : ""}
@@ -901,6 +918,11 @@ export default function InboxPage() {
                     <SheetTitle className="text-lg font-semibold" data-testid="text-subject-mobile">
                       {selectedMessage.subject || "(no subject)"}
                     </SheetTitle>
+                    {selectedMessage.label && (
+                      <Badge variant="secondary" className="mt-1" data-testid="text-message-label-mobile">
+                        {selectedMessage.label}
+                      </Badge>
+                    )}
                     <SheetDescription className="text-sm text-muted-foreground mt-1">
                       {selectedMessage.from_name}
                       {selectedMessage.from_email ? ` · ${selectedMessage.from_email}` : ""}

@@ -92,6 +92,44 @@ async function fetchMemberRecipientsForSearch(memberId, tenantId) {
   return all;
 }
 
+// Transactional messages store fully rendered HTML, so searchable text is just
+// the tag-stripped body. Paged past the 1000-row cap, scoped to member+tenant.
+async function fetchMemberTransactionalForSearch(memberId, tenantId) {
+  const pageSize = 1000;
+  let from = 0;
+  const all = [];
+  for (;;) {
+    const { data, error } = await supabase
+      .from('member_transactional_message')
+      .select('id, subject, preheader, body_html')
+      .eq('member_id', memberId)
+      .eq('tenant_id', tenantId)
+      .range(from, from + pageSize - 1);
+    if (error) throw error;
+    const batch = data || [];
+    all.push(...batch);
+    if (batch.length < pageSize) break;
+    from += pageSize;
+  }
+  return all;
+}
+
+// Reduce delivered HTML to plain lowercase text for matching.
+function htmlToSearchableText(html) {
+  return (html || '')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
 export default async function handler(req, res) {
   if (!supabase) {
     return res.status(503).json({ error: 'Database not configured' });
@@ -119,11 +157,20 @@ export default async function handler(req, res) {
       return res.json({ recipientIds: [] });
     }
 
-    const recipients = await fetchMemberRecipientsForSearch(ctx.memberId, ctx.tenantId);
+    const [recipients, transactional] = await Promise.all([
+      fetchMemberRecipientsForSearch(ctx.memberId, ctx.tenantId),
+      fetchMemberTransactionalForSearch(ctx.memberId, ctx.tenantId),
+    ]);
     const recipientIds = [];
     for (const r of recipients) {
       const text = toSearchableText(r.email_campaign || {}, r);
       if (text.includes(q)) recipientIds.push(r.id);
+    }
+    // Transactional message ids share the same client-side id space (unique
+    // UUIDs), so they can be returned in the same list.
+    for (const t of transactional) {
+      const text = htmlToSearchableText(t.body_html);
+      if (text.includes(q)) recipientIds.push(t.id);
     }
 
     return res.json({ recipientIds });
