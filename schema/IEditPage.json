@@ -69,6 +69,15 @@
         ],
         "default": "both",
         "description": "For public-layout rendering, which site chrome to show: both | none | header | footer"
+      },
+      "folder_id": {
+        "type": "string",
+        "description": "Admin page-manager folder this page is filed under (IEditPageFolder id). Null = root/unfiled view. Organisation-only; does not affect public rendering."
+      },
+      "pinned_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "When set, the page is pinned to the top of its folder view in the admin page manager"
       }
     },
     "required": [

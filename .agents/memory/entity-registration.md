@@ -11,10 +11,15 @@ errors.
 1. `api/_lib/tenantContext.js` — add `'<Name>': TENANT_SCOPE.<LEVEL>` to the
    ENTITY scope map. Determines tenant isolation. Without it the entity may not
    be tenant-scoped correctly.
-2. `api/entities/[entity]/index.js` — add `'<Name>': '<table_name>'` to the
-   entityToTable map. `getTableName` auto-derives snake_case as a fallback, but
-   register explicitly so the mapping is unambiguous (there is no allowlist that
-   rejects unmapped entities; the fallback just guesses the table name).
+2. entityToTable map — add `'<Name>': '<table_name>'`. This map is DUPLICATED in
+   BOTH `api/entities/[entity]/index.js` (list/create) AND
+   `api/entities/[entity]/[id].js` (by-id get/update/delete). Register in both or
+   by-id operations resolve the wrong/guessed table. `getTableName` auto-derives
+   snake_case as a fallback, but register explicitly so the mapping is
+   unambiguous (there is no allowlist that rejects unmapped entities; the fallback
+   just guesses the table name). Note: an entity in the IEdit page family
+   (`IEditPage`/`IEditPageElement`/etc.) also appears in a draft-visibility gate
+   allowlist in `[id].js` — mirror it there if the new entity is part of that family.
 3. `client/src/api/base44Client.js` — add a getter
    `get <Name>() { return this._getEntity('<Name>'); }`.
 4. `schema/<Name>.json` — entity definition (properties + required).

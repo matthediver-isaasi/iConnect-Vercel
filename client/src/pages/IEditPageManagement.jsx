@@ -1,21 +1,56 @@
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { FileEdit, Plus, Eye, Pencil, Trash2, ExternalLink, Search, Zap, Copy, Home } from "lucide-react";
-import { format } from "date-fns";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { FileEdit, Plus, Search, LayoutGrid, List, ArrowUpDown } from "lucide-react";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  closestCenter,
+} from "@dnd-kit/core";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { useNavigate } from "react-router-dom";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import PageFolderSidebar from "@/components/iedit/PageFolderSidebar";
+import PageManagerItem from "@/components/iedit/PageManagerItem";
+
+const VIEW_MODE_KEY = "iedit-page-view-mode";
+const SORT_MAP_KEY = "iedit-page-sort-map";
+const DEFAULT_SORT = "updated-desc";
+
+const SORT_OPTIONS = [
+  { value: "az", label: "Name A–Z" },
+  { value: "za", label: "Name Z–A" },
+  { value: "updated-desc", label: "Updated (newest)" },
+  { value: "updated-asc", label: "Updated (oldest)" },
+];
+
+function loadSortMap() {
+  try {
+    const raw = localStorage.getItem(SORT_MAP_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
 
 export default function IEditPageManagementPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -51,6 +86,45 @@ export default function IEditPageManagementPage() {
     builder_type: "iedit",
     canvas_template_id: "",
   });
+
+  // Folder / view state (Task: folders, sorting & pinning)
+  const [selectedFolderId, setSelectedFolderId] = useState("all"); // 'all' | 'root' | <folderId>
+  const [viewMode, setViewMode] = useState(() => {
+    try {
+      return localStorage.getItem(VIEW_MODE_KEY) === "list" ? "list" : "grid";
+    } catch {
+      return "grid";
+    }
+  });
+  const [sortMap, setSortMap] = useState(() => loadSortMap());
+  const [activeDragId, setActiveDragId] = useState(null);
+
+  // Folder create / rename dialog state
+  const [folderDialog, setFolderDialog] = useState(null); // { mode: 'create'|'rename', parentId, folder }
+  const [folderName, setFolderName] = useState("");
+  const [folderToDelete, setFolderToDelete] = useState(null);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(VIEW_MODE_KEY, viewMode);
+    } catch {
+      /* ignore */
+    }
+  }, [viewMode]);
+
+  const currentSort = sortMap[selectedFolderId] || DEFAULT_SORT;
+
+  const setSortForView = (value) => {
+    setSortMap((prev) => {
+      const next = { ...prev, [selectedFolderId]: value };
+      try {
+        localStorage.setItem(SORT_MAP_KEY, JSON.stringify(next));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
   // Templates list, loaded lazily when the user picks the Canvas builder.
   const { data: templatesData } = useQuery({
     queryKey: ['canvas-templates'],
@@ -73,6 +147,80 @@ export default function IEditPageManagementPage() {
       return Array.isArray(result) ? result : [];
     },
     staleTime: 0
+  });
+
+  const { data: folders = [] } = useQuery({
+    queryKey: ['iedit-page-folders'],
+    queryFn: async () => {
+      const result = await base44.entities.IEditPageFolder.list();
+      return Array.isArray(result) ? result : [];
+    },
+    staleTime: 0,
+  });
+
+  const createFolderMutation = useMutation({
+    mutationFn: ({ name, parentId }) =>
+      base44.entities.IEditPageFolder.create({
+        name,
+        parent_id: parentId || null,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['iedit-page-folders'] });
+      setFolderDialog(null);
+      setFolderName("");
+      toast.success('Folder created');
+    },
+    onError: (error) => toast.error('Failed to create folder: ' + error.message),
+  });
+
+  const renameFolderMutation = useMutation({
+    mutationFn: ({ id, name }) =>
+      base44.entities.IEditPageFolder.update(id, { name }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['iedit-page-folders'] });
+      setFolderDialog(null);
+      setFolderName("");
+      toast.success('Folder renamed');
+    },
+    onError: (error) => toast.error('Failed to rename folder: ' + error.message),
+  });
+
+  // Deleting a folder does NOT delete its pages: the DB FK on
+  // i_edit_page.folder_id is ON DELETE SET NULL, so filed pages fall back to
+  // the Unfiled/root view. Nested subfolders cascade (parent_id ON DELETE
+  // CASCADE) and their pages likewise fall to root.
+  const deleteFolderMutation = useMutation({
+    mutationFn: (id) => base44.entities.IEditPageFolder.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['iedit-page-folders'] });
+      queryClient.invalidateQueries({ queryKey: ['iedit-pages'] });
+      if (folderToDelete && selectedFolderId === folderToDelete.id) {
+        setSelectedFolderId('all');
+      }
+      setFolderToDelete(null);
+      toast.success('Folder deleted. Its pages moved to Unfiled.');
+    },
+    onError: (error) => toast.error('Failed to delete folder: ' + error.message),
+  });
+
+  const movePageMutation = useMutation({
+    mutationFn: ({ pageId, folderId }) =>
+      base44.entities.IEditPage.update(pageId, { folder_id: folderId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['iedit-pages'] });
+    },
+    onError: (error) => toast.error('Failed to move page: ' + error.message),
+  });
+
+  const togglePinMutation = useMutation({
+    mutationFn: (page) =>
+      base44.entities.IEditPage.update(page.id, {
+        pinned_at: page.pinned_at ? null : new Date().toISOString(),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['iedit-pages'] });
+    },
+    onError: (error) => toast.error('Failed to update pin: ' + error.message),
   });
 
   // Query for current home page setting
@@ -375,11 +523,116 @@ export default function IEditPageManagementPage() {
     }
   };
 
-  const filteredPages = pages.filter(page => 
-    page.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    page.slug?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    page.description?.toLowerCase().includes(searchQuery.toLowerCase())
+  // Page counts per view (ignores search so the sidebar shows folder sizes).
+  const countFor = useMemo(() => {
+    const byFolder = new Map();
+    let rootCount = 0;
+    for (const p of pages) {
+      if (p.folder_id) {
+        byFolder.set(p.folder_id, (byFolder.get(p.folder_id) || 0) + 1);
+      } else {
+        rootCount += 1;
+      }
+    }
+    return (viewKey) => {
+      if (viewKey === 'all') return pages.length;
+      if (viewKey === 'root') return rootCount;
+      return byFolder.get(viewKey) || 0;
+    };
+  }, [pages]);
+
+  const sortPages = (list, sortMode) => {
+    const arr = [...list];
+    const byName = (a, b) => (a.title || '').localeCompare(b.title || '', undefined, { sensitivity: 'base' });
+    const byUpdated = (a, b) =>
+      new Date(b.updated_date || 0) - new Date(a.updated_date || 0);
+    switch (sortMode) {
+      case 'az': arr.sort(byName); break;
+      case 'za': arr.sort((a, b) => byName(b, a)); break;
+      case 'updated-asc': arr.sort((a, b) => byUpdated(b, a)); break;
+      case 'updated-desc':
+      default: arr.sort(byUpdated); break;
+    }
+    return arr;
+  };
+
+  const visiblePages = useMemo(() => {
+    const q = searchQuery.toLowerCase();
+    let list = pages.filter((page) =>
+      page.title?.toLowerCase().includes(q) ||
+      page.slug?.toLowerCase().includes(q) ||
+      page.description?.toLowerCase().includes(q)
+    );
+    if (selectedFolderId === 'root') {
+      list = list.filter((p) => !p.folder_id);
+    } else if (selectedFolderId !== 'all') {
+      list = list.filter((p) => p.folder_id === selectedFolderId);
+    }
+    const sorted = sortPages(list, currentSort);
+    // Pinned pages float to the top of the view, preserving the chosen sort
+    // order within the pinned and unpinned groups.
+    const pinned = sorted.filter((p) => p.pinned_at);
+    const unpinned = sorted.filter((p) => !p.pinned_at);
+    return [...pinned, ...unpinned];
+  }, [pages, searchQuery, selectedFolderId, currentSort]);
+
+  const filteredPages = visiblePages;
+
+  const activePage = activeDragId
+    ? pages.find((p) => `page:${p.id}` === activeDragId)
+    : null;
+
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor)
   );
+
+  const handleDragEnd = (event) => {
+    setActiveDragId(null);
+    const { active, over } = event;
+    if (!over) return;
+    const pageId = String(active.id).replace('page:', '');
+    const page = pages.find((p) => p.id === pageId);
+    if (!page) return;
+
+    let targetFolderId = null;
+    const overId = String(over.id);
+    if (overId.startsWith('folder:')) {
+      targetFolderId = overId.replace('folder:', '');
+    } else if (overId === 'view:root') {
+      targetFolderId = null;
+    } else {
+      return; // dropped somewhere that isn't a folder target
+    }
+
+    if ((page.folder_id || null) === (targetFolderId || null)) return;
+    movePageMutation.mutate({ pageId, folderId: targetFolderId });
+    const folderName = targetFolderId
+      ? folders.find((f) => f.id === targetFolderId)?.name || 'folder'
+      : 'Unfiled';
+    toast.success(`Moved "${page.title}" to ${folderName}`);
+  };
+
+  const openCreateFolder = (parentId = null) => {
+    setFolderDialog({ mode: 'create', parentId });
+    setFolderName('');
+  };
+  const openRenameFolder = (folder) => {
+    setFolderDialog({ mode: 'rename', folder });
+    setFolderName(folder.name || '');
+  };
+  const handleFolderSubmit = () => {
+    const name = folderName.trim();
+    if (!name) {
+      toast.error('Folder name is required');
+      return;
+    }
+    if (folderDialog?.mode === 'rename') {
+      renameFolderMutation.mutate({ id: folderDialog.folder.id, name });
+    } else {
+      createFolderMutation.mutate({ name, parentId: folderDialog?.parentId || null });
+    }
+  };
 
   const getStatusBadge = (status) => {
     const variants = {
@@ -407,7 +660,7 @@ export default function IEditPageManagementPage() {
     <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center justify-between mb-6 gap-4 flex-wrap">
           <div>
             <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">
               Page Editor
@@ -442,212 +695,186 @@ export default function IEditPageManagementPage() {
           </div>
         )}
 
-        {/* Search */}
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-8">
-          <div className="relative">
+        {/* Toolbar: search + sort + view toggle */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6 flex flex-wrap items-center gap-3">
+          <div className="relative flex-1 min-w-[220px]">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
             <Input
               placeholder="Search pages by title, slug, or description..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-10"
+              data-testid="input-search-pages"
             />
+          </div>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" data-testid="button-sort-menu">
+                <ArrowUpDown className="w-4 h-4 mr-2" />
+                {SORT_OPTIONS.find((o) => o.value === currentSort)?.label || 'Sort'}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {SORT_OPTIONS.map((o) => (
+                <DropdownMenuItem
+                  key={o.value}
+                  onClick={() => setSortForView(o.value)}
+                  className={currentSort === o.value ? 'font-semibold' : ''}
+                  data-testid={`sort-option-${o.value}`}
+                >
+                  {o.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <div className="flex items-center rounded-md border border-slate-200 overflow-hidden">
+            <Button
+              variant={viewMode === 'grid' ? 'default' : 'ghost'}
+              size="icon"
+              className="rounded-none no-default-hover-elevate"
+              onClick={() => setViewMode('grid')}
+              title="Card view"
+              data-testid="button-view-grid"
+            >
+              <LayoutGrid className="w-4 h-4" />
+            </Button>
+            <Button
+              variant={viewMode === 'list' ? 'default' : 'ghost'}
+              size="icon"
+              className="rounded-none no-default-hover-elevate"
+              onClick={() => setViewMode('list')}
+              title="List view"
+              data-testid="button-view-list"
+            >
+              <List className="w-4 h-4" />
+            </Button>
           </div>
         </div>
 
-        {/* Pages Grid */}
-        {isLoading ? (
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {Array(6).fill(0).map((_, i) => (
-              <Card key={i} className="animate-pulse border-slate-200">
-                <CardHeader>
-                  <div className="h-6 bg-slate-200 rounded w-3/4 mb-2" />
-                  <div className="h-4 bg-slate-200 rounded w-full" />
-                </CardHeader>
-              </Card>
-            ))}
-          </div>
-        ) : filteredPages.length === 0 ? (
-          <Card className="border-slate-200">
-            <CardContent className="p-12 text-center">
-              <FileEdit className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-slate-900 mb-2">
-                {searchQuery ? 'No Pages Found' : 'No Pages Yet'}
-              </h3>
-              <p className="text-slate-600 mb-6">
-                {searchQuery 
-                  ? 'Try adjusting your search query' 
-                  : 'Create your first custom page to get started'}
-              </p>
-              {!searchQuery && (
-                <Button onClick={() => setShowCreateDialog(true)} className="bg-blue-600 hover:bg-blue-700">
-                  <Plus className="w-4 h-4 mr-2" />
-                  Create First Page
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredPages.map((page) => (
-              <Card key={page.id} className="border-slate-200 hover:shadow-lg transition-shadow">
-                <CardHeader>
-                  <div className="flex items-start justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <CardTitle className="text-lg">{page.title}</CardTitle>
-                      {homePageSlug === page.slug && (
-                        <Badge className="bg-blue-100 text-blue-700 border-blue-300">
-                          <Home className="w-3 h-3 mr-1" />
-                          Home
-                        </Badge>
-                      )}
-                    </div>
-                    <Badge className={getStatusBadge(page.status)}>
-                      {page.status}
-                    </Badge>
-                  </div>
-                  {page.description && (
-                    <p className="text-sm text-slate-600 line-clamp-2">{page.description}</p>
-                  )}
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="text-sm">
-                    <span className="text-slate-500">Slug:</span>
-                    <span className="ml-2 font-mono text-slate-700">/{page.slug}</span>
-                  </div>
-                  
-                  <div className="text-sm">
-                    <span className="text-slate-500">View:</span>
-                    <Badge variant="outline" className="ml-2">
-                      {page.layout_type === 'public' && 'Public'}
-                      {page.layout_type === 'member' && 'Portal'}
-                      {page.layout_type === 'hybrid' && 'Hybrid'}
-                      {!['public', 'member', 'hybrid'].includes(page.layout_type) && (page.layout_type || 'Public')}
-                    </Badge>
-                  </div>
+        {/* Folders + pages */}
+        <DndContext
+          sensors={dndSensors}
+          collisionDetection={closestCenter}
+          onDragStart={(e) => setActiveDragId(String(e.active.id))}
+          onDragCancel={() => setActiveDragId(null)}
+          onDragEnd={handleDragEnd}
+        >
+          <div className="flex flex-col md:flex-row gap-6 items-start">
+            <aside className="w-full md:w-64 flex-shrink-0 bg-white rounded-xl shadow-sm border border-slate-200 p-3">
+              <PageFolderSidebar
+                folders={folders}
+                selectedFolderId={selectedFolderId}
+                onSelect={setSelectedFolderId}
+                countFor={countFor}
+                onCreateFolder={() => openCreateFolder(null)}
+                onCreateSubfolder={(parent) => openCreateFolder(parent.id)}
+                onRename={openRenameFolder}
+                onDelete={setFolderToDelete}
+              />
+            </aside>
 
-                  <div className="text-sm">
-                    <span className="text-slate-500">Builder:</span>
-                    <Badge variant="outline" className="ml-2" data-testid={`badge-builder-type-${page.id}`}>
-                      {page.builder_type === 'canvas' ? 'Canvas' : 'iEdit'}
-                    </Badge>
-                  </div>
-
-                  {page.updated_date && (
-                    <div className="text-xs text-slate-500">
-                      Updated {format(new Date(page.updated_date), 'MMM d, yyyy')}
-                    </div>
-                  )}
-
-                  <div className="flex gap-2 pt-2 border-t border-slate-200">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        const editorPage = page.builder_type === 'canvas' ? 'CanvasPageEditor' : 'IEditPageEditor';
-                        navigate(createPageUrl(editorPage) + `?pageId=${page.id}`);
+            <div className="flex-1 min-w-0 w-full">
+              {isLoading ? (
+                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {Array(6).fill(0).map((_, i) => (
+                    <Card key={i} className="animate-pulse border-slate-200">
+                      <CardHeader>
+                        <div className="h-6 bg-slate-200 rounded w-3/4 mb-2" />
+                        <div className="h-4 bg-slate-200 rounded w-full" />
+                      </CardHeader>
+                    </Card>
+                  ))}
+                </div>
+              ) : filteredPages.length === 0 ? (
+                <Card className="border-slate-200">
+                  <CardContent className="p-12 text-center">
+                    <FileEdit className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                    <h3 className="text-xl font-semibold text-slate-900 mb-2">
+                      {searchQuery ? 'No Pages Found' : 'No Pages Yet'}
+                    </h3>
+                    <p className="text-slate-600 mb-6">
+                      {searchQuery
+                        ? 'Try adjusting your search query'
+                        : selectedFolderId !== 'all' && selectedFolderId !== 'root'
+                        ? 'This folder is empty. Drag pages here to file them.'
+                        : 'Create your first custom page to get started'}
+                    </p>
+                    {!searchQuery && selectedFolderId === 'all' && (
+                      <Button onClick={() => setShowCreateDialog(true)} className="bg-blue-600 hover:bg-blue-700">
+                        <Plus className="w-4 h-4 mr-2" />
+                        Create First Page
+                      </Button>
+                    )}
+                  </CardContent>
+                </Card>
+              ) : viewMode === 'list' ? (
+                <div className="space-y-2">
+                  {filteredPages.map((page) => (
+                    <PageManagerItem
+                      key={page.id}
+                      page={page}
+                      viewMode="list"
+                      homePageSlug={homePageSlug}
+                      getStatusBadge={getStatusBadge}
+                      onEdit={(p) => {
+                        const editorPage = p.builder_type === 'canvas' ? 'CanvasPageEditor' : 'IEditPageEditor';
+                        navigate(createPageUrl(editorPage) + `?pageId=${p.id}`);
                       }}
-                      className="flex-1"
-                      data-testid={`button-edit-page-${page.id}`}
-                    >
-                      <Pencil className="w-3 h-3 mr-1" />
-                      Edit
-                    </Button>
-                    {page.status === 'published' && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => window.open(getPublicUrl(page.slug), '_blank')}
-                        title="View Published Page"
-                      >
-                        <ExternalLink className="w-3 h-3" />
-                      </Button>
-                    )}
-                    {page.builder_type === 'canvas' && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => openRenameDialog(page)}
-                        title={page.slug === 'login' ? 'System page — name and slug are locked' : 'Rename / change slug'}
-                        data-testid={`button-rename-page-${page.id}`}
-                      >
-                        <Pencil className="w-3 h-3" />
-                      </Button>
-                    )}
-                    {page.slug !== 'login' && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => duplicatePageMutation.mutate(page)}
-                        disabled={duplicatePageMutation.isPending}
-                        title="Duplicate Page"
-                        data-testid={`button-duplicate-page-${page.id}`}
-                      >
-                        <Copy className="w-3 h-3" />
-                      </Button>
-                    )}
-                    {page.slug !== 'login' && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setPageToDelete(page);
-                          setShowDeleteDialog(true);
-                        }}
-                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </Button>
-                    )}
-                  </div>
-
-                  {/* Publish/Unpublish Toggle */}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => togglePublishMutation.mutate(page)}
-                    disabled={togglePublishMutation.isPending}
-                    className={`w-full ${
-                      page.status === 'published' 
-                        ? 'text-warning hover:text-warning hover:bg-warning/10' 
-                        : 'text-green-600 hover:text-green-700 hover:bg-green-50'
-                    }`}
-                    data-testid={`button-toggle-publish-${page.id}`}
-                  >
-                    <Zap className="w-3 h-3 mr-1" />
-                    {page.status === 'published' ? 'Unpublish Page' : `Publish to /${page.slug}`}
-                  </Button>
-
-                  {/* Home Page Toggle - only show for published public pages */}
-                  {page.status === 'published' && page.layout_type === 'public' && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => toggleHomePageMutation.mutate(page)}
-                      disabled={toggleHomePageMutation.isPending}
-                      className={`w-full ${
-                        homePageSlug === page.slug
-                          ? 'bg-blue-100 text-blue-700 border-blue-300 hover:bg-blue-200'
-                          : 'text-blue-600 hover:text-blue-700 hover:bg-blue-50'
-                      }`}
-                      data-testid={`button-toggle-home-${page.id}`}
-                    >
-                      <Home className="w-3 h-3 mr-1" />
-                      {homePageSlug === page.slug ? 'Remove as Home Page' : 'Set as Home Page'}
-                    </Button>
-                  )}
-                  
-                  {/* Show live URL when published */}
-                  {page.status === 'published' && (
-                    <div className="text-xs text-green-600 bg-green-50 rounded px-2 py-1 text-center" data-testid={`text-live-url-${page.id}`}>
-                      Live at: <a href={`/${page.slug}`} target="_blank" rel="noopener noreferrer" className="underline font-medium">/{page.slug}</a>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
+                      onOpenPublic={(p) => window.open(getPublicUrl(p.slug), '_blank')}
+                      onRename={openRenameDialog}
+                      onDuplicate={(p) => duplicatePageMutation.mutate(p)}
+                      onDelete={(p) => { setPageToDelete(p); setShowDeleteDialog(true); }}
+                      onTogglePublish={(p) => togglePublishMutation.mutate(p)}
+                      onToggleHome={(p) => toggleHomePageMutation.mutate(p)}
+                      onTogglePin={(p) => togglePinMutation.mutate(p)}
+                      duplicatePending={duplicatePageMutation.isPending}
+                      publishPending={togglePublishMutation.isPending}
+                      homePending={toggleHomePageMutation.isPending}
+                      pinPending={togglePinMutation.isPending}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {filteredPages.map((page) => (
+                    <PageManagerItem
+                      key={page.id}
+                      page={page}
+                      viewMode="grid"
+                      homePageSlug={homePageSlug}
+                      getStatusBadge={getStatusBadge}
+                      onEdit={(p) => {
+                        const editorPage = p.builder_type === 'canvas' ? 'CanvasPageEditor' : 'IEditPageEditor';
+                        navigate(createPageUrl(editorPage) + `?pageId=${p.id}`);
+                      }}
+                      onOpenPublic={(p) => window.open(getPublicUrl(p.slug), '_blank')}
+                      onRename={openRenameDialog}
+                      onDuplicate={(p) => duplicatePageMutation.mutate(p)}
+                      onDelete={(p) => { setPageToDelete(p); setShowDeleteDialog(true); }}
+                      onTogglePublish={(p) => togglePublishMutation.mutate(p)}
+                      onToggleHome={(p) => toggleHomePageMutation.mutate(p)}
+                      onTogglePin={(p) => togglePinMutation.mutate(p)}
+                      duplicatePending={duplicatePageMutation.isPending}
+                      publishPending={togglePublishMutation.isPending}
+                      homePending={toggleHomePageMutation.isPending}
+                      pinPending={togglePinMutation.isPending}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
-        )}
+
+          <DragOverlay>
+            {activePage ? (
+              <div className="rounded-md border border-blue-300 bg-white px-3 py-2 shadow-lg text-sm font-medium text-slate-800">
+                {activePage.title}
+              </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
 
         {/* Create Page Dialog */}
         <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
@@ -879,6 +1106,93 @@ export default function IEditPageManagementPage() {
                 className="bg-red-600 hover:bg-red-700"
               >
                 Delete Page
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Folder create / rename dialog */}
+        <Dialog
+          open={!!folderDialog}
+          onOpenChange={(open) => {
+            if (!open) { setFolderDialog(null); setFolderName(''); }
+          }}
+        >
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>
+                {folderDialog?.mode === 'rename' ? 'Rename Folder' : 'New Folder'}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="folder-name">Folder name *</Label>
+                <Input
+                  id="folder-name"
+                  value={folderName}
+                  onChange={(e) => setFolderName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleFolderSubmit(); }}
+                  placeholder="e.g., Marketing pages"
+                  autoFocus
+                  data-testid="input-folder-name"
+                />
+                {folderDialog?.mode === 'create' && folderDialog?.parentId && (
+                  <p className="text-xs text-slate-500 mt-1">
+                    Will be created inside{' '}
+                    <strong>
+                      {folders.find((f) => f.id === folderDialog.parentId)?.name || 'the selected folder'}
+                    </strong>.
+                  </p>
+                )}
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => { setFolderDialog(null); setFolderName(''); }}
+                data-testid="button-folder-cancel"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleFolderSubmit}
+                disabled={createFolderMutation.isPending || renameFolderMutation.isPending}
+                className="bg-blue-600 hover:bg-blue-700"
+                data-testid="button-folder-save"
+              >
+                {folderDialog?.mode === 'rename' ? 'Save' : 'Create'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Folder delete confirmation */}
+        <Dialog
+          open={!!folderToDelete}
+          onOpenChange={(open) => { if (!open) setFolderToDelete(null); }}
+        >
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Delete Folder</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <p className="text-slate-600">
+                Delete <strong>{folderToDelete?.name}</strong>? Any pages inside
+                (and inside its subfolders) will move to <strong>Unfiled</strong> —
+                no pages are deleted. Subfolders will be removed.
+              </p>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setFolderToDelete(null)} data-testid="button-folder-delete-cancel">
+                Cancel
+              </Button>
+              <Button
+                onClick={() => folderToDelete && deleteFolderMutation.mutate(folderToDelete.id)}
+                disabled={deleteFolderMutation.isPending}
+                className="bg-red-600 hover:bg-red-700"
+                data-testid="button-folder-delete-confirm"
+              >
+                Delete Folder
               </Button>
             </DialogFooter>
           </DialogContent>

@@ -156,6 +156,7 @@ export const entityTenantScope = {
   'XeroToken': TENANT_SCOPE.TENANT,
   'IEditPage': TENANT_SCOPE.TENANT,
   'IEditPageElement': TENANT_SCOPE.TENANT,
+  'IEditPageFolder': TENANT_SCOPE.TENANT,
   'GuestWriter': TENANT_SCOPE.TENANT,
   'FormDueDiligenceConfig': TENANT_SCOPE.TENANT,
   'FormSubmissionDueDiligence': TENANT_SCOPE.TENANT,
