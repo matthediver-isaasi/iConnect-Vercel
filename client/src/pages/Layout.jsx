@@ -1380,6 +1380,22 @@ useEffect(() => {
     }
   };
 
+  // Written only when the popup is actually displayed (via InboxUnreadPopup's
+  // onShown). Marking a message as "seen this session" here — rather than in the
+  // trigger effect — means a member is never silently suppressed on a layout
+  // branch (hybrid/public) that didn't mount the popup.
+  const handleInboxPopupShown = () => {
+    const memberId = memberInfo?.id;
+    const latestSentAt = inboxUnreadSummary?.latestSentAt;
+    if (memberId && latestSentAt) {
+      try {
+        sessionStorage.setItem(`inbox_popup_seen_${memberId}`, latestSentAt);
+      } catch {
+        // ignore storage failures
+      }
+    }
+  };
+
   // Mapping of page names to their correct feature IDs
   // This maps currentPageName to the feature ID used in AVAILABLE_FEATURES
   const pageToFeatureIdMap = {
@@ -1603,9 +1619,10 @@ useEffect(() => {
 
       if (newerThanDontRemind && newerThanSession) {
         inboxPopupHandledRef.current = true;
-        // Mark this message as surfaced for the rest of the session so it does
-        // not reappear on navigation (a strictly newer message still can).
-        sessionStorage.setItem(`inbox_popup_seen_${memberId}`, latestSentAt);
+        // The "seen this session" watermark is written by handleInboxPopupShown
+        // when the popup is actually displayed, so a member who lands on a layout
+        // branch that mounts the popup (portal or hybrid/public) is never
+        // silently suppressed.
         setInboxPopupOpen(true);
       }
     } catch {
@@ -2257,6 +2274,24 @@ useEffect(() => {
     return currentPageName;
   };
 
+  // Shared inbox popup element. Rendered in BOTH the portal and hybrid/public
+  // layout branches so a logged-in member who lands directly on a hybrid page
+  // (Events, Resources, a CMS page, etc.) after login still sees the popup. The
+  // Dialog uses a portal, so it can be appended as a sibling of the layout
+  // children regardless of chrome. Gated on inbox access; `open` is only ever
+  // true for members with access, so guests never see it.
+  const inboxUnreadPopupElement = hasInboxAccess ? (
+    <InboxUnreadPopup
+      open={inboxPopupOpen}
+      unreadCount={inboxUnreadSummary.unreadCount}
+      latestSubject={inboxUnreadSummary.latestSubject}
+      onViewMessages={handleInboxPopupViewMessages}
+      onDontRemind={handleInboxPopupDontRemind}
+      onSoftClose={() => setInboxPopupOpen(false)}
+      onShown={handleInboxPopupShown}
+    />
+  ) : null;
+
   // Render blank layout when forced (e.g., form with blank_layout option)
   if (forceBlankLayout) {
     return <>{children}</>;
@@ -2270,9 +2305,19 @@ useEffect(() => {
   if (isPublicPage()) {
     const effectivePageName = getEffectivePageName();
     if (bareLayoutPages.includes(currentPageName)) {
-      return <BarePublicLayout>{children}</BarePublicLayout>;
+      return (
+        <BarePublicLayout>
+          {children}
+          {inboxUnreadPopupElement}
+        </BarePublicLayout>
+      );
     }
-    return <PublicLayout currentPageName={effectivePageName}>{children}</PublicLayout>;
+    return (
+      <PublicLayout currentPageName={effectivePageName}>
+        {children}
+        {inboxUnreadPopupElement}
+      </PublicLayout>
+    );
   }
 
   return (
@@ -2944,14 +2989,7 @@ useEffect(() => {
         </>
       )}
 
-      <InboxUnreadPopup
-        open={inboxPopupOpen}
-        unreadCount={inboxUnreadSummary.unreadCount}
-        latestSubject={inboxUnreadSummary.latestSubject}
-        onViewMessages={handleInboxPopupViewMessages}
-        onDontRemind={handleInboxPopupDontRemind}
-        onSoftClose={() => setInboxPopupOpen(false)}
-      />
+      {inboxUnreadPopupElement}
     </div>
   );
 }

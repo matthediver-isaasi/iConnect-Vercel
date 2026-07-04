@@ -21,9 +21,18 @@ export default function InboxUnreadPopup({
   onViewMessages,
   onDontRemind,
   onSoftClose,
+  onShown,
 }) {
   const count = unreadCount || 0;
   const messageWord = count === 1 ? "message" : "messages";
+
+  // Fire onShown only when the popup is actually mounted AND open, so the
+  // session/"don't remind" watermarks are written at display time and never
+  // when the popup was suppressed (e.g. a layout branch that didn't mount it).
+  React.useEffect(() => {
+    if (open) onShown?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   return (
     <Dialog
