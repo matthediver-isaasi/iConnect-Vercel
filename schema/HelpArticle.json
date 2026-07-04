@@ -32,6 +32,10 @@
       "type": "number",
       "default": 0,
       "description": "Order within the Help index"
+    },
+    "required_feature": {
+      "type": "string",
+      "description": "Optional RBAC feature key (e.g. events.browse-events, commerce.balances, user.about-me) the member must be able to access to see this article. Empty/unset means visible to everyone. Gating is presentation-only, mirroring portal navigation."
     }
   },
   "required": ["slug", "title"]

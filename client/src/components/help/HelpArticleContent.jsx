@@ -12,12 +12,23 @@ import { ImageIcon } from "lucide-react";
  *                  → a labeled placeholder box until an image URL is supplied,
  *                    then the <img> itself. Swapping in a real screenshot needs
  *                    no code change — just add the URL to the token.
+ *   {{feature: feature.key}} ... {{/feature}}
+ *                  → RBAC section gate (Task #2208). Everything between the open
+ *                    and close markers is shown only when the reader can access
+ *                    that feature key. Gated blocks (heading and all) are dropped
+ *                    cleanly when access is missing. Markers may be nested.
  *
  * The parser is intentionally simple (a pilot). It never renders raw HTML, so
  * article bodies cannot inject markup.
+ *
+ * Access is evaluated via the `canAccessFeature` prop: (featureKey) => boolean.
+ * It defaults to always-allow so the platform editor preview shows every
+ * section; the portal passes a real member-access check.
  */
 
 const SCREENSHOT_RE = /\{\{\s*screenshot\s*:\s*([^}]*)\}\}/i;
+const FEATURE_OPEN_RE = /^\{\{\s*feature\s*:\s*([^}]*)\}\}$/i;
+const FEATURE_CLOSE_RE = /^\{\{\s*\/\s*feature\s*\}\}$/i;
 
 function parseScreenshotToken(line) {
   const match = line.match(SCREENSHOT_RE);
@@ -55,13 +66,24 @@ function ScreenshotBlock({ label, url }) {
   );
 }
 
-export default function HelpArticleContent({ body }) {
+export default function HelpArticleContent({ body, canAccessFeature }) {
   const source = typeof body === "string" ? body : "";
   const lines = source.replace(/\r\n/g, "\n").split("\n");
+
+  const allows =
+    typeof canAccessFeature === "function" ? canAccessFeature : () => true;
 
   const blocks = [];
   let paragraph = [];
   let bullets = [];
+
+  // Feature-gate state. `gateDepth` tracks nesting of {{feature}} markers.
+  // `skipDepth` is 0 when rendering; when we enter a block the reader can't
+  // access it becomes the depth at which skipping started, and we drop every
+  // line (including nested markers) until we climb back above it.
+  let gateDepth = 0;
+  let skipDepth = 0;
+  const isSkipping = () => skipDepth > 0;
 
   const flushParagraph = () => {
     if (paragraph.length) {
@@ -78,6 +100,36 @@ export default function HelpArticleContent({ body }) {
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
+
+    // Feature-gate markers are handled before anything else so gated content
+    // (and the markers themselves) never leak into the rendered output.
+    const openMatch = line.match(FEATURE_OPEN_RE);
+    if (openMatch) {
+      flushParagraph();
+      flushBullets();
+      gateDepth += 1;
+      if (!isSkipping()) {
+        const key = openMatch[1].trim();
+        if (key && !allows(key)) {
+          skipDepth = gateDepth;
+        }
+      }
+      continue;
+    }
+    if (FEATURE_CLOSE_RE.test(line)) {
+      if (!isSkipping()) {
+        flushParagraph();
+        flushBullets();
+      }
+      if (skipDepth && gateDepth === skipDepth) {
+        skipDepth = 0;
+      }
+      if (gateDepth > 0) gateDepth -= 1;
+      continue;
+    }
+    if (isSkipping()) {
+      continue;
+    }
 
     if (!line) {
       flushParagraph();

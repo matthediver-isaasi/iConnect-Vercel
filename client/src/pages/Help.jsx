@@ -6,11 +6,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BookOpen, ChevronRight, LifeBuoy, Search } from "lucide-react";
+import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 const UNCATEGORISED = "General";
 
 export default function Help() {
   const [search, setSearch] = useState("");
+  const { isFeatureExcluded } = useMemberAccess();
 
   const { data: articles, isLoading, isError } = useQuery({
     queryKey: ["/help-articles", "published"],
@@ -22,7 +24,10 @@ export default function Help() {
   });
 
   const grouped = useMemo(() => {
-    const list = Array.isArray(articles) ? [...articles] : [];
+    const list = (Array.isArray(articles) ? articles : []).filter(
+      (article) =>
+        !article.required_feature || !isFeatureExcluded(article.required_feature)
+    );
     list.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
 
     const query = search.trim().toLowerCase();
@@ -43,7 +48,7 @@ export default function Help() {
       groups.get(key).push(article);
     }
     return Array.from(groups.entries());
-  }, [articles, search]);
+  }, [articles, search, isFeatureExcluded]);
 
   const isSearching = search.trim().length > 0;
 

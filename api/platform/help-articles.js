@@ -23,6 +23,11 @@ function sanitizeFields(body) {
   if (typeof body.category === 'string') out.category = body.category.trim() || null;
   if (typeof body.summary === 'string') out.summary = body.summary.trim() || null;
   if (typeof body.body === 'string') out.body = body.body;
+  if (typeof body.required_feature === 'string') {
+    out.required_feature = body.required_feature.trim() || null;
+  } else if (body.required_feature === null) {
+    out.required_feature = null;
+  }
   if (typeof body.status === 'string' && ALLOWED_STATUS.includes(body.status)) {
     out.status = body.status;
   }

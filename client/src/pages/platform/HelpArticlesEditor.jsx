@@ -10,8 +10,29 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { useToast } from '@/components/ui/use-toast';
 import { Loader2, Plus, Pencil, Trash2, ChevronUp, ChevronDown, Eye } from 'lucide-react';
 import HelpArticleContent from '@/components/help/HelpArticleContent';
+import { ROLE_ACCESS_MAP } from '@/lib/roleAccessMap';
 
 const API = '/api/platform/help-articles';
+
+const NO_FEATURE = '__none__';
+
+// Flatten the app's canonical RBAC map into a single list of selectable keys
+// (pages and features), so an owner can gate an article on exactly the same
+// keys the portal navigation uses. Grouped by module for readability.
+const FEATURE_OPTIONS = ROLE_ACCESS_MAP.flatMap((mod) =>
+  (mod.pages || []).flatMap((page) => {
+    const rows = [
+      { value: page.id, label: `${mod.label} › ${page.label}` },
+    ];
+    for (const feature of page.features || []) {
+      rows.push({
+        value: feature.id,
+        label: `${mod.label} › ${page.label} › ${feature.label}`,
+      });
+    }
+    return rows;
+  })
+);
 
 const emptyForm = {
   id: null,
@@ -21,6 +42,7 @@ const emptyForm = {
   summary: '',
   body: '',
   status: 'draft',
+  required_feature: '',
 };
 
 export default function HelpArticlesEditor() {
@@ -64,6 +86,7 @@ export default function HelpArticlesEditor() {
       summary: article.summary || '',
       body: article.body || '',
       status: article.status || 'draft',
+      required_feature: article.required_feature || '',
     });
     setDialogOpen(true);
   };
@@ -88,6 +111,7 @@ export default function HelpArticlesEditor() {
           summary: form.summary,
           body: form.body,
           status: form.status,
+          required_feature: form.required_feature || null,
         }),
       });
       if (!res.ok) throw new Error((await res.json()).error || 'Failed to save');
@@ -194,6 +218,11 @@ export default function HelpArticlesEditor() {
                     {article.category && (
                       <Badge variant="outline" className="text-xs">{article.category}</Badge>
                     )}
+                    {article.required_feature && (
+                      <Badge variant="secondary" className="text-xs" data-testid={`badge-gated-${article.slug}`}>
+                        Requires: {article.required_feature}
+                      </Badge>
+                    )}
                   </div>
                   <p className="mt-1 truncate text-xs text-muted-foreground">/help/{article.slug}</p>
                 </div>
@@ -253,11 +282,45 @@ export default function HelpArticlesEditor() {
                 </Button>
               </div>
               <Textarea id="help-body" rows={12} value={form.body} onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))} data-testid="input-help-body" />
+              <p className="text-xs text-muted-foreground">
+                Gate part of an article on a feature by wrapping it in{' '}
+                <code className="rounded bg-muted px-1 py-0.5">{'{{feature: commerce.balances.training-fund-card}}'}</code>{' '}
+                … <code className="rounded bg-muted px-1 py-0.5">{'{{/feature}}'}</code>{' '}
+                on their own lines. Members without that access won't see the wrapped
+                section (heading and all); everyone else does. The preview here shows
+                every section regardless of gating.
+              </p>
               {previewOpen && (
                 <div className="rounded-md border p-4" data-testid="help-body-preview">
                   <HelpArticleContent body={form.body} />
                 </div>
               )}
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="help-required-feature">Required feature (article access)</Label>
+              <Select
+                value={form.required_feature || NO_FEATURE}
+                onValueChange={(v) =>
+                  setForm((f) => ({ ...f, required_feature: v === NO_FEATURE ? '' : v }))
+                }
+              >
+                <SelectTrigger id="help-required-feature" data-testid="select-help-required-feature">
+                  <SelectValue placeholder="Visible to everyone" />
+                </SelectTrigger>
+                <SelectContent className="max-h-72">
+                  <SelectItem value={NO_FEATURE}>Visible to everyone</SelectItem>
+                  {FEATURE_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                When set, members who can't access this feature won't see the article on
+                the Help index and can't open it by its URL. Leave as "Visible to everyone"
+                for general guidance.
+              </p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="help-status">Status</Label>

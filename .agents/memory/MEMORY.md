@@ -50,3 +50,4 @@
 - [Canvas spacing normalize reflow](canvas-spacing-normalize-reflow.md) — normalizing abs-positioned pages = cluster-preserving y-reflow; colour-band re-fit MUST be cluster-based (not per-block) or it never reaches a fixed point.
 - [Canvas card row equalization](canvas-card-row-equalization.md) — cards are autoHeight; row height = max member effective height via reflow (min-height, render-only); manual n/s grow stored as geom h + manualHeight floor, clamped up to content.
 - [Canvas layout engine shared](canvas-layout-engine-shared.md) — doc→Canvas builder extracted to api/_lib/canvasLayoutEngine.js; script+endpoint import it, don't re-fork; cleanupDesign in canvasSpacing.mjs.
+- [Help Center RBAC gating](help-center-rbac.md) — /Help articles gated presentation-only by required_feature + {{feature: KEY}} section markers using canonical roleAccessMap keys; content in scripts/seed-help-articles.mjs.

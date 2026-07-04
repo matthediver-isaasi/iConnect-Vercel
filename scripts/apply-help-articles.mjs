@@ -17,6 +17,7 @@ const repoRoot = path.resolve(__dirname, '..');
 
 const MIGRATIONS = [
   'supabase/migrations/20260704_help_article.sql',
+  'supabase/migrations/20260704_help_article_required_feature.sql',
 ];
 
 const connectionString = process.env.DEST_DATABASE_URL || process.env.DATABASE_URL;
