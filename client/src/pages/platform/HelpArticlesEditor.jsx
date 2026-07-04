@@ -8,12 +8,13 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/use-toast';
-import { Loader2, Plus, Pencil, Trash2, ChevronUp, ChevronDown, Eye, RefreshCw } from 'lucide-react';
+import { Loader2, Plus, Pencil, Trash2, ChevronUp, ChevronDown, Eye, RefreshCw, Sparkles, CheckCircle2, CircleDashed } from 'lucide-react';
 import HelpArticleContent from '@/components/help/HelpArticleContent';
 import { ROLE_ACCESS_MAP } from '@/lib/roleAccessMap';
 
 const API = '/api/platform/help-articles';
 const REINDEX_API = '/api/platform/help-articles-reindex';
+const GENERATE_API = '/api/platform/help-articles-generate';
 
 const NO_FEATURE = '__none__';
 
@@ -34,6 +35,20 @@ const FEATURE_OPTIONS = ROLE_ACCESS_MAP.flatMap((mod) =>
     return rows;
   })
 );
+
+// Canonical list of member/portal pages to build help content for, grouped by
+// module. Derived from the same RBAC map the portal navigation uses so the
+// coverage view stays in sync with the real pages. Platform-admin-only pages
+// are not part of ROLE_ACCESS_MAP, so they're naturally out of scope here.
+const PAGE_COVERAGE = ROLE_ACCESS_MAP.map((mod) => ({
+  id: mod.id,
+  label: mod.label,
+  pages: (mod.pages || []).map((page) => ({
+    id: page.id,
+    label: page.label,
+    features: (page.features || []).map((f) => ({ id: f.id, label: f.label })),
+  })),
+})).filter((mod) => mod.pages.length > 0);
 
 const emptyForm = {
   id: null,
@@ -56,6 +71,7 @@ export default function HelpArticlesEditor() {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [reindexing, setReindexing] = useState(false);
+  const [generatingKey, setGeneratingKey] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -191,6 +207,39 @@ export default function HelpArticlesEditor() {
     }
   };
 
+  const buildContent = async (mod, page) => {
+    setGeneratingKey(page.id);
+    try {
+      const res = await fetch(GENERATE_API, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          featureKey: page.id,
+          moduleLabel: mod.label,
+          pageLabel: page.label,
+          pageFeatures: page.features,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) {
+        throw new Error(data.error || 'Failed to build content');
+      }
+      toast({
+        title: 'Content built',
+        description: data.indexError
+          ? `Saved "${data.article?.title}" — AI search index update failed: ${data.indexError}`
+          : `Saved "${data.article?.title}" and updated AI search.`,
+        variant: data.indexError ? 'destructive' : undefined,
+      });
+      await load();
+    } catch (err) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } finally {
+      setGeneratingKey(null);
+    }
+  };
+
   const reorder = async (index, direction) => {
     const target = index + direction;
     if (target < 0 || target >= articles.length) return;
@@ -241,6 +290,83 @@ export default function HelpArticlesEditor() {
             New Article
           </Button>
         </div>
+      </div>
+
+      <Card data-testid="help-coverage-section">
+        <CardHeader className="py-3">
+          <CardTitle className="text-base">Page coverage</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Every member/portal page from the app navigation. Build or update AI-drafted
+            help content per page — it's saved as a published article gated to that page
+            and immediately added to AI search.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {PAGE_COVERAGE.map((mod) => (
+            <div key={mod.id} className="space-y-2">
+              <h3 className="text-sm font-semibold text-muted-foreground">{mod.label}</h3>
+              <div className="space-y-2">
+                {mod.pages.map((page) => {
+                  const matched = articles.filter(
+                    (a) => (a.required_feature || '') === page.id
+                  );
+                  const built = matched.length > 0;
+                  const busy = generatingKey === page.id;
+                  return (
+                    <div
+                      key={page.id}
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3"
+                      data-testid={`coverage-row-${page.id}`}
+                    >
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium">{page.label}</span>
+                          {built ? (
+                            <Badge variant="default" className="text-xs" data-testid={`coverage-status-${page.id}`}>
+                              <CheckCircle2 className="h-3 w-3" />
+                              Content built
+                            </Badge>
+                          ) : (
+                            <Badge variant="secondary" className="text-xs" data-testid={`coverage-status-${page.id}`}>
+                              <CircleDashed className="h-3 w-3" />
+                              No content yet
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="mt-1 truncate text-xs text-muted-foreground">
+                          {built
+                            ? matched.map((a) => a.title).join(', ')
+                            : page.id}
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant={built ? 'outline' : 'default'}
+                        onClick={() => buildContent(mod, page)}
+                        disabled={busy || !!generatingKey}
+                        data-testid={`button-build-${page.id}`}
+                      >
+                        {busy ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Sparkles className="h-4 w-4" />
+                        )}
+                        {built ? 'Update content' : 'Build content'}
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      <div>
+        <h2 className="text-lg font-semibold">Articles</h2>
+        <p className="text-sm text-muted-foreground">
+          All help articles, including ones you built manually or via page coverage.
+        </p>
       </div>
 
       {loading ? (
