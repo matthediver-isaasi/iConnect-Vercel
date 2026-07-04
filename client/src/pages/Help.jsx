@@ -157,7 +157,7 @@ export default function Help() {
       <Card className="mb-8">
         <CardContent className="pt-6">
           <div className="mb-3 flex items-center gap-2">
-            <Avatar className="h-8 w-8">
+            <Avatar className="h-16 w-16">
               <AvatarImage src={aiAvatarUrl} alt={aiName} />
               <AvatarFallback>{aiInitial}</AvatarFallback>
             </Avatar>
