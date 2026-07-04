@@ -1,0 +1,1675 @@
+{
+  "slug": "nuclear-medicine-technology-pathway",
+  "pageId": "b05f199f-c726-45c5-b2bd-8d70f954d21f",
+  "tenantId": "ff2df806-b321-4254-b651-3af11fccf1db",
+  "capturedAt": "2026-07-04T11:16:00.156Z",
+  "canvas_design": {
+    "root": {
+      "groups": [
+        {
+          "id": "group-mqul8chh-qd7086",
+          "name": "Group 1",
+          "collapsed": false
+        }
+      ],
+      "guides": {
+        "vertical": [],
+        "horizontal": []
+      },
+      "sections": [
+        {
+          "id": "root-section",
+          "children": [
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 600,
+                  "w": 1200,
+                  "x": 0,
+                  "y": 0,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqskjjjt-vgek1c",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Events hero",
+              "type": "hero",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-primary, #0f172a)",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 150,
+                "borderRadius": 0,
+                "paddingRight": 150,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "ctas": [],
+                "bgType": "image",
+                "bgColor": "var(--cb-color-primary, #0f172a)",
+                "darkWash": 0.4,
+                "headline": "The pathway in to Nuclear Medicine Technology",
+                "alignment": "left",
+                "fullBleed": true,
+                "textColor": "var(--cb-color-on-primary, #ffffff)",
+                "bgImageUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1782403254623-b9wqrfb-shutterstock_2557820871.jpg",
+                "bgVideoUrl": "",
+                "subheadline": "Discover the education, training and professional development routes into a rewarding career as a Nuclear Medicine Technologist",
+                "headingLevel": 1,
+                "overlayAngle": 0,
+                "overlayStops": [
+                  {
+                    "color": "#4169e1",
+                    "opacity": 1,
+                    "position": 19
+                  },
+                  {
+                    "color": "#000000",
+                    "opacity": 0,
+                    "position": 98
+                  }
+                ],
+                "overlayStyle": "gradient",
+                "overlayToColor": "",
+                "overlayDirection": "to-right",
+                "overlayFromColor": "#0055ff",
+                "overlayToOpacity": 0,
+                "overlayFromOpacity": 1,
+                "headlineTypographyStyleId": "7c9e9a3f-4c60-4ee9-a8ec-4bd83325f7e5",
+                "subheadlineTypographyStyleId": "8e020a66-1192-4266-a566-6d02f6d78a37"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 296,
+                  "w": 900,
+                  "x": 150,
+                  "y": 880,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqskl8rn-d7dajv",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: center;\"><span style=\"font-size: 20px;\">Nuclear Medicine Technology offers a rewarding healthcare career that combines science, technology and patient care.</span></p><p style=\"text-align: center;\"><span style=\"font-size: 20px;\">There are several routes into the profession, allowing people from different educational and professional backgrounds to develop successful careers within nuclear medicine.</span></p><p style=\"text-align: center;\"><span style=\"font-size: 20px;\">Whether you are leaving school, studying at university or already working within healthcare, there are opportunities to join this growing profession.</span></p><p style=\"text-align: center;\"></p>",
+                "colorRole": "default",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "bulletIconPadLeft": null,
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 950,
+                  "x": 125,
+                  "y": 784,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqskl8rn-eii577",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: center;\">A career with many opportunities</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 136,
+                  "w": 144,
+                  "x": 528,
+                  "y": 648,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtpcuim-fxt83i",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 50,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-arrow-trend-up",
+                "iconColor": "#fa8300",
+                "objectFit": "cover"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 950,
+                  "x": 125,
+                  "y": 1392,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqukx591-4qdbxl",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: center;\">Routes in to the profession</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 136,
+                  "w": 144,
+                  "x": 528,
+                  "y": 1256,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqukx591-c3cxdp",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 50,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-route",
+                "iconColor": "#fa8300",
+                "objectFit": "cover"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 24,
+                  "w": 560,
+                  "x": 320,
+                  "y": 1184,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqukyjz2-6kmzgc",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Divider",
+              "type": "divider",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "color": "#fa8300",
+                "lineStyle": "solid",
+                "thickness": 1
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 540,
+                  "w": 288,
+                  "x": 0,
+                  "y": 1520,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqukzsza-1pbpdg",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Card",
+              "type": "card",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-surface, #ffffff)",
+                "paddingTop": 0,
+                "borderColor": "var(--cb-color-border, #e2e8f0)",
+                "borderStyle": "solid",
+                "borderWidth": 1,
+                "paddingLeft": 0,
+                "borderRadius": 8,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "body": "<p><span style=\"font-size: 20px;\">Accredited undergraduate Healthcare Science programmes combine academic study with clinical placements, providing a direct route into Nuclear Medicine Technology</span></p>",
+                "shadow": "md",
+                "ctaHref": "#",
+                "heading": "Healthcare science degree",
+                "ctaAlign": "right",
+                "ctaLabel": "Learn more",
+                "iconSize": 60,
+                "imageAlt": "",
+                "imageUrl": "",
+                "highlight": true,
+                "iconAlign": "left",
+                "iconClass": "fa-solid fa-user-doctor",
+                "iconColor": "#fa8300",
+                "ctaEnabled": false,
+                "ctaVariant": "tenant:primary-no-icon",
+                "imageAlign": "center",
+                "headingLevel": 4,
+                "headerSpacing": 30,
+                "imageWidthPct": 100,
+                "contentPadding": 16,
+                "highlightColor": "#F4F7FF",
+                "imageDisplayMode": "inline",
+                "headingTypographyStyleId": "d16866a7-5cab-4854-8576-cb3d92081bc8"
+              },
+              "groupId": "group-mqul8chh-qd7086",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 540,
+                  "w": 280,
+                  "x": 312,
+                  "y": 1520,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqukzsza-jtl9g8",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Card",
+              "type": "card",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-surface, #ffffff)",
+                "paddingTop": 0,
+                "borderColor": "var(--cb-color-border, #e2e8f0)",
+                "borderStyle": "solid",
+                "borderWidth": 1,
+                "paddingLeft": 0,
+                "borderRadius": 8,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "body": "<p><span style=\"font-size: 20px;\">Degree Apprenticeships allow students to earn a salary while working in a clinical department and studying towards a recognised qualification.</span></p><p><span style=\"font-size: 20px;\">This route combines practical experience with academic learning.</span></p><p></p>",
+                "shadow": "md",
+                "ctaHref": "#",
+                "heading": "Degree apprenticeship",
+                "ctaAlign": "right",
+                "ctaLabel": "Learn more",
+                "iconSize": 60,
+                "imageAlt": "",
+                "imageUrl": "",
+                "highlight": true,
+                "iconAlign": "left",
+                "iconClass": "fa-solid fa-user-graduate",
+                "iconColor": "#fa8300",
+                "ctaEnabled": false,
+                "ctaVariant": "tenant:primary-no-icon",
+                "imageAlign": "center",
+                "headingLevel": 4,
+                "headerSpacing": 30,
+                "imageWidthPct": 100,
+                "contentPadding": 16,
+                "highlightColor": "#F4F7FF",
+                "imageDisplayMode": "inline",
+                "headingTypographyStyleId": "d16866a7-5cab-4854-8576-cb3d92081bc8"
+              },
+              "groupId": "group-mqul8chh-qd7086",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 540,
+                  "w": 288,
+                  "x": 608,
+                  "y": 1520,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqukzsza-hxn4jw",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Card",
+              "type": "card",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-surface, #ffffff)",
+                "paddingTop": 0,
+                "borderColor": "var(--cb-color-border, #e2e8f0)",
+                "borderStyle": "solid",
+                "borderWidth": 1,
+                "paddingLeft": 0,
+                "borderRadius": 8,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "body": "<p><span style=\"font-size: 20px;\">Many Nuclear Medicine Technologists begin their careers as Diagnostic Radiographers before specialising in nuclear medicine through additional training and experience.</span></p>",
+                "shadow": "md",
+                "ctaHref": "#",
+                "heading": "Radiography route",
+                "ctaAlign": "right",
+                "ctaLabel": "Learn more",
+                "iconSize": 60,
+                "imageAlt": "",
+                "imageUrl": "",
+                "highlight": true,
+                "iconAlign": "left",
+                "iconClass": "fa-solid fa-circle-radiation",
+                "iconColor": "#fa8300",
+                "ctaEnabled": false,
+                "ctaVariant": "tenant:primary-no-icon",
+                "imageAlign": "center",
+                "headingLevel": 4,
+                "headerSpacing": 30,
+                "imageWidthPct": 100,
+                "contentPadding": 16,
+                "highlightColor": "#F4F7FF",
+                "imageDisplayMode": "inline",
+                "headingTypographyStyleId": "d16866a7-5cab-4854-8576-cb3d92081bc8"
+              },
+              "groupId": "group-mqul8chh-qd7086",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 540,
+                  "w": 280,
+                  "x": 920,
+                  "y": 1520,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqukzsza-yv65t6",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Card",
+              "type": "card",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-surface, #ffffff)",
+                "paddingTop": 0,
+                "borderColor": "var(--cb-color-border, #e2e8f0)",
+                "borderStyle": "solid",
+                "borderWidth": 1,
+                "paddingLeft": 0,
+                "borderRadius": 8,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "body": "<p><span style=\"font-size: 20px;\">Some individuals begin as Assistant Practitioners or Healthcare Support Workers before progressing through further education, workplace training and professional qualifications.</span></p>",
+                "shadow": "md",
+                "ctaHref": "#",
+                "heading": "Assistant practitioner route",
+                "ctaAlign": "right",
+                "ctaLabel": "Learn more",
+                "iconSize": 60,
+                "imageAlt": "",
+                "imageUrl": "",
+                "highlight": true,
+                "iconAlign": "left",
+                "iconClass": "fa-solid fa-hand-holding-medical",
+                "iconColor": "#fa8300",
+                "ctaEnabled": false,
+                "ctaVariant": "tenant:primary-no-icon",
+                "imageAlign": "center",
+                "headingLevel": 4,
+                "headerSpacing": 30,
+                "imageWidthPct": 100,
+                "contentPadding": 16,
+                "highlightColor": "#F4F7FF",
+                "imageDisplayMode": "inline",
+                "headingTypographyStyleId": "d16866a7-5cab-4854-8576-cb3d92081bc8"
+              },
+              "groupId": "group-mqul8chh-qd7086",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 968,
+                  "x": 0,
+                  "y": 2448,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqulafhm-9z3szj",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p>How to Claim</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 968,
+                  "w": 1200,
+                  "x": 0,
+                  "y": 2136,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqulafhm-2c5gs4",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Section",
+              "type": "section",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "#F4F7FF",
+                "paddingTop": 24,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 24,
+                "borderRadius": 4,
+                "paddingRight": 24,
+                "paddingBottom": 24
+              },
+              "locked": false,
+              "content": {
+                "bgType": "color",
+                "maxWidth": 0,
+                "fullBleed": true,
+                "bgImageUrl": "",
+                "overlayType": "solid",
+                "overlayAngle": 180,
+                "overlayColor": "#000000",
+                "overlayOpacity": 0.4,
+                "overlayToColor": "#000000",
+                "overlayBlendMode": "normal",
+                "overlayEdgeColor": "#000000",
+                "overlayFromColor": "#000000",
+                "overlayToOpacity": 0,
+                "overlayCenterColor": "#000000",
+                "overlayEdgeOpacity": 0.6,
+                "overlayFromOpacity": 0.6,
+                "overlayCenterOpacity": 0
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 672,
+                  "w": 584,
+                  "x": 0,
+                  "y": 2400,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqulafhm-zeu0hv",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 20px;\">Successful Nuclear Medicine Technologists combine scientific knowledge with excellent interpersonal skills.</span></p><p><span style=\"font-size: 20px;\">Key areas include:</span></p><ul><li><p><span style=\"font-size: 20px;\">Physics.</span></p></li><li><p><span style=\"font-size: 20px;\">Chemistry.</span></p></li><li><p><span style=\"font-size: 20px;\">Biology.</span></p></li><li><p><span style=\"font-size: 20px;\">Anatomy and physiology.</span></p></li><li><p><span style=\"font-size: 20px;\">Patient care.</span></p></li></ul><p><span style=\"font-size: 20px;\">Professional skills include:</span></p><ul><li><p><span style=\"font-size: 20px;\">Communication.</span></p></li><li><p><span style=\"font-size: 20px;\">Compassion.</span></p></li><li><p><span style=\"font-size: 20px;\">Attention to detail.</span></p></li><li><p><span style=\"font-size: 20px;\">Technical ability.</span></p></li><li><p><span style=\"font-size: 20px;\">Critical thinking.</span></p></li><li><p><span style=\"font-size: 20px;\">Teamwork.</span></p></li></ul><p></p>",
+                "colorRole": "default",
+                "headingAs": "",
+                "bulletIcon": "fa-solid fa-arrow-right",
+                "bulletIconSize": 15,
+                "bulletIconColor": "#fa8300",
+                "bulletIconPadTop": 5,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "c6f2ef1a-0e3e-4823-9ccb-290876da2f98",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 56,
+                  "w": 480,
+                  "x": 0,
+                  "y": 2308,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqulafhm-ocr4f9",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 28px;\">Skills required?</span></p>",
+                "colorRole": "default",
+                "headingAs": "3",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5adf6d13-1d12-4613-ac55-b4bb1345c168",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 64,
+                  "w": 48,
+                  "x": 0,
+                  "y": 2248,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqulafhm-t7151n",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 30,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-user-pen",
+                "iconColor": "#fa8300",
+                "objectFit": "cover"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 24,
+                  "w": 560,
+                  "x": 0,
+                  "y": 2340,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqulafhm-7gis43",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Divider",
+              "type": "divider",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "color": "#fa8300",
+                "lineStyle": "solid",
+                "thickness": 1
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 950,
+                  "x": 0,
+                  "y": 2168,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqulafhm-lrcswf",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p>Skills &amp; career development</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 432,
+                  "w": 584,
+                  "x": 616,
+                  "y": 2400,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqulafhm-cnvax8",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 20px;\">These may include:</span></p><ul><li><p><span style=\"font-size: 20px;\">Senior Technologist roles.</span></p></li><li><p><span style=\"font-size: 20px;\">Advanced Practitioner positions.</span></p></li><li><p><span style=\"font-size: 20px;\">Specialist imaging services.</span></p></li><li><p><span style=\"font-size: 20px;\">Molecular Radiotherapy services.</span></p></li><li><p><span style=\"font-size: 20px;\">Department management.</span></p></li><li><p><span style=\"font-size: 20px;\">Service leadership.</span></p></li><li><p><span style=\"font-size: 20px;\">Some practitioners progress into Consultant Practitioner, Chief Technologist or senior management positions.</span></p></li></ul><p></p>",
+                "colorRole": "default",
+                "headingAs": "",
+                "bulletIcon": "fa-solid fa-arrow-right",
+                "bulletIconSize": 15,
+                "bulletIconColor": "#fa8300",
+                "bulletIconPadTop": 5,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "c6f2ef1a-0e3e-4823-9ccb-290876da2f98",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 56,
+                  "w": 480,
+                  "x": 616,
+                  "y": 2308,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqulafhm-xvd6i3",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 28px;\">Career Progression</span></p>",
+                "colorRole": "default",
+                "headingAs": "3",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5adf6d13-1d12-4613-ac55-b4bb1345c168",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 64,
+                  "w": 48,
+                  "x": 616,
+                  "y": 2248,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqulafhm-sno4s1",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 30,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-user-pen",
+                "iconColor": "#fa8300",
+                "objectFit": "cover"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 24,
+                  "w": 560,
+                  "x": 616,
+                  "y": 2340,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqulafhm-wrny64",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Divider",
+              "type": "divider",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "color": "#fa8300",
+                "lineStyle": "solid",
+                "thickness": 1
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 424,
+                  "w": 904,
+                  "x": 168,
+                  "y": 3384,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqulg4ie-ufofnn",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: center;\"><span style=\"font-size: 20px;\">Following completion of recognised education and training, practitioners may become eligible to register with:</span></p><p style=\"text-align: center;\"><span style=\"color: rgb(250, 131, 0); font-size: 20px;\">The Register of Clinical Technologists (RCT).</span></p><p style=\"text-align: center;\"></p><p style=\"text-align: center;\"><span style=\"color: rgb(250, 131, 0); font-size: 20px;\">The Academy for Healthcare Science Practitioner Register.</span></p><p style=\"text-align: center;\"><span style=\"font-size: 20px;\">Professional registration demonstrates competence and commitment to high standards of practice.</span></p><p style=\"text-align: center;\"><span style=\"font-size: 20px;\">Maintaining registration requires ongoing Continuing Professional Development (CPD), ensuring practitioners continue to develop their knowledge and skills throughout their careers.</span></p><p style=\"text-align: center;\"></p>",
+                "colorRole": "default",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "bulletIconPadLeft": null,
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 950,
+                  "x": 141,
+                  "y": 3288,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqulg4ie-2oalgx",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: center;\">Professional registration</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 136,
+                  "w": 144,
+                  "x": 544,
+                  "y": 3152,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqulg4ie-f0rle2",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 50,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-hospital-user",
+                "iconColor": "#fa8300",
+                "objectFit": "cover"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 950,
+                  "x": 125,
+                  "y": 4056,
+                  "hidden": false
+                }
+              },
+              "id": "block-mquljten-a876w4",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: center;\">Supporting your professional journey</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 136,
+                  "w": 144,
+                  "x": 528,
+                  "y": 3920,
+                  "hidden": false
+                }
+              },
+              "id": "block-mquljten-spszvr",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 50,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-hands-holding-circle",
+                "iconColor": "#fa8300",
+                "objectFit": "cover"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 24,
+                  "w": 560,
+                  "x": 320,
+                  "y": 3848,
+                  "hidden": false
+                }
+              },
+              "id": "block-mquljten-6apcqg",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Divider",
+              "type": "divider",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "color": "#fa8300",
+                "lineStyle": "solid",
+                "thickness": 1
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 424,
+                  "w": 904,
+                  "x": 148,
+                  "y": 4176,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqullnk2-kofiq3",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 20px;\">BNMS supports Nuclear Medicine Technologists throughout every stage of their careers.</span></p><p><span style=\"font-size: 20px;\">Members benefit from:</span></p><ul><li><p><span style=\"font-size: 20px;\">Professional Groups.</span></p></li><li><p><span style=\"font-size: 20px;\">Educational meetings.</span></p></li><li><p><span style=\"font-size: 20px;\">National conferences.</span></p></li><li><p><span style=\"font-size: 20px;\">Mentorship opportunities.</span></p></li><li><p><span style=\"font-size: 20px;\">Career development resources.</span></p></li></ul><p><span style=\"font-size: 20px;\">The BNMS Radiographers, Technologists and Nurses Group provides additional support, networking opportunities and professional guidance for members working across the specialty.</span></p><p></p>",
+                "colorRole": "default",
+                "bulletIcon": "fa-solid fa-arrow-right",
+                "bulletIconSize": 15,
+                "bulletIconColor": "#fa8300",
+                "bulletIconPadTop": 5,
+                "bulletIconPadLeft": null,
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 400,
+                  "w": 1200,
+                  "x": 0,
+                  "y": 4680,
+                  "hidden": false
+                }
+              },
+              "id": "block-mquv3uco-e0hepq",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Events hero",
+              "type": "hero",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-primary, #0f172a)",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 100,
+                "borderRadius": 0,
+                "paddingRight": 100,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "ctas": [
+                  {
+                    "href": "#",
+                    "label": "Apprentieships",
+                    "variant": "tenant:primary-no-icon",
+                    "labelTypographyStyleId": "8e020a66-1192-4266-a566-6d02f6d78a37"
+                  },
+                  {
+                    "href": "#",
+                    "label": "Student resources",
+                    "variant": "tenant:primary-no-icon",
+                    "labelTypographyStyleId": "8e020a66-1192-4266-a566-6d02f6d78a37"
+                  }
+                ],
+                "bgType": "image",
+                "bgColor": "var(--cb-color-primary, #0f172a)",
+                "darkWash": 0.4,
+                "headline": "Ready to start your journey?",
+                "alignment": "left",
+                "fullBleed": true,
+                "textColor": "var(--cb-color-on-primary, #ffffff)",
+                "bgImageUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1782403254623-b9wqrfb-shutterstock_2557820871.jpg",
+                "bgVideoUrl": "",
+                "subheadline": "Discover the education, training and apprenticeship opportunities available to help you become a Nuclear Medicine Technologist.\n",
+                "headingLevel": 1,
+                "overlayAngle": 0,
+                "overlayStops": [
+                  {
+                    "color": "#4169e1",
+                    "opacity": 1,
+                    "position": 19
+                  },
+                  {
+                    "color": "#000000",
+                    "opacity": 0,
+                    "position": 98
+                  }
+                ],
+                "overlayStyle": "gradient",
+                "overlayToColor": "",
+                "overlayDirection": "to-right",
+                "overlayFromColor": "#0055ff",
+                "overlayToOpacity": 0,
+                "overlayFromOpacity": 1,
+                "headlineTypographyStyleId": "7c9e9a3f-4c60-4ee9-a8ec-4bd83325f7e5",
+                "subheadlineTypographyStyleId": "8e020a66-1192-4266-a566-6d02f6d78a37"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            }
+          ]
+        }
+      ],
+      "background": null
+    },
+    "version": 1
+  }
+}

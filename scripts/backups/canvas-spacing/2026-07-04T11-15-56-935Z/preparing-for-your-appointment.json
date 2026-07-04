@@ -1,0 +1,719 @@
+{
+  "slug": "preparing-for-your-appointment",
+  "pageId": "0f1f3588-9dcd-4f32-bfce-5833895d0e70",
+  "tenantId": "ff2df806-b321-4254-b651-3af11fccf1db",
+  "capturedAt": "2026-07-04T11:16:01.714Z",
+  "canvas_design": {
+    "root": {
+      "groups": [],
+      "guides": {
+        "vertical": [],
+        "horizontal": []
+      },
+      "sections": [
+        {
+          "id": "root-section",
+          "children": [
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 600,
+                  "w": 1200,
+                  "x": 0,
+                  "y": 0,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqskjjjt-vgek1c",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Events hero",
+              "type": "hero",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-primary, #0f172a)",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 200,
+                "borderRadius": 0,
+                "paddingRight": 200,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "ctas": [
+                  {
+                    "href": "#",
+                    "label": "Explore patient resources",
+                    "variant": "tenant:primary-no-icon",
+                    "labelTypographyStyleId": "5adf6d13-1d12-4613-ac55-b4bb1345c168"
+                  }
+                ],
+                "bgType": "image",
+                "bgColor": "var(--cb-color-primary, #0f172a)",
+                "darkWash": 0.4,
+                "headline": "Preparing for your Nuclear Medicine appointment",
+                "alignment": "left",
+                "fullBleed": true,
+                "textColor": "var(--cb-color-on-primary, #ffffff)",
+                "bgImageUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1782403254623-b9wqrfb-shutterstock_2557820871.jpg",
+                "bgVideoUrl": "",
+                "subheadline": "Everything you need to know before, during and after your nuclear medicine scan or treatment.",
+                "headingLevel": 1,
+                "overlayAngle": 0,
+                "overlayStops": [
+                  {
+                    "color": "#4169e1",
+                    "opacity": 1,
+                    "position": 19
+                  },
+                  {
+                    "color": "#000000",
+                    "opacity": 0,
+                    "position": 98
+                  }
+                ],
+                "overlayStyle": "gradient",
+                "overlayToColor": "",
+                "overlayDirection": "to-right",
+                "overlayFromColor": "#0055ff",
+                "overlayToOpacity": 0,
+                "overlayFromOpacity": 1,
+                "headlineTypographyStyleId": "7c9e9a3f-4c60-4ee9-a8ec-4bd83325f7e5",
+                "subheadlineTypographyStyleId": "8e020a66-1192-4266-a566-6d02f6d78a37"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 296,
+                  "w": 900,
+                  "x": 150,
+                  "y": 880,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqskl8rn-d7dajv",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: center;\"><span style=\"font-size: 20px;\">Every nuclear medicine examination is different, so it is important to read carefully any information provided by the department carrying out your scan or treatment.</span></p><p style=\"text-align: center;\"><span style=\"font-size: 20px;\">Some procedures require special preparation, while others require very little preparation at all. Your appointment letter will explain exactly what you need to do before attending.</span></p><p style=\"text-align: center;\"><span style=\"font-size: 20px;\">If you have any questions before your appointment, please contact your Nuclear Medicine Department.</span></p>",
+                "colorRole": "default",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 950,
+                  "x": 125,
+                  "y": 784,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqskl8rn-eii577",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: center;\">Before your appointment</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 136,
+                  "w": 144,
+                  "x": 528,
+                  "y": 648,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtpcuim-fxt83i",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 50,
+                "fullBleed": false,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-alarm-clock",
+                "iconColor": "#fa8300",
+                "objectFit": "cover",
+                "heightMode": "auto",
+                "heightValue": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 1216,
+                  "w": 888,
+                  "x": 152,
+                  "y": 1320,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqv70qwi-por599",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "FAQ / Accordion",
+              "type": "accordion",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "items": [
+                  {
+                    "a": "<p><span style=\"font-size: 20px;\">Nuclear medicine examinations use a very small amount of radioactive tracer, known as a radiopharmaceutical, to provide important information about how your body is functioning.</span></p><p><span style=\"font-size: 20px;\">For most patients, the benefits of having the scan greatly outweigh the very small risks associated with radiation exposure. A doctor will have reviewed your referral to ensure the examination is appropriate for your condition.</span></p><p><span style=\"font-size: 20px;\">If you have any concerns about why you have been referred for a scan, please speak to your referring clinician or the Nuclear Medicine Department.</span></p><p></p>",
+                    "q": "Is my scan safe?"
+                  },
+                  {
+                    "a": "<p><span style=\"font-size: 20px;\">If you are pregnant, think you may be pregnant or are breastfeeding, please contact the Nuclear Medicine Department as soon as possible before your appointment.</span></p><p><span style=\"font-size: 20px;\">Special arrangements or alternative examinations may sometimes be recommended to ensure the safest care for you and your baby.</span></p>",
+                    "q": "Pregnancy and Breastfeeding"
+                  },
+                  {
+                    "a": "<p><span style=\"font-size: 20px;\">Preparation varies depending on the type of examination.</span></p><p><span style=\"font-size: 20px;\">Some scans may require you to:</span></p><ul><li><p><span style=\"font-size: 20px;\">Avoid eating or drinking before your appointment.</span></p></li><li><p><span style=\"font-size: 20px;\">Avoid caffeine.</span></p></li><li><p><span style=\"font-size: 20px;\">Temporarily stop certain medications.</span></p></li><li><p><span style=\"font-size: 20px;\">Drink extra fluids.</span></p></li><li><p><span style=\"font-size: 20px;\">Follow other instructions provided by your department.</span></p></li></ul><p><span style=\"font-size: 20px;\">If you have not received any specific preparation instructions, you can usually eat, drink and take your normal medication as usual.</span></p><p><span style=\"font-size: 20px;\">Always follow the instructions provided by your Nuclear Medicine Department.</span></p><p></p>",
+                    "q": "Preparing for Your Scan"
+                  },
+                  {
+                    "a": "<p><span style=\"font-size: 20px;\">Most nuclear medicine examinations require a small amount of radiopharmaceutical to be administered.</span></p><p><span style=\"font-size: 20px;\">This is usually given by injection into a vein in your arm or hand, similar to having a routine blood test. Some examinations involve swallowing or inhaling the tracer instead.</span></p><p><span style=\"font-size: 20px;\">For some scans, imaging begins immediately after the tracer is given. For others, there is a waiting period while the tracer travels to the part of the body being examined. Depending on the test, this waiting time can range from a few minutes to several hours.</span></p><p><span style=\"font-size: 20px;\">If your waiting time is longer, you may be able to leave the department temporarily before returning for your scan.</span></p><p></p>",
+                    "q": "Receiving Your Radiopharmaceutical"
+                  },
+                  {
+                    "a": "<p><span style=\"font-size: 20px;\">Before your scan you may be asked to empty your bladder.</span></p><p><span style=\"font-size: 20px;\">You may also be asked to remove jewellery, belts or other metal objects from the area being examined.</span></p><p><span style=\"font-size: 20px;\">Depending on the type of examination, you may:</span></p><ul><li><p><span style=\"font-size: 20px;\">Lie comfortably on a scanning couch.</span></p></li><li><p><span style=\"font-size: 20px;\">Sit in front of the scanner.</span></p></li><li><p><span style=\"font-size: 20px;\">Have images taken immediately or after a short delay.</span></p></li></ul><p><span style=\"font-size: 20px;\">The scan itself is painless, but it is important to keep as still as possible while the images are being taken.</span></p><p><span style=\"font-size: 20px;\">A member of the Nuclear Medicine team will monitor you throughout your examination and will be available if you need any assistance.</span></p><p></p>",
+                    "q": "During your scan"
+                  },
+                  {
+                    "a": "<p><span style=\"font-size: 20px;\">Most nuclear medicine examinations are performed using a Gamma Camera.</span></p><p><span style=\"font-size: 20px;\">The camera may have one or two detector heads that move close to your body to collect images. Although the camera comes close to you, it will not touch you and you will not feel anything during the scan.</span></p><p><span style=\"font-size: 20px;\">Some examinations also include a low-dose CT scan to provide additional anatomical information and help interpret the nuclear medicine images more accurately.</span></p>",
+                    "q": "Gamma Camera Scans"
+                  },
+                  {
+                    "a": "<p><span style=\"font-size: 20px;\">During a PET scan you will lie on a comfortable couch that moves slowly through a short scanner. Unlike an MRI scanner, the PET scanner is quiet and does not produce loud noises.</span></p><p><span style=\"font-size: 20px;\">Most PET examinations also include a CT scan, which helps accurately locate any areas identified on the PET images.</span></p><p></p>",
+                    "q": "PET/CT Scans"
+                  }
+                ],
+                "itemGap": 20,
+                "expandOne": true,
+                "questionFontSize": 20
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 950,
+                  "x": 121,
+                  "y": 1208,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqv71o6e-pdwalp",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: center;\">Preparing for your visit</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 472,
+                  "w": 904,
+                  "x": 152,
+                  "y": 1880,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqv7al1k-3bdm3m",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 20px;\">Most patients feel completely well after their examination and can return to their normal daily activities unless advised otherwise by the Nuclear Medicine team.</span></p><p><span style=\"font-size: 20px;\">A small amount of radioactivity remains in your body for a short time after your scan. For some examinations you may be advised to:</span></p><ul><li><p><span style=\"font-size: 20px;\">Drink plenty of fluids to help remove the tracer more quickly.</span></p></li><li><p><span style=\"font-size: 20px;\">Minimise prolonged close contact with pregnant women, babies and young children for the remainder of the day.</span></p></li><li><p><span style=\"font-size: 20px;\">Follow any additional advice provided by your department.</span></p></li></ul><p><span style=\"font-size: 20px;\">There is no need to avoid providing essential care to children or family members unless specifically advised.</span></p><p></p>",
+                "colorRole": "default",
+                "bulletIcon": "fa-solid fa-arrow-right-long",
+                "bulletIconSize": 14,
+                "bulletIconColor": "#fa8300",
+                "bulletIconPadTop": 5,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 950,
+                  "x": 125,
+                  "y": 1784,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqv7al1k-hw17dz",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: center;\">After your scan</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 48,
+                  "w": 400,
+                  "x": 328,
+                  "y": 2608,
+                  "hidden": false
+                }
+              },
+              "id": "block-mr4rtwdy-cfw6ic",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Spacer",
+              "type": "spacer",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {},
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 48,
+                  "w": 400,
+                  "x": 424,
+                  "y": 2616,
+                  "hidden": false
+                }
+              },
+              "id": "block-mr4ruiyg-7dhats",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Spacer",
+              "type": "spacer",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {},
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 600,
+                  "w": 1200,
+                  "x": 0,
+                  "y": 4144,
+                  "hidden": false
+                }
+              },
+              "id": "block-mr4stuvj-9a7a6u",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Events hero",
+              "type": "hero",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-primary, #0f172a)",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 200,
+                "borderRadius": 0,
+                "paddingRight": 200,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "ctas": [
+                  {
+                    "href": "#",
+                    "label": "Explore patient resources",
+                    "variant": "tenant:primary-no-icon",
+                    "labelTypographyStyleId": "5adf6d13-1d12-4613-ac55-b4bb1345c168"
+                  }
+                ],
+                "bgType": "image",
+                "bgColor": "var(--cb-color-primary, #0f172a)",
+                "darkWash": 0.4,
+                "headline": "Looking for information about your scan or treatment?",
+                "alignment": "left",
+                "fullBleed": true,
+                "textColor": "var(--cb-color-on-primary, #ffffff)",
+                "bgImageUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1782403254623-b9wqrfb-shutterstock_2557820871.jpg",
+                "bgVideoUrl": "",
+                "subheadline": "The BNMS Patient Resource Directory contains patient information leaflets, educational videos, downloadable guides and other resources to help you understand your procedure and prepare for your appointment.",
+                "headingLevel": 1,
+                "overlayAngle": 0,
+                "overlayStops": [
+                  {
+                    "color": "#4169e1",
+                    "opacity": 1,
+                    "position": 19
+                  },
+                  {
+                    "color": "#000000",
+                    "opacity": 0,
+                    "position": 98
+                  }
+                ],
+                "overlayStyle": "gradient",
+                "overlayToColor": "",
+                "overlayDirection": "to-right",
+                "overlayFromColor": "#0055ff",
+                "overlayToOpacity": 0,
+                "overlayFromOpacity": 1,
+                "headlineTypographyStyleId": "7c9e9a3f-4c60-4ee9-a8ec-4bd83325f7e5",
+                "subheadlineTypographyStyleId": "8e020a66-1192-4266-a566-6d02f6d78a37"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 280,
+                  "w": 888,
+                  "x": 150,
+                  "y": 3248,
+                  "hidden": false
+                }
+              },
+              "id": "block-mr4swm4u-ypdiu5",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "FAQ / Accordion",
+              "type": "accordion",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "items": [
+                  {
+                    "a": "<p><span style=\"font-size: 20px;\">Your images will be reviewed by a specialist doctor or appropriately qualified Clinical Scientist.</span></p><p><span style=\"font-size: 20px;\">A report is sent to the healthcare professional who referred you for the examination. They will discuss your results with you and explain what they mean for your care.</span></p>",
+                    "q": "When will I receieve my results?"
+                  },
+                  {
+                    "a": "<p>Answer two.</p>",
+                    "q": "I haven't received my results, what should I do?"
+                  }
+                ],
+                "itemGap": 20,
+                "expandOne": true,
+                "questionFontSize": 20
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            }
+          ]
+        }
+      ],
+      "background": null
+    },
+    "version": 1
+  }
+}

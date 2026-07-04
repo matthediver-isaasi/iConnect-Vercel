@@ -1,0 +1,1609 @@
+{
+  "slug": "celebration-announcements",
+  "pageId": "03799918-081c-4ad4-b5b0-84b655b81f50",
+  "tenantId": "ff2df806-b321-4254-b651-3af11fccf1db",
+  "capturedAt": "2026-07-04T11:15:56.941Z",
+  "canvas_design": {
+    "root": {
+      "groups": [],
+      "guides": {
+        "vertical": [
+          {
+            "pos": 392,
+            "locked": false
+          },
+          {
+            "pos": 424,
+            "locked": false
+          },
+          {
+            "pos": 664,
+            "locked": false
+          },
+          {
+            "pos": 752,
+            "locked": false
+          }
+        ],
+        "horizontal": []
+      },
+      "sections": [
+        {
+          "id": "root-section",
+          "children": [
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 528,
+                  "w": 1200,
+                  "x": 0,
+                  "y": 1600,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqp5n4vw-oql00x",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Section 1",
+              "type": "section",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "#f8fafc",
+                "paddingTop": 24,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 24,
+                "borderRadius": 4,
+                "paddingRight": 24,
+                "paddingBottom": 24
+              },
+              "locked": false,
+              "content": {
+                "bgType": "color",
+                "maxWidth": 0,
+                "fullBleed": true,
+                "bgImageUrl": "",
+                "overlayType": "solid",
+                "overlayAngle": 180,
+                "overlayColor": "#000000",
+                "overlayOpacity": 0.4,
+                "overlayToColor": "#000000",
+                "overlayBlendMode": "normal",
+                "overlayEdgeColor": "#000000",
+                "overlayFromColor": "#000000",
+                "overlayToOpacity": 0,
+                "overlayCenterColor": "#000000",
+                "overlayEdgeOpacity": 0.6,
+                "overlayFromOpacity": 0.6,
+                "overlayCenterOpacity": 0
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 584,
+                  "w": 1200,
+                  "x": 0,
+                  "y": 496,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqp5igpt-1v51rc",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Section 1",
+              "type": "section",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "#f8fafc",
+                "paddingTop": 24,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 24,
+                "borderRadius": 4,
+                "paddingRight": 24,
+                "paddingBottom": 24
+              },
+              "locked": false,
+              "content": {
+                "bgType": "color",
+                "maxWidth": 0,
+                "fullBleed": true,
+                "bgImageUrl": "",
+                "overlayType": "solid",
+                "overlayAngle": 180,
+                "overlayColor": "#000000",
+                "overlayOpacity": 0.4,
+                "overlayToColor": "#000000",
+                "overlayBlendMode": "normal",
+                "overlayEdgeColor": "#000000",
+                "overlayFromColor": "#000000",
+                "overlayToOpacity": 0,
+                "overlayCenterColor": "#000000",
+                "overlayEdgeOpacity": 0.6,
+                "overlayFromOpacity": 0.6,
+                "overlayCenterOpacity": 0
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {
+                  "h": 1192,
+                  "y": 1496
+                },
+                "tablet": {},
+                "desktop": {
+                  "h": 1344,
+                  "w": 1200,
+                  "x": 0,
+                  "y": 784,
+                  "hidden": true
+                }
+              },
+              "id": "block-mpgsjx7c-xf5nxt",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Section",
+              "type": "section",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "#f8fafc",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "bgType": "gradient",
+                "maxWidth": 0,
+                "fullBleed": true,
+                "bgImageUrl": "",
+                "overlayType": "solid",
+                "overlayAngle": 180,
+                "overlayColor": "#000000",
+                "gradientAngle": 180,
+                "overlayOpacity": 0.4,
+                "overlayToColor": "#000000",
+                "gradientToColor": "#f2f2f2",
+                "overlayBlendMode": "normal",
+                "overlayEdgeColor": "#000000",
+                "overlayFromColor": "#000000",
+                "overlayToOpacity": 0,
+                "gradientFromColor": "#ffffff",
+                "overlayCenterColor": "#000000",
+                "overlayEdgeOpacity": 0.6,
+                "overlayFromOpacity": 0.6,
+                "overlayCenterOpacity": 0
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": true
+            },
+            {
+              "bp": {
+                "mobile": {
+                  "h": 472,
+                  "w": 368,
+                  "x": 7,
+                  "y": 1888
+                },
+                "tablet": {},
+                "desktop": {
+                  "h": 216,
+                  "w": 768,
+                  "x": 424,
+                  "y": 784,
+                  "hidden": false
+                }
+              },
+              "id": "block-mpfr72fp-txvgiw",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 20px;\">At the recent MediWales Awards Ceremony (Cardiff, 4 December 2025), Swansea Bay Nuclear Medicine was \"highly commended\" for their NHS/industry partnership to provide an efficient south west Wales mobile PET/CT service in Swansea together with InHealth, which includes shared learning opportunities for local NHS staff.</span></p><p><span style=\"font-size: 16px;\"><strong>Proposed by Prof Neil Hartman, Singleton Hospital</strong><br><strong>8.12.2025</strong></span></p>",
+                "colorRole": "default",
+                "headingAs": "",
+                "bulletIcon": "",
+                "lineHeight": 1.4,
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 390,
+                  "w": 390,
+                  "x": 0,
+                  "y": 648,
+                  "hidden": false
+                }
+              },
+              "id": "block-mpgtco33-hlw4t8",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "Nuclear Medicine Communications Journal",
+                "src": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1782053076345-g6496yn-neil_hartman_monica_martin.jpg",
+                "href": "",
+                "iconSize": 64,
+                "iconAlign": "center",
+                "iconClass": "",
+                "iconColor": "",
+                "objectFit": "cover"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {
+                  "h": 48,
+                  "w": 375,
+                  "x": 0,
+                  "y": 1512
+                },
+                "tablet": {},
+                "desktop": {
+                  "h": 50,
+                  "w": 608,
+                  "x": 424,
+                  "y": 1136,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqnwhj6g-r5v98f",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: left;\">John Buscombe Retirement</p><p style=\"text-align: right;\"></p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "lineHeight": 1,
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {
+                  "h": 472,
+                  "w": 368,
+                  "x": 7,
+                  "y": 1888
+                },
+                "tablet": {},
+                "desktop": {
+                  "h": 328,
+                  "w": 776,
+                  "x": 424,
+                  "y": 1216,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqnwhj6g-epso9m",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: left;\"><span style=\"font-size: 20px;\">Prof John Buscombe, past BNMS President, has now retired from clinical work and from his role as module lead for the MRT/Theragnostics module at the MSc/PGDip/PgCert programme. Brighton and Sussex Medical School marked his retirement last week.</span></p><p style=\"text-align: left;\"><span style=\"font-size: 20px;\">We wish him a long and happy retirement, knowing he will remain active in our community. Prof Buscombe will feature in the very first Past Presidents’ webinars on 13 January 2026, 6 pm - a wonderful way to honour his enduring contribution to nuclear medicine.</span></p><p style=\"text-align: left;\"><span style=\"font-size: 16px;\"><strong>Dedication by Prof Sabina Dizdarevic, BNMS President</strong><br><strong>27.11.2025</strong></span></p>",
+                "colorRole": "default",
+                "headingAs": "",
+                "bulletIcon": "",
+                "lineHeight": 1.4,
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 416,
+                  "w": 392,
+                  "x": 0,
+                  "y": 1136,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqnwhj6g-nat0b3",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "Nuclear Medicine Communications Journal",
+                "src": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1782053387092-c2zf0rw-john_buscombe_retirement_gi.jpeg",
+                "href": "",
+                "iconSize": 64,
+                "iconAlign": "center",
+                "iconClass": "",
+                "iconColor": "",
+                "objectFit": "cover"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {
+                  "h": 48,
+                  "w": 375,
+                  "x": 0,
+                  "y": 1512
+                },
+                "tablet": {},
+                "desktop": {
+                  "h": 56,
+                  "w": 608,
+                  "x": 424,
+                  "y": 1648,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqnwi6lm-sxwdqu",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p>Sally Barrington Retirement</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "lineHeight": 1,
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {
+                  "h": 472,
+                  "w": 368,
+                  "x": 7,
+                  "y": 1888
+                },
+                "tablet": {},
+                "desktop": {
+                  "h": 392,
+                  "w": 760,
+                  "x": 424,
+                  "y": 1712,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqnwi6lm-7uqmj4",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 20px;\">Sally Barrington has recently almost fully retired, just spending some time seeing through to completion, some of the trials she has been involved in.</span></p><p><span style=\"font-size: 20px;\">She will be a loss to her department and colleagues locally but will also be missed by a multitude of national and international colleagues, many of whom sent their good wishes for her retirement party.</span></p><p><span style=\"font-size: 20px;\">As well as her substantial academic achievements and practice-changing contributions to the use of [18F]FDG PET in lymphoma, culminating in a prestigious NIHR professorship, she will also be missed for her vast experience and clinical expertise in other aspects of nuclear medicine and PET and as a trusted senior colleague.</span></p><p></p><p><span style=\"font-size: 16px;\"><strong>Dedication by Prof Gary Cook, King's College London<br>25.06.2025</strong></span></p>",
+                "colorRole": "default",
+                "headingAs": "",
+                "bulletIcon": "",
+                "lineHeight": 1.4,
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 384,
+                  "w": 392,
+                  "x": 0,
+                  "y": 1648,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqnwi6lm-e5wv5p",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "Nuclear Medicine Communications Journal",
+                "src": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1782129156911-h6bwsi9-sally_barrington_2025.jpg",
+                "href": "",
+                "iconSize": 64,
+                "iconAlign": "center",
+                "iconClass": "",
+                "iconColor": "",
+                "objectFit": "cover"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {
+                  "h": 48,
+                  "w": 375,
+                  "x": 0,
+                  "y": 1512
+                },
+                "tablet": {},
+                "desktop": {
+                  "h": 50,
+                  "w": 608,
+                  "x": 424,
+                  "y": 2168,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqp5uyzd-odprdo",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: left;\">Sarah Allen Retirement</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "lineHeight": 1,
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {
+                  "h": 472,
+                  "w": 368,
+                  "x": 7,
+                  "y": 1888
+                },
+                "tablet": {},
+                "desktop": {
+                  "h": 352,
+                  "w": 776,
+                  "x": 424,
+                  "y": 2240,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqp5uyzd-fiywhm",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: left;\"><span style=\"color: rgb(0, 0, 0); font-size: 20px;\">Sarah Allen has been a central pillar of the Guy’s and St Thomas Nuclear Medicine Department as a physicist, and in recent years, head of department. She is now almost fully retiring, reverting back to being a physicist on a part-time basis before she fully retires.</span></p><p style=\"text-align: left;\"><span style=\"color: rgb(0, 0, 0); font-size: 20px;\">She has made significant contributions to the development of UK nuclear medicine through her roles locally and nationally through the BNMS. Her recent retirement party was attended by several other retired nuclear medicine legends as well as current colleagues and was an opportunity to celebrate her successful career and give thanks to an outstanding colleague.</span></p><p style=\"text-align: left;\"><span style=\"color: rgb(0, 0, 0); font-size: 16px;\"><strong>Dedication by Prof Gary Cook, King's College London<br>25.06.2025</strong></span></p>",
+                "colorRole": "default",
+                "headingAs": "",
+                "bulletIcon": "",
+                "lineHeight": 1.4,
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 416,
+                  "w": 392,
+                  "x": 0,
+                  "y": 2168,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqp5uyzd-xvujto",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "Nuclear Medicine Communications Journal",
+                "src": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1782129571538-7fxwhmj-sarah_allen_2025.jpg",
+                "href": "",
+                "iconSize": 64,
+                "iconAlign": "center",
+                "iconClass": "",
+                "iconColor": "",
+                "objectFit": "cover"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 520,
+                  "w": 1200,
+                  "x": 0,
+                  "y": 2632,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqp5z84m-o69koo",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Section 1",
+              "type": "section",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "#f8fafc",
+                "paddingTop": 24,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 24,
+                "borderRadius": 4,
+                "paddingRight": 24,
+                "paddingBottom": 24
+              },
+              "locked": false,
+              "content": {
+                "bgType": "color",
+                "maxWidth": 0,
+                "fullBleed": true,
+                "bgImageUrl": "",
+                "overlayType": "solid",
+                "overlayAngle": 180,
+                "overlayColor": "#000000",
+                "overlayOpacity": 0.4,
+                "overlayToColor": "#000000",
+                "overlayBlendMode": "normal",
+                "overlayEdgeColor": "#000000",
+                "overlayFromColor": "#000000",
+                "overlayToOpacity": 0,
+                "overlayCenterColor": "#000000",
+                "overlayEdgeOpacity": 0.6,
+                "overlayFromOpacity": 0.6,
+                "overlayCenterOpacity": 0
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {
+                  "h": 48,
+                  "w": 375,
+                  "x": 0,
+                  "y": 1512
+                },
+                "tablet": {},
+                "desktop": {
+                  "h": 56,
+                  "w": 608,
+                  "x": 424,
+                  "y": 2672,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqp5z84m-qexime",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p>Paul Marsden Retirement</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "lineHeight": 1,
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {
+                  "h": 472,
+                  "w": 368,
+                  "x": 7,
+                  "y": 1888
+                },
+                "tablet": {},
+                "desktop": {
+                  "h": 368,
+                  "w": 760,
+                  "x": 424,
+                  "y": 2736,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqp5z84m-mbjxgq",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"color: rgb(0, 0, 0); font-size: 20px;\">Paul Marsden, Professor of PET Physics at KCL, has played a major part in the King’s College London and Guy’s &amp; ST Thomas’ PET Centre since its inception more than 30 years ago. His research interests have been wide and cover PET methodology and applications. As well as leading a successful clinical and research physics group and supervising many PhD students over the years, he has been instrumental in the development of many aspects of PET, but especially PET/MRI. He has also been co-lead of the UK PET core lab for several years.</span></p><p><span style=\"color: rgb(0, 0, 0); font-size: 20px;\">We wish him all the best in his retirement in the knowledge that he will continue some academic endeavours before full retirement.</span></p><p><span style=\"color: rgb(0, 0, 0); font-size: 16px;\"><strong>Dedication by Prof Gary Cook, King's College London<br>25.06.2025</strong></span></p>",
+                "colorRole": "default",
+                "headingAs": "",
+                "bulletIcon": "",
+                "lineHeight": 1.4,
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 392,
+                  "w": 392,
+                  "x": 0,
+                  "y": 2672,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqp5z84m-s4vpj2",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "Nuclear Medicine Communications Journal",
+                "src": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1782129759497-e9trcms-paul_marsden.jpg",
+                "href": "",
+                "iconSize": 64,
+                "iconAlign": "center",
+                "iconClass": "",
+                "iconColor": "",
+                "objectFit": "cover"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {
+                  "h": 48,
+                  "w": 375,
+                  "x": 0,
+                  "y": 1512
+                },
+                "tablet": {},
+                "desktop": {
+                  "h": 96,
+                  "w": 776,
+                  "x": 424,
+                  "y": 3200,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqp62ncu-lxlmd9",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: left;\">Professor Alan Perkins, Past President BNMS, awarded MBE</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "lineHeight": 1,
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {
+                  "h": 472,
+                  "w": 368,
+                  "x": 7,
+                  "y": 1888
+                },
+                "tablet": {},
+                "desktop": {
+                  "h": 688,
+                  "w": 776,
+                  "x": 424,
+                  "y": 3328,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqp62ncu-ry5bf4",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: left;\"><span style=\"color: rgb(0, 0, 0); font-size: 20px;\">On behalf of Officers, Council and friends and colleagues at the BNMS we would like to congratulate Professor Alan Perkins who has been awarded an MBE in the King’s Birthday Honours in recognition of his outstanding services to patient care and clinical science.</span></p><p style=\"text-align: left;\"><span style=\"color: rgb(0, 0, 0); font-size: 20px;\">Professor Alan Perkins is a leader in the field of Medical Physics, particularly in the area of Nuclear Medicine and related drug formulation and drug targeting. He has devoted most of his working life, and a considerable commitment of his own personal time, to improving patient care through original research and the inspiration and professional leadership of fellow scientists, locally, nationally and internationally.</span></p><p style=\"text-align: left;\"></p><p style=\"text-align: left;\"><span style=\"font-size: 20px;\">Having served as BNMS Honorary Secretary, Alan then went on to become the first non-medically qualified person to have been President of the British Nuclear Medicine Society.</span></p><p style=\"text-align: left;\"><span style=\"font-size: 20px;\">His excellence has been recognised by several prizes and awards from professional bodies, most notably the 2013 British Nuclear Medicine Society, Norman Veall Medal for outstanding scientific contribution to Nuclear Medicine.</span></p><p style=\"text-align: left;\"><span style=\"font-size: 20px;\">Alan Perkins is emeritus professor of Medical Physics in Radiological Sciences at the University of Nottingham School of Medicine, an honorary fellow of the Royal College of Physicians and Fellow of the Royal College of Radiologists.</span></p><p style=\"text-align: left;\"><span style=\"color: rgb(0, 0, 0); font-size: 20px;\"><strong>23.06.2025</strong></span></p>",
+                "colorRole": "default",
+                "headingAs": "",
+                "bulletIcon": "",
+                "lineHeight": 1.4,
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 384,
+                  "w": 392,
+                  "x": 0,
+                  "y": 3200,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqp62ncu-1hlx6p",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "Nuclear Medicine Communications Journal",
+                "src": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1782129984303-jqmi43x-alan_perkins_2025.jpg",
+                "href": "",
+                "iconSize": 64,
+                "iconAlign": "center",
+                "iconClass": "",
+                "iconColor": "",
+                "objectFit": "cover"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 448,
+                  "w": 1200,
+                  "x": 0,
+                  "y": 4040,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtk2ls6-u5nmv5",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Section",
+              "type": "section",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "#edf0f3",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "bgType": "gradient",
+                "maxWidth": 0,
+                "fullBleed": true,
+                "bgImageUrl": "",
+                "overlayType": "solid",
+                "overlayAngle": 180,
+                "overlayColor": "#000000",
+                "gradientAngle": 0,
+                "gradientStops": [
+                  {
+                    "color": "#a1d5f3",
+                    "opacity": 1,
+                    "position": 0
+                  },
+                  {
+                    "color": "#1e3a8a",
+                    "opacity": 0,
+                    "position": 59
+                  }
+                ],
+                "overlayOpacity": 0.4,
+                "overlayToColor": "#000000",
+                "overlayBlendMode": "normal",
+                "overlayEdgeColor": "#000000",
+                "overlayFromColor": "#000000",
+                "overlayToOpacity": 0,
+                "overlayCenterColor": "#000000",
+                "overlayEdgeOpacity": 0.6,
+                "overlayFromOpacity": 0.6,
+                "overlayCenterOpacity": 0
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 312,
+                  "w": 1200,
+                  "x": 0,
+                  "y": 4144,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtk2ls6-xanift",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 20px;\">We invite members to help recognise colleagues who are retiring, celebrating significant career milestones or achieving notable success within nuclear medicine.</span></p><p><span style=\"font-size: 20px;\">Retirements, achievements and special contributions can be highlighted through the BNMS monthly newsletter, the BNMS website and our social media channels.</span></p><p><span style=\"font-size: 20px;\">If you would like to nominate a colleague for recognition, please complete the form below.</span></p>",
+                "colorRole": "default",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "bulletIconPadLeft": null,
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 968,
+                  "x": 0,
+                  "y": 4072,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtk2ls6-ynz6z8",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: left;\">Celebrate Our Colleagues</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 48,
+                  "w": 272,
+                  "x": 464,
+                  "y": 4384,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtk39jk-yggnhj",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Button",
+              "type": "button",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "href": "#",
+                "icon": "",
+                "size": {
+                  "fontSize": 20
+                },
+                "label": "Make a nomination",
+                "newTab": false,
+                "variant": "tenant:primary-no-icon",
+                "ariaLabel": "",
+                "sizeClass": "lg",
+                "typographyStyleId": "8e020a66-1192-4266-a566-6d02f6d78a37"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 600,
+                  "w": 1200,
+                  "x": 0,
+                  "y": 0,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtkbzyp-ax9nwx",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Events hero",
+              "type": "hero",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-primary, #0f172a)",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 200,
+                "borderRadius": 0,
+                "paddingRight": 200,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "ctas": [
+                  {
+                    "href": "#",
+                    "label": "Nominate",
+                    "width": 250,
+                    "height": 59,
+                    "variant": "tenant:primary-no-icon",
+                    "iconSize": 30,
+                    "labelTypographyStyleId": "5adf6d13-1d12-4613-ac55-b4bb1345c168"
+                  }
+                ],
+                "bgType": "image",
+                "bgColor": "var(--cb-color-primary, #0f172a)",
+                "darkWash": 0.4,
+                "headline": "Celebrating Our Colleagues",
+                "alignment": "left",
+                "fullBleed": true,
+                "textColor": "var(--cb-color-on-primary, #ffffff)",
+                "bgImageUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1782479847865-wo4ldi7-1781524997230-1i058lm-Cake_cutting_image.jpg",
+                "bgVideoUrl": "",
+                "subheadline": "Recognising the achievements, contributions and careers of colleagues across the nuclear medicine community.",
+                "bgFocalPoint": {
+                  "x": 55,
+                  "y": 98
+                },
+                "headingLevel": 1,
+                "overlayAngle": 0,
+                "overlayStops": [
+                  {
+                    "color": "#4169e1",
+                    "opacity": 1,
+                    "position": 19
+                  },
+                  {
+                    "color": "#000000",
+                    "opacity": 0,
+                    "position": 98
+                  }
+                ],
+                "overlayStyle": "gradient",
+                "overlayToColor": "",
+                "overlayDirection": "to-right",
+                "overlayFromColor": "#0055ff",
+                "overlayToOpacity": 0,
+                "overlayFromOpacity": 1,
+                "headlineTypographyStyleId": "7c9e9a3f-4c60-4ee9-a8ec-4bd83325f7e5",
+                "subheadlineTypographyStyleId": "8e020a66-1192-4266-a566-6d02f6d78a37"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {
+                  "h": 48,
+                  "w": 375,
+                  "x": 0,
+                  "y": 1512
+                },
+                "tablet": {},
+                "desktop": {
+                  "h": 112,
+                  "w": 768,
+                  "x": 424,
+                  "y": 648,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtl26ks-c1y2ii",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p>Monica Martins, Neil Hartman &amp; Ralph Toop</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "lineHeight": 1,
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            }
+          ]
+        }
+      ],
+      "background": null
+    },
+    "version": 1
+  }
+}

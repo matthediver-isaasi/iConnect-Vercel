@@ -47,3 +47,4 @@
 - [Guest-rendering an auth-only page](guest-public-admin-page.md) — 4 moves: guest endpoint + gate every auth query (watch TDZ) + render-gate admin affordances + loading gate on authResolved to stop "Not Found" flash.
 - [Member inbox unread count](member-inbox-unread-count.md) — inbox "messages" are campaign recipients + sparse state table (no row = unread); badge count is delivered−archived−readNonArchived arithmetic; opening auto-reads so invalidate with exact keys or the body query loops.
 - [Canvas spacing rhythm source of truth](canvas-spacing-rhythm.md) — canonical spacing lives in provision-canvas-page-from-doc.mjs constants, NOT the named "reference" pages (2 of 3 are drifted); reusable analysis in scripts/lib/canvasSpacing.mjs.
+- [Canvas spacing normalize reflow](canvas-spacing-normalize-reflow.md) — normalizing abs-positioned pages = cluster-preserving y-reflow; colour-band re-fit MUST be cluster-based (not per-block) or it never reaches a fixed point.

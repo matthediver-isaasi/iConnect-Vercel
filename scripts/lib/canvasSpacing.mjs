@@ -537,3 +537,239 @@ function rowGap(prevRole, role) {
   if (role === 'h2' || role === 'h3') return TARGET.SECTION_GAP;
   return TARGET.SECTION_GAP;
 }
+
+// ---------------------------------------------------------------------------
+// FULL normalization — used by the "apply" task (scripts/apply-canvas-spacing.mjs).
+//
+// Canvas blocks are absolutely positioned, so vertical rhythm (inter-section
+// gaps, hero height, colour-band box) can ONLY be normalized by re-flowing the
+// desktop `y` (and hero/band heights). Doing that naively would wreck the
+// bespoke internal layout of the hand-built pages (two-column groups, card
+// grids, icon+heading+divider+body stacks, and even intentional/messy
+// overlaps). This function therefore uses a CLUSTER-PRESERVING reflow:
+//
+//   1. It applies the same safe deterministic snaps as normalizeDesign()
+//      (content-column x/w, hero horizontal padding, band padding, divider
+//      thickness).
+//   2. It groups the remaining (non-band) blocks into vertical "clusters" by
+//      proximity — any vertical gap larger than CLUSTER_GAP_THRESHOLD starts a
+//      new cluster. A cluster is moved as a RIGID UNIT: every member keeps its
+//      exact offset relative to the cluster top, so a cluster's internal layout
+//      (including overlaps) is byte-for-byte preserved.
+//   3. It re-stacks clusters top-to-bottom with the canonical gaps (48 around
+//      heroes, 56 between sections), snaps the opening/closing hero heights to
+//      the target, and re-fits each colour band around the clusters that
+//      originally sat inside it (56px inner padding top & bottom).
+//
+// Guarantees: block copy/content/ids/types and their ARRAY ORDER are never
+// touched. Only bp.desktop.{x,y,w,h}, hero/band heights, a small set of style
+// paddings and divider thickness change. Deterministic and idempotent (a second
+// pass produces no further changes). Returns { design, changes }.
+// ---------------------------------------------------------------------------
+
+// Vertical gap (px) beyond which two consecutive blocks belong to different
+// clusters. Below this they are treated as one tightly-coupled unit and moved
+// together. Chosen above the largest intra-cluster gap in the provisioning
+// layout (icon→h3 = 12, divider→body = 20, card-row→card-row = 24) and below
+// the smallest inter-section gap (48/56).
+const CLUSTER_GAP_THRESHOLD = 40;
+const BAND_INNER_PAD = 56; // colour-band inner padding, top & bottom
+
+function deskOf(block) {
+  return block && block.bp && block.bp.desktop ? block.bp.desktop : null;
+}
+
+function isFlowVisible(block) {
+  const d = deskOf(block);
+  return !!d && !d.hidden && (num(d.h) ?? 0) > 0;
+}
+
+export function normalizeDesignFull(design) {
+  // Step 1: safe deterministic knobs + content-column x/w (shared with report).
+  const { design: clone, changes } = normalizeDesign(design);
+  const record = (blockId, field, from, to) => {
+    if (from === to) return;
+    changes.push({ blockId, field, from, to });
+  };
+  const sections = clone?.root?.sections || [];
+  for (const section of sections) {
+    reflowSectionVertical(section.children || [], record);
+  }
+  return { design: clone, changes };
+}
+
+function reflowSectionVertical(children, record) {
+  const bands = children.filter((b) => b.type === 'section' && isFlowVisible(b));
+  const bandIds = new Set(bands.map((b) => b.id));
+
+  // Snapshot ORIGINAL geometry before any mutation (band re-fit maps off this).
+  const orig = new Map();
+  for (const b of children) {
+    const d = deskOf(b);
+    if (d) orig.set(b.id, { y: num(d.y) ?? 0, h: num(d.h) ?? 0 });
+  }
+
+  const flow = children
+    .filter((b) => !bandIds.has(b.id) && isFlowVisible(b))
+    .sort((a, b) => (orig.get(a.id).y - orig.get(b.id).y) || ((deskOf(a).x ?? 0) - (deskOf(b).x ?? 0)));
+  if (!flow.length) return;
+
+  // Opening / closing hero identification (for height snap).
+  const heroes = flow.filter((b) => b.type === 'hero');
+  const openingHeroId = heroes.length ? heroes[0].id : null;
+  const closingHeroId = heroes.length > 1 ? heroes[heroes.length - 1].id : null;
+  const effectiveH = (b) => {
+    const oh = orig.get(b.id).h;
+    if (b.id === openingHeroId) return TARGET.HERO_OPEN_H;
+    if (b.id === closingHeroId) return TARGET.HERO_CLOSE_H;
+    return oh;
+  };
+
+  // Group into clusters by vertical proximity (rigid units).
+  const clusters = [];
+  let cur = null;
+  let curBottom = -Infinity;
+  for (const b of flow) {
+    const oy = orig.get(b.id).y;
+    const ob = oy + effectiveH(b);
+    if (!cur || oy - curBottom > CLUSTER_GAP_THRESHOLD) {
+      cur = { top: oy, items: [] };
+      clusters.push(cur);
+      curBottom = ob;
+    } else {
+      curBottom = Math.max(curBottom, ob);
+    }
+    cur.items.push(b);
+    cur.top = Math.min(cur.top, oy);
+  }
+
+  const clusterHasHero = (c) => c.items.some((b) => b.type === 'hero');
+
+  // Re-stack clusters top-to-bottom with canonical gaps.
+  const placed = new Map(); // blockId -> { newY, h }
+  let cursor = 0;
+  clusters.forEach((c, i) => {
+    let top;
+    if (i === 0) {
+      top = 0;
+    } else {
+      const prev = clusters[i - 1];
+      const gap = clusterHasHero(prev) || clusterHasHero(c)
+        ? TARGET.GAP_AFTER_HERO
+        : TARGET.SECTION_GAP;
+      top = cursor + gap;
+    }
+    let clusterHeight = 0;
+    let origBottom = -Infinity;
+    for (const b of c.items) {
+      const offset = orig.get(b.id).y - c.top;
+      const h = effectiveH(b);
+      const newY = top + offset;
+      placed.set(b.id, { newY, h });
+      clusterHeight = Math.max(clusterHeight, offset + h);
+      origBottom = Math.max(origBottom, orig.get(b.id).y + h);
+    }
+    c.origTop = c.top;
+    c.origBottom = origBottom;
+    c.newTop = top;
+    c.newBottom = top + clusterHeight;
+    cursor = top + clusterHeight;
+  });
+
+  // Apply the reflow: mutate desktop.y and hero heights; record deltas.
+  for (const b of flow) {
+    const d = b.bp.desktop;
+    const p = placed.get(b.id);
+    if (!p) continue;
+    if (num(d.y) !== p.newY) { record(b.id, 'desktop.y', num(d.y), p.newY); d.y = p.newY; }
+    if ((b.id === openingHeroId || b.id === closingHeroId) && num(d.h) !== p.h) {
+      record(b.id, 'desktop.h', num(d.h), p.h); d.h = p.h;
+    }
+  }
+
+  // Re-fit each colour band around the CLUSTERS that originally sat inside it,
+  // then wrap them with 56px inner padding. Assigning whole clusters (not
+  // individual blocks) is what makes the re-fit idempotent: cluster membership
+  // is stable across passes (intra-cluster gaps are preserved and inter-cluster
+  // gaps become 48/56, so the same clusters re-form), and a cluster whose
+  // vertical midpoint sits inside the band box on pass 1 still does on pass 2
+  // (the refit box wraps it with equal padding on both sides). This also keeps
+  // an overlapping neighbour that clustered WITH the band content travelling
+  // with the band, instead of flip-flopping in and out of the set.
+  for (const band of bands) {
+    const bTop = orig.get(band.id).y;
+    const bBottom = bTop + orig.get(band.id).h;
+    const inside = clusters.filter((c) => {
+      const mid = (c.origTop + c.origBottom) / 2;
+      return mid > bTop && mid < bBottom;
+    });
+    if (!inside.length) continue;
+    let minY = Infinity;
+    let maxBottom = -Infinity;
+    for (const c of inside) {
+      minY = Math.min(minY, c.newTop);
+      maxBottom = Math.max(maxBottom, c.newBottom);
+    }
+    const newTop = minY - BAND_INNER_PAD;
+    const newH = (maxBottom + BAND_INNER_PAD) - newTop;
+    const d = band.bp.desktop;
+    if (num(d.y) !== newTop) { record(band.id, 'desktop.y', num(d.y), newTop); d.y = newTop; }
+    if (num(d.h) !== newH) { record(band.id, 'desktop.h', num(d.h), newH); d.h = newH; }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Content-preservation verifier. Deep-compares two designs after stripping the
+// fields the normalizer is allowed to change (desktop x/y/w/h, style paddings,
+// divider thickness). Any other difference — block copy, content, ids, types,
+// names, a11y, ordering, tablet/mobile geometry — is reported as a violation.
+// Returns { ok, diffs }.
+// ---------------------------------------------------------------------------
+const VOLATILE_STYLE_KEYS = ['paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft'];
+
+function stripVolatile(design) {
+  const clone = JSON.parse(JSON.stringify(design ?? null));
+  const sections = clone?.root?.sections || [];
+  for (const s of sections) {
+    for (const b of s.children || []) {
+      if (b.bp && b.bp.desktop) {
+        for (const k of ['x', 'y', 'w', 'h']) delete b.bp.desktop[k];
+      }
+      if (b.style) for (const k of VOLATILE_STYLE_KEYS) delete b.style[k];
+      if (b.type === 'divider' && b.content && 'thickness' in b.content) delete b.content.thickness;
+    }
+  }
+  return clone;
+}
+
+export function verifyContentPreserved(before, after) {
+  const diffs = [];
+  const secBefore = before?.root?.sections || [];
+  const secAfter = after?.root?.sections || [];
+  if (secBefore.length !== secAfter.length) {
+    diffs.push(`section count changed: ${secBefore.length} -> ${secAfter.length}`);
+  }
+  const n = Math.min(secBefore.length, secAfter.length);
+  for (let i = 0; i < n; i++) {
+    const cb = secBefore[i].children || [];
+    const ca = secAfter[i].children || [];
+    if (cb.length !== ca.length) {
+      diffs.push(`section[${i}] block count changed: ${cb.length} -> ${ca.length}`);
+    }
+    const m = Math.min(cb.length, ca.length);
+    for (let j = 0; j < m; j++) {
+      if (cb[j].id !== ca[j].id) {
+        diffs.push(`section[${i}] block[${j}] id/order changed: ${cb[j].id} -> ${ca[j].id}`);
+      }
+      if (cb[j].type !== ca[j].type) {
+        diffs.push(`block ${cb[j].id} type changed: ${cb[j].type} -> ${ca[j].type}`);
+      }
+    }
+  }
+  const sb = JSON.stringify(stripVolatile(before));
+  const sa = JSON.stringify(stripVolatile(after));
+  if (sb !== sa) {
+    diffs.push('non-geometry content differs after stripping allowed geometry/padding fields');
+  }
+  return { ok: diffs.length === 0, diffs };
+}
