@@ -47,13 +47,13 @@ export const LINK_FIELD_SPECS = {
   [BLOCK_TYPES.HERO]: [{ array: 'ctas', field: 'href', label: 'Hero CTA', imageSrcContentField: 'bgImageUrl' }],
   [BLOCK_TYPES.IMAGE]: [{ field: 'href', label: 'Image link', imageSrcField: 'src', imageAltField: 'alt' }],
   [BLOCK_TYPES.BUTTON]: [{ field: 'href', label: 'Button' }],
-  [BLOCK_TYPES.CARD]: [{ field: 'ctaHref', label: 'Card CTA' }],
+  [BLOCK_TYPES.CARD]: [{ field: 'ctaHref', label: 'Card CTA', imageSrcField: 'imageUrl', imageAltField: 'imageAlt' }],
   [BLOCK_TYPES.LOGO_STRIP]: [{ array: 'logos', field: 'href', label: 'Logo / grid item', imageSrcField: 'src', imageAltField: 'alt' }],
   [BLOCK_TYPES.PRICING_TABLE]: [{ array: 'tiers', field: 'ctaHref', label: 'Pricing CTA' }],
   [BLOCK_TYPES.SPEAKER_CAROUSEL]: [{ field: 'ctaHref', label: 'Speaker "see all"' }],
   [BLOCK_TYPES.SPONSOR_GRID]: [{ field: 'emptyCatCtaHref', label: 'Sponsor empty-category link' }],
   [BLOCK_TYPES.SPONSOR_CAROUSEL]: [{ field: 'emptyCatCtaHref', label: 'Sponsor empty-category link' }],
-  [BLOCK_TYPES.HERO_CAROUSEL]: [{ array: 'slides', field: 'ctaLink', label: 'Hero carousel CTA' }],
+  [BLOCK_TYPES.HERO_CAROUSEL]: [{ array: 'slides', field: 'ctaLink', label: 'Hero carousel CTA', imageSrcField: 'backgroundImage' }],
   [BLOCK_TYPES.ACCORDION]: [
     {
       extract: (content) => {
