@@ -47,12 +47,12 @@ waitForPort = 5000
 name = "test"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "npx tsx --test client/src/lib/roleAccessMap.test.ts client/src/components/help/HelpArticleContent.test.jsx"
-
 [workflows.workflow.metadata]
 outputType = "console"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npx tsx --test client/src/lib/roleAccessMap.test.ts client/src/components/help/HelpArticleContent.test.jsx api/_lib/helpArticleChunker.test.mjs"
 
 [userenv]
 

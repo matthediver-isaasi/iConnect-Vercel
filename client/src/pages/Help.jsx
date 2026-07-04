@@ -1,18 +1,65 @@
 import React, { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { base44 } from "@/api/base44Client";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { base44, getActiveTenantId } from "@/api/base44Client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { BookOpen, ChevronRight, LifeBuoy, Search } from "lucide-react";
+import {
+  BookOpen,
+  ChevronRight,
+  LifeBuoy,
+  Search,
+  Sparkles,
+  Loader2,
+  ArrowRight,
+} from "lucide-react";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 const UNCATEGORISED = "General";
 
+async function askHelp(question) {
+  const tenantId = getActiveTenantId();
+  const res = await fetch("/api/help/ask", {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+      ...(tenantId ? { "X-Tenant-Id": tenantId } : {}),
+    },
+    body: JSON.stringify({ question }),
+  });
+  if (!res.ok) {
+    let message = "We couldn't answer that right now. Please try again.";
+    try {
+      const body = await res.json();
+      if (body?.error) message = body.error;
+    } catch {
+      // keep default
+    }
+    throw new Error(message);
+  }
+  return res.json();
+}
+
 export default function Help() {
   const [search, setSearch] = useState("");
+  const [question, setQuestion] = useState("");
   const { isFeatureExcluded } = useMemberAccess();
+
+  const askMutation = useMutation({
+    mutationFn: askHelp,
+  });
+
+  const handleAsk = (e) => {
+    e.preventDefault();
+    const q = question.trim();
+    if (q.length < 3 || askMutation.isPending) return;
+    askMutation.mutate(q);
+  };
+
+  const answer = askMutation.data;
 
   const { data: articles, isLoading, isError } = useQuery({
     queryKey: ["/help-articles", "published"],
@@ -67,6 +114,80 @@ export default function Help() {
           </p>
         </div>
       </div>
+
+      <Card className="mb-8">
+        <CardContent className="pt-6">
+          <div className="mb-3 flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-primary" />
+            <h2 className="text-sm font-semibold">Ask a question</h2>
+          </div>
+          <form onSubmit={handleAsk} className="flex flex-wrap items-center gap-2">
+            <Input
+              type="text"
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              placeholder="e.g. How do I book an event?"
+              className="min-w-0 flex-1"
+              data-testid="input-help-ask"
+            />
+            <Button
+              type="submit"
+              disabled={question.trim().length < 3 || askMutation.isPending}
+              data-testid="button-help-ask"
+            >
+              {askMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <ArrowRight className="h-4 w-4" />
+              )}
+              Ask
+            </Button>
+          </form>
+
+          {askMutation.isPending && (
+            <div className="mt-4 space-y-2" data-testid="help-ask-loading">
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-5/6" />
+              <Skeleton className="h-4 w-2/3" />
+            </div>
+          )}
+
+          {askMutation.isError && !askMutation.isPending && (
+            <p className="mt-4 text-sm text-muted-foreground" data-testid="help-ask-error">
+              {askMutation.error?.message ||
+                "We couldn't answer that right now. Please try again."}
+            </p>
+          )}
+
+          {answer && !askMutation.isPending && !askMutation.isError && (
+            <div className="mt-4" data-testid="help-ask-answer">
+              <p className="whitespace-pre-wrap leading-relaxed text-foreground">
+                {answer.answer}
+              </p>
+              {Array.isArray(answer.sources) && answer.sources.length > 0 && (
+                <div className="mt-4">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Sources
+                  </p>
+                  <div className="flex flex-col gap-2">
+                    {answer.sources.map((source) => (
+                      <Link
+                        key={source.slug}
+                        to={`/help/${encodeURIComponent(source.slug)}`}
+                        className="inline-flex items-center gap-2 text-sm font-medium text-primary hover-elevate rounded-md px-2 py-1 -mx-2"
+                        data-testid={`link-help-source-${source.slug}`}
+                      >
+                        <BookOpen className="h-4 w-4 shrink-0" />
+                        <span>{source.title}</span>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {!isError && (
         <div className="relative mb-8">

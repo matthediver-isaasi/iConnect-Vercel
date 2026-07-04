@@ -51,3 +51,4 @@
 - [Canvas card row equalization](canvas-card-row-equalization.md) — cards are autoHeight; row height = max member effective height via reflow (min-height, render-only); manual n/s grow stored as geom h + manualHeight floor, clamped up to content.
 - [Canvas layout engine shared](canvas-layout-engine-shared.md) — doc→Canvas builder extracted to api/_lib/canvasLayoutEngine.js; script+endpoint import it, don't re-fork; cleanupDesign in canvasSpacing.mjs.
 - [Help Center RBAC gating](help-center-rbac.md) — /Help articles gated presentation-only by required_feature + {{feature: KEY}} section markers using canonical roleAccessMap keys; content in scripts/seed-help-articles.mjs.
+- [Help AI Q&A retrieval boundary](help-ai-qa-retrieval-boundary.md) — AI help answers use retrieval AS security: per-chunk feature_gates must mirror the HelpArticleContent DSL exactly, resolved server-side, fail-closed; backfill/embeddings need OpenAI key (Vercel/CI only).

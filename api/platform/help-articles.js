@@ -1,5 +1,30 @@
 import { supabase } from '../_lib/database.js';
 import { getSessionPlatformOwner } from '../_lib/platformSession.js';
+import {
+  reindexArticle,
+  getDefaultOpenAIClient,
+} from '../_lib/helpArticleIndexer.js';
+
+// Best-effort re-index of the AI Q&A chunks for an article after a save.
+// Never fails the save: a missing OpenAI key or transient embedding error just
+// leaves the search index stale (the nightly/backfill script reconciles it).
+async function reindexArticleSafe(article) {
+  try {
+    if (!article?.id) return;
+    const openai = getDefaultOpenAIClient();
+    // Un-publishing / draft still needs indexing to REMOVE stale chunks, which
+    // requires no OpenAI call — only new/changed published chunks need a key.
+    if (article.status === 'published' && !openai) {
+      console.warn(
+        '[Platform Help Articles] Skipping re-index: no OpenAI key configured'
+      );
+      return;
+    }
+    await reindexArticle(article, { supabase, openai });
+  } catch (err) {
+    console.error('[Platform Help Articles] Re-index failed:', err.message);
+  }
+}
 
 // Platform-owner CRUD for Help Center articles (Task #2199).
 // Content is GLOBAL (shared across all tenants). Only the platform owner may
@@ -100,6 +125,7 @@ export default async function handler(req, res) {
         }
         throw error;
       }
+      await reindexArticleSafe(data);
       return res.status(201).json(data);
     }
 
@@ -129,6 +155,7 @@ export default async function handler(req, res) {
         }
         throw error;
       }
+      await reindexArticleSafe(data);
       return res.status(200).json(data);
     }
 
