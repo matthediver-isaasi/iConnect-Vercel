@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasFeatureAccess } from '../_lib/tenantContext.js';
 import { sendEmail } from '../_lib/emailService.js';
+import { buildInboxDelivery } from '../_lib/transactionalInbox.js';
 import { getAccountingProvider } from '../_lib/accountingProvider.js';
 import { sendConfirmationEmailsFromTemplate } from '../_lib/eventConfirmationEmail.js';
 import { cancelZoomRegistrant, registerZoomWebinarAttendee, resolveEventZoomWebinar } from '../_lib/zoomClient.js';
@@ -402,11 +403,17 @@ async function sendTransferNotificationEmails({ request, booking, targetMember, 
       try {
         console.log(`[TransferEmail] Sending cancellation notification to original attendee: ${originalAttendeeEmail}`);
         const html = buildCancellationEmail(originalAttendeeName, eventName, bookingRef);
+        const inboxDelivery = await buildInboxDelivery({
+          tenantId,
+          email: originalAttendeeEmail,
+          labelKey: 'events',
+        });
         const result = await sendEmail({
           to: originalAttendeeEmail,
           subject: `Booking Cancellation Confirmed — ${eventName}`,
           html,
           tenantId,
+          inboxDelivery,
         });
         if (result?.success) {
           console.log(`[TransferEmail] Sent cancellation notification to original attendee: ${originalAttendeeEmail}`);
@@ -437,11 +444,18 @@ async function sendTransferNotificationEmails({ request, booking, targetMember, 
         if (!sent) {
           console.log(`[TransferEmail] Sending generic confirmation email to new attendee`);
           const html = buildGenericConfirmationEmail(targetMember.first_name || 'there', eventName, bookingRef, event, zoomJoinUrl);
+          const inboxDelivery = await buildInboxDelivery({
+            tenantId,
+            memberId: targetMember.id || null,
+            email: targetMember.email,
+            labelKey: 'events',
+          });
           const result = await sendEmail({
             to: targetMember.email,
             subject: `Event Registration Confirmation — ${eventName}`,
             html,
             tenantId,
+            inboxDelivery,
           });
           if (result?.success) {
             console.log(`[TransferEmail] Sent generic confirmation to new attendee: ${targetMember.email}`);
@@ -464,11 +478,18 @@ async function sendTransferNotificationEmails({ request, booking, targetMember, 
       try {
         console.log(`[TransferEmail] Sending rejection notification to requester: ${requester.email}`);
         const html = buildRejectionEmail(requester.first_name || 'there', eventName, bookingRef, reviewNotes);
+        const inboxDelivery = await buildInboxDelivery({
+          tenantId,
+          memberId: request.member_id || null,
+          email: requester.email,
+          labelKey: 'events',
+        });
         const result = await sendEmail({
           to: requester.email,
           subject: `Booking Transfer Request Rejected — ${eventName}`,
           html,
           tenantId,
+          inboxDelivery,
         });
         if (result?.success) {
           console.log(`[TransferEmail] Sent rejection notification to requester: ${requester.email}`);

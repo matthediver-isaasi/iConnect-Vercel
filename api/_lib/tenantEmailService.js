@@ -1,6 +1,7 @@
 import Mailgun from 'mailgun.js';
 import formData from 'form-data';
 import { supabase } from './database.js';
+import { recordTransactionalInboxMessage } from './transactionalInbox.js';
 
 const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY;
 const MAILGUN_REGION = process.env.MAILGUN_REGION || 'eu';
@@ -83,7 +84,8 @@ export async function sendTenantEmail({
   replyTo, 
   cc, 
   bcc,
-  footer 
+  footer,
+  inboxDelivery = null,
 }) {
   if (!MAILGUN_API_KEY) {
     console.error('[Tenant Email] MAILGUN_API_KEY not configured');
@@ -148,6 +150,23 @@ export async function sendTenantEmail({
     const response = await client.messages.create(domain, messageData);
 
     console.log(`[Tenant Email] Email sent successfully. Message ID: ${response.id}`);
+
+    // Opt-in inbox delivery: on a successful send, persist the final rendered
+    // HTML to the recipient member's inbox. Swallows its own errors (never
+    // throws) and must not alter sendTenantEmail's return contract.
+    if (inboxDelivery && inboxDelivery.memberId) {
+      await recordTransactionalInboxMessage({
+        tenantId,
+        memberId: inboxDelivery.memberId,
+        to,
+        subject,
+        html: finalHtml,
+        fromAddress,
+        preheader: inboxDelivery.preheader || null,
+        communicationCategoryId: inboxDelivery.communicationCategoryId || null,
+        labelKey: inboxDelivery.labelKey || null,
+      });
+    }
 
     return {
       success: true,

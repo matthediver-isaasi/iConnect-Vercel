@@ -1,5 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { sendEmail } from '../_lib/emailService.js';
+import { buildInboxDelivery } from '../_lib/transactionalInbox.js';
 
 /**
  * Sends a single 24-hour reminder to every "going" RSVP for any group event
@@ -85,11 +86,17 @@ export default async function handler(req, res) {
         ${whenStr ? `<p>When: ${whenStr}</p>` : ''}
         ${locationLine ? `<p>${locationLine}</p>` : ''}
       `;
+      const inboxDelivery = await buildInboxDelivery({
+        tenantId: ev.tenant_id,
+        email: ident.email,
+        labelKey: 'events',
+      });
       const result = await sendEmail({
         to: ident.email,
         subject: `Reminder: ${ev.title}`,
         html,
         tenantId: ev.tenant_id,
+        inboxDelivery,
       });
       if (result?.success) totalSent++;
       else console.warn('[cron/send-group-event-reminders] send failed:', result?.error);

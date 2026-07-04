@@ -1,5 +1,6 @@
 import { supabase } from './database.js';
 import { sendEmail } from './emailService.js';
+import { buildInboxDelivery } from './transactionalInbox.js';
 
 const PO_NOTIFICATION_SETTING_KEY = 'po_submission_notification_email';
 
@@ -78,11 +79,18 @@ export async function sendPoSubmissionNotification({
       </div>
     `;
 
+    const inboxDelivery = await buildInboxDelivery({
+      tenantId,
+      email: recipient,
+      labelKey: 'billing',
+    });
+
     const result = await sendEmail({
       to: recipient,
       subject,
       html,
       tenantId,
+      inboxDelivery,
     });
 
     if (!result.success) {

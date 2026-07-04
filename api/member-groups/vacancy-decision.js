@@ -19,6 +19,7 @@
 
 import { getSessionMember } from '../_lib/session.js';
 import { sendEmail, replacePlaceholders } from '../_lib/emailService.js';
+import { buildInboxDelivery } from '../_lib/transactionalInbox.js';
 import {
   getCallerGroupManageAccess,
   canManageGroup,
@@ -314,12 +315,19 @@ export default async function handler(req, res) {
   }
 
   // Send via the tenant path so the tenant footer/branding is applied.
+  const inboxDelivery = await buildInboxDelivery({
+    tenantId,
+    memberId: resolvedMember?.id || null,
+    email: toEmail,
+    labelKey: 'groups',
+  });
   const emailResult = await sendEmail({
     to: toEmail,
     subject,
     html,
     cc: ccEmail || undefined,
     tenantId,
+    inboxDelivery,
   });
 
   const deliveryStatus = emailResult?.success ? 'sent' : 'failed';

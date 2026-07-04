@@ -3,6 +3,7 @@ import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { getStripeCredentials } from '../_lib/stripeCredentials.js';
 import { getAccountingProvider, buildCreditNoteColumnUpdate } from '../_lib/accountingProvider.js';
 import { sendEmail } from '../_lib/emailService.js';
+import { buildInboxDelivery } from '../_lib/transactionalInbox.js';
 import {
   buildCancellationEmail,
   CANCELLATION_FLOW_REQUEST_APPROVED,
@@ -785,11 +786,17 @@ async function sendGroupNotificationEmails({ requests, status, tenantId, reviewN
   if (bookerEmail) {
     try {
       const { subject, html } = buildForRecipient(bookerFirstName || 'there', true);
+      const inboxDelivery = await buildInboxDelivery({
+        tenantId,
+        email: bookerEmail,
+        labelKey: 'events',
+      });
       const result = await sendEmail({
         to: bookerEmail,
         subject,
         html,
         tenantId,
+        inboxDelivery,
       });
       if (result?.success) {
         sentEmails.add(bookerEmail.toLowerCase());
@@ -806,11 +813,18 @@ async function sendGroupNotificationEmails({ requests, status, tenantId, reviewN
 
     try {
       const { subject, html } = buildForRecipient(booking.attendee_first_name || 'there', false);
+      const inboxDelivery = await buildInboxDelivery({
+        tenantId,
+        memberId: booking.member_id || null,
+        email: attendeeEmail,
+        labelKey: 'events',
+      });
       const result = await sendEmail({
         to: attendeeEmail,
         subject,
         html,
         tenantId,
+        inboxDelivery,
       });
       if (result?.success) {
         sentEmails.add(attendeeEmail.toLowerCase());

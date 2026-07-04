@@ -16,6 +16,7 @@
 
 import { getSessionMember } from '../_lib/session.js';
 import { sendEmail } from '../_lib/emailService.js';
+import { buildInboxDelivery } from '../_lib/transactionalInbox.js';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -91,6 +92,11 @@ export default async function handler(req, res) {
 
   // Send via the tenant path so the tenant footer/branding is injected.
   // sendEmail never throws — it returns { success, error }.
+  const inboxDelivery = await buildInboxDelivery({
+    tenantId: effectiveTenantId,
+    email: toEmail,
+    labelKey: 'forms',
+  });
   const emailResult = await sendEmail({
     to: toEmail,
     subject: subject.trim(),
@@ -98,6 +104,7 @@ export default async function handler(req, res) {
     cc: ccEmail || undefined,
     bcc: bccEmail || undefined,
     tenantId: effectiveTenantId,
+    inboxDelivery,
   });
 
   const deliveryStatus = emailResult?.success ? 'sent' : 'failed';

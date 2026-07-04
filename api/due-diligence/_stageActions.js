@@ -1,5 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { sendEmail } from '../_lib/emailService.js';
+import { buildInboxDelivery } from '../_lib/transactionalInbox.js';
 import { generateMemberPreferencesToken } from '../email-preferences/index.js';
 import { getTenantBaseUrl } from '../_lib/campaignService.js';
 import { resolveDdOwnerForSubmission } from '../_lib/ddOwner.js';
@@ -583,13 +584,19 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
         body = replaceDoubleBracketPlaceholders(body, doubleBracketPlaceholders);
 
         try {
+          const inboxDelivery = await buildInboxDelivery({
+            tenantId,
+            email: signer.email,
+            labelKey: 'automations',
+          });
           await sendEmail({
             to: signer.email,
             subject,
             html: body,
             from: emailTemplate.from_email,
             replyTo: emailTemplate.reply_to,
-            tenantId
+            tenantId,
+            inboxDelivery
           });
           sentCount++;
           sentSignerEmails.push(signer.email.toLowerCase());

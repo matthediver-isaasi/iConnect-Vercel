@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { supabase as defaultSupabase } from './database.js';
 import { sendTenantEmail } from './tenantEmailService.js';
+import { buildInboxDelivery } from './transactionalInbox.js';
 import { resolveTierRecipients } from './membershipRecipientResolver.js';
 
 /**
@@ -425,11 +426,17 @@ export async function sendMembershipFeeTokenEmail({
   const sentTo = [];
   const failed = [];
   for (const email of toEmails) {
+    const inboxDelivery = await buildInboxDelivery({
+      tenantId,
+      email,
+      labelKey: 'membership',
+    });
     const r = await sendTenantEmail({
       tenantId,
       to: email,
       subject: emailSubject,
       html: emailHtml,
+      inboxDelivery,
     });
     if (r.success) sentTo.push(email);
     else {

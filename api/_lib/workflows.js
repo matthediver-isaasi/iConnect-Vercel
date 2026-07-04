@@ -1,4 +1,5 @@
 import { sendEmail, replacePlaceholders } from './emailService.js';
+import { buildInboxDelivery } from './transactionalInbox.js';
 import { applyDdOwnerPlaceholders, resolveDdOwnerForSubmission } from './ddOwner.js';
 import crypto from 'crypto';
 import { supabase } from './database.js';
@@ -948,7 +949,13 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
       subject = applyDdOwnerPlaceholders(subject, ddOwnerVals);
       body = applyDdOwnerPlaceholders(body, ddOwnerVals);
 
-      const emailResult = await sendEmail({ to, subject, html: body, from: fromEmail, replyTo, cc, bcc, tenantId });
+      const inboxDelivery = await buildInboxDelivery({
+        tenantId,
+        memberId: entityType === 'member' ? entityId : null,
+        email: to,
+        labelKey: 'automations',
+      });
+      const emailResult = await sendEmail({ to, subject, html: body, from: fromEmail, replyTo, cc, bcc, tenantId, inboxDelivery });
       console.log(`[Workflows] Email result:`, JSON.stringify(emailResult));
       
       results.push({ 
@@ -1635,6 +1642,12 @@ async function executeRoleBasedEmail(action, workflow, entityType, entityId, ent
 
       console.log(`[Workflows] Role-based email: sending to ${member.email}`);
       
+      const inboxDelivery = await buildInboxDelivery({
+        tenantId,
+        memberId: member.id,
+        email: member.email,
+        labelKey: 'automations',
+      });
       const emailResult = await sendEmail({
         to: member.email,
         subject: memberSubject,
@@ -1643,7 +1656,8 @@ async function executeRoleBasedEmail(action, workflow, entityType, entityId, ent
         replyTo,
         cc,
         bcc,
-        tenantId
+        tenantId,
+        inboxDelivery
       });
       
       if (emailResult.success) {

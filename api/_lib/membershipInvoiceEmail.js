@@ -1,5 +1,6 @@
 import { supabase } from './database.js';
 import { sendTenantEmail } from './tenantEmailService.js';
+import { buildInboxDelivery } from './transactionalInbox.js';
 import { resolveTierRecipients } from './membershipRecipientResolver.js';
 import { getOrCreateInvoicePdfToken, buildInvoicePdfUrl } from './invoicePdfToken.js';
 
@@ -146,11 +147,17 @@ export async function sendMembershipInvoiceEmail({
 
     for (const toEmail of allRecipients) {
       try {
+        const inboxDelivery = await buildInboxDelivery({
+          tenantId,
+          email: toEmail,
+          labelKey: 'membership',
+        });
         const emailResult = await sendTenantEmail({
           tenantId,
           to: toEmail,
           subject,
           html: emailHtml,
+          inboxDelivery,
         });
         sendResults.push({ email: toEmail, success: emailResult.success, error: emailResult.error });
       } catch (err) {

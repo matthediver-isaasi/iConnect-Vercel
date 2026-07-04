@@ -21,6 +21,7 @@ import {
   sanitizeFileName,
 } from '../../client/src/lib/formSubmissionWordExport.js';
 import { sendEmail } from '../_lib/emailService.js';
+import { buildInboxDelivery } from '../_lib/transactionalInbox.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -325,11 +326,18 @@ export async function sendSubmitterCopyEmail({ form, submission, recipientEmail,
     <p>If you didn't request this email, you can safely ignore it.</p>
   `;
 
+  const inboxDelivery = await buildInboxDelivery({
+    tenantId,
+    email: recipientEmail,
+    labelKey: 'forms',
+  });
+
   const emailResult = await sendEmail({
     to: recipientEmail,
     subject,
     html,
     tenantId,
+    inboxDelivery,
     attachments: [{
       filename: fileName,
       data: buffer,

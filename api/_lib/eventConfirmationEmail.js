@@ -1,5 +1,6 @@
 import { supabase } from './database.js';
 import { sendEmail } from './emailService.js';
+import { buildInboxDelivery } from './transactionalInbox.js';
 import { buildIcs, buildEventUid, buildSessionUid } from './icsBuilder.js';
 import { buildQrImageUrl, ensureBookingToken, ensureComplexSessionTokens } from './checkinService.js';
 
@@ -109,6 +110,13 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
       }
     }
 
+    const inboxDelivery = await buildInboxDelivery({
+      tenantId: event.tenant_id,
+      memberId: booking?.member_id || null,
+      email: bookingData.attendee_email,
+      labelKey: 'events',
+    });
+
     for (const emailConfig of confirmationEmails) {
       try {
         const subject = replacePlaceholders(emailConfig.subject, { event, booking: bookingData, complexEventData });
@@ -122,7 +130,8 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
           html: formatBodyAsHtml(body) + qrHtml,
           cc: ccList.length > 0 ? ccList : undefined,
           tenantId: event.tenant_id,
-          attachments: icsAttachment ? [icsAttachment] : undefined
+          attachments: icsAttachment ? [icsAttachment] : undefined,
+          inboxDelivery,
         });
 
         if (emailResult.success) {

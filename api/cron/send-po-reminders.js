@@ -1,5 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { sendTenantEmail } from '../_lib/tenantEmailService.js';
+import { buildInboxDelivery } from '../_lib/transactionalInbox.js';
 import {
   computePendingPoInvoices,
   prepareReminderForInvoice,
@@ -122,11 +123,18 @@ export default async function handler(req, res) {
             continue;
           }
 
+          const inboxDelivery = await buildInboxDelivery({
+            tenantId,
+            email: prepared.recipientEmail,
+            labelKey: 'billing',
+          });
+
           const result = await sendTenantEmail({
             tenantId,
             to: prepared.recipientEmail,
             subject: prepared.subject,
             html: prepared.html,
+            inboxDelivery,
           });
 
           if (!result?.success) {

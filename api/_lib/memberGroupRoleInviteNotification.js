@@ -1,4 +1,5 @@
 import { sendEmail } from './emailService.js';
+import { buildInboxDelivery } from './transactionalInbox.js';
 
 const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
 
@@ -87,7 +88,12 @@ export async function sendRoleInviteEmail({
   });
   const subject = `Invitation: ${role} in ${groupName}`;
 
-  const result = await sendEmail({ to: toEmail, subject, html, tenantId });
+  const inboxDelivery = await buildInboxDelivery({
+    tenantId,
+    email: toEmail,
+    labelKey: 'groups',
+  });
+  const result = await sendEmail({ to: toEmail, subject, html, tenantId, inboxDelivery });
   if (!result?.success) {
     console.error('[RoleInviteNotify] Failed to email invite:', result?.error || 'unknown error');
     return { success: false, error: result?.error || 'Email failed to send' };

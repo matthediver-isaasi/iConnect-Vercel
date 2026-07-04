@@ -4,6 +4,7 @@ import { createCalendarEvent, getOutlookConnectionForIdentity } from '../../outl
 import { getZoomAccessTokenForTenant } from '../../_lib/zoomClient.js';
 import { formatInTimeZone } from 'date-fns-tz';
 import { sendEmail } from '../../_lib/emailService.js';
+import { buildInboxDelivery } from '../../_lib/transactionalInbox.js';
 
 /**
  * Build a single human-readable "how to join" block for a booking confirmation
@@ -608,13 +609,20 @@ export default async function handler(req, res) {
               body = body.replace(regex, value);
             });
 
+            const inboxDelivery = await buildInboxDelivery({
+              tenantId,
+              memberId: memberMatch?.[0]?.id || null,
+              email: attendee_email,
+              labelKey: 'events',
+            });
             await sendEmail({
               to: attendee_email,
               subject,
               html: body,
               from: confirmTemplate.from_email,
               replyTo: confirmTemplate.reply_to,
-              tenantId
+              tenantId,
+              inboxDelivery,
             });
             console.log(`[Public Booking] Confirmation email sent to ${attendee_email}`);
           }

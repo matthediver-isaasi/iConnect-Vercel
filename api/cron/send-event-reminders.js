@@ -1,5 +1,6 @@
 import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
+import { buildInboxDelivery } from '../_lib/transactionalInbox.js';
 import { fetchComplexEventData, parseCcField } from '../_lib/eventConfirmationEmail.js';
 
 export default async function handler(req, res) {
@@ -202,12 +203,20 @@ export default async function handler(req, res) {
 
         const ccList = parseCcField(eventEmail.cc);
 
+        const inboxDelivery = await buildInboxDelivery({
+          tenantId: event.tenant_id,
+          memberId: booking?.member_id || null,
+          email: scheduledEmail.attendee_email,
+          labelKey: 'events',
+        });
+
         const emailResult = await sendEmail({
           to: scheduledEmail.attendee_email,
           subject: subject,
           html: formatBodyAsHtml(body),
           cc: ccList.length > 0 ? ccList : undefined,
-          tenantId: event.tenant_id
+          tenantId: event.tenant_id,
+          inboxDelivery,
         });
 
         if (emailResult.success) {

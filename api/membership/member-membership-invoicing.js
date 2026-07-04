@@ -3,6 +3,7 @@ import { getTenantContext } from '../_lib/tenantContext.js';
 import { getAccountingProvider, buildInvoiceColumnUpdate } from '../_lib/accountingProvider.js';
 import { simulateMembershipForMember } from '../_lib/membershipSimulation.js';
 import { sendTenantEmail } from '../_lib/tenantEmailService.js';
+import { buildInboxDelivery } from '../_lib/transactionalInbox.js';
 import { resolveInvoiceAddress } from '../_lib/invoiceAddressResolver.js';
 
 export default async function handler(req, res) {
@@ -473,11 +474,19 @@ async function sendMemberInvoiceEmail({
       `;
     }
 
+    const inboxDelivery = await buildInboxDelivery({
+      tenantId,
+      memberId,
+      email: memberEmail,
+      labelKey: 'membership',
+    });
+
     await sendTenantEmail({
       tenantId,
       to: memberEmail,
       subject,
       html: body,
+      inboxDelivery,
     });
 
     console.log(`[Member Invoice Email] Sent invoice email to ${memberEmail} for ${membershipYear}`);

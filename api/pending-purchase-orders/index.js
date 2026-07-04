@@ -2,6 +2,7 @@ import { supabase } from '../_lib/database.js';
 import { getTenantContext, checkCrossOrgPermissions } from '../_lib/tenantContext.js';
 import { getAccountingProvider } from '../_lib/accountingProvider.js';
 import { sendTenantEmail } from '../_lib/tenantEmailService.js';
+import { buildInboxDelivery } from '../_lib/transactionalInbox.js';
 import {
   applyInvoicePoUpdate,
   ensurePendingPoTokenTable,
@@ -475,11 +476,17 @@ export default async function handler(req, res) {
         `;
 
           try {
+            const inboxDelivery = await buildInboxDelivery({
+              tenantId,
+              email: tokenRow.recipient_email,
+              labelKey: 'billing',
+            });
             await sendTenantEmail({
               tenantId,
               to: tokenRow.recipient_email,
               subject,
               html,
+              inboxDelivery,
             });
             console.log(`[PendingPO] Reminder (preview-confirm) sent to ${tokenRow.recipient_email} for invoice ${tokenRow.invoice_key}`);
             return res.json({ success: true, sentTo: tokenRow.recipient_email, submitUrl });
@@ -506,11 +513,17 @@ export default async function handler(req, res) {
         }
 
         try {
+          const inboxDelivery = await buildInboxDelivery({
+            tenantId,
+            email: prepared.recipientEmail,
+            labelKey: 'billing',
+          });
           await sendTenantEmail({
             tenantId,
             to: prepared.recipientEmail,
             subject: prepared.subject,
             html: prepared.html,
+            inboxDelivery,
           });
           console.log(`[PendingPO] Reminder sent to ${prepared.recipientEmail} for invoice ${recordId}`);
           return res.json({ success: true, sentTo: prepared.recipientEmail, submitUrl: prepared.submitUrl });

@@ -2,6 +2,7 @@ import { supabase } from './database.js';
 import { simulateMembershipForOrg, simulateMembershipForMember } from './membershipSimulation.js';
 import { sendTenantEmail } from './tenantEmailService.js';
 import { replacePlaceholders } from './emailService.js';
+import { buildInboxDelivery, recordTransactionalInboxMessage, resolveCommunicationCategoryIdForLabel } from './transactionalInbox.js';
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
@@ -256,6 +257,22 @@ async function processOrgConfigReminders(tenantId, config, reminders, today, res
 
       try {
         await sendTenantEmail({ tenantId, to: toAddresses, subject, html });
+        // This is a single email to multiple org recipients (each a member).
+        // Record one inbox copy per member recipient with the Membership label.
+        const orgCategoryId = await resolveCommunicationCategoryIdForLabel(tenantId, 'membership');
+        for (const rcp of recipients) {
+          if (!rcp?.id) continue;
+          await recordTransactionalInboxMessage({
+            tenantId,
+            memberId: rcp.id,
+            to: rcp.email,
+            subject,
+            html,
+            fromAddress: null,
+            communicationCategoryId: orgCategoryId,
+            labelKey: 'membership',
+          });
+        }
         await logSend({
           tenantId,
           reminderId: reminder.id,
@@ -386,7 +403,13 @@ async function processMemberConfigReminders(tenantId, config, reminders, today, 
       const { subject, html } = renderTemplate(template, 'member', data);
 
       try {
-        await sendTenantEmail({ tenantId, to: member.email, subject, html });
+        const inboxDelivery = await buildInboxDelivery({
+          tenantId,
+          memberId: member.id,
+          email: member.email,
+          labelKey: 'membership',
+        });
+        await sendTenantEmail({ tenantId, to: member.email, subject, html, inboxDelivery });
         await logSend({
           tenantId,
           reminderId: reminder.id,

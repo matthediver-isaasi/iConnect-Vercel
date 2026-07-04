@@ -23,6 +23,7 @@ import { supabase } from './database.js';
 import { getStripeCredentials } from './stripeCredentials.js';
 import { getAccountingProvider, buildCreditNoteColumnUpdate } from './accountingProvider.js';
 import { sendEmail } from './emailService.js';
+import { buildInboxDelivery } from './transactionalInbox.js';
 import {
   buildCancellationEmail,
   CANCELLATION_FLOW_EVENT_DELETED,
@@ -630,11 +631,18 @@ export async function sendEventDeletionCancellationEmail({
       organiserMessage,
     });
     try {
+      const inboxDelivery = await buildInboxDelivery({
+        tenantId,
+        memberId: isBooker ? null : (booking.member_id || null),
+        email: to,
+        labelKey: 'events',
+      });
       await sendEmail({
         to,
         subject,
         html,
         tenantId,
+        inboxDelivery,
       });
       console.log(`[EventDeleteCancel] Sent ${reason} email to ${to} | bookingId: ${booking.id}`);
     } catch (err) {
