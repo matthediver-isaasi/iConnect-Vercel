@@ -44,11 +44,11 @@ import { BLOCK_TYPES } from './canvasDesign.js';
 // A returned row is { contentPath: [...], value, label, context? }.
 // ---------------------------------------------------------------------------
 export const LINK_FIELD_SPECS = {
-  [BLOCK_TYPES.HERO]: [{ array: 'ctas', field: 'href', label: 'Hero CTA' }],
+  [BLOCK_TYPES.HERO]: [{ array: 'ctas', field: 'href', label: 'Hero CTA', imageSrcContentField: 'bgImageUrl' }],
   [BLOCK_TYPES.IMAGE]: [{ field: 'href', label: 'Image link', imageSrcField: 'src', imageAltField: 'alt' }],
   [BLOCK_TYPES.BUTTON]: [{ field: 'href', label: 'Button' }],
   [BLOCK_TYPES.CARD]: [{ field: 'ctaHref', label: 'Card CTA' }],
-  [BLOCK_TYPES.LOGO_STRIP]: [{ array: 'logos', field: 'href', label: 'Logo / grid item' }],
+  [BLOCK_TYPES.LOGO_STRIP]: [{ array: 'logos', field: 'href', label: 'Logo / grid item', imageSrcField: 'src', imageAltField: 'alt' }],
   [BLOCK_TYPES.PRICING_TABLE]: [{ array: 'tiers', field: 'ctaHref', label: 'Pricing CTA' }],
   [BLOCK_TYPES.SPEAKER_CAROUSEL]: [{ field: 'ctaHref', label: 'Speaker "see all"' }],
   [BLOCK_TYPES.SPONSOR_GRID]: [{ field: 'emptyCatCtaHref', label: 'Sponsor empty-category link' }],
@@ -307,7 +307,7 @@ export function extractCanvasLinks(design) {
       if (spec.array) {
         const arr = Array.isArray(content[spec.array]) ? content[spec.array] : [];
         arr.forEach((item, i) => {
-          rows.push({
+          const row = {
             blockId,
             sectionId,
             blockType: type,
@@ -316,7 +316,29 @@ export function extractCanvasLinks(design) {
             context: item?.label || item?.name || item?.alt || undefined,
             value: typeof item?.[spec.field] === 'string' ? item[spec.field] : '',
             path: { contentPath: [spec.array, i, spec.field] },
-          });
+          };
+          // Attach a thumbnail source when the spec declares one. An
+          // item-level image field (e.g. logo `src`) takes precedence; a
+          // block-level content field (e.g. hero `bgImageUrl`) is the
+          // fallback so every CTA row on the same block shows the shared image.
+          let imageSrc;
+          let imageAlt;
+          if (spec.imageSrcField && typeof item?.[spec.imageSrcField] === 'string' && item[spec.imageSrcField]) {
+            imageSrc = item[spec.imageSrcField];
+            if (spec.imageAltField && typeof item?.[spec.imageAltField] === 'string' && item[spec.imageAltField]) {
+              imageAlt = item[spec.imageAltField];
+            }
+          } else if (spec.imageSrcContentField && typeof content[spec.imageSrcContentField] === 'string' && content[spec.imageSrcContentField]) {
+            imageSrc = content[spec.imageSrcContentField];
+            if (spec.imageAltContentField && typeof content[spec.imageAltContentField] === 'string' && content[spec.imageAltContentField]) {
+              imageAlt = content[spec.imageAltContentField];
+            }
+          }
+          if (imageSrc) {
+            row.imageSrc = imageSrc;
+            if (imageAlt) row.imageAlt = imageAlt;
+          }
+          rows.push(row);
         });
       } else {
         const row = {
