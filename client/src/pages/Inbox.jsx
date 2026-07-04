@@ -16,6 +16,7 @@ import {
   MoreVertical,
   Pencil,
   FolderInput,
+  Loader2,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -56,7 +57,7 @@ import {
 } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/use-toast";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
-import { useInbox, fetchInboxMessageBody } from "@/hooks/useInbox";
+import { useInbox, fetchInboxMessageBody, useInboxBodyMatches } from "@/hooks/useInbox";
 
 function formatDate(value) {
   if (!value) return "";
@@ -91,6 +92,7 @@ export default function InboxPage() {
   const [selectedView, setSelectedView] = useState("inbox");
   const [selectedId, setSelectedId] = useState(null);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [isLgUp, setIsLgUp] = useState(
     typeof window !== "undefined" ? window.matchMedia("(min-width: 1024px)").matches : true
   );
@@ -102,6 +104,16 @@ export default function InboxPage() {
     mql.addEventListener("change", onChange);
     return () => mql.removeEventListener("change", onChange);
   }, []);
+
+  // Debounce the search term used for the server-side body search so we don't
+  // fire a request on every keystroke. Subject/sender filtering below stays
+  // instant off the raw `search` value.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const { matchingRecipientIds, isSearching } = useInboxBodyMatches(debouncedSearch);
 
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
   const [folderDraftName, setFolderDraftName] = useState("");
@@ -143,11 +155,16 @@ export default function InboxPage() {
 
     const q = search.trim().toLowerCase();
     if (q) {
+      const bodyMatchSet =
+        matchingRecipientIds && search.trim() === debouncedSearch.trim()
+          ? new Set(matchingRecipientIds)
+          : null;
       list = list.filter(
         (m) =>
           (m.subject || "").toLowerCase().includes(q) ||
           (m.from_name || "").toLowerCase().includes(q) ||
-          (m.name || "").toLowerCase().includes(q)
+          (m.name || "").toLowerCase().includes(q) ||
+          (bodyMatchSet ? bodyMatchSet.has(m.recipient_id) : false)
       );
     }
 
@@ -160,7 +177,7 @@ export default function InboxPage() {
       const bt = b.sent_at ? new Date(b.sent_at).getTime() : 0;
       return bt - at;
     });
-  }, [messages, selectedView, search]);
+  }, [messages, selectedView, search, debouncedSearch, matchingRecipientIds]);
 
   const unreadInboxCount = useMemo(
     () => messages.filter((m) => !m.is_archived && !m.is_read).length,
@@ -493,9 +510,15 @@ export default function InboxPage() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search messages"
-                className="pl-9"
+                className="pl-9 pr-9"
                 data-testid="input-search"
               />
+              {isSearching && (
+                <Loader2
+                  className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground animate-spin"
+                  data-testid="icon-search-loading"
+                />
+              )}
             </div>
             {/* Mobile view selector */}
             <div className="flex lg:hidden gap-2 mt-3 overflow-x-auto">

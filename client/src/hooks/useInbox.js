@@ -41,6 +41,15 @@ export async function fetchInboxMessageBody(recipientId) {
   return data.message;
 }
 
+async function fetchInboxBodyMatches(query) {
+  const res = await fetch(`${API_BASE}/search?q=${encodeURIComponent(query)}`, {
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error("Failed to search messages");
+  const data = await res.json();
+  return Array.isArray(data.recipientIds) ? data.recipientIds : [];
+}
+
 async function postAction(body) {
   const res = await fetch(API_BASE, {
     method: "POST",
@@ -130,4 +139,23 @@ export function useInboxUnreadSummary({ enabled = true } = {}) {
 
 export function useInboxUnreadCount({ enabled = true } = {}) {
   return useInboxUnreadSummary({ enabled }).unreadCount;
+}
+
+// Server-side body search: returns the set of recipient ids (this member's own
+// messages) whose rendered email body matches the query. Matching happens on the
+// server against the same plain text the reading pane shows, so no bodies are
+// fetched client-side.
+export function useInboxBodyMatches(query) {
+  const q = (query || "").trim();
+  const enabled = q.length >= 2;
+  const { data, isFetching } = useQuery({
+    queryKey: ["inbox", "search", q],
+    queryFn: () => fetchInboxBodyMatches(q),
+    enabled,
+    staleTime: 30000,
+  });
+  return {
+    matchingRecipientIds: enabled ? data || null : null,
+    isSearching: enabled && isFetching && !data,
+  };
 }
