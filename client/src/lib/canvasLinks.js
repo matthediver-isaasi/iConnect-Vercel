@@ -44,16 +44,16 @@ import { BLOCK_TYPES } from './canvasDesign.js';
 // A returned row is { contentPath: [...], value, label, context? }.
 // ---------------------------------------------------------------------------
 export const LINK_FIELD_SPECS = {
-  [BLOCK_TYPES.HERO]: [{ array: 'ctas', field: 'href', label: 'Hero CTA', imageSrcContentField: 'bgImageUrl' }],
+  [BLOCK_TYPES.HERO]: [{ array: 'ctas', field: 'href', label: 'Hero CTA', imageSrcContentField: 'bgImageUrl', buttonLabelField: 'label' }],
   [BLOCK_TYPES.IMAGE]: [{ field: 'href', label: 'Image link', imageSrcField: 'src', imageAltField: 'alt' }],
   [BLOCK_TYPES.BUTTON]: [{ field: 'href', label: 'Button' }],
-  [BLOCK_TYPES.CARD]: [{ field: 'ctaHref', label: 'Card CTA', imageSrcField: 'imageUrl', imageAltField: 'imageAlt' }],
+  [BLOCK_TYPES.CARD]: [{ field: 'ctaHref', label: 'Card CTA', imageSrcField: 'imageUrl', imageAltField: 'imageAlt', buttonLabelContentField: 'ctaLabel' }],
   [BLOCK_TYPES.LOGO_STRIP]: [{ array: 'logos', field: 'href', label: 'Logo / grid item', imageSrcField: 'src', imageAltField: 'alt' }],
-  [BLOCK_TYPES.PRICING_TABLE]: [{ array: 'tiers', field: 'ctaHref', label: 'Pricing CTA' }],
+  [BLOCK_TYPES.PRICING_TABLE]: [{ array: 'tiers', field: 'ctaHref', label: 'Pricing CTA', buttonLabelField: 'ctaLabel' }],
   [BLOCK_TYPES.SPEAKER_CAROUSEL]: [{ field: 'ctaHref', label: 'Speaker "see all"' }],
   [BLOCK_TYPES.SPONSOR_GRID]: [{ field: 'emptyCatCtaHref', label: 'Sponsor empty-category link' }],
   [BLOCK_TYPES.SPONSOR_CAROUSEL]: [{ field: 'emptyCatCtaHref', label: 'Sponsor empty-category link' }],
-  [BLOCK_TYPES.HERO_CAROUSEL]: [{ array: 'slides', field: 'ctaLink', label: 'Hero carousel CTA', imageSrcField: 'backgroundImage' }],
+  [BLOCK_TYPES.HERO_CAROUSEL]: [{ array: 'slides', field: 'ctaLink', label: 'Hero carousel CTA', imageSrcField: 'backgroundImage', buttonLabelField: 'ctaText' }],
   [BLOCK_TYPES.ACCORDION]: [
     {
       extract: (content) => {
@@ -338,6 +338,14 @@ export function extractCanvasLinks(design) {
             row.imageSrc = imageSrc;
             if (imageAlt) row.imageAlt = imageAlt;
           }
+          // Attach the CTA button's visible text (distinct from the link
+          // value/path). An item-level label field takes precedence; a
+          // block-level content field is the fallback.
+          if (spec.buttonLabelField && typeof item?.[spec.buttonLabelField] === 'string' && item[spec.buttonLabelField]) {
+            row.buttonLabel = item[spec.buttonLabelField];
+          } else if (spec.buttonLabelContentField && typeof content[spec.buttonLabelContentField] === 'string' && content[spec.buttonLabelContentField]) {
+            row.buttonLabel = content[spec.buttonLabelContentField];
+          }
           rows.push(row);
         });
       } else {
@@ -357,6 +365,12 @@ export function extractCanvasLinks(design) {
             const imageAlt = spec.imageAltField ? content[spec.imageAltField] : undefined;
             if (typeof imageAlt === 'string' && imageAlt) row.imageAlt = imageAlt;
           }
+        }
+        // Attach the CTA button's visible text (distinct from the link value).
+        if (spec.buttonLabelContentField && typeof content[spec.buttonLabelContentField] === 'string' && content[spec.buttonLabelContentField]) {
+          row.buttonLabel = content[spec.buttonLabelContentField];
+        } else if (spec.buttonLabelField && typeof content[spec.buttonLabelField] === 'string' && content[spec.buttonLabelField]) {
+          row.buttonLabel = content[spec.buttonLabelField];
         }
         rows.push(row);
       }

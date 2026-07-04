@@ -480,7 +480,8 @@ export default function CanvasLinksManager() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="w-[220px]">Link type</TableHead>
+                        <TableHead className="w-[180px]">Link type</TableHead>
+                        <TableHead className="w-[140px]">Preview</TableHead>
                         <TableHead>Current link</TableHead>
                         <TableHead className="w-[380px]">Set link</TableHead>
                       </TableRow>
@@ -493,25 +494,29 @@ export default function CanvasLinksManager() {
                         return (
                           <TableRow key={key} data-testid={`row-link-${key}`}>
                             <TableCell className="align-top">
-                              <div className="flex items-start gap-2">
-                                {row.imageSrc && (
-                                  <img
-                                    src={row.imageSrc}
-                                    alt={row.imageAlt || ""}
-                                    className="h-10 w-10 shrink-0 rounded-md object-cover border"
-                                    data-testid={`img-thumb-${key}`}
-                                    onError={(e) => { e.currentTarget.style.display = "none"; }}
-                                  />
+                              <div className="min-w-0">
+                                <div className="font-medium">{row.label}</div>
+                                {row.context && (
+                                  <div className="text-xs text-muted-foreground truncate max-w-[160px]">
+                                    {row.context}
+                                  </div>
                                 )}
-                                <div className="min-w-0">
-                                  <div className="font-medium">{row.label}</div>
-                                  {row.context && (
-                                    <div className="text-xs text-muted-foreground truncate max-w-[200px]">
-                                      {row.context}
-                                    </div>
-                                  )}
-                                </div>
                               </div>
+                            </TableCell>
+                            <TableCell className="align-top">
+                              {row.imageSrc ? (
+                                <img
+                                  src={row.imageSrc}
+                                  alt={row.imageAlt || ""}
+                                  className="h-10 w-10 shrink-0 rounded-md object-cover border"
+                                  data-testid={`img-thumb-${key}`}
+                                  onError={(e) => { e.currentTarget.style.display = "none"; }}
+                                />
+                              ) : row.buttonLabel ? (
+                                <Badge variant="secondary" className="max-w-[130px] truncate" data-testid={`badge-cta-label-${key}`}>
+                                  {row.buttonLabel}
+                                </Badge>
+                              ) : null}
                             </TableCell>
                             <TableCell className="align-top">
                               {row.value ? (
