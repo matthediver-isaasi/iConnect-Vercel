@@ -335,6 +335,21 @@ export default function CanvasLinksManager() {
     () => pages.reduce((acc, p) => acc + (p.links?.filter((l) => !l.value).length || 0), 0),
     [pages]
   );
+  // Links still needing a real destination: no value at all, or just the
+  // placeholder "#" (which reads as populated to the "empty" count above).
+  const unconfiguredLinks = useMemo(
+    () =>
+      pages.reduce(
+        (acc, p) =>
+          acc +
+          (p.links?.filter((l) => {
+            const v = typeof l.value === "string" ? l.value.trim() : "";
+            return !v || v === "#";
+          }).length || 0),
+        0
+      ),
+    [pages]
+  );
 
   // Total number of pending (staged) changes and a per-page breakdown.
   const stagedCount = useMemo(() => Object.keys(staged).length, [staged]);
@@ -388,6 +403,12 @@ export default function CanvasLinksManager() {
             <Badge variant="secondary">{pages.length} pages</Badge>
             <Badge variant="secondary">{totalLinks} links</Badge>
             <Badge variant="secondary">{emptyLinks} empty</Badge>
+            <Badge
+              variant={unconfiguredLinks > 0 ? "warning" : "secondary"}
+              data-testid="badge-unconfigured-total"
+            >
+              {unconfiguredLinks} unconfigured
+            </Badge>
             {stagedCount > 0 && (
               <Badge variant="warning" data-testid="badge-pending-total">
                 {stagedCount} pending

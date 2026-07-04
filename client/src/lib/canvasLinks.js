@@ -47,7 +47,7 @@ export const LINK_FIELD_SPECS = {
   [BLOCK_TYPES.HERO]: [{ array: 'ctas', field: 'href', label: 'Hero CTA', imageSrcContentField: 'bgImageUrl', buttonLabelField: 'label' }],
   [BLOCK_TYPES.IMAGE]: [{ field: 'href', label: 'Image link', imageSrcField: 'src', imageAltField: 'alt' }],
   [BLOCK_TYPES.BUTTON]: [{ field: 'href', label: 'Button' }],
-  [BLOCK_TYPES.CARD]: [{ field: 'ctaHref', label: 'Card CTA', imageSrcField: 'imageUrl', imageAltField: 'imageAlt', buttonLabelContentField: 'ctaLabel' }],
+  [BLOCK_TYPES.CARD]: [{ field: 'ctaHref', label: 'Card CTA', imageSrcField: 'imageUrl', imageAltField: 'imageAlt', buttonLabelContentField: 'ctaLabel', contextContentField: 'heading' }],
   [BLOCK_TYPES.LOGO_STRIP]: [{ array: 'logos', field: 'href', label: 'Logo / grid item', imageSrcField: 'src', imageAltField: 'alt' }],
   [BLOCK_TYPES.PRICING_TABLE]: [{ array: 'tiers', field: 'ctaHref', label: 'Pricing CTA', buttonLabelField: 'ctaLabel' }],
   [BLOCK_TYPES.SPEAKER_CAROUSEL]: [{ field: 'ctaHref', label: 'Speaker "see all"' }],
@@ -371,6 +371,11 @@ export function extractCanvasLinks(design) {
           row.buttonLabel = content[spec.buttonLabelContentField];
         } else if (spec.buttonLabelField && typeof content[spec.buttonLabelField] === 'string' && content[spec.buttonLabelField]) {
           row.buttonLabel = content[spec.buttonLabelField];
+        }
+        // Attach surrounding context (e.g. a Card's heading) so links that
+        // share a CTA label can be told apart.
+        if (spec.contextContentField && typeof content[spec.contextContentField] === 'string' && content[spec.contextContentField]) {
+          row.context = content[spec.contextContentField];
         }
         rows.push(row);
       }
