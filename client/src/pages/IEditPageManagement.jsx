@@ -35,6 +35,7 @@ import PageFolderSidebar from "@/components/iedit/PageFolderSidebar";
 import PageManagerItem from "@/components/iedit/PageManagerItem";
 import { Badge } from "@/components/ui/badge";
 import CanvasPageRenderer from "@/components/canvas/CanvasPageRenderer";
+import { extractSeedSwatches } from "@/lib/canvasSeedSwatches";
 
 const VIEW_MODE_KEY = "iedit-page-view-mode";
 const SORT_MAP_KEY = "iedit-page-sort-map";
@@ -171,11 +172,14 @@ export default function IEditPageManagementPage() {
   });
 
   // Canvas pages usable as a "seed" style reference in the doc-import dialog.
+  // Each carries a small set of extracted brand swatches (accent / hero / band)
+  // so an admin can tell the pages apart visually before generating.
   const canvasSeedPages = useMemo(
     () =>
       (Array.isArray(pages) ? pages : [])
         .filter((p) => p?.builder_type === 'canvas')
-        .sort((a, b) => (a.title || '').localeCompare(b.title || '')),
+        .sort((a, b) => (a.title || '').localeCompare(b.title || ''))
+        .map((p) => ({ ...p, swatches: extractSeedSwatches(p.canvas_design) })),
     [pages]
   );
 
@@ -1214,7 +1218,20 @@ export default function IEditPageManagementPage() {
                         </SelectItem>
                         {canvasSeedPages.map((p) => (
                           <SelectItem key={p.id} value={p.id} data-testid={`option-doc-seed-${p.id}`}>
-                            {p.title || 'Untitled page'}
+                            <span className="flex items-center gap-2">
+                              {p.swatches?.length > 0 && (
+                                <span className="flex shrink-0 items-center" data-testid={`swatches-doc-seed-${p.id}`}>
+                                  {p.swatches.map((color, i) => (
+                                    <span
+                                      key={i}
+                                      className="h-3.5 w-3.5 rounded-full border border-black/10 -ml-1 first:ml-0"
+                                      style={{ background: color }}
+                                    />
+                                  ))}
+                                </span>
+                              )}
+                              <span>{p.title || 'Untitled page'}</span>
+                            </span>
                           </SelectItem>
                         ))}
                       </SelectContent>
