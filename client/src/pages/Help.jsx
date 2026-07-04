@@ -1,14 +1,17 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { BookOpen, ChevronRight, LifeBuoy } from "lucide-react";
+import { BookOpen, ChevronRight, LifeBuoy, Search } from "lucide-react";
 
 const UNCATEGORISED = "General";
 
 export default function Help() {
+  const [search, setSearch] = useState("");
+
   const { data: articles, isLoading, isError } = useQuery({
     queryKey: ["/help-articles", "published"],
     queryFn: () =>
@@ -21,14 +24,28 @@ export default function Help() {
   const grouped = useMemo(() => {
     const list = Array.isArray(articles) ? [...articles] : [];
     list.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+
+    const query = search.trim().toLowerCase();
+    const filtered = query
+      ? list.filter((article) => {
+          const haystack = [article.title, article.summary, article.body]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+          return haystack.includes(query);
+        })
+      : list;
+
     const groups = new Map();
-    for (const article of list) {
+    for (const article of filtered) {
       const key = (article.category || "").trim() || UNCATEGORISED;
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(article);
     }
     return Array.from(groups.entries());
-  }, [articles]);
+  }, [articles, search]);
+
+  const isSearching = search.trim().length > 0;
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-8">
@@ -45,6 +62,20 @@ export default function Help() {
           </p>
         </div>
       </div>
+
+      {!isError && (
+        <div className="relative mb-8">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search the Help Center..."
+            className="pl-9"
+            data-testid="input-help-search"
+          />
+        </div>
+      )}
 
       {isLoading && (
         <div className="space-y-4" data-testid="help-loading">
@@ -66,7 +97,13 @@ export default function Help() {
         <Card>
           <CardContent className="flex flex-col items-center gap-2 py-12 text-center" data-testid="help-empty">
             <BookOpen className="h-8 w-8 text-muted-foreground" />
-            <p className="text-muted-foreground">No help articles are available yet.</p>
+            {isSearching ? (
+              <p className="text-muted-foreground">
+                No articles match "{search.trim()}".
+              </p>
+            ) : (
+              <p className="text-muted-foreground">No help articles are available yet.</p>
+            )}
           </CardContent>
         </Card>
       )}
