@@ -45,7 +45,7 @@ import { BLOCK_TYPES } from './canvasDesign.js';
 // ---------------------------------------------------------------------------
 export const LINK_FIELD_SPECS = {
   [BLOCK_TYPES.HERO]: [{ array: 'ctas', field: 'href', label: 'Hero CTA' }],
-  [BLOCK_TYPES.IMAGE]: [{ field: 'href', label: 'Image link' }],
+  [BLOCK_TYPES.IMAGE]: [{ field: 'href', label: 'Image link', imageSrcField: 'src', imageAltField: 'alt' }],
   [BLOCK_TYPES.BUTTON]: [{ field: 'href', label: 'Button' }],
   [BLOCK_TYPES.CARD]: [{ field: 'ctaHref', label: 'Card CTA' }],
   [BLOCK_TYPES.LOGO_STRIP]: [{ array: 'logos', field: 'href', label: 'Logo / grid item' }],
@@ -319,7 +319,7 @@ export function extractCanvasLinks(design) {
           });
         });
       } else {
-        rows.push({
+        const row = {
           blockId,
           sectionId,
           blockType: type,
@@ -327,7 +327,16 @@ export function extractCanvasLinks(design) {
           label: spec.label,
           value: typeof content[spec.field] === 'string' ? content[spec.field] : '',
           path: { contentPath: [spec.field] },
-        });
+        };
+        if (spec.imageSrcField) {
+          const imageSrc = content[spec.imageSrcField];
+          if (typeof imageSrc === 'string' && imageSrc) {
+            row.imageSrc = imageSrc;
+            const imageAlt = spec.imageAltField ? content[spec.imageAltField] : undefined;
+            if (typeof imageAlt === 'string' && imageAlt) row.imageAlt = imageAlt;
+          }
+        }
+        rows.push(row);
       }
     }
 

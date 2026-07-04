@@ -493,12 +493,25 @@ export default function CanvasLinksManager() {
                         return (
                           <TableRow key={key} data-testid={`row-link-${key}`}>
                             <TableCell className="align-top">
-                              <div className="font-medium">{row.label}</div>
-                              {row.context && (
-                                <div className="text-xs text-muted-foreground truncate max-w-[200px]">
-                                  {row.context}
+                              <div className="flex items-start gap-2">
+                                {row.imageSrc && (
+                                  <img
+                                    src={row.imageSrc}
+                                    alt={row.imageAlt || ""}
+                                    className="h-10 w-10 shrink-0 rounded-md object-cover border"
+                                    data-testid={`img-thumb-${key}`}
+                                    onError={(e) => { e.currentTarget.style.display = "none"; }}
+                                  />
+                                )}
+                                <div className="min-w-0">
+                                  <div className="font-medium">{row.label}</div>
+                                  {row.context && (
+                                    <div className="text-xs text-muted-foreground truncate max-w-[200px]">
+                                      {row.context}
+                                    </div>
+                                  )}
                                 </div>
-                              )}
+                              </div>
                             </TableCell>
                             <TableCell className="align-top">
                               {row.value ? (
