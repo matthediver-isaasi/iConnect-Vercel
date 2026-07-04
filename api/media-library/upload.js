@@ -67,12 +67,28 @@ async function parseMultipart(req) {
 
 // Phase 7 — Media library accepts image and video assets so that
 // image/hero/card blocks (images) and video blocks (mp4/webm) can both
-// reuse the same library. Type is derived from MIME on read.
+// reuse the same library. Documents (PDF/Office/text) are also accepted so
+// that link and button targets in CanvasBuilder can point to downloadable
+// files. Type is derived from MIME on read.
 const ALLOWED_IMAGE = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
 const ALLOWED_VIDEO = ['video/mp4', 'video/webm', 'video/ogg'];
-const ALLOWED = [...ALLOWED_IMAGE, ...ALLOWED_VIDEO];
+const ALLOWED_DOCUMENT = [
+  'application/pdf',
+  'application/msword', // .doc
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
+  'application/vnd.ms-excel', // .xls
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+  'application/vnd.ms-powerpoint', // .ppt
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation', // .pptx
+  'text/plain', // .txt
+  'text/csv', // .csv
+  'application/rtf', 'text/rtf', // .rtf
+  'application/vnd.oasis.opendocument.text', // .odt
+];
+const ALLOWED = [...ALLOWED_IMAGE, ...ALLOWED_VIDEO, ...ALLOWED_DOCUMENT];
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
 const MAX_VIDEO_SIZE = 100 * 1024 * 1024;
+const MAX_DOCUMENT_SIZE = 25 * 1024 * 1024;
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -95,10 +111,12 @@ export default async function handler(req, res) {
   catch { return res.status(400).json({ error: 'Invalid multipart body' }); }
   const file = parsed.file;
   if (!file) return res.status(400).json({ error: 'No file provided' });
-  if (!ALLOWED.includes(file.mimetype)) return res.status(400).json({ error: 'Unsupported file type (images and video only)' });
+  if (!ALLOWED.includes(file.mimetype)) return res.status(400).json({ error: 'Unsupported file type (images, video, and documents only)' });
   const isVideo = ALLOWED_VIDEO.includes(file.mimetype);
-  const cap = isVideo ? MAX_VIDEO_SIZE : MAX_IMAGE_SIZE;
-  if (file.size > cap) return res.status(400).json({ error: `File too large (max ${isVideo ? '100MB' : '10MB'})` });
+  const isDocument = ALLOWED_DOCUMENT.includes(file.mimetype);
+  const cap = isVideo ? MAX_VIDEO_SIZE : isDocument ? MAX_DOCUMENT_SIZE : MAX_IMAGE_SIZE;
+  const capLabel = isVideo ? '100MB' : isDocument ? '25MB' : '10MB';
+  if (file.size > cap) return res.status(400).json({ error: `File too large (max ${capLabel})` });
 
   const storageCheck = await checkStorageQuota(context.tenantId, { fileSizeBytes: file.size });
   if (!storageCheck.ok) return res.status(storageCheck.status).json(storageCheck.body);

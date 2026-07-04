@@ -3019,6 +3019,22 @@ function getAccordionLinkIcon(iconType) {
   return found ? found.icon : ExternalLink;
 }
 
+// Detect whether a media-library asset is a document (PDF / Office / text)
+// from its mime type, falling back to the URL extension when mime_type is
+// missing (URL-only assets). Shared with the media-library picker so document
+// tiles are classified consistently with accordion link icons.
+export function isDocumentAsset(asset) {
+  const m = String(asset?.mime_type || '').toLowerCase();
+  const u = String(asset?.url || '').toLowerCase();
+  if (m.startsWith('image/') || m.startsWith('video/') || m.startsWith('audio/')) return false;
+  if (m === 'application/pdf' || m === 'application/msword' || m === 'application/rtf'
+    || m === 'text/plain' || m === 'text/csv' || m === 'text/rtf'
+    || m.startsWith('application/vnd.openxmlformats-officedocument.')
+    || m === 'application/vnd.ms-excel' || m === 'application/vnd.ms-powerpoint'
+    || m === 'application/vnd.oasis.opendocument.text') return true;
+  return /\.(pdf|docx?|xlsx?|pptx?|txt|csv|rtf|odt)(\?|$)/.test(u);
+}
+
 // Suggest an accordion link icon type from a media-library asset's mime type,
 // falling back to the URL extension when mime_type is missing (URL-only
 // assets). Returns one of the ACCORDION_LINK_ICON_TYPES values.
@@ -3028,7 +3044,7 @@ function suggestAccordionLinkIcon(asset) {
   if (m.startsWith('video/') || /\.(mp4|webm|ogv|mov)(\?|$)/.test(u)) return 'video';
   if (m.startsWith('image/') || /\.(jpe?g|png|gif|webp|svg)(\?|$)/.test(u)) return 'image';
   if (m.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac)(\?|$)/.test(u)) return 'audio';
-  if (m === 'application/pdf' || /\.(pdf|docx?|xlsx?|pptx?|txt|csv|rtf|odt)(\?|$)/.test(u)) return 'document';
+  if (isDocumentAsset(asset)) return 'document';
   return 'download';
 }
 

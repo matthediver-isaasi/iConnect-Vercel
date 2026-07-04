@@ -15,9 +15,10 @@ import {
   LayoutTemplate, Component as ComponentIcon, History as HistoryIcon,
   Images as ImagesIcon, Palette, Keyboard, Command as CommandIcon,
   ExternalLink, Trash2, RotateCcw, Unlink, Plus, Search, Upload, Eye,
-  Pencil, Save as SaveIcon,
+  Pencil, Save as SaveIcon, FileText,
 } from 'lucide-react';
 import CanvasPageRenderer from './CanvasPageRenderer';
+import { isDocumentAsset } from './blocks/registry';
 import {
   createBlock, BLOCK_TYPES, getRootChildren, setRootChildren,
   normalizeCanvasDesign, createEmptyCanvasDesign,
@@ -480,9 +481,10 @@ export function VersionsDialog({ open, onOpenChange, pageId, onRestored }) {
 // Media library
 // ===========================================================================
 
-// Derive a coarse "kind" (image | video) from the MIME type so the
+// Derive a coarse "kind" (image | video | document) from the MIME type so the
 // picker can show appropriate previews and so callers (image vs video
-// block inspectors) can filter the library by what they consume.
+// block inspectors) can filter the library by what they consume. The general
+// (link-target) picker passes no `kind`, so documents surface there too.
 function mediaKind(asset) {
   const m = String(asset?.mime_type || '').toLowerCase();
   if (m.startsWith('video/')) return 'video';
@@ -490,6 +492,9 @@ function mediaKind(asset) {
   // Fall back to URL extension when mime_type is missing (URL-only assets).
   const u = String(asset?.url || '').toLowerCase();
   if (/\.(mp4|webm|ogv|mov)(\?|$)/.test(u)) return 'video';
+  // Document detection is shared with the block registry so link/button
+  // targets classify documents consistently with accordion link icons.
+  if (isDocumentAsset(asset)) return 'document';
   return 'image';
 }
 
@@ -568,7 +573,7 @@ export function MediaLibraryDialog({ open, onOpenChange, onPick, kind }) {
       if (!r.ok) await throwUploadHttpError(r, 'Upload failed');
       await r.json();
       queryClient.invalidateQueries({ queryKey: ['media-library'] });
-      toast.success('Image uploaded');
+      toast.success('File uploaded');
     } catch (e) {
       showUploadErrorToast(e, 'Upload failed');
     } finally {
@@ -582,7 +587,7 @@ export function MediaLibraryDialog({ open, onOpenChange, onPick, kind }) {
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>Media library</DialogTitle>
-          <DialogDescription>Search saved images and videos, upload new files, or register a URL.</DialogDescription>
+          <DialogDescription>Search saved images, videos and documents, upload new files, or register a URL.</DialogDescription>
         </DialogHeader>
         <StorageUsageBanner compact className="mb-1" />
         <div className="space-y-3">
@@ -592,7 +597,7 @@ export function MediaLibraryDialog({ open, onOpenChange, onPick, kind }) {
           </div>
           <div className="rounded-md border border-slate-200 p-3 space-y-3">
             <div className="space-y-2">
-              <Label>Upload image or video</Label>
+              <Label>{kind === 'video' ? 'Upload video' : kind === 'image' ? 'Upload image' : 'Upload image, video, or document'}</Label>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -600,7 +605,7 @@ export function MediaLibraryDialog({ open, onOpenChange, onPick, kind }) {
                   ? 'video/mp4,video/webm,video/ogg'
                   : kind === 'image'
                   ? 'image/jpeg,image/png,image/gif,image/webp,image/svg+xml'
-                  : 'image/jpeg,image/png,image/gif,image/webp,image/svg+xml,video/mp4,video/webm,video/ogg'}
+                  : 'image/jpeg,image/png,image/gif,image/webp,image/svg+xml,video/mp4,video/webm,video/ogg,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain,text/csv,application/rtf,application/vnd.oasis.opendocument.text'}
                 onChange={(e) => uploadFile(e.target.files?.[0])}
                 className="block w-full text-sm text-slate-700 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border file:border-slate-200 file:bg-white file:text-sm hover:file:bg-slate-50"
                 data-testid="input-media-upload"
@@ -633,7 +638,9 @@ export function MediaLibraryDialog({ open, onOpenChange, onPick, kind }) {
                   data-testid={`button-pick-media-${a.id}`}
                 >
                   <div className="aspect-video bg-slate-100 rounded overflow-hidden flex items-center justify-center relative">
-                    {a.url && k === 'video' ? (
+                    {k === 'document' ? (
+                      <FileText className="w-8 h-8 text-slate-400" />
+                    ) : a.url && k === 'video' ? (
                       <video src={a.url} className="w-full h-full object-cover" muted playsInline preload="metadata" />
                     ) : a.url ? (
                       <img src={a.url} alt={a.alt_text || a.name} className="w-full h-full object-cover" />
@@ -642,6 +649,9 @@ export function MediaLibraryDialog({ open, onOpenChange, onPick, kind }) {
                     )}
                     {k === 'video' && (
                       <span className="absolute top-1 left-1 text-[10px] uppercase tracking-wide bg-black/60 text-white rounded px-1.5 py-0.5">Video</span>
+                    )}
+                    {k === 'document' && (
+                      <span className="absolute top-1 left-1 text-[10px] uppercase tracking-wide bg-black/60 text-white rounded px-1.5 py-0.5">Doc</span>
                     )}
                   </div>
                 </button>
