@@ -3563,8 +3563,15 @@ function CardRender({ block, asEditor, priority, breakpoint }) {
     ? Number(c.headerSpacing)
     : null;
 
+  // Auto-height: the CARD registry entry sets autoHeight, so the wrapper renders
+  // at height:auto and this measured element reports its natural content height
+  // to the reflow context (pushing blocks below down instead of clipping the
+  // CTA / body). Mirrors TextRender / AccordionRender.
+  const containerRef = useReportReflowHeight(block.id);
+
   return (
     <div
+      ref={containerRef}
       className="w-full h-full flex flex-col"
       style={cardBoxShadow ? { boxShadow: cardBoxShadow, borderRadius: cardRadius } : undefined}
     >
@@ -8468,7 +8475,7 @@ const REGISTRY = {
   [BLOCK_TYPES.TESTIMONIALS]: { label: 'Testimonials',   icon: Quote,          category: 'content',  Editor: TestimonialsRender, Renderer: TestimonialsRender, Inspector: TestimonialsInspector },
   [BLOCK_TYPES.CUSTOM_HTML]:  { label: 'Custom HTML',    icon: Code2,          category: 'advanced', Editor: CustomHtmlRender,   Renderer: CustomHtmlRender,   Inspector: CustomHtmlInspector },
   [BLOCK_TYPES.ICON]:         { label: 'Icon',           icon: Star,           category: 'ui',       Editor: IconRender,         Renderer: IconRender,         Inspector: IconInspector },
-  [BLOCK_TYPES.CARD]:         { label: 'Card',           icon: LayoutGrid,     category: 'ui',       Editor: CardRender,         Renderer: CardRender,         Inspector: CardInspector, allowOverflow: true },
+  [BLOCK_TYPES.CARD]:         { label: 'Card',           icon: LayoutGrid,     category: 'ui',       Editor: CardRender,         Renderer: CardRender,         Inspector: CardInspector, allowOverflow: true, autoHeight: true, widthResizeOnly: true },
   [BLOCK_TYPES.STAT]:         { label: 'Stat',           icon: Hash,           category: 'ui',       Editor: StatRender,         Renderer: StatRender,         Inspector: StatInspector },
   [BLOCK_TYPES.LOGO_STRIP]:   { label: 'Logo strip',     icon: Images,         category: 'ui',       Editor: LogoStripRender,    Renderer: LogoStripRender,    Inspector: LogoStripInspector },
   [BLOCK_TYPES.MAP]:          { label: 'Map',            icon: MapIcon,        category: 'media',    Editor: MapRender,          Renderer: MapRender,          Inspector: MapInspector },
