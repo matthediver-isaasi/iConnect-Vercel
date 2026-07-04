@@ -12,7 +12,7 @@
 // Verified field paths (against registry.jsx / dynamicBlocks.jsx):
 //   Hero            content.ctas[].href
 //   Image           content.href
-//   Button          content.href
+//   Button          content.href                 (label: content.label)
 //   Card            content.ctaHref
 //   Logo strip      content.logos[].href
 //   Pricing table   content.tiers[].ctaHref      (array is `tiers`, not items)
@@ -20,9 +20,9 @@
 //   Mega menu       content.items[].href
 //                   content.items[].columns[].links[].href
 //                   content.items[].featuredHref
-//   Speaker carousel content.ctaHref
-//   Sponsor grid    content.emptyCatCtaHref
-//   Sponsor carousel content.emptyCatCtaHref
+//   Speaker carousel content.ctaHref             (label: content.ctaLabel)
+//   Sponsor grid    content.emptyCatCtaHref      (label: content.emptyCatCtaLabel)
+//   Sponsor carousel content.emptyCatCtaHref     (label: content.emptyCatCtaLabel)
 //   Hero carousel   content.slides[].ctaLink
 // Rich-text html fields (inline <a href> parsed out): text/columns/accordion
 //   answer/card body/testimonials/testimonial-grid/card-flip-grid/hero-carousel
@@ -53,13 +53,13 @@ import { BLOCK_TYPES } from './canvasDesign.js';
 export const LINK_FIELD_SPECS = {
   [BLOCK_TYPES.HERO]: [{ array: 'ctas', field: 'href', label: 'Hero CTA', imageSrcContentField: 'bgImageUrl', buttonLabelField: 'label' }],
   [BLOCK_TYPES.IMAGE]: [{ field: 'href', label: 'Image link', imageSrcField: 'src', imageAltField: 'alt' }],
-  [BLOCK_TYPES.BUTTON]: [{ field: 'href', label: 'Button' }],
+  [BLOCK_TYPES.BUTTON]: [{ field: 'href', label: 'Button', buttonLabelContentField: 'label' }],
   [BLOCK_TYPES.CARD]: [{ field: 'ctaHref', label: 'Card CTA', imageSrcField: 'imageUrl', imageAltField: 'imageAlt', buttonLabelContentField: 'ctaLabel', contextContentField: 'heading', enabledContentField: 'ctaEnabled' }],
   [BLOCK_TYPES.LOGO_STRIP]: [{ array: 'logos', field: 'href', label: 'Logo / grid item', imageSrcField: 'src', imageAltField: 'alt' }],
   [BLOCK_TYPES.PRICING_TABLE]: [{ array: 'tiers', field: 'ctaHref', label: 'Pricing CTA', buttonLabelField: 'ctaLabel' }],
-  [BLOCK_TYPES.SPEAKER_CAROUSEL]: [{ field: 'ctaHref', label: 'Speaker "see all"' }],
-  [BLOCK_TYPES.SPONSOR_GRID]: [{ field: 'emptyCatCtaHref', label: 'Sponsor empty-category link' }],
-  [BLOCK_TYPES.SPONSOR_CAROUSEL]: [{ field: 'emptyCatCtaHref', label: 'Sponsor empty-category link' }],
+  [BLOCK_TYPES.SPEAKER_CAROUSEL]: [{ field: 'ctaHref', label: 'Speaker "see all"', buttonLabelContentField: 'ctaLabel' }],
+  [BLOCK_TYPES.SPONSOR_GRID]: [{ field: 'emptyCatCtaHref', label: 'Sponsor empty-category link', buttonLabelContentField: 'emptyCatCtaLabel' }],
+  [BLOCK_TYPES.SPONSOR_CAROUSEL]: [{ field: 'emptyCatCtaHref', label: 'Sponsor empty-category link', buttonLabelContentField: 'emptyCatCtaLabel' }],
   [BLOCK_TYPES.HERO_CAROUSEL]: [{ array: 'slides', field: 'ctaLink', label: 'Hero carousel CTA', imageSrcField: 'backgroundImage', buttonLabelField: 'ctaText' }],
   [BLOCK_TYPES.ACCORDION]: [
     {
