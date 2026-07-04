@@ -119,6 +119,8 @@ export default function InboxPage() {
   const [folderDraftName, setFolderDraftName] = useState("");
   const [editingFolder, setEditingFolder] = useState(null);
   const [folderToDelete, setFolderToDelete] = useState(null);
+  const [draggingId, setDraggingId] = useState(null);
+  const [dragOverFolderId, setDragOverFolderId] = useState(null);
 
   const queryClient = useQueryClient();
   const { data: openMessage, isLoading: isBodyLoading } = useQuery({
@@ -145,6 +147,8 @@ export default function InboxPage() {
       list = list.filter((m) => !m.is_archived && !m.is_read);
     } else if (selectedView === "pinned") {
       list = list.filter((m) => !m.is_archived && m.is_pinned);
+    } else if (selectedView === "favourites") {
+      list = list.filter((m) => !m.is_archived && m.is_favourite);
     } else if (selectedView.startsWith("folder:")) {
       const folderId = selectedView.slice("folder:".length);
       list = list.filter((m) => !m.is_archived && m.folder_id === folderId);
@@ -189,6 +193,10 @@ export default function InboxPage() {
   );
   const archivedCount = useMemo(
     () => messages.filter((m) => m.is_archived).length,
+    [messages]
+  );
+  const favouriteCount = useMemo(
+    () => messages.filter((m) => !m.is_archived && m.is_favourite).length,
     [messages]
   );
 
@@ -281,6 +289,7 @@ export default function InboxPage() {
     { id: "unread", label: "Unread", icon: Mail, count: unreadInboxCount },
     { id: "pinned", label: "Pinned", icon: Pin, count: pinnedCount },
     { id: "archived", label: "Archived", icon: Archive, count: archivedCount },
+    { id: "favourites", label: "Favourites", icon: Star, count: favouriteCount },
   ];
 
   const renderViewButton = (view) => {
@@ -340,6 +349,15 @@ export default function InboxPage() {
             <Pin className="w-4 h-4 mr-2" /> Pin
           </>
         )}
+      </Button>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => handleAction(msg.recipient_id, msg.is_favourite ? "unfavourite" : "favourite")}
+        data-testid="button-toggle-favourite"
+      >
+        <Star className={`w-4 h-4 mr-2 ${msg.is_favourite ? "fill-current" : ""}`} />
+        {msg.is_favourite ? "Unfavourite" : "Favourite"}
       </Button>
       <Button
         size="sm"
@@ -446,23 +464,49 @@ export default function InboxPage() {
               )}
               {folders.map((folder) => {
                 const active = selectedView === `folder:${folder.id}`;
+                const isDropTarget = dragOverFolderId === folder.id;
                 return (
                   <div
                     key={folder.id}
-                    className={`group flex items-center gap-2 px-3 py-2 rounded-md text-sm hover-elevate ${
+                    onDragOver={(e) => {
+                      if (!draggingId) return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "move";
+                      if (dragOverFolderId !== folder.id) setDragOverFolderId(folder.id);
+                    }}
+                    onDragLeave={(e) => {
+                      if (e.currentTarget.contains(e.relatedTarget)) return;
+                      setDragOverFolderId((cur) => (cur === folder.id ? null : cur));
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const recipientId =
+                        e.dataTransfer.getData("text/plain") || draggingId;
+                      setDragOverFolderId(null);
+                      setDraggingId(null);
+                      if (recipientId) {
+                        handleAction(recipientId, "move", folder.id);
+                      }
+                    }}
+                    data-testid={`folder-droptarget-${folder.id}`}
+                    className={`group flex items-start gap-2 px-3 py-2 rounded-md text-sm hover-elevate ${
                       active ? "bg-accent text-accent-foreground font-medium" : ""
+                    } ${
+                      isDropTarget ? "ring-2 ring-inset ring-primary bg-accent/60" : ""
                     }`}
                   >
                     <button
                       type="button"
                       onClick={() => setSelectedView(`folder:${folder.id}`)}
                       data-testid={`folder-${folder.id}`}
-                      className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                      className="flex items-start gap-3 flex-1 min-w-0 text-left"
                     >
-                      <Folder className="w-4 h-4 shrink-0" />
-                      <span className="flex-1 truncate">{folder.name}</span>
+                      <Folder className="w-4 h-4 shrink-0 mt-0.5" />
+                      <span className="flex-1 min-w-0 break-words">{folder.name}</span>
                       {folderCounts[folder.id] > 0 && (
-                        <Badge variant="secondary">{folderCounts[folder.id]}</Badge>
+                        <Badge variant="secondary" className="mt-0.5">
+                          {folderCounts[folder.id]}
+                        </Badge>
                       )}
                     </button>
                     <DropdownMenu>
@@ -558,12 +602,22 @@ export default function InboxPage() {
                     <li key={m.recipient_id}>
                       <button
                         type="button"
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.effectAllowed = "move";
+                          e.dataTransfer.setData("text/plain", m.recipient_id);
+                          setDraggingId(m.recipient_id);
+                        }}
+                        onDragEnd={() => {
+                          setDraggingId(null);
+                          setDragOverFolderId(null);
+                        }}
                         onClick={() => setSelectedId(m.recipient_id)}
                         data-testid={`message-${m.recipient_id}`}
                         aria-current={active ? "true" : undefined}
                         className={`w-full text-left px-4 py-3 border-b border-border hover-elevate ${bgClass} ${
                           active ? "ring-2 ring-inset ring-primary" : ""
-                        }`}
+                        } ${draggingId === m.recipient_id ? "opacity-50" : ""}`}
                       >
                         <div className="flex items-center gap-2">
                           {!m.is_read && (
@@ -574,6 +628,9 @@ export default function InboxPage() {
                           )}
                           {m.is_pinned && (
                             <Pin className="w-3 h-3 text-muted-foreground shrink-0" />
+                          )}
+                          {m.is_favourite && (
+                            <Star className="w-3 h-3 text-muted-foreground fill-current shrink-0" />
                           )}
                           <span
                             className={`flex-1 truncate text-sm ${

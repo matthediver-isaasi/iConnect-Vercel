@@ -49,7 +49,7 @@ async function fetchAllStates(memberId, tenantId) {
   for (;;) {
     const { data, error } = await supabase
       .from('member_inbox_message_state')
-      .select('recipient_id, is_read, is_pinned, is_archived, folder_id, read_at')
+      .select('recipient_id, is_read, is_pinned, is_archived, is_favourite, folder_id, read_at')
       .eq('tenant_id', tenantId)
       .eq('member_id', memberId)
       .range(from, from + pageSize - 1);
@@ -78,12 +78,13 @@ function toMessage(r, state) {
     is_read: state ? !!state.is_read : false,
     is_pinned: state ? !!state.is_pinned : false,
     is_archived: state ? !!state.is_archived : false,
+    is_favourite: state ? !!state.is_favourite : false,
     folder_id: state ? state.folder_id || null : null,
     read_at: state ? state.read_at || null : null,
   };
 }
 
-const ACTIONS = new Set(['read', 'unread', 'pin', 'unpin', 'archive', 'unarchive', 'move']);
+const ACTIONS = new Set(['read', 'unread', 'pin', 'unpin', 'archive', 'unarchive', 'favourite', 'unfavourite', 'move']);
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -180,6 +181,12 @@ export default async function handler(req, res) {
         case 'unarchive':
           patch.is_archived = false;
           break;
+        case 'favourite':
+          patch.is_favourite = true;
+          break;
+        case 'unfavourite':
+          patch.is_favourite = false;
+          break;
         case 'move': {
           if (folder_id) {
             const { data: folder } = await supabase
@@ -214,7 +221,7 @@ export default async function handler(req, res) {
           },
           { onConflict: 'member_id,recipient_id' }
         )
-        .select('recipient_id, is_read, is_pinned, is_archived, folder_id, read_at')
+        .select('recipient_id, is_read, is_pinned, is_archived, is_favourite, folder_id, read_at')
         .single();
       if (upErr) {
         console.error('[Inbox] state upsert error:', upErr);
