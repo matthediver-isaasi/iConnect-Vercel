@@ -45,3 +45,4 @@
 - [member_group_assignment has no join timestamp](member-group-assignment-no-timestamp.md) — table has no created/joined column; activity "joined" backfills must use now(), true historical dates unrecoverable.
 - [Import idempotency & the 1000-row cap](import-idempotency-1000-cap.md) — resource import scripts match existing rows by target_url, but the existing-rows fetch is capped at 1000 by PostgREST; on tenants with >1000 rows you MUST paginate or re-runs duplicate.
 - [Guest-rendering an auth-only page](guest-public-admin-page.md) — 4 moves: guest endpoint + gate every auth query (watch TDZ) + render-gate admin affordances + loading gate on authResolved to stop "Not Found" flash.
+- [Member inbox unread count](member-inbox-unread-count.md) — inbox "messages" are campaign recipients + sparse state table (no row = unread); badge count is delivered−archived−readNonArchived arithmetic; opening auto-reads so invalidate with exact keys or the body query loops.

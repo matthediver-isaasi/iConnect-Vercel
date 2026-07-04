@@ -315,6 +315,8 @@ const entityToTable = {
   'ExternalWriter': 'external_writer',
   'ExternalWriterDocument': 'external_writer_document',
   'CrmTagColor': 'crm_tag_color',
+  'MemberInboxFolder': 'member_inbox_folder',
+  'MemberInboxMessageState': 'member_inbox_message_state',
   'Vacancy': 'vacancy',
   'VacancyApplication': 'vacancy_application',
   'VacancyAward': 'vacancy_award',

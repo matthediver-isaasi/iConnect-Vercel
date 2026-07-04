@@ -1,0 +1,21 @@
+{
+  "name": "MemberInboxFolder",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Display name of the member-created inbox folder"
+    },
+    "member_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Owning member (auto-injected from session)"
+    },
+    "tenant_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Tenant the folder belongs to (auto-injected from session)"
+    }
+  },
+  "required": ["name"]
+}

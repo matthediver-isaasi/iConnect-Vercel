@@ -46,6 +46,7 @@ import NextEventCountdown from "@/components/navigation/NextEventCountdown";
 import SubmissionStatsBar from "@/components/navigation/SubmissionStatsBar";
 import { BannerProvider } from "@/contexts/BannerContext";
 import { usePendingPurchaseOrders } from "@/hooks/usePendingPurchaseOrders";
+import { useInboxUnreadCount } from "@/hooks/useInbox";
 import { SiGoogle } from "react-icons/si";
 import BookmarkDrawer from "@/components/bookmarks/BookmarkDrawer";
 
@@ -156,6 +157,12 @@ const navigationItems = [
     url: createPageUrl("Forum"),
     icon: MessageSquare,
     featureId: "page_Forum"
+  },
+  {
+    title: "Inbox",
+    url: createPageUrl("Inbox"),
+    icon: Inbox,
+    featureId: "communication.inbox"
   },
   {
     title: "About Me",
@@ -1323,6 +1330,12 @@ useEffect(() => {
     return isResourceExcluded(allExclusions, featureId);
   };
 
+  // Unread inbox count for the nav bell badge. Only fetched for members who can
+  // reach the inbox, so excluded members never hit a 403.
+  const inboxUnreadCount = useInboxUnreadCount({
+    enabled: !!memberInfo && !isFeatureExcluded("communication.inbox"),
+  });
+
   // Mapping of page names to their correct feature IDs
   // This maps currentPageName to the feature ID used in AVAILABLE_FEATURES
   const pageToFeatureIdMap = {
@@ -2329,6 +2342,8 @@ useEffect(() => {
                         // Show pending PO bell only on the Bookings page link
                         const isBookingsPage = item.url?.toLowerCase() === '/bookings';
                         const showPendingPOWarning = hasPendingPOs && isBookingsPage;
+                        const isInboxPage = item.url?.toLowerCase() === '/inbox';
+                        const showInboxBadge = isInboxPage && inboxUnreadCount > 0;
                         return (
                           <SidebarMenuItem 
                             key={item.title}
@@ -2348,6 +2363,11 @@ useEffect(() => {
                                 <span className="group-data-[collapsible=icon]:hidden">{item.title}</span>
                                 {showPendingPOWarning && (
                                   <Bell className="w-4 h-4 text-warning animate-pulse group-data-[collapsible=icon]:hidden" data-testid="pending-po-warning-bell" />
+                                )}
+                                {showInboxBadge && (
+                                  <Badge variant="secondary" className="ml-auto group-data-[collapsible=icon]:hidden" data-testid="badge-inbox-unread">
+                                    {inboxUnreadCount}
+                                  </Badge>
                                 )}
                               </SidebarNavLink>
                             </SidebarMenuButton>
@@ -2535,6 +2555,8 @@ useEffect(() => {
                                          (item.subItems && item.subItems.some(sub => sub.url === location.pathname));
                         const isBookingsPage = item.url?.toLowerCase() === '/bookings';
                         const showPendingPOWarning = hasPendingPOs && isBookingsPage;
+                        const isInboxPage = item.url?.toLowerCase() === '/inbox';
+                        const showInboxBadge = isInboxPage && inboxUnreadCount > 0;
 
                         if (item.subItems) {
                           return (
@@ -2583,6 +2605,11 @@ useEffect(() => {
                               <span className="flex-1">{item.title}</span>
                               {showPendingPOWarning && (
                                 <Bell className="w-4 h-4 text-warning animate-pulse" data-testid="pending-po-warning-bell-mobile" />
+                              )}
+                              {showInboxBadge && (
+                                <Badge variant="secondary" data-testid="badge-inbox-unread-mobile">
+                                  {inboxUnreadCount}
+                                </Badge>
                               )}
                             </Link>
                           );

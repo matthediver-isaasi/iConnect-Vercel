@@ -42,6 +42,7 @@ export const PAGE_NAMES = [
   "IEditPageManagement",
   "IEditTemplateManagement",
   "IEditPageEditor",
+  "Inbox",
   "testpage",
   "NavigationManagement",
   "AboutMe",

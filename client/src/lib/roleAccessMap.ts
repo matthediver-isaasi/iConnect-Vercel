@@ -603,6 +603,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
     icon: "Mail",
     pages: [
       {
+        id: "communication.inbox",
+        label: "Inbox"
+      },
+      {
         id: "communication.email-templates",
         label: "Email Templates"
       },

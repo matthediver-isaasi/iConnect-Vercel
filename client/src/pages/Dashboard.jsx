@@ -2,15 +2,18 @@
 import React from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Calendar, CreditCard, Ticket, Wallet, ArrowRight, CheckCircle2 } from "lucide-react";
+import { Calendar, CreditCard, Ticket, Wallet, ArrowRight, CheckCircle2, Inbox, Mail } from "lucide-react";
 import { createPageUrl } from "@/utils";
 import { Link } from "react-router-dom";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useInboxUnreadCount } from "@/hooks/useInbox";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import DashboardWidgetBuilder from "@/components/dashboard/DashboardWidgetBuilder";
 
 export default function DashboardPage() {
-  const { memberInfo, organizationInfo } = useMemberAccess();
+  const { memberInfo, organizationInfo, isFeatureExcluded } = useMemberAccess();
+  const inboxEnabled = !isFeatureExcluded("communication.inbox");
+  const inboxUnreadCount = useInboxUnreadCount({ enabled: inboxEnabled });
   const { branding } = useTenantBranding();
   const tenantName = branding?.name;
 
@@ -155,6 +158,28 @@ export default function DashboardPage() {
           </Card>
         </div>
       </div>
+
+      {/* New messages indicator */}
+      {inboxEnabled && inboxUnreadCount > 0 && (
+        <div className="max-w-7xl mx-auto px-4 md:px-8 -mt-4 mb-12">
+          <Link to={createPageUrl("Inbox")} data-testid="link-inbox-indicator">
+            <Card className="border-slate-200 shadow-sm hover-elevate active-elevate-2">
+              <CardContent className="p-4 flex items-center gap-4">
+                <div className="p-3 bg-blue-100 rounded-lg">
+                  <Mail className="w-5 h-5 text-blue-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-slate-900" data-testid="text-inbox-indicator">
+                    You have {inboxUnreadCount} new {inboxUnreadCount === 1 ? "message" : "messages"}
+                  </p>
+                  <p className="text-sm text-slate-600">Open your inbox to read them.</p>
+                </div>
+                <ArrowRight className="w-5 h-5 text-slate-400 shrink-0" />
+              </CardContent>
+            </Card>
+          </Link>
+        </div>
+      )}
 
       {/* How It Works */}
       <div className="max-w-7xl mx-auto px-4 md:px-8 mb-12">

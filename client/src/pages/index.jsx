@@ -314,6 +314,8 @@ import SearchResults from "./SearchResults";
 
 import Forum from "./Forum";
 
+import Inbox from "./Inbox";
+
 import ForumThread from "./ForumThread";
 
 import ForumManagement from "./ForumManagement";
@@ -730,6 +732,7 @@ const PAGES = {
     PhotoGalleries: PhotoGalleries,
     
     Forum: Forum,
+    Inbox: Inbox,
     ForumThread: ForumThread,
     ForumManagement: ForumManagement,
     
@@ -1014,6 +1017,8 @@ function PagesContent() {
                 <Route path="/PhotoGalleries" element={<PhotoGalleries />} />
                 
                 <Route path="/Forum" element={<Forum />} />
+                <Route path="/Inbox" element={<Inbox />} />
+                <Route path="/inbox" element={<Inbox />} />
                 <Route path="/ForumThread" element={<ForumThread />} />
                 <Route path="/ForumManagement" element={<ForumManagement />} />
                 

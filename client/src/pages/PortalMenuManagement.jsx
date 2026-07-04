@@ -108,6 +108,7 @@ const builtInPages = [
   { value: "IEditPageEditor", label: "Page Editor" },
   { value: "IEditPageManagement", label: "Page Builder - Pages" },
   { value: "IEditTemplateManagement", label: "Page Builder - Templates" },
+  { value: "Inbox", label: "Inbox" },
   { value: "InstalledFonts", label: "Installed Fonts" },
   { value: "JobBoard", label: "Job Board" },
   { value: "JobBoardSettings", label: "Job Board Settings" },
