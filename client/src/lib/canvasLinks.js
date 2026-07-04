@@ -462,3 +462,76 @@ export function applyCanvasLinkUpdate(design, blockId, path, newValue) {
   setAtPath(target.content, path.contentPath, typeof newValue === 'string' ? newValue : '');
   return design;
 }
+
+// ---------------------------------------------------------------------------
+// Internal-page suggestion matcher.
+//
+// Given an extracted link row and the tenant's internal-page picker pool,
+// score each page against the row's descriptive signals (card heading /
+// context, CTA text, link-type label, image alt) versus the page's title and
+// slug, and return the single best page ONLY when the match is confident.
+//
+// The heading/context is the primary signal; generic CTAs like "Learn more"
+// collapse to no tokens (all stopwords) so they never drive a match on their
+// own. Dependency-free, React-free, and safe to import from the backend too.
+// ---------------------------------------------------------------------------
+const SUGGEST_STOPWORDS = new Set([
+  'the', 'a', 'an', 'and', 'or', 'of', 'to', 'for', 'in', 'on', 'at', 'by',
+  'with', 'from', 'our', 'your', 'my', 'is', 'are', 'be', 'this', 'that',
+  'learn', 'more', 'read', 'click', 'here', 'view', 'see', 'all', 'find',
+  'out', 'get', 'go', 'now', 'page', 'pages', 'link', 'links', 'button',
+  'cta', 'hero', 'card', 'image', 'menu', 'item', 'items', 'inline', 'text',
+  'logo', 'grid', 'accordion', 'featured', 'column', 'sponsor', 'speaker',
+]);
+
+function suggestTokens(str) {
+  if (!str || typeof str !== 'string') return [];
+  return str
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2') // split camelCase / PascalCase slugs
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .split(/\s+/)
+    .filter((t) => t.length > 1 && !SUGGEST_STOPWORDS.has(t));
+}
+
+// Minimum F1 score (harmonic mean of query-coverage and page-coverage) for a
+// page to be considered a confident suggestion.
+const SUGGEST_THRESHOLD = 0.6;
+
+export function suggestInternalPage(row, internalPages, options = {}) {
+  if (!row || !Array.isArray(internalPages) || internalPages.length === 0) return null;
+
+  // Build the query token set from the row's descriptive signals. The heading
+  // (context) and image alt are the strongest descriptors; the CTA label and
+  // link-type label contribute but are mostly stripped by the stopword list.
+  const query = new Set([
+    ...suggestTokens(row.context),
+    ...suggestTokens(row.imageAlt),
+    ...suggestTokens(row.buttonLabel),
+    ...suggestTokens(row.label),
+  ]);
+  if (query.size === 0) return null;
+
+  const queryTokens = Array.from(query);
+  const excludeId = options.excludePageId;
+
+  let best = null;
+  for (const page of internalPages) {
+    if (excludeId != null && page.id === excludeId) continue;
+    const pageSet = new Set([...suggestTokens(page.title), ...suggestTokens(page.slug)]);
+    if (pageSet.size === 0) continue;
+
+    let matched = 0;
+    for (const t of queryTokens) if (pageSet.has(t)) matched += 1;
+    if (matched === 0) continue;
+
+    const queryCoverage = matched / queryTokens.length;
+    const pageCoverage = matched / pageSet.size;
+    const f1 = (2 * queryCoverage * pageCoverage) / (queryCoverage + pageCoverage);
+
+    if (!best || f1 > best.f1) best = { page, f1 };
+  }
+
+  if (best && best.f1 >= SUGGEST_THRESHOLD) return best.page;
+  return null;
+}

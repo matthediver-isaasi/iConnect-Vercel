@@ -24,7 +24,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Link2, Loader2, ExternalLink, Save, Undo2 } from "lucide-react";
+import { Link2, Loader2, ExternalLink, Save, Undo2, Sparkles } from "lucide-react";
+import { suggestInternalPage } from "@/lib/canvasLinks";
 
 const EXTERNAL = "__external__";
 const INTERNAL_NONE = "__none__";
@@ -195,6 +196,17 @@ export default function CanvasLinksManager() {
       return copy;
     });
   }, []);
+
+  // Apply a suggested internal page to a row. Stages "/slug" via the normal
+  // stageChange path, then bumps resetVersion so the row's link control
+  // remounts and reflects the newly staged internal-page selection.
+  const applySuggestion = useCallback(
+    (page, row, slug) => {
+      stageChange(page, row, `/${slug}`);
+      setResetVersion((v) => v + 1);
+    },
+    [stageChange]
+  );
 
   // Group the current staged changes by pageId.
   const groupStagedByPage = useCallback(
@@ -512,6 +524,12 @@ export default function CanvasLinksManager() {
                         const key = rowKey(page.id, row);
                         const stagedChange = staged[key];
                         const isPending = stagedChange !== undefined;
+                        const currentValue = typeof row.value === "string" ? row.value.trim() : "";
+                        const isUnconfigured = !currentValue || currentValue === "#";
+                        const suggestion =
+                          !isPending && isUnconfigured
+                            ? suggestInternalPage(row, internalPages, { excludePageId: page.id })
+                            : null;
                         return (
                           <TableRow key={key} data-testid={`row-link-${key}`}>
                             <TableCell className="align-top">
@@ -564,6 +582,21 @@ export default function CanvasLinksManager() {
                                 stagedValue={stagedChange ? stagedChange.value : undefined}
                                 onChange={(v) => stageChange(page, row, v)}
                               />
+                              {suggestion && (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="mt-2 max-w-[350px] justify-start gap-1 text-xs text-muted-foreground"
+                                  onClick={() => applySuggestion(page, row, suggestion.slug)}
+                                  data-testid={`button-suggestion-${key}`}
+                                >
+                                  <Sparkles className="h-3 w-3 shrink-0" />
+                                  <span className="truncate">
+                                    Suggested: {suggestion.title || suggestion.slug}
+                                  </span>
+                                </Button>
+                              )}
                             </TableCell>
                           </TableRow>
                         );
