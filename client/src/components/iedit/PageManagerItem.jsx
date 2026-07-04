@@ -201,7 +201,7 @@ export default function PageManagerItem({
             {isPinned && (
               <Pin className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />
             )}
-            <CardTitle className="text-lg truncate" data-testid={`text-page-title-${page.id}`}>
+            <CardTitle className="text-lg break-words min-w-0" data-testid={`text-page-title-${page.id}`}>
               {page.title}
             </CardTitle>
             {isHome && (
