@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -98,6 +99,9 @@ export default function IEditPageManagementPage() {
   });
   const [sortMap, setSortMap] = useState(() => loadSortMap());
   const [activeDragId, setActiveDragId] = useState(null);
+  // Multi-select: set of selected page ids for bulk move (Task #2236).
+  const [selectedPageIds, setSelectedPageIds] = useState(() => new Set());
+  const [bulkMoveTarget, setBulkMoveTarget] = useState("");
 
   // Folder create / rename dialog state
   const [folderDialog, setFolderDialog] = useState(null); // { mode: 'create'|'rename', parentId, folder }
@@ -203,13 +207,39 @@ export default function IEditPageManagementPage() {
     onError: (error) => toast.error('Failed to delete folder: ' + error.message),
   });
 
-  const movePageMutation = useMutation({
-    mutationFn: ({ pageId, folderId }) =>
-      base44.entities.IEditPage.update(pageId, { folder_id: folderId }),
-    onSuccess: () => {
+  // Moves one or more pages to a folder (or Unfiled when folderId is null).
+  // Optimistically updates the cached pages so dropped cards disappear from the
+  // current folder view instantly, rolling back on failure so the card
+  // reappears with an error toast (Task #2236).
+  const movePagesMutation = useMutation({
+    mutationFn: ({ pageIds, folderId }) =>
+      Promise.all(
+        pageIds.map((id) =>
+          base44.entities.IEditPage.update(id, { folder_id: folderId })
+        )
+      ),
+    onMutate: async ({ pageIds, folderId }) => {
+      await queryClient.cancelQueries({ queryKey: ['iedit-pages'] });
+      const previous = queryClient.getQueryData(['iedit-pages']);
+      const idSet = new Set(pageIds);
+      queryClient.setQueryData(['iedit-pages'], (old) =>
+        Array.isArray(old)
+          ? old.map((p) =>
+              idSet.has(p.id) ? { ...p, folder_id: folderId } : p
+            )
+          : old
+      );
+      return { previous };
+    },
+    onError: (error, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(['iedit-pages'], context.previous);
+      }
+      toast.error('Failed to move page: ' + error.message);
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['iedit-pages'] });
     },
-    onError: (error) => toast.error('Failed to move page: ' + error.message),
   });
 
   const togglePinMutation = useMutation({
@@ -578,9 +608,59 @@ export default function IEditPageManagementPage() {
 
   const filteredPages = visiblePages;
 
+  // Clear any selection when the folder view changes (Task #2236).
+  useEffect(() => {
+    setSelectedPageIds(new Set());
+  }, [selectedFolderId]);
+
+  const togglePageSelected = (pageId) => {
+    setSelectedPageIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(pageId)) next.delete(pageId);
+      else next.add(pageId);
+      return next;
+    });
+  };
+
+  const clearSelection = () => setSelectedPageIds(new Set());
+
+  const folderNameFor = (folderId) =>
+    folderId
+      ? folders.find((f) => f.id === folderId)?.name || 'folder'
+      : 'Unfiled';
+
+  // Shared move helper for both drag-and-drop and the bulk action bar. Skips
+  // pages already in the target folder, fires one optimistic mutation, shows a
+  // success toast and clears the selection.
+  const movePagesToFolder = (pageIds, targetFolderId) => {
+    const idsToMove = pageIds.filter((id) => {
+      const p = pages.find((pg) => pg.id === id);
+      return p && (p.folder_id || null) !== (targetFolderId || null);
+    });
+    if (idsToMove.length === 0) {
+      clearSelection();
+      return;
+    }
+    movePagesMutation.mutate({ pageIds: idsToMove, folderId: targetFolderId });
+    const folderName = folderNameFor(targetFolderId);
+    if (idsToMove.length === 1) {
+      const p = pages.find((pg) => pg.id === idsToMove[0]);
+      toast.success(`Moved "${p?.title || 'page'}" to ${folderName}`);
+    } else {
+      toast.success(`Moved ${idsToMove.length} pages to ${folderName}`);
+    }
+    clearSelection();
+  };
+
   const activePage = activeDragId
     ? pages.find((p) => `page:${p.id}` === activeDragId)
     : null;
+  // Number of pages that will move with the current drag: the whole selection
+  // when the dragged card is part of it, otherwise just the single card.
+  const activeDragCount =
+    activePage && selectedPageIds.has(activePage.id)
+      ? selectedPageIds.size
+      : 1;
 
   const dndSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -605,12 +685,12 @@ export default function IEditPageManagementPage() {
       return; // dropped somewhere that isn't a folder target
     }
 
-    if ((page.folder_id || null) === (targetFolderId || null)) return;
-    movePageMutation.mutate({ pageId, folderId: targetFolderId });
-    const folderName = targetFolderId
-      ? folders.find((f) => f.id === targetFolderId)?.name || 'folder'
-      : 'Unfiled';
-    toast.success(`Moved "${page.title}" to ${folderName}`);
+    // If the dragged page is part of the current selection, move the whole
+    // selection; otherwise move just the dragged page.
+    const idsToMove = selectedPageIds.has(pageId)
+      ? Array.from(selectedPageIds)
+      : [pageId];
+    movePagesToFolder(idsToMove, targetFolderId);
   };
 
   const openCreateFolder = (parentId = null) => {
@@ -776,6 +856,55 @@ export default function IEditPageManagementPage() {
             </aside>
 
             <div className="flex-1 min-w-0 w-full">
+              {selectedPageIds.size > 0 && (
+                <div
+                  className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3"
+                  data-testid="bar-bulk-actions"
+                >
+                  <span
+                    className="text-sm font-medium text-blue-900"
+                    data-testid="text-selected-count"
+                  >
+                    {selectedPageIds.size} selected
+                  </span>
+                  <div className="flex items-center gap-2 ml-auto flex-wrap">
+                    <Select
+                      value={bulkMoveTarget}
+                      onValueChange={(value) => {
+                        setBulkMoveTarget("");
+                        movePagesToFolder(
+                          Array.from(selectedPageIds),
+                          value === 'root' ? null : value
+                        );
+                      }}
+                    >
+                      <SelectTrigger
+                        className="w-56 bg-white"
+                        data-testid="select-bulk-move-target"
+                      >
+                        <SelectValue placeholder="Move to folder..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="root">Unfiled</SelectItem>
+                        {folders.map((f) => (
+                          <SelectItem key={f.id} value={f.id}>
+                            {f.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={clearSelection}
+                      className="bg-white"
+                      data-testid="button-clear-selection"
+                    >
+                      Clear selection
+                    </Button>
+                  </div>
+                </div>
+              )}
               {isLoading ? (
                 <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {Array(6).fill(0).map((_, i) => (
@@ -816,6 +945,8 @@ export default function IEditPageManagementPage() {
                       key={page.id}
                       page={page}
                       viewMode="list"
+                      selected={selectedPageIds.has(page.id)}
+                      onToggleSelect={() => togglePageSelected(page.id)}
                       homePageSlug={homePageSlug}
                       getStatusBadge={getStatusBadge}
                       onEdit={(p) => {
@@ -843,6 +974,8 @@ export default function IEditPageManagementPage() {
                       key={page.id}
                       page={page}
                       viewMode="grid"
+                      selected={selectedPageIds.has(page.id)}
+                      onToggleSelect={() => togglePageSelected(page.id)}
                       homePageSlug={homePageSlug}
                       getStatusBadge={getStatusBadge}
                       onEdit={(p) => {
@@ -867,10 +1000,12 @@ export default function IEditPageManagementPage() {
             </div>
           </div>
 
-          <DragOverlay>
+          <DragOverlay dropAnimation={null}>
             {activePage ? (
               <div className="rounded-md border border-blue-300 bg-white px-3 py-2 shadow-lg text-sm font-medium text-slate-800">
-                {activePage.title}
+                {activeDragCount > 1
+                  ? `${activeDragCount} pages`
+                  : activePage.title}
               </div>
             ) : null}
           </DragOverlay>

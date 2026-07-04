@@ -4,6 +4,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
 import {
   Pencil,
@@ -25,6 +26,8 @@ import {
 export default function PageManagerItem({
   page,
   viewMode,
+  selected = false,
+  onToggleSelect,
   homePageSlug,
   getStatusBadge,
   onEdit,
@@ -65,6 +68,17 @@ export default function PageManagerItem({
     </button>
   );
 
+  const selectCheckbox = (
+    <Checkbox
+      checked={selected}
+      onCheckedChange={() => onToggleSelect?.(page)}
+      aria-label={selected ? "Deselect page" : "Select page"}
+      title="Select page"
+      className="flex-shrink-0"
+      data-testid={`checkbox-select-${page.id}`}
+    />
+  );
+
   const pinButton = (
     <Button
       variant="outline"
@@ -84,9 +98,12 @@ export default function PageManagerItem({
       <div
         ref={setNodeRef}
         style={style}
-        className="flex items-center gap-3 rounded-md border border-slate-200 bg-white px-3 py-2 hover-elevate"
+        className={`flex items-center gap-3 rounded-md border bg-white px-3 py-2 hover-elevate ${
+          selected ? "border-blue-400 ring-1 ring-blue-400" : "border-slate-200"
+        }`}
         data-testid={`row-page-${page.id}`}
       >
+        {selectCheckbox}
         {dragHandle}
         {isPinned && (
           <Pin className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />
@@ -191,12 +208,15 @@ export default function PageManagerItem({
     <Card
       ref={setNodeRef}
       style={style}
-      className="border-slate-200 hover:shadow-lg transition-shadow"
+      className={`hover:shadow-lg transition-shadow ${
+        selected ? "border-blue-400 ring-1 ring-blue-400" : "border-slate-200"
+      }`}
       data-testid={`card-page-${page.id}`}
     >
       <CardHeader>
         <div className="flex items-start justify-between mb-2 gap-2">
           <div className="flex items-center gap-2 min-w-0">
+            {selectCheckbox}
             {dragHandle}
             {isPinned && (
               <Pin className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />
