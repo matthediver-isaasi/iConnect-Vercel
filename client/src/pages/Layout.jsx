@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState, useRef, useMemo } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { Calendar, User, CreditCard, LogOut, Ticket, Wallet, Shield, Users, Settings, Sparkles, ShoppingCart, History, BarChart3, Briefcase, FileEdit, Image, FileText, AtSign, FolderTree, Square, Trophy, BookOpen, Mail, MousePointer2, Building, Download, Upload, HelpCircle, Menu, ChevronRight, ChevronLeft, Video, Bell, Newspaper, PenLine, Home, Globe, Folder, MessageSquare, Star, Heart, Eye, Link as LinkIcon, ExternalLink, Tag, Award, Bookmark, Clock, Search, Phone, MapPin, Music, Camera, Mic, Headphones, Tv, Radio, Rss, Share2, Gift, Zap, Target, Flag, Layers, Grid, List, Layout as LayoutIcon, Monitor, Smartphone, Tablet, Laptop, Server, Database, Cloud, Lock, Key, UserCheck, UserPlus, UserMinus, Users2, MessageCircle, Send, Inbox, Archive, Navigation, UserCog, Activity, XCircle, Handshake, Accessibility, QrCode } from "lucide-react";
 import { useLayoutContext } from "@/contexts/LayoutContext";
@@ -46,9 +46,10 @@ import NextEventCountdown from "@/components/navigation/NextEventCountdown";
 import SubmissionStatsBar from "@/components/navigation/SubmissionStatsBar";
 import { BannerProvider } from "@/contexts/BannerContext";
 import { usePendingPurchaseOrders } from "@/hooks/usePendingPurchaseOrders";
-import { useInboxUnreadCount } from "@/hooks/useInbox";
+import { useInboxUnreadSummary } from "@/hooks/useInbox";
 import { SiGoogle } from "react-icons/si";
 import BookmarkDrawer from "@/components/bookmarks/BookmarkDrawer";
+import InboxUnreadPopup from "@/components/inbox/InboxUnreadPopup";
 
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from "@/api/base44Client";
@@ -874,8 +875,27 @@ function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = 
   );
 }
 
+// Clears the per-session "already surfaced the inbox popup" watermarks. Called
+// on logout / session invalidation so that logging back in (even in the same
+// browser tab) can show the popup again for still-unread messages. The
+// persistent "don't remind me" watermark (localStorage) is intentionally left
+// untouched.
+function clearInboxPopupSessionFlags() {
+  try {
+    const keys = [];
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const key = sessionStorage.key(i);
+      if (key && key.startsWith('inbox_popup_seen_')) keys.push(key);
+    }
+    keys.forEach((key) => sessionStorage.removeItem(key));
+  } catch {
+    // Storage can throw in private mode; nothing to clear then.
+  }
+}
+
 export default function Layout({ children, currentPageName }) {
   const location = useLocation();
+  const navigate = useNavigate();
   const { getArticleListUrl, getMyArticlesUrl, articleDisplayName, isCustomSlug, urlSlug, publicSlug, viewSlug, editorSlug, mySlug } = useArticleUrl();
   // Task #939: BNMS tenant gets Urbanist + extra Poppins weights (admin shell, for InstalledFonts previews).
   const tenantBranding = useTenantBranding();
@@ -1330,11 +1350,35 @@ useEffect(() => {
     return isResourceExcluded(allExclusions, featureId);
   };
 
-  // Unread inbox count for the nav bell badge. Only fetched for members who can
-  // reach the inbox, so excluded members never hit a 403.
-  const inboxUnreadCount = useInboxUnreadCount({
-    enabled: !!memberInfo && !isFeatureExcluded("communication.inbox"),
-  });
+  // Unread inbox summary for the nav bell badge AND the login popup. Only
+  // fetched for members who can reach the inbox, so excluded members never hit a
+  // 403.
+  const hasInboxAccess = !!memberInfo && !isFeatureExcluded("communication.inbox");
+  const inboxUnreadSummary = useInboxUnreadSummary({ enabled: hasInboxAccess });
+  const inboxUnreadCount = inboxUnreadSummary.unreadCount;
+
+  // One-time "you have unread messages" popup shown after login. State lives
+  // here; the trigger effect runs later, after `authResolved` is in scope.
+  const [inboxPopupOpen, setInboxPopupOpen] = useState(false);
+  const inboxPopupHandledRef = useRef(false);
+
+  const handleInboxPopupViewMessages = () => {
+    setInboxPopupOpen(false);
+    navigate("/inbox");
+  };
+
+  const handleInboxPopupDontRemind = () => {
+    setInboxPopupOpen(false);
+    const memberId = memberInfo?.id;
+    const latestSentAt = inboxUnreadSummary?.latestSentAt;
+    if (memberId && latestSentAt) {
+      try {
+        localStorage.setItem(`inbox_popup_dismissed_${memberId}`, latestSentAt);
+      } catch {
+        // ignore storage failures
+      }
+    }
+  };
 
   // Mapping of page names to their correct feature IDs
   // This maps currentPageName to the feature ID used in AVAILABLE_FEATURES
@@ -1530,6 +1574,45 @@ useEffect(() => {
   // Get layout context for dynamic pages that need to force public layout
   const { forcePublicLayout, forceBlankLayout, chromeReady, authResolved } = useLayoutContext();
 
+  useEffect(() => {
+    // Reset the per-session guard whenever the signed-in member changes so a new
+    // login (or account switch) can show the popup again.
+    inboxPopupHandledRef.current = false;
+    setInboxPopupOpen(false);
+  }, [memberInfo?.id]);
+
+  useEffect(() => {
+    // Wait until auth is resolved and the member can actually reach the inbox.
+    if (!authResolved || !hasInboxAccess) return;
+    const memberId = memberInfo?.id;
+    if (!memberId) return;
+    // Show once per session; navigating around must not re-trigger it.
+    if (inboxPopupHandledRef.current) return;
+
+    const { unreadCount, latestSentAt } = inboxUnreadSummary;
+    if (!unreadCount || !latestSentAt) return;
+
+    try {
+      // Persistent "don't remind me about these" watermark (per member).
+      const dontRemind = localStorage.getItem(`inbox_popup_dismissed_${memberId}`);
+      // Session-scoped watermark for the message already surfaced this session.
+      const seenThisSession = sessionStorage.getItem(`inbox_popup_seen_${memberId}`);
+
+      const newerThanDontRemind = !dontRemind || latestSentAt > dontRemind;
+      const newerThanSession = !seenThisSession || latestSentAt > seenThisSession;
+
+      if (newerThanDontRemind && newerThanSession) {
+        inboxPopupHandledRef.current = true;
+        // Mark this message as surfaced for the rest of the session so it does
+        // not reappear on navigation (a strictly newer message still can).
+        sessionStorage.setItem(`inbox_popup_seen_${memberId}`, latestSentAt);
+        setInboxPopupOpen(true);
+      }
+    } catch {
+      // Storage can throw in private mode; fail closed (no popup).
+    }
+  }, [authResolved, hasInboxAccess, memberInfo?.id, inboxUnreadSummary]);
+
   // Check if page is truly public (not hybrid with member logged in)
   const isPublicPage = () => {
     // If a dynamic page signals it should use public layout, respect that
@@ -1635,6 +1718,7 @@ useEffect(() => {
           console.log('[Layout] Server invalidated session - clearing localStorage and logging out');
           localStorage.removeItem('agcas_member');
           localStorage.removeItem('agcas_organization');
+          clearInboxPopupSessionFlags();
           setMemberInfo(null);
           setOrganizationInfo(null);
           // SECURITY: Clear validation flag when session is invalidated
@@ -1687,6 +1771,7 @@ useEffect(() => {
 
         if (member.sessionExpiry && new Date(member.sessionExpiry) < new Date()) {
           localStorage.removeItem('agcas_member');
+          clearInboxPopupSessionFlags();
           window.location.href = `/login?returnTo=${encodeURIComponent(location.pathname)}`;
           return;
         }
@@ -1833,6 +1918,7 @@ useEffect(() => {
     // Always clear local storage
     localStorage.removeItem('agcas_member');
     localStorage.removeItem('agcas_organization');
+    clearInboxPopupSessionFlags();
     window.location.href = createPageUrl('Home');
   };
 
@@ -2857,6 +2943,15 @@ useEffect(() => {
           <BookmarkDrawer open={bookmarkDrawerOpen} onOpenChange={setBookmarkDrawerOpen} />
         </>
       )}
+
+      <InboxUnreadPopup
+        open={inboxPopupOpen}
+        unreadCount={inboxUnreadSummary.unreadCount}
+        latestSubject={inboxUnreadSummary.latestSubject}
+        onViewMessages={handleInboxPopupViewMessages}
+        onDontRemind={handleInboxPopupDontRemind}
+        onSoftClose={() => setInboxPopupOpen(false)}
+      />
     </div>
   );
 }

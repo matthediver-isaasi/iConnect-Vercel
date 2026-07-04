@@ -15,12 +15,24 @@ async function fetchInbox() {
   };
 }
 
-async function fetchUnreadCount() {
+async function fetchUnreadSummary() {
   const res = await fetch(`${API_BASE}/unread-count`, { credentials: "include" });
   if (!res.ok) throw new Error("Failed to load unread count");
   const data = await res.json();
-  return data.unreadCount || 0;
+  return {
+    unreadCount: data.unreadCount || 0,
+    latestSubject: data.latestSubject || null,
+    latestMessageId: data.latestMessageId || null,
+    latestSentAt: data.latestSentAt || null,
+  };
 }
+
+const EMPTY_UNREAD_SUMMARY = {
+  unreadCount: 0,
+  latestSubject: null,
+  latestMessageId: null,
+  latestSentAt: null,
+};
 
 export async function fetchInboxMessageBody(recipientId) {
   const res = await fetch(`${API_BASE}/${recipientId}`, { credentials: "include" });
@@ -105,13 +117,17 @@ export function useInbox() {
   };
 }
 
-export function useInboxUnreadCount({ enabled = true } = {}) {
-  const { data = 0 } = useQuery({
+export function useInboxUnreadSummary({ enabled = true } = {}) {
+  const { data } = useQuery({
     queryKey: ["inbox", "unread"],
-    queryFn: fetchUnreadCount,
+    queryFn: fetchUnreadSummary,
     enabled,
     staleTime: 30000,
     refetchInterval: 60000,
   });
-  return data;
+  return data || EMPTY_UNREAD_SUMMARY;
+}
+
+export function useInboxUnreadCount({ enabled = true } = {}) {
+  return useInboxUnreadSummary({ enabled }).unreadCount;
 }
