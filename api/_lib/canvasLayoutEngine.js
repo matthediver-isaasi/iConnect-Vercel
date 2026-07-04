@@ -715,3 +715,124 @@ export function buildDesign(spec) {
 export function buildNeutralDesign(spec) {
   return buildDesign({ ...spec, theme: NEUTRAL_THEME, typo: EMPTY_TYPO });
 }
+
+// ---------------------------------------------------------------------------
+// Style extraction from an existing Canvas page.
+//
+// Reads a page's canvas_design and derives a theme object in the shape
+// buildDesign consumes (accent / bandBg / dividerColor / cardHighlight /
+// buttonVariant / heroOverlay / optional logoUrl) plus the typography-style ids
+// used on that page, so the doc-import flow can reproduce a hand-built brand
+// look ("seed page"). Any facet the source page does not define falls back to
+// the neutral values, so extraction never yields a broken theme.
+// ---------------------------------------------------------------------------
+
+// Flatten every block in a design, defensively recursing into any nested
+// `children` arrays (Canvas blocks live flat under root.sections[].children,
+// but we recurse just in case).
+function collectDesignBlocks(design) {
+  const out = [];
+  const visit = (node) => {
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node)) {
+      node.forEach(visit);
+      return;
+    }
+    if (node.type && node.content) out.push(node);
+    if (Array.isArray(node.children)) node.children.forEach(visit);
+    if (Array.isArray(node.sections)) node.sections.forEach(visit);
+  };
+  const root = design && typeof design === 'object' ? design.root : null;
+  if (root && Array.isArray(root.sections)) root.sections.forEach(visit);
+  return out;
+}
+
+const isRealColor = (v) => typeof v === 'string' && v.trim() !== '';
+
+export function extractThemeFromDesign(design) {
+  const theme = {
+    ...NEUTRAL_THEME,
+    heroOverlay: {
+      ...NEUTRAL_THEME.heroOverlay,
+      stops: NEUTRAL_THEME.heroOverlay.stops.map((s) => ({ ...s })),
+    },
+  };
+  const typo = { ...EMPTY_TYPO };
+
+  const blocks = collectDesignBlocks(design);
+  if (!blocks.length) return { theme, typo };
+
+  // --- Hero: overlay gradient, hero typography, and CTA button variant. ---
+  const hero = blocks.find((b) => b.type === 'hero');
+  if (hero?.content) {
+    const c = hero.content;
+    if (isRealColor(c.headlineTypographyStyleId)) typo.heroHeadline = c.headlineTypographyStyleId;
+    if (isRealColor(c.subheadlineTypographyStyleId)) typo.heroSub = c.subheadlineTypographyStyleId;
+    const stops = Array.isArray(c.overlayStops) && c.overlayStops.length
+      ? c.overlayStops.map((s) => ({
+          color: isRealColor(s?.color) ? s.color : '#000000',
+          opacity: typeof s?.opacity === 'number' ? s.opacity : 1,
+          position: typeof s?.position === 'number' ? s.position : 0,
+        }))
+      : null;
+    if (isRealColor(c.overlayDirection) || isRealColor(c.overlayFromColor) || stops) {
+      theme.heroOverlay = {
+        direction: isRealColor(c.overlayDirection) ? c.overlayDirection : NEUTRAL_THEME.heroOverlay.direction,
+        fromColor: isRealColor(c.overlayFromColor) ? c.overlayFromColor : NEUTRAL_THEME.heroOverlay.fromColor,
+        stops: stops || NEUTRAL_THEME.heroOverlay.stops.map((s) => ({ ...s })),
+      };
+    }
+    const heroCtaVariant = Array.isArray(c.ctas) && c.ctas[0]?.variant;
+    if (isRealColor(heroCtaVariant)) theme.buttonVariant = heroCtaVariant;
+  }
+
+  // --- Colour band background. ---
+  const section = blocks.find((b) => b.type === 'section');
+  if (isRealColor(section?.style?.background)) theme.bandBg = section.style.background;
+
+  // --- Divider colour. ---
+  const divider = blocks.find((b) => b.type === 'divider');
+  if (isRealColor(divider?.content?.color)) theme.dividerColor = divider.content.color;
+
+  // --- Card: highlight colour, icon accent, button variant, heading typo. ---
+  const card = blocks.find((b) => b.type === 'card');
+  if (card?.content) {
+    if (isRealColor(card.content.highlightColor)) theme.cardHighlight = card.content.highlightColor;
+    if (isRealColor(card.content.ctaVariant)) theme.buttonVariant = card.content.ctaVariant;
+    if (isRealColor(card.content.headingTypographyStyleId)) typo.cardHeading = card.content.headingTypographyStyleId;
+  }
+
+  // --- Standalone button variant (overrides card/hero when present). ---
+  const button = blocks.find((b) => b.type === 'button');
+  if (isRealColor(button?.content?.variant)) theme.buttonVariant = button.content.variant;
+
+  // --- Accent: first real colour among icon / bullet / card-icon colours. ---
+  let accent = null;
+  for (const b of blocks) {
+    const c = b.content || {};
+    if (b.type === 'image' && isRealColor(c.iconColor) && isRealColor(c.iconClass)) { accent = c.iconColor; break; }
+    if (b.type === 'text' && isRealColor(c.bulletIconColor)) { accent = c.bulletIconColor; break; }
+    if (b.type === 'card' && isRealColor(c.iconColor)) { accent = c.iconColor; break; }
+  }
+  if (isRealColor(accent)) theme.accent = accent;
+
+  // --- Typography ids from text blocks (h2 / h3 / body). ---
+  for (const b of blocks) {
+    if (b.type !== 'text') continue;
+    const c = b.content || {};
+    const styleId = c.typographyStyleId;
+    if (!isRealColor(styleId)) continue;
+    const headingAs = String(c.headingAs || '');
+    if (headingAs === '2' && !typo.h2) typo.h2 = styleId;
+    else if (headingAs === '3' && !typo.h3) typo.h3 = styleId;
+    else if (headingAs === '' && !typo.body) typo.body = styleId;
+  }
+
+  // --- Optional logo lockup (image block with a real src). ---
+  const logo = blocks.find(
+    (b) => b.type === 'image' && isRealColor(b.content?.src) && (b.name === 'Logo' || !isRealColor(b.content?.iconClass))
+  );
+  if (logo && isRealColor(logo.content.src)) theme.logoUrl = logo.content.src;
+
+  return { theme, typo };
+}

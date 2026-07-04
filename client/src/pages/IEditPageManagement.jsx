@@ -97,6 +97,7 @@ export default function IEditPageManagementPage() {
   const [docTitle, setDocTitle] = useState("");
   const [docMode, setDocMode] = useState("upload"); // 'upload' | 'paste'
   const [docText, setDocText] = useState("");
+  const [docSeedPageId, setDocSeedPageId] = useState("neutral"); // 'neutral' | <canvas page id>
   // Holds the generated-but-unsaved design returned by the preview step so the
   // admin can review it before anything is persisted. null = no preview yet.
   const [docPreview, setDocPreview] = useState(null);
@@ -168,6 +169,15 @@ export default function IEditPageManagementPage() {
     },
     staleTime: 0
   });
+
+  // Canvas pages usable as a "seed" style reference in the doc-import dialog.
+  const canvasSeedPages = useMemo(
+    () =>
+      (Array.isArray(pages) ? pages : [])
+        .filter((p) => p?.builder_type === 'canvas')
+        .sort((a, b) => (a.title || '').localeCompare(b.title || '')),
+    [pages]
+  );
 
   const { data: folders = [] } = useQuery({
     queryKey: ['iedit-page-folders'],
@@ -302,13 +312,15 @@ export default function IEditPageManagementPage() {
     setDocTitle("");
     setDocText("");
     setDocMode("upload");
+    setDocSeedPageId("neutral");
     setDocPreview(null);
   };
 
   // Step 1 — generate a design from an uploaded file OR pasted text WITHOUT
   // saving anything. The admin reviews the result before it is persisted.
   const fromDocPreviewMutation = useMutation({
-    mutationFn: async ({ file, text, title }) => {
+    mutationFn: async ({ file, text, title, seedPageId }) => {
+      const seed = seedPageId && seedPageId !== 'neutral' ? seedPageId : undefined;
       let payload;
       if (file) {
         const fileBase64 = await new Promise((resolve, reject) => {
@@ -317,9 +329,9 @@ export default function IEditPageManagementPage() {
           reader.onerror = () => reject(new Error('Could not read the file'));
           reader.readAsDataURL(file);
         });
-        payload = { fileBase64, filename: file.name, title: title || undefined, preview: true };
+        payload = { fileBase64, filename: file.name, title: title || undefined, seedPageId: seed, preview: true };
       } else {
-        payload = { text, title: title || undefined, preview: true };
+        payload = { text, title: title || undefined, seedPageId: seed, preview: true };
       }
       const res = await fetch('/api/admin/canvas-from-doc', {
         method: 'POST',
@@ -331,7 +343,10 @@ export default function IEditPageManagementPage() {
       if (!res.ok) throw new Error(data.error || 'Failed to generate a preview from the content');
       return data;
     },
-    onSuccess: (data) => setDocPreview(data),
+    onSuccess: (data, vars) => setDocPreview({
+      ...data,
+      seedPageId: vars?.seedPageId && vars.seedPageId !== 'neutral' ? vars.seedPageId : undefined,
+    }),
     onError: (error) => toast.error(error.message),
   });
 
@@ -347,6 +362,7 @@ export default function IEditPageManagementPage() {
           design: preview.design,
           title: preview.title,
           slug: preview.slug,
+          ...(preview.seedPageId ? { seedPageId: preview.seedPageId } : {}),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -1186,6 +1202,27 @@ export default function IEditPageManagementPage() {
                       data-testid="input-doc-title"
                     />
                   </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="doc-seed">Match the style of</Label>
+                    <Select value={docSeedPageId} onValueChange={setDocSeedPageId}>
+                      <SelectTrigger id="doc-seed" data-testid="select-doc-seed">
+                        <SelectValue placeholder="Neutral (use tenant brand colours)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="neutral" data-testid="option-doc-seed-neutral">
+                          Neutral (use tenant brand colours)
+                        </SelectItem>
+                        {canvasSeedPages.map((p) => (
+                          <SelectItem key={p.id} value={p.id} data-testid={`option-doc-seed-${p.id}`}>
+                            {p.title || 'Untitled page'}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-slate-500">
+                      Copies an existing Canvas page's colours, hero style, fonts, and buttons onto the new page.
+                    </p>
+                  </div>
                 </div>
                 <DialogFooter>
                   <Button variant="outline" onClick={resetDocDialog} disabled={docBusy}>
@@ -1194,9 +1231,9 @@ export default function IEditPageManagementPage() {
                   <Button
                     onClick={() => {
                       if (docMode === 'upload') {
-                        if (docFile) fromDocPreviewMutation.mutate({ file: docFile, title: docTitle.trim() });
+                        if (docFile) fromDocPreviewMutation.mutate({ file: docFile, title: docTitle.trim(), seedPageId: docSeedPageId });
                       } else if (docText.trim()) {
-                        fromDocPreviewMutation.mutate({ text: docText.trim(), title: docTitle.trim() });
+                        fromDocPreviewMutation.mutate({ text: docText.trim(), title: docTitle.trim(), seedPageId: docSeedPageId });
                       }
                     }}
                     disabled={docBusy || (docMode === 'upload' ? !docFile : !docText.trim())}

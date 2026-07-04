@@ -26,7 +26,7 @@ import OpenAI from 'openai';
 import JSZip from 'jszip';
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasFeatureAccess } from '../_lib/tenantContext.js';
-import { buildNeutralDesign, CONTENT_W } from '../_lib/canvasLayoutEngine.js';
+import { buildNeutralDesign, buildDesign, extractThemeFromDesign, CONTENT_W } from '../_lib/canvasLayoutEngine.js';
 
 const MAX_DOC_CHARS = 12000;
 
@@ -295,6 +295,36 @@ function isValidDesign(design) {
   );
 }
 
+// Load a tenant-scoped seed page and derive a theme + typography from its
+// canvas_design so the generated page reproduces that page's brand look. Returns
+// null (→ neutral behaviour) when no id is given or the page can't be used.
+async function resolveSeedStyle(tenantId, seedPageId) {
+  const id = toStr(seedPageId).trim();
+  if (!id) return null;
+  const { data, error } = await supabase
+    .from('i_edit_page')
+    .select('id, builder_type, canvas_design')
+    .eq('tenant_id', tenantId)
+    .eq('id', id)
+    .maybeSingle();
+  if (error || !data) return null;
+  if (data.builder_type !== 'canvas' || !data.canvas_design || typeof data.canvas_design !== 'object') return null;
+  try {
+    return extractThemeFromDesign(data.canvas_design);
+  } catch (err) {
+    console.error('[canvas-from-doc] seed extraction failed:', err?.message || err);
+    return null;
+  }
+}
+
+// Build a design from a sanitized spec, styling it off a seed page when one was
+// supplied (else tenant-neutral). Shared by the preview and legacy paths so the
+// preview matches what a subsequent confirm persists.
+function buildDesignForSpec(spec, seedStyle) {
+  if (seedStyle) return buildDesign({ ...spec, theme: seedStyle.theme, typo: seedStyle.typo });
+  return buildNeutralDesign(spec);
+}
+
 async function uniqueSlug(tenantId, base) {
   let slug = slugify(base);
   const { data } = await supabase
@@ -396,7 +426,8 @@ export default async function handler(req, res) {
 
     const rawSpec = await generateSpec(client, docText, fallbackTitle);
     const spec = sanitizeSpec(rawSpec, fallbackTitle);
-    const design = buildNeutralDesign(spec);
+    const seedStyle = await resolveSeedStyle(context.tenantId, body.seedPageId);
+    const design = buildDesignForSpec(spec, seedStyle);
 
     const title = toStr(body.title).trim() || spec.hero.headline || fallbackTitle;
     const blockCount = design.root.sections[0].children.length;
