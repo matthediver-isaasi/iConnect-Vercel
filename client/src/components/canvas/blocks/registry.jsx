@@ -101,7 +101,7 @@ import {
 } from '@/lib/tenantButtonStyle';
 import { useCanvasAnchors } from '../CanvasAnchorContext';
 import { useCanvasSymbols } from '../CanvasSymbolsContext';
-import { useReportReflowHeight } from '../AccordionReflowContext';
+import { useReportReflowHeight, useReportCardContentHeight } from '../AccordionReflowContext';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import {
@@ -3563,17 +3563,24 @@ function CardRender({ block, asEditor, priority, breakpoint }) {
     ? Number(c.headerSpacing)
     : null;
 
-  // Auto-height: the CARD registry entry sets autoHeight, so the wrapper renders
-  // at height:auto and this measured element reports its natural content height
-  // to the reflow context (pushing blocks below down instead of clipping the
-  // CTA / body). Mirrors TextRender / AccordionRender.
-  const containerRef = useReportReflowHeight(block.id);
+  // Auto-height + vertical growth + row auto-equalisation. The CARD registry
+  // entry sets autoHeight, so the wrapper renders at height:auto and follows
+  // this box. `rowHeight` is the tallest effective height in this card's row
+  // (undefined until measured); applying it as min-height equalises every card
+  // in the row and lets an author-dragged card lift its whole row. The spacer
+  // between the body and the CTA absorbs any extra height (pushing the CTA to
+  // the bottom) and lets us report the NATURAL content height as
+  // outer.height − spacer.height, immune to the min-height inflation above.
+  const { outerRef, spacerRef, rowHeight } = useReportCardContentHeight(block.id);
 
   return (
     <div
-      ref={containerRef}
+      ref={outerRef}
       className="w-full h-full flex flex-col"
-      style={cardBoxShadow ? { boxShadow: cardBoxShadow, borderRadius: cardRadius } : undefined}
+      style={{
+        ...(cardBoxShadow ? { boxShadow: cardBoxShadow, borderRadius: cardRadius } : null),
+        ...(Number.isFinite(rowHeight) && rowHeight > 0 ? { minHeight: rowHeight } : null),
+      }}
     >
       {cardResponsiveCss && (
         <style dangerouslySetInnerHTML={{ __html: cardResponsiveCss }} />
@@ -3652,9 +3659,13 @@ function CardRender({ block, asEditor, priority, breakpoint }) {
           {c.heading}
         </Heading>
         <div
-          className="prose prose-sm max-w-none mt-1 flex-1 [&_p:last-child]:mb-0"
+          className="prose prose-sm max-w-none mt-1 [&_p:last-child]:mb-0"
           dangerouslySetInnerHTML={{ __html: sanitizeRichText(stripTrailingEmptyParagraphs(c.body || '')) }}
         />
+        {/* Flex spacer: absorbs any height beyond natural content (pushing the
+            CTA to the bottom of a grown / equalised card) and serves as the
+            measurement subtrahend for the natural content height. */}
+        <div ref={spacerRef} aria-hidden="true" style={{ flex: '1 1 auto', minHeight: 0 }} />
         {c.ctaEnabled !== false && c.ctaLabel && (() => {
           const ctaLabelStyleObj = resolveTenantStyle(c.ctaLabelTypographyStyleId, tenantStyles);
           const awaitingCtaLabel = isAwaitingTypographyStyle(c.ctaLabelTypographyStyleId, ctaLabelStyleObj, stylesResolved);
@@ -8475,7 +8486,7 @@ const REGISTRY = {
   [BLOCK_TYPES.TESTIMONIALS]: { label: 'Testimonials',   icon: Quote,          category: 'content',  Editor: TestimonialsRender, Renderer: TestimonialsRender, Inspector: TestimonialsInspector },
   [BLOCK_TYPES.CUSTOM_HTML]:  { label: 'Custom HTML',    icon: Code2,          category: 'advanced', Editor: CustomHtmlRender,   Renderer: CustomHtmlRender,   Inspector: CustomHtmlInspector },
   [BLOCK_TYPES.ICON]:         { label: 'Icon',           icon: Star,           category: 'ui',       Editor: IconRender,         Renderer: IconRender,         Inspector: IconInspector },
-  [BLOCK_TYPES.CARD]:         { label: 'Card',           icon: LayoutGrid,     category: 'ui',       Editor: CardRender,         Renderer: CardRender,         Inspector: CardInspector, allowOverflow: true, autoHeight: true, widthResizeOnly: true },
+  [BLOCK_TYPES.CARD]:         { label: 'Card',           icon: LayoutGrid,     category: 'ui',       Editor: CardRender,         Renderer: CardRender,         Inspector: CardInspector, allowOverflow: true, autoHeight: true, cardGrow: true },
   [BLOCK_TYPES.STAT]:         { label: 'Stat',           icon: Hash,           category: 'ui',       Editor: StatRender,         Renderer: StatRender,         Inspector: StatInspector },
   [BLOCK_TYPES.LOGO_STRIP]:   { label: 'Logo strip',     icon: Images,         category: 'ui',       Editor: LogoStripRender,    Renderer: LogoStripRender,    Inspector: LogoStripInspector },
   [BLOCK_TYPES.MAP]:          { label: 'Map',            icon: MapIcon,        category: 'media',    Editor: MapRender,          Renderer: MapRender,          Inspector: MapInspector },

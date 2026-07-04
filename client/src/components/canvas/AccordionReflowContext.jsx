@@ -56,6 +56,55 @@ export function useReportReflowHeight(blockId) {
 }
 
 /**
+ * Height reporting for CARD blocks, which support vertical growth AND row
+ * auto-equalisation. Unlike useReportReflowHeight (which measures one element),
+ * a card must report its NATURAL content height even while its box is being
+ * inflated to the row's tallest height. Inflating the box would otherwise feed
+ * back into the measurement (min-height → measured height → row height → …),
+ * pinning the row at its historical max and never shrinking.
+ *
+ * The card lays out an invisible flex spacer that absorbs any extra height
+ * (pushing the CTA to the bottom). Natural content height is therefore
+ *   outer.height − spacer.height
+ * which stays equal to the content regardless of the applied row height, so the
+ * measurement is non-circular.
+ *
+ * Returns:
+ *   outerRef  – attach to the card's outer flex-column box.
+ *   spacerRef – attach to the flex spacer between the body and the CTA.
+ *   rowHeight – the equalised height to apply as min-height on the outer box
+ *               (undefined until the row has been measured).
+ */
+export function useReportCardContentHeight(blockId) {
+  const reflow = useAccordionReflow();
+  const outerRef = useRef(null);
+  const spacerRef = useRef(null);
+
+  const report = useCallback(() => {
+    if (!reflow || !outerRef.current) return;
+    const outerH = outerRef.current.getBoundingClientRect().height;
+    const spacerH = spacerRef.current ? spacerRef.current.getBoundingClientRect().height : 0;
+    const natural = Math.round(outerH - spacerH);
+    if (natural > 0) reflow.reportHeight(blockId, natural);
+  }, [reflow, blockId]);
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => { report(); }, []); // mount-only; observer handles the rest
+
+  useEffect(() => {
+    if (!reflow) return;
+    const els = [outerRef.current, spacerRef.current].filter(Boolean);
+    if (els.length === 0) return;
+    const observer = new ResizeObserver(report);
+    els.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [reflow, report]);
+
+  const rowHeight = reflow ? reflow.getRowHeight(blockId) : undefined;
+  return { outerRef, spacerRef, rowHeight };
+}
+
+/**
  * Tracks the measured (rendered) heights of auto-height blocks (accordion)
  * and computes cumulative downward offsets for blocks positioned below them.
  *
@@ -96,7 +145,15 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom }) {
       if (!block) continue;
       const g = resolveGeom(block);
       if (!g || g.hidden) continue;
-      entries.push({ top: g.y, bottom: g.y + g.h, growth: measuredH - g.h });
+      // Effective height a block renders at:
+      //   - its natural (measured) content height, floored by
+      //   - an author-dragged explicit height (cards flagged manualHeight in
+      //     their per-breakpoint geometry). A card can only ever GROW beyond
+      //     its content, never shrink below it, so the floor is applied as a
+      //     lower bound.
+      const floor = (g.manualHeight && Number.isFinite(g.h)) ? g.h : 0;
+      const effectiveH = Math.max(measuredH, floor);
+      entries.push({ id, top: g.y, bottom: g.y + g.h, effectiveH });
     }
     if (entries.length === 0) return [];
     entries.sort((a, b) => a.top - b.top);
@@ -104,14 +161,25 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom }) {
     let cur = null;
     for (const e of entries) {
       if (cur && e.top < cur.bottom) {
-        // Vertical spans overlap → same row band.
+        // Vertical spans overlap → same row band. Horizontally-adjacent
+        // members (a row of cards) collapse into one row whose rendered
+        // height is the TALLEST member's — this is what auto-equalises card
+        // heights across a row.
         cur.top = Math.min(cur.top, e.top);
         cur.bottom = Math.max(cur.bottom, e.bottom);
-        cur.growth = Math.max(cur.growth, e.growth);
+        cur.renderedHeight = Math.max(cur.renderedHeight, e.effectiveH);
+        cur.ids.push(e.id);
       } else {
-        cur = { top: e.top, bottom: e.bottom, growth: e.growth };
+        cur = { top: e.top, bottom: e.bottom, renderedHeight: e.effectiveH, ids: [e.id] };
         groups.push(cur);
       }
+    }
+    // Growth = how far the row's rendered bottom extends past its stored
+    // bottom band. Signed: negative when the row renders shorter than its
+    // stored allocation (collapse trailing whitespace), positive when taller
+    // (push blocks below down). Computed after merges so `bottom` is final.
+    for (const grp of groups) {
+      grp.growth = (grp.top + grp.renderedHeight) - grp.bottom;
     }
     return groups;
   }, [measuredHeights, blocks, resolveGeom]);
@@ -140,6 +208,32 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom }) {
   const getMeasuredHeight = useCallback(
     (blockId) => measuredHeights.get(blockId),
     [measuredHeights],
+  );
+
+  /**
+   * Natural (content) height a block was measured at — the LOWER bound a card
+   * can be resized to. Alias of getMeasuredHeight, named for the resize clamp
+   * so a card can never be dragged shorter than its content.
+   */
+  const getContentHeight = useCallback(
+    (blockId) => measuredHeights.get(blockId),
+    [measuredHeights],
+  );
+
+  /**
+   * The height every card in a block's row should render at (the tallest
+   * member's effective height). Returns undefined when the block is not part
+   * of any measured row yet — callers then fall back to content-driven auto
+   * height. This is what makes cards sharing a row render at equal height.
+   */
+  const getRowHeight = useCallback(
+    (blockId) => {
+      for (const grp of rowGroups) {
+        if (grp.ids.includes(blockId)) return grp.renderedHeight;
+      }
+      return undefined;
+    },
+    [rowGroups],
   );
 
   /**
@@ -179,7 +273,7 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom }) {
   );
 
   return (
-    <AccordionReflowCtx.Provider value={{ reportHeight, getOffset, getMeasuredHeight, getTotalGrowth, getSectionGrowth }}>
+    <AccordionReflowCtx.Provider value={{ reportHeight, getOffset, getMeasuredHeight, getContentHeight, getRowHeight, getTotalGrowth, getSectionGrowth }}>
       {children}
     </AccordionReflowCtx.Provider>
   );

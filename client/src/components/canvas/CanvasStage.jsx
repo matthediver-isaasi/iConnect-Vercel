@@ -19,6 +19,11 @@ const FULL_WIDTH_RESIZE_HANDLES = ['n', 's'];
 // Width-resize-only blocks (auto-height text) expose only the horizontal
 // handles; vertical resize is dropped so it can't fight content-driven height.
 const WIDTH_ONLY_RESIZE_HANDLES = ['e', 'w'];
+// Cards keep full horizontal (width) AND vertical (grow) resize: vertical drag
+// only ever grows the card beyond its natural content height (clamped in the
+// resize handler); width is free. Corner handles are omitted so a drag is
+// unambiguously one axis.
+const CARD_RESIZE_HANDLES = ['n', 's', 'e', 'w'];
 
 function snap(value, gridSize) {
   if (!gridSize || gridSize <= 0) return value;
@@ -176,6 +181,7 @@ function CanvasBlockView({
   breakpoint,
   onPointerDownBlock,
   onPointerDownResize,
+  liveHeight,
 }) {
   if (geom.hidden) return null;
   const { style, a11y } = block;
@@ -188,6 +194,8 @@ function CanvasBlockView({
   // width but never fight the content-driven height, so only the horizontal
   // handles are offered.
   const widthResizeOnly = !!def?.widthResizeOnly;
+  // Cards get vertical grow handles (n/s) in addition to width (e/w).
+  const cardGrow = !!def?.cardGrow;
   const cursor = block.locked
     ? 'cursor-not-allowed'
     : (fullWidth ? 'cursor-ns-resize' : 'cursor-move');
@@ -195,7 +203,9 @@ function CanvasBlockView({
     ? []
     : (fullWidth
       ? FULL_WIDTH_RESIZE_HANDLES
-      : (widthResizeOnly ? WIDTH_ONLY_RESIZE_HANDLES : RESIZE_HANDLES));
+      : (cardGrow
+        ? CARD_RESIZE_HANDLES
+        : (widthResizeOnly ? WIDTH_ONLY_RESIZE_HANDLES : RESIZE_HANDLES)));
   // Anchor (align-to target) gets a thicker, pink outline so users can
   // visually distinguish which block other blocks will align to.
   const outlineClass = isAnchor
@@ -216,6 +226,11 @@ function CanvasBlockView({
         top: geom.y + topOff,
         width: geom.w,
         height: isAutoHeight ? 'auto' : geom.h + sectionGrow,
+        // Live feedback while dragging a card's n/s handle: the wrapper is
+        // height:auto (autoHeight card), so a floor makes the card box visibly
+        // grow with the pointer. The resize handler clamps this to the natural
+        // content height, so dragging down snaps to content instead of clipping.
+        ...(Number.isFinite(liveHeight) ? { minHeight: liveHeight } : null),
         background: style.background,
         borderColor: style.borderColor,
         borderWidth: style.borderWidth,
@@ -417,6 +432,14 @@ function CanvasStageInner({
     if (!block || block.locked) return;
     const start = getStageCoords(e.clientX, e.clientY);
     const geom = resolveBlockAtBreakpoint(block, breakpoint, { canvasWidth });
+    const def = getBlockDefinition(block.type);
+    // Cards may only GROW vertically past their natural content height. Capture
+    // that content floor now (it doesn't change mid-drag) so the resize handler
+    // can clamp without reading the live reflow context.
+    const cardGrow = !!def?.cardGrow;
+    const contentFloor = cardGrow && reflow
+      ? reflow.getContentHeight(blockId)
+      : undefined;
     setInteractionState({
       kind: 'resize',
       id: blockId,
@@ -424,9 +447,11 @@ function CanvasStageInner({
       start,
       initialGeom: geom,
       fullWidth: blockIsFullWidthLike(block),
+      cardGrow,
+      contentFloor: Number.isFinite(contentFloor) ? contentFloor : undefined,
     });
     try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch {}
-  }, [blocks, getStageCoords, breakpoint, canvasWidth]);
+  }, [blocks, getStageCoords, breakpoint, canvasWidth, reflow]);
 
   // ----- Stage background pointer down: clear selection + marquee start -----
   const handleStagePointerDown = useCallback((e) => {
@@ -574,6 +599,21 @@ function CanvasStageInner({
           : interactionState.handle;
         const { rect: gr, guides: gg } = snapResizeToGuides(resizeHandle, next, userGuides);
         next = gr;
+        // Card vertical resize can only GROW past natural content height — never
+        // shrink below it (which would clip the content). Clamp the height up to
+        // the captured content floor; when dragging the top (n) edge, keep the
+        // bottom edge pinned so the clamp doesn't drift the card upward.
+        if (
+          interactionState.cardGrow &&
+          Number.isFinite(interactionState.contentFloor) &&
+          /[ns]/.test(interactionState.handle) &&
+          next.h < interactionState.contentFloor
+        ) {
+          if (interactionState.handle.includes('n')) {
+            next.y = interactionState.initialGeom.y + interactionState.initialGeom.h - interactionState.contentFloor;
+          }
+          next.h = interactionState.contentFloor;
+        }
         setPreviewGeoms({ [interactionState.id]: next });
         setGuides(gg);
       } else if (interactionState.kind === 'marquee') {
@@ -611,7 +651,16 @@ function CanvasStageInner({
         setGuides({ vertical: [], horizontal: [] });
       } else if (interactionState.kind === 'resize') {
         if (Object.keys(previewGeoms).length > 0) {
-          onApplyGeometry(previewGeoms);
+          // A vertical card resize commits an explicit author height: flag the
+          // block so the reflow context treats the stored height as a floor
+          // (the card grows to it and never shrinks below content). Width-only
+          // (e/w) card resizes leave the card content-driven (no flag).
+          if (interactionState.cardGrow && /[ns]/.test(interactionState.handle)) {
+            const pg = previewGeoms[interactionState.id];
+            onApplyGeometry({ [interactionState.id]: { ...pg, manualHeight: true } });
+          } else {
+            onApplyGeometry(previewGeoms);
+          }
         }
         setPreviewGeoms({});
       } else if (interactionState.kind === 'marquee' && marqueeRect) {
@@ -671,6 +720,13 @@ function CanvasStageInner({
       {resolvedBlocks.map(({ block, geom }, index) => {
         const preview = previewGeoms[block.id];
         const effective = preview ? { ...geom, ...preview } : geom;
+        // Live wrapper growth only while dragging THIS card's n/s handle.
+        const liveHeight = (
+          interactionState?.kind === 'resize' &&
+          interactionState.id === block.id &&
+          interactionState.cardGrow &&
+          /[ns]/.test(interactionState.handle)
+        ) ? effective.h : undefined;
         // Use the stored (non-preview) y for reflow offset computation so that
         // dragging an accordion doesn't confuse which blocks are "above" it.
         const reflowTopOffset = reflow ? reflow.getOffset(block.id, geom.y) : 0;
@@ -701,6 +757,7 @@ function CanvasStageInner({
                     isAnchor={anchorId === block.id}
                     onPointerDownBlock={handlePointerDownBlock}
                     onPointerDownResize={handlePointerDownResize}
+                    liveHeight={liveHeight}
                   />
                 </div>
               </ContextMenuTrigger>

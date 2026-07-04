@@ -565,6 +565,11 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
             x: Math.round(u.x), y: Math.round(u.y),
             w: Math.round(u.w), h: Math.round(u.h),
           };
+      // Vertical card resize flags an explicit author height for the active
+      // breakpoint (stored alongside the geometry so it inherits + round-trips
+      // like any other per-breakpoint override). The reflow context reads it as
+      // a lower bound; it has no CSS effect (buildCanvasCss ignores it).
+      if (u.manualHeight) patch.manualHeight = true;
       return setBlockBp(b, breakpoint, patch);
     }));
   }, [replaceChildren, breakpoint]);
