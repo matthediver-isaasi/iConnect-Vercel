@@ -494,9 +494,16 @@ function suggestTokens(str) {
     .filter((t) => t.length > 1 && !SUGGEST_STOPWORDS.has(t));
 }
 
-// Minimum F1 score (harmonic mean of query-coverage and page-coverage) for a
-// page to be considered a confident suggestion.
-const SUGGEST_THRESHOLD = 0.6;
+// Match-confidence gate. Each page is scored with a weighted harmonic mean
+// (F-beta, beta=2) of query-coverage (fraction of the row's descriptive tokens
+// the page explains) and page-coverage (fraction of the page's title/slug the
+// row explains). Query-coverage is weighted ~4x more heavily because the row
+// heading is the primary signal. A realistic single strong-token overlap — e.g.
+// heading "The Story of BNMS" vs page "About BNMS" sharing only "bnms" — scores
+// 0.5, so the threshold sits just below that. Rows that share only a small
+// fraction of tokens on both sides stay well under the bar (no false positives).
+const SUGGEST_THRESHOLD = 0.45;
+const SUGGEST_BETA_SQ = 4; // beta = 2 -> query-coverage weighted 4x over page-coverage
 
 export function suggestInternalPage(row, internalPages, options = {}) {
   if (!row || !Array.isArray(internalPages) || internalPages.length === 0) return null;
@@ -527,11 +534,13 @@ export function suggestInternalPage(row, internalPages, options = {}) {
 
     const queryCoverage = matched / queryTokens.length;
     const pageCoverage = matched / pageSet.size;
-    const f1 = (2 * queryCoverage * pageCoverage) / (queryCoverage + pageCoverage);
+    const score =
+      ((1 + SUGGEST_BETA_SQ) * pageCoverage * queryCoverage) /
+      (SUGGEST_BETA_SQ * pageCoverage + queryCoverage);
 
-    if (!best || f1 > best.f1) best = { page, f1 };
+    if (!best || score > best.score) best = { page, score };
   }
 
-  if (best && best.f1 >= SUGGEST_THRESHOLD) return best.page;
+  if (best && best.score >= SUGGEST_THRESHOLD) return best.page;
   return null;
 }
