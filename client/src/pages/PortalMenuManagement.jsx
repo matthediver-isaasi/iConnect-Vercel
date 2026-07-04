@@ -103,6 +103,7 @@ const builtInPages = [
   { value: "GroupEvents", label: "Group Events" },
   { value: "GroupProjects", label: "Group Projects" },
   { value: "GuestWriterManagement", label: "Guest Writer Management" },
+  { value: "Help", label: "Help Center" },
   { value: "History", label: "History" },
   { value: "Home", label: "Home" },
   { value: "IEditPageEditor", label: "Page Editor" },

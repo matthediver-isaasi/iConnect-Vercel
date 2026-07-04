@@ -239,6 +239,7 @@ const hardcodedPublicPages = [
   { name: "FormSubmissions", label: "Form Submissions" },
   { name: "FormView", label: "Form View" },
   { name: "GuestWriterManagement", label: "Guest Writer Management" },
+  { name: "Help", label: "Help Center" },
   { name: "History", label: "History" },
   { name: "Home", label: "Home" },
   { name: "IEditPageEditor", label: "Page Editor" },

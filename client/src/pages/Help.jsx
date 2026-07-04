@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { createPageUrl } from "@/utils";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { base44, getActiveTenantId } from "@/api/base44Client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -46,7 +47,18 @@ async function askHelp(question) {
 export default function Help() {
   const [search, setSearch] = useState("");
   const [question, setQuestion] = useState("");
-  const { isFeatureExcluded } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady, isAdmin } = useMemberAccess();
+  const [accessChecked, setAccessChecked] = useState(false);
+
+  useEffect(() => {
+    if (isAccessReady) {
+      if (!isAdmin && isFeatureExcluded("page_Help")) {
+        window.location.href = createPageUrl("Dashboard");
+      } else {
+        setAccessChecked(true);
+      }
+    }
+  }, [isAccessReady, isAdmin, isFeatureExcluded]);
 
   const askMutation = useMutation({
     mutationFn: askHelp,
@@ -98,6 +110,16 @@ export default function Help() {
   }, [articles, search, isFeatureExcluded]);
 
   const isSearching = search.trim().length > 0;
+
+  if (!isAccessReady || !accessChecked) {
+    return (
+      <div className="mx-auto w-full max-w-3xl px-4 py-8">
+        <Skeleton className="mb-8 h-16 w-full" />
+        <Skeleton className="mb-4 h-40 w-full" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-8">

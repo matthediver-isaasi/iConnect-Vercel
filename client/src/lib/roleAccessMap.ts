@@ -592,6 +592,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
         label: "Support Page"
       },
       {
+        id: "support.docs",
+        label: "Help Center"
+      },
+      {
         id: "support.management",
         label: "Support Management"
       }
@@ -1071,6 +1075,7 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "action_article_edit": "content.articles.edit",
   "action_article_delete": "content.articles.delete",
   "page_SupportManagement": "support.management",
+  "page_Help": "support.docs",
   "page_BookingAgentsManagement": "calendar.agents",
   "page_AboutMe": "user.about-me",
   "page_Preferences_new": "user.about-me",
