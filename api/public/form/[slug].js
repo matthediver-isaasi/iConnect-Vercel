@@ -91,17 +91,34 @@ export default async function handler(req, res) {
     }
 
     if (form.require_authentication && !hasValidSession) {
+      // Preview shape for auth-gated forms viewed without a valid session.
+      // Keep it minimal (no authenticated-only mappings / entity config), but
+      // preserve everything the multi-page navigation + per-page validation
+      // depends on so an embedded form never renders with collapsed pages:
+      //   - per-field page_id / column_index (page assignment + layout)
+      //   - required + type-specific "is filled" inputs (contact / grouped)
+      //   - textarea limit config (max_characters / limit_type)
+      // plus the top-level `pages` array itself.
       const previewFields = (form.fields || []).map(f => ({
         id: f.id,
         label: f.label,
         type: f.type,
-        required: f.required
+        required: f.required,
+        page_id: f.page_id ?? null,
+        column_index: f.column_index ?? null,
+        max_characters: f.max_characters ?? null,
+        limit_type: f.limit_type ?? null,
+        contact_sub_fields: f.contact_sub_fields ?? null,
+        sub_questions: f.sub_questions ?? null,
+        min_completed: f.min_completed ?? null,
+        max_completed: f.max_completed ?? null
       }));
       return res.json({
         name: form.name,
         slug: form.slug,
         description: form.description,
         fields: previewFields,
+        pages: form.pages || [],
         is_active: form.is_active,
         layout_type: form.layout_type,
         submit_button_text: form.submit_button_text,

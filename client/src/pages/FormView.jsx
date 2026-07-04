@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { isFieldValueFilled, parseCustomFieldValue } from "@/lib/formFieldPrefill";
+import { getFormPagination } from "@/lib/formPagination";
 
 // A `redirect_url` beginning with this prefix means the redirect target is driven
 // by the value the respondent submitted for the field whose id follows the prefix.
@@ -104,10 +105,13 @@ export default function FormViewPage() {
   });
 
   const { data: form, isLoading, error: formError } = useQuery({
-    queryKey: ['public-form-by-slug', formSlug],
+    queryKey: ['public-form-by-slug', formSlug, !!memberInfo],
     queryFn: async () => {
-      // Use publicClient which handles both subdomain and custom domain resolution
-      return publicClient.getForm(formSlug);
+      // Use publicClient which handles both subdomain and custom domain resolution.
+      // Pass the authenticated flag (matching the embedded Canvas form block) so
+      // auth-gated forms return their full shape — including pages / per-field
+      // page_id — when the viewer has a valid session.
+      return publicClient.getForm(formSlug, { authenticated: !!memberInfo });
     },
     enabled: !!formSlug,
     retry: false
@@ -2406,80 +2410,31 @@ export default function FormViewPage() {
     );
   }
 
-  // Standard layout with optional pages
-  const pages = form.pages || [];
-  const visiblePages = pages.filter(p => !hiddenPageIds.has(p.id));
-  const hasPages = visiblePages.length > 0;
-  
-  // Get fields for current page (or all fields if no pages)
-  // Unassigned fields (page_id === null) are shown on the first page for backwards compatibility
-  const getCurrentPageFields = () => {
-    if (!hasPages) {
-      return form.fields;
-    }
-    const currentPage = visiblePages[currentPageIndex];
-    if (currentPageIndex === 0) {
-      return form.fields.filter(f => f.page_id === currentPage?.id || !f.page_id);
-    }
-    return form.fields.filter(f => f.page_id === currentPage?.id);
-  };
-  
-  // Validate current page fields before proceeding (only visible fields)
-  const validateCurrentPage = () => {
-    const pageFields = filterVisibleFields(getCurrentPageFields());
-    const missingFields = pageFields.filter(field => 
-      field.required && !isFieldValueFilled(field, formValues[field.id])
-    );
-    
-    if (missingFields.length > 0) {
-      toast.error(`Please fill in required fields: ${missingFields.map(f => f.label).join(', ')}`);
-      return false;
-    }
-
-    const overLimitFields = pageFields.filter(field => {
-      if (field.type !== 'textarea' || !field.max_characters) return false;
-      const text = formValues[field.id] || '';
-      if (field.limit_type === 'words') {
-        const wordCount = text.trim() === '' ? 0 : text.trim().split(/\s+/).length;
-        return wordCount > field.max_characters;
-      }
-      return text.length > field.max_characters;
-    });
-    if (overLimitFields.length > 0) {
-      toast.error(`${overLimitFields[0]?.limit_type === 'words' ? 'Word' : 'Character'} limit exceeded: ${overLimitFields.map(f => f.label).join(', ')}`);
-      return false;
-    }
-
-    return true;
-  };
-  
-  const scrollToForm = () => {
-    if (formContainerRef.current) {
-      const header = document.querySelector('header');
-      const headerHeight = header ? header.getBoundingClientRect().height : 0;
-      const targetTop = formContainerRef.current.getBoundingClientRect().top + window.scrollY - headerHeight;
-      window.scrollTo({ top: targetTop, behavior: 'smooth' });
-    } else {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-  };
-
-  const goToNextPage = () => {
-    if (validateCurrentPage()) {
-      setCurrentPageIndex(prev => Math.min(prev + 1, visiblePages.length - 1));
-      scrollToForm();
-    }
-  };
-  
-  const goToPreviousPage = () => {
-    setCurrentPageIndex(prev => Math.max(prev - 1, 0));
-    scrollToForm();
-  };
-  
-  const isFirstPage = currentPageIndex === 0;
-  const isLastPage = !hasPages || currentPageIndex === visiblePages.length - 1;
-  const currentPage = hasPages ? visiblePages[currentPageIndex] : null;
-  const displayFields = filterVisibleFields(getCurrentPageFields());
+  // Standard layout with optional pages.
+  // Shared with the embedded Canvas form block (IEditFormElement) via
+  // getFormPagination so navigation + per-page validation behave identically.
+  const {
+    visiblePages,
+    hasPages,
+    getCurrentPageFields,
+    validateCurrentPage,
+    scrollToForm,
+    goToNextPage,
+    goToPreviousPage,
+    isFirstPage,
+    isLastPage,
+    currentPage,
+    displayFields,
+  } = getFormPagination({
+    form,
+    formValues,
+    hiddenPageIds,
+    currentPageIndex,
+    setCurrentPageIndex,
+    filterVisibleFields,
+    formContainerRef,
+    toast,
+  });
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8" ref={formContainerRef}>

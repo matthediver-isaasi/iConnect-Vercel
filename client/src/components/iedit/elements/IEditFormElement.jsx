@@ -18,6 +18,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
 import { AlignLeft, AlignCenter, AlignRight } from "lucide-react";
 import { isFieldValueFilled, parseCustomFieldValue } from "@/lib/formFieldPrefill";
+import { getFormPagination } from "@/lib/formPagination";
 
 const formQuillModules = {
   toolbar: [
@@ -1189,73 +1190,31 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     previousRoleActionsRef.current = nowActiveRoleActions;
   }, [form?.visibility_rules, formValues, prefillMember, prefillOrg, prefillCustomFieldValues, form?.prefill_source]);
 
-  // Page navigation helpers for standard layout with pages
-  const pages = form?.pages || [];
-  const visiblePages = useMemo(() => {
-    return pages.filter(p => !hiddenPageIds.has(p.id));
-  }, [pages, hiddenPageIds]);
-  const hasPages = visiblePages.length > 0 && form?.layout_type === 'standard';
-
-  const getCurrentPageFields = () => {
-    if (!hasPages) {
-      return form?.fields || [];
-    }
-    const currentPage = visiblePages[currentPageIndex];
-    if (currentPageIndex === 0) {
-      return (form?.fields || []).filter(f => f.page_id === currentPage?.id || !f.page_id);
-    }
-    return (form?.fields || []).filter(f => f.page_id === currentPage?.id);
-  };
-
-  const validateCurrentPage = () => {
-    const pageFields = filterVisibleFields(getCurrentPageFields());
-    const missingFields = pageFields.filter(field => 
-      field.required && !isFieldValueFilled(field, formValues[field.id])
-    );
-    if (missingFields.length > 0) {
-      toast.error(`Please fill in required fields: ${missingFields.map(f => f.label).join(', ')}`);
-      return false;
-    }
-
-    const overLimitFields = pageFields.filter(field => {
-      if (field.type !== 'textarea' || !field.max_characters) return false;
-      const text = formValues[field.id] || '';
-      if (field.limit_type === 'words') {
-        const wordCount = text.trim() === '' ? 0 : text.trim().split(/\s+/).length;
-        return wordCount > field.max_characters;
-      }
-      return text.length > field.max_characters;
-    });
-    if (overLimitFields.length > 0) {
-      toast.error(`${overLimitFields[0]?.limit_type === 'words' ? 'Word' : 'Character'} limit exceeded: ${overLimitFields.map(f => f.label).join(', ')}`);
-      return false;
-    }
-
-    return true;
-  };
-
-  const scrollToForm = () => {
-    if (formContainerRef.current) {
-      const header = document.querySelector('header');
-      const headerHeight = header ? header.getBoundingClientRect().height : 0;
-      const targetTop = formContainerRef.current.getBoundingClientRect().top + window.scrollY - headerHeight;
-      window.scrollTo({ top: targetTop, behavior: 'smooth' });
-    } else {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-  };
-
-  const goToNextPage = () => {
-    if (validateCurrentPage()) {
-      setCurrentPageIndex(prev => Math.min(prev + 1, visiblePages.length - 1));
-      scrollToForm();
-    }
-  };
-
-  const goToPreviousPage = () => {
-    setCurrentPageIndex(prev => Math.max(prev - 1, 0));
-    scrollToForm();
-  };
+  // Page navigation helpers for standard layout with pages.
+  // Shared with the standalone FormView page via getFormPagination so navigation
+  // + per-page validation behave identically across both render paths.
+  const {
+    visiblePages,
+    hasPages,
+    getCurrentPageFields,
+    validateCurrentPage,
+    scrollToForm,
+    goToNextPage,
+    goToPreviousPage,
+    isFirstPage,
+    isLastPage,
+    currentPage,
+    displayFields,
+  } = getFormPagination({
+    form,
+    formValues,
+    hiddenPageIds,
+    currentPageIndex,
+    setCurrentPageIndex,
+    filterVisibleFields,
+    formContainerRef,
+    toast,
+  });
 
   // Clamp currentPageIndex if visiblePages changed and index is out of bounds
   useEffect(() => {
@@ -1263,11 +1222,6 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       setCurrentPageIndex(Math.max(0, visiblePages.length - 1));
     }
   }, [visiblePages.length, currentPageIndex, hasPages]);
-
-  const isFirstPage = currentPageIndex === 0;
-  const isLastPage = !hasPages || currentPageIndex === visiblePages.length - 1;
-  const currentPage = hasPages ? visiblePages[currentPageIndex] : null;
-  const displayFields = filterVisibleFields(getCurrentPageFields());
 
   const NON_INPUT_FIELD_TYPES = useMemo(() => new Set(['instructions', 'image', 'section_header', 'heading', 'paragraph', 'divider', 'spacer', 'html']), []);
 
@@ -1996,7 +1950,10 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                     selectedOrgGuestAccess={selectedOrgGuestAccess}
                     disabled={disabledFieldIds.has(field.id)}
                     onValidityChange={handleValidityChange}
+                    formId={form?.id}
+                    formMemberRoleId={prefillMember?.role_id || memberInfo?.role_id || null}
                     allFormValues={formValues}
+                    allFields={form?.fields || []}
                   />
                 ));
               }
@@ -2020,7 +1977,10 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                           selectedOrgGuestAccess={selectedOrgGuestAccess}
                           disabled={disabledFieldIds.has(field.id)}
                           onValidityChange={handleValidityChange}
+                          formId={form?.id}
+                          formMemberRoleId={prefillMember?.role_id || memberInfo?.role_id || null}
                           allFormValues={formValues}
+                          allFields={form?.fields || []}
                         />
                       ))}
                     </div>
@@ -2044,7 +2004,10 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                               selectedOrgGuestAccess={selectedOrgGuestAccess}
                               disabled={disabledFieldIds.has(field.id)}
                               onValidityChange={handleValidityChange}
+                              formId={form?.id}
+                              formMemberRoleId={prefillMember?.role_id || memberInfo?.role_id || null}
                               allFormValues={formValues}
+                              allFields={form?.fields || []}
                             />
                           ))}
                         </div>
