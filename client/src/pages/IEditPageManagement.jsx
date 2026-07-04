@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -92,6 +93,8 @@ export default function IEditPageManagementPage() {
   const [showDocDialog, setShowDocDialog] = useState(false);
   const [docFile, setDocFile] = useState(null);
   const [docTitle, setDocTitle] = useState("");
+  const [docMode, setDocMode] = useState("upload"); // 'upload' | 'paste'
+  const [docText, setDocText] = useState("");
   const [showCleanupDialog, setShowCleanupDialog] = useState(false);
   const [cleanupSelected, setCleanupSelected] = useState(() => new Set());
   const [cleanupResults, setCleanupResults] = useState(null);
@@ -289,18 +292,24 @@ export default function IEditPageManagementPage() {
   });
 
   const fromDocMutation = useMutation({
-    mutationFn: async ({ file, title }) => {
-      const fileBase64 = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
-        reader.onerror = () => reject(new Error('Could not read the file'));
-        reader.readAsDataURL(file);
-      });
+    mutationFn: async ({ file, text, title }) => {
+      let payload;
+      if (file) {
+        const fileBase64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+          reader.onerror = () => reject(new Error('Could not read the file'));
+          reader.readAsDataURL(file);
+        });
+        payload = { fileBase64, filename: file.name, title: title || undefined };
+      } else {
+        payload = { text, title: title || undefined };
+      }
       const res = await fetch('/api/admin/canvas-from-doc', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileBase64, filename: file.name, title: title || undefined }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Failed to create page from document');
@@ -311,7 +320,9 @@ export default function IEditPageManagementPage() {
       setShowDocDialog(false);
       setDocFile(null);
       setDocTitle("");
-      toast.success('Page created from document');
+      setDocText("");
+      setDocMode("upload");
+      toast.success('Page created');
       if (data?.page?.id) navigate(createPageUrl('CanvasPageEditor') + `?pageId=${data.page.id}`);
     },
     onError: (error) => toast.error(error.message),
@@ -814,7 +825,7 @@ export default function IEditPageManagementPage() {
               data-testid="button-create-from-doc"
             >
               <FileText className="w-4 h-4 mr-2" />
-              From document
+              From content
             </Button>
             <Button onClick={() => setShowCreateDialog(true)} className="bg-blue-600 hover:bg-blue-700" data-testid="button-new-page">
               <Plus className="w-4 h-4 mr-2" />
@@ -1092,28 +1103,45 @@ export default function IEditPageManagementPage() {
         <Dialog open={showDocDialog} onOpenChange={(o) => { if (!fromDocMutation.isPending) setShowDocDialog(o); }}>
           <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle>Create page from document</DialogTitle>
+              <DialogTitle>Create page from content</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
               <p className="text-sm text-slate-600">
-                Upload a Word document (.docx). We'll turn its content into a Canvas page draft for you to review and publish.
+                Upload a Word document or paste your text (for example from Google Docs). We'll turn it into a Canvas page draft for you to review and publish.
               </p>
-              <div className="space-y-2">
-                <Label htmlFor="doc-file">Word document (.docx)</Label>
-                <Input
-                  id="doc-file"
-                  type="file"
-                  accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                  onChange={(e) => setDocFile(e.target.files?.[0] || null)}
-                  data-testid="input-doc-file"
-                />
-                {docFile && <p className="text-xs text-slate-500" data-testid="text-doc-filename">{docFile.name}</p>}
-              </div>
+              <Tabs value={docMode} onValueChange={setDocMode}>
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="upload" data-testid="tab-doc-upload">Upload file</TabsTrigger>
+                  <TabsTrigger value="paste" data-testid="tab-doc-paste">Paste text</TabsTrigger>
+                </TabsList>
+                <TabsContent value="upload" className="space-y-2 mt-4">
+                  <Label htmlFor="doc-file">Word document (.docx)</Label>
+                  <Input
+                    id="doc-file"
+                    type="file"
+                    accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    onChange={(e) => setDocFile(e.target.files?.[0] || null)}
+                    data-testid="input-doc-file"
+                  />
+                  {docFile && <p className="text-xs text-slate-500" data-testid="text-doc-filename">{docFile.name}</p>}
+                </TabsContent>
+                <TabsContent value="paste" className="space-y-2 mt-4">
+                  <Label htmlFor="doc-text">Paste your text</Label>
+                  <Textarea
+                    id="doc-text"
+                    placeholder="Paste content from Google Docs, an email, or anywhere else…"
+                    value={docText}
+                    onChange={(e) => setDocText(e.target.value)}
+                    className="min-h-40 resize-y"
+                    data-testid="input-doc-text"
+                  />
+                </TabsContent>
+              </Tabs>
               <div className="space-y-2">
                 <Label htmlFor="doc-title">Page title (optional)</Label>
                 <Input
                   id="doc-title"
-                  placeholder="Leave blank to use the document's heading"
+                  placeholder="Leave blank to use the content's heading"
                   value={docTitle}
                   onChange={(e) => setDocTitle(e.target.value)}
                   data-testid="input-doc-title"
@@ -1125,8 +1153,14 @@ export default function IEditPageManagementPage() {
                 Cancel
               </Button>
               <Button
-                onClick={() => docFile && fromDocMutation.mutate({ file: docFile, title: docTitle.trim() })}
-                disabled={!docFile || fromDocMutation.isPending}
+                onClick={() => {
+                  if (docMode === 'upload') {
+                    if (docFile) fromDocMutation.mutate({ file: docFile, title: docTitle.trim() });
+                  } else if (docText.trim()) {
+                    fromDocMutation.mutate({ text: docText.trim(), title: docTitle.trim() });
+                  }
+                }}
+                disabled={fromDocMutation.isPending || (docMode === 'upload' ? !docFile : !docText.trim())}
                 data-testid="button-submit-from-doc"
               >
                 {fromDocMutation.isPending ? (

@@ -1,12 +1,15 @@
-// Create a Canvas Builder page from an uploaded Word (.docx) document.
+// Create a Canvas Builder page from an uploaded Word (.docx) document OR from
+// raw pasted text.
 //
 // POST /api/admin/canvas-from-doc
-//   body (JSON): { fileBase64, filename, title?, slug? }
+//   body (JSON): { fileBase64, filename, title?, slug? }  — Word upload
+//            or: { text, title?, slug? }                  — pasted text
 //
-// Flow: decode the .docx (a zip) → extract the document text → ask OpenAI to
-// turn it into a structured page spec → build a tenant-neutral Canvas design
-// with the shared layout engine → insert a DRAFT canvas page. Returns the new
-// page row so the client can open it in the Canvas editor.
+// Flow: obtain the document text (decode the .docx zip and extract text, or use
+// the pasted text directly) → ask OpenAI to turn it into a structured page spec
+// → build a tenant-neutral Canvas design with the shared layout engine → insert
+// a DRAFT canvas page. Returns the new page row so the client can open it in the
+// Canvas editor.
 //
 // Gated by `site-builder.pages` (tenant admin OR feature access). The page is
 // created as a draft so the admin reviews it before publishing.
@@ -282,25 +285,39 @@ export default async function handler(req, res) {
 
   const body = req.body || {};
   const fileBase64 = toStr(body.fileBase64);
-  if (!fileBase64) return res.status(400).json({ error: 'fileBase64 is required' });
-
-  let buffer;
-  try {
-    buffer = Buffer.from(fileBase64, 'base64');
-  } catch {
-    return res.status(400).json({ error: 'Invalid file encoding' });
+  const pastedText = toStr(body.text);
+  if (!fileBase64 && !pastedText.trim()) {
+    return res.status(400).json({ error: 'Provide either a document (fileBase64) or pasted text.' });
   }
-  if (!buffer?.length) return res.status(400).json({ error: 'Empty file' });
-  if (buffer.length > 8 * 1024 * 1024) return res.status(413).json({ error: 'File too large (max 8MB)' });
+
+  let buffer = null;
+  if (fileBase64) {
+    try {
+      buffer = Buffer.from(fileBase64, 'base64');
+    } catch {
+      return res.status(400).json({ error: 'Invalid file encoding' });
+    }
+    if (!buffer?.length) return res.status(400).json({ error: 'Empty file' });
+    if (buffer.length > 8 * 1024 * 1024) return res.status(413).json({ error: 'File too large (max 8MB)' });
+  }
 
   try {
-    let docText = await extractDocxText(buffer);
-    if (!docText.trim()) {
-      return res.status(400).json({ error: 'No readable text found in the document.' });
+    let docText;
+    let filename = '';
+    if (buffer) {
+      docText = await extractDocxText(buffer);
+      if (!docText.trim()) {
+        return res.status(400).json({ error: 'No readable text found in the document.' });
+      }
+      filename = toStr(body.filename).replace(/\.docx$/i, '').replace(/[-_]+/g, ' ').trim();
+    } else {
+      docText = pastedText;
+      if (!docText.trim()) {
+        return res.status(400).json({ error: 'No readable text found in the pasted content.' });
+      }
     }
     if (docText.length > MAX_DOC_CHARS) docText = docText.slice(0, MAX_DOC_CHARS);
 
-    const filename = toStr(body.filename).replace(/\.docx$/i, '').replace(/[-_]+/g, ' ').trim();
     const fallbackTitle = toStr(body.title).trim() || filename || 'Untitled page';
 
     const rawSpec = await generateSpec(client, docText, fallbackTitle);
