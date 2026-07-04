@@ -94,7 +94,12 @@ export default function IEditPageManagementPage() {
 
   // Create-from-document + multi-page cleanup state.
   const [showDocDialog, setShowDocDialog] = useState(false);
-  const [docFile, setDocFile] = useState(null);
+  const [docFiles, setDocFiles] = useState([]); // File[] selected/dropped in upload mode
+  const [docDragOver, setDocDragOver] = useState(false);
+  // Batch (multi-file) auto-create progress. null = not running/not started.
+  // Array<{ name, status: 'pending'|'processing'|'done'|'failed', error?, pageId? }>
+  const [batchStatus, setBatchStatus] = useState(null);
+  const [batchRunning, setBatchRunning] = useState(false);
   const [docTitle, setDocTitle] = useState("");
   const [docMode, setDocMode] = useState("upload"); // 'upload' | 'paste'
   const [docText, setDocText] = useState("");
@@ -312,12 +317,80 @@ export default function IEditPageManagementPage() {
 
   const resetDocDialog = () => {
     setShowDocDialog(false);
-    setDocFile(null);
+    setDocFiles([]);
+    setDocDragOver(false);
+    setBatchStatus(null);
+    setBatchRunning(false);
     setDocTitle("");
     setDocText("");
     setDocMode("upload");
     setDocSeedPageId("neutral");
     setDocPreview(null);
+  };
+
+  // Read a File into base64 (payload for /api/admin/canvas-from-doc).
+  const fileToBase64 = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+    reader.onerror = () => reject(new Error('Could not read the file'));
+    reader.readAsDataURL(file);
+  });
+
+  // Add .docx files to the batch, de-duplicating by name+size.
+  const addDocFiles = (fileList) => {
+    const incoming = Array.from(fileList || []).filter((f) => /\.docx$/i.test(f.name));
+    if (!incoming.length) return;
+    setDocFiles((prev) => {
+      const seen = new Set(prev.map((f) => `${f.name}:${f.size}`));
+      const merged = [...prev];
+      for (const f of incoming) {
+        const key = `${f.name}:${f.size}`;
+        if (!seen.has(key)) { seen.add(key); merged.push(f); }
+      }
+      return merged;
+    });
+  };
+
+  // Multi-file path: process each document with its own single-request
+  // generate-and-create call so no serverless invocation handles the whole
+  // batch (avoids the Vercel 60s limit). Sequential so slug uniqueness stays
+  // race-free. One shared branding (seed page / neutral) for every file; each
+  // page's title comes from its own filename. A single failure does not abort
+  // the rest of the batch.
+  const runBatchCreate = async () => {
+    const files = docFiles;
+    if (!files.length) return;
+    const seed = docSeedPageId && docSeedPageId !== 'neutral' ? docSeedPageId : undefined;
+    setBatchRunning(true);
+    setBatchStatus(files.map((f) => ({ name: f.name, status: 'pending' })));
+    let created = 0;
+    let failed = 0;
+    for (let i = 0; i < files.length; i++) {
+      setBatchStatus((prev) => prev.map((s, idx) => (idx === i ? { ...s, status: 'processing' } : s)));
+      try {
+        const fileBase64 = await fileToBase64(files[i]);
+        const res = await fetch('/api/admin/canvas-from-doc', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileBase64, filename: files[i].name, ...(seed ? { seedPageId: seed } : {}) }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Failed to create page');
+        created += 1;
+        setBatchStatus((prev) => prev.map((s, idx) => (idx === i ? { ...s, status: 'done', pageId: data?.page?.id } : s)));
+      } catch (err) {
+        failed += 1;
+        setBatchStatus((prev) => prev.map((s, idx) => (idx === i ? { ...s, status: 'failed', error: err.message } : s)));
+      }
+    }
+    setBatchRunning(false);
+    queryClient.invalidateQueries({ queryKey: ['iedit-pages'] });
+    if (created > 0) {
+      toast.success(`Created ${created} page${created === 1 ? '' : 's'}${failed ? `, ${failed} failed` : ''}`);
+    } else {
+      toast.error(`Failed to create ${failed} page${failed === 1 ? '' : 's'}`);
+    }
   };
 
   // Step 1 — generate a design from an uploaded file OR pasted text WITHOUT
@@ -382,7 +455,7 @@ export default function IEditPageManagementPage() {
     onError: (error) => toast.error(error.message),
   });
 
-  const docBusy = fromDocPreviewMutation.isPending || fromDocConfirmMutation.isPending;
+  const docBusy = fromDocPreviewMutation.isPending || fromDocConfirmMutation.isPending || batchRunning;
 
   const cleanupMutation = useMutation({
     mutationFn: async (pageIds) => {
@@ -1159,30 +1232,131 @@ export default function IEditPageManagementPage() {
         <Dialog open={showDocDialog} onOpenChange={(o) => { if (!docBusy) { if (o) setShowDocDialog(true); else resetDocDialog(); } }}>
           <DialogContent className={docPreview ? "max-w-3xl" : "max-w-md"}>
             <DialogHeader>
-              <DialogTitle>{docPreview ? 'Review generated page' : 'Create page from content'}</DialogTitle>
+              <DialogTitle>
+                {batchStatus ? 'Creating pages' : docPreview ? 'Review generated page' : 'Create page from content'}
+              </DialogTitle>
             </DialogHeader>
 
-            {!docPreview ? (
+            {batchStatus ? (
+              <>
+                <div className="space-y-3">
+                  <p className="text-sm text-slate-600">
+                    Each document is turned into its own draft Canvas page using the shared branding. You can leave this running — it processes one file at a time.
+                  </p>
+                  <div className="max-h-72 overflow-y-auto space-y-1" data-testid="container-batch-progress">
+                    {batchStatus.map((s, i) => (
+                      <div
+                        key={`${s.name}-${i}`}
+                        className="flex items-center gap-3 rounded-md p-2"
+                        data-testid={`row-batch-${i}`}
+                      >
+                        {s.status === 'done' ? (
+                          <CheckCircle2 className="w-4 h-4 text-green-600 flex-shrink-0" />
+                        ) : s.status === 'failed' ? (
+                          <XCircle className="w-4 h-4 text-destructive flex-shrink-0" />
+                        ) : s.status === 'processing' ? (
+                          <Loader2 className="w-4 h-4 text-blue-600 flex-shrink-0 animate-spin" />
+                        ) : (
+                          <MinusCircle className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-slate-800 truncate">{s.name}</p>
+                          {s.status === 'failed' && s.error && (
+                            <p className="text-xs text-destructive truncate">{s.error}</p>
+                          )}
+                        </div>
+                        <span className="text-xs text-slate-500 flex-shrink-0" data-testid={`status-batch-${i}`}>
+                          {s.status === 'done'
+                            ? 'Done'
+                            : s.status === 'failed'
+                            ? 'Failed'
+                            : s.status === 'processing'
+                            ? 'Processing…'
+                            : 'Pending'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  {!batchRunning && (
+                    <p className="text-sm text-slate-600" data-testid="text-batch-summary">
+                      {(() => {
+                        const done = batchStatus.filter((s) => s.status === 'done').length;
+                        const failed = batchStatus.filter((s) => s.status === 'failed').length;
+                        return `Created ${done} page${done === 1 ? '' : 's'}${failed ? `, ${failed} failed` : ''}.`;
+                      })()}
+                    </p>
+                  )}
+                </div>
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={resetDocDialog}
+                    disabled={batchRunning}
+                    data-testid="button-batch-close"
+                  >
+                    {batchRunning ? (
+                      <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Creating pages…</>
+                    ) : 'Close'}
+                  </Button>
+                </DialogFooter>
+              </>
+            ) : !docPreview ? (
               <>
                 <div className="space-y-4">
                   <p className="text-sm text-slate-600">
-                    Upload a Word document or paste your text (for example from Google Docs). We'll turn it into a Canvas page so you can review it before anything is saved.
+                    Upload one or more Word documents, or paste your text (for example from Google Docs). A single file (or pasted text) lets you review before saving; drop several files to create a draft page for each one automatically.
                   </p>
                   <Tabs value={docMode} onValueChange={setDocMode}>
                     <TabsList className="grid w-full grid-cols-2">
-                      <TabsTrigger value="upload" data-testid="tab-doc-upload">Upload file</TabsTrigger>
+                      <TabsTrigger value="upload" data-testid="tab-doc-upload">Upload file(s)</TabsTrigger>
                       <TabsTrigger value="paste" data-testid="tab-doc-paste">Paste text</TabsTrigger>
                     </TabsList>
                     <TabsContent value="upload" className="space-y-2 mt-4">
-                      <Label htmlFor="doc-file">Word document (.docx)</Label>
-                      <Input
-                        id="doc-file"
-                        type="file"
-                        accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                        onChange={(e) => setDocFile(e.target.files?.[0] || null)}
-                        data-testid="input-doc-file"
-                      />
-                      {docFile && <p className="text-xs text-slate-500" data-testid="text-doc-filename">{docFile.name}</p>}
+                      <Label htmlFor="doc-file">Word documents (.docx)</Label>
+                      <div
+                        onDragOver={(e) => { e.preventDefault(); setDocDragOver(true); }}
+                        onDragLeave={(e) => { e.preventDefault(); setDocDragOver(false); }}
+                        onDrop={(e) => { e.preventDefault(); setDocDragOver(false); addDocFiles(e.dataTransfer?.files); }}
+                        className={`rounded-md border-2 border-dashed p-4 text-center transition-colors ${docDragOver ? 'border-blue-400 bg-blue-50' : 'border-slate-300'}`}
+                        data-testid="dropzone-doc-files"
+                      >
+                        <p className="text-sm text-slate-600 mb-2">Drag &amp; drop .docx files here, or</p>
+                        <Input
+                          id="doc-file"
+                          type="file"
+                          multiple
+                          accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                          onChange={(e) => { addDocFiles(e.target.files); e.target.value = ''; }}
+                          data-testid="input-doc-file"
+                        />
+                      </div>
+                      {docFiles.length > 0 && (
+                        <div className="space-y-1 max-h-40 overflow-y-auto" data-testid="list-doc-files">
+                          {docFiles.map((f, i) => (
+                            <div
+                              key={`${f.name}-${f.size}-${i}`}
+                              className="flex items-center gap-2 rounded-md bg-slate-50 px-2 py-1"
+                              data-testid={`row-doc-file-${i}`}
+                            >
+                              <FileText className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                              <span className="text-xs text-slate-600 flex-1 min-w-0 truncate">{f.name}</span>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => setDocFiles((prev) => prev.filter((_, idx) => idx !== i))}
+                                data-testid={`button-remove-doc-file-${i}`}
+                              >
+                                <XCircle className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {docFiles.length > 1 && (
+                        <p className="text-xs text-slate-500" data-testid="text-doc-multi-note">
+                          {docFiles.length} files selected. Each becomes its own draft page (titled from its filename) using the shared branding below.
+                        </p>
+                      )}
                     </TabsContent>
                     <TabsContent value="paste" className="space-y-2 mt-4">
                       <Label htmlFor="doc-text">Paste your text</Label>
@@ -1248,16 +1422,22 @@ export default function IEditPageManagementPage() {
                   <Button
                     onClick={() => {
                       if (docMode === 'upload') {
-                        if (docFile) fromDocPreviewMutation.mutate({ file: docFile, title: docTitle.trim(), seedPageId: docSeedPageId });
+                        if (docFiles.length > 1) {
+                          runBatchCreate();
+                        } else if (docFiles.length === 1) {
+                          fromDocPreviewMutation.mutate({ file: docFiles[0], title: docTitle.trim(), seedPageId: docSeedPageId });
+                        }
                       } else if (docText.trim()) {
                         fromDocPreviewMutation.mutate({ text: docText.trim(), title: docTitle.trim(), seedPageId: docSeedPageId });
                       }
                     }}
-                    disabled={docBusy || (docMode === 'upload' ? !docFile : !docText.trim())}
+                    disabled={docBusy || (docMode === 'upload' ? docFiles.length === 0 : !docText.trim())}
                     data-testid="button-submit-from-doc"
                   >
                     {fromDocPreviewMutation.isPending ? (
                       <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Generating preview…</>
+                    ) : docMode === 'upload' && docFiles.length > 1 ? (
+                      `Create ${docFiles.length} pages`
                     ) : 'Generate preview'}
                   </Button>
                 </DialogFooter>
