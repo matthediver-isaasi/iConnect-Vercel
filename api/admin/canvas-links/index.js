@@ -3,11 +3,17 @@
 // GET  -> list every CanvasBuilder page (i_edit_page where builder_type =
 //         'canvas') for the tenant, each with the flat list of links extracted
 //         from its canvas_design document.
-// PUT  -> apply a single link update: given { pageId, blockId, path, value },
-//         load that page's canvas_design, set the value at the addressable
-//         path (including rewriting inline <a> hrefs in rich-text html), and
-//         persist. Reuses the same minimal shape validation as the dedicated
-//         canvas-design CRUD endpoint so stored documents stay valid.
+// PUT  -> apply a link update to a page's canvas_design. Two shapes:
+//         (a) single: { pageId, blockId, path, value }
+//         (b) batch : { pageId, updates: [{ blockId, path, value }, ...] }
+//         Load that page's canvas_design, set the value(s) at the addressable
+//         path(s) (including rewriting inline <a> hrefs in rich-text html), and
+//         persist. The batch form is transactional PER PAGE: every update is
+//         applied to a single deep clone, and the clone is only written if ALL
+//         updates apply cleanly — so a failing update never leaves a page half
+//         changed and never silently drops the others. Reuses the same minimal
+//         shape validation as the dedicated canvas-design CRUD endpoint so
+//         stored documents stay valid.
 //
 // Tenant safety: TENANT-scoped, never anonymous. RBAC mirrors other admin
 // endpoints — platform/admin (tenant_user) sessions bypass per-feature RBAC;
@@ -84,23 +90,24 @@ async function listLinks(req, res, context) {
   return res.json({ pages, internalPages });
 }
 
-async function updateLink(req, res, context) {
-  const body = req.body || {};
-  const { pageId, blockId, path, value } = body;
-
-  if (!pageId || typeof pageId !== 'string') {
-    return res.status(400).json({ error: 'pageId is required' });
-  }
-  if (!blockId || typeof blockId !== 'string') {
-    return res.status(400).json({ error: 'blockId is required' });
-  }
+// Validate a single { blockId, path, value } update descriptor. Returns an
+// error string when invalid, or null when it is well-formed.
+function validateUpdate(update) {
+  if (!update || typeof update !== 'object') return 'Each update must be an object';
+  if (!update.blockId || typeof update.blockId !== 'string') return 'blockId is required';
+  const path = update.path;
   if (!path || typeof path !== 'object' || !Array.isArray(path.contentPath) || !path.contentPath.length) {
-    return res.status(400).json({ error: 'A valid path.contentPath is required' });
+    return 'A valid path.contentPath is required';
   }
-  if (typeof value !== 'string') {
-    return res.status(400).json({ error: 'value (string) is required' });
-  }
+  if (typeof update.value !== 'string') return 'value (string) is required';
+  return null;
+}
 
+// Apply an array of updates to a single page's canvas_design and persist. This
+// is the shared core used by both the single-update and batch PUT shapes. Every
+// update is applied to ONE deep clone; the clone is only written when ALL
+// updates succeed, so a page is never left half-changed.
+async function applyUpdatesToPage(res, context, pageId, updates) {
   // Load the page (tenant-scoped) and confirm it is a canvas page.
   const { data: page, error: readErr } = await supabase
     .from('i_edit_page')
@@ -127,7 +134,9 @@ async function updateLink(req, res, context) {
   let nextDesign;
   try {
     nextDesign = JSON.parse(JSON.stringify(design));
-    applyCanvasLinkUpdate(nextDesign, blockId, path, value);
+    for (const u of updates) {
+      applyCanvasLinkUpdate(nextDesign, u.blockId, u.path, u.value);
+    }
   } catch (err) {
     console.error('[CanvasLinks] apply error:', err);
     return res.status(400).json({ error: err.message || 'Failed to apply link update' });
@@ -162,7 +171,34 @@ async function updateLink(req, res, context) {
   } catch (err) {
     console.error('[CanvasLinks] re-extract error:', err);
   }
-  return res.json({ ok: true, pageId, links });
+  return res.json({ ok: true, pageId, applied: updates.length, links });
+}
+
+async function updateLink(req, res, context) {
+  const body = req.body || {};
+  const { pageId } = body;
+
+  if (!pageId || typeof pageId !== 'string') {
+    return res.status(400).json({ error: 'pageId is required' });
+  }
+
+  // Batch shape: { pageId, updates: [{ blockId, path, value }, ...] }.
+  if (Array.isArray(body.updates)) {
+    if (body.updates.length === 0) {
+      return res.status(400).json({ error: 'updates must be a non-empty array' });
+    }
+    for (const update of body.updates) {
+      const err = validateUpdate(update);
+      if (err) return res.status(400).json({ error: err });
+    }
+    return applyUpdatesToPage(res, context, pageId, body.updates);
+  }
+
+  // Single shape: { pageId, blockId, path, value }.
+  const single = { blockId: body.blockId, path: body.path, value: body.value };
+  const err = validateUpdate(single);
+  if (err) return res.status(400).json({ error: err });
+  return applyUpdatesToPage(res, context, pageId, [single]);
 }
 
 export default async function handler(req, res) {
