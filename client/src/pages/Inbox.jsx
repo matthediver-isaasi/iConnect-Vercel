@@ -17,10 +17,12 @@ import {
   Pencil,
   FolderInput,
   Loader2,
+  X,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -84,6 +86,7 @@ export default function InboxPage() {
     folders,
     isLoading,
     act,
+    actBulk,
     createFolder,
     renameFolder,
     deleteFolder,
@@ -91,6 +94,7 @@ export default function InboxPage() {
 
   const [selectedView, setSelectedView] = useState("inbox");
   const [selectedId, setSelectedId] = useState(null);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [isLgUp, setIsLgUp] = useState(
@@ -114,6 +118,12 @@ export default function InboxPage() {
   }, [search]);
 
   const { matchingRecipientIds, isSearching } = useInboxBodyMatches(debouncedSearch);
+
+  // Clear the selection whenever the active view/folder or search term changes
+  // so stale selections don't carry across contexts.
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [selectedView, search]);
 
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
   const [folderDraftName, setFolderDraftName] = useState("");
@@ -213,9 +223,64 @@ export default function InboxPage() {
   const selectedMessage =
     messages.find((m) => m.recipient_id === selectedId) || openMessage || null;
 
+  const filteredIds = useMemo(
+    () => filteredMessages.map((m) => m.recipient_id),
+    [filteredMessages]
+  );
+
+  // Keep the selection scoped to whatever is currently visible.
+  const selectedInView = useMemo(
+    () => filteredIds.filter((id) => selectedIds.has(id)),
+    [filteredIds, selectedIds]
+  );
+  const selectedCount = selectedInView.length;
+  const allSelected = filteredIds.length > 0 && selectedCount === filteredIds.length;
+  const someSelected = selectedCount > 0 && !allSelected;
+  const isArchivedView = selectedView === "archived";
+
+  function toggleSelect(recipientId) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(recipientId)) next.delete(recipientId);
+      else next.add(recipientId);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    setSelectedIds((prev) => {
+      if (filteredIds.length > 0 && filteredIds.every((id) => prev.has(id))) {
+        return new Set();
+      }
+      return new Set(filteredIds);
+    });
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set());
+  }
+
   async function handleAction(recipientId, action, folderId) {
     try {
       await act(recipientId, action, folderId);
+    } catch (err) {
+      toast({
+        title: "Something went wrong",
+        description: err.message || "Please try again.",
+        variant: "destructive",
+      });
+    }
+  }
+
+  async function handleBulkAction(action, folderId) {
+    const ids = selectedInView;
+    if (ids.length === 0) return;
+    try {
+      await actBulk(ids, action, folderId);
+      clearSelection();
+      toast({
+        title: `${ids.length} message${ids.length === 1 ? "" : "s"} updated`,
+      });
     } catch (err) {
       toast({
         title: "Something went wrong",
@@ -484,7 +549,12 @@ export default function InboxPage() {
                         e.dataTransfer.getData("text/plain") || draggingId;
                       setDragOverFolderId(null);
                       setDraggingId(null);
-                      if (recipientId) {
+                      if (!recipientId) return;
+                      // If the dragged message is part of a multi-selection,
+                      // move the whole selection; otherwise move just this one.
+                      if (selectedIds.has(recipientId) && selectedInView.length > 1) {
+                        handleBulkAction("move", folder.id);
+                      } else {
                         handleAction(recipientId, "move", folder.id);
                       }
                     }}
@@ -578,7 +648,100 @@ export default function InboxPage() {
                 </Button>
               ))}
             </div>
+
+            {/* Select-all + selected count */}
+            {filteredMessages.length > 0 && (
+              <div className="flex items-center gap-2 mt-3">
+                <Checkbox
+                  checked={allSelected ? true : someSelected ? "indeterminate" : false}
+                  onCheckedChange={toggleSelectAll}
+                  aria-label="Select all messages"
+                  data-testid="checkbox-select-all"
+                />
+                <span className="text-sm text-muted-foreground" data-testid="text-selected-count">
+                  {selectedCount > 0
+                    ? `${selectedCount} selected`
+                    : "Select all"}
+                </span>
+              </div>
+            )}
           </div>
+
+          {/* Bulk action bar */}
+          {selectedCount > 0 && (
+            <div
+              className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-border bg-muted/40"
+              data-testid="bulk-action-bar"
+            >
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleBulkAction("read")}
+                data-testid="button-bulk-read"
+              >
+                <MailOpen className="w-4 h-4 mr-2" /> Mark read
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleBulkAction("unread")}
+                data-testid="button-bulk-unread"
+              >
+                <Mail className="w-4 h-4 mr-2" /> Mark unread
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleBulkAction(isArchivedView ? "unarchive" : "archive")}
+                data-testid="button-bulk-archive"
+              >
+                {isArchivedView ? (
+                  <>
+                    <ArchiveRestore className="w-4 h-4 mr-2" /> Unarchive
+                  </>
+                ) : (
+                  <>
+                    <Archive className="w-4 h-4 mr-2" /> Archive
+                  </>
+                )}
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="sm" variant="outline" data-testid="button-bulk-move">
+                    <FolderInput className="w-4 h-4 mr-2" /> Move
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  <DropdownMenuLabel>Move to folder</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {folders.length === 0 && (
+                    <DropdownMenuItem disabled>No folders yet</DropdownMenuItem>
+                  )}
+                  {folders.map((f) => (
+                    <DropdownMenuItem
+                      key={f.id}
+                      onClick={() => handleBulkAction("move", f.id)}
+                    >
+                      <Folder className="w-4 h-4 mr-2" />
+                      {f.name}
+                    </DropdownMenuItem>
+                  ))}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => handleBulkAction("move", null)}>
+                    Remove from folder
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={clearSelection}
+                data-testid="button-bulk-clear"
+              >
+                <X className="w-4 h-4 mr-2" /> Clear
+              </Button>
+            </div>
+          )}
 
           <ScrollArea className="flex-1">
             {isLoading ? (
@@ -598,8 +761,22 @@ export default function InboxPage() {
                   } else if (m.is_pinned) {
                     bgClass = "bg-[hsl(var(--inbox-pinned-bg))]";
                   }
+                  const isSelected = selectedIds.has(m.recipient_id);
                   return (
-                    <li key={m.recipient_id}>
+                    <li
+                      key={m.recipient_id}
+                      className={`flex items-stretch border-b border-border ${bgClass} ${
+                        draggingId === m.recipient_id ? "opacity-50" : ""
+                      }`}
+                    >
+                      <div className="flex items-center pl-4">
+                        <Checkbox
+                          checked={isSelected}
+                          onCheckedChange={() => toggleSelect(m.recipient_id)}
+                          aria-label="Select message"
+                          data-testid={`checkbox-message-${m.recipient_id}`}
+                        />
+                      </div>
                       <button
                         type="button"
                         draggable
@@ -615,9 +792,9 @@ export default function InboxPage() {
                         onClick={() => setSelectedId(m.recipient_id)}
                         data-testid={`message-${m.recipient_id}`}
                         aria-current={active ? "true" : undefined}
-                        className={`w-full text-left px-4 py-3 border-b border-border hover-elevate ${bgClass} ${
+                        className={`flex-1 min-w-0 text-left px-3 py-3 hover-elevate ${
                           active ? "ring-2 ring-inset ring-primary" : ""
-                        } ${draggingId === m.recipient_id ? "opacity-50" : ""}`}
+                        }`}
                       >
                         <div className="flex items-center gap-2">
                           {!m.is_read && (

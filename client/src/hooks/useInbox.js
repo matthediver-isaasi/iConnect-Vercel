@@ -85,6 +85,16 @@ export function useInbox() {
     [invalidate]
   );
 
+  const actBulk = useCallback(
+    async (recipientIds, action, folderId) => {
+      const ids = Array.isArray(recipientIds) ? recipientIds.filter(Boolean) : [];
+      if (ids.length === 0) return;
+      await postAction({ recipient_ids: ids, action, folder_id: folderId });
+      await invalidate();
+    },
+    [invalidate]
+  );
+
   const createFolder = useCallback(
     async (name) => {
       const trimmed = (name || "").trim();
@@ -120,6 +130,7 @@ export function useInbox() {
     isLoading,
     refetch,
     act,
+    actBulk,
     createFolder,
     renameFolder,
     deleteFolder,

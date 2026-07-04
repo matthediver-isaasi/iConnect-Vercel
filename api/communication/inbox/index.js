@@ -132,29 +132,39 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'POST') {
-      const { recipient_id, action } = req.body || {};
+      const { recipient_id, recipient_ids, action } = req.body || {};
       let { folder_id } = req.body || {};
 
-      if (!recipient_id || !action) {
-        return res.status(400).json({ error: 'recipient_id and action are required' });
+      // Accept either a single `recipient_id` (existing shape, used across the
+      // app) or a `recipient_ids` array (bulk). Normalise to a de-duped list.
+      const rawIds = Array.isArray(recipient_ids)
+        ? recipient_ids
+        : recipient_id != null
+          ? [recipient_id]
+          : [];
+      const ids = [...new Set(rawIds.filter(Boolean))];
+      const isBulk = Array.isArray(recipient_ids);
+
+      if (ids.length === 0 || !action) {
+        return res.status(400).json({ error: 'recipient_id(s) and action are required' });
       }
       if (!ACTIONS.has(action)) {
         return res.status(400).json({ error: `action must be one of: ${[...ACTIONS].join(', ')}` });
       }
 
-      // Confirm the recipient row belongs to this member within this tenant.
-      const { data: recipient, error: recErr } = await supabase
+      // Confirm every recipient row belongs to this member within this tenant.
+      const { data: ownedRows, error: recErr } = await supabase
         .from('email_campaign_recipient')
         .select('id, member_id, email_campaign!inner(tenant_id)')
-        .eq('id', recipient_id)
+        .in('id', ids)
         .eq('member_id', memberId)
-        .eq('email_campaign.tenant_id', tenantId)
-        .maybeSingle();
+        .eq('email_campaign.tenant_id', tenantId);
       if (recErr) {
         console.error('[Inbox] recipient lookup error:', recErr);
         return res.status(500).json({ error: 'Failed to verify message' });
       }
-      if (!recipient) {
+      const ownedIds = (ownedRows || []).map((r) => r.id);
+      if (ownedIds.length !== ids.length) {
         return res.status(404).json({ error: 'Message not found' });
       }
 
@@ -209,26 +219,28 @@ export default async function handler(req, res) {
           break;
       }
 
-      const { data: state, error: upErr } = await supabase
+      const { data: states, error: upErr } = await supabase
         .from('member_inbox_message_state')
         .upsert(
-          {
+          ownedIds.map((rid) => ({
             tenant_id: tenantId,
             member_id: memberId,
-            recipient_id,
+            recipient_id: rid,
             ...patch,
             updated_at: nowIso,
-          },
+          })),
           { onConflict: 'member_id,recipient_id' }
         )
-        .select('recipient_id, is_read, is_pinned, is_archived, is_favourite, folder_id, read_at')
-        .single();
+        .select('recipient_id, is_read, is_pinned, is_archived, is_favourite, folder_id, read_at');
       if (upErr) {
         console.error('[Inbox] state upsert error:', upErr);
         return res.status(500).json({ error: 'Failed to update message' });
       }
 
-      return res.json({ state });
+      if (isBulk) {
+        return res.json({ states: states || [], updated: (states || []).length });
+      }
+      return res.json({ state: (states || [])[0] || null });
     }
 
     return res.status(405).json({ error: 'Method not allowed' });
