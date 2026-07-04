@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
@@ -49,7 +50,7 @@ export default function HelpAiPersonaEditor() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [processing, setProcessing] = useState(false);
-  const [persona, setPersona] = useState({ name: 'Dougal', avatarUrl: '' });
+  const [persona, setPersona] = useState({ name: 'Dougal', avatarUrl: '', description: '' });
 
   useEffect(() => {
     let cancelled = false;
@@ -108,7 +109,7 @@ export default function HelpAiPersonaEditor() {
         credentials: 'include',
         body: JSON.stringify({
           key: PREF_KEY,
-          value: { name, avatarUrl: persona.avatarUrl || '' },
+          value: { name, avatarUrl: persona.avatarUrl || '', description: (persona.description || '').trim() },
           description: 'Name and avatar for the Help Center AI assistant',
         }),
       });
@@ -191,6 +192,18 @@ export default function HelpAiPersonaEditor() {
             onChange={(e) => setPersona((prev) => ({ ...prev, name: e.target.value }))}
             placeholder="e.g. Dougal"
             data-testid="input-ai-persona-name"
+          />
+        </div>
+
+        <div className="max-w-sm space-y-2">
+          <Label htmlFor="ai-persona-description">Description</Label>
+          <Textarea
+            id="ai-persona-description"
+            value={persona.description || ''}
+            onChange={(e) => setPersona((prev) => ({ ...prev, description: e.target.value }))}
+            placeholder="e.g. Your friendly guide to getting the most out of the platform."
+            rows={3}
+            data-testid="input-ai-persona-description"
           />
         </div>
 

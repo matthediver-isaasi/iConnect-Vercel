@@ -2,7 +2,8 @@ import { supabase } from '../_lib/database.js';
 
 const DEFAULT_PERSONA = {
   name: 'Dougal',
-  avatarUrl: ''
+  avatarUrl: '',
+  description: ''
 };
 
 export default async function handler(req, res) {

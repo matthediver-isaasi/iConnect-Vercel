@@ -89,6 +89,7 @@ export default function Help() {
   const aiName = (persona?.name || "Dougal").trim() || "Dougal";
   const aiAvatarUrl = persona?.avatarUrl || dougalAvatar;
   const aiInitial = aiName.charAt(0).toUpperCase();
+  const aiDescription = (persona?.description || "").trim();
 
   const { data: articles, isLoading, isError } = useQuery({
     queryKey: ["/help-articles", "published"],
@@ -161,7 +162,12 @@ export default function Help() {
               <AvatarImage src={aiAvatarUrl} alt={aiName} />
               <AvatarFallback>{aiInitial}</AvatarFallback>
             </Avatar>
-            <h2 className="text-sm font-semibold" data-testid="text-ask-dougal-heading">Ask {aiName}</h2>
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold" data-testid="text-ask-dougal-heading">Ask {aiName}</h2>
+              {aiDescription && (
+                <p className="text-sm text-muted-foreground" data-testid="text-ai-persona-description">{aiDescription}</p>
+              )}
+            </div>
           </div>
           <form onSubmit={handleAsk} className="flex flex-wrap items-center gap-2">
             <Input
