@@ -49,10 +49,10 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "npx tsx --test client/src/lib/roleAccessMap.test.ts"
+args = "npx tsx --test client/src/lib/roleAccessMap.test.ts client/src/components/help/HelpArticleContent.test.jsx"
 
 [workflows.workflow.metadata]
-isValidation = true
+outputType = "console"
 
 [userenv]
 
