@@ -71,7 +71,16 @@ export default function HelpArticlesEditor() {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [reindexing, setReindexing] = useState(false);
-  const [generatingKey, setGeneratingKey] = useState(null);
+
+  // Guided AI generation review flow (Task #2304).
+  const [buildOpen, setBuildOpen] = useState(false);
+  const [buildTarget, setBuildTarget] = useState(null); // { mod, page }
+  const [buildInstructions, setBuildInstructions] = useState('');
+  const [buildDraft, setBuildDraft] = useState(null); // { title, summary, category, body }
+  const [buildExplanation, setBuildExplanation] = useState('');
+  const [buildExists, setBuildExists] = useState(false);
+  const [buildGenerating, setBuildGenerating] = useState(false);
+  const [buildConfirming, setBuildConfirming] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -207,23 +216,75 @@ export default function HelpArticlesEditor() {
     }
   };
 
-  const buildContent = async (mod, page) => {
-    setGeneratingKey(page.id);
+  // Open the review dialog for a page, pre-filling any remembered instructions.
+  const openBuild = (mod, page) => {
+    const matched = articles.filter((a) => (a.required_feature || '') === page.id);
+    const lastInstructions =
+      matched.map((a) => a.generation_instructions).find((v) => v) || '';
+    setBuildTarget({ mod, page });
+    setBuildInstructions(lastInstructions);
+    setBuildDraft(null);
+    setBuildExplanation('');
+    setBuildExists(matched.length > 0);
+    setBuildOpen(true);
+  };
+
+  // Generate (or regenerate) a draft in preview mode — nothing is saved yet.
+  const generatePreview = async () => {
+    if (!buildTarget) return;
+    const { mod, page } = buildTarget;
+    setBuildGenerating(true);
     try {
       const res = await fetch(GENERATE_API, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          mode: 'preview',
           featureKey: page.id,
           moduleLabel: mod.label,
           pageLabel: page.label,
           pageFeatures: page.features,
+          instructions: buildInstructions,
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.ok === false) {
-        throw new Error(data.error || 'Failed to build content');
+        throw new Error(data.error || 'Failed to generate draft');
+      }
+      setBuildDraft(data.draft || null);
+      setBuildExplanation(data.explanation || '');
+      setBuildExists(!!data.exists);
+    } catch (err) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } finally {
+      setBuildGenerating(false);
+    }
+  };
+
+  // Commit the reviewed draft: save + publish + reindex.
+  const confirmBuild = async () => {
+    if (!buildTarget || !buildDraft) return;
+    const { mod, page } = buildTarget;
+    setBuildConfirming(true);
+    try {
+      const res = await fetch(GENERATE_API, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'commit',
+          featureKey: page.id,
+          moduleLabel: mod.label,
+          pageLabel: page.label,
+          pageFeatures: page.features,
+          instructions: buildInstructions,
+          draft: buildDraft,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) {
+        throw new Error(data.error || 'Failed to save content');
       }
       toast({
         title: 'Content built',
@@ -232,11 +293,12 @@ export default function HelpArticlesEditor() {
           : `Saved "${data.article?.title}" and updated AI search.`,
         variant: data.indexError ? 'destructive' : undefined,
       });
+      setBuildOpen(false);
       await load();
     } catch (err) {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });
     } finally {
-      setGeneratingKey(null);
+      setBuildConfirming(false);
     }
   };
 
@@ -311,7 +373,9 @@ export default function HelpArticlesEditor() {
                     (a) => (a.required_feature || '') === page.id
                   );
                   const built = matched.length > 0;
-                  const busy = generatingKey === page.id;
+                  const busy =
+                    buildTarget?.page?.id === page.id &&
+                    (buildGenerating || buildConfirming);
                   return (
                     <div
                       key={page.id}
@@ -342,8 +406,8 @@ export default function HelpArticlesEditor() {
                       <Button
                         size="sm"
                         variant={built ? 'outline' : 'default'}
-                        onClick={() => buildContent(mod, page)}
-                        disabled={busy || !!generatingKey}
+                        onClick={() => openBuild(mod, page)}
+                        disabled={busy}
                         data-testid={`button-build-${page.id}`}
                       >
                         {busy ? (
@@ -515,6 +579,118 @@ export default function HelpArticlesEditor() {
             <Button onClick={save} disabled={saving} data-testid="button-save-help-article">
               {saving && <Loader2 className="h-4 w-4 animate-spin" />}
               Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={buildOpen}
+        onOpenChange={(o) => {
+          if (buildGenerating || buildConfirming) return;
+          setBuildOpen(o);
+        }}
+      >
+        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {buildExists ? 'Update content' : 'Build content'}
+              {buildTarget?.page?.label ? ` — ${buildTarget.page.label}` : ''}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="build-instructions">Instructions for the AI (optional)</Label>
+              <Textarea
+                id="build-instructions"
+                rows={4}
+                placeholder="e.g. Cover the workflow stages, agreement signing, and logo upload. Keep it beginner-friendly."
+                value={buildInstructions}
+                onChange={(e) => setBuildInstructions(e.target.value)}
+                data-testid="input-build-instructions"
+              />
+              <p className="text-xs text-muted-foreground">
+                Steer what the article should cover. Nothing is saved until you press
+                Confirm. Your instructions are remembered for next time.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant={buildDraft ? 'outline' : 'default'}
+                onClick={generatePreview}
+                disabled={buildGenerating || buildConfirming}
+                data-testid="button-generate-preview"
+              >
+                {buildGenerating ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
+                {buildDraft ? 'Regenerate' : 'Generate'}
+              </Button>
+              {buildDraft && (
+                <span className="text-xs text-muted-foreground">
+                  Review the draft below, then Confirm to save &amp; publish.
+                </span>
+              )}
+            </div>
+
+            {buildGenerating && !buildDraft && (
+              <div className="flex items-center justify-center gap-2 py-8 text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                <span className="text-sm">Generating draft…</span>
+              </div>
+            )}
+
+            {buildExplanation && (
+              <div
+                className="rounded-md border bg-muted/40 p-3"
+                data-testid="build-explanation"
+              >
+                <p className="text-sm font-medium">What the AI will {buildExists ? 'update' : 'create'}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{buildExplanation}</p>
+              </div>
+            )}
+
+            {buildDraft && (
+              <div className="space-y-3" data-testid="build-preview">
+                <div className="space-y-1">
+                  <p className="text-xs font-medium uppercase text-muted-foreground">Title</p>
+                  <p className="font-medium" data-testid="build-preview-title">{buildDraft.title}</p>
+                </div>
+                {buildDraft.summary && (
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium uppercase text-muted-foreground">Summary</p>
+                    <p className="text-sm text-muted-foreground">{buildDraft.summary}</p>
+                  </div>
+                )}
+                <div className="space-y-1">
+                  <p className="text-xs font-medium uppercase text-muted-foreground">Body preview</p>
+                  <div className="rounded-md border p-4">
+                    <HelpArticleContent body={buildDraft.body} />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setBuildOpen(false)}
+              disabled={buildConfirming}
+              data-testid="button-cancel-build"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={confirmBuild}
+              disabled={!buildDraft || buildGenerating || buildConfirming}
+              data-testid="button-confirm-build"
+            >
+              {buildConfirming && <Loader2 className="h-4 w-4 animate-spin" />}
+              Confirm &amp; publish
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -36,6 +36,10 @@
     "required_feature": {
       "type": "string",
       "description": "Optional RBAC feature key (e.g. events.browse-events, commerce.balances, user.about-me) the member must be able to access to see this article. Empty/unset means visible to everyone. Gating is presentation-only, mirroring portal navigation."
+    },
+    "generation_instructions": {
+      "type": "string",
+      "description": "Last-used free-text instructions given to the AI when building this article's content, remembered so a later rebuild pre-fills them. Empty/unset means none."
     }
   },
   "required": ["slug", "title"]

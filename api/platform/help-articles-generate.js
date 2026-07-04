@@ -28,7 +28,7 @@ function slugFromFeatureKey(featureKey) {
     .slice(0, 80);
 }
 
-function buildPrompt({ moduleLabel, pageLabel, featureKey, pageFeatures }) {
+function buildPrompt({ moduleLabel, pageLabel, featureKey, pageFeatures, instructions }) {
   const featureLines = (pageFeatures || [])
     .filter((f) => f && f.id && f.label)
     .map((f) => `- ${f.id} — ${f.label}`)
@@ -47,12 +47,18 @@ Rules:
 - Keep it practical: how to find the page, what members can do there, step-by-step where useful.
 - Do NOT fabricate features that were not described. Base the content on the page and sub-features provided.
 - Gate any section that clearly maps to one of the listed sub-features with the matching {{feature: KEY}} ... {{/feature}} markers.
+- If the author provided extra instructions, follow them closely while still obeying every rule above.
 
 Respond with a single valid JSON object with exactly these string keys:
 - "title": a concise, member-friendly article title.
 - "summary": one sentence (max ~140 chars) describing what the article covers.
 - "category": a short category label for grouping (e.g. the module name).
-- "body": the full article body using the DSL above.`;
+- "body": the full article body using the DSL above.
+- "explanation": one or two short plain-language sentences for the platform owner (NOT the member) describing what this article covers and, if the author gave instructions, how you addressed them. This is a summary of your plan, not part of the article.`;
+
+  const instructionBlock = instructions
+    ? `\nAuthor instructions (follow these closely):\n${instructions}\n`
+    : '';
 
   const user = `Write a help article for this portal page.
 
@@ -62,10 +68,54 @@ Page feature key (article is gated to members with this access): ${featureKey}
 
 Sub-features available on this page (use these exact keys for {{feature:}} gating where relevant):
 ${featureLines || '(none — this page has no separately gated sub-features)'}
-
+${instructionBlock}
 Produce the JSON object now.`;
 
   return { system, user };
+}
+
+// Generate a draft article (title, summary, category, body, explanation) from
+// an LLM. Never writes to the database. Throws on hard failure; returns a
+// structured object on success.
+async function generateDraft(openai, promptArgs) {
+  const { system, user } = buildPrompt(promptArgs);
+
+  const completion = await openai.chat.completions.create({
+    model: GENERATION_MODEL,
+    temperature: 0.4,
+    response_format: { type: 'json_object' },
+    messages: [
+      { role: 'system', content: system },
+      { role: 'user', content: user },
+    ],
+  });
+
+  const raw = completion.choices?.[0]?.message?.content || '';
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    console.error('[Platform Help Generate] Failed to parse LLM JSON:', raw?.slice(0, 500));
+    const err = new Error('The content generator returned an unexpected response. Please try again.');
+    err.statusCode = 502;
+    throw err;
+  }
+
+  const title = String(parsed.title || promptArgs.pageLabel || 'Untitled').trim();
+  const summary = parsed.summary ? String(parsed.summary).trim() : null;
+  const category = parsed.category
+    ? String(parsed.category).trim()
+    : (promptArgs.moduleLabel || null);
+  const body = String(parsed.body || '').trim();
+  const explanation = parsed.explanation ? String(parsed.explanation).trim() : null;
+
+  if (!title || !body) {
+    const err = new Error('The content generator returned incomplete content. Please try again.');
+    err.statusCode = 502;
+    throw err;
+  }
+
+  return { title, summary, category, body, explanation };
 }
 
 export default async function handler(req, res) {
@@ -87,6 +137,15 @@ export default async function handler(req, res) {
   const moduleLabel = typeof body.moduleLabel === 'string' ? body.moduleLabel.trim() : '';
   const pageLabel = typeof body.pageLabel === 'string' ? body.pageLabel.trim() : '';
   const pageFeatures = Array.isArray(body.pageFeatures) ? body.pageFeatures : [];
+  // Free-text steer for the AI; remembered per-page on commit.
+  const instructions = typeof body.instructions === 'string' ? body.instructions.trim() : '';
+  // 'preview' generates and returns a draft WITHOUT saving. Any other value
+  // (or none — preserves the original one-click behaviour) saves + reindexes.
+  const mode = body.mode === 'preview' ? 'preview' : 'commit';
+  // On commit the client may pass back the exact draft the owner reviewed so we
+  // save precisely what was previewed rather than re-generating different text.
+  const providedDraft =
+    body.draft && typeof body.draft === 'object' ? body.draft : null;
 
   if (!featureKey) {
     return res.status(400).json({ error: 'featureKey is required' });
@@ -117,57 +176,79 @@ export default async function handler(req, res) {
   const openai = new OpenAI({ apiKey, ...(baseURL && { baseURL }) });
 
   try {
-    const { system, user } = buildPrompt({
-      moduleLabel,
-      pageLabel,
-      featureKey,
-      pageFeatures,
-    });
-
-    const completion = await openai.chat.completions.create({
-      model: GENERATION_MODEL,
-      temperature: 0.4,
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: user },
-      ],
-    });
-
-    const raw = completion.choices?.[0]?.message?.content || '';
-    let draft;
-    try {
-      draft = JSON.parse(raw);
-    } catch {
-      console.error('[Platform Help Generate] Failed to parse LLM JSON:', raw?.slice(0, 500));
-      return res.status(502).json({
-        ok: false,
-        error: 'The content generator returned an unexpected response. Please try again.',
-      });
-    }
-
-    const title = String(draft.title || pageLabel || 'Untitled').trim();
-    const summary = draft.summary ? String(draft.summary).trim() : null;
-    const category = draft.category
-      ? String(draft.category).trim()
-      : (moduleLabel || null);
-    const articleBody = String(draft.body || '').trim();
-
-    if (!title || !articleBody) {
-      return res.status(502).json({
-        ok: false,
-        error: 'The content generator returned incomplete content. Please try again.',
-      });
-    }
-
-    // Upsert idempotently by the deterministic slug so re-running "Update
-    // content" refreshes the same row instead of piling up duplicates.
+    // Whether an article already exists for this slug (drives "create vs update"
+    // wording in the review UI and idempotent upsert on commit).
     const { data: existing, error: findErr } = await supabase
       .from('help_article')
-      .select('id, sort_order')
+      .select('id, sort_order, title')
       .eq('slug', slug)
       .maybeSingle();
     if (findErr) throw findErr;
+
+    // ── Preview mode: generate a draft and return it WITHOUT writing. ────────
+    if (mode === 'preview') {
+      const draft = await generateDraft(openai, {
+        moduleLabel,
+        pageLabel,
+        featureKey,
+        pageFeatures,
+        instructions,
+      });
+
+      return res.status(200).json({
+        ok: true,
+        mode: 'preview',
+        slug,
+        exists: !!existing,
+        existingTitle: existing?.title || null,
+        explanation: draft.explanation,
+        draft: {
+          title: draft.title,
+          summary: draft.summary,
+          category: draft.category,
+          body: draft.body,
+        },
+      });
+    }
+
+    // ── Commit mode: save + reindex. ─────────────────────────────────────────
+    // Prefer the reviewed draft the client passes back so we persist exactly
+    // what the owner saw; fall back to generating (preserves one-click use).
+    let title;
+    let summary;
+    let category;
+    let articleBody;
+
+    if (providedDraft && String(providedDraft.body || '').trim()) {
+      title = String(providedDraft.title || pageLabel || 'Untitled').trim();
+      summary = providedDraft.summary ? String(providedDraft.summary).trim() : null;
+      category = providedDraft.category
+        ? String(providedDraft.category).trim()
+        : (moduleLabel || null);
+      articleBody = String(providedDraft.body || '').trim();
+      if (!title || !articleBody) {
+        return res.status(400).json({
+          ok: false,
+          error: 'The draft to save is incomplete (missing title or body).',
+        });
+      }
+    } else {
+      const draft = await generateDraft(openai, {
+        moduleLabel,
+        pageLabel,
+        featureKey,
+        pageFeatures,
+        instructions,
+      });
+      title = draft.title;
+      summary = draft.summary;
+      category = draft.category;
+      articleBody = draft.body;
+    }
+
+    // Remember the instructions used (null when blank) so a later rebuild
+    // pre-fills them.
+    const generationInstructions = instructions || null;
 
     const nowIso = new Date().toISOString();
     let article;
@@ -181,6 +262,7 @@ export default async function handler(req, res) {
           category,
           body: articleBody,
           required_feature: featureKey,
+          generation_instructions: generationInstructions,
           status: 'published',
           updated_at: nowIso,
         })
@@ -199,6 +281,7 @@ export default async function handler(req, res) {
           category,
           body: articleBody,
           required_feature: featureKey,
+          generation_instructions: generationInstructions,
           status: 'published',
         })
         .select()
@@ -222,12 +305,14 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       ok: true,
+      mode: 'commit',
       article,
       indexSummary,
       indexError,
     });
   } catch (err) {
     console.error('[Platform Help Generate] fatal:', err);
-    return res.status(500).json({ ok: false, error: err.message });
+    const status = err?.statusCode || 500;
+    return res.status(status).json({ ok: false, error: err.message });
   }
 }
