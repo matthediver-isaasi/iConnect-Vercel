@@ -857,7 +857,8 @@ export default function AdminBranding() {
       socialIconCustomSvgs: {},
       portalNav: DEFAULT_PORTAL_NAV,
       basePortalFont: '',
-      resourceCategoryTitleColor: '#7e22ce'
+      resourceCategoryTitleColor: '#7e22ce',
+      cardAccentBar: { enabled: true, color: '#5d0d77' }
     },
     platform_branding: {
       showPlatformBranding: true,
@@ -1050,7 +1051,11 @@ export default function AdminBranding() {
                 socialIconCustomSvgs: t?.branding_config?.socialIconCustomSvgs || {},
                 portalNav: hydratePortalNav(t?.branding_config?.portalNav),
                 basePortalFont: t?.branding_config?.basePortalFont || '',
-                resourceCategoryTitleColor: t?.branding_config?.resourceCategoryTitleColor || '#7e22ce'
+                resourceCategoryTitleColor: t?.branding_config?.resourceCategoryTitleColor || '#7e22ce',
+                cardAccentBar: {
+                  enabled: t?.branding_config?.cardAccentBar?.enabled !== false,
+                  color: t?.branding_config?.cardAccentBar?.color || '#5d0d77'
+                }
               },
               platform_branding: {
                 showPlatformBranding: t?.platform_branding?.showPlatformBranding !== false,
@@ -1785,6 +1790,64 @@ export default function AdminBranding() {
                     />
                   </div>
                   <p className="text-xs text-slate-400">Colour of category titles in the Resources sidebar filter. Defaults to purple.</p>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <Label htmlFor="card_accent_bar_enabled" className="text-slate-200">Card accent bar</Label>
+                    <Switch
+                      id="card_accent_bar_enabled"
+                      checked={formData.branding_config?.cardAccentBar?.enabled !== false}
+                      onCheckedChange={(checked) => setFormData({
+                        ...formData,
+                        branding_config: {
+                          ...formData.branding_config,
+                          cardAccentBar: {
+                            ...(formData.branding_config?.cardAccentBar || {}),
+                            enabled: checked
+                          }
+                        }
+                      })}
+                      data-testid="switch-card-accent-bar-enabled"
+                    />
+                  </div>
+                  {(formData.branding_config?.cardAccentBar?.enabled !== false) && (
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="color"
+                        id="card_accent_bar_color"
+                        value={formData.branding_config?.cardAccentBar?.color || '#5d0d77'}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          branding_config: {
+                            ...formData.branding_config,
+                            cardAccentBar: {
+                              ...(formData.branding_config?.cardAccentBar || {}),
+                              color: e.target.value
+                            }
+                          }
+                        })}
+                        className="w-12 h-10 rounded cursor-pointer"
+                        data-testid="input-card-accent-bar-color"
+                      />
+                      <Input
+                        value={formData.branding_config?.cardAccentBar?.color || ''}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          branding_config: {
+                            ...formData.branding_config,
+                            cardAccentBar: {
+                              ...(formData.branding_config?.cardAccentBar || {}),
+                              color: e.target.value
+                            }
+                          }
+                        })}
+                        className="bg-slate-900/50 border-slate-600 text-white flex-1"
+                        placeholder="#5d0d77"
+                        data-testid="input-card-accent-bar-color-hex"
+                      />
+                    </div>
+                  )}
+                  <p className="text-xs text-slate-400">Thin bar shown under the feature image on News, Blog article, and Resource cards. Turn off to hide it. Defaults to purple.</p>
                 </div>
               </div>
             </CardContent>

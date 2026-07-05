@@ -7,6 +7,8 @@ import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { Link } from "react-router-dom";
 import TenantCtaButton from "@/components/common/TenantCtaButton";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
+import { resolveCardAccentBar } from "@/lib/cardAccentBar";
 
 export default function NewsCard({ 
   article, 
@@ -20,6 +22,7 @@ export default function NewsCard({
   showDraftBadge = false
 }) {
   const articleUrl = `${createPageUrl('NewsView')}?slug=${article.slug}`;
+  const accentBar = resolveCardAccentBar(useTenantBranding()?.branding);
 
   // Check if current user is the author of this article
   const isAuthor = currentMemberId && article.author_id === currentMemberId;
@@ -83,7 +86,9 @@ export default function NewsCard({
               style={{ objectPosition: article.feature_image_focal_point ? `${article.feature_image_focal_point.x}% ${article.feature_image_focal_point.y}%` : '50% 50%' }}
             />
           </div>
-          <div className="w-full h-[3px]" style={{ backgroundColor: '#5d0d77' }}></div>
+          {accentBar.enabled && (
+            <div className="w-full h-[3px]" style={{ backgroundColor: accentBar.color }}></div>
+          )}
         </>
       )}
       

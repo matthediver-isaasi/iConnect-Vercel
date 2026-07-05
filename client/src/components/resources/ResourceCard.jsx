@@ -18,6 +18,7 @@ import BookmarkButton from "../bookmarks/BookmarkButton";
 import TenantCtaButton from "@/components/common/TenantCtaButton";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { resolveTenantButtonStyle } from "@/lib/tenantButtonStyle";
+import { resolveCardAccentBar } from "@/lib/cardAccentBar";
 
 const iconMap = {
   ArrowUpRight,
@@ -39,6 +40,7 @@ export default function ResourceCard({ resource, isLocked = false, isEventLocked
   // Tenant Primary button style (Button Style Creator). When configured it
   // takes precedence for the prominent CTA so resource cards match the brand.
   const branding = useTenantBranding()?.branding || null;
+  const accentBar = resolveCardAccentBar(branding);
   const tenantPrimaryStyle = resolveTenantButtonStyle('tenant-primary', branding);
   
   // Check if this resource requires login (non-public resource and user not authenticated)
@@ -476,7 +478,9 @@ export default function ResourceCard({ resource, isLocked = false, isEventLocked
               className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
             />
           </div>
-          <div className="w-full h-[3px]" style={{ backgroundColor: '#5d0d77' }}></div>
+          {accentBar.enabled && (
+            <div className="w-full h-[3px]" style={{ backgroundColor: accentBar.color }}></div>
+          )}
         </>
       )}
       

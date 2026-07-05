@@ -571,6 +571,22 @@ export default async function handler(req, res) {
         if (updates.branding_config.resourceCategoryTitleColor !== undefined) {
           updates.branding_config.resourceCategoryTitleColor = normalizeHexColor(updates.branding_config.resourceCategoryTitleColor);
         }
+        // Card accent bar (thin bar under the feature image on News, Blog
+        // article, and Resource cards). Rebuilt from a whitelist so arbitrary
+        // subfields can't leak through; color validated with the hex normalizer.
+        if (updates.branding_config.cardAccentBar !== undefined) {
+          const cab = updates.branding_config.cardAccentBar;
+          if (cab && typeof cab === 'object') {
+            const sanitized = { enabled: cab.enabled !== false };
+            const color = normalizeHexColor(cab.color);
+            if (color) {
+              sanitized.color = color;
+            }
+            updates.branding_config.cardAccentBar = sanitized;
+          } else {
+            updates.branding_config.cardAccentBar = null;
+          }
+        }
       }
 
       if (Object.keys(updates).length === 0) {

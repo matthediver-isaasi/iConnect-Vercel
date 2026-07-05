@@ -7,6 +7,8 @@ import { format } from "date-fns";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 import { Link } from "react-router-dom";
 import TenantCtaButton from "@/components/common/TenantCtaButton";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
+import { resolveCardAccentBar } from "@/lib/cardAccentBar";
 
 export default function ArticleCard({ 
   article, 
@@ -26,6 +28,7 @@ export default function ArticleCard({
   viewCount = null
 }) {
   const { getArticleViewUrl } = useArticleUrl();
+  const accentBar = resolveCardAccentBar(useTenantBranding()?.branding);
   
   // Use String() for type-safe comparison
   const isAuthor = currentMemberId && String(article.author_id) === String(currentMemberId);
@@ -127,7 +130,9 @@ export default function ArticleCard({
               style={{ objectPosition: article.feature_image_focal_point ? `${article.feature_image_focal_point.x}% ${article.feature_image_focal_point.y}%` : '50% 50%' }}
             />
           </div>
-          <div className="w-full h-[3px]" style={{ backgroundColor: '#5d0d77' }}></div>
+          {accentBar.enabled && (
+            <div className="w-full h-[3px]" style={{ backgroundColor: accentBar.color }}></div>
+          )}
         </>
       )}
       
