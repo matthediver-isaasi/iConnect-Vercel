@@ -205,11 +205,22 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
     const groups = [];
     let cur = null;
     for (const e of entries) {
-      if (cur && e.top < cur.bottom) {
-        // Vertical spans overlap → same row band. Horizontally-adjacent
-        // members (a row of cards) collapse into one row whose rendered
-        // height is the TALLEST member's — this is what auto-equalises card
-        // heights across a row.
+      if (cur && e.top < cur.refBottom) {
+        // Row membership is decided by overlap with the running REFERENCE band
+        // (`cur.refBottom`), not the stored box bottom. For cards the reference
+        // is the stored bottom (refBottom === bottom), so a row of cards that
+        // share the same stored `y` still collapses into ONE row whose rendered
+        // height is the TALLEST member's — auto-equalising card heights is
+        // unchanged.
+        //
+        // For an auto-height accordion whose stored box is far taller than its
+        // collapsed state, the reference is the COLLAPSED-baseline bottom. A
+        // block authored just under the accordion's collapsed state — but still
+        // inside its oversized stored box — therefore starts BELOW the
+        // reference band and is NOT merged in. It forms its own row so the
+        // expanding accordion pushes it down (matching the getOffset test
+        // below), instead of being swallowed into the accordion's row and
+        // silently overlapped.
         cur.top = Math.min(cur.top, e.top);
         cur.bottom = Math.max(cur.bottom, e.bottom);
         cur.refBottom = Math.max(cur.refBottom, e.refBottom);
@@ -242,9 +253,21 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
    * Returns the total downward offset (px) that should be applied to a block
    * whose stored top edge is at storedY.
    *
-   * Only counts row groups whose stored *bottom* edge sits at or above storedY —
-   * i.e. rows that are entirely above the target block. A block is never pushed
-   * by its own row (that row's bottom is below the block's top).
+   * A row group pushes a target block down when the group's REFERENCE bottom
+   * (`refBottom` — the point from which its growth is measured) sits at or above
+   * storedY. This MUST use the same reference the growth is measured from, not
+   * the stored box bottom: an accordion's stored box is frequently far taller
+   * than its collapsed state, and blocks authored to sit just under the
+   * collapsed accordion land in the band [refBottom, bottom). Testing against
+   * the stored `bottom` would skip exactly those blocks, so the expanding
+   * accordion would grow straight through and overlap them. Testing against
+   * `refBottom` pushes them down as intended.
+   *
+   * A block is never pushed by its own row: every member's stored top is < its
+   * row's refBottom (a member only merges when its top is within the running
+   * reference band), so `refBottom <= storedY` is always false for members.
+   * Push-down growth is clamped non-negative in rowGroups, so this only ever
+   * moves blocks down, never up.
    */
   const getOffset = useCallback(
     (blockId, storedY) => {
@@ -254,7 +277,7 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       if (rowGroups.length === 0) return 0;
       let offset = 0;
       for (const grp of rowGroups) {
-        if (grp.bottom <= storedY) offset += grp.growth;
+        if (grp.refBottom <= storedY) offset += grp.growth;
       }
       return offset;
     },
