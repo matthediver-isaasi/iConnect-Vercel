@@ -175,11 +175,15 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       }
     }
     // Growth = how far the row's rendered bottom extends past its stored
-    // bottom band. Signed: negative when the row renders shorter than its
-    // stored allocation (collapse trailing whitespace), positive when taller
-    // (push blocks below down). Computed after merges so `bottom` is final.
+    // bottom band. PUSH-DOWN-ONLY: clamped to be non-negative so a row that
+    // renders SHORTER than its stored allocation never pulls the blocks below
+    // it upward. The editor is the source of truth for stored gaps and no
+    // longer reflows, so the public renderer must preserve those gaps rather
+    // than collapse trailing whitespace. Positive growth (accordion expand,
+    // a card row grown to its tallest member) still pushes blocks below down.
+    // Computed after merges so `bottom` is final.
     for (const grp of groups) {
-      grp.growth = (grp.top + grp.renderedHeight) - grp.bottom;
+      grp.growth = Math.max(0, (grp.top + grp.renderedHeight) - grp.bottom);
     }
     return groups;
   }, [measuredHeights, blocks, resolveGeom]);
@@ -252,10 +256,11 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
   );
 
   /**
-   * Net signed height change (px) across all auto-height blocks.
-   * Positive when accordions are expanded, negative when smaller than stored.
-   * Use this to extend the page-stage minHeight (only when positive — shrinking
-   * within the existing CSS height requires no override).
+   * Net height change (px) across all auto-height blocks. Non-negative because
+   * per-row growth is clamped push-down-only: positive when accordions are
+   * expanded / a card row grew, zero otherwise. Use this to extend the
+   * page-stage minHeight so pushed-down blocks are never clipped. It never
+   * shrinks the stage (which would collapse author-intended gaps).
    */
   const getTotalGrowth = useCallback(() => {
     // Editor mode: stage height derives from stored geometry only.
@@ -266,9 +271,12 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
   }, [editorMode, rowGroups]);
 
   /**
-   * Net signed height change (px) that should be added to a containing
-   * Section block's rendered height. A block is "inside" the section when its
-   * stored top ≥ section.y AND its stored bottom ≤ section.y + section.h.
+   * Net height change (px) that should be added to a containing Section
+   * block's rendered height. Non-negative (per-row growth is push-down-only),
+   * so a section never shrinks to close author-intended gaps around its
+   * contained blocks; it only grows when contained content expands. A block is
+   * "inside" the section when its stored top ≥ section.y AND its stored bottom
+   * ≤ section.y + section.h.
    *
    * @param sectionBlock  – the Section canvas block
    * @param sectionGeom   – breakpoint-resolved geometry { x, y, w, h } of
