@@ -56,3 +56,4 @@
 - [Canvas link field paths](canvas-link-field-paths.md) — canvasLinks.js mirrors registry link fields (pricing=tiers, logo=logos, no article/form href); React-free so backend can import; html <a> addressed by doc-order anchorIndex.
 - [Canvas page-from-doc fidelity](canvas-from-doc-fidelity.md) — AI page gen must be 100% faithful: structured verbatim source + bidirectional isSpecFaithful guard + deterministic fallback; layout factories interpolating source into HTML must escape it.
 - [Canvas blocks reusing public card components](canvas-shared-card-editor-safety.md) — mirror a public list page by rendering its real card w/ same props (no drift); JS-onClick cards need onClickCapture stopPropagation in editor.
+- [Canvas public reflow collapsed baseline](canvas-reflow-collapsed-baseline.md) — accordion push-down measures growth from collapsed baseline (min measured), not stored box; else tall stored box clamps expansion to 0. Cards excluded.

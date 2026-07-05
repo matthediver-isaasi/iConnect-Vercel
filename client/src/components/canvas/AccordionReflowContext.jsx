@@ -8,6 +8,7 @@ import {
   useEffect,
   useLayoutEffect,
 } from 'react';
+import { getBlockDefinition } from './blocks/registry';
 
 const AccordionReflowCtx = createContext(null);
 
@@ -112,11 +113,33 @@ export function useReportCardContentHeight(blockId) {
  *   blocks      – the flat list of canvas blocks being rendered
  *   resolveGeom – (block) => { x, y, w, h, hidden }  (breakpoint-resolved)
  */
-export function AccordionReflowProvider({ children, blocks, resolveGeom, editorMode = false }) {
+export function AccordionReflowProvider({ children, blocks, resolveGeom, editorMode = false, breakpoint }) {
   const [measuredHeights, setMeasuredHeights] = useState(() => new Map());
+  // Smallest height ever measured per block = its collapsed (baseline) rendered
+  // height. Accordions mount fully collapsed, so the first measurement is their
+  // collapsed state. Push-down growth for auto-height blocks is measured from
+  // this baseline rather than the stored box height, so expanding an accordion
+  // whose stored box is taller than its collapsed state still pushes blocks
+  // below down (see rowGroups). Kept in a ref because it only ever shrinks and
+  // is read during the measuredHeights-driven recompute.
+  const baselineHeightsRef = useRef(new Map());
+
+  // The collapsed baseline is breakpoint-specific (an accordion question can
+  // wrap to more lines on a narrow layout, making its collapsed state taller).
+  // Clear the accumulated minimums whenever the active breakpoint changes so a
+  // baseline captured at one width can't produce a phantom push-down at
+  // another. The ResizeObserver re-reports every block's height right after the
+  // width change, repopulating the map for the new breakpoint.
+  useEffect(() => {
+    baselineHeightsRef.current = new Map();
+  }, [breakpoint]);
 
   const reportHeight = useCallback((blockId, height) => {
     const rounded = Math.round(height);
+    const prevBaseline = baselineHeightsRef.current.get(blockId);
+    if (prevBaseline === undefined || rounded < prevBaseline) {
+      baselineHeightsRef.current.set(blockId, rounded);
+    }
     setMeasuredHeights((prev) => {
       if (prev.get(blockId) === rounded) return prev;
       const next = new Map(prev);
@@ -153,7 +176,29 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       //     lower bound.
       const floor = (g.manualHeight && Number.isFinite(g.h)) ? g.h : 0;
       const effectiveH = Math.max(measuredH, floor);
-      entries.push({ id, top: g.y, bottom: g.y + g.h, effectiveH });
+      // Reference height for computing push-down growth (how far this block's
+      // rendered bottom extends past the point below which neighbours sit at
+      // their stored positions).
+      //
+      // For plain auto-height blocks (accordion, text) whose content itself
+      // grows/shrinks, measure growth from the block's own COLLAPSED BASELINE
+      // (smallest height ever observed) rather than its stored box height. This
+      // restores the accordion push-down removed in #2333: a stored box taller
+      // than the collapsed state no longer clamps expansion to 0. The reference
+      // is also capped at the stored box height so a block whose collapsed
+      // content already overflows its box still pushes neighbours down (matching
+      // #2333's static-overflow behaviour). Static content keeps measured ==
+      // baseline, so its growth is unchanged — author-intended gaps are
+      // preserved and never pulled up.
+      //
+      // Cards (autoHeight + cardGrow) are excluded: their stored/manual box
+      // height is the author's intended size and must stay the reference, so
+      // row equalisation and manual resizes are untouched.
+      const def = getBlockDefinition(block.type);
+      const baseline = baselineHeightsRef.current.get(id);
+      const useBaseline = !!def?.autoHeight && !def?.cardGrow && Number.isFinite(baseline);
+      const referenceH = useBaseline ? Math.min(baseline, g.h) : g.h;
+      entries.push({ id, top: g.y, bottom: g.y + g.h, refBottom: g.y + referenceH, effectiveH });
     }
     if (entries.length === 0) return [];
     entries.sort((a, b) => a.top - b.top);
@@ -167,23 +212,28 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
         // heights across a row.
         cur.top = Math.min(cur.top, e.top);
         cur.bottom = Math.max(cur.bottom, e.bottom);
+        cur.refBottom = Math.max(cur.refBottom, e.refBottom);
         cur.renderedHeight = Math.max(cur.renderedHeight, e.effectiveH);
         cur.ids.push(e.id);
       } else {
-        cur = { top: e.top, bottom: e.bottom, renderedHeight: e.effectiveH, ids: [e.id] };
+        cur = { top: e.top, bottom: e.bottom, refBottom: e.refBottom, renderedHeight: e.effectiveH, ids: [e.id] };
         groups.push(cur);
       }
     }
-    // Growth = how far the row's rendered bottom extends past its stored
-    // bottom band. PUSH-DOWN-ONLY: clamped to be non-negative so a row that
-    // renders SHORTER than its stored allocation never pulls the blocks below
-    // it upward. The editor is the source of truth for stored gaps and no
-    // longer reflows, so the public renderer must preserve those gaps rather
-    // than collapse trailing whitespace. Positive growth (accordion expand,
-    // a card row grown to its tallest member) still pushes blocks below down.
-    // Computed after merges so `bottom` is final.
+    // Growth = how far the row's rendered bottom extends past its REFERENCE
+    // bottom band. For cards the reference is the stored bottom; for plain
+    // auto-height blocks it is the collapsed-baseline bottom (so an accordion
+    // whose stored box is taller than its collapsed state still pushes blocks
+    // below down when expanded — see the referenceH comment above).
+    // PUSH-DOWN-ONLY: clamped to be non-negative so a row that renders SHORTER
+    // than its reference never pulls the blocks below it upward. The editor is
+    // the source of truth for stored gaps and no longer reflows, so the public
+    // renderer must preserve those gaps rather than collapse trailing
+    // whitespace. Positive growth (accordion expand, a card row grown to its
+    // tallest member) still pushes blocks below down. Computed after merges so
+    // `refBottom` is final.
     for (const grp of groups) {
-      grp.growth = Math.max(0, (grp.top + grp.renderedHeight) - grp.bottom);
+      grp.growth = Math.max(0, (grp.top + grp.renderedHeight) - grp.refBottom);
     }
     return groups;
   }, [measuredHeights, blocks, resolveGeom]);

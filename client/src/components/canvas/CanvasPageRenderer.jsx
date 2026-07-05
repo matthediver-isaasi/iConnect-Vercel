@@ -656,6 +656,7 @@ export default function CanvasPageRenderer({ page, symbols, forceBreakpoint }) {
       */}
       <AccordionReflowProvider
         blocks={children}
+        breakpoint={forcedBreakpoint || windowBp || 'desktop'}
         resolveGeom={(b) => resolveBlockAtBreakpoint(b, forcedBreakpoint || windowBp || 'desktop')}
       >
         <CanvasPageStage
