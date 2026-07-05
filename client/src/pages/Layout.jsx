@@ -300,6 +300,12 @@ const adminNavigationItems = [
     featureId: "membership.member-group-settings"
   },
   {
+    title: "Member Group Invite Report",
+    url: createPageUrl("MemberGroupInviteReport"),
+    icon: Mail,
+    featureId: "membership.member-groups-invite-report"
+  },
+  {
     title: "Discount Codes",
     url: createPageUrl("DiscountCodeManagement"),
     icon: Ticket,

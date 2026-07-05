@@ -91,6 +91,7 @@ export const PAGE_NAMES = [
   "InstalledFonts",
   "PortalMenuManagement",
   "MemberGroupAssignmentReport",
+  "MemberGroupInviteReport",
   "TeamEngagementReport",
   "MemberGroupGuestManagement",
   "TeamSettings",

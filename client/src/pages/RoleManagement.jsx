@@ -240,6 +240,7 @@ export default function RoleManagementPage() {
     MemberDirectorySettings: "Member Directory Settings",
     MemberGroupManagement: "Member Groups",
     MemberGroupAssignmentReport: "Member Group Report",
+    MemberGroupInviteReport: "Member Group Invite Report",
     MemberGroupGuestManagement: "Member Group Guests",
     TeamEngagementReport: "Team Engagement Report",
     TeamInviteSettings: "Team Invite Settings",

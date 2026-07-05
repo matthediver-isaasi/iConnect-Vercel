@@ -254,6 +254,7 @@ const hardcodedPublicPages = [
   { name: "MemberDirectory", label: "Member Directory" },
   { name: "MemberDirectorySettings", label: "Member Directory Settings" },
   { name: "MemberGroupAssignmentReport", label: "Member Group Assignment Report" },
+  { name: "MemberGroupInviteReport", label: "Member Group Invite Report" },
   { name: "MemberGroupGuestManagement", label: "Member Group Guest Management" },
   { name: "MemberGroupManagement", label: "Member Group Management" },
   { name: "MemberHandleManagement", label: "Member Handle Management" },

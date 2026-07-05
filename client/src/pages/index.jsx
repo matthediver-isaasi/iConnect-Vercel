@@ -253,6 +253,8 @@ import PortalMenuManagement from "./PortalMenuManagement";
 
 import MemberGroupAssignmentReport from "./MemberGroupAssignmentReport";
 
+import MemberGroupInviteReport from "./MemberGroupInviteReport";
+
 import TeamEngagementReport from "./TeamEngagementReport";
 
 import MemberGroupGuestManagement from "./MemberGroupGuestManagement";
@@ -683,6 +685,8 @@ const PAGES = {
     
     MemberGroupAssignmentReport: MemberGroupAssignmentReport,
     
+    MemberGroupInviteReport: MemberGroupInviteReport,
+    
     TeamEngagementReport: TeamEngagementReport,
     
     MemberGroupGuestManagement: MemberGroupGuestManagement,
@@ -1085,6 +1089,8 @@ function PagesContent() {
                 <Route path="/PortalMenuManagement" element={<PortalMenuManagement />} />
                 
                 <Route path="/MemberGroupAssignmentReport" element={<MemberGroupAssignmentReport />} />
+                
+                <Route path="/MemberGroupInviteReport" element={<MemberGroupInviteReport />} />
                 
                 <Route path="/TeamEngagementReport" element={<TeamEngagementReport />} />
                 

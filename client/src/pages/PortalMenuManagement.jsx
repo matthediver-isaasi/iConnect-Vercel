@@ -119,6 +119,7 @@ const builtInPages = [
   { value: "MemberDirectory", label: "Member Directory" },
   { value: "MemberDirectorySettings", label: "Member Directory Settings" },
   { value: "MemberGroupAssignmentReport", label: "Member Group Assignment Report" },
+  { value: "MemberGroupInviteReport", label: "Member Group Invite Report" },
   { value: "MemberGroups", label: "Member Group Access" },
   { value: "MemberGroupGuestManagement", label: "Member Group Guest Management" },
   { value: "MemberGroupManagement", label: "Member Group Management" },

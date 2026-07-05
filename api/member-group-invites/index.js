@@ -1,7 +1,10 @@
 import crypto from 'crypto';
 import { supabase } from '../_lib/database.js';
 import { getCallerGroupManageAccess, canManageGroup } from '../_lib/memberGroupAdminAccess.js';
+import { hasFeatureAccess } from '../_lib/tenantContext.js';
 import { sendRoleInviteEmail } from '../_lib/memberGroupRoleInviteNotification.js';
+
+const INVITE_REPORT_FEATURE = 'membership.member-groups-invite-report';
 
 /**
  * /api/member-group-invites — Task #1608 admin/group-admin invite management.
@@ -94,9 +97,68 @@ export default async function handler(req, res) {
 
   if (req.method === 'GET') {
     const { groupId } = req.query;
+
+    // Tenant-wide invite report: no groupId supplied. Tenant admins only,
+    // gated server-side by the membership.member-groups-invite-report feature.
     if (!groupId) {
-      return res.status(400).json({ error: 'groupId is required' });
+      if (!access.isTenantAdmin) {
+        return res.status(403).json({ error: 'You do not have permission to view the invite report.' });
+      }
+      const roleId = access.tenantContext.roleId;
+      if (roleId) {
+        const allowed = await hasFeatureAccess(roleId, INVITE_REPORT_FEATURE);
+        if (!allowed) {
+          return res.status(403).json({ error: 'You do not have access to the Member Group Invite Report.' });
+        }
+      }
+
+      const { data: invites, error } = await supabase
+        .from('member_group_role_invitation')
+        .select('id, group_id, member_id, group_role, status, expires_at, decided_at, created_at')
+        .eq('tenant_id', tenantId)
+        .order('created_at', { ascending: false });
+      if (error) {
+        console.error('[MemberGroupInvites] report list error:', error.message || error);
+        return res.status(500).json({ error: 'Failed to load invitations' });
+      }
+
+      const memberIds = [...new Set((invites || []).map((i) => i.member_id).filter(Boolean))];
+      let membersById = new Map();
+      if (memberIds.length) {
+        const { data: memberRows } = await supabase
+          .from('member')
+          .select('id, first_name, last_name, email')
+          .eq('tenant_id', tenantId)
+          .in('id', memberIds);
+        membersById = new Map((memberRows || []).map((m) => [m.id, m]));
+      }
+
+      const groupIds = [...new Set((invites || []).map((i) => i.group_id).filter(Boolean))];
+      let groupsById = new Map();
+      if (groupIds.length) {
+        const { data: groupRows } = await supabase
+          .from('member_group')
+          .select('id, name')
+          .eq('tenant_id', tenantId)
+          .in('id', groupIds);
+        groupsById = new Map((groupRows || []).map((g) => [g.id, g]));
+      }
+
+      const nowIso = new Date().toISOString();
+      const out = (invites || []).map((row) => {
+        const effective = { ...row };
+        if (row.status === 'pending' && row.expires_at && new Date(row.expires_at).toISOString() < nowIso) {
+          effective.status = 'expired';
+        }
+        return {
+          ...inviteResponse(effective, membersById.get(row.member_id)),
+          group_name: groupsById.get(row.group_id)?.name || null,
+        };
+      });
+
+      return res.json({ success: true, invitations: out });
     }
+
     if (!canManageGroup(access, groupId)) {
       return res.status(403).json({ error: 'You do not have access to this group.' });
     }

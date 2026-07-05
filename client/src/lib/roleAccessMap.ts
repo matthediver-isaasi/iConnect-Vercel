@@ -246,6 +246,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
         label: "Member Group Assignment Report"
       },
       {
+        id: "membership.member-groups-invite-report",
+        label: "Member Group Invite Report"
+      },
+      {
         id: "membership.member-directory-settings",
         label: "Member Directory Settings"
       },
@@ -952,6 +956,8 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_MemberGroupManagement": "membership.member-groups",
   "page_admin_MemberGroupAssignmentReport": "membership.member-group-assignment-report",
   "page_MemberGroupAssignmentReport": "membership.member-group-assignment-report",
+  "page_admin_MemberGroupInviteReport": "membership.member-groups-invite-report",
+  "page_MemberGroupInviteReport": "membership.member-groups-invite-report",
   "page_MemberGroups": "membership.member-group-access",
   "page_GroupEmail": "membership.member-group-email",
   "page_admin_ZoomWebinarProvisioning": "events.zoom-webinars",
