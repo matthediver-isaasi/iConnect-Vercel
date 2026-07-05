@@ -1,5 +1,13 @@
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { supabase } from '../_lib/database.js';
+import {
+  isVisibleInDirectory,
+  enrichField,
+  fetchRoles,
+  fetchMemberDisplaySettings,
+  fetchMemberFields,
+  fetchOrgDisplaySettings,
+} from '../_lib/directoryConfig.js';
 
 /**
  * Public directory config endpoint.
@@ -52,11 +60,7 @@ export default async function handler(req, res) {
     const dirId = directory.id;
 
     // Roles (needed for RoleBadge / reverse-card grouping)
-    const { data: roleRows } = await supabase
-      .from('role')
-      .select('id, name, badge_background_colour, badge_text_colour')
-      .eq('tenant_id', tenantId);
-    const roles = roleRows || [];
+    const roles = await fetchRoles(supabase, tenantId);
 
     // Filter field label
     let filterField = null;
@@ -82,59 +86,10 @@ export default async function handler(req, res) {
   }
 }
 
-// --- shared directory_visibility helpers (mirror client logic) --------------
-
-function parseDirVis(field) {
-  if (!field.directory_visibility) return null;
-  let vis = field.directory_visibility;
-  if (typeof vis === 'string') {
-    try { vis = JSON.parse(vis); } catch { return null; }
-  }
-  if (Array.isArray(vis)) return { ids: vis, labels: {} };
-  if (vis && typeof vis === 'object') {
-    return {
-      ids: Array.isArray(vis.ids) ? vis.ids : [],
-      labels: (vis.labels && typeof vis.labels === 'object' && !Array.isArray(vis.labels)) ? vis.labels : {},
-    };
-  }
-  return null;
-}
-
-function isVisibleInDirectory(field, dirId) {
-  const parsed = parseDirVis(field);
-  return parsed ? parsed.ids.includes(dirId) : false;
-}
-
-function enrichField(field, dirId) {
-  const override = parseDirVis(field)?.labels?.[dirId];
-  return {
-    ...field,
-    _displayLabel: (typeof override === 'string' && override.trim()) ? override.trim() : field.label,
-  };
-}
-
 // --- member directory config ------------------------------------------------
 
-const MEMBER_DISPLAY_DEFAULTS = {
-  show_profile_photo: true, show_events: true, show_articles: true,
-  show_organization: true, show_job_title: true, show_linkedin: true,
-  show_awards: true, show_bio_in_popup: true,
-};
-
 async function buildMemberConfig({ res, tenantId, directory, dirId, roles, filterField }) {
-  const { data: settingsRows } = await supabase
-    .from('system_settings')
-    .select('setting_key, setting_value')
-    .eq('tenant_id', tenantId)
-    .eq('setting_key', 'member_directory_display');
-  let displaySettings = { ...MEMBER_DISPLAY_DEFAULTS };
-  const raw = settingsRows?.[0]?.setting_value;
-  if (raw) {
-    try {
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === 'object') displaySettings = parsed;
-    } catch {}
-  }
+  const displaySettings = await fetchMemberDisplaySettings(supabase, tenantId);
 
   const { data: allOrgRows } = await supabase
     .from('organization')
@@ -142,22 +97,7 @@ async function buildMemberConfig({ res, tenantId, directory, dirId, roles, filte
     .eq('tenant_id', tenantId);
   const allOrganizations = allOrgRows || [];
 
-  const { data: fieldRows } = await supabase
-    .from('preference_field')
-    .select('*')
-    .eq('tenant_id', tenantId)
-    .eq('is_active', true)
-    .eq('entity_scope', 'member')
-    .order('display_order', { ascending: true });
-  const memberFields = fieldRows || [];
-
-  const memberCustomFields = memberFields
-    .filter((f) => f.is_filterable)
-    .map((f) => enrichField(f, dirId));
-
-  const directoryCustomFields = memberFields
-    .filter((f) => isVisibleInDirectory(f, dirId))
-    .map((f) => enrichField(f, dirId));
+  const { memberCustomFields, directoryCustomFields } = await fetchMemberFields(supabase, tenantId, dirId);
 
   return res.json({
     directory,
@@ -173,34 +113,7 @@ async function buildMemberConfig({ res, tenantId, directory, dirId, roles, filte
 // --- organisation directory config ------------------------------------------
 
 async function buildOrgConfig({ res, tenantId, directory, dirId, roles, filterField }) {
-  const { data: settingsRows } = await supabase
-    .from('system_settings')
-    .select('setting_key, setting_value')
-    .eq('tenant_id', tenantId)
-    .like('setting_key', 'org_directory_%');
-  const settingsMap = {};
-  for (const s of settingsRows || []) settingsMap[s.setting_key] = s.setting_value;
-
-  const parseJsonArray = (val) => {
-    if (!val) return [];
-    try {
-      const parsed = JSON.parse(val);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  };
-
-  const displaySettings = {
-    showLogo: settingsMap['org_directory_show_logo'] !== 'false',
-    showTitle: settingsMap['org_directory_show_title'] !== 'false',
-    showDomains: settingsMap['org_directory_show_domains'] !== 'false',
-    showMemberCount: settingsMap['org_directory_show_member_count'] !== 'false',
-    showNameTooltip: settingsMap['org_directory_show_name_tooltip'] === 'true',
-    cardsPerRow: settingsMap['org_directory_cards_per_row'] || '3',
-    excludedOrgIds: parseJsonArray(settingsMap['org_directory_excluded_orgs']),
-    reverseCardRoleIds: parseJsonArray(settingsMap['org_directory_reverse_card_role_ids']),
-  };
+  const displaySettings = await fetchOrgDisplaySettings(supabase, tenantId);
 
   const { data: orgRows } = await supabase
     .from('organization')

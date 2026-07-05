@@ -1,5 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import {
+  fetchRoles,
+  fetchMemberDisplaySettings,
+  fetchMemberFields,
+  fetchOrgDisplaySettings,
+} from '../_lib/directoryConfig.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -88,7 +94,7 @@ async function renderMembers({ supabase, tenantId, directory, pageNum, pageSize,
 
   const { count: total } = await baseFilter(supabase.from('member').select('id', { count: 'exact', head: true }));
 
-  let dataQ = baseFilter(supabase.from('member').select('id, first_name, last_name, job_title, profile_photo_url, handle'));
+  let dataQ = baseFilter(supabase.from('member').select('id, first_name, last_name, job_title, profile_photo_url, handle, role_id, linkedin_url, organization_id'));
   if (sort === 'name-desc') {
     dataQ = dataQ.order('first_name', { ascending: false }).order('last_name', { ascending: false });
   } else {
@@ -99,14 +105,67 @@ async function renderMembers({ supabase, tenantId, directory, pageNum, pageSize,
     console.error('[PublicDynamicDirectory] member fetch error', error);
     return res.status(500).json({ error: 'Failed to fetch members' });
   }
-  const records = (data || []).map((m) => ({
+  const pageMembers = data || [];
+
+  // Config needed to render cards identically to the portal (guest view).
+  const [roles, displaySettings, { directoryCustomFields }] = await Promise.all([
+    fetchRoles(supabase, tenantId),
+    fetchMemberDisplaySettings(supabase, tenantId),
+    fetchMemberFields(supabase, tenantId, directory.id),
+  ]);
+
+  // Resolve organisation names for the page's members.
+  const orgIds = [...new Set(pageMembers.map((m) => m.organization_id).filter(Boolean))];
+  const orgNameById = {};
+  if (orgIds.length > 0) {
+    const { data: orgRows } = await supabase
+      .from('organization')
+      .select('id, name')
+      .in('id', orgIds);
+    for (const o of orgRows || []) orgNameById[o.id] = o.name;
+  }
+
+  // Custom-field values for the directory-visible fields on this page's members.
+  const fieldIds = directoryCustomFields.map((f) => f.id);
+  const valuesByMember = {};
+  const pageMemberIds = pageMembers.map((m) => m.id);
+  if (fieldIds.length > 0 && pageMemberIds.length > 0) {
+    const { data: prefRows } = await supabase
+      .from('member_preference_value')
+      .select('member_id, field_id, value')
+      .in('member_id', pageMemberIds)
+      .in('field_id', fieldIds);
+    for (const pv of prefRows || []) {
+      if (!valuesByMember[pv.member_id]) valuesByMember[pv.member_id] = {};
+      valuesByMember[pv.member_id][pv.field_id] = pv.value;
+    }
+  }
+
+  const records = pageMembers.map((m) => ({
     id: m.id,
     name: [m.first_name, m.last_name].filter(Boolean).join(' ').trim() || null,
+    first_name: m.first_name || null,
+    last_name: m.last_name || null,
     subtitle: m.job_title || null,
+    job_title: m.job_title || null,
     image_url: m.profile_photo_url || null,
+    profile_photo_url: m.profile_photo_url || null,
     handle: m.handle || null,
+    role_id: m.role_id || null,
+    linkedin_url: m.linkedin_url || null,
+    organization_id: m.organization_id || null,
+    organization_name: m.organization_id ? (orgNameById[m.organization_id] || null) : null,
+    customValues: valuesByMember[m.id] || {},
   }));
-  return res.json({ entityType: 'member', records, total: total || 0, page: pageNum, pageSize });
+
+  return res.json({
+    entityType: 'member',
+    records,
+    total: total || 0,
+    page: pageNum,
+    pageSize,
+    config: { displaySettings, roles, directoryCustomFields },
+  });
 }
 
 async function renderOrganizations({ supabase, tenantId, directory, pageNum, pageSize, offset, sort, search, customFilters, res }) {
@@ -142,10 +201,19 @@ async function renderOrganizations({ supabase, tenantId, directory, pageNum, pag
     name: o.name,
     subtitle: [o.city, o.country].filter(Boolean).join(', ') || null,
     image_url: o.logo_url || null,
+    logo_url: o.logo_url || null,
     slug: o.slug || null,
     website_url: o.website_url || null,
   }));
-  return res.json({ entityType: 'organization', records, total: count || 0, page: pageNum, pageSize });
+  const displaySettings = await fetchOrgDisplaySettings(supabase, tenantId);
+  return res.json({
+    entityType: 'organization',
+    records,
+    total: count || 0,
+    page: pageNum,
+    pageSize,
+    config: { displaySettings },
+  });
 }
 
 async function intersectMemberIds(supabase, filterFields) {

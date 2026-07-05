@@ -51,6 +51,8 @@ import {
 import { ComplexEventProgramme } from '@/components/events/ComplexEventSchedule';
 import WallOfFameDisplay from '@/components/walloffame/WallOfFameDisplay';
 import ResourceCard from '@/components/resources/ResourceCard';
+import { TooltipProvider } from '@/components/ui/tooltip';
+import { DirectoryMemberCard, DirectoryOrganizationCard } from '@/components/directory/DirectoryCards';
 import { GalleryImage, Lightbox, resolveAlt } from '@/components/iedit/elements/IEditGalleryElement';
 import {
   TypographyStyleField,
@@ -5132,14 +5134,14 @@ function parseFilterOverrides(raw) {
   return null;
 }
 
-function useDirectoryRecords({ directorySlug, limit, sort, search, filterOverrides, enabled }) {
+function useDirectoryRecords({ directorySlug, page, limit, sort, search, filterOverrides, enabled }) {
   return useQuery({
-    queryKey: ['canvas', 'public-dynamic-directory', directorySlug, limit, sort, search || '', filterOverrides || ''],
+    queryKey: ['canvas', 'public-dynamic-directory', directorySlug, page || 1, limit, sort, search || '', filterOverrides || ''],
     queryFn: async () => {
       const tenant = publicClient.getTenantSlug();
       const params = new URLSearchParams();
       params.set('slug', directorySlug);
-      params.set('page', '1');
+      params.set('page', String(Math.max(1, page || 1)));
       params.set('limit', String(Math.max(1, Math.min(limit || 12, 50))));
       params.set('sort', sort || 'name-asc');
       if (search) params.set('search', search);
@@ -5157,6 +5159,7 @@ function useDirectoryRecords({ directorySlug, limit, sort, search, filterOverrid
       return res.json();
     },
     enabled: !!directorySlug && enabled !== false,
+    keepPreviousData: true,
     staleTime: 60_000,
   });
 }
@@ -5193,73 +5196,148 @@ function DirectoryPickerField({ value, onChange, testId, entityType }) {
 function DirectoryCardsRender({ block, breakpoint, asEditor, icon: Icon, fallbackTitle }) {
   const c = block.content || {};
   const cols = columnsForBreakpoint(c, breakpoint);
-  const layout = c.layout === 'list' ? 'list' : 'grid';
-  const { data, isLoading, isError, error } = useDirectoryRecords({
+  const pageSize = Math.max(1, Math.min(c.limit || 12, 50));
+
+  const [searchInput, setSearchInput] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [sort, setSort] = useState(c.sort || 'name-asc');
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // Debounce end-user search (portal uses 300ms).
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchInput.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  // Any query change resets to page 1.
+  useEffect(() => { setCurrentPage(1); }, [debouncedSearch, sort, c.directorySlug, c.filterOverrides]);
+
+  const { data, isLoading, isError, error, isFetching } = useDirectoryRecords({
     directorySlug: c.directorySlug,
-    limit: c.limit,
-    sort: c.sort,
-    search: c.search,
+    page: currentPage,
+    limit: pageSize,
+    sort,
+    search: debouncedSearch,
     filterOverrides: c.filterOverrides,
   });
+
   const records = Array.isArray(data?.records) ? data.records : [];
+  const entityType = data?.entityType || 'member';
+  const cfg = data?.config || {};
+  const displaySettings = cfg.displaySettings || {};
+  const roles = Array.isArray(cfg.roles) ? cfg.roles : [];
+  const directoryCustomFields = Array.isArray(cfg.directoryCustomFields) ? cfg.directoryCustomFields : [];
+  const rolesById = useMemo(() => {
+    const m = {};
+    for (const r of roles) m[r.id] = r;
+    return m;
+  }, [roles]);
+
+  const total = Number(data?.total || 0);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
   if (!c.directorySlug) {
     return <EmptyState icon={Icon} text="Pick a directory in the inspector." />;
   }
+
+  // In the editor, block interactive controls from stealing selection clicks.
+  const editorGuard = asEditor
+    ? { onClickCapture: (e) => e.stopPropagation() }
+    : {};
+
   return (
-    <div className="w-full h-full overflow-auto" aria-label={block.a11y?.ariaLabel || c.title || fallbackTitle}>
-      {c.title ? <Heading level={c.headingLevel || 2}>{c.title}</Heading> : null}
-      {isLoading ? (
-        <ListSkeleton count={Math.min(c.limit || 12, 6)} columns={layout === 'list' ? 1 : cols} gap={c.gap} />
-      ) : isError ? (
-        <ErrorState message={String(error?.message || "Couldn't load directory right now.")} />
-      ) : records.length === 0 ? (
-        <EmptyState icon={Icon} text={c.emptyText || 'No records to show yet.'} />
-      ) : (
-        <>
-          <ul
-            className="list-none m-0 p-0"
-            style={layout === 'list' ? { display: 'flex', flexDirection: 'column', gap: c.gap || 12 } : gridStyle(cols, c.gap)}
-            data-testid="directory-list"
-          >
-            {records.map((r) => (
-              <li key={r.id} className={`rounded-md border border-slate-200 bg-white p-3 flex ${layout === 'list' ? 'flex-row items-center gap-3' : 'flex-col items-start gap-1'}`}>
-                {c.showPhoto !== false ? (
-                  r.image_url ? (
-                    <img
-                      src={r.image_url}
-                      alt=""
-                      className={`${layout === 'list' ? 'w-10 h-10' : 'w-12 h-12'} rounded-full object-cover bg-slate-100 shrink-0`}
-                      loading="lazy"
+    <TooltipProvider>
+      <div className="w-full h-full overflow-auto" aria-label={block.a11y?.ariaLabel || c.title || fallbackTitle}>
+        {c.title ? <Heading level={c.headingLevel || 2}>{c.title}</Heading> : null}
+
+        <div className="flex flex-wrap items-center gap-3 mb-4" {...editorGuard}>
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" aria-hidden="true" />
+            <Input
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder={entityType === 'organization' ? 'Search organisations...' : 'Search members...'}
+              className="pl-9"
+              data-testid="input-directory-search"
+              aria-label="Search directory"
+            />
+          </div>
+          <Select value={sort} onValueChange={setSort}>
+            <SelectTrigger className="w-[180px]" data-testid="select-directory-sort" aria-label="Sort directory">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="name-asc">Name (A → Z)</SelectItem>
+              <SelectItem value="name-desc">Name (Z → A)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {isLoading ? (
+          <ListSkeleton count={Math.min(pageSize, 6)} columns={cols} gap={c.gap} />
+        ) : isError ? (
+          <ErrorState message={String(error?.message || "Couldn't load directory right now.")} />
+        ) : records.length === 0 ? (
+          <EmptyState icon={Icon} text={c.emptyText || 'No records to show yet.'} />
+        ) : (
+          <>
+            <ul
+              className="list-none m-0 p-0"
+              style={gridStyle(cols, c.gap)}
+              data-testid="directory-list"
+            >
+              {records.map((r) => (
+                <li key={r.id}>
+                  {entityType === 'organization' ? (
+                    <DirectoryOrganizationCard
+                      org={r}
+                      displaySettings={displaySettings}
+                      isGuest={true}
                     />
                   ) : (
-                    <div className={`${layout === 'list' ? 'w-10 h-10' : 'w-12 h-12'} rounded-full bg-slate-100 grid place-items-center shrink-0`} aria-hidden="true">
-                      <Icon className="w-5 h-5 text-slate-400" />
-                    </div>
-                  )
-                ) : null}
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-semibold text-slate-900 truncate">{r.name || 'Untitled'}</div>
-                  {c.showSubtitle !== false && r.subtitle ? (
-                    <div className="text-xs text-slate-600 truncate">{r.subtitle}</div>
-                  ) : null}
-                </div>
-              </li>
-            ))}
-          </ul>
-          <div className="mt-3">
-            <a
-              href={asEditor ? undefined : `/DynamicDirectoryView/${encodeURIComponent(c.directorySlug)}`}
-              onClick={(e) => { if (asEditor) e.preventDefault(); }}
-              className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
-              data-testid="link-directory-embed"
-              aria-label={`${c.ctaLabel || 'View full directory'}: ${c.title || fallbackTitle}`}
-            >
-              {c.ctaLabel || 'View full directory'} <ArrowRight className="w-3 h-3" aria-hidden="true" />
-            </a>
-          </div>
-        </>
-      )}
-    </div>
+                    <DirectoryMemberCard
+                      member={r}
+                      role={r.role_id ? rolesById[r.role_id] : undefined}
+                      organization={r.organization_name ? { name: r.organization_name } : undefined}
+                      displaySettings={displaySettings}
+                      directoryCustomFields={directoryCustomFields}
+                      memberValues={r.customValues || {}}
+                      isGuest={true}
+                    />
+                  )}
+                </li>
+              ))}
+            </ul>
+
+            {totalPages > 1 ? (
+              <div className="flex items-center justify-center gap-4 mt-6" {...editorGuard}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={currentPage <= 1 || isFetching}
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  data-testid="button-directory-prev"
+                >
+                  <ChevronLeft className="w-4 h-4" aria-hidden="true" /> Previous
+                </Button>
+                <span className="text-sm text-slate-600" data-testid="text-directory-page">
+                  Page {currentPage} of {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={currentPage >= totalPages || isFetching}
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  data-testid="button-directory-next"
+                >
+                  Next <ChevronRight className="w-4 h-4" aria-hidden="true" />
+                </Button>
+              </div>
+            ) : null}
+          </>
+        )}
+      </div>
+    </TooltipProvider>
   );
 }
 
@@ -5296,14 +5374,7 @@ function MemberDirectoryEmbedInspector({ block, update }) {
         testId="select-member-dir-heading-level"
       />
       <SelectField
-        label="Layout"
-        value={c.layout || 'grid'}
-        onChange={(v) => set({ layout: v })}
-        options={[{ value: 'grid', label: 'Grid' }, { value: 'list', label: 'List' }]}
-        testId="select-member-dir-layout"
-      />
-      <SelectField
-        label="Sort"
+        label="Default sort"
         value={c.sort || 'name-asc'}
         onChange={(v) => set({ sort: v })}
         options={[
@@ -5311,13 +5382,6 @@ function MemberDirectoryEmbedInspector({ block, update }) {
           { value: 'name-desc', label: 'Name (Z → A)' },
         ]}
         testId="select-member-dir-sort"
-      />
-      <TextField
-        label="Search override"
-        value={c.search}
-        onChange={(v) => set({ search: v })}
-        testId="input-member-dir-search"
-        placeholder="e.g. London"
       />
       <TextField
         label="Filter overrides (JSON)"
@@ -5328,12 +5392,9 @@ function MemberDirectoryEmbedInspector({ block, update }) {
         placeholder='{"<field-id>": "value"}'
         hint="Adds custom preference-field filters on top of the directory's saved filter."
       />
-      <NumberField label="Limit" min={1} max={50} value={c.limit || 12} onChange={(v) => set({ limit: Math.max(1, Number(v) || 1) })} testId="input-member-dir-limit" />
+      <NumberField label="Per page" min={1} max={50} value={c.limit || 12} onChange={(v) => set({ limit: Math.max(1, Number(v) || 1) })} testId="input-member-dir-limit" />
       <PerBreakpointColumns value={c.columns} onChange={(v) => set({ columns: v })} />
       <NumberField label="Gap (px)" min={0} value={c.gap || 16} onChange={(v) => set({ gap: Math.max(0, Number(v) || 0) })} testId="input-member-dir-gap" />
-      <ToggleField label="Show photo" value={c.showPhoto !== false} onChange={(v) => set({ showPhoto: v })} testId="toggle-member-dir-photo" />
-      <ToggleField label="Show subtitle (job title)" value={c.showSubtitle !== false} onChange={(v) => set({ showSubtitle: v })} testId="toggle-member-dir-subtitle" />
-      <TextField label="CTA label" value={c.ctaLabel} onChange={(v) => set({ ctaLabel: v })} testId="input-member-dir-cta" />
       <TextField label="Empty state text" value={c.emptyText} onChange={(v) => set({ emptyText: v })} testId="input-member-dir-empty" />
     </>
   );
@@ -5371,14 +5432,7 @@ function DynamicDirectoryEmbedInspector({ block, update }) {
         testId="select-dynamic-dir-heading-level"
       />
       <SelectField
-        label="Layout"
-        value={c.layout || 'grid'}
-        onChange={(v) => set({ layout: v })}
-        options={[{ value: 'grid', label: 'Grid' }, { value: 'list', label: 'List' }]}
-        testId="select-dynamic-dir-layout"
-      />
-      <SelectField
-        label="Sort"
+        label="Default sort"
         value={c.sort || 'name-asc'}
         onChange={(v) => set({ sort: v })}
         options={[
@@ -5386,13 +5440,6 @@ function DynamicDirectoryEmbedInspector({ block, update }) {
           { value: 'name-desc', label: 'Name (Z → A)' },
         ]}
         testId="select-dynamic-dir-sort"
-      />
-      <TextField
-        label="Search override"
-        value={c.search}
-        onChange={(v) => set({ search: v })}
-        testId="input-dynamic-dir-search"
-        placeholder="e.g. Manchester"
       />
       <TextField
         label="Filter overrides (JSON)"
@@ -5403,12 +5450,9 @@ function DynamicDirectoryEmbedInspector({ block, update }) {
         placeholder='{"<field-id>": "value"}'
         hint="Adds custom preference-field filters on top of the directory's saved filter."
       />
-      <NumberField label="Limit" min={1} max={50} value={c.limit || 12} onChange={(v) => set({ limit: Math.max(1, Number(v) || 1) })} testId="input-dynamic-dir-limit" />
+      <NumberField label="Per page" min={1} max={50} value={c.limit || 12} onChange={(v) => set({ limit: Math.max(1, Number(v) || 1) })} testId="input-dynamic-dir-limit" />
       <PerBreakpointColumns value={c.columns} onChange={(v) => set({ columns: v })} />
       <NumberField label="Gap (px)" min={0} value={c.gap || 16} onChange={(v) => set({ gap: Math.max(0, Number(v) || 0) })} testId="input-dynamic-dir-gap" />
-      <ToggleField label="Show photo / logo" value={c.showPhoto !== false} onChange={(v) => set({ showPhoto: v })} testId="toggle-dynamic-dir-photo" />
-      <ToggleField label="Show subtitle" value={c.showSubtitle !== false} onChange={(v) => set({ showSubtitle: v })} testId="toggle-dynamic-dir-subtitle" />
-      <TextField label="CTA label" value={c.ctaLabel} onChange={(v) => set({ ctaLabel: v })} testId="input-dynamic-dir-cta" />
       <TextField label="Empty state text" value={c.emptyText} onChange={(v) => set({ emptyText: v })} testId="input-dynamic-dir-empty" />
     </>
   );
@@ -6248,6 +6292,7 @@ export const DYNAMIC_BLOCK_DEFINITIONS = {
     Editor: (props) => <MemberDirectoryEmbedRender {...props} asEditor />,
     Renderer: MemberDirectoryEmbedRender,
     Inspector: MemberDirectoryEmbedInspector,
+    allowOverflow: true,
   },
   [BLOCK_TYPES.DYNAMIC_DIRECTORY_EMBED]: {
     label: 'Dynamic directory',
@@ -6256,6 +6301,7 @@ export const DYNAMIC_BLOCK_DEFINITIONS = {
     Editor: (props) => <DynamicDirectoryEmbedRender {...props} asEditor />,
     Renderer: DynamicDirectoryEmbedRender,
     Inspector: DynamicDirectoryEmbedInspector,
+    allowOverflow: true,
   },
   [BLOCK_TYPES.CARD_DECK]: {
     label: 'Card deck',
