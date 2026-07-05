@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/context-menu';
 import { getBlockDefinition } from './blocks/registry';
 import { AccordionReflowProvider, useAccordionReflow } from './AccordionReflowContext';
+import { TooltipProvider } from '@/components/ui/tooltip';
 
 const RESIZE_HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
 // Full-width blocks only allow vertical resize; horizontal handles are
@@ -893,8 +894,10 @@ export default function CanvasStage(props) {
     [breakpoint, canvasWidth],
   );
   return (
-    <AccordionReflowProvider blocks={blocks} resolveGeom={resolveGeom} editorMode>
-      <CanvasStageInner {...props} />
-    </AccordionReflowProvider>
+    <TooltipProvider>
+      <AccordionReflowProvider blocks={blocks} resolveGeom={resolveGeom} editorMode>
+        <CanvasStageInner {...props} />
+      </AccordionReflowProvider>
+    </TooltipProvider>
   );
 }

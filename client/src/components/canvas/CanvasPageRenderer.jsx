@@ -15,6 +15,7 @@ import {
 } from "@/lib/canvasDesign";
 import { getBlockDefinition } from "./blocks/registry";
 import { AccordionReflowProvider, useAccordionReflow } from "./AccordionReflowContext";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 // Phase 7 — Hooks that fetch the tenant Canvas theme and any referenced
 // symbols. Both are best-effort; failures degrade to "no theme" and
@@ -624,6 +625,7 @@ export default function CanvasPageRenderer({ page, symbols, forceBreakpoint }) {
   }
 
   return (
+    <TooltipProvider>
     <div
       ref={containerRef}
       id={scopeId}
@@ -666,5 +668,6 @@ export default function CanvasPageRenderer({ page, symbols, forceBreakpoint }) {
         />
       </AccordionReflowProvider>
     </div>
+    </TooltipProvider>
   );
 }
