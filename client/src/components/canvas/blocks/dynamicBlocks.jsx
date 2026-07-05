@@ -50,6 +50,7 @@ import {
 } from '@/lib/tenantButtonStyle';
 import { ComplexEventProgramme } from '@/components/events/ComplexEventSchedule';
 import WallOfFameDisplay from '@/components/walloffame/WallOfFameDisplay';
+import ResourceCard from '@/components/resources/ResourceCard';
 import { GalleryImage, Lightbox, resolveAlt } from '@/components/iedit/elements/IEditGalleryElement';
 import {
   TypographyStyleField,
@@ -3995,93 +3996,11 @@ function resolveResourceFilterSelections(c) {
   };
 }
 
-// Standard (non-tenant) CTA variant classes — mirrors `buttonClasses` in
-// registry.jsx so the Resource list CTA matches the Card block CTA.
-function resourceCtaFallbackClasses(variant) {
-  const v = {
-    primary: 'bg-primary text-primary-foreground hover-elevate active-elevate-2',
-    default: 'bg-slate-900 text-white hover-elevate active-elevate-2',
-    outline: 'border border-slate-300 bg-white text-slate-900 hover-elevate active-elevate-2',
-    ghost: 'bg-transparent text-slate-900 hover-elevate active-elevate-2',
-  };
-  return `inline-flex items-center justify-center gap-1.5 rounded-md font-medium h-9 px-4 text-sm ${v[variant] || v.default}`;
-}
-
-// A single resource card's CTA rendered as a styled, tenant-aware button.
-// Mirrors the Card block CTA (registry.jsx): tenant variants route through the
-// shared tenant button-style resolver with hover handling; standard variants
-// fall back to the shared class-based look.
-function ResourceCtaButton({ variant, branding, href, label, newTab, download, asEditor, testId }) {
-  const [hovered, setHovered] = useState(false);
-  const ctaVariant = variant || 'outline';
-  const isTenant = isTenantButtonVariant(ctaVariant);
-  const tenantStyle = isTenant ? resolveTenantButtonStyle(ctaVariant, branding) : null;
-  const linkProps = {
-    href: asEditor ? undefined : (href || '#'),
-    onClick: (e) => { if (asEditor) e.preventDefault(); },
-    target: newTab ? '_blank' : undefined,
-    rel: newTab ? 'noopener noreferrer' : undefined,
-    download: download ? '' : undefined,
-    'data-testid': testId,
-  };
-  if (isTenant && tenantStyle) {
-    return (
-      <a
-        {...linkProps}
-        className="inline-flex items-center justify-center gap-1.5 font-medium whitespace-nowrap"
-        style={buildTenantButtonInlineStyle(tenantStyle, { hovered })}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-      >
-        {label} <ArrowRight className="w-4 h-4" />
-      </a>
-    );
-  }
-  // Fallback: tenant variant chosen but no matching tenant style configured →
-  // render with the standard `outline` classes so the CTA still looks sensible.
-  const fallbackVariant = isTenant ? 'outline' : ctaVariant;
-  return (
-    <a {...linkProps} className={resourceCtaFallbackClasses(fallbackVariant)}>
-      {label} <ArrowRight className="w-4 h-4" />
-    </a>
-  );
-}
-
 function ResourceListRender({ block, breakpoint, asEditor }) {
   const c = block.content || {};
-  const branding = useTenantBranding()?.branding || null;
-  const ctaJustify = c.ctaAlign === 'center'
-    ? 'center'
-    : c.ctaAlign === 'right' ? 'flex-end' : 'flex-start';
   const cols = columnsForBreakpoint(c, breakpoint);
   const layout = c.layout || 'grid';
   const effectiveCols = layout === 'list' ? 1 : cols;
-  const { styles: tenantStyles, resolved: stylesResolved } = useTenantTypographyStylesState();
-  const cardTitleStyleObj = resolveTenantStyle(c.cardTitleTypographyStyleId, tenantStyles);
-  const cardDescriptionStyleObj = resolveTenantStyle(c.cardDescriptionTypographyStyleId, tenantStyles);
-  const awaitingTitle = isAwaitingTypographyStyle(c.cardTitleTypographyStyleId, cardTitleStyleObj, stylesResolved);
-  const awaitingDescription = isAwaitingTypographyStyle(c.cardDescriptionTypographyStyleId, cardDescriptionStyleObj, stylesResolved);
-  const isPreview = breakpoint === 'desktop' || breakpoint === 'tablet' || breakpoint === 'mobile';
-  const bpForInline = isPreview ? breakpoint : 'desktop';
-  let cardTitleInline = cardTitleStyleObj
-    ? buildTypographyInlineStyle(cardTitleStyleObj, { breakpoint: bpForInline })
-    : null;
-  if (awaitingTitle) cardTitleInline = { ...(cardTitleInline || {}), visibility: 'hidden' };
-  let cardDescriptionInline = cardDescriptionStyleObj
-    ? buildTypographyInlineStyle(cardDescriptionStyleObj, { breakpoint: bpForInline })
-    : null;
-  if (awaitingDescription) cardDescriptionInline = { ...(cardDescriptionInline || {}), visibility: 'hidden' };
-  const safeBlockId = String(block.id || '').replace(/["\\]/g, '');
-  const responsiveCss = !isPreview
-    ? [
-        cardTitleStyleObj && hasResponsiveTypographyOverride(cardTitleStyleObj)
-          ? buildTenantTypographyResponsiveCss(`[data-cb="${safeBlockId}"] [data-tg-r="resource-title"]`, cardTitleStyleObj)
-          : null,
-        cardDescriptionStyleObj && hasResponsiveTypographyOverride(cardDescriptionStyleObj)
-          ? buildTenantTypographyResponsiveCss(`[data-cb="${safeBlockId}"] [data-tg-r="resource-description"]`, cardDescriptionStyleObj)
-          : null,
-      ].filter(Boolean).join('')
-    : '';
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['canvas', 'public-resources'],
@@ -4094,6 +4013,30 @@ function ResourceListRender({ block, breakpoint, asEditor }) {
     queryFn: () => publicClient.listResourceCategories(),
     staleTime: 60_000,
   });
+
+  // Button styles drive ResourceCard's native CTA exactly as on /resources,
+  // so the block's cards match the public page's card actions.
+  const { data: buttonStyles = [] } = useQuery({
+    queryKey: ['canvas', 'public-button-styles-resources'],
+    queryFn: async () => {
+      const styles = await publicClient.listButtonStyles();
+      return (Array.isArray(styles) ? styles : []).filter((s) => s.card_type === 'resource' && s.is_active);
+    },
+    staleTime: 60_000,
+  });
+
+  // Mirror /resources' logged-in check so members-only cards unlock identically.
+  const isLoggedIn = useMemo(() => {
+    try {
+      const storedMember = localStorage.getItem('agcas_member');
+      if (!storedMember) return false;
+      const member = JSON.parse(storedMember);
+      if (member.sessionExpiry && new Date(member.sessionExpiry) < new Date()) return false;
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
 
   const items = useMemo(() => {
     let list = Array.isArray(data) ? data.slice() : [];
@@ -4183,7 +4126,6 @@ function ResourceListRender({ block, breakpoint, asEditor }) {
 
   return (
     <div className="w-full h-full overflow-auto" aria-label={block.a11y?.ariaLabel || c.title || 'Resources'}>
-      {responsiveCss ? <style dangerouslySetInnerHTML={{ __html: responsiveCss }} /> : null}
       {c.title ? <Heading level={c.headingLevel || 2}>{c.title}</Heading> : null}
       {isLoading ? (
         <ListSkeleton count={Math.min(c.limit || 6, 6)} columns={effectiveCols} gap={c.gap} />
@@ -4215,50 +4157,14 @@ function ResourceListRender({ block, breakpoint, asEditor }) {
           {visibleItems.map((r) => (
             <li
               key={r.id}
-              className={`rounded-md border border-slate-200 bg-white overflow-hidden ${layout === 'list' ? 'flex flex-row' : 'flex flex-col'}`}
+              data-testid={`link-resource-${r.id}`}
+              onClickCapture={asEditor ? (e) => { e.preventDefault(); e.stopPropagation(); } : undefined}
             >
-              {r.image_url ? (
-                <div className={layout === 'list' ? 'w-32 shrink-0 bg-slate-100' : 'aspect-[16/9] bg-slate-100'}>
-                  <img src={r.image_url} alt="" className="w-full h-full object-cover" loading="lazy" />
-                </div>
-              ) : null}
-              <div className="p-3 flex-1 flex flex-col gap-1">
-                <h3
-                  className={cardTitleInline ? 'text-slate-900 m-0' : 'text-sm font-semibold text-slate-900 m-0'}
-                  style={cardTitleInline || undefined}
-                  data-tg-r="resource-title"
-                >{r.title}</h3>
-                {r.resource_type ? (
-                  <div className="text-[10px] uppercase tracking-wide text-slate-500">{r.resource_type}</div>
-                ) : null}
-                {r.description ? (
-                  <p
-                    className={cardDescriptionInline ? 'text-slate-600 line-clamp-3 mt-1' : 'text-xs text-slate-600 line-clamp-3 mt-1'}
-                    style={cardDescriptionInline || undefined}
-                    data-tg-r="resource-description"
-                  >{r.description}</p>
-                ) : null}
-                {(() => {
-                  const behavior = c.downloadBehavior || 'auto';
-                  const newTab = behavior === 'new-tab' || (behavior === 'auto' && r.open_in_new_tab);
-                  const download = behavior === 'download';
-                  const label = r.is_locked ? 'Login to view' : (download ? 'Download' : 'Open resource');
-                  return (
-                    <div className="mt-auto pt-2 flex" style={{ justifyContent: ctaJustify }}>
-                      <ResourceCtaButton
-                        variant={c.ctaVariant}
-                        branding={branding}
-                        href={r.target_url || r.login_redirect_url || '#'}
-                        label={label}
-                        newTab={newTab}
-                        download={download}
-                        asEditor={asEditor}
-                        testId={`link-resource-${r.id}`}
-                      />
-                    </div>
-                  );
-                })()}
-              </div>
+              <ResourceCard
+                resource={r}
+                isLocked={!r.is_public && !isLoggedIn}
+                buttonStyles={buttonStyles}
+              />
             </li>
           ))}
         </ul>
@@ -4300,20 +4206,6 @@ function ResourceListRender({ block, breakpoint, asEditor }) {
 function ResourceListInspector({ block, update }) {
   const c = block.content || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
-
-  // Tenant custom button styles for the CTA variant picker — same enumeration
-  // as the Card inspector so the Resource list CTA offers identical options.
-  const branding = useTenantBranding()?.branding || null;
-  const customStyleEntries = (() => {
-    const styles =
-      branding?.buttonStyles ||
-      branding?.brandingConfig?.button_styles ||
-      null;
-    if (!styles || typeof styles !== 'object') return [];
-    return Object.entries(styles)
-      .filter(([k, v]) => k !== 'primary' && k !== 'secondary' && v && typeof v === 'object')
-      .map(([k, v]) => ({ key: k, label: v.label || k }));
-  })();
 
   const { data: categoriesData, isLoading: categoriesLoading } = useQuery({
     queryKey: ['canvas', 'admin-resource-categories'],
@@ -4477,18 +4369,6 @@ function ResourceListInspector({ block, update }) {
           : undefined}
       />
       <SelectField
-        label="Link behaviour"
-        value={c.downloadBehavior || 'auto'}
-        onChange={(v) => set({ downloadBehavior: v })}
-        options={[
-          { value: 'auto', label: 'Use resource setting' },
-          { value: 'same-tab', label: 'Open in same tab' },
-          { value: 'new-tab', label: 'Open in new tab' },
-          { value: 'download', label: 'Download attachment' },
-        ]}
-        testId="select-resource-list-download-behavior"
-      />
-      <SelectField
         label="Audience"
         value={c.audience || 'all'}
         onChange={(v) => set({ audience: v })}
@@ -4535,47 +4415,6 @@ function ResourceListInspector({ block, update }) {
       <PerBreakpointColumns value={c.columns} onChange={(v) => set({ columns: v })} />
       <NumberField label="Gap (px)" min={0} value={c.gap || 16} onChange={(v) => set({ gap: Math.max(0, Number(v) || 0) })} testId="input-resource-list-gap" />
       <TextField label="Empty state text" value={c.emptyText} onChange={(v) => set({ emptyText: v })} testId="input-resource-list-empty" />
-      <TypographyStyleField
-        label="Card title style"
-        value={c.cardTitleTypographyStyleId}
-        onChange={(id) => set({ cardTitleTypographyStyleId: id })}
-        testId="select-resource-list-title-typography"
-      />
-      <TypographyStyleField
-        label="Card description style"
-        value={c.cardDescriptionTypographyStyleId}
-        onChange={(id) => set({ cardDescriptionTypographyStyleId: id })}
-        testId="select-resource-list-description-typography"
-      />
-      <SelectField
-        label="CTA style"
-        value={c.ctaVariant || 'outline'}
-        onChange={(v) => set({ ctaVariant: v })}
-        options={[
-          { value: 'primary', label: 'Primary' },
-          { value: 'default', label: 'Default' },
-          { value: 'outline', label: 'Outline' },
-          { value: 'ghost', label: 'Ghost' },
-          { value: 'tenant-primary', label: 'Tenant primary (branded)' },
-          { value: 'tenant-secondary', label: 'Tenant secondary (branded)' },
-          ...customStyleEntries.map((e) => ({
-            value: `tenant:${e.key}`,
-            label: `Tenant: ${e.label}`,
-          })),
-        ]}
-        testId="select-resource-list-cta-variant"
-      />
-      <SelectField
-        label="CTA alignment"
-        value={c.ctaAlign || 'left'}
-        onChange={(v) => set({ ctaAlign: v })}
-        options={[
-          { value: 'left', label: 'Left' },
-          { value: 'center', label: 'Center' },
-          { value: 'right', label: 'Right' },
-        ]}
-        testId="select-resource-list-cta-align"
-      />
     </>
   );
 }
