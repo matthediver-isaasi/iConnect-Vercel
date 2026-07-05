@@ -28,6 +28,252 @@ const isHtmlEmpty = (html) => {
   return textContent.length === 0;
 };
 
+// ---- Overlay helpers (solid + gradient) --------------------------------
+const OVERLAY_DEFAULT_GRADIENT_STOPS = [
+  { color: '#000000', opacity: 60, position: 0 },
+  { color: '#000000', opacity: 0, position: 100 },
+];
+const OVERLAY_DEFAULT_GRADIENT_ANGLE = 180;
+const OVERLAY_MAX_STOPS = 5;
+
+const OVERLAY_ANGLE_PRESETS = [
+  { label: 'Top → Bottom', value: 180 },
+  { label: 'Bottom → Top', value: 0 },
+  { label: 'Left → Right', value: 90 },
+  { label: 'Right → Left', value: 270 },
+  { label: 'Diagonal ↘', value: 135 },
+  { label: 'Diagonal ↙', value: 225 },
+];
+
+// Convert a #RGB / #RRGGBB hex + opacity percentage into an rgba() string.
+const overlayHexToRgba = (hex, opacityPercent) => {
+  const safe = typeof hex === 'string' ? hex.trim() : '#000000';
+  let r = 0, g = 0, b = 0;
+  const m6 = /^#([0-9a-fA-F]{6})$/.exec(safe);
+  const m3 = /^#([0-9a-fA-F]{3})$/.exec(safe);
+  if (m6) {
+    r = parseInt(m6[1].slice(0, 2), 16);
+    g = parseInt(m6[1].slice(2, 4), 16);
+    b = parseInt(m6[1].slice(4, 6), 16);
+  } else if (m3) {
+    r = parseInt(m3[1][0] + m3[1][0], 16);
+    g = parseInt(m3[1][1] + m3[1][1], 16);
+    b = parseInt(m3[1][2] + m3[1][2], 16);
+  }
+  const parsed = Number(opacityPercent);
+  const a = Number.isFinite(parsed) ? Math.max(0, Math.min(100, parsed)) / 100 : 0;
+  return `rgba(${r}, ${g}, ${b}, ${a})`;
+};
+
+// Build a CSS linear-gradient() string from configured stops + angle.
+const overlayBuildGradientCss = (stops, angle) => {
+  const list = Array.isArray(stops) && stops.length >= 2 ? stops : OVERLAY_DEFAULT_GRADIENT_STOPS;
+  const ordered = [...list].sort(
+    (a, b) => (Number(a?.position) || 0) - (Number(b?.position) || 0)
+  );
+  const parts = ordered.map((s) => {
+    const pos = Math.max(0, Math.min(100, Number(s?.position) || 0));
+    return `${overlayHexToRgba(s?.color, s?.opacity)} ${pos}%`;
+  });
+  const parsedAngle = Number(angle);
+  const ang = Number.isFinite(parsedAngle) ? parsedAngle : OVERLAY_DEFAULT_GRADIENT_ANGLE;
+  return `linear-gradient(${ang}deg, ${parts.join(', ')})`;
+};
+
+// Return the React style object for an overlay div, for either style.
+// Solid keeps the original backgroundColor + opacity behaviour (backward compatible);
+// gradient bakes per-stop opacity into rgba() so the layer opacity stays 1.
+const getOverlayStyle = (style, { color, opacity, stops, angle }) => {
+  if (style === 'gradient') {
+    return { background: overlayBuildGradientCss(stops, angle) };
+  }
+  return {
+    backgroundColor: color || '#000000',
+    opacity: parseInt(opacity ?? 50, 10) / 100,
+  };
+};
+
+// Reusable overlay editor controls, shared by the desktop + mobile sections.
+// `prefix` is '' for desktop fields and 'mobile_' for the mobile override.
+function OverlayStyleControls({ content, updateContent, prefix = '', idPrefix = 'overlay' }) {
+  const key = (name) => `${prefix}${name}`;
+  const style = content[key('overlay_style')] || 'solid';
+  const rawStops = content[key('overlay_gradient_stops')];
+  const stops = Array.isArray(rawStops) && rawStops.length >= 2
+    ? rawStops
+    : OVERLAY_DEFAULT_GRADIENT_STOPS;
+  const angle = content[key('overlay_gradient_angle')] ?? OVERLAY_DEFAULT_GRADIENT_ANGLE;
+
+  const setStyle = (value) => updateContent(key('overlay_style'), value);
+  const setStops = (next) => updateContent(key('overlay_gradient_stops'), next);
+  const setAngle = (value) => updateContent(key('overlay_gradient_angle'), value);
+
+  const updateStop = (idx, field, value) => {
+    setStops(stops.map((s, i) => (i === idx ? { ...s, [field]: value } : s)));
+  };
+  const addStop = () => {
+    if (stops.length >= OVERLAY_MAX_STOPS) return;
+    const last = stops[stops.length - 1] || { color: '#000000', opacity: 50, position: 100 };
+    setStops([...stops, { color: last.color || '#000000', opacity: 50, position: 100 }]);
+  };
+  const removeStop = (idx) => {
+    if (stops.length <= 2) return;
+    setStops(stops.filter((_, i) => i !== idx));
+  };
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <label className="block text-sm font-medium mb-1">Overlay Style</label>
+        <div className="flex gap-2">
+          {['solid', 'gradient'].map((opt) => (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => setStyle(opt)}
+              data-testid={`button-${idPrefix}-style-${opt}`}
+              className={`flex-1 px-3 py-2 text-sm rounded-md border capitalize ${
+                style === opt
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+              }`}
+            >
+              {opt}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {style === 'gradient' ? (
+        <div className="space-y-3">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-sm font-medium">Color Stops</label>
+              <button
+                type="button"
+                onClick={addStop}
+                disabled={stops.length >= OVERLAY_MAX_STOPS}
+                data-testid={`button-${idPrefix}-add-stop`}
+                className="text-xs px-2 py-1 rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                + Add Stop
+              </button>
+            </div>
+            {stops.map((stop, idx) => (
+              <div key={idx} className="flex items-end gap-2" data-testid={`row-${idPrefix}-stop-${idx}`}>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Color</label>
+                  <input
+                    type="color"
+                    value={stop.color || '#000000'}
+                    onChange={(e) => updateStop(idx, 'color', e.target.value)}
+                    data-testid={`input-${idPrefix}-stop-color-${idx}`}
+                    className="w-12 h-9 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-xs text-slate-500 mb-1">Opacity %</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={stop.opacity ?? 50}
+                    onChange={(e) => updateStop(idx, 'opacity', e.target.value === '' ? '' : Number(e.target.value))}
+                    data-testid={`input-${idPrefix}-stop-opacity-${idx}`}
+                    className="w-full px-2 py-2 border border-slate-300 rounded-md"
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-xs text-slate-500 mb-1">Position %</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={stop.position ?? 0}
+                    onChange={(e) => updateStop(idx, 'position', e.target.value === '' ? '' : Number(e.target.value))}
+                    data-testid={`input-${idPrefix}-stop-position-${idx}`}
+                    className="w-full px-2 py-2 border border-slate-300 rounded-md"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removeStop(idx)}
+                  disabled={stops.length <= 2}
+                  data-testid={`button-${idPrefix}-remove-stop-${idx}`}
+                  className="px-2 py-2 text-xs text-red-600 hover:text-red-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Direction (angle °)</label>
+            <input
+              type="number"
+              min="0"
+              max="360"
+              value={angle}
+              onChange={(e) => setAngle(e.target.value === '' ? '' : Number(e.target.value))}
+              data-testid={`input-${idPrefix}-angle`}
+              className="w-full px-3 py-2 border border-slate-300 rounded-md"
+            />
+            <div className="flex flex-wrap gap-2 mt-2">
+              {OVERLAY_ANGLE_PRESETS.map((preset) => (
+                <button
+                  key={preset.value}
+                  type="button"
+                  onClick={() => setAngle(preset.value)}
+                  data-testid={`button-${idPrefix}-preset-${preset.value}`}
+                  className={`text-xs px-2 py-1 rounded-md border ${
+                    Number(angle) === preset.value
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div
+            className="h-12 w-full rounded-md border border-slate-300"
+            style={{ background: overlayBuildGradientCss(stops, angle) }}
+            data-testid={`preview-${idPrefix}-gradient`}
+          />
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium mb-1">Overlay Color</label>
+            <input
+              type="color"
+              value={content[key('overlay_color')] || '#000000'}
+              onChange={(e) => updateContent(key('overlay_color'), e.target.value)}
+              data-testid={`input-${idPrefix}-solid-color`}
+              className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Opacity (%)</label>
+            <input
+              type="number"
+              value={content[key('overlay_opacity')] || 50}
+              onChange={(e) => updateContent(key('overlay_opacity'), e.target.value)}
+              data-testid={`input-${idPrefix}-solid-opacity`}
+              className="w-full px-3 py-2 border border-slate-300 rounded-md"
+              min="0"
+              max="100"
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function IEditHeroElement({ content, variant, settings, previewViewport }) {
   const isMobilePreview = previewViewport === 'mobile';
   const { optimised: srOptimised } = useScreenReader();
@@ -45,6 +291,9 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
     overlay_enabled = false,
     overlay_color = '#000000',
     overlay_opacity = 50,
+    overlay_style = 'solid',
+    overlay_gradient_stops,
+    overlay_gradient_angle = OVERLAY_DEFAULT_GRADIENT_ANGLE,
     // Mobile background settings (defaults to 'same' meaning use desktop values)
     mobile_background_type = 'same',
     mobile_background_color = '#3b82f6',
@@ -56,6 +305,9 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
     mobile_overlay_enabled = false,
     mobile_overlay_color = '#000000',
     mobile_overlay_opacity = 50,
+    mobile_overlay_style = 'solid',
+    mobile_overlay_gradient_stops,
+    mobile_overlay_gradient_angle = OVERLAY_DEFAULT_GRADIENT_ANGLE,
     text_color = '#ffffff',
     heading_font_family = 'Poppins',
     heading_font_size = 48,
@@ -197,6 +449,9 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
   const effectiveMobileOverlayEnabled = mobile_background_type === 'same' ? overlay_enabled : mobile_overlay_enabled;
   const effectiveMobileOverlayColor = mobile_background_type === 'same' ? overlay_color : mobile_overlay_color;
   const effectiveMobileOverlayOpacity = mobile_background_type === 'same' ? overlay_opacity : mobile_overlay_opacity;
+  const effectiveMobileOverlayStyle = mobile_background_type === 'same' ? overlay_style : mobile_overlay_style;
+  const effectiveMobileOverlayStops = mobile_background_type === 'same' ? overlay_gradient_stops : mobile_overlay_gradient_stops;
+  const effectiveMobileOverlayAngle = mobile_background_type === 'same' ? overlay_gradient_angle : mobile_overlay_gradient_angle;
 
   const effectiveHeadingAlign = heading_text_align || text_align;
   const effectiveSubheadingAlign = subheading_text_align || text_align;
@@ -537,10 +792,12 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
             {overlay_enabled && (
               <div 
                 className="absolute inset-0"
-                style={{ 
-                  backgroundColor: overlay_color, 
-                  opacity: parseInt(overlay_opacity) / 100
-                }} 
+                style={getOverlayStyle(overlay_style, {
+                  color: overlay_color,
+                  opacity: overlay_opacity,
+                  stops: overlay_gradient_stops,
+                  angle: overlay_gradient_angle,
+                })}
               />
             )}
           </div>
@@ -570,10 +827,12 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
                 {effectiveMobileOverlayEnabled && (
                   <div 
                     className="absolute inset-0"
-                    style={{ 
-                      backgroundColor: effectiveMobileOverlayColor, 
-                      opacity: parseInt(effectiveMobileOverlayOpacity) / 100
-                    }} 
+                    style={getOverlayStyle(effectiveMobileOverlayStyle, {
+                      color: effectiveMobileOverlayColor,
+                      opacity: effectiveMobileOverlayOpacity,
+                      stops: effectiveMobileOverlayStops,
+                      angle: effectiveMobileOverlayAngle,
+                    })}
                   />
                 )}
               </>
@@ -677,10 +936,12 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
             {overlay_enabled && (
               <div 
                 className="absolute inset-0" 
-                style={{ 
-                  backgroundColor: overlay_color, 
-                  opacity: parseInt(overlay_opacity) / 100 
-                }} 
+                style={getOverlayStyle(overlay_style, {
+                  color: overlay_color,
+                  opacity: overlay_opacity,
+                  stops: overlay_gradient_stops,
+                  angle: overlay_gradient_angle,
+                })}
               />
             )}
           </div>
@@ -704,10 +965,12 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
             {effectiveMobileOverlayEnabled && (
               <div 
                 className="absolute inset-0" 
-                style={{ 
-                  backgroundColor: effectiveMobileOverlayColor, 
-                  opacity: parseInt(effectiveMobileOverlayOpacity) / 100 
-                }} 
+                style={getOverlayStyle(effectiveMobileOverlayStyle, {
+                  color: effectiveMobileOverlayColor,
+                  opacity: effectiveMobileOverlayOpacity,
+                  stops: effectiveMobileOverlayStops,
+                  angle: effectiveMobileOverlayAngle,
+                })}
               />
             )}
           </div>
@@ -1186,28 +1449,12 @@ export function IEditHeroElementEditor({ element, onChange }) {
                     </div>
                     
                     {content.overlay_enabled && (
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="block text-sm font-medium mb-1">Overlay Color</label>
-                          <input
-                            type="color"
-                            value={content.overlay_color || '#000000'}
-                            onChange={(e) => updateContent('overlay_color', e.target.value)}
-                            className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mb-1">Opacity (%)</label>
-                          <input
-                            type="number"
-                            value={content.overlay_opacity || 50}
-                            onChange={(e) => updateContent('overlay_opacity', e.target.value)}
-                            className="w-full px-3 py-2 border border-slate-300 rounded-md"
-                            min="0"
-                            max="100"
-                          />
-                        </div>
-                      </div>
+                      <OverlayStyleControls
+                        content={content}
+                        updateContent={updateContent}
+                        prefix=""
+                        idPrefix="overlay"
+                      />
                     )}
                   </div>
                 </>
@@ -2248,28 +2495,12 @@ export function IEditHeroElementEditor({ element, onChange }) {
                       </div>
                       
                       {content.mobile_overlay_enabled && (
-                        <div className="grid grid-cols-2 gap-3">
-                          <div>
-                            <label className="block text-sm font-medium mb-1">Overlay Color</label>
-                            <input
-                              type="color"
-                              value={content.mobile_overlay_color || '#000000'}
-                              onChange={(e) => updateContent('mobile_overlay_color', e.target.value)}
-                              className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium mb-1">Opacity (%)</label>
-                            <input
-                              type="number"
-                              value={content.mobile_overlay_opacity || 50}
-                              onChange={(e) => updateContent('mobile_overlay_opacity', e.target.value)}
-                              className="w-full px-3 py-2 border border-slate-300 rounded-md"
-                              min="0"
-                              max="100"
-                            />
-                          </div>
-                        </div>
+                        <OverlayStyleControls
+                          content={content}
+                          updateContent={updateContent}
+                          prefix="mobile_"
+                          idPrefix="mobile-overlay"
+                        />
                       )}
                     </div>
                   </>
