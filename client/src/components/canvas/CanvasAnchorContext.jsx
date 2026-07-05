@@ -28,8 +28,12 @@ export function CanvasAnchorProvider({ design, pages, children }) {
   const value = useMemo(() => {
     // Resolve the anchors of every other canvas page once. Each entry is
     // `{ id, slug, title, anchors }` where `anchors` reuses the same shape
-    // as the current page's list. Pages without a slug or without any
-    // anchors are dropped — there is nothing to link to.
+    // as the current page's list. Pages without a slug are dropped — there
+    // is nothing to link to.
+    //
+    // Task #2337: pages are kept even when they expose NO anchors, so link
+    // fields can offer a bare `/page-slug` whole-page link for every canvas
+    // page. Consumers that only want anchors re-filter on `anchors.length`.
     const otherPages = (Array.isArray(pages) ? pages : [])
       .map((p) => ({
         id: p.id,
@@ -37,7 +41,7 @@ export function CanvasAnchorProvider({ design, pages, children }) {
         title: p.title || p.slug,
         anchors: getPageAnchors(p.design).filter((a) => a.anchorId),
       }))
-      .filter((p) => p.slug && p.anchors.length > 0);
+      .filter((p) => p.slug);
     return {
       anchors: getPageAnchors(design),
       duplicateAnchorIds: findDuplicateAnchorIds(design),

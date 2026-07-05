@@ -179,10 +179,27 @@ function TextField({ label, value, onChange, placeholder, testId, multiline }) {
 export function LinkField({ label, value, onChange, placeholder, testId }) {
   const { anchors, pages } = useCanvasAnchors();
   const usableAnchors = (anchors || []).filter((a) => a.anchorId);
-  // Task #1448: other canvas pages that expose anchors. Picking one of these
-  // emits a cross-page `/page-slug#anchor-id` href instead of a bare `#id`.
-  const otherPages = (pages || []).filter((p) => p.slug && p.anchors?.length > 0);
-  const hasAnyAnchor = usableAnchors.length > 0 || otherPages.length > 0;
+  // Task #1448 / #2337: other canvas pages. Every page with a slug can be
+  // picked as a whole page (bare `/page-slug`); pages that also expose
+  // anchors additionally offer cross-page `/page-slug#anchor-id` links.
+  const otherPages = (pages || []).filter((p) => p.slug);
+  const hasAnchorMenu = usableAnchors.length > 0 || otherPages.length > 0;
+
+  // Task #2337: open the shared media library (same event the ImageField
+  // uses) so a CTA can link straight to a PDF/Word/Excel/image asset. The
+  // editor shell listens for this event, opens MediaLibraryDialog, and
+  // routes the picked asset back through `onPick`.
+  const openLibrary = () => {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new CustomEvent('canvas:open-media-library', {
+      detail: {
+        onPick: (asset) => {
+          if (asset?.url) onChange(asset.url);
+        },
+      },
+    }));
+  };
+
   return (
     <Field label={label}>
       <div className="flex items-center gap-1">
@@ -193,14 +210,24 @@ export function LinkField({ label, value, onChange, placeholder, testId }) {
           className="h-8 flex-1"
           data-testid={testId}
         />
-        {hasAnyAnchor && (
+        <Button
+          size="icon"
+          variant="outline"
+          type="button"
+          onClick={openLibrary}
+          title="Link to a file from the media library"
+          data-testid={testId ? `${testId}-file-picker` : 'link-file-picker'}
+        >
+          <FileText className="w-4 h-4" />
+        </Button>
+        {hasAnchorMenu && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
                 size="icon"
                 variant="outline"
                 type="button"
-                title="Link to a section on this or another page"
+                title="Link to a page or a section on this or another page"
                 data-testid={testId ? `${testId}-anchor-picker` : 'link-anchor-picker'}
               >
                 <Hash className="w-4 h-4" />
@@ -228,7 +255,16 @@ export function LinkField({ label, value, onChange, placeholder, testId }) {
                 <Fragment key={p.id || p.slug}>
                   {(usableAnchors.length > 0 || pageIdx > 0) && <DropdownMenuSeparator />}
                   <DropdownMenuLabel className="truncate">{p.title}</DropdownMenuLabel>
-                  {p.anchors.map((a) => (
+                  <DropdownMenuItem
+                    onSelect={() => onChange(`/${p.slug}`)}
+                    data-testid={`page-option-${p.slug}`}
+                  >
+                    <div className="flex flex-col">
+                      <span className="font-mono text-xs">/{p.slug}</span>
+                      <span className="text-[10px] text-slate-500">Whole page</span>
+                    </div>
+                  </DropdownMenuItem>
+                  {(p.anchors || []).map((a) => (
                     <DropdownMenuItem
                       key={`${p.slug}-${a.blockId}`}
                       onSelect={() => onChange(`/${p.slug}#${a.anchorId}`)}
