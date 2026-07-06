@@ -7208,6 +7208,12 @@ function CardFlipGridRender({ block, asEditor, breakpoint }) {
   const titleColor = c.titleColor || '#ffffff';
   const titleSize = Number.isFinite(Number(c.titleSize)) ? Math.max(8, Number(c.titleSize)) : 16;
   const titlePosition = c.titlePosition === 'above' || c.titlePosition === 'below' ? c.titlePosition : 'on';
+  // Horizontal alignment of the front title. Applies to every position and
+  // shape. When unset (legacy content), fall back to the previous per-context
+  // default (on-image circular was centred, everything else left-aligned) so
+  // existing pages render unchanged.
+  const explicitTitleAlign = ['left', 'center', 'right'].includes(c.titleAlignment) ? c.titleAlignment : null;
+  const resolveTitleAlign = (fallback) => explicitTitleAlign || fallback;
   const showTitleOverlay = c.showTitleOverlay !== false;
   const overlayStrength = Number.isFinite(Number(c.overlayStrength))
     ? Math.min(1, Math.max(0, Number(c.overlayStrength)))
@@ -7299,11 +7305,11 @@ function CardFlipGridRender({ block, asEditor, breakpoint }) {
                   data-testid={`card-flip-${block.id}-${flipKey}`}
                 >
                   {/* Front face: image + title. Title sits ON the image
-                      (overlay), or in a band ABOVE / BELOW it. Circular cards
-                      always keep the title on-image. */}
+                      (overlay), or in a band ABOVE / BELOW it. This works for
+                      every shape, including circular cards. */}
                   {(() => {
-                    // Circular is always on-image; overlay only applies on-image.
-                    const bandPosition = isCircular ? 'on' : titlePosition;
+                    // Overlay only applies to the on-image title.
+                    const bandPosition = titlePosition;
                     const titleSpanStyle = (extra) => ({
                       whiteSpace: 'pre-line',
                       ...(titleTypoInline || {}),
@@ -7314,7 +7320,7 @@ function CardFlipGridRender({ block, asEditor, breakpoint }) {
                     });
                     const titleBand = (
                       <div className="px-3 py-2 shrink-0">
-                        <span className="block font-semibold leading-tight" style={titleSpanStyle({ textAlign: 'left' })}>
+                        <span className="block w-full font-semibold leading-tight" style={titleSpanStyle({ textAlign: resolveTitleAlign('left') })}>
                           {card?.title || ''}
                         </span>
                       </div>
@@ -7343,7 +7349,7 @@ function CardFlipGridRender({ block, asEditor, breakpoint }) {
                               className="absolute inset-0 flex items-center justify-center px-4"
                               style={{ background: showTitleOverlay ? circularOverlayBg : 'none' }}
                             >
-                              <span className="block font-semibold leading-tight text-center" style={titleSpanStyle({ textAlign: 'center' })}>
+                              <span className="block w-full font-semibold leading-tight" style={titleSpanStyle({ textAlign: resolveTitleAlign('center') })}>
                                 {card?.title || ''}
                               </span>
                             </div>
@@ -7352,7 +7358,7 @@ function CardFlipGridRender({ block, asEditor, breakpoint }) {
                               className="absolute inset-x-0 bottom-0 px-3 py-2"
                               style={{ background: showTitleOverlay ? linearOverlayBg : 'none' }}
                             >
-                              <span className="block font-semibold leading-tight" style={titleSpanStyle({ textAlign: 'left' })}>
+                              <span className="block w-full font-semibold leading-tight" style={titleSpanStyle({ textAlign: resolveTitleAlign('left') })}>
                                 {card?.title || ''}
                               </span>
                             </div>
@@ -7390,7 +7396,10 @@ function CardFlipGridRender({ block, asEditor, breakpoint }) {
                       color: backTextColor,
                     }}
                   >
-                    <div className="flex flex-col items-center gap-2">
+                    <div
+                      className="flex flex-col items-center gap-2"
+                      style={isCircular ? { maxWidth: '70.7%', maxHeight: '70.7%', overflowY: 'auto' } : undefined}
+                    >
                       {(() => {
                         const summaryRaw = card?.summary || card?.backText || '';
                         if (!summaryRaw) return null;
@@ -7589,14 +7598,19 @@ function CardFlipGridInspector({ block, update }) {
         ]}
         testId="select-card-flip-title-position"
       />
-      {c.shape === 'circular' && (c.titlePosition === 'above' || c.titlePosition === 'below') && (
-        <p className="text-[11px] text-slate-500 -mt-1">
-          Circular cards always keep the title on the image.
-        </p>
-      )}
-      {/* Overlay only applies when the title sits on the image (or for circular
-          cards, which are forced on-image regardless of the position setting). */}
-      {((c.titlePosition || 'on') === 'on' || c.shape === 'circular') && (
+      <SelectField
+        label="Title alignment"
+        value={c.titleAlignment || 'left'}
+        onChange={(v) => set({ titleAlignment: v })}
+        options={[
+          { value: 'left', label: 'Left' },
+          { value: 'center', label: 'Centre' },
+          { value: 'right', label: 'Right' },
+        ]}
+        testId="select-card-flip-title-alignment"
+      />
+      {/* Overlay only applies when the title sits on the image. */}
+      {(c.titlePosition || 'on') === 'on' && (
         <>
           <ToggleField
             label="Show title overlay"
