@@ -7268,7 +7268,28 @@ function CardFlipGridRender({ block, asEditor, breakpoint }) {
   const pageCards = cards.slice(start, start + perPage);
   const toggle = (idx) => setFlipped((f) => ({ ...f, [idx]: !f[idx] }));
 
-  const cellShapeStyle = isRect ? { height: `${cardHeight}px` } : { aspectRatio: '1 / 1' };
+  // Circular cards with a banded title (above/below) must NOT squash the circle:
+  // the card cell grows so the circular image keeps its own 1 / 1 square and the
+  // title band adds its height outside that square. Every other case (on-image
+  // titles, square/rectangular cards) keeps the original single-box sizing.
+  const circularBanded = isCircular && (titlePosition === 'above' || titlePosition === 'below');
+  const cellShapeStyle = isRect
+    ? { height: `${cardHeight}px` }
+    : circularBanded
+      ? {}
+      : { aspectRatio: '1 / 1' };
+
+  // Shared title span styling, used by both the front title and (for banded
+  // circular cards) the invisible band spacer on the back face that keeps the
+  // back circle aligned with the front.
+  const mkTitleSpanStyle = (extra) => ({
+    whiteSpace: 'pre-line',
+    ...(titleTypoInline || {}),
+    color: titleColor,
+    fontSize: titleSize,
+    ...extra,
+    ...(awaitingTitleStyle ? { visibility: 'hidden' } : null),
+  });
 
   return (
     <div className="absolute inset-0 flex flex-col" data-testid={`card-flip-grid-${block.id}`}>
@@ -7287,7 +7308,7 @@ function CardFlipGridRender({ block, asEditor, breakpoint }) {
             return (
               <div key={flipKey} style={{ perspective: '1000px', ...cellShapeStyle }}>
                 <div
-                  className="relative w-full h-full cursor-pointer"
+                  className={`relative w-full cursor-pointer${circularBanded ? '' : ' h-full'}`}
                   style={{
                     transition: `transform ${flipDuration}s`,
                     transformStyle: 'preserve-3d',
@@ -7310,14 +7331,7 @@ function CardFlipGridRender({ block, asEditor, breakpoint }) {
                   {(() => {
                     // Overlay only applies to the on-image title.
                     const bandPosition = titlePosition;
-                    const titleSpanStyle = (extra) => ({
-                      whiteSpace: 'pre-line',
-                      ...(titleTypoInline || {}),
-                      color: titleColor,
-                      fontSize: titleSize,
-                      ...extra,
-                      ...(awaitingTitleStyle ? { visibility: 'hidden' } : null),
-                    });
+                    const titleSpanStyle = mkTitleSpanStyle;
                     const titleBand = (
                       <div className="px-3 py-2 shrink-0">
                         <span className="block w-full font-semibold leading-tight" style={titleSpanStyle({ textAlign: resolveTitleAlign('left') })}>
@@ -7327,8 +7341,10 @@ function CardFlipGridRender({ block, asEditor, breakpoint }) {
                     );
                     const imageArea = (
                       <div
-                        className="relative flex-1 min-h-0"
-                        style={{ borderRadius: radius, overflow: 'hidden' }}
+                        className={circularBanded ? 'relative w-full' : 'relative flex-1 min-h-0'}
+                        style={circularBanded
+                          ? { aspectRatio: '1 / 1', borderRadius: radius, overflow: 'hidden' }
+                          : { borderRadius: radius, overflow: 'hidden' }}
                       >
                         {img ? (
                           <img
@@ -7371,7 +7387,7 @@ function CardFlipGridRender({ block, asEditor, breakpoint }) {
                     );
                     return (
                       <div
-                        className="absolute inset-0 flex flex-col"
+                        className={circularBanded ? 'relative w-full flex flex-col' : 'absolute inset-0 flex flex-col'}
                         style={{
                           backfaceVisibility: 'hidden',
                           WebkitBackfaceVisibility: 'hidden',
@@ -7384,63 +7400,108 @@ function CardFlipGridRender({ block, asEditor, breakpoint }) {
                     );
                   })()}
                   {/* Back face: free text (pre-rotated 180°) */}
-                  <div
-                    className="absolute inset-0 flex items-center justify-center p-4 text-center"
-                    style={{
-                      backfaceVisibility: 'hidden',
-                      WebkitBackfaceVisibility: 'hidden',
-                      transform: 'rotateY(180deg)',
-                      borderRadius: radius,
-                      overflow: 'auto',
-                      background: backBackground,
-                      color: backTextColor,
-                    }}
-                  >
-                    <div
-                      className="flex flex-col items-center gap-2"
-                      style={isCircular ? { maxWidth: '70.7%', maxHeight: '70.7%', overflowY: 'auto' } : undefined}
-                    >
-                      {(() => {
-                        const summaryRaw = card?.summary || card?.backText || '';
-                        if (!summaryRaw) return null;
-                        // New summaries are HTML from the rich-text editor; legacy
-                        // summaries are plain text (no tags). Detect and render
-                        // accordingly so existing cards keep their line breaks.
-                        const summaryIsHtml = /<[a-z][\s\S]*>/i.test(summaryRaw);
-                        const summaryStyle = {
-                          color: 'inherit',
-                          ...(summaryTypoInline || {}),
-                          ...(awaitingSummaryStyle ? { visibility: 'hidden' } : null),
-                        };
-                        if (summaryIsHtml) {
+                  {(() => {
+                    const backInner = (
+                      <div
+                        className="flex flex-col items-center gap-2"
+                        style={isCircular ? { maxWidth: '70.7%', maxHeight: '70.7%', overflowY: 'auto' } : undefined}
+                      >
+                        {(() => {
+                          const summaryRaw = card?.summary || card?.backText || '';
+                          if (!summaryRaw) return null;
+                          // New summaries are HTML from the rich-text editor; legacy
+                          // summaries are plain text (no tags). Detect and render
+                          // accordingly so existing cards keep their line breaks.
+                          const summaryIsHtml = /<[a-z][\s\S]*>/i.test(summaryRaw);
+                          const summaryStyle = {
+                            color: 'inherit',
+                            ...(summaryTypoInline || {}),
+                            ...(awaitingSummaryStyle ? { visibility: 'hidden' } : null),
+                          };
+                          if (summaryIsHtml) {
+                            return (
+                              <div
+                                className="text-sm leading-relaxed prose prose-sm max-w-none [&_p]:mb-2 [&_p:last-child]:mb-0 [&_a]:underline [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mb-1"
+                                style={summaryStyle}
+                                dangerouslySetInnerHTML={{ __html: sanitizeRichText(stripTrailingEmptyParagraphs(summaryRaw)) }}
+                              />
+                            );
+                          }
                           return (
-                            <div
-                              className="text-sm leading-relaxed prose prose-sm max-w-none [&_p]:mb-2 [&_p:last-child]:mb-0 [&_a]:underline [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mb-1"
-                              style={summaryStyle}
-                              dangerouslySetInnerHTML={{ __html: sanitizeRichText(stripTrailingEmptyParagraphs(summaryRaw)) }}
-                            />
+                            <div className="text-sm leading-relaxed" style={{ whiteSpace: 'pre-wrap', ...summaryStyle }}>
+                              {summaryRaw}
+                            </div>
                           );
-                        }
-                        return (
-                          <div className="text-sm leading-relaxed" style={{ whiteSpace: 'pre-wrap', ...summaryStyle }}>
-                            {summaryRaw}
-                          </div>
-                        );
-                      })()}
-                      {!isRichTextEmpty(card?.content) && (
-                        <button
-                          type="button"
-                          className="text-sm font-medium underline underline-offset-2 hover-elevate rounded-md px-1"
-                          style={{ color: 'inherit' }}
-                          onClick={(e) => { e.stopPropagation(); setModalCard(card); }}
-                          onKeyDown={(e) => { e.stopPropagation(); }}
-                          data-testid={`card-flip-${block.id}-${flipKey}-view-more`}
+                        })()}
+                        {!isRichTextEmpty(card?.content) && (
+                          <button
+                            type="button"
+                            className="text-sm font-medium underline underline-offset-2 hover-elevate rounded-md px-1"
+                            style={{ color: 'inherit' }}
+                            onClick={(e) => { e.stopPropagation(); setModalCard(card); }}
+                            onKeyDown={(e) => { e.stopPropagation(); }}
+                            data-testid={`card-flip-${block.id}-${flipKey}-view-more`}
+                          >
+                            View more
+                          </button>
+                        )}
+                      </div>
+                    );
+                    // Banded circular cards: mirror the front layout so the back
+                    // circle stays a perfect circle (its own 1 / 1 square) aligned
+                    // with the front, with an invisible spacer matching the title
+                    // band's height above/below.
+                    if (circularBanded) {
+                      const bandSpacer = (
+                        <div className="px-3 py-2 shrink-0" aria-hidden="true" style={{ visibility: 'hidden' }}>
+                          <span className="block w-full font-semibold leading-tight" style={mkTitleSpanStyle({ textAlign: resolveTitleAlign('left') })}>
+                            {card?.title || ''}
+                          </span>
+                        </div>
+                      );
+                      return (
+                        <div
+                          className="absolute inset-0 flex flex-col"
+                          style={{
+                            backfaceVisibility: 'hidden',
+                            WebkitBackfaceVisibility: 'hidden',
+                            transform: 'rotateY(180deg)',
+                          }}
                         >
-                          View more
-                        </button>
-                      )}
-                    </div>
-                  </div>
+                          {titlePosition === 'above' && bandSpacer}
+                          <div
+                            className="relative w-full flex items-center justify-center p-4 text-center"
+                            style={{
+                              aspectRatio: '1 / 1',
+                              borderRadius: radius,
+                              overflow: 'auto',
+                              background: backBackground,
+                              color: backTextColor,
+                            }}
+                          >
+                            {backInner}
+                          </div>
+                          {titlePosition === 'below' && bandSpacer}
+                        </div>
+                      );
+                    }
+                    return (
+                      <div
+                        className="absolute inset-0 flex items-center justify-center p-4 text-center"
+                        style={{
+                          backfaceVisibility: 'hidden',
+                          WebkitBackfaceVisibility: 'hidden',
+                          transform: 'rotateY(180deg)',
+                          borderRadius: radius,
+                          overflow: 'auto',
+                          background: backBackground,
+                          color: backTextColor,
+                        }}
+                      >
+                        {backInner}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             );
