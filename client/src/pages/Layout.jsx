@@ -1003,7 +1003,7 @@ const { data: borderRadiusSetting = DEFAULT_BORDER_RADIUS } = useQuery({
 });
 
 // Fetch portal logo settings including home page slug and favicon (tenant-scoped with fallback)
-const { data: portalLogoSettings } = useQuery({
+const { data: portalLogoSettings, isSuccess: portalLogoResolved } = useQuery({
   queryKey: ['portal-logo-settings'],
   queryFn: async () => {
     try {
@@ -2402,6 +2402,9 @@ useEffect(() => {
                     className="h-full w-full object-contain object-left"
                   />
                 </a>
+              ) : !portalLogoResolved ? (
+                // Branding still loading: reserve logo-area height, no platform flash
+                <div style={{ height: `${logoHeightPx}px` }} aria-hidden="true" />
               ) : (
                 // Fallback branding with isaasi logo and tenant name
                 <Link to={defaultLogoHref} className="flex items-center gap-3 hover:opacity-80 transition-opacity">
@@ -2623,6 +2626,9 @@ useEffect(() => {
                     className="h-full max-w-[180px] object-contain object-left"
                   />
                 </a>
+              ) : !portalLogoResolved ? (
+                // Branding still loading: reserve logo-area height, no platform flash
+                <div style={{ height: `${Math.min(logoHeightPx, 40)}px` }} aria-hidden="true" />
               ) : (
                 // Fallback branding for mobile with isaasi logo and tenant name
                 <Link to={defaultLogoHref} className="flex items-center gap-2">
@@ -2666,6 +2672,9 @@ useEffect(() => {
                         className="h-full w-full object-contain object-left"
                       />
                     </a>
+                  ) : !portalLogoResolved ? (
+                    // Branding still loading: reserve logo-area height, no platform flash
+                    <div style={{ height: `${logoHeightPx}px` }} aria-hidden="true" />
                   ) : (
                     // Fallback branding in mobile sheet with isaasi logo and tenant name
                     <SheetTitle className="flex items-center gap-3">
