@@ -14,6 +14,11 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
+import {
   Sparkles,
   ArrowRight,
   Loader2,
@@ -21,6 +26,10 @@ import {
   CalendarDays,
   Newspaper,
   BookOpen,
+  Info,
+  ShieldCheck,
+  Link2,
+  EyeOff,
 } from "lucide-react";
 import dougalAvatar from "@assets/ChatGPT_Image_Jul_4,_2026,_06_26_22_PM_1783182456658.png";
 
@@ -135,6 +144,67 @@ export default function MemberAiAssistant({ open, onOpenChange }) {
                 {aiDescription ||
                   "Your AI guide to everything in the member portal."}
               </DialogDescription>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="mt-1.5 inline-flex items-center gap-1 rounded-md text-xs font-medium text-primary underline-offset-2 hover:underline"
+                    data-testid="button-member-ai-explainer"
+                  >
+                    <Info className="h-3.5 w-3.5" />
+                    What {aiName} knows
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  align="start"
+                  className="w-[min(20rem,calc(95vw-2rem))]"
+                  data-testid="popover-member-ai-explainer"
+                >
+                  <div className="space-y-3 text-sm">
+                    <p className="font-semibold text-foreground">
+                      Where {aiName}'s answers come from
+                    </p>
+                    <ul className="space-y-2.5 text-muted-foreground">
+                      <li className="flex items-start gap-2">
+                        <BookOpen className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span>
+                          Answers come from your organisation's published portal
+                          content — resources, events, news, articles and portal
+                          pages.
+                        </span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span>
+                          {aiName} only uses content you're allowed to see, based
+                          on your access, role and groups.
+                        </span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span>
+                          Answers are drawn from that content only — {aiName}{" "}
+                          won't invent answers or use general world knowledge.
+                        </span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <Link2 className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span>
+                          Every answer links to the sources it used, so you can
+                          check them yourself.
+                        </span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <EyeOff className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span>
+                          If something isn't published in the portal yet,{" "}
+                          {aiName} won't know about it.
+                        </span>
+                      </li>
+                    </ul>
+                  </div>
+                </PopoverContent>
+              </Popover>
             </div>
           </div>
         </DialogHeader>
