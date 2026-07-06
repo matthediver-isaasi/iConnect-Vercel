@@ -30,6 +30,12 @@ Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPAB
 | `SIGNUP_RATE_IP_PER_HOUR`, `SIGNUP_RATE_EMAIL_PER_DAY` (opt) | Self-serve signup rate limits. |
 | `CRON_SECRET` | Guards all `/api/cron/*` endpoints. |
 | `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
+| `R2_ACCOUNT_ID` | Cloudflare account ID — used to build the R2 endpoint URL (`https://<id>.r2.cloudflarestorage.com`). Set this **or** `R2_ENDPOINT`. Must be added as a Vercel secret. |
+| `R2_ENDPOINT` (opt) | Full R2 endpoint URL override. Use instead of `R2_ACCOUNT_ID` if you prefer an explicit URL. |
+| `R2_ACCESS_KEY_ID` | R2 API token Access Key ID. Must be added as a Vercel secret. |
+| `R2_SECRET_ACCESS_KEY` | R2 API token Secret Access Key. Must be added as a Vercel secret. |
+| `R2_BUCKET` | Target R2 bucket name for backups. Must be added as a Vercel secret. |
+| `DB_BACKUP_SCHEMAS` (opt) | Comma-separated Postgres schemas to include in the nightly database dump (default: `public`). Supabase internal schemas — `auth`, `storage`, `realtime`, etc. — are managed by Supabase's own infrastructure and intentionally excluded. |
 
 ## Database connection (read this before any DB work from this workspace)
 There are two Supabase projects this codebase talks to:

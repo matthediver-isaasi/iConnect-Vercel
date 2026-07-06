@@ -3,6 +3,15 @@
   "buildCommand": "npx vite build",
   "outputDirectory": "dist/public",
   "functions": {
+    "api/cron/backup-storage-to-r2.js": {
+      "maxDuration": 300
+    },
+    "api/cron/backup-database-to-r2.js": {
+      "maxDuration": 300
+    },
+    "api/platform/backups/run.js": {
+      "maxDuration": 300
+    },
     "api/**/*.js": {
       "maxDuration": 60
     }
@@ -71,6 +80,14 @@
     {
       "path": "/api/cron/reindex-member-content",
       "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/backup-storage-to-r2",
+      "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/backup-database-to-r2",
+      "schedule": "10 2 * * *"
     }
   ],
   "rewrites": [

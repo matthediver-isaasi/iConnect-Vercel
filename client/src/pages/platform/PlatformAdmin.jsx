@@ -4,13 +4,14 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
-import { Loader2, LogOut, Shield, Settings, Users, Building2, Sliders, LifeBuoy } from 'lucide-react';
+import { Loader2, LogOut, Shield, Settings, Users, Building2, Sliders, LifeBuoy, DatabaseBackup } from 'lucide-react';
 import RoleTemplatesEditor from './RoleTemplatesEditor';
 import TenantManagement from './TenantManagement';
 import TenantProvisioning from './TenantProvisioning';
 import PlatformDefaults from './PlatformDefaults';
 import HelpArticlesEditor from './HelpArticlesEditor';
 import HelpAiPersonaEditor from './HelpAiPersonaEditor';
+import BackupManagement from './BackupManagement';
 
 export default function PlatformAdmin() {
   const navigate = useNavigate();
@@ -101,6 +102,10 @@ export default function PlatformAdmin() {
               <Sliders className="w-4 h-4 mr-2" />
               Defaults
             </TabsTrigger>
+            <TabsTrigger value="backups" data-testid="tab-backups">
+              <DatabaseBackup className="w-4 h-4 mr-2" />
+              Backups
+            </TabsTrigger>
             <TabsTrigger value="settings" data-testid="tab-settings">
               <Settings className="w-4 h-4 mr-2" />
               Provisioning
@@ -132,6 +137,10 @@ export default function PlatformAdmin() {
 
           <TabsContent value="defaults">
             <PlatformDefaults />
+          </TabsContent>
+
+          <TabsContent value="backups">
+            <BackupManagement />
           </TabsContent>
 
           <TabsContent value="settings">
