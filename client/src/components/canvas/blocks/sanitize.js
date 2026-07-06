@@ -1,9 +1,9 @@
 import DOMPurify from 'dompurify';
-import { sanitizeHtml as sanitizeRichText, stripTrailingEmptyParagraphs } from '@/components/email-builder/sanitize';
+import { sanitizeHtml as sanitizeRichText, stripTrailingEmptyParagraphs, isRichTextEmpty } from '@/components/email-builder/sanitize';
 
 // Re-export the rich-text sanitiser from the email builder so canvas
 // rich-text blocks use the same allowlist & behaviour.
-export { sanitizeRichText, stripTrailingEmptyParagraphs };
+export { sanitizeRichText, stripTrailingEmptyParagraphs, isRichTextEmpty };
 
 // Custom-HTML block sanitiser. A broader allowlist than the rich-text one
 // (lets editors paste in things like tables, figures, captions, divs), but

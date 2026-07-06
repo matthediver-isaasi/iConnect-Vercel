@@ -89,7 +89,7 @@ import {
 } from '@/lib/canvasDesign';
 import ImageSelector from '@/components/ImageSelector';
 import { FocalPointPicker, getFocalPointStyle } from '@/components/FocalPointPicker';
-import { sanitizeRichText, stripTrailingEmptyParagraphs, sanitizeCustomHtml } from './sanitize';
+import { sanitizeRichText, stripTrailingEmptyParagraphs, sanitizeCustomHtml, isRichTextEmpty } from './sanitize';
 import { DYNAMIC_BLOCK_DEFINITIONS } from './dynamicBlocks';
 import { publicClient } from '@/api/publicClient';
 import { useTenantBranding } from '@/contexts/TenantBrandingContext';
@@ -7207,6 +7207,7 @@ function CardFlipGridRender({ block, asEditor, breakpoint }) {
   const flipDuration = Number.isFinite(Number(c.flipDuration)) ? Math.max(0, Number(c.flipDuration)) : 0.7;
   const titleColor = c.titleColor || '#ffffff';
   const titleSize = Number.isFinite(Number(c.titleSize)) ? Math.max(8, Number(c.titleSize)) : 16;
+  const titlePosition = c.titlePosition === 'above' || c.titlePosition === 'below' ? c.titlePosition : 'on';
   const showTitleOverlay = c.showTitleOverlay !== false;
   const overlayStrength = Number.isFinite(Number(c.overlayStrength))
     ? Math.min(1, Math.max(0, Number(c.overlayStrength)))
@@ -7233,6 +7234,13 @@ function CardFlipGridRender({ block, asEditor, breakpoint }) {
   const titleStyleObj = resolveTenantStyle(c.titleTypographyStyleId, tenantStyles);
   const awaitingTitleStyle = isAwaitingTypographyStyle(c.titleTypographyStyleId, titleStyleObj, stylesResolved);
   const titleTypoInline = titleStyleObj ? buildTypographyInlineStyle(titleStyleObj, { breakpoint }) : null;
+
+  // Optional tenant typography style for the back summary. Colour, when the
+  // style declares one, wins over the inherited backTextColor; otherwise the
+  // summary inherits the back face colour.
+  const summaryStyleObj = resolveTenantStyle(c.summaryTypographyStyleId, tenantStyles);
+  const awaitingSummaryStyle = isAwaitingTypographyStyle(c.summaryTypographyStyleId, summaryStyleObj, stylesResolved);
+  const summaryTypoInline = summaryStyleObj ? buildTypographyInlineStyle(summaryStyleObj, { breakpoint, omitMarginBottom: true }) : null;
 
   // Per-card "View more" modal showing the full rich-text content. A single
   // dialog is rendered at the block level (outside the 3D-transformed cards)
@@ -7290,59 +7298,85 @@ function CardFlipGridRender({ block, asEditor, breakpoint }) {
                   }}
                   data-testid={`card-flip-${block.id}-${flipKey}`}
                 >
-                  {/* Front face: image + title overlay */}
-                  <div
-                    className="absolute inset-0"
-                    style={{
-                      backfaceVisibility: 'hidden',
-                      WebkitBackfaceVisibility: 'hidden',
-                      borderRadius: radius,
-                      overflow: 'hidden',
-                      background: 'var(--cb-color-muted, #e2e8f0)',
-                    }}
-                  >
-                    {img ? (
-                      <img
-                        src={img.src}
-                        srcSet={img.srcSet}
-                        sizes={img.sizes}
-                        alt={card?.imageAlt || ''}
-                        aria-hidden={card?.imageAlt ? undefined : 'true'}
-                        loading="lazy"
-                        decoding="async"
-                        className="absolute inset-0 w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="absolute inset-0 flex items-center justify-center text-slate-400">
-                        <ImageIcon className="w-8 h-8" />
-                      </div>
-                    )}
-                    {isCircular ? (
-                      <div
-                        className="absolute inset-0 flex items-center justify-center px-4"
-                        style={{ background: showTitleOverlay ? circularOverlayBg : 'none' }}
-                      >
-                        <span
-                          className="block font-semibold leading-tight text-center"
-                          style={{ whiteSpace: 'pre-line', ...(titleTypoInline || {}), color: titleColor, fontSize: titleSize, ...(awaitingTitleStyle ? { visibility: 'hidden' } : null) }}
-                        >
+                  {/* Front face: image + title. Title sits ON the image
+                      (overlay), or in a band ABOVE / BELOW it. Circular cards
+                      always keep the title on-image. */}
+                  {(() => {
+                    // Circular is always on-image; overlay only applies on-image.
+                    const bandPosition = isCircular ? 'on' : titlePosition;
+                    const titleSpanStyle = (extra) => ({
+                      whiteSpace: 'pre-line',
+                      ...(titleTypoInline || {}),
+                      color: titleColor,
+                      fontSize: titleSize,
+                      ...extra,
+                      ...(awaitingTitleStyle ? { visibility: 'hidden' } : null),
+                    });
+                    const titleBand = (
+                      <div className="px-3 py-2 shrink-0">
+                        <span className="block font-semibold leading-tight" style={titleSpanStyle({ textAlign: 'left' })}>
                           {card?.title || ''}
                         </span>
                       </div>
-                    ) : (
-                      <div
-                        className="absolute inset-x-0 bottom-0 px-3 py-2"
-                        style={{ background: showTitleOverlay ? linearOverlayBg : 'none' }}
-                      >
-                        <span
-                          className="block font-semibold leading-tight"
-                          style={{ whiteSpace: 'pre-line', ...(titleTypoInline || {}), color: titleColor, fontSize: titleSize, textAlign: 'left', ...(awaitingTitleStyle ? { visibility: 'hidden' } : null) }}
-                        >
-                          {card?.title || ''}
-                        </span>
+                    );
+                    const imageArea = (
+                      <div className="relative flex-1 min-h-0">
+                        {img ? (
+                          <img
+                            src={img.src}
+                            srcSet={img.srcSet}
+                            sizes={img.sizes}
+                            alt={card?.imageAlt || ''}
+                            aria-hidden={card?.imageAlt ? undefined : 'true'}
+                            loading="lazy"
+                            decoding="async"
+                            className="absolute inset-0 w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="absolute inset-0 flex items-center justify-center text-slate-400">
+                            <ImageIcon className="w-8 h-8" />
+                          </div>
+                        )}
+                        {bandPosition === 'on' && (
+                          isCircular ? (
+                            <div
+                              className="absolute inset-0 flex items-center justify-center px-4"
+                              style={{ background: showTitleOverlay ? circularOverlayBg : 'none' }}
+                            >
+                              <span className="block font-semibold leading-tight text-center" style={titleSpanStyle({ textAlign: 'center' })}>
+                                {card?.title || ''}
+                              </span>
+                            </div>
+                          ) : (
+                            <div
+                              className="absolute inset-x-0 bottom-0 px-3 py-2"
+                              style={{ background: showTitleOverlay ? linearOverlayBg : 'none' }}
+                            >
+                              <span className="block font-semibold leading-tight" style={titleSpanStyle({ textAlign: 'left' })}>
+                                {card?.title || ''}
+                              </span>
+                            </div>
+                          )
+                        )}
                       </div>
-                    )}
-                  </div>
+                    );
+                    return (
+                      <div
+                        className="absolute inset-0 flex flex-col"
+                        style={{
+                          backfaceVisibility: 'hidden',
+                          WebkitBackfaceVisibility: 'hidden',
+                          borderRadius: radius,
+                          overflow: 'hidden',
+                          background: 'var(--cb-color-muted, #e2e8f0)',
+                        }}
+                      >
+                        {bandPosition === 'above' && titleBand}
+                        {imageArea}
+                        {bandPosition === 'below' && titleBand}
+                      </div>
+                    );
+                  })()}
                   {/* Back face: free text (pre-rotated 180°) */}
                   <div
                     className="absolute inset-0 flex items-center justify-center p-4 text-center"
@@ -7357,10 +7391,34 @@ function CardFlipGridRender({ block, asEditor, breakpoint }) {
                     }}
                   >
                     <div className="flex flex-col items-center gap-2">
-                      <div className="text-sm leading-relaxed" style={{ whiteSpace: 'pre-wrap' }}>
-                        {card?.summary || card?.backText || ''}
-                      </div>
-                      {card?.content && String(card.content).trim() && (
+                      {(() => {
+                        const summaryRaw = card?.summary || card?.backText || '';
+                        if (!summaryRaw) return null;
+                        // New summaries are HTML from the rich-text editor; legacy
+                        // summaries are plain text (no tags). Detect and render
+                        // accordingly so existing cards keep their line breaks.
+                        const summaryIsHtml = /<[a-z][\s\S]*>/i.test(summaryRaw);
+                        const summaryStyle = {
+                          color: 'inherit',
+                          ...(summaryTypoInline || {}),
+                          ...(awaitingSummaryStyle ? { visibility: 'hidden' } : null),
+                        };
+                        if (summaryIsHtml) {
+                          return (
+                            <div
+                              className="text-sm leading-relaxed prose prose-sm max-w-none [&_p]:mb-2 [&_p:last-child]:mb-0 [&_a]:underline [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mb-1"
+                              style={summaryStyle}
+                              dangerouslySetInnerHTML={{ __html: sanitizeRichText(stripTrailingEmptyParagraphs(summaryRaw)) }}
+                            />
+                          );
+                        }
+                        return (
+                          <div className="text-sm leading-relaxed" style={{ whiteSpace: 'pre-wrap', ...summaryStyle }}>
+                            {summaryRaw}
+                          </div>
+                        );
+                      })()}
+                      {!isRichTextEmpty(card?.content) && (
                         <button
                           type="button"
                           className="text-sm font-medium underline underline-offset-2 hover-elevate rounded-md px-1"
@@ -7520,39 +7578,61 @@ function CardFlipGridInspector({ block, update }) {
         onChange={(id) => set({ titleTypographyStyleId: id })}
         testId="select-card-flip-title-typography"
       />
-      <ToggleField
-        label="Show title overlay"
-        value={c.showTitleOverlay !== false}
-        onChange={(v) => set({ showTitleOverlay: v })}
-        testId="toggle-card-flip-overlay"
+      <SelectField
+        label="Title position"
+        value={c.titlePosition || 'on'}
+        onChange={(v) => set({ titlePosition: v })}
+        options={[
+          { value: 'on', label: 'On image' },
+          { value: 'above', label: 'Above image' },
+          { value: 'below', label: 'Below image' },
+        ]}
+        testId="select-card-flip-title-position"
       />
-      {c.showTitleOverlay !== false && (
+      {c.shape === 'circular' && (c.titlePosition === 'above' || c.titlePosition === 'below') && (
+        <p className="text-[11px] text-slate-500 -mt-1">
+          Circular cards always keep the title on the image.
+        </p>
+      )}
+      {/* Overlay only applies when the title sits on the image (or for circular
+          cards, which are forced on-image regardless of the position setting). */}
+      {((c.titlePosition || 'on') === 'on' || c.shape === 'circular') && (
         <>
-          <SelectField
-            label="Overlay style"
-            value={c.overlayStyle || 'fade'}
-            onChange={(v) => set({ overlayStyle: v })}
-            options={[
-              { value: 'fade', label: 'Fade to transparent' },
-              { value: 'solid', label: 'Full coverage' },
-            ]}
-            testId="select-card-flip-overlay-style"
+          <ToggleField
+            label="Show title overlay"
+            value={c.showTitleOverlay !== false}
+            onChange={(v) => set({ showTitleOverlay: v })}
+            testId="toggle-card-flip-overlay"
           />
-          <ColorField
-            label="Overlay colour"
-            value={c.overlayColor || '#000000'}
-            onChange={(v) => set({ overlayColor: v })}
-            testId="input-card-flip-overlay-color"
-          />
-          <NumberField
-            label="Overlay opacity (0-1)"
-            min={0}
-            max={1}
-            step={0.01}
-            value={c.overlayStrength ?? 0.72}
-            onChange={(v) => set({ overlayStrength: Math.min(1, Math.max(0, Number(v) || 0)) })}
-            testId="input-card-flip-overlay-strength"
-          />
+          {c.showTitleOverlay !== false && (
+            <>
+              <SelectField
+                label="Overlay style"
+                value={c.overlayStyle || 'fade'}
+                onChange={(v) => set({ overlayStyle: v })}
+                options={[
+                  { value: 'fade', label: 'Fade to transparent' },
+                  { value: 'solid', label: 'Full coverage' },
+                ]}
+                testId="select-card-flip-overlay-style"
+              />
+              <ColorField
+                label="Overlay colour"
+                value={c.overlayColor || '#000000'}
+                onChange={(v) => set({ overlayColor: v })}
+                testId="input-card-flip-overlay-color"
+              />
+              <NumberField
+                label="Overlay opacity (0-1)"
+                min={0}
+                max={1}
+                step={0.01}
+                value={c.overlayStrength ?? 0.72}
+                onChange={(v) => set({ overlayStrength: Math.min(1, Math.max(0, Number(v) || 0)) })}
+                testId="input-card-flip-overlay-strength"
+              />
+            </>
+          )}
         </>
       )}
       <SelectField
@@ -7595,6 +7675,12 @@ function CardFlipGridInspector({ block, update }) {
         </>
       )}
       <ColorField label="Back text colour" value={c.backTextColor} onChange={(v) => set({ backTextColor: v })} testId="input-card-flip-back-text-color" />
+      <TypographyStyleField
+        label="Back summary font style"
+        value={c.summaryTypographyStyleId}
+        onChange={(id) => set({ summaryTypographyStyleId: id })}
+        testId="select-card-flip-summary-typography"
+      />
       <Field label="Cards">
         <ArrayList
           items={c.cards || []}
@@ -7613,7 +7699,7 @@ function CardFlipGridInspector({ block, update }) {
                 testId={`card-flip-card-${idx}-image`}
               />
               <TextField label="Front title" multiline value={item.title} onChange={(v) => patch({ title: v })} testId={`card-flip-card-${idx}-title`} />
-              <TextField label="Back summary" multiline value={item.summary} onChange={(v) => patch({ summary: v })} testId={`card-flip-card-${idx}-summary`} />
+              <RichTextField label="Back summary" value={item.summary} onChange={(v) => patch({ summary: v })} testId={`card-flip-card-${idx}-summary`} />
               <RichTextField label="Full content (View more)" value={item.content} onChange={(v) => patch({ content: v })} testId={`card-flip-card-${idx}-content`} />
               {item.backText ? (
                 <TextField label="Back text (legacy)" multiline value={item.backText} onChange={(v) => patch({ backText: v })} testId={`card-flip-card-${idx}-back`} />

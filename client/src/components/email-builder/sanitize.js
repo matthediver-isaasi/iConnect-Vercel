@@ -33,3 +33,20 @@ export function stripTrailingEmptyParagraphs(html) {
   if (!html) return '';
   return html.replace(/(<p[^>]*>\s*(<br[^>]*\/?>)?\s*(&nbsp;|\u00A0)?\s*<\/p>\s*)+$/i, '');
 }
+
+// True when a rich-text HTML string carries no meaningful content — i.e. it is
+// blank, or only empty markup such as `<p></p>`, `<p><br></p>`, or
+// whitespace / non-breaking spaces. Elements that are meaningful even without
+// text (images, rules, tables, media) are always treated as non-empty. Use
+// this instead of a bare `String(x).trim()` check, which would wrongly treat
+// `<p></p>` as non-empty.
+export function isRichTextEmpty(html) {
+  if (html == null) return true;
+  const s = String(html);
+  if (/<(img|hr|iframe|video|audio|table|figure)[\s/>]/i.test(s)) return false;
+  const stripped = s
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;|&#160;|\u00A0/gi, '')
+    .replace(/\s+/g, '');
+  return stripped.length === 0;
+}

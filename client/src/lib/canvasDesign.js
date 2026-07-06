@@ -1210,7 +1210,9 @@ export const BLOCK_DEFAULTS = {
       titleColor: '#ffffff',
       titleSize: 16, // px; front title font size
       titleTypographyStyleId: '', // optional tenant typography style for the front title font
-      showTitleOverlay: true, // hide to drop the gradient behind the title
+      titlePosition: 'on', // on | above | below — where the front title sits relative to the image (circular is always 'on')
+      summaryTypographyStyleId: '', // optional tenant typography style for the back summary
+      showTitleOverlay: true, // hide to drop the gradient behind the title (only applies when titlePosition === 'on')
       overlayStrength: 0.72, // 0-1 opacity of the front overlay wash
       overlayColor: '#000000', // colour of the front overlay gradient (fades to transparent)
       overlayStyle: 'fade', // fade = gradient to transparent | solid = full coverage uniform wash
