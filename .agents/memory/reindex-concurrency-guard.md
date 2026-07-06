@@ -42,3 +42,18 @@ re-checking that property.
 **How to apply:** if you touch this chain, keep the guard best-effort and keep
 `runId` flowing through the self-trigger dispatch body; releasing the marker on
 every non-handoff exit is what keeps restart free.
+
+**"Last completed at" is a SEPARATE persistent marker.** The in-progress marker
+(`member_content_reindex_run`) is *deleted* on completion (that's what keeps
+restart free), so you cannot derive "when did the last rebuild finish" from it.
+A second global `system_settings` row (`member_content_reindex_last_completed`,
+`tenant_id = NULL`, `{ completedAt, runId }`) records finish time and survives
+between runs. It is written by `completeReindexRun({ completed })` **only when
+`completed === true`** — i.e. the pass genuinely reached `results.done`, not a
+dead-end (hop cap / no origin / dispatch-failed / fatal), and only while we
+still own the marker. Both callers (cron + `api/platform/member-content-reindex`)
+must pass `completed: results.done`. `readReindexStatus` returns `{ inProgress,
+stale, startedAt, heartbeatAt, ageMs, lastCompletedAt }`; `stale` means a marker
+is present but its heartbeat is older than `RUN_STALE_MS` (likely a stalled
+chain the next tick will reclaim). The platform endpoint serves this over `GET`
+for the Help Center UI to poll.

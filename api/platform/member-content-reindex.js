@@ -28,6 +28,7 @@ import {
 import {
   acquireReindexRun,
   completeReindexRun,
+  readReindexStatus,
 } from '../_lib/memberContentReindexLock.js';
 
 // How much of the 60s function budget to spend indexing before returning and
@@ -82,6 +83,14 @@ export default async function handler(req, res) {
   const owner = await getSessionPlatformOwner(req);
   if (!owner) {
     return res.status(403).json({ error: 'Platform owner access required' });
+  }
+
+  // GET: lightweight status readout for the UI to poll — whether a member-content
+  // reindex is currently running (or stalled) and when the last full pass
+  // completed. Reflects the shared concurrency marker; needs no OpenAI key.
+  if (req.method === 'GET') {
+    const status = await readReindexStatus({ supabase });
+    return res.status(200).json(status);
   }
 
   if (req.method !== 'POST') {
@@ -159,7 +168,7 @@ export default async function handler(req, res) {
     // the next tick can restart immediately. Only leave the marker in place when
     // a continuation was actually dispatched for the downstream slice to renew.
     if (results.done || (continuation && continuation.dispatched !== true)) {
-      await completeReindexRun({ supabase, runId });
+      await completeReindexRun({ supabase, runId, completed: results.done });
     }
 
     return res.status(200).json({

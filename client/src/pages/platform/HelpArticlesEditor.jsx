@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/use-toast';
-import { Loader2, Plus, Pencil, Trash2, ChevronUp, ChevronDown, Eye, RefreshCw, Sparkles, CheckCircle2, CircleDashed } from 'lucide-react';
+import { Loader2, Plus, Pencil, Trash2, ChevronUp, ChevronDown, Eye, RefreshCw, Sparkles, CheckCircle2, CircleDashed, AlertTriangle } from 'lucide-react';
 import HelpArticleContent from '@/components/help/HelpArticleContent';
 import { ROLE_ACCESS_MAP } from '@/lib/roleAccessMap';
 
@@ -51,6 +51,24 @@ const PAGE_COVERAGE = ROLE_ACCESS_MAP.map((mod) => ({
   })),
 })).filter((mod) => mod.pages.length > 0);
 
+// Human-friendly "x ago" / absolute-time formatter for the reindex status
+// readout. Falls back to the raw ISO string if parsing fails.
+function formatWhen(iso) {
+  if (!iso) return null;
+  const ts = Date.parse(iso);
+  if (Number.isNaN(ts)) return iso;
+  const diffMs = Date.now() - ts;
+  const abs = new Date(ts).toLocaleString();
+  if (diffMs < 0) return abs;
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? '' : 's'} ago`;
+}
+
 const emptyForm = {
   id: null,
   title: '',
@@ -73,6 +91,7 @@ export default function HelpArticlesEditor() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [reindexing, setReindexing] = useState(false);
   const [memberReindexing, setMemberReindexing] = useState(false);
+  const [memberReindexStatus, setMemberReindexStatus] = useState(null);
 
   // Guided AI generation review flow (Task #2304).
   const [buildOpen, setBuildOpen] = useState(false);
@@ -100,6 +119,38 @@ export default function HelpArticlesEditor() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Poll the shared reindex marker so an owner can see whether a member-content
+  // rebuild is currently running (or stalled) and when it last completed. Polls
+  // faster while a rebuild is in flight, slower once idle.
+  const loadMemberReindexStatus = useCallback(async () => {
+    try {
+      const res = await fetch(`${MEMBER_REINDEX_API}?_=${Date.now()}`, {
+        credentials: 'include',
+      });
+      if (!res.ok) return;
+      const data = await res.json().catch(() => null);
+      if (data && data.ok) setMemberReindexStatus(data);
+    } catch {
+      // Best-effort readout; leave the last known status on transient errors.
+    }
+  }, []);
+
+  useEffect(() => {
+    loadMemberReindexStatus();
+    const busy =
+      memberReindexing ||
+      memberReindexStatus?.inProgress ||
+      memberReindexStatus?.stale;
+    const intervalMs = busy ? 5000 : 30000;
+    const id = setInterval(loadMemberReindexStatus, intervalMs);
+    return () => clearInterval(id);
+  }, [
+    loadMemberReindexStatus,
+    memberReindexing,
+    memberReindexStatus?.inProgress,
+    memberReindexStatus?.stale,
+  ]);
 
   const openCreate = () => {
     setForm(emptyForm);
@@ -259,6 +310,7 @@ export default function HelpArticlesEditor() {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });
     } finally {
       setMemberReindexing(false);
+      loadMemberReindexStatus();
     }
   };
 
@@ -412,6 +464,52 @@ export default function HelpArticlesEditor() {
           </Button>
         </div>
       </div>
+
+      {memberReindexStatus && (
+        <div
+          className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm"
+          data-testid="status-member-reindex"
+        >
+          {memberReindexStatus.inProgress ? (
+            <>
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+              <span className="text-foreground">Member AI index rebuild in progress</span>
+              {memberReindexStatus.startedAt && (
+                <span className="text-muted-foreground">
+                  · started {formatWhen(memberReindexStatus.startedAt)}
+                </span>
+              )}
+            </>
+          ) : memberReindexStatus.stale ? (
+            <>
+              <AlertTriangle className="h-4 w-4 shrink-0 text-warning" />
+              <span className="text-foreground">
+                Member AI index rebuild may have stalled
+              </span>
+              {memberReindexStatus.heartbeatAt && (
+                <span className="text-muted-foreground">
+                  · last activity {formatWhen(memberReindexStatus.heartbeatAt)} · the next
+                  scheduled run will resume it
+                </span>
+              )}
+            </>
+          ) : memberReindexStatus.lastCompletedAt ? (
+            <>
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="text-muted-foreground">
+                Member AI index last rebuilt {formatWhen(memberReindexStatus.lastCompletedAt)}
+              </span>
+            </>
+          ) : (
+            <>
+              <CircleDashed className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="text-muted-foreground">
+                No member AI index rebuild has completed yet
+              </span>
+            </>
+          )}
+        </div>
+      )}
 
       <Card data-testid="help-coverage-section">
         <CardHeader className="py-3">

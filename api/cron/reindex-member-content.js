@@ -205,7 +205,7 @@ export default async function handler(req, res) {
     // when a continuation was actually dispatched do we leave the marker for the
     // downstream slice to renew.
     if (results.done || (continuation && continuation.dispatched !== true)) {
-      await completeReindexRun({ supabase, runId });
+      await completeReindexRun({ supabase, runId, completed: results.done });
     }
 
     return res.status(200).json({
