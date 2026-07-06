@@ -308,11 +308,17 @@ export default function PublicLayout({ children, currentPageName }) {
         }
         
         // Filter banners that include this page (check both portal ID and page name for compatibility)
+        // Each associated_pages entry may be a portal ID (e.g. portal_resources) or a page NAME
+        // (e.g. PublicResources); normalise names through pageToPortalPageMap so an entry like
+        // 'PublicResources' also matches the hybrid '/Resources' route and vice versa.
         const pageBanners = allBanners
           .filter(banner => {
             if (!banner.associated_pages) return false;
-            const matches = banner.associated_pages.includes(portalPageId) || 
-                   banner.associated_pages.includes(currentPageName);
+            const matches = banner.associated_pages.some(entry =>
+              entry === portalPageId ||
+              entry === currentPageName ||
+              (pageToPortalPageMap[entry] && pageToPortalPageMap[entry] === portalPageId)
+            );
             if (matches) {
               console.log('[PublicLayout] Matched banner:', banner.name, banner.associated_pages);
             }
