@@ -14,6 +14,7 @@ import { ROLE_ACCESS_MAP } from '@/lib/roleAccessMap';
 
 const API = '/api/platform/help-articles';
 const REINDEX_API = '/api/platform/help-articles-reindex';
+const MEMBER_REINDEX_API = '/api/platform/member-content-reindex';
 const GENERATE_API = '/api/platform/help-articles-generate';
 
 const NO_FEATURE = '__none__';
@@ -71,6 +72,7 @@ export default function HelpArticlesEditor() {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [reindexing, setReindexing] = useState(false);
+  const [memberReindexing, setMemberReindexing] = useState(false);
 
   // Guided AI generation review flow (Task #2304).
   const [buildOpen, setBuildOpen] = useState(false);
@@ -216,6 +218,50 @@ export default function HelpArticlesEditor() {
     }
   };
 
+  const rebuildMemberIndex = async () => {
+    setMemberReindexing(true);
+    try {
+      const res = await fetch(MEMBER_REINDEX_API, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to rebuild member AI index');
+      }
+      if (data.skipped) {
+        toast({
+          title: 'Rebuild already running',
+          description:
+            'A member content reindex is already in progress. Let it finish, then try again.',
+        });
+        return;
+      }
+      const stillRunning = data.done === false;
+      const description =
+        `${data.items} content item${data.items === 1 ? '' : 's'}, ` +
+        `${data.chunks} chunk${data.chunks === 1 ? '' : 's'} ` +
+        `(${data.embedded} embedded, ${data.reused} reused)` +
+        (data.errors ? ` — ${data.errors} failed` : '') +
+        (stillRunning ? ' — still processing the rest in the background…' : '');
+      toast({
+        title: data.errors
+          ? 'Rebuilt with some errors'
+          : stillRunning
+          ? 'Member AI index rebuild started'
+          : 'Member AI index rebuilt',
+        description,
+        variant: data.errors ? 'destructive' : undefined,
+      });
+    } catch (err) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } finally {
+      setMemberReindexing(false);
+    }
+  };
+
   // Open the review dialog for a page, pre-filling any remembered instructions.
   const openBuild = (mod, page) => {
     const matched = articles.filter((a) => (a.required_feature || '') === page.id);
@@ -346,6 +392,19 @@ export default function HelpArticlesEditor() {
               <RefreshCw className="h-4 w-4" />
             )}
             Rebuild AI search index
+          </Button>
+          <Button
+            variant="outline"
+            onClick={rebuildMemberIndex}
+            disabled={memberReindexing}
+            data-testid="button-rebuild-member-ai-index"
+          >
+            {memberReindexing ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+            Rebuild member AI index
           </Button>
           <Button onClick={openCreate} data-testid="button-new-help-article">
             <Plus className="h-4 w-4" />
