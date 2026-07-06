@@ -25,7 +25,7 @@
 // direct host is unreachable from the Replit workspace; the REST endpoint is).
 
 import { createClient } from '@supabase/supabase-js';
-import { buildDesign } from '../api/_lib/canvasLayoutEngine.js';
+import { buildDesign, THEMES } from '../api/_lib/canvasLayoutEngine.js';
 
 // ---------------------------------------------------------------------------
 // Env resolution (defensive — prefer DEST_* names for the destination/prod DB).
@@ -5526,6 +5526,185 @@ const PAST_PRESIDENTS = {
   }),
 };
 
+// ---------------------------------------------------------------------------
+// Celebrating 60 Years of BNMS — Past Presidents Webinar Series.
+// Faithful reproduction of attached_assets/Presidents_Webinar_Series_*.docx.
+// The document's internal layout notes ("Layout: …", "Primary CTA: …",
+// "we do have images of all of these", "we have all the logos", section
+// labels) are author instructions, NOT page copy — they are intentionally
+// omitted. The ONLY links on the page are the four YouTube URLs given in the
+// document, the /timeline secondary CTA, and the in-page anchor from the hero
+// primary CTA down to the first webinar card.
+//
+// Headshots / logos: wired to images ALREADY in BNMS media (public-assets
+// uploads). Dr Gillian Vivian has no individual headshot on file and Siemens
+// Healthineers / Novartis have no logos on file, so those render as
+// BNMS-branded placeholders (accent user icon / text chips) per the document's
+// own instruction. Curium's logo IS on file and is used.
+// ---------------------------------------------------------------------------
+const BNMS_UPLOADS =
+  'https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/';
+const CPD_LINE =
+  '<em>CPD: This webinar provides 1 CPD credit in accordance with the CPD Scheme of The Royal College of Radiologists.</em>';
+const LO_1 =
+  'Explore the history of BNMS and gain insight into current and future directions from the perspective of BNMS Presidents.';
+
+const PRESIDENTS_WEBINAR_SERIES = {
+  tenantId: BNMS_TENANT_ID,
+  slug: 'past-presidents-webinar-series',
+  title: 'Celebrating 60 Years of BNMS – Past Presidents Webinar Series',
+  design: buildDesign({
+    // BNMS default branding (orange accent, blue hero) + the 60th-anniversary
+    // logo lockup already in BNMS media, per the document's "BNMS 60th
+    // branding" hero note.
+    theme: {
+      ...THEMES.bnms,
+      logoUrl: `${BNMS_UPLOADS}1778755163973-x5fbrep-1768490734727-cb475f2-60th_logo.png`,
+    },
+    hero: {
+      headline: 'Celebrating 60 Years of BNMS',
+      subheadline:
+        'Past Presidents Webinar Series — Six decades of leadership, innovation and collaboration in nuclear medicine.',
+      ctaLabel: 'Watch the Webinar Recordings',
+      ctaHref: '#watch-webinars',
+      cta2Label: 'Explore the 60th Anniversary Timeline',
+      cta2Href: '/timeline',
+      cta2Variant: 'tenant:secondary',
+      // Montage of past Presidents already in BNMS media.
+      bgImageUrl: `${BNMS_UPLOADS}1783335573232-w3snwgs-1781524640938-qk9r6hl-Graham_Dizdarevic_Notghi_Clarke_Vivian_Buscombe_Prescott_McCready_Neilly_Frank_Croasdale.jpg`,
+    },
+    intro: {
+      icon: 'fa-solid fa-video',
+      html:
+        `<p style="text-align: left;"><span style="font-size: 20px;">As part of the British Nuclear Medicine Society\u2019s 60th Anniversary celebrations, we were proud to present a special webinar series bringing together former BNMS Presidents to reflect on the Society\u2019s remarkable journey and the future of nuclear medicine.</span></p>` +
+        `<p style="text-align: left;"><span style="font-size: 20px;">Hosted by Professor Sabina Dizdarevic, BNMS President, each webinar features conversations with past Presidents alongside expert presentations exploring key developments within the specialty.</span></p>` +
+        `<p style="text-align: left;"><span style="font-size: 20px;">Together, these sessions celebrate the people, achievements and innovations that have shaped BNMS over the past six decades while looking ahead to the future of nuclear medicine.</span></p>`,
+      h: 340,
+    },
+    sections: [
+      {
+        type: 'cards',
+        heading: 'Webinar Series',
+        columns: 1,
+        cards: [
+          {
+            anchorId: 'watch-webinars',
+            heading: 'Celebrating our Past and Present, Shaping the Future',
+            h: 860,
+            body:
+              P('<strong>13 January 2026</strong>') +
+              P('<strong>Featuring:</strong>') +
+              `<ul>${LI('Prof John Buscombe')}${LI('Dr David Keeling')}${LI('Prof Sobhan Vinjamuri')}</ul>` +
+              P('<strong>Hosted by:</strong> Professor Sabina Dizdarevic') +
+              P('<strong>Featured Presentation</strong>') +
+              P('<em>Molecular Radiotherapy (MRT): To Infinity and Beyond</em>') +
+              P('Professor John Buscombe') +
+              P('<strong>Learning Objectives</strong>') +
+              `<ul>${LI(LO_1)}${LI('Provide an update on the role of hybrid imaging, cutting-edge diagnostics and theragnostics.')}</ul>` +
+              P(CPD_LINE),
+            cta: 'Watch on YouTube',
+            ctaHref: 'https://www.youtube.com/watch?v=fJiURq4aqDU&feature=youtu.be',
+          },
+          {
+            heading: 'Women in BNMS Leadership & Past, Present and Future of Nuclear Medicine',
+            h: 1240,
+            body:
+              P('<strong>10 February 2026</strong>') +
+              P('Join us for an interview with four female past Presidents, hosted by current President Prof Sabina Dizdarevic.') +
+              P('<strong>Featuring:</strong>') +
+              `<ul>${LI('Dr Sue Clarke')}${LI('Dr Mary Prescott')}${LI('Dr Gillian Vivian')}${LI('Ms Jilly Croasdale')}</ul>` +
+              P('<strong>Session Focus</strong>') +
+              P('This webinar explores the challenges they faced, the inspirations that shaped their leadership and the key achievements of their terms, including perspectives on gender equality in medicine.') +
+              P('The panel also reflects on how the specialty has evolved, shares views on the future of nuclear medicine and discusses how, together with members, BNMS can continue to shape the direction of the field.') +
+              P('<strong>Featured Presentation</strong>') +
+              P('<em>Working Together to Prioritise Urgent Patient Needs During a Molybdenum Shortage</em>') +
+              P('Ms Jilly Croasdale, Immediate Past President') +
+              P('<strong>Learning Objectives</strong>') +
+              `<ul>${LI(LO_1)}${LI('Promote gender equality in leadership within medicine, highlighting progress, challenges and opportunities for the future.')}${LI('Provide an update on the recent molybdenum shortage, including prioritisation of nuclear medicine procedures and how working collectively as a multi-professional community can help overcome major operational challenges.')}</ul>` +
+              P(CPD_LINE),
+            cta: 'Watch on YouTube',
+            ctaHref: 'https://www.youtube.com/watch?v=zG70PLgAUkE',
+          },
+          {
+            // The document supplies no title line for this webinar — the date
+            // heads the card; nothing is invented.
+            heading: '24 March 2026',
+            h: 620,
+            body:
+              P('<strong>Featuring:</strong>') +
+              `<ul>${LI('Prof Alan Perkins')}${LI('Dr Alp Notghi')}</ul>` +
+              P('<strong>With participation from:</strong> Mr Charnie Kalirai, BNMS Honorary Treasurer') +
+              P('<strong>Learning Objectives</strong>') +
+              `<ul>${LI('Gain up-to-date knowledge of intraoperative probe technologies development and explain their potential impact on surgical and diagnostic practice.')}${LI('Discuss how technological advances and robust incident-management strategies contribute to service resilience.')}</ul>` +
+              P(CPD_LINE),
+            cta: 'Watch on YouTube',
+            ctaHref: 'https://www.youtube.com/watch?v=R5ifIq028mQ&feature=youtu.be',
+          },
+          {
+            heading: '14 April 2026',
+            h: 620,
+            body:
+              P('<strong>Featuring:</strong>') +
+              `<ul>${LI('Prof Michael Maisey')}${LI('Prof Richard Graham')}</ul>` +
+              P('<strong>With participation from:</strong> Dr Amy Eccles, BNMS Honorary Secretary') +
+              P('<strong>Learning Objectives</strong>') +
+              `<ul>${LI('Describe the historical milestones that shaped the development of PET, from its conceptual origins to its clinical adoption.')}${LI('Highlight how the evolution of PET informs current clinical guidelines and outline how emerging developments are likely to shape future recommendations.')}</ul>` +
+              P(CPD_LINE),
+            cta: 'Watch on YouTube',
+            ctaHref: 'https://www.youtube.com/watch?v=vdFtPIr1gXs',
+          },
+        ],
+      },
+      {
+        type: 'cards',
+        heading: 'Past Presidents Featured in the Series',
+        columns: 4,
+        cardH: 420,
+        cards: [
+          { heading: 'Dr John Buscombe', body: '', imageUrl: `${BNMS_UPLOADS}1774339384390-7migy2o-John_Buscombe_image.png` },
+          { heading: 'Dr David Keeling', body: '', imageUrl: `${BNMS_UPLOADS}1774342490563-v91bu85-David_Keeling_imagev2.jpg` },
+          { heading: 'Prof Sobhan Vinjamuri', body: '', imageUrl: `${BNMS_UPLOADS}1774339174515-sk7vfjp-2016.04.17_Sobhan_Vinjamuri_image.png` },
+          // No individual headshot in BNMS media — branded placeholder icon.
+          { heading: 'Dr Gillian Vivian', body: '', icon: 'fa-solid fa-user' },
+          { heading: 'Ms Jilly Croasdale', body: '', imageUrl: `${BNMS_UPLOADS}1777125826067-cr7t2md-jilly_croasdale_hon_treasure.jpg` },
+          { heading: 'Dr Mary Prescott', body: '', imageUrl: `${BNMS_UPLOADS}1774342960431-c9t0vdm-BNMS_2002_President_Mary_Prescott_in_Robe_President_2002-2006.jpg` },
+          { heading: 'Dr Sue Clarke', body: '', imageUrl: `${BNMS_UPLOADS}1774009690259-gd6kusi-1992.04.06_Sue_Clarke_image.JPG` },
+          { heading: 'Prof Alan Perkins', body: '', imageUrl: `${BNMS_UPLOADS}1777132190939-0h8xcyn-alan_perkins_2025.jpg` },
+          { heading: 'Dr Alp Notghi', body: '', imageUrl: `${BNMS_UPLOADS}1774342273207-67b80bi-Alp_Notghi_image.png` },
+          { heading: 'Prof Michael Maisey', body: '', imageUrl: `${BNMS_UPLOADS}1771846006277-hd0gvd2-1978.01.01_Michael_Maisey_image.jpg` },
+          { heading: 'Prof Richard Graham', body: '', imageUrl: `${BNMS_UPLOADS}1774344319621-2kz241c-2021.09.27_Richard_Graham_image.png` },
+        ],
+      },
+      {
+        type: 'cards',
+        heading: 'Thank You to Our Sponsors',
+        subheading: 'Series Sponsors',
+        columns: 2,
+        cardH: 140,
+        // No Siemens Healthineers / Novartis logos in BNMS media yet — branded
+        // text chips until the user supplies logos.
+        cards: [
+          { heading: 'Siemens Healthineers', body: '' },
+          { heading: 'Novartis', body: '' },
+        ],
+      },
+      {
+        type: 'cards',
+        subheading: 'Supporting Sponsor',
+        columns: 2,
+        cardH: 300,
+        cards: [
+          {
+            heading: 'Curium',
+            body: P('March webinar only'),
+            imageUrl: `${BNMS_UPLOADS}1783009348427-gm39tpa-curium_300_x_125.png`,
+          },
+        ],
+      },
+    ],
+  }),
+};
+
 const PAGES = [
   MRT_HOME,
   MRT_COMMITTEE,
@@ -5591,13 +5770,19 @@ const PAGES = [
   GOVERNANCE_NEW,
   BNMS_COUNCIL,
   REGIONAL_LEADS,
+  PRESIDENTS_WEBINAR_SERIES,
 ];
 
 // ---------------------------------------------------------------------------
 // Upsert (idempotent on tenant_id + slug).
 // ---------------------------------------------------------------------------
-async function provision(page, { apply }) {
+async function provision(page, { apply, dumpJson }) {
   const { tenantId, slug, title, design } = page;
+
+  if (dumpJson) {
+    console.log(JSON.stringify(design));
+    return;
+  }
 
   const { data: existing, error: selErr } = await supabase
     .from('i_edit_page')
@@ -5674,6 +5859,9 @@ async function provision(page, { apply }) {
 async function main() {
   const args = process.argv.slice(2);
   const apply = args.includes('--apply');
+  // --json: print the built canvas_design for the selected page(s) to stdout
+  // (no DB access) so content fidelity can be verified before applying.
+  const dumpJson = args.includes('--json');
   const slugArg = args.find((a) => a.startsWith('--slug='))?.split('=')[1];
 
   const targets = slugArg ? PAGES.filter((p) => p.slug === slugArg) : PAGES;
@@ -5682,9 +5870,9 @@ async function main() {
     process.exit(1);
   }
 
-  console.log(`Mode: ${apply ? 'APPLY (writing to DEST)' : 'DRY-RUN (no writes)'}`);
+  if (!dumpJson) console.log(`Mode: ${apply ? 'APPLY (writing to DEST)' : 'DRY-RUN (no writes)'}`);
   for (const page of targets) {
-    await provision(page, { apply });
+    await provision(page, { apply, dumpJson });
   }
 }
 

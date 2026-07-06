@@ -154,7 +154,30 @@ const baseStyle = (over = {}) => ({
 });
 const wrap = (o) => ({ groupId: null, anchorId: '', fullWidth: false, ...o });
 
-function makeHero({ headline, subheadline, ctaLabel, bgImageUrl }, geom) {
+function makeHero(
+  { headline, subheadline, ctaLabel, ctaHref, cta2Label, cta2Href, cta2Variant, bgImageUrl },
+  geom
+) {
+  // Only emit CTA buttons when the spec supplies labels; a document with no
+  // call-to-action must not gain a fabricated one. Hrefs default to '#'
+  // placeholders (existing pages) but real links pass through verbatim.
+  const ctas = [];
+  if (ctaLabel) {
+    ctas.push({
+      href: ctaHref || '#',
+      label: ctaLabel,
+      variant: THEME.buttonVariant,
+      labelTypographyStyleId: TYPO_ACTIVE.heroSub,
+    });
+  }
+  if (cta2Label) {
+    ctas.push({
+      href: cta2Href || '#',
+      label: cta2Label,
+      variant: cta2Variant || THEME.buttonVariant,
+      labelTypographyStyleId: TYPO_ACTIVE.heroSub,
+    });
+  }
   return wrap({
     bp: bpOf(geom),
     id: genId(),
@@ -176,18 +199,7 @@ function makeHero({ headline, subheadline, ctaLabel, bgImageUrl }, geom) {
     },
     locked: false,
     content: {
-      // Only emit a CTA button when the spec supplies a label; a document with
-      // no call-to-action must not gain a fabricated one.
-      ctas: ctaLabel
-        ? [
-            {
-              href: '#',
-              label: ctaLabel,
-              variant: THEME.buttonVariant,
-              labelTypographyStyleId: TYPO_ACTIVE.heroSub,
-            },
-          ]
-        : [],
+      ctas,
       bgType: 'image',
       bgColor: 'var(--cb-color-primary, #0f172a)',
       darkWash: 0.4,
@@ -451,8 +463,9 @@ function makeAccordion(items, geom) {
 // Card — matches the tenant's existing card blocks (white surface, subtle
 // border + shadow, accent icon, card-heading typography). CTA is optional; when
 // present it renders the theme button style, link "#".
-function makeCard({ icon, heading, body, cta }, geom) {
+function makeCard({ icon, heading, body, cta, ctaHref, imageUrl, anchorId }, geom) {
   return wrap({
+    anchorId: anchorId || '',
     bp: bpOf(geom),
     id: genId(),
     a11y: a11y(),
@@ -475,13 +488,13 @@ function makeCard({ icon, heading, body, cta }, geom) {
     content: {
       body,
       shadow: 'md',
-      ctaHref: '#',
+      ctaHref: ctaHref || '#',
       heading,
       ctaAlign: 'left',
       ctaLabel: cta || '',
       iconSize: 47,
-      imageAlt: '',
-      imageUrl: '',
+      imageAlt: imageUrl ? heading || '' : '',
+      imageUrl: imageUrl || '',
       highlight: true,
       iconAlign: 'center',
       iconClass: icon || '',
@@ -500,8 +513,9 @@ function makeCard({ icon, heading, body, cta }, geom) {
   });
 }
 
-// Standalone primary button (feature-panel / section CTAs). Link "#".
-function makeButton(label, geom) {
+// Standalone primary button (feature-panel / section CTAs). Link defaults to
+// the "#" placeholder unless the spec supplies a real href.
+function makeButton(label, geom, href) {
   return wrap({
     bp: bpOf(geom),
     id: genId(),
@@ -511,7 +525,7 @@ function makeButton(label, geom) {
     style: baseStyle(),
     locked: false,
     content: {
-      href: '#',
+      href: href || '#',
       icon: '',
       size: { fontSize: 20 },
       label,
@@ -605,12 +619,18 @@ export function buildDesign(spec) {
   }
   y += HERO_H + 48;
 
-  // Optional intro: centered icon + strapline + intro paragraphs.
+  // Optional intro: centered icon + strapline + intro paragraphs. Icon and
+  // strapline are each optional so a document with no strapline copy does not
+  // gain a fabricated heading.
   if (spec.intro) {
-    topBlocks.push(makeIcon(spec.intro.icon, { x: 528, y, w: 144, h: 136 }, { iconSize: 50 }));
-    y += 136 + 12;
-    topBlocks.push(makeH2(spec.intro.strapline, { x: MARGIN, y, w: CONTENT_W, h: 60 }, { center: true }));
-    y += 60 + 12;
+    if (spec.intro.icon) {
+      topBlocks.push(makeIcon(spec.intro.icon, { x: 528, y, w: 144, h: 136 }, { iconSize: 50 }));
+      y += 136 + 12;
+    }
+    if (spec.intro.strapline) {
+      topBlocks.push(makeH2(spec.intro.strapline, { x: MARGIN, y, w: CONTENT_W, h: 60 }, { center: true }));
+      y += 60 + 12;
+    }
     topBlocks.push(makeIntro(spec.intro.html, { x: MARGIN, y, w: CONTENT_W, h: spec.intro.h }));
     y += spec.intro.h + COL_GAP;
   }
@@ -655,23 +675,36 @@ export function buildDesign(spec) {
       sectionBlocks.push(makeAccordion(section.items, { x: MARGIN, y, w: CONTENT_W, h: accH }));
       y += accH + 56;
     } else if (section.type === 'cards') {
+      // Optional H3 sub-heading between the section heading and the cards
+      // (e.g. sponsor tier labels).
+      if (section.subheading) {
+        sectionBlocks.push(makeH3(section.subheading, { x: MARGIN, y, w: CONTENT_W, h: 50 }));
+        y += 50 + 16;
+      }
       // Row(s) of cards, centred across the canvas. Cards break out wider than
       // the 900px text column, matching the tenant's existing card pages.
       const cols = section.columns || 3;
       const gap = 24;
       const cardW = cols === 4 ? 276 : cols === 3 ? 320 : Math.floor((CONTENT_W - (cols - 1) * gap) / cols);
-      const rowW = cols * cardW + (cols - 1) * gap;
+      // Centre on the ACTUAL number of cards when there are fewer than a full
+      // row, so e.g. a lone sponsor card doesn't sit off in the left column.
+      const effCols = Math.max(1, Math.min(cols, section.cards.length));
+      const rowW = effCols * cardW + (effCols - 1) * gap;
       const startX = Math.round((CANVAS_W - rowW) / 2);
-      const cardH = section.cardH || 340;
-      section.cards.forEach((card, i) => {
-        const row = Math.floor(i / cols);
-        const col = i % cols;
-        const x = startX + col * (cardW + gap);
-        const cy = y + row * (cardH + gap);
-        sectionBlocks.push(makeCard(card, { x, y: cy, w: cardW, h: cardH }));
-      });
+      // Per-card heights are allowed (card.h); each row steps by its tallest
+      // card so stacked single-column panels of differing length work.
       const rows = Math.ceil(section.cards.length / cols);
-      y += rows * cardH + (rows - 1) * gap + 56;
+      let cy = y;
+      for (let r = 0; r < rows; r += 1) {
+        const rowCards = section.cards.slice(r * cols, r * cols + cols);
+        const rowH = Math.max(...rowCards.map((card) => card.h || section.cardH || 340));
+        rowCards.forEach((card, ci) => {
+          const x = startX + ci * (cardW + gap);
+          sectionBlocks.push(makeCard(card, { x, y: cy, w: cardW, h: card.h || rowH }));
+        });
+        cy += rowH + gap;
+      }
+      y = cy - gap + 56;
     } else if (section.type === 'placeholder') {
       // Deferred interactive surface (searchable member directory / video /
       // searchable table) — dashed note explaining what will render here.
@@ -688,10 +721,12 @@ export function buildDesign(spec) {
         const bw = 340;
         const bgap = 20;
         const perRow = 2;
-        btnLabels.forEach((label, i) => {
+        btnLabels.forEach((btn, i) => {
           const r = Math.floor(i / perRow);
           const c = i % perRow;
-          sectionBlocks.push(makeButton(label, { x: MARGIN + c * (bw + bgap), y: y + r * (48 + 16), w: bw, h: 48 }));
+          const label = typeof btn === 'string' ? btn : btn.label;
+          const href = typeof btn === 'string' ? undefined : btn.href;
+          sectionBlocks.push(makeButton(label, { x: MARGIN + c * (bw + bgap), y: y + r * (48 + 16), w: bw, h: 48 }, href));
         });
         const rows = Math.ceil(btnLabels.length / perRow);
         y += rows * 48 + (rows - 1) * 16;
