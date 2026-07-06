@@ -7326,7 +7326,10 @@ function CardFlipGridRender({ block, asEditor, breakpoint }) {
                       </div>
                     );
                     const imageArea = (
-                      <div className="relative flex-1 min-h-0">
+                      <div
+                        className="relative flex-1 min-h-0"
+                        style={{ borderRadius: radius, overflow: 'hidden' }}
+                      >
                         {img ? (
                           <img
                             src={img.src}
@@ -7372,9 +7375,6 @@ function CardFlipGridRender({ block, asEditor, breakpoint }) {
                         style={{
                           backfaceVisibility: 'hidden',
                           WebkitBackfaceVisibility: 'hidden',
-                          borderRadius: radius,
-                          overflow: 'hidden',
-                          background: 'var(--cb-color-muted, #e2e8f0)',
                         }}
                       >
                         {bandPosition === 'above' && titleBand}
