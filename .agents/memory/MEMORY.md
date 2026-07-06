@@ -16,6 +16,7 @@
 - [Membership override display vs sim](membership-override-display-vs-sim.md) — org-membership card cost already has override applied (sim/record); display path must only set metadata + recompute VAT, never re-derive cost.
 - [Dynamic email slots](dynamic-email-slots.md) — text/image/button dynamic blocks: token scheme, dual-mode previews via SlotEditContext, and DYN_BLOCK marker regions for hiding whole elements at send.
 - [Background worker self-trigger](background-worker-self-trigger.md) — a self-re-triggering chunked worker needs a handoff bypass on its heartbeat lock, or the chain blocks itself and falls back to cron pace.
+- [Reindex concurrency guard](reindex-concurrency-guard.md) — reindex chain uses a fail-open defer-marker (system_settings global row + runId), NOT a hard lock; keep it best-effort or "restart is free" breaks.
 - [Workspace DB targets](workspace-db-targets.md) — runtime SUPABASE_URL here == legacy SOURCE (stale); prod/migrations target DEST. Apply feature migrations to DEST only.
 - [Private subsets of a tenant entity](private-subset-of-tenant-entity.md) — client-side hiding of group-private rows isn't access control; add server-side filter on entity list + by-id reads, exempt admins.
 - [Canvas layer groups](canvas-layer-groups.md) — group hidden/lock are DERIVED from members (only name+collapsed stored); renderer ignores groups; layers use nested SortableContexts.

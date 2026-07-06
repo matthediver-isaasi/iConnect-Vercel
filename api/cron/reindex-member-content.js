@@ -27,6 +27,11 @@ import {
   reindexAllMemberContent,
   getDefaultOpenAIClient,
 } from '../_lib/memberContentIndexer.js';
+import {
+  acquireReindexRun,
+  renewReindexRun,
+  completeReindexRun,
+} from '../_lib/memberContentReindexLock.js';
 
 // How much of the 60s function budget to spend on indexing before stopping to
 // hand off to the next slice. Leaves headroom for an in-flight embedding batch
@@ -110,8 +115,49 @@ export default async function handler(req, res) {
   // Internal resume token carried by the self-trigger chain.
   const cursor = body.cursor && typeof body.cursor === 'object' ? body.cursor : null;
   const hop = Number.isInteger(body.hop) ? body.hop : 0;
+  // Internal ownership token for the concurrency marker (Task #2372), minted at
+  // hop 0 and carried down the chain so continuation slices can re-assert it.
+  const runIdFromBody = typeof body.runId === 'string' ? body.runId : null;
 
   const startTime = Date.now();
+  const scope = { tenantId: tenantId || null, contentType: contentType || null };
+
+  // Concurrency guard: a fresh scheduled tick (hop 0) claims the run; if a live
+  // chain is already progressing it defers instead of starting a parallel pass.
+  // Continuation hops renew ownership; if a newer run has taken over, the stale
+  // chain stands down. Fail-open: any marker error lets indexing proceed.
+  let runId = runIdFromBody;
+  if (hop === 0) {
+    const acq = await acquireReindexRun({ supabase, scope });
+    if (!acq.acquired) {
+      console.log(
+        '[cron/reindex-member-content] live chain in progress ' +
+          `(runId=${acq.activeRunId}, ageMs=${acq.ageMs}); deferring this tick.`
+      );
+      return res.status(200).json({
+        ok: true,
+        skipped: true,
+        reason: 'in_progress',
+        activeRunId: acq.activeRunId || null,
+        ageMs: acq.ageMs ?? null,
+      });
+    }
+    runId = acq.runId;
+  } else {
+    const renew = await renewReindexRun({ supabase, runId, scope });
+    if (!renew.owns) {
+      console.log(
+        '[cron/reindex-member-content] run superseded by a newer chain ' +
+          `(activeRunId=${renew.activeRunId}); this chain is standing down.`
+      );
+      return res.status(200).json({
+        ok: true,
+        skipped: true,
+        reason: 'superseded',
+        activeRunId: renew.activeRunId || null,
+      });
+    }
+  }
 
   try {
     const results = await reindexAllMemberContent({
@@ -145,10 +191,21 @@ export default async function handler(req, res) {
             contentType: contentType || null,
             cursor: results.nextCursor,
             hop: hop + 1,
+            runId,
           });
           continuation = { dispatched: dispatch.ok, reason: dispatch.error || null };
         }
       }
+    }
+
+    // Release the concurrency marker whenever this chain is NOT handing off to a
+    // live successor: the pass finished, or it dead-ended (hop cap / no origin /
+    // dispatch failed). Clearing lets the next 6h cron restart immediately
+    // instead of waiting out the marker TTL, preserving "restart is free". Only
+    // when a continuation was actually dispatched do we leave the marker for the
+    // downstream slice to renew.
+    if (results.done || (continuation && continuation.dispatched !== true)) {
+      await completeReindexRun({ supabase, runId });
     }
 
     return res.status(200).json({
@@ -164,6 +221,9 @@ export default async function handler(req, res) {
     });
   } catch (err) {
     console.error('[cron/reindex-member-content] fatal:', err);
+    // The chain is aborting mid-slice; release the marker so the next 6h cron
+    // restarts immediately rather than waiting out the marker TTL.
+    await completeReindexRun({ supabase, runId });
     return res.status(500).json({ ok: false, error: err.message });
   }
 }
