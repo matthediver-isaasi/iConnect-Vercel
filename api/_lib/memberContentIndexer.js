@@ -333,16 +333,36 @@ export async function reindexMemberContentItem(contentType, item, { supabase, op
 /**
  * Re-index every INDEXABLE source row, optionally scoped to a single tenant
  * and/or content type. Requires an OpenAI client to embed new/changed chunks.
+ *
+ * Resumable / time-budgeted so the Vercel cron never times out on large
+ * tenants (functions are capped at 60s). Pass `deadlineMs` (an absolute
+ * `Date.now()` epoch) to stop starting new work once the budget is spent, and
+ * `cursor` to resume where the previous slice stopped. When the pass is not
+ * finished the return value carries `done: false` and a `nextCursor` the caller
+ * feeds back in to continue; when everything (including the orphan sweep) is
+ * complete it returns `done: true` and `nextCursor: null`.
+ *
+ * Cursor shapes:
+ *   { type, lastId }   — still indexing `type`, resume from id > lastId.
+ *   { phase: 'sweep' } — indexing done, only the orphan sweep remains.
+ *
+ * Indexing uses keyset pagination (id > lastId) rather than offset ranges so a
+ * slice can resume mid-type across invocations without a stable offset (rows
+ * can appear/disappear between slices). Re-indexing is idempotent (unchanged
+ * chunks reuse their embedding), so a dropped/restarted chain still makes
+ * progress off the persisted chunk state.
  */
 export async function reindexAllMemberContent({
   supabase,
   openai,
   tenantId = null,
   contentType = null,
+  deadlineMs = null,
+  cursor = null,
 } = {}) {
   if (!supabase) throw new Error('reindexAllMemberContent requires a supabase client');
 
-  const types = contentType ? [contentType] : CONTENT_TYPES;
+  const allTypes = contentType ? [contentType] : CONTENT_TYPES;
   const results = {
     items: 0,
     chunks: 0,
@@ -353,49 +373,78 @@ export async function reindexAllMemberContent({
     details: [],
   };
 
-  for (const type of types) {
-    const cfg = CONTENT_TYPE_CONFIG[type];
-    if (!cfg) continue;
+  const overBudget = () => deadlineMs != null && Date.now() >= deadlineMs;
 
-    const PAGE = 500;
-    let from = 0;
-    // Paginate to defeat PostgREST's 1000-row cap on large tenants.
-    for (;;) {
-      let query = supabase
-        .from(cfg.table)
-        .select(cfg.columns)
-        .order('id', { ascending: true })
-        .range(from, from + PAGE - 1);
-      if (tenantId) query = query.eq('tenant_id', tenantId);
+  // Resume state derived from the incoming cursor.
+  const startInSweep = cursor?.phase === 'sweep';
+  const resumeType = !startInSweep && cursor?.type ? cursor.type : null;
+  const resumeAfterId = !startInSweep && cursor ? (cursor.lastId ?? null) : null;
 
-      const { data: rows, error } = await query;
-      if (error) throw error;
-      if (!rows || rows.length === 0) break;
+  if (!startInSweep) {
+    const startIdx = resumeType ? allTypes.indexOf(resumeType) : 0;
+    const typesToRun = startIdx >= 0 ? allTypes.slice(startIdx) : allTypes;
 
-      for (const item of rows) {
-        try {
-          const summary = await reindexMemberContentItem(type, item, { supabase, openai });
-          results.items++;
-          results.chunks += summary.chunks;
-          results.embedded += summary.embedded;
-          results.reused += summary.reused;
-          if (summary.removed) results.removed++;
-        } catch (err) {
-          results.errors++;
-          results.details.push({
-            contentType: type,
-            sourceId: item.id,
-            error: err?.message || String(err),
-          });
-          console.error(
-            `[reindexAllMemberContent] ${type}/${item.id} error:`,
-            err?.message || err
-          );
+    for (let ti = 0; ti < typesToRun.length; ti++) {
+      const type = typesToRun[ti];
+      const cfg = CONTENT_TYPE_CONFIG[type];
+      if (!cfg) continue;
+
+      const PAGE = 500;
+      // Only the first (resumed) type inherits the incoming lastId; later types
+      // start from the beginning.
+      let lastId = ti === 0 && resumeType === type ? resumeAfterId : null;
+
+      for (;;) {
+        if (overBudget()) {
+          return { ...results, nextCursor: { type, lastId }, done: false };
         }
-      }
 
-      if (rows.length < PAGE) break;
-      from += PAGE;
+        let query = supabase
+          .from(cfg.table)
+          .select(cfg.columns)
+          .order('id', { ascending: true })
+          .limit(PAGE);
+        if (tenantId) query = query.eq('tenant_id', tenantId);
+        if (lastId != null) query = query.gt('id', lastId);
+
+        const { data: rows, error } = await query;
+        if (error) throw error;
+        if (!rows || rows.length === 0) break;
+
+        for (const item of rows) {
+          try {
+            const summary = await reindexMemberContentItem(type, item, { supabase, openai });
+            results.items++;
+            results.chunks += summary.chunks;
+            results.embedded += summary.embedded;
+            results.reused += summary.reused;
+            if (summary.removed) results.removed++;
+          } catch (err) {
+            results.errors++;
+            results.details.push({
+              contentType: type,
+              sourceId: item.id,
+              error: err?.message || String(err),
+            });
+            console.error(
+              `[reindexAllMemberContent] ${type}/${item.id} error:`,
+              err?.message || err
+            );
+          }
+          lastId = item.id;
+          if (overBudget()) {
+            return { ...results, nextCursor: { type, lastId }, done: false };
+          }
+        }
+
+        if (rows.length < PAGE) break;
+      }
+    }
+
+    // Indexing complete for the scoped pass. Hand the orphan sweep its own slice
+    // if the budget is already spent, so a large index pass never crowds it out.
+    if (overBudget()) {
+      return { ...results, nextCursor: { phase: 'sweep' }, done: false };
     }
   }
 
@@ -412,5 +461,5 @@ export async function reindexAllMemberContent({
     console.error('[reindexAllMemberContent] orphan sweep error:', err?.message || err);
   }
 
-  return results;
+  return { ...results, nextCursor: null, done: true };
 }

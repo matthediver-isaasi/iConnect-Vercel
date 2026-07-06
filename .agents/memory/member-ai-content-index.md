@@ -57,3 +57,17 @@ non-generic hard-delete path for an indexed entity MUST call
 The on-save hook DEFERS indexable content to the cron when no key is present; the
 backfill script's `--apply` and the cron both require the key. Dry-run works
 anywhere (chunk plan only).
+
+## Reindex cron is a resumable self-triggering chain (60s cap)
+`reindexAllMemberContent` takes `deadlineMs` + `cursor` and returns `{done,
+nextCursor}`. The cron processes a ~40s slice then self-triggers the next slice
+(POST to itself, Bearer CRON_SECRET, `cursor` in body, bounded-abort dispatch
+like the import worker). Cursor is `{type,lastId}` (keyset, NOT offset — rows can
+shift between slices) then `{phase:'sweep'}` then done.
+
+**Why no job table / heartbeat lock here (unlike the import/export workers):**
+re-indexing is idempotent — unchanged chunks reuse their embedding — so a dropped
+chain costs nothing to restart; the 6h cron just re-runs from `cursor:null` and
+makes progress off the persisted `member_content_chunk` state. Durability lives
+in the DB rows, not in a job/cursor table. A MAX_HOPS guard caps the chain only
+as a runaway safety net (progress is monotonic, so it's never hit normally).
