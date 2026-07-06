@@ -1,22 +1,7 @@
 import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
 import { resolveDdOwnerForSubmission } from '../_lib/ddOwner.js';
-
-// Helper to escape regex special characters
-function escapeRegex(str) {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-// Replace [[placeholder]] style placeholders with actual values
-function replaceDoubleBracketPlaceholders(text, placeholders) {
-  if (!text) return text;
-  let result = text;
-  for (const [key, value] of Object.entries(placeholders)) {
-    const placeholder = `[[${key}]]`;
-    result = result.replace(new RegExp(escapeRegex(placeholder), 'g'), value || '');
-  }
-  return result;
-}
+import { buildContractBracketPlaceholders, replaceContractBracketPlaceholders } from '../_lib/contractPlaceholders.js';
 
 // Fetch organization name from a contract instance
 async function getOrganizationName(formSubmissionId) {
@@ -279,17 +264,18 @@ export default async function handler(req, res) {
             });
 
             // Replace [[...]] style placeholders (e.g., [[organization.name]])
-            const doubleBracketPlaceholders = {
-              'organization.name': organizationName,
-              'tenant.name': tenant?.name || '',
-              'signer.name': signerName,
-              'signer.first_name': signer.first_name || '',
-              'signer.last_name': signer.last_name || '',
-              'signer.email': signer.email || '',
-              'dd_owner': ddOwnerForBracket.ownerName
-            };
-            emailSubject = replaceDoubleBracketPlaceholders(emailSubject, doubleBracketPlaceholders);
-            emailBody = replaceDoubleBracketPlaceholders(emailBody, doubleBracketPlaceholders);
+            // via the shared contract helper so every send path resolves the same set.
+            const doubleBracketPlaceholders = await buildContractBracketPlaceholders({
+              supabase,
+              tenantId: form.tenant_id,
+              organizationName,
+              tenantName: tenant?.name || '',
+              signer: { name: signerName, first_name: signer.first_name, last_name: signer.last_name, email: signer.email },
+              contractName: form.name,
+              ownerName: ddOwnerForBracket.ownerName,
+            });
+            emailSubject = replaceContractBracketPlaceholders(emailSubject, doubleBracketPlaceholders);
+            emailBody = replaceContractBracketPlaceholders(emailBody, doubleBracketPlaceholders);
 
             try {
               await sendEmail({

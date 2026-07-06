@@ -1,6 +1,7 @@
 import { sendEmail, replacePlaceholders } from './emailService.js';
 import { buildInboxDelivery } from './transactionalInbox.js';
 import { applyDdOwnerPlaceholders, resolveDdOwnerForSubmission } from './ddOwner.js';
+import { buildContractBracketPlaceholders, replaceContractBracketPlaceholders } from './contractPlaceholders.js';
 import crypto from 'crypto';
 import { supabase } from './database.js';
 import { simulateMembershipForOrg } from './membershipSimulation.js';
@@ -1139,6 +1140,23 @@ async function executeCreateContractAction(action, workflow, entityType, entityI
             const ddOwnerVals = await resolveDdOwnerForSubmission({ tenantId, formSubmissionId: context?.formSubmissionId || null });
             subject = applyDdOwnerPlaceholders(subject, ddOwnerVals);
             body = applyDdOwnerPlaceholders(body, ddOwnerVals);
+
+            // Resolve [[...]] bracket placeholders (e.g. [[organization.name]]).
+            // replacePlaceholders only resolves org tokens when the trigger
+            // entity IS the organization, so contracts triggered off other
+            // entities would otherwise leak [[organization.name]] raw. Prefer
+            // the resolved contract organization_id, falling back to the
+            // originating submission's organization.
+            const bracketPlaceholders = await buildContractBracketPlaceholders({
+              tenantId,
+              organizationId: organizationId || null,
+              formSubmissionId: context?.formSubmissionId || null,
+              signer,
+              contractName: contractForm.name,
+              ownerName: ddOwnerVals.ownerName,
+            });
+            subject = replaceContractBracketPlaceholders(subject, bracketPlaceholders);
+            body = replaceContractBracketPlaceholders(body, bracketPlaceholders);
 
             console.log(`[Workflows] Sending signing invitation to ${signer.email}`);
             

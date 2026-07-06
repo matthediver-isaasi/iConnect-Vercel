@@ -4,6 +4,7 @@ import { buildInboxDelivery } from '../_lib/transactionalInbox.js';
 import { generateMemberPreferencesToken } from '../email-preferences/index.js';
 import { getTenantBaseUrl } from '../_lib/campaignService.js';
 import { resolveDdOwnerForSubmission } from '../_lib/ddOwner.js';
+import { buildContractBracketPlaceholders, replaceContractBracketPlaceholders } from '../_lib/contractPlaceholders.js';
 import { triggerWorkflows, triggerPreferenceWorkflows } from '../_lib/workflows.js';
 import { coerceBooleanPreferenceValue } from '../_lib/booleanCoercion.js';
 import { 
@@ -570,18 +571,18 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
           .replace(/\{\{dd_owner_email\}\}/gi, contractOwnerEmail);
 
         // Replace [[...]] style placeholders (e.g., [[organization.name]], [[tenant.name]])
-        const doubleBracketPlaceholders = {
-          'organization.name': organizationName,
-          'tenant.name': tenantName,
-          'signer.name': signerFullName,
-          'signer.first_name': signerFirstName,
-          'signer.last_name': signerLastName,
-          'signer.email': signer.email || '',
-          'contract.name': contractForm.name || '',
-          'dd_owner': contractOwnerName
-        };
-        subject = replaceDoubleBracketPlaceholders(subject, doubleBracketPlaceholders);
-        body = replaceDoubleBracketPlaceholders(body, doubleBracketPlaceholders);
+        // via the shared contract helper so every send path resolves the same set.
+        const doubleBracketPlaceholders = await buildContractBracketPlaceholders({
+          supabase,
+          tenantId,
+          organizationName,
+          tenantName,
+          signer: { name: signerFullName, first_name: signerFirstName, last_name: signerLastName, email: signer.email },
+          contractName: contractForm.name,
+          ownerName: contractOwnerName,
+        });
+        subject = replaceContractBracketPlaceholders(subject, doubleBracketPlaceholders);
+        body = replaceContractBracketPlaceholders(body, doubleBracketPlaceholders);
 
         try {
           const inboxDelivery = await buildInboxDelivery({

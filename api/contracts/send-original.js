@@ -2,6 +2,7 @@ import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { resolveDdOwnerForSubmission, applyDdOwnerPlaceholders } from '../_lib/ddOwner.js';
+import { buildContractBracketPlaceholders, replaceContractBracketPlaceholders } from '../_lib/contractPlaceholders.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -246,6 +247,20 @@ export default async function handler(req, res) {
     });
     emailSubject = applyDdOwnerPlaceholders(emailSubject, ddOwner);
     emailBody = applyDdOwnerPlaceholders(emailBody, ddOwner);
+
+    // Resolve [[...]] bracket placeholders (e.g. [[organization.name]]) using
+    // the submission's organization so they don't reach the recipient raw.
+    const bracketPlaceholders = await buildContractBracketPlaceholders({
+      supabase,
+      tenantId: tenantContext.tenantId,
+      formSubmissionId,
+      organizationId: formSubmission.organization_id || null,
+      signer: signerData,
+      contractName: contractForm.name,
+      ownerName: ddOwner.ownerName,
+    });
+    emailSubject = replaceContractBracketPlaceholders(emailSubject, bracketPlaceholders);
+    emailBody = replaceContractBracketPlaceholders(emailBody, bracketPlaceholders);
 
     await sendEmail({
       to: signer.email,

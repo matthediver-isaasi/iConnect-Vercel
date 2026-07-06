@@ -1,23 +1,8 @@
 import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
 import { resolveDdOwnerForSubmission } from '../_lib/ddOwner.js';
+import { buildContractBracketPlaceholders, replaceContractBracketPlaceholders } from '../_lib/contractPlaceholders.js';
 import crypto from 'crypto';
-
-// Helper to escape regex special characters
-function escapeRegex(str) {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-// Replace [[placeholder]] style placeholders with actual values
-function replaceDoubleBracketPlaceholders(text, placeholders) {
-  if (!text) return text;
-  let result = text;
-  for (const [key, value] of Object.entries(placeholders)) {
-    const placeholder = `[[${key}]]`;
-    result = result.replace(new RegExp(escapeRegex(placeholder), 'g'), value || '');
-  }
-  return result;
-}
 
 // Fetch organization name from a contract instance
 async function getOrganizationName(formSubmissionId) {
@@ -294,16 +279,23 @@ export default async function handler(req, res) {
           emailSubject = emailSubject.replace(regex, value || '');
         }
 
-        // Replace [[...]] style placeholders (e.g., [[organization.name]])
+        // Replace [[...]] style placeholders (e.g., [[organization.name]]) via the
+        // shared contract helper so every send path resolves the same set. The
+        // timeout notification additionally exposes [[applicant.name]].
         const doubleBracketPlaceholders = {
-          'organization.name': placeholders.organization_name || '',
-          'tenant.name': tenant?.name || '',
+          ...(await buildContractBracketPlaceholders({
+            supabase,
+            tenantId: form.tenant_id,
+            organizationName: placeholders.organization_name || '',
+            tenantName: tenant?.name || '',
+            signer: { name: signerName, first_name: signerFirstName, last_name: signerLastName, email: signerEmail },
+            contractName: form.name,
+            ownerName: ddOwnerForTimeout.ownerName,
+          })),
           'applicant.name': applicantName,
-          'contract.name': form.name,
-          'dd_owner': ddOwnerForTimeout.ownerName
         };
-        emailSubject = replaceDoubleBracketPlaceholders(emailSubject, doubleBracketPlaceholders);
-        emailBody = replaceDoubleBracketPlaceholders(emailBody, doubleBracketPlaceholders);
+        emailSubject = replaceContractBracketPlaceholders(emailSubject, doubleBracketPlaceholders);
+        emailBody = replaceContractBracketPlaceholders(emailBody, doubleBracketPlaceholders);
 
         const senderEmail = tenant?.sender_email || tenant?.contact_email || 'noreply@iconn.app';
         const senderName = tenant?.sender_name || tenant?.name || 'Contracts';
