@@ -13,6 +13,7 @@ import { handleMemberGroupForumChange, filterForumReadRows } from '../../_lib/me
 import { recordMemberGroupActivity, resolveActorEmail } from '../../_lib/memberGroupActivity.js';
 import { dispatchWpWebhook } from '../../_lib/wpWebhook.js';
 import { rebuildSearchTextForEntity } from '../../_lib/searchTextBuilder.js';
+import { reindexMemberContentEntitySafe, deleteMemberContentEntitySafe } from '../../_lib/memberContentReindexHook.js';
 import { syncBlogPostAuthors } from '../../_lib/blogPostAuthors.js';
 import { sendBriefNotification } from '../../article-briefs/notify.js';
 import { getAccountingProvider } from '../../_lib/accountingProvider.js';
@@ -1038,6 +1039,11 @@ export default async function handler(req, res) {
         });
       }
 
+      // Task #2363: keep the Member AI Knowledge Assistant index fresh on edit.
+      if (['BlogPost', 'NewsPost', 'Event', 'Resource', 'ComplexEvent'].includes(entity) && (responseData || data) && supabase) {
+        reindexMemberContentEntitySafe(entity, responseData || data).catch(() => {});
+      }
+
       if (isArticleBrief && data && beforeData && tenantCtx.tenantId) {
         try {
           const activities = [];
@@ -1959,6 +1965,11 @@ export default async function handler(req, res) {
             console.error('[Entity DELETE] Search text rebuild error for complex event:', err);
           });
         }
+      }
+
+      // Task #2363: drop Member AI Knowledge Assistant chunks for deleted content.
+      if (['BlogPost', 'NewsPost', 'Event', 'Resource', 'ComplexEvent'].includes(entity) && supabase) {
+        deleteMemberContentEntitySafe(entity, id).catch(() => {});
       }
 
       return res.json({ success: true });

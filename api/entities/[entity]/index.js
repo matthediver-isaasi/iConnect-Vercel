@@ -16,6 +16,7 @@ import { dispatchWpWebhook } from '../../_lib/wpWebhook.js';
 import { sendBriefNotification } from '../../article-briefs/notify.js';
 import { sendSupportNotification, resolveAreaAssignee } from '../../support/notify.js';
 import { rebuildSearchTextForEntity } from '../../_lib/searchTextBuilder.js';
+import { reindexMemberContentEntitySafe } from '../../_lib/memberContentReindexHook.js';
 import { syncBlogPostAuthors } from '../../_lib/blogPostAuthors.js';
 import { checkMemberQuota, checkEventQuota } from '../../_lib/planQuota.js';
 
@@ -1662,6 +1663,11 @@ export default async function handler(req, res) {
         rebuildSearchTextForEntity(supabase, entity, data, data.id).catch(err => {
           console.error('[Entity POST] Search text rebuild error:', err);
         });
+      }
+
+      // Task #2363: keep the Member AI Knowledge Assistant index fresh on save.
+      if (['blogpost', 'newspost', 'event', 'resource', 'complexevent'].includes(entityNorm) && data && supabase) {
+        reindexMemberContentEntitySafe(entity, data).catch(() => {});
       }
 
       if (entityNorm === 'articlebrief' && data && data.tenant_id) {

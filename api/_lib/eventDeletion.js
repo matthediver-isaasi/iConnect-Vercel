@@ -18,6 +18,7 @@
 //      (Stripe / Xero) and re-run the same endpoint.
 
 import { supabase } from './database.js';
+import { deleteMemberContentChunks } from './memberContentIndexer.js';
 import {
   cancelBookingForEventDeletion,
   sendEventDeletionCancellationEmail,
@@ -215,6 +216,18 @@ export async function deleteEventWithCancellations({
       cleanupSummary,
       error: 'Event row delete failed after cancellations completed',
     };
+  }
+
+  // Task #2363: this is a non-generic hard-delete path (bypasses the entity
+  // endpoint hooks), so drop the Member AI Knowledge Assistant chunks for the
+  // now-deleted event immediately — don't wait for the nightly reconcile.
+  try {
+    await deleteMemberContentChunks(isComplex ? 'complex_event' : 'event', eventId, {
+      supabase,
+      tenantId,
+    });
+  } catch (chunkErr) {
+    console.error('[eventDeletion] member content chunk cleanup failed:', chunkErr?.message || chunkErr);
   }
 
   return {

@@ -50,6 +50,7 @@ import { useInboxUnreadSummary } from "@/hooks/useInbox";
 import { SiGoogle } from "react-icons/si";
 import BookmarkDrawer from "@/components/bookmarks/BookmarkDrawer";
 import InboxUnreadPopup from "@/components/inbox/InboxUnreadPopup";
+import MemberAiAssistant from "@/components/ai/MemberAiAssistant";
 
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from "@/api/base44Client";
@@ -966,6 +967,8 @@ export default function Layout({ children, currentPageName }) {
     const stored = localStorage.getItem('agcas_organization');
     return stored ? JSON.parse(stored) : null;
   });
+
+  const [aiAssistantOpen, setAiAssistantOpen] = useState(false);
 
   const mainContentRef = React.useRef(null);
   const sidebarContentRef = React.useRef(null);
@@ -2420,6 +2423,21 @@ useEffect(() => {
             <SidebarContent ref={sidebarContentRef} className="p-3 group-data-[collapsible=icon]:px-1">
               {/* Form Submission Stats Bar - shows for users with FormSubmissions access */}
               <SubmissionStatsBar />
+
+              {/* Task #2363: Member AI Knowledge Assistant launcher, pinned at top of nav */}
+              {memberInfo && (
+                <div className="mb-2 group-data-[collapsible=icon]:px-0">
+                  <Button
+                    type="button"
+                    onClick={() => setAiAssistantOpen(true)}
+                    className="w-full justify-start gap-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
+                    data-testid="button-ask-ai"
+                  >
+                    <Sparkles className="h-4 w-4 shrink-0" />
+                    <span className="group-data-[collapsible=icon]:hidden">Ask AI</span>
+                  </Button>
+                </div>
+              )}
               
               {/* Only render navigation once role data is loaded */}
               {!memberRole ? (
@@ -2584,6 +2602,10 @@ useEffect(() => {
               />
             </SidebarFooter>
           </Sidebar>
+
+          {memberInfo && (
+            <MemberAiAssistant open={aiAssistantOpen} onOpenChange={setAiAssistantOpen} />
+          )}
 
           <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
             {/* Mobile Header - only visible on small screens */}
