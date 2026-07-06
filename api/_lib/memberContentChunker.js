@@ -7,6 +7,8 @@
 // text. We build a normalized text blob per content type, strip HTML, and
 // split it at paragraph boundaries so embeddings stay focused.
 
+import { extractCanvasPageText } from '../../client/src/lib/canvasText.js';
+
 const MAX_CHUNK_CHARS = 1500;
 
 function stripHtml(input) {
@@ -115,6 +117,12 @@ export function buildMemberContentText(item, contentType) {
         stripHtml(item.content),
         meta.join(' • '),
       ]);
+    }
+    case 'canvas_page': {
+      // Symbol designs are pre-fetched onto item.__symbols by the indexer so
+      // referenced-symbol text is resolved exactly as the renderer shows it.
+      const bodyText = extractCanvasPageText(item.canvas_design, item.__symbols || {});
+      return joinParts([title, bodyText]);
     }
     default:
       return joinParts([title, stripHtml(item.summary), stripHtml(item.description)]);

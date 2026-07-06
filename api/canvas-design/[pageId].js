@@ -14,6 +14,7 @@
 
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasFeatureAccess } from '../_lib/tenantContext.js';
+import { reindexMemberContentEntitySafe } from '../_lib/memberContentReindexHook.js';
 
 function badRequest(res, message) {
   return res.status(400).json({ error: message });
@@ -130,6 +131,13 @@ export default async function handler(req, res) {
       console.error('[CanvasDesign] PUT error:', updateErr);
       return res.status(500).json({ error: 'Failed to save canvas design' });
     }
+
+    // Best-effort: keep the member AI knowledge base in sync with the new
+    // design text. This endpoint bypasses the generic entity API (which
+    // triggers the same hook), so trigger it explicitly here. Never blocks or
+    // fails the save; the nightly cron reconciles anything missed.
+    reindexMemberContentEntitySafe('IEditPage', { id: pageId, tenant_id: tenantId }).catch(() => {});
+
     return res.status(200).json({ page: updated });
   }
 

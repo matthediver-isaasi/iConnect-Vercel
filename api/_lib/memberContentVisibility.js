@@ -19,6 +19,19 @@ export const CONTENT_TYPES = [
   'complex_event',
   'news_post',
   'blog_post',
+  'canvas_page',
+];
+
+// Canvas Builder page layout_types that are publicly viewable — the exact set
+// the public page renderer (api/public/page/[slug].js) serves. Only pages with
+// one of these layouts are indexed / retrievable; 'member'-only pages are never
+// surfaced by the assistant, mirroring the public browse boundary.
+export const PUBLIC_CANVAS_LAYOUT_TYPES = [
+  'public',
+  'hybrid',
+  'public_no_chrome',
+  'public_header_only',
+  'public_footer_only',
 ];
 
 /**
@@ -85,6 +98,16 @@ export function isChunkVisibleToMember(chunk, ctx) {
   if (type === 'blog_post') {
     if (chunk.status !== 'published') return false;
     if (chunk.published_date && new Date(chunk.published_date) > now) return false;
+    return true;
+  }
+
+  if (type === 'canvas_page') {
+    // Mirror the public page renderer (api/public/page/[slug].js): only
+    // published pages surface. Canvas pages carry no role/group columns
+    // (i_edit_page has none), so there is no per-role/per-group gating; the
+    // publicly-viewable layout_type is enforced at index time (isIndexable)
+    // and again by the null feature_key (public content, no RBAC gate).
+    if (chunk.status !== 'published') return false;
     return true;
   }
 

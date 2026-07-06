@@ -22,6 +22,10 @@ const ENTITY_TO_CONTENT_TYPE = {
   complexevent: 'complex_event',
   newspost: 'news_post',
   blogpost: 'blog_post',
+  // Canvas Builder pages (entity name IEditPage). Non-canvas iEdit pages are
+  // filtered out by isIndexable (builder_type !== 'canvas'), so a save of an
+  // element-based iEdit page just no-ops (drops any chunks it never had).
+  ieditpage: 'canvas_page',
 };
 
 function resolveContentType(entity) {

@@ -15,7 +15,8 @@
 import crypto from 'node:crypto';
 import { chunkMemberContent } from './memberContentChunker.js';
 import { getDefaultOpenAIClient, embedTexts, EMBEDDING_MODEL } from './helpArticleIndexer.js';
-import { CONTENT_TYPES } from './memberContentVisibility.js';
+import { CONTENT_TYPES, PUBLIC_CANVAS_LAYOUT_TYPES } from './memberContentVisibility.js';
+import { collectCanvasSymbolIds } from '../../client/src/lib/canvasText.js';
 
 export { getDefaultOpenAIClient, EMBEDDING_MODEL };
 
@@ -52,6 +53,16 @@ export const CONTENT_TYPE_CONFIG = {
     columns:
       'id, tenant_id, title, slug, summary, content, tags, status, published_date',
   },
+  canvas_page: {
+    table: 'i_edit_page',
+    // Public-facing content: no member RBAC feature gates page viewing.
+    feature: null,
+    columns:
+      'id, tenant_id, title, slug, canvas_design, status, layout_type, builder_type',
+    // Only Canvas Builder pages (never legacy iEdit element pages) are indexed;
+    // applied to every generic fetch / existence check for this type.
+    filterEq: { builder_type: 'canvas' },
+  },
 };
 
 function hashChunk(content) {
@@ -76,6 +87,9 @@ export function buildMemberContentLink(contentType, item) {
       return `/NewsView?slug=${encodeURIComponent(slug || id)}`;
     case 'blog_post':
       return `/ArticleView?slug=${encodeURIComponent(slug || id)}`;
+    case 'canvas_page':
+      // Canvas Builder pages render at the tenant-root slug via DynamicPage.
+      return slug ? `/${slug}` : null;
     default:
       return null;
   }
@@ -107,6 +121,14 @@ export function isIndexable(contentType, item) {
       return item.status === 'published';
     case 'blog_post':
       return item.status === 'published';
+    case 'canvas_page':
+      // Mirror the public page renderer: Canvas Builder page, published, and a
+      // publicly-viewable layout_type. 'member'-only pages are never indexed.
+      return (
+        item.builder_type === 'canvas' &&
+        item.status === 'published' &&
+        PUBLIC_CANVAS_LAYOUT_TYPES.includes(item.layout_type)
+      );
     default:
       return false;
   }
@@ -133,6 +155,29 @@ function buildMetadata(contentType, item) {
     start_date: item.start_date ?? null,
     feature_key: cfg?.feature || null,
   };
+}
+
+/**
+ * Canvas pages resolve referenced symbols at render time; the chunker's text
+ * extraction needs those symbol designs to capture text a member would see.
+ * Fetch the (top-level) referenced symbol designs and stash them on the item so
+ * buildMemberContentText can resolve them. Best-effort scope matches the public
+ * page endpoint: only symbols used by THIS page, within the same tenant.
+ */
+async function attachCanvasSymbols(item, supabase) {
+  item.__symbols = {};
+  if (!item?.canvas_design || !item?.tenant_id) return;
+  const ids = collectCanvasSymbolIds(item.canvas_design);
+  if (ids.size === 0) return;
+  const { data, error } = await supabase
+    .from('canvas_symbol')
+    .select('id, design')
+    .eq('tenant_id', item.tenant_id)
+    .in('id', Array.from(ids));
+  if (error) throw error;
+  const map = {};
+  for (const row of data || []) map[row.id] = row;
+  item.__symbols = map;
 }
 
 export async function deleteMemberContentChunks(contentType, sourceId, { supabase, tenantId = null } = {}) {
@@ -200,6 +245,9 @@ export async function sweepOrphanedMemberContentChunks({ supabase, tenantId = nu
         const batch = ids.slice(i, i + BATCH);
         let sq = supabase.from(cfg.table).select('id').in('id', batch);
         if (tenantId) sq = sq.eq('tenant_id', tenantId);
+        if (cfg.filterEq) {
+          for (const [k, v] of Object.entries(cfg.filterEq)) sq = sq.eq(k, v);
+        }
         const { data, error } = await sq;
         if (error) throw error;
         for (const r of data || []) existing.add(r.id);
@@ -248,6 +296,10 @@ export async function reindexMemberContentItem(contentType, item, { supabase, op
   if (!isIndexable(contentType, item)) {
     await deleteMemberContentChunks(contentType, sourceId, { supabase });
     return { contentType, sourceId, chunks: 0, embedded: 0, reused: 0, removed: true };
+  }
+
+  if (contentType === 'canvas_page') {
+    await attachCanvasSymbols(item, supabase);
   }
 
   const built = chunkMemberContent(item, contentType);
@@ -405,6 +457,9 @@ export async function reindexAllMemberContent({
           .order('id', { ascending: true })
           .limit(PAGE);
         if (tenantId) query = query.eq('tenant_id', tenantId);
+        if (cfg.filterEq) {
+          for (const [k, v] of Object.entries(cfg.filterEq)) query = query.eq(k, v);
+        }
         if (lastId != null) query = query.gt('id', lastId);
 
         const { data: rows, error } = await query;

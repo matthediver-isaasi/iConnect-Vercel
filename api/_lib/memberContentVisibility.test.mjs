@@ -20,13 +20,14 @@ const memberCtx = (over = {}) => ({
   ...over,
 });
 
-test('CONTENT_TYPES covers the five member content kinds', () => {
+test('CONTENT_TYPES covers the member content kinds', () => {
   assert.deepEqual(CONTENT_TYPES, [
     'resource',
     'event',
     'complex_event',
     'news_post',
     'blog_post',
+    'canvas_page',
   ]);
 });
 
@@ -219,6 +220,49 @@ test('blog_post: only published visible, future publish hidden', () => {
     ),
     false
   );
+});
+
+test('canvas_page: only published is visible', () => {
+  const base = { tenant_id: TENANT, content_type: 'canvas_page' };
+  assert.equal(
+    isChunkVisibleToMember({ ...base, status: 'published' }, memberCtx()),
+    true
+  );
+  assert.equal(
+    isChunkVisibleToMember({ ...base, status: 'draft' }, memberCtx()),
+    false
+  );
+});
+
+test('canvas_page: public content is not blocked by a member feature gate', () => {
+  const chunk = {
+    tenant_id: TENANT,
+    content_type: 'canvas_page',
+    status: 'published',
+    feature_key: null,
+  };
+  // A member who can access no features at all still sees a public page.
+  assert.equal(
+    isChunkVisibleToMember(chunk, memberCtx({ canAccessFeature: () => false })),
+    true
+  );
+});
+
+test('canvas_page: published page visible to a member with no role or groups', () => {
+  const chunk = { tenant_id: TENANT, content_type: 'canvas_page', status: 'published' };
+  assert.equal(
+    isChunkVisibleToMember(chunk, memberCtx({ roleId: null, groupIds: new Set() })),
+    true
+  );
+});
+
+test('canvas_page: cross-tenant is never visible', () => {
+  const chunk = {
+    tenant_id: 'other-tenant',
+    content_type: 'canvas_page',
+    status: 'published',
+  };
+  assert.equal(isChunkVisibleToMember(chunk, memberCtx()), false);
 });
 
 test('unknown content type is never visible', () => {
