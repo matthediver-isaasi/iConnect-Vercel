@@ -60,6 +60,7 @@ import {
 } from '@/lib/canvasDesign';
 import CanvasPalette from './CanvasPalette';
 import CanvasStage from './CanvasStage';
+import { getBlockDefinition } from './blocks/registry';
 import useEdgeAutoScroll from './useEdgeAutoScroll';
 import CanvasGuidesOverlay from './CanvasGuides';
 import CanvasInspector from './CanvasInspector';
@@ -573,6 +574,90 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       return setBlockBp(b, breakpoint, patch);
     }));
   }, [replaceChildren, breakpoint]);
+
+  // ---- Auto-height commit (Text, FAQ/Accordion) ----
+  // Auto-height blocks render at their content height (height:auto) but their
+  // stored geom.h never tracks that, so stageHeightForBreakpoint (and thus the
+  // published CSS stage height) can't grow to fit them. The runtime reflow
+  // (AccordionReflowContext) only paints over this at read time: it pushes
+  // blocks below down by (measured - stored h) and grows containing sections /
+  // the stage minHeight. Nothing is persisted, so the published SSR/CSS render
+  // is wrong until JS runs.
+  //
+  // When an auto-height block reports its measured height we BAKE the reflow
+  // into stored geometry for the breakpoint currently being edited, mirroring
+  // AccordionReflowContext exactly so there is zero visual change:
+  //   1. set the block's own h to the measured height,
+  //   2. push every block entirely below it down by the delta (getOffset), and
+  //   3. grow every Section that contains it by the delta (getSectionGrowth).
+  // Because stored geometry then matches what was rendered, the runtime reflow
+  // collapses to a no-op for the authored/collapsed state, while genuine
+  // runtime expansion (a visitor opening an accordion) still reflows as before.
+  //
+  // Debounced per block and flagged skip-history so it never spams the undo
+  // stack; a 2px dead-band keeps the ResizeObserver from churning autosave with
+  // sub-pixel micro-changes. Committing h/y never changes any block's rendered
+  // height (auto-height blocks stay height:auto; pushes only move `top`), so
+  // there is no measure -> commit -> re-measure loop.
+  const autoHeightTimers = useRef(new Map());
+  const commitAutoHeight = useCallback((blockId, measuredHeight) => {
+    if (!blockId || !Number.isFinite(measuredHeight)) return;
+    const rounded = Math.round(measuredHeight);
+    if (rounded <= 0) return;
+    const timers = autoHeightTimers.current;
+    if (timers.has(blockId)) clearTimeout(timers.get(blockId));
+    timers.set(blockId, setTimeout(() => {
+      timers.delete(blockId);
+      skipHistoryRef.current = true;
+      setDesign((prev) => {
+        const abort = () => { skipHistoryRef.current = false; return prev; };
+        const kids = getRootChildren(prev);
+        const target = kids.find((x) => x.id === blockId);
+        if (!target) return abort();
+        const def = getBlockDefinition(target.type);
+        // Bake heights only for plain auto-height blocks (Text, FAQ/Accordion).
+        // Card blocks are autoHeight + cardGrow: their stored/manual box height
+        // is the author's intended size and they rely on runtime row-height
+        // equalization (getRowHeight), so baking their measured content height
+        // into stored geom would fight that system and drift manual resizes.
+        if (!def?.autoHeight || def?.cardGrow) return abort();
+        const tg = resolveBlockAtBreakpoint(target, breakpoint);
+        if (!tg || tg.hidden) return abort();
+        const delta = rounded - (tg.h || 0);
+        // Dead-band: ignore tiny deltas so we don't fight the ResizeObserver
+        // or churn autosave with micro-changes.
+        if (Math.abs(delta) < 2) return abort();
+        const targetTop = tg.y;
+        const targetBottom = tg.y + (tg.h || 0);
+        const nextKids = kids.map((x) => {
+          if (x.id === blockId) return setBlockBp(x, breakpoint, { h: rounded });
+          const g = resolveBlockAtBreakpoint(x, breakpoint);
+          if (!g || g.hidden) return x;
+          const gBottom = g.y + (g.h || 0);
+          // (2) Block entirely below the target -> shift down by delta.
+          if (targetBottom <= g.y) {
+            return setBlockBp(x, breakpoint, { y: Math.round(g.y + delta) });
+          }
+          // (3) Section that contains the target -> grow by delta.
+          if (
+            x.type === BLOCK_TYPES.SECTION &&
+            targetTop >= g.y &&
+            targetBottom <= gBottom
+          ) {
+            return setBlockBp(x, breakpoint, { h: Math.round((g.h || 0) + delta) });
+          }
+          return x;
+        });
+        return setRootChildren(prev, nextKids);
+      });
+    }, 200));
+  }, [breakpoint, setDesign]);
+
+  // Cancel any pending auto-height commits on unmount.
+  useEffect(() => () => {
+    for (const t of autoHeightTimers.current.values()) clearTimeout(t);
+    autoHeightTimers.current.clear();
+  }, []);
 
   // ---- DnD palette -> canvas ----
   const sensors = useSensors(
@@ -1698,6 +1783,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
                       onApplyGeometry={applyGeometry}
                       onMarqueeSelect={handleMarqueeSelect}
                       onPreviewBottomChange={setLivePreviewBottom}
+                      onCommitAutoHeight={commitAutoHeight}
                       scrollContainerRef={stageWrapperRef}
                     />
                     </CanvasSymbolsProvider>

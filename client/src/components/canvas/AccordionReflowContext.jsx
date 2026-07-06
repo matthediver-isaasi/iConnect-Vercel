@@ -113,7 +113,7 @@ export function useReportCardContentHeight(blockId) {
  *   blocks      – the flat list of canvas blocks being rendered
  *   resolveGeom – (block) => { x, y, w, h, hidden }  (breakpoint-resolved)
  */
-export function AccordionReflowProvider({ children, blocks, resolveGeom, editorMode = false, breakpoint }) {
+export function AccordionReflowProvider({ children, blocks, resolveGeom, editorMode = false, breakpoint, onMeasure }) {
   const [measuredHeights, setMeasuredHeights] = useState(() => new Map());
   // Smallest height ever measured per block = its collapsed (baseline) rendered
   // height. Accordions mount fully collapsed, so the first measurement is their
@@ -134,6 +134,14 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
     baselineHeightsRef.current = new Map();
   }, [breakpoint]);
 
+  // Optional editor hook: whenever an auto-height block reports a rendered
+  // height we forward it so the editor can commit that height into the block's
+  // stored geometry (published render passes no onMeasure, so it stays a pure
+  // read-time reflow). Held in a ref so reportHeight keeps a stable identity
+  // and the measurement effects don't re-bind when onMeasure changes.
+  const onMeasureRef = useRef(onMeasure);
+  useEffect(() => { onMeasureRef.current = onMeasure; }, [onMeasure]);
+
   const reportHeight = useCallback((blockId, height) => {
     const rounded = Math.round(height);
     const prevBaseline = baselineHeightsRef.current.get(blockId);
@@ -146,6 +154,7 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       next.set(blockId, rounded);
       return next;
     });
+    if (onMeasureRef.current) onMeasureRef.current(blockId, rounded);
   }, []);
 
   /**
