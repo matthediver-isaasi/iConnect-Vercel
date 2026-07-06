@@ -92,6 +92,7 @@ export default function HelpArticlesEditor() {
   const [reindexing, setReindexing] = useState(false);
   const [memberReindexing, setMemberReindexing] = useState(false);
   const [memberReindexStatus, setMemberReindexStatus] = useState(null);
+  const [memberReindexProgress, setMemberReindexProgress] = useState(null);
 
   // Guided AI generation review flow (Task #2304).
   const [buildOpen, setBuildOpen] = useState(false);
@@ -269,45 +270,98 @@ export default function HelpArticlesEditor() {
     }
   };
 
+  // Drive the member-content reindex slice-by-slice from the browser (Task
+  // #2389). Each POST runs one budgeted slice and returns { done, nextCursor,
+  // runId, ...counters }; we re-POST with { runId, cursor } until done. Because
+  // the super-admin is watching this tab, the browser keeps the run's heartbeat
+  // fresh across slices so the "may have stalled" warning never appears on a
+  // normal run. If the tab is closed mid-run, the 6h cron reclaims and finishes.
   const rebuildMemberIndex = async () => {
+    // Safety cap so a bug (not-done with no cursor) can't loop forever. Progress
+    // is monotonic, so any real catalog finishes well within this many slices.
+    const MAX_SLICES = 1000;
+    const totals = { items: 0, chunks: 0, embedded: 0, reused: 0, errors: 0 };
+    let runId = null;
+    let cursor = null;
+
     setMemberReindexing(true);
+    setMemberReindexProgress({ ...totals, state: 'running' });
     try {
-      const res = await fetch(MEMBER_REINDEX_API, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to rebuild member AI index');
-      }
-      if (data.skipped) {
-        toast({
-          title: 'Rebuild already running',
-          description:
-            'A member content reindex is already in progress. Let it finish, then try again.',
+      for (let i = 0; i < MAX_SLICES; i++) {
+        const res = await fetch(MEMBER_REINDEX_API, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ runId, cursor }),
         });
-        return;
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.error || 'Failed to rebuild member AI index');
+        }
+
+        if (data.skipped) {
+          if (data.reason === 'in_progress') {
+            // Only the first slice can hit this — another run already owns it.
+            toast({
+              title: 'Rebuild already running',
+              description:
+                'A member content reindex is already in progress. Let it finish, then try again.',
+            });
+          } else {
+            // A newer run superseded ours mid-loop; it will carry on elsewhere.
+            toast({
+              title: 'Rebuild handed off',
+              description:
+                'Another rebuild took over this run; it will continue in the background.',
+            });
+          }
+          setMemberReindexProgress(null);
+          return;
+        }
+
+        runId = data.runId || runId;
+        cursor = data.nextCursor || null;
+        totals.items += data.items || 0;
+        totals.chunks += data.chunks || 0;
+        totals.embedded += data.embedded || 0;
+        totals.reused += data.reused || 0;
+        totals.errors += data.errors || 0;
+        setMemberReindexProgress({ ...totals, state: data.done ? 'done' : 'running' });
+        // Keep the status readout (in progress / last completed) in step.
+        loadMemberReindexStatus();
+
+        if (data.done) {
+          const description =
+            `${totals.items} content item${totals.items === 1 ? '' : 's'}, ` +
+            `${totals.chunks} chunk${totals.chunks === 1 ? '' : 's'} ` +
+            `(${totals.embedded} embedded, ${totals.reused} reused)` +
+            (totals.errors ? ` — ${totals.errors} failed` : '');
+          toast({
+            title: totals.errors ? 'Rebuilt with some errors' : 'Member AI index rebuilt',
+            description,
+            variant: totals.errors ? 'destructive' : undefined,
+          });
+          return;
+        }
+
+        if (!cursor) {
+          // Not done but no resume cursor — shouldn't happen; stop to avoid an
+          // infinite loop. The 6h cron will pick up any remaining work.
+          break;
+        }
       }
-      const stillRunning = data.done === false;
-      const description =
-        `${data.items} content item${data.items === 1 ? '' : 's'}, ` +
-        `${data.chunks} chunk${data.chunks === 1 ? '' : 's'} ` +
-        `(${data.embedded} embedded, ${data.reused} reused)` +
-        (data.errors ? ` — ${data.errors} failed` : '') +
-        (stillRunning ? ' — still processing the rest in the background…' : '');
+
+      // Hit the safety cap (or a missing cursor) without a done signal.
       toast({
-        title: data.errors
-          ? 'Rebuilt with some errors'
-          : stillRunning
-          ? 'Member AI index rebuild started'
-          : 'Member AI index rebuilt',
-        description,
-        variant: data.errors ? 'destructive' : undefined,
+        title: 'Rebuild still running',
+        description:
+          'The rebuild is taking longer than expected. The scheduled job will finish the rest.',
       });
     } catch (err) {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });
+      setMemberReindexProgress((p) =>
+        p ? { ...p, state: 'error', error: err.message } : { ...totals, state: 'error', error: err.message }
+      );
     } finally {
       setMemberReindexing(false);
       loadMemberReindexStatus();
@@ -507,6 +561,35 @@ export default function HelpArticlesEditor() {
                 No member AI index rebuild has completed yet
               </span>
             </>
+          )}
+        </div>
+      )}
+
+      {memberReindexProgress && (
+        <div
+          className="flex flex-wrap items-center gap-2 text-sm"
+          data-testid="progress-member-reindex"
+        >
+          {memberReindexProgress.state === 'running' && (
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+          )}
+          {memberReindexProgress.state === 'done' && (
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+          )}
+          {memberReindexProgress.state === 'error' && (
+            <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" />
+          )}
+          <Badge variant="secondary" data-testid="badge-member-reindex-items">
+            {memberReindexProgress.items} items
+          </Badge>
+          <Badge variant="secondary">{memberReindexProgress.chunks} chunks</Badge>
+          <Badge variant="secondary">{memberReindexProgress.embedded} embedded</Badge>
+          <Badge variant="secondary">{memberReindexProgress.reused} reused</Badge>
+          {memberReindexProgress.errors > 0 && (
+            <Badge variant="warning">{memberReindexProgress.errors} failed</Badge>
+          )}
+          {memberReindexProgress.error && (
+            <span className="text-destructive">{memberReindexProgress.error}</span>
           )}
         </div>
       )}

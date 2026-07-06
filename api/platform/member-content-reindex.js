@@ -7,17 +7,27 @@
 // the CRON_SECRET-guarded /api/cron/reindex-member-content.
 //
 // Unlike the synchronous Help reindex, member-content reindex is time-budgeted
-// and self-continues across slices (Vercel caps functions at 60s). So this
-// endpoint runs a single budgeted slice to return a real summary for the UI
-// toast, then — if there is more to do — hands off to the existing cron
-// continuation chain (which carries our runId forward) and returns promptly
-// instead of blocking for the entire catalog.
+// (Vercel caps functions at 60s), so a full catalog can't finish in one call.
+//
+// Task #2389 — this endpoint used to run a single slice and then hand off to the
+// cron continuation chain via a fire-and-forget server-to-self fetch. On Vercel
+// serverless that self-hand-off does not reliably execute, so after the first
+// slice nothing renewed the concurrency heartbeat; once it aged past the 5-min
+// stale threshold the UI showed "may have stalled" until the 6h cron reclaimed
+// it. Since a super-admin is actively watching during a MANUAL rebuild, we now
+// drive the slices from the browser instead (the pattern the Backups tab uses):
+// each POST runs exactly ONE budgeted slice and returns the resume state (done
+// flag, next cursor, run ownership token, and this slice's counters). The client
+// re-POSTs with { runId, cursor } to process the next slice, which renews the
+// heartbeat so the marker never goes stale mid-run. The scheduled 6h cron keeps
+// its own server self-triggering chain as the unattended backstop.
 //
 // Concurrency: reuses the shared reindex lock (memberContentReindexLock) so a
-// manual rebuild can't overlap the cron or another manual run. Embedding needs
-// an OpenAI key (AI_INTEGRATIONS_OPENAI_API_KEY / OPENAI_API_KEY) that only
-// exists in the Vercel/CI environment — fail loudly with a clear message if it
-// is missing.
+// manual rebuild can't overlap the cron or another manual run. The first slice
+// acquires the run; continuation slices renew ownership; completion/failure
+// releases it. Embedding needs an OpenAI key
+// (AI_INTEGRATIONS_OPENAI_API_KEY / OPENAI_API_KEY) that only exists in the
+// Vercel/CI environment — fail loudly with a clear message if it is missing.
 
 import { supabase } from '../_lib/database.js';
 import { getSessionPlatformOwner } from '../_lib/platformSession.js';
@@ -27,53 +37,15 @@ import {
 } from '../_lib/memberContentIndexer.js';
 import {
   acquireReindexRun,
+  renewReindexRun,
   completeReindexRun,
   readReindexStatus,
 } from '../_lib/memberContentReindexLock.js';
 
-// How much of the 60s function budget to spend indexing before returning and
-// handing off to the continuation chain. Matches the cron's slice budget.
+// How much of the 60s function budget to spend indexing before returning the
+// resume state to the browser. Matches the cron's slice budget, leaving headroom
+// for an in-flight embedding batch plus the response.
 const SLICE_BUDGET_MS = 40 * 1000;
-// How long to wait on the continuation dispatch before abandoning our side of
-// the connection; the downstream invocation runs to completion independently.
-const DISPATCH_ABORT_MS = 2000;
-
-function getOrigin(req) {
-  const forwardedProto = (req.headers['x-forwarded-proto'] || '').toString().split(',')[0].trim();
-  const forwardedHost = (req.headers['x-forwarded-host'] || req.headers.host || '').toString().split(',')[0].trim();
-  const headerOrigin = forwardedHost ? `${forwardedProto || 'https'}://${forwardedHost}` : '';
-  return (process.env.VITE_APP_URL || headerOrigin || '').replace(/\/+$/, '');
-}
-
-// Hand the remaining slices to the existing cron continuation chain. It re-uses
-// the concurrency marker via renewReindexRun (hop > 0) with the runId we minted,
-// so the chain keeps ownership without spawning a parallel pass.
-async function dispatchContinuation(origin, body) {
-  const url = `${origin}/api/cron/reindex-member-content`;
-  const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), DISPATCH_ABORT_MS);
-  try {
-    await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${process.env.CRON_SECRET}`,
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-    return { ok: true };
-  } catch (err) {
-    if (err && err.name === 'AbortError') {
-      // Expected: we aborted our side after the request was dispatched.
-      return { ok: true };
-    }
-    console.warn('[Platform Member Reindex] continuation dispatch failed:', err?.message);
-    return { ok: false, error: String(err?.message || err) };
-  } finally {
-    clearTimeout(t);
-  }
-}
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -113,22 +85,46 @@ export default async function handler(req, res) {
     });
   }
 
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  // Resume token carried by the browser-driven loop across slices.
+  const cursor = body.cursor && typeof body.cursor === 'object' ? body.cursor : null;
+  // Run ownership token minted on the first slice and echoed back on every
+  // continuation POST so we renew (not re-acquire) the same concurrency marker.
+  const runIdFromBody = typeof body.runId === 'string' && body.runId ? body.runId : null;
+
   const scope = { tenantId: null, contentType: null };
 
-  // Concurrency guard: claim the run (hop 0). If a live chain (cron or another
-  // manual rebuild) is already progressing, defer instead of running a parallel
-  // pass. Fail-open: a marker error still lets indexing proceed.
-  const acq = await acquireReindexRun({ supabase, scope });
-  if (!acq.acquired) {
-    return res.status(200).json({
-      ok: true,
-      skipped: true,
-      reason: 'in_progress',
-      activeRunId: acq.activeRunId || null,
-      ageMs: acq.ageMs ?? null,
-    });
+  // Concurrency guard. First slice (no runId) acquires the run; if a live chain
+  // (cron or another manual rebuild) is already progressing, defer instead of
+  // running a parallel pass. Continuation slices renew ownership; if a newer run
+  // has taken over, stand down. Fail-open: a marker error still lets indexing
+  // proceed. Either path freshens the heartbeat, so the marker never goes stale
+  // while the browser keeps driving slices back-to-back.
+  let runId;
+  if (runIdFromBody) {
+    const renew = await renewReindexRun({ supabase, runId: runIdFromBody, scope });
+    if (!renew.owns) {
+      return res.status(200).json({
+        ok: true,
+        skipped: true,
+        reason: 'superseded',
+        activeRunId: renew.activeRunId || null,
+      });
+    }
+    runId = runIdFromBody;
+  } else {
+    const acq = await acquireReindexRun({ supabase, scope });
+    if (!acq.acquired) {
+      return res.status(200).json({
+        ok: true,
+        skipped: true,
+        reason: 'in_progress',
+        activeRunId: acq.activeRunId || null,
+        ageMs: acq.ageMs ?? null,
+      });
+    }
+    runId = acq.runId;
   }
-  const runId = acq.runId;
 
   const startTime = Date.now();
 
@@ -139,50 +135,31 @@ export default async function handler(req, res) {
       tenantId: null,
       contentType: null,
       deadlineMs: startTime + SLICE_BUDGET_MS,
-      cursor: null,
+      cursor,
     });
 
-    let continuation = null;
-    if (!results.done && results.nextCursor) {
-      const origin = getOrigin(req);
-      if (!origin) {
-        console.error(
-          '[Platform Member Reindex] no origin to hand off continuation; ' +
-            'next slice will be picked up by the 6h cron.'
-        );
-        continuation = { dispatched: false, reason: 'no_origin' };
-      } else {
-        const dispatch = await dispatchContinuation(origin, {
-          tenantId: null,
-          contentType: null,
-          cursor: results.nextCursor,
-          hop: 1,
-          runId,
-        });
-        continuation = { dispatched: dispatch.ok, reason: dispatch.error || null };
-      }
-    }
-
-    // Release the concurrency marker unless we handed off to a live successor.
-    // If the pass finished, or the hand-off failed / had no origin, clear it so
-    // the next tick can restart immediately. Only leave the marker in place when
-    // a continuation was actually dispatched for the downstream slice to renew.
-    if (results.done || (continuation && continuation.dispatched !== true)) {
-      await completeReindexRun({ supabase, runId, completed: results.done });
+    // Release the concurrency marker only when the whole pass is done. While
+    // there's more to do we leave the marker in place — it was just renewed at
+    // the top of this slice, so it stays fresh — and the browser drives the next
+    // slice. If the browser stops (tab closed), the marker ages out after the
+    // stale threshold and the 6h cron reclaims and finishes the run.
+    if (results.done) {
+      await completeReindexRun({ supabase, runId, completed: true });
     }
 
     return res.status(200).json({
+      ...results,
       ok: results.errors === 0,
       durationMs: Date.now() - startTime,
       done: results.done,
-      continuation,
-      ...results,
+      nextCursor: results.nextCursor || null,
+      runId,
     });
   } catch (err) {
     console.error('[Platform Member Reindex] fatal:', err);
     // Release the marker so the next tick restarts immediately rather than
     // waiting out the marker TTL.
     await completeReindexRun({ supabase, runId });
-    return res.status(500).json({ ok: false, error: err.message });
+    return res.status(500).json({ ok: false, error: err.message, runId });
   }
 }
