@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { getTenantContext } from '../_lib/tenantContext.js';
+import { remapFieldMappings } from '../_lib/fieldMappingRemap.js';
 
 const supabaseUrl =
   process.env.DEST_SUPABASE_URL ||
@@ -121,7 +122,7 @@ export default async function handler(req, res) {
     // Look up both forms (tenant guarded)
     const { data: forms, error: formsErr } = await supabase
       .from('form')
-      .select('id, name')
+      .select('id, name, fields')
       .in('id', [sourceFormId, targetFormId])
       .eq('tenant_id', tenantId);
     if (formsErr) throw formsErr;
@@ -130,6 +131,9 @@ export default async function handler(req, res) {
     const targetForm = forms?.find(f => f.id === targetFormId);
     if (!sourceForm) return res.status(404).json({ error: 'Source form not found in this tenant' });
     if (!targetForm) return res.status(404).json({ error: 'Target form not found in this tenant' });
+
+    const sourceFormFields = sourceForm.fields || [];
+    const targetFormFields = targetForm.fields || [];
 
     // Source config
     const { data: sourceConfigRows, error: srcCfgErr } = await supabase
@@ -268,14 +272,35 @@ export default async function handler(req, res) {
     }
 
     if (srcFm.data?.length) {
-      const rows = srcFm.data.map(r => ({
-        ...pickColumns(r, FIELD_MAPPING_ACTION_CLONE_COLUMNS),
-        tenant_id: tenantId,
-        form_id: targetFormId,
-      }));
-      const { error } = await supabase.from('stage_field_mapping_action').insert(rows);
-      if (error) throw error;
+      let droppedMappings = 0;
+      const rows = srcFm.data.map(r => {
+        const picked = pickColumns(r, FIELD_MAPPING_ACTION_CLONE_COLUMNS);
+        // Translate each mapping's source_field_id from the source form's field
+        // to the target form's equivalent (by label, then name, then key) so the
+        // copied mappings don't carry dangling source ids that point at fields
+        // which only exist on the source form.
+        const { mappings, dropped } = remapFieldMappings(
+          picked.field_mappings || [],
+          sourceFormFields,
+          targetFormFields,
+          { dropUnmatched: true }
+        );
+        droppedMappings += dropped.length;
+        return {
+          ...picked,
+          field_mappings: mappings,
+          tenant_id: tenantId,
+          form_id: targetFormId,
+        };
+      // Skip actions left with no mappings after remapping (would violate the
+      // NOT NULL / non-empty invariant enforced by the API on save).
+      }).filter(row => Array.isArray(row.field_mappings) && row.field_mappings.length > 0);
+      if (rows.length) {
+        const { error } = await supabase.from('stage_field_mapping_action').insert(rows);
+        if (error) throw error;
+      }
       cloned.field_mapping_actions = rows.length;
+      cloned.field_mappings_dropped = droppedMappings;
     }
 
     if (srcZoho.data?.length) {

@@ -210,6 +210,30 @@ export default function DueDiligenceConfigPage() {
   const memberCustomFields = (memberFieldsData || []).filter(f => f.entity_scope === 'member' && f.is_active !== false);
   const organizationCustomFields = (memberFieldsData || []).filter(f => f.entity_scope === 'organization' && f.is_active !== false);
 
+  // A field-mapping's source_field_id is a form field id (id || name). When DD
+  // config is copied across forms the id can point at a field that only exists
+  // on the OTHER form, so it resolves to nothing here. Detect that so we can
+  // surface a "broken — re-select" state instead of a silent blank dropdown.
+  const formFieldMatchesSourceId = (sourceId) => {
+    if (sourceId === null || sourceId === undefined || sourceId === '') return false;
+    const sid = String(sourceId);
+    return (form?.fields || []).some(
+      f => f && (String(f.id) === sid || (f.name != null && String(f.name) === sid) || (f.key != null && String(f.key) === sid))
+    );
+  };
+  const isMappingSourceBroken = (mapping) => {
+    if (!mapping) return false;
+    const st = mapping.source_type;
+    if (st === 'static' || st === 'current_date' || st === 'clear') return false;
+    if (mapping.transformation === 'current_date') return false;
+    const sid = mapping.source_field_id;
+    // Genuinely-empty rows are handled by the normal "select a field" prompt;
+    // only a non-empty id that resolves to nothing is "broken".
+    if (sid === null || sid === undefined || sid === '') return false;
+    return !formFieldMatchesSourceId(sid);
+  };
+  const countBrokenMappings = (mappings) => (mappings || []).filter(isMappingSourceBroken).length;
+
   const { data: stageEmailActionsData, refetch: refetchStageEmailActions } = useQuery({
     queryKey: ['stage-email-actions', formId],
     queryFn: async () => {
@@ -2672,12 +2696,19 @@ export default function DueDiligenceConfigPage() {
                                               <>
                                                 {stageActions.map((fma) => {
                                                   const mappingCount = (fma.field_mappings || []).length;
+                                                  const brokenCount = countBrokenMappings(fma.field_mappings);
                                                   return (
                                                     <div key={fma.id} className="flex items-center justify-between gap-2 p-2 border rounded bg-muted/50">
                                                       <div className="flex items-center gap-2 flex-wrap">
                                                         <FileText className="w-4 h-4 text-muted-foreground" />
                                                         <span className="text-sm">Field Mappings</span>
                                                         <Badge variant="outline" className="text-xs">{mappingCount} field{mappingCount !== 1 ? 's' : ''}</Badge>
+                                                        {brokenCount > 0 && (
+                                                          <Badge variant="warning" className="text-xs" data-testid={`badge-broken-field-mapping-${fma.id}`}>
+                                                            <AlertCircle className="w-3 h-3 mr-1" />
+                                                            {brokenCount} need{brokenCount !== 1 ? '' : 's'} re-select
+                                                          </Badge>
+                                                        )}
                                                       </div>
                                                       <div className="flex items-center gap-1">
                                                         <Button
@@ -2751,27 +2782,43 @@ export default function DueDiligenceConfigPage() {
                                                             </Select>
                                                             
                                                             {sourceType === 'field' ? (
-                                                              <Select
-                                                                value={mapping.source_field_id || ''}
-                                                                onValueChange={(v) => {
-                                                                  setPendingFieldMappingAction(prev => {
-                                                                    const newMappings = [...(prev.mappings || [])];
-                                                                    newMappings[mapIdx] = { ...newMappings[mapIdx], source_field_id: v };
-                                                                    return { ...prev, mappings: newMappings };
-                                                                  });
-                                                                }}
-                                                              >
-                                                                <SelectTrigger data-testid={`select-source-field-${mapIdx}`}>
-                                                                  <SelectValue placeholder="Form field..." />
-                                                                </SelectTrigger>
-                                                                <SelectContent>
-                                                                  {(form?.fields || []).filter(f => f.id || f.name).map(field => (
-                                                                    <SelectItem key={field.id || field.name} value={field.id || field.name}>
-                                                                      {field.label || field.name}
-                                                                    </SelectItem>
-                                                                  ))}
-                                                                </SelectContent>
-                                                              </Select>
+                                                              (() => {
+                                                                const sourceBroken = isMappingSourceBroken(mapping);
+                                                                return (
+                                                                  <div className="col-span-1 space-y-1">
+                                                                    <Select
+                                                                      value={sourceBroken ? '' : (mapping.source_field_id || '')}
+                                                                      onValueChange={(v) => {
+                                                                        setPendingFieldMappingAction(prev => {
+                                                                          const newMappings = [...(prev.mappings || [])];
+                                                                          newMappings[mapIdx] = { ...newMappings[mapIdx], source_field_id: v };
+                                                                          return { ...prev, mappings: newMappings };
+                                                                        });
+                                                                      }}
+                                                                    >
+                                                                      <SelectTrigger
+                                                                        data-testid={`select-source-field-${mapIdx}`}
+                                                                        className={sourceBroken ? 'border-warning text-warning' : undefined}
+                                                                      >
+                                                                        <SelectValue placeholder={sourceBroken ? 'Source field missing — re-select' : 'Form field...'} />
+                                                                      </SelectTrigger>
+                                                                      <SelectContent>
+                                                                        {(form?.fields || []).filter(f => f.id || f.name).map(field => (
+                                                                          <SelectItem key={field.id || field.name} value={field.id || field.name}>
+                                                                            {field.label || field.name}
+                                                                          </SelectItem>
+                                                                        ))}
+                                                                      </SelectContent>
+                                                                    </Select>
+                                                                    {sourceBroken && (
+                                                                      <p className="flex items-center gap-1 text-xs text-warning" data-testid={`text-broken-source-${mapIdx}`}>
+                                                                        <AlertCircle className="w-3 h-3 shrink-0" />
+                                                                        Source field missing on this form — re-select
+                                                                      </p>
+                                                                    )}
+                                                                  </div>
+                                                                );
+                                                              })()
                                                             ) : (
                                                               <div className="col-span-1">
                                                                 {/* Static value input - shown after target is selected */}

@@ -57,3 +57,4 @@
 - [Canvas page-from-doc fidelity](canvas-from-doc-fidelity.md) — AI page gen must be 100% faithful: structured verbatim source + bidirectional isSpecFaithful guard + deterministic fallback; layout factories interpolating source into HTML must escape it.
 - [Canvas blocks reusing public card components](canvas-shared-card-editor-safety.md) — mirror a public list page by rendering its real card w/ same props (no drift); JS-onClick cards need onClickCapture stopPropagation in editor.
 - [Canvas public reflow collapsed baseline](canvas-reflow-collapsed-baseline.md) — accordion push-down measures growth from collapsed baseline (min measured), not stored box; else tall stored box clamps expansion to 0. Cards excluded.
+- [DD field-mapping source_field_id copy bug](dd-field-mapping-source-id-copy.md) — mapping source ids are form-scoped; break on seed/duplicate; remap by LABEL (name often undefined); keep broken-but-non-empty on save.
