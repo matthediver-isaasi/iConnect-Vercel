@@ -12,7 +12,9 @@
  *
  * Required env vars:
  *   DEST_SUPABASE_URL, DEST_SUPABASE_KEY     (storage backup)
- *   DEST_DATABASE_URL                        (database backup)
+ *   DEST_DATABASE_URL or DATABASE_URL        (database backup; DEST_DATABASE_URL
+ *                                             preferred, falls back to DATABASE_URL —
+ *                                             Vercel only has the latter)
  *   R2_ACCOUNT_ID (or R2_ENDPOINT), R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET
  * Optional:
  *   DB_BACKUP_SCHEMAS  (comma-separated, default "public")
@@ -331,9 +333,9 @@ async function dumpTableToR2(pool, r2, r2Bucket, schema, tableName, r2Key) {
  *           errored[], totalCompressedBytes, complete, resumed, durationMs }.
  */
 export async function runDatabaseBackup({ timeBudgetMs = DEFAULT_DB_TIME_BUDGET_MS } = {}) {
-  const databaseUrl = process.env.DEST_DATABASE_URL;
+  const databaseUrl = process.env.DEST_DATABASE_URL || process.env.DATABASE_URL;
   if (!databaseUrl) {
-    return { ok: false, error: 'DEST_DATABASE_URL not configured' };
+    return { ok: false, error: 'Database connection string not configured (set DEST_DATABASE_URL or DATABASE_URL)' };
   }
   const ctx = r2Context();
   if (!ctx) {
