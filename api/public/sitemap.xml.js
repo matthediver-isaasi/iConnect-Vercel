@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { getArticleUrlConfig } from '../_lib/articleUrlPaths.js';
+import { listActiveMicrosites } from '../_lib/microsites.js';
 
 function getArticleUrlParts(article, authorHandles = {}) {
   let authorHandle = 'guest';
@@ -142,11 +143,32 @@ export default async function handler(req, res) {
 
       supabase
         .from('i_edit_page')
-        .select('id, slug, title')
+        .select('id, slug, title, microsite_id')
         .eq('tenant_id', tenant.id)
         .eq('status', 'published')
         .in('layout_type', ['public', 'hybrid'])
     ]);
+
+    // Task #2426: legacy-tolerant — if microsite_id doesn't exist yet
+    // (42703), retry the pages query without it.
+    if (customPagesResult.error && customPagesResult.error.code === '42703') {
+      const retry = await supabase
+        .from('i_edit_page')
+        .select('id, slug, title')
+        .eq('tenant_id', tenant.id)
+        .eq('status', 'published')
+        .in('layout_type', ['public', 'hybrid']);
+      customPagesResult.data = retry.data;
+      customPagesResult.error = retry.error;
+    }
+
+    // Task #2426: microsite pages are served at /{prefix}/{slug}, so map
+    // microsite_id -> path_prefix to emit the right URLs below.
+    const micrositePrefixById = {};
+    if ((customPagesResult.data || []).some((p) => p.microsite_id)) {
+      const microsites = await listActiveMicrosites(supabase, tenant.id);
+      for (const m of microsites) micrositePrefixById[m.id] = m.path_prefix;
+    }
 
     if (eventsResult.error) console.error('[Sitemap] Events query error:', JSON.stringify(eventsResult.error));
     if (articlesResult.error) console.error('[Sitemap] Articles query error:', JSON.stringify(articlesResult.error));
@@ -226,7 +248,16 @@ export default async function handler(req, res) {
 
     if (customPagesResult.data) {
       for (const page of customPagesResult.data) {
-        const path = `/${encodeURIComponent(page.slug)}`;
+        let path;
+        if (page.microsite_id) {
+          // Microsite pages only appear under their prefix; pages in an
+          // inactive/unknown microsite are not publicly served, skip them.
+          const prefix = micrositePrefixById[page.microsite_id];
+          if (!prefix) continue;
+          path = `/${encodeURIComponent(prefix)}/${encodeURIComponent(page.slug)}`;
+        } else {
+          path = `/${encodeURIComponent(page.slug)}`;
+        }
         urls.push({
           loc: baseUrl + path,
           lastmod: null,

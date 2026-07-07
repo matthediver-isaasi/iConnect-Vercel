@@ -360,6 +360,7 @@ import AdminSettings from "./admin/AdminSettings";
 import OnboardingWizard from "./admin/OnboardingWizard";
 import PlanUsage from "./admin/PlanUsage";
 import AdminBranding from "./admin/AdminBranding";
+import AdminMicrosites from "./admin/AdminMicrosites";
 import AdminLmicCountries from "./admin/AdminLmicCountries";
 import AdminDomains from "./admin/AdminDomains";
 import AdminTeam from "./admin/AdminTeam";
@@ -390,6 +391,7 @@ import PhotoGalleries from "./PhotoGalleries";
 import { useEffect, useRef, lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 import { LayoutProvider } from '@/contexts/LayoutContext';
+import { MicrositeProvider } from '@/contexts/MicrositeContext';
 import PlanQuotaDialog from '@/components/PlanQuotaDialog';
 import { ArticleUrlProvider } from '@/contexts/ArticleUrlContext';
 import { useQuery } from '@tanstack/react-query';
@@ -1162,6 +1164,11 @@ function PagesContent() {
                 {/* Dynamic CMS pages - catch-all route for IEdit pages by slug */}
                 <Route path="/:slug" element={<DynamicPage />} />
 
+                {/* Task #2426: microsite pages at /{prefix}/{slug}. DynamicPage
+                    validates the prefix against the tenant's active microsites
+                    and renders not-found for unknown two-segment URLs. */}
+                <Route path="/:micrositePrefix/:slug" element={<DynamicPage />} />
+
                 {/* Catch-all for multi-segment URLs that don't match any route above */}
                 <Route path="/*" element={<CatchAllNotFound />} />
             </Routes>
@@ -1211,6 +1218,7 @@ function AdminRoutes() {
             <Route path="/admin/dashboard" element={<AdminDashboard />} />
             <Route path="/admin/settings" element={<AdminSettings />} />
             <Route path="/admin/branding" element={<AdminBranding />} />
+            <Route path="/admin/microsites" element={<AdminMicrosites />} />
             <Route path="/admin/lmic-countries" element={<AdminLmicCountries />} />
             <Route path="/admin/domains" element={<AdminDomains />} />
             <Route path="/admin/team" element={<AdminTeam />} />
@@ -1252,6 +1260,7 @@ function SaasRoutes() {
             <Route path="/admin/dashboard" element={<AdminDashboard />} />
             <Route path="/admin/settings" element={<AdminSettings />} />
             <Route path="/admin/branding" element={<AdminBranding />} />
+            <Route path="/admin/microsites" element={<AdminMicrosites />} />
             <Route path="/admin/lmic-countries" element={<AdminLmicCountries />} />
             <Route path="/admin/domains" element={<AdminDomains />} />
             <Route path="/admin/team" element={<AdminTeam />} />
@@ -1318,7 +1327,9 @@ function AppRoutes() {
     
     return (
         <ArticleUrlProvider>
-            <PagesContent />
+            <MicrositeProvider>
+                <PagesContent />
+            </MicrositeProvider>
         </ArticleUrlProvider>
     );
 }

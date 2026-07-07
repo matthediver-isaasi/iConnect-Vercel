@@ -1,6 +1,7 @@
 import { supabase } from './database.js';
 import { getArticleUrlConfig } from './articleUrlPaths.js';
 import { resolveBlogPostAuthors } from './blogPostAuthors.js';
+import { resolveMicrositeByPrefix } from './microsites.js';
 
 function stripHtml(html) {
   if (!html) return '';
@@ -493,18 +494,46 @@ function extractCmsImage(obj, seen) {
   return null;
 }
 
-async function resolveIEditPage(tenantId, slug) {
+async function resolveIEditPage(tenantId, slug, microsite = null) {
   if (!supabase || !slug) return null;
   // Match the public page endpoint: only published public/hybrid pages
   // unfurl. Member-only pages stay private and fall back to tenant defaults.
-  const { data: page } = await supabase
+  // Task #2426: with `microsite` set, resolve the slug within that microsite
+  // (canonical URL is the prefixed path); without it, pages assigned to a
+  // microsite must NOT resolve at their bare slug. Legacy-tolerant: if the
+  // microsite_id column doesn't exist yet, retry without it.
+  const baseColumns = 'id, title, slug, description, meta_title, meta_description, seo_title, seo_description, og_image_url, status, layout_type, builder_type, canvas_design';
+  let page = null;
+  const { data, error } = await supabase
     .from('i_edit_page')
-    .select('id, title, slug, description, meta_title, meta_description, seo_title, seo_description, og_image_url, status, layout_type, builder_type, canvas_design')
+    .select(`${baseColumns}, microsite_id`)
     .eq('tenant_id', tenantId)
     .eq('slug', slug)
     .eq('status', 'published')
     .in('layout_type', ['public', 'hybrid'])
     .maybeSingle();
+  if (error && error.code === '42703') {
+    if (microsite) return null;
+    const retry = await supabase
+      .from('i_edit_page')
+      .select(baseColumns)
+      .eq('tenant_id', tenantId)
+      .eq('slug', slug)
+      .eq('status', 'published')
+      .in('layout_type', ['public', 'hybrid'])
+      .maybeSingle();
+    page = retry.data || null;
+  } else {
+    page = data || null;
+    if (page) {
+      if (microsite) {
+        if (page.microsite_id !== microsite.id) return null;
+      } else if (page.microsite_id) {
+        // Microsite page requested at its bare slug — not served there.
+        return null;
+      }
+    }
+  }
   if (!page) return null;
 
   // task-711: explicit admin overrides win over auto-derived values.
@@ -563,7 +592,9 @@ async function resolveIEditPage(tenantId, slug) {
     title,
     description: description ? truncate(description, 300) : null,
     image: image || null,
-    canonicalPath: `/${encodeURIComponent(page.slug)}`,
+    canonicalPath: microsite
+      ? `/${encodeURIComponent(microsite.path_prefix)}/${encodeURIComponent(page.slug)}`
+      : `/${encodeURIComponent(page.slug)}`,
   };
 }
 
@@ -778,6 +809,21 @@ export async function resolveEntityMeta(req, tenant) {
         }
       }
     }
+    // Task #2426: microsite pages at /{prefix}/{slug}. Checked before the
+    // single-segment CMS match; the prefix must resolve to an active
+    // microsite of this tenant, and the slug to a published page assigned
+    // to it. Non-matches fall through to the existing handlers unchanged.
+    const micrositeMatch = pathname.match(/^\/([^/]+)\/([^/]+)\/?$/);
+    if (micrositeMatch && supabase) {
+      const prefix = decodeURIComponent(micrositeMatch[1]).toLowerCase();
+      const msSlug = decodeURIComponent(micrositeMatch[2]);
+      const microsite = await resolveMicrositeByPrefix(supabase, tenant.id, prefix);
+      if (microsite) {
+        const meta = await resolveIEditPage(tenant.id, msSlug, microsite);
+        if (meta) return meta;
+      }
+    }
+
     // CMS pages built with the IEditPage page builder. These are served by
     // DynamicPage at top-level single-segment routes (`/:slug`). Try this
     // last so dedicated entity handlers above always win, but before the

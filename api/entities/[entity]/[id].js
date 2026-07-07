@@ -109,6 +109,7 @@ const entityToTable = {
   'WorkflowLog': 'workflow_log',
   'RoleAccessItem': 'role_access_item',
   'RedirectMapping': 'redirect_mapping',
+  'Microsite': 'microsite',
   'FormDueDiligenceConfig': 'form_due_diligence_config',
   'FormSubmissionDueDiligence': 'form_submission_due_diligence',
   'MembershipTierConfig': 'membership_tier_config',
@@ -295,7 +296,7 @@ export default async function handler(req, res) {
             'ExternalWriter', 'ExternalWriterDocument',
             'CrmTagColor',
             'Gallery', 'GalleryPhoto', 'CardDeck',
-            'MemberGroupActivity'
+            'MemberGroupActivity', 'Microsite'
           ];
           if (tenantCtx.tenantId) {
             query = query.eq('tenant_id', tenantCtx.tenantId);
@@ -432,7 +433,7 @@ export default async function handler(req, res) {
                 'ExternalWriter', 'ExternalWriterDocument',
                 'CrmTagColor',
                 'Gallery', 'GalleryPhoto', 'CardDeck',
-                'MemberGroupActivity'
+                'MemberGroupActivity', 'Microsite'
               ];
               if (tenantCtx.tenantId) {
                 beforeQuery = beforeQuery.eq('tenant_id', tenantCtx.tenantId);
@@ -809,7 +810,7 @@ export default async function handler(req, res) {
             'ExternalWriter', 'ExternalWriterDocument',
             'CrmTagColor',
             'Gallery', 'GalleryPhoto', 'CardDeck',
-            'MemberGroupActivity'
+            'MemberGroupActivity', 'Microsite'
           ];
           if (tenantCtx.tenantId) {
             patchQuery = patchQuery.eq('tenant_id', tenantCtx.tenantId);
@@ -1282,7 +1283,7 @@ export default async function handler(req, res) {
             'ExternalWriter', 'ExternalWriterDocument',
             'CrmTagColor',
             'Gallery', 'GalleryPhoto', 'CardDeck',
-            'MemberGroupActivity'
+            'MemberGroupActivity', 'Microsite'
           ];
           if (tenantCtx.tenantId) {
             verifyQuery = verifyQuery.eq('tenant_id', tenantCtx.tenantId);

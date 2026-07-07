@@ -342,7 +342,12 @@ export default function NavigationManagementPage() {
 
   const { data: navItems = [], isLoading } = useQuery({
     queryKey: ['navigation-items'],
-    queryFn: () => base44.entities.NavigationItem.list('display_order'),
+    // Task #2426: exclude microsite-scoped nav rows — they are managed in
+    // the Microsites admin and must not leak into the tenant-wide nav tree.
+    queryFn: async () => {
+      const items = await base44.entities.NavigationItem.list('display_order');
+      return (items || []).filter(item => !item.microsite_id);
+    },
     staleTime: 0,
     refetchOnMount: true,
     refetchOnWindowFocus: true

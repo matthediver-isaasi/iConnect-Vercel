@@ -78,6 +78,10 @@
         "type": "string",
         "format": "date-time",
         "description": "When set, the page is pinned to the top of its folder view in the admin page manager"
+      },
+      "microsite_id": {
+        "type": "string",
+        "description": "Microsite this page belongs to (task #2426). Null = default tenant site. Assigned pages are served at /{microsite prefix}/{slug} with the microsite's chrome."
       }
     },
     "required": [

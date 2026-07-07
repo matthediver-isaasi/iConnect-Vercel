@@ -286,6 +286,7 @@ class EntitiesProxy {
   get MemberResourceCategory() { return this._getEntity('MemberResourceCategory'); }
   get RoleAccessItem() { return this._getEntity('RoleAccessItem'); }
   get RedirectMapping() { return this._getEntity('RedirectMapping'); }
+  get Microsite() { return this._getEntity('Microsite'); }
   get ContractDocument() { return this._getEntity('ContractDocument'); }
   get ContractSigner() { return this._getEntity('ContractSigner'); }
   get ContractReminder() { return this._getEntity('ContractReminder'); }

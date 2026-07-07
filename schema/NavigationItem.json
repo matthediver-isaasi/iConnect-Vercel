@@ -63,6 +63,10 @@
         ],
         "default": "none",
         "description": "Special styling for featured items"
+      },
+      "microsite_id": {
+        "type": "string",
+        "description": "Microsite this navigation item belongs to (task #2426). Null = default tenant navigation. Microsite rows never appear in the default site chrome."
       }
     },
     "required": [

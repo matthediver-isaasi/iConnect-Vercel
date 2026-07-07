@@ -251,8 +251,11 @@ class PublicClient {
   }
   
   // Navigation
-  async listNavigationItems() {
-    return this._fetch('/api/public/navigation-items');
+  // Task #2426: pass a microsite path prefix to get that microsite's nav.
+  // Without it, only default-site (non-microsite) items are returned.
+  async listNavigationItems(micrositePrefix = null) {
+    const suffix = micrositePrefix ? `?microsite=${encodeURIComponent(micrositePrefix)}` : '';
+    return this._fetch(`/api/public/navigation-items${suffix}`);
   }
   
   // Typography Styles
@@ -261,9 +264,12 @@ class PublicClient {
   }
   
   // Pages (IEdit CMS pages)
-  async getPage(slug) {
+  // Task #2426: with micrositePrefix set, resolves the slug within that
+  // microsite; without it, microsite-assigned pages 404 at their bare slug.
+  async getPage(slug, micrositePrefix = null) {
     if (!slug) return null;
-    return this._fetch(`/api/public/page/${encodeURIComponent(slug)}`);
+    const suffix = micrositePrefix ? `?microsite=${encodeURIComponent(micrositePrefix)}` : '';
+    return this._fetch(`/api/public/page/${encodeURIComponent(slug)}${suffix}`);
   }
   
   // Roles (for ticket pricing display)
@@ -403,8 +409,16 @@ class PublicClient {
   }
   
   // Tenant Branding
-  async getTenantBranding() {
-    return this._fetch('/api/public/tenant-branding');
+  // Task #2426: with micrositePrefix set, header/footer/logo come back
+  // merged with the microsite's overrides and `branding.microsite` is set.
+  async getTenantBranding(micrositePrefix = null) {
+    const suffix = micrositePrefix ? `?microsite=${encodeURIComponent(micrositePrefix)}` : '';
+    return this._fetch(`/api/public/tenant-branding${suffix}`);
+  }
+
+  // Microsites (task #2426)
+  async listMicrosites() {
+    return this._fetch('/api/public/microsites');
   }
   
   async getPortalBranding() {

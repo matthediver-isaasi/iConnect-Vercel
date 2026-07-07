@@ -90,6 +90,9 @@ export const entityTenantScope = {
   
   // TENANT - Per-tenant data (filtered by tenant_id)
   'RedirectMapping': TENANT_SCOPE.TENANT,
+
+  // TENANT - Microsites: path-prefix sections with their own header/footer/nav (task #2426)
+  'Microsite': TENANT_SCOPE.TENANT,
   
   // TENANT - Per-tenant data (filtered by tenant_id)
   'Organization': TENANT_SCOPE.TENANT,

@@ -8,6 +8,7 @@ import CanvasPageRenderer from "../components/canvas/CanvasPageRenderer";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
+import { useMicrosite } from "@/contexts/MicrositeContext";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 import { useBelowFirstElementBanners } from "@/contexts/BannerContext";
 import PortalHeroBanner from "@/components/banners/PortalHeroBanner";
@@ -19,9 +20,19 @@ import PublicArticles from "./PublicArticles";
 import ErrorBoundary from "@/components/ErrorBoundary";
 
 export default function DynamicPage() {
-  const { slug } = useParams();
+  // Task #2426: this component serves both /:slug (default site) and
+  // /:micrositePrefix/:slug (microsite pages). In microsite mode the page is
+  // resolved within the microsite and unknown prefixes render not-found.
+  const { slug, micrositePrefix: routeMicrositePrefix } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
+  const { microsites, micrositesLoaded } = useMicrosite();
+  const isMicrositeRoute = !!routeMicrositePrefix;
+  const micrositeMatch = useMemo(() => {
+    if (!isMicrositeRoute || !micrositesLoaded) return null;
+    const prefix = routeMicrositePrefix.toLowerCase();
+    return microsites.find((m) => m.path_prefix === prefix) || null;
+  }, [isMicrositeRoute, micrositesLoaded, microsites, routeMicrositePrefix]);
   // When the Canvas Page Editor opens the live preview iframe, it appends
   // `?_canvasPreview=<nonce>`. In that mode we must bypass the publish gate
   // (and the public endpoint, which only returns published pages) so the
@@ -88,6 +99,8 @@ export default function DynamicPage() {
   } = useArticleUrl();
 
   const dynamicArticleRoute = useMemo(() => {
+    // Microsite URLs never map to dynamic article routes.
+    if (isMicrositeRoute) return null;
     // Only intercept dynamic routes if we have a custom slug configured
     if (!isCustomSlug || !slug || articleUrlLoading) return null;
     
@@ -115,8 +128,22 @@ export default function DynamicPage() {
 
   // Fetch page and elements together using public endpoint first, fall back to authenticated
   const { data: pageData, isLoading: pageLoading, error: pageError } = useQuery({
-    queryKey: ['iedit-dynamic-page', slug, isCanvasPreview ? 'preview' : 'live'],
+    queryKey: ['iedit-dynamic-page', routeMicrositePrefix || null, slug, isCanvasPreview ? 'preview' : 'live'],
     queryFn: async () => {
+      // Task #2426: microsite pages are public-only — resolve strictly via
+      // the public endpoint scoped to the microsite prefix (no authenticated
+      // fallback: bare-slug auth reads would leak pages across microsites).
+      if (isMicrositeRoute) {
+        try {
+          const data = await publicClient.getPage(slug, micrositeMatch.path_prefix);
+          if (data) {
+            return { page: data.page, elements: data.elements, symbols: data.symbols };
+          }
+        } catch (e) {
+          // Not found within the microsite
+        }
+        return { page: null, elements: [] };
+      }
       // In Canvas Page Editor preview mode we skip the public endpoint
       // entirely — it only serves published pages, and the preview iframe
       // is explicitly authoring an unpublished draft.
@@ -168,7 +195,8 @@ export default function DynamicPage() {
       });
       return { page, elements };
     },
-    enabled: !!slug && !dynamicArticleRoute && !articleUrlLoading,
+    enabled: !!slug && !dynamicArticleRoute && !articleUrlLoading &&
+      (!isMicrositeRoute || (micrositesLoaded && !!micrositeMatch)),
     staleTime: 0
   });
 
@@ -368,8 +396,8 @@ export default function DynamicPage() {
     };
   }, [page, pageLoading, isPublicPage, isHybridPage, isLoggedIn, forcePublicPreview, setForcePublicLayout, setPublicChrome, dynamicArticleRoute]);
 
-  // Check for redirect mappings when page is not found
-  const shouldCheckRedirect = !pageLoading && !page && !dynamicArticleRoute && !!slug;
+  // Check for redirect mappings when page is not found (default site only)
+  const shouldCheckRedirect = !pageLoading && !page && !dynamicArticleRoute && !!slug && !isMicrositeRoute;
   const { data: redirectResult, isLoading: redirectLoading } = useQuery({
     queryKey: ['redirect-resolve', slug],
     queryFn: async () => {
@@ -450,6 +478,35 @@ export default function DynamicPage() {
       <ErrorBoundary name={`DynamicArticleRoute:${dynamicArticleRoute.component}`}>
         {routeEl}
       </ErrorBoundary>
+    );
+  }
+
+  // Task #2426: microsite route gating. Wait for the microsites list, then
+  // treat an unknown prefix as a plain 404 (same as the old catch-all).
+  if (isMicrositeRoute && !micrositesLoaded) {
+    return (
+      <div className="min-h-screen" data-testid="loading-microsite" aria-busy="true">
+        <div className="sr-only">Loading content</div>
+      </div>
+    );
+  }
+  if (isMicrositeRoute && !micrositeMatch) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" data-testid="page-not-found">
+        <div className="text-center max-w-md px-4">
+          <h1 className="text-4xl font-bold mb-4" data-testid="text-not-found-title">Page not found</h1>
+          <p className="text-muted-foreground mb-6" data-testid="text-not-found-message">
+            The page you're looking for doesn't exist or has been removed.
+          </p>
+          <a
+            href="/"
+            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover-elevate"
+            data-testid="link-go-home"
+          >
+            Go to homepage
+          </a>
+        </div>
+      </div>
     );
   }
 

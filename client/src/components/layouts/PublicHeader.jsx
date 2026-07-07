@@ -8,6 +8,7 @@ import { publicClient } from "@/api/publicClient";
 import { useNavigationRealtime } from "@/hooks/useNavigationRealtime";
 import { useResolvedSocialIcons } from "@/hooks/useResolvedSocialIcons";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
+import { useMicrosite, usePublicChromeBranding } from "@/contexts/MicrositeContext";
 import { Search, User, ArrowUpRight, LogOut, ChevronDown, ChevronRight, Calendar, Building, Briefcase, FileText, Users, Sparkles, Home, Mail, Phone, Menu, X, Loader2, Newspaper, BookOpen, FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -264,7 +265,14 @@ const SOCIAL_PLATFORMS = [
 const HEADER_CONTENT_BLOCK_TYPES = ['search', 'social', 'account'];
 
 export default function PublicHeader() {
-  const { branding } = useTenantBranding() || {};
+  // Task #2426: on microsite routes this returns the microsite-merged
+  // branding (header config/logo overrides); elsewhere the tenant branding.
+  const { branding } = usePublicChromeBranding() || {};
+  const { micrositePrefix, activeMicrosite } = useMicrosite();
+  // Microsite logo links to the microsite home page when one is set.
+  const logoHomePath = (activeMicrosite && activeMicrosite.home_slug)
+    ? `/${activeMicrosite.path_prefix}/${activeMicrosite.home_slug}`
+    : "/";
   const buttonStyles = branding?.brandingConfig?.button_styles || {};
   const headerSocialIconColor = branding?.brandingConfig?.headerSocialIconColor || NEUTRAL_SOCIAL_ICON_COLOR;
   const socialIconCustomSvgs = branding?.brandingConfig?.socialIconCustomSvgs || {};
@@ -536,10 +544,12 @@ export default function PublicHeader() {
   }, []);
 
   // Function to fetch navigation items
+  // Task #2426: on microsite routes fetch that microsite's navigation
+  // instead of the tenant-wide items.
   const fetchNavItems = useCallback(async () => {
     try {
       // Use public endpoint that doesn't require authentication
-      const items = await publicClient.listNavigationItems();
+      const items = await publicClient.listNavigationItems(micrositePrefix);
       
       // Build hierarchy
       const buildTree = (parentId, location) => {
@@ -560,7 +570,7 @@ export default function PublicHeader() {
       console.error('Failed to fetch navigation items:', error);
       setNavItems({ topNav: [], mainNav: [] });
     }
-  }, []);
+  }, [micrositePrefix]);
 
   // Subscribe to realtime navigation changes
   useNavigationRealtime(fetchNavItems);
@@ -1516,7 +1526,7 @@ export default function PublicHeader() {
         {/* Desktop: Overlapping Logo */}
         {headerIconsConfig.logo && (
         <Link 
-          to="/"
+          to={logoHomePath}
           className="absolute z-50 hidden lg:block"
           style={{
             top: logoMarginTop ? `${logoMarginTop}px` : '0',
@@ -1560,7 +1570,7 @@ export default function PublicHeader() {
         {/* Mobile: Floating Logo in white box with shadow */}
         {headerIconsConfig.logo && (
         <Link 
-          to="/"
+          to={logoHomePath}
           className="absolute z-50 lg:hidden"
           style={{
             top: logoMarginTop ? `${logoMarginTop}px` : '8px',
@@ -1698,7 +1708,7 @@ export default function PublicHeader() {
         <div className="flex items-center justify-between p-4 border-b border-slate-200">
           {headerIconsConfig.logo ? (
           <Link 
-            to="/" 
+            to={logoHomePath} 
             onClick={() => setMobileMenuOpen(false)}
             data-testid="link-mobile-drawer-logo"
           >

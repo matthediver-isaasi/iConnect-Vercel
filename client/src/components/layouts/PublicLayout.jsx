@@ -14,6 +14,7 @@ import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 import { BannerProvider } from "@/contexts/BannerContext";
 import IEditFormElement from "../iedit/elements/IEditFormElement";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
+import { useMicrosite, usePublicChromeBranding } from "@/contexts/MicrositeContext";
 import { useResolvedSocialIcons } from "@/hooks/useResolvedSocialIcons";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 
@@ -59,7 +60,10 @@ export default function PublicLayout({ children, currentPageName }) {
   const showHeader = chromeReady && (publicChrome === 'both' || publicChrome === 'header');
   const showFooter = chromeReady && (publicChrome === 'both' || publicChrome === 'footer');
   const { getPublicArticlesUrl, articleDisplayName, urlSlug, publicSlug, isCustomSlug, isLoading: articleUrlLoading } = useArticleUrl();
-  const { branding, hasBranding } = useTenantBranding();
+  // Task #2426: on microsite routes this returns the microsite-merged
+  // branding (footer config/logo overrides); elsewhere the tenant branding.
+  const { branding, hasBranding } = usePublicChromeBranding();
+  const { micrositePrefix } = useMicrosite();
   const [banners, setBanners] = useState([]);
   const [loadingBanners, setLoadingBanners] = useState(true);
   const [showNewsletterDialog, setShowNewsletterDialog] = useState(false);
@@ -161,8 +165,9 @@ export default function PublicLayout({ children, currentPageName }) {
         }
 
         // Fetch footer navigation items
+        // Task #2426: microsite routes get the microsite's footer nav.
         try {
-          const navItems = await publicClient.listNavigationItems();
+          const navItems = await publicClient.listNavigationItems(micrositePrefix);
           const footerItems = navItems.filter(item => item.location === 'footer' && item.is_active);
           setFooterNavItems(footerItems);
         } catch (e) {
@@ -196,7 +201,7 @@ export default function PublicLayout({ children, currentPageName }) {
     };
 
     fetchConfigs();
-  }, []);
+  }, [micrositePrefix]);
 
   const handleNewsletterDialogChange = (open) => {
     setShowNewsletterDialog(open);

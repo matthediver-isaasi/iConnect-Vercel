@@ -279,6 +279,7 @@ const entityToTable = {
   'WorkflowLog': 'workflow_log',
   'RoleAccessItem': 'role_access_item',
   'RedirectMapping': 'redirect_mapping',
+  'Microsite': 'microsite',
   'FormDueDiligenceConfig': 'form_due_diligence_config',
   'FormSubmissionDueDiligence': 'form_submission_due_diligence',
   'FormSubmissionEmail': 'form_submission_email',
@@ -947,7 +948,7 @@ export default async function handler(req, res) {
               'CrmTagColor',
               'Vacancy', 'VacancyApplication', 'VacancyAward', 'VacancyDecline', 'VacancyDecisionEmail',
               'Gallery', 'GalleryPhoto', 'CardDeck',
-              'MemberGroupActivity', 'ComplexEventSessionCheckin'
+              'MemberGroupActivity', 'ComplexEventSessionCheckin', 'Microsite'
             ];
             if (entitiesWithoutOrgId.includes(entity)) {
               // SECURITY: Entities without organization_id column MUST have tenant_id - block access if missing
@@ -1267,7 +1268,7 @@ export default async function handler(req, res) {
             'CrmTagColor',
             'Vacancy', 'VacancyApplication', 'VacancyAward', 'VacancyDecline', 'VacancyDecisionEmail',
             'Gallery', 'GalleryPhoto', 'CardDeck',
-            'SupportTicket', 'SupportTicketResponse'
+            'SupportTicket', 'SupportTicketResponse', 'Microsite'
           ];
           if (!entitiesWithoutOrgId.includes(entity)) {
             const entitiesWithExplicitOrgId = ['Member', 'Voucher', 'VoucherTransaction', 'TrainingFundTransaction'];

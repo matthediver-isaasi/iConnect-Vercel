@@ -135,6 +135,16 @@ export default function PageManagerItem({
         <Badge variant="outline" className="flex-shrink-0 hidden md:inline-flex">
           {page.builder_type === "canvas" ? "Canvas" : "iEdit"}
         </Badge>
+        {page.microsite_id && (
+          <Badge
+            variant="outline"
+            className="flex-shrink-0 hidden md:inline-flex text-cyan-700 border-cyan-300"
+            title="This page belongs to a microsite and is served under its URL prefix"
+            data-testid={`badge-microsite-${page.id}`}
+          >
+            Microsite
+          </Badge>
+        )}
         <span className="text-xs text-slate-500 flex-shrink-0 hidden lg:inline w-28 text-right">
           {page.updated_date
             ? format(new Date(page.updated_date), "MMM d, yyyy")
@@ -265,6 +275,16 @@ export default function PageManagerItem({
           >
             {page.builder_type === "canvas" ? "Canvas" : "iEdit"}
           </Badge>
+          {page.microsite_id && (
+            <Badge
+              variant="outline"
+              className="ml-2 text-cyan-700 border-cyan-300"
+              title="This page belongs to a microsite and is served under its URL prefix"
+              data-testid={`badge-microsite-${page.id}`}
+            >
+              Microsite
+            </Badge>
+          )}
         </div>
 
         {page.updated_date && (

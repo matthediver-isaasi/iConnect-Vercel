@@ -1,5 +1,6 @@
 import { supabase } from '../../_lib/database.js';
 import { resolveTenantFromRequest } from '../../_lib/tenantResolver.js';
+import { resolveMicrositeByPrefix } from '../../_lib/microsites.js';
 
 // Collect every top-level symbol id referenced by a canvas design so we can
 // embed the resolved symbol designs alongside the page payload. Keeping this
@@ -69,24 +70,48 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    const { data: page, error: pageError } = await supabase
+    // Task #2426: microsite scoping. With `?microsite=prefix` only pages
+    // assigned to that microsite resolve; without it, microsite pages must
+    // NOT resolve at their bare /{slug} URL (they live at /{prefix}/{slug}).
+    const micrositePrefix = typeof req.query.microsite === 'string' ? req.query.microsite.trim() : '';
+    let microsite = null;
+    if (micrositePrefix) {
+      microsite = await resolveMicrositeByPrefix(supabase, tenant.id, micrositePrefix);
+      if (!microsite) {
+        return res.status(404).json({ error: 'Microsite not found' });
+      }
+    }
+
+    let pageQuery = supabase
       .from('i_edit_page')
       .select('*')
       .eq('tenant_id', tenant.id)
       .eq('slug', slug)
       .eq('status', 'published')
-      .in('layout_type', ['public', 'hybrid', 'public_no_chrome', 'public_header_only', 'public_footer_only'])
-      .single();
+      .in('layout_type', ['public', 'hybrid', 'public_no_chrome', 'public_header_only', 'public_footer_only']);
+    if (microsite) {
+      pageQuery = pageQuery.eq('microsite_id', microsite.id);
+    }
+    const { data: page, error: pageError } = await pageQuery.single();
 
     console.log('[Public Page Slug] Page lookup:', { 
       found: !!page, 
       pageId: page?.id,
       pageSlug: page?.slug,
+      microsite: microsite?.path_prefix || null,
       error: pageError?.message || pageError?.code || null 
     });
 
     if (pageError || !page) {
       console.log('[Public Page Slug] Page not found:', { slug, tenantId: tenant.id, error: pageError });
+      return res.status(404).json({ error: 'Page not found or not published' });
+    }
+
+    // Default (non-prefixed) path: a page assigned to a microsite is only
+    // served under its prefix. Checked in JS (not SQL) so legacy databases
+    // without the microsite_id column keep working unchanged.
+    if (!microsite && page.microsite_id) {
+      console.log('[Public Page Slug] Page belongs to a microsite; 404 at bare slug:', { slug, micrositeId: page.microsite_id });
       return res.status(404).json({ error: 'Page not found or not published' });
     }
 
