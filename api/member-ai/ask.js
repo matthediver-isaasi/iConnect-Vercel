@@ -39,6 +39,13 @@ import {
   rerankByRecency,
   selectContextChunks,
 } from '../_lib/memberAiRanking.js';
+import {
+  looksLikeStructuredQuestion,
+  buildPlannerMessages,
+  fetchStructuredPrefFields,
+  validateQuerySpec,
+  executeQuerySpec,
+} from '../_lib/memberAiStructured.js';
 
 // Re-export the pure ranking helpers for backwards compatibility (tests and
 // any other importers use api/_lib/memberAiRanking.js as the source of truth).
@@ -71,6 +78,11 @@ const CONTENT_TYPE_LABEL = {
 
 const FALLBACK_ANSWER =
   "I couldn't find anything about that in the content available to you. Try rephrasing your question, or browse the portal directly.";
+
+// Task #2419: graceful reply when a count/breakdown question can't be mapped
+// to a safe whitelisted query — we say so plainly instead of guessing.
+const STRUCTURED_UNMAPPABLE_ANSWER =
+  "I can't answer that from the data I have access to — I can count things like organisations, members, events, resources, and bookings using the fields available in your portal, but that question uses something I can't query safely. Try rephrasing it with a field shown in the portal.";
 
 let openaiClient = null;
 function getOpenAIClient() {
@@ -145,6 +157,77 @@ async function expandRetrievalQueries(openai, question) {
   } catch (err) {
     console.warn('[Member AI Ask] query expansion failed:', err?.message || err);
     return [];
+  }
+}
+
+// Task #2419: run the structured-data planner. Returns null when the planner
+// says the question is a content question (fall back to RAG); otherwise
+// { spec } (may be null when structured-but-unmappable). Best-effort: any
+// LLM/parse failure returns null so structured routing can never break RAG.
+async function planStructuredQuery(openai, question, prefFields) {
+  try {
+    const resp = await openai.chat.completions.create({
+      model: CHAT_MODEL,
+      temperature: 0,
+      max_tokens: 400,
+      response_format: { type: 'json_object' },
+      messages: buildPlannerMessages(question, prefFields),
+    });
+    const parsed = JSON.parse(resp.choices?.[0]?.message?.content || '{}');
+    if (parsed?.structured !== true) return null;
+    return { spec: parsed.spec && typeof parsed.spec === 'object' ? parsed.spec : null };
+  } catch (err) {
+    console.warn('[Member AI Ask] structured planner failed:', err?.message || err);
+    return null;
+  }
+}
+
+// Deterministic phrasing fallback if the synthesis LLM call fails — the
+// numbers always come straight from the executor, never the model.
+function templateStructuredAnswer(result) {
+  const filterNote = result.appliedFilters?.length
+    ? ` (${result.appliedFilters.join(', ')})`
+    : '';
+  if (!result.groups) {
+    return `There are ${result.total} matching ${result.entity.replace(/_/g, ' ')} records${filterNote}.`;
+  }
+  const lines = result.groups.map((g) => `- ${g.value}: ${g.count}`);
+  return (
+    `Breakdown by ${result.groupByLabel}${filterNote} — total ${result.total}:\n` +
+    lines.join('\n') +
+    (result.truncated ? '\n(only the largest groups are shown)' : '')
+  );
+}
+
+// Phrase executor results as a concise natural-language answer. The model is
+// strictly instructed to only state numbers present in the results.
+async function synthesizeStructuredAnswer(openai, question, result) {
+  try {
+    const completion = await openai.chat.completions.create({
+      model: CHAT_MODEL,
+      temperature: 0,
+      max_tokens: 500,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You phrase database query results as a short, friendly answer for a ' +
+            'member portal. STRICT RULES: only state numbers that appear in the ' +
+            'results JSON — never compute, estimate, or invent any number. For ' +
+            'breakdowns, present a short markdown list (largest first). Mention ' +
+            'the filters that were applied so the member knows what was counted. ' +
+            'Do not mention JSON, queries, or databases.',
+        },
+        {
+          role: 'user',
+          content: `Question: ${question}\n\nResults JSON:\n${JSON.stringify(result)}`,
+        },
+      ],
+    });
+    return completion.choices?.[0]?.message?.content?.trim() || null;
+  } catch (err) {
+    console.warn('[Member AI Ask] structured synthesis failed:', err?.message || err);
+    return null;
   }
 }
 
@@ -229,6 +312,68 @@ export default async function handler(req, res) {
       return res
         .status(503)
         .json({ error: 'AI answers are not available right now.' });
+    }
+
+    // --- Task #2419: structured-data routing (counts/breakdowns from the DB)
+    // Cheap regex pre-gate, then an LLM planner fills a constrained whitelisted
+    // query spec (never SQL). Executed with the member's visibility baked in.
+    // Content questions — and any planner failure — fall through to RAG.
+    if (looksLikeStructuredQuestion(question)) {
+      const prefFields = await fetchStructuredPrefFields(supabase, ctx.tenantId);
+      const plan = await planStructuredQuery(openai, question, prefFields);
+      if (plan) {
+        const validated = plan.spec
+          ? validateQuerySpec(plan.spec, { prefFields })
+          : { ok: false, reason: 'Planner could not map the question' };
+        if (validated.ok) {
+          const viewer = {
+            isAdmin,
+            roleId,
+            groupIds,
+            canAccessFeature: (key) => access.canAccessFeature(key),
+          };
+          const exec = await executeQuerySpec({
+            supabase,
+            tenantId: ctx.tenantId,
+            spec: validated.spec,
+            viewer,
+          });
+          if (exec.ok) {
+            const answer =
+              (await synthesizeStructuredAnswer(openai, question, exec.result)) ||
+              templateStructuredAnswer(exec.result);
+            return res
+              .status(200)
+              .json({ answer, sources: [], grounded: true, structured: true });
+          }
+          console.warn(
+            '[Member AI Ask] structured execution refused: ' +
+              JSON.stringify({
+                tenantId: ctx.tenantId,
+                entity: validated.spec.entity,
+                reason: exec.reason,
+              })
+          );
+          return res.status(200).json({
+            answer: STRUCTURED_UNMAPPABLE_ANSWER,
+            sources: [],
+            grounded: false,
+            structured: true,
+          });
+        }
+        // The planner was confident this is a data question but the spec is
+        // outside the whitelist — say so plainly rather than guessing a number.
+        console.warn(
+          '[Member AI Ask] structured spec rejected: ' +
+            JSON.stringify({ tenantId: ctx.tenantId, reason: validated.reason })
+        );
+        return res.status(200).json({
+          answer: STRUCTURED_UNMAPPABLE_ANSWER,
+          sources: [],
+          grounded: false,
+          structured: true,
+        });
+      }
     }
 
     // --- Multi-query retrieval: expand broad questions into extra queries ---
