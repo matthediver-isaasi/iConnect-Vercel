@@ -27,6 +27,11 @@
 
 // ---------------------------------------------------------------------------
 // Whitelisted entity catalog
+//
+// NOTE: memberAiStructuredSchemaDrift.test.mjs verifies every table/column
+// referenced here (and by the executors' .select() strings) still exists in
+// the destination database. If you add fields here or change what an executor
+// selects, update EXECUTOR_SELECTED_COLUMNS / DERIVED_FIELDS in that test.
 // ---------------------------------------------------------------------------
 
 export const MAX_FILTERS = 4;
