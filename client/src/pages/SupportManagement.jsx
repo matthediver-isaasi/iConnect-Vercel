@@ -975,7 +975,7 @@ export default function SupportManagementPage() {
               <div className="space-y-2">
                 <Label>Support Areas</Label>
                 <p className="text-sm text-slate-500">
-                  Categorise tickets by team or topic. Assign support members to each area — new tickets are routed to the assigned members; areas with no assignees fall back to notifying all support members.
+                  Categorise tickets by team or topic. Assign support members to each area — new tickets and submitter replies are routed only to the assigned members. Tickets with no area, or areas with no assignees, do not notify anyone.
                 </p>
                 <div className="space-y-3">
                   {areasDraft.map((area, index) => (

@@ -26,9 +26,10 @@ function parseSupportAreas(settingValue) {
 }
 
 /**
- * Attempt to resolve area-specific recipients for a new_ticket notification.
- * Returns null if the ticket has no area, the area has no configured assignees,
- * or any lookup error occurs (caller must fall back to resolveSupportRecipients).
+ * Attempt to resolve area-specific recipients for a staff-facing (new_ticket /
+ * user_reply) notification. Returns null if the ticket has no area, the area has
+ * no eligible assignees, or any lookup error occurs — in which case the caller
+ * skips the staff notification entirely (no fallback to all support/admin members).
  */
 async function resolveAreaRecipients(tenantId, area) {
   if (!area || !tenantId || !supabase) return null;
@@ -247,20 +248,20 @@ export async function sendSupportNotification({ tenantId, ticketId, eventType, p
         }
         return;
       }
-    } else if (eventType === 'new_ticket' && ticket.area) {
-      // Area-aware routing: notify members assigned to the ticket's area.
-      // Falls back to all support/admin members when the area has no assignees.
-      const areaRecipients = await resolveAreaRecipients(tenantId, ticket.area);
-      if (areaRecipients && areaRecipients.length > 0) {
-        recipients = areaRecipients;
-        console.log(`[SupportNotify] Routing new_ticket to ${recipients.length} area-assigned member(s) for area "${ticket.area}"`);
-      } else {
-        console.log(`[SupportNotify] Area "${ticket.area}" has no assignees — falling back to all support/admin members`);
-        recipients = await resolveSupportRecipients(tenantId);
+    } else if (eventType === 'new_ticket' || eventType === 'user_reply') {
+      // Area-only routing: notify ONLY members assigned to the ticket's area.
+      // No area, or no eligible assignees → skip staff notification entirely.
+      if (!ticket.area) {
+        console.log(`[SupportNotify] Skipping ${eventType} notification for ticket ${ticketId}: ticket has no area — no staff notified`);
+        return;
       }
-    } else {
-      // new_ticket (no area) or user_reply: notify support-management + admin members
-      recipients = await resolveSupportRecipients(tenantId);
+      const areaRecipients = await resolveAreaRecipients(tenantId, ticket.area);
+      if (!areaRecipients || areaRecipients.length === 0) {
+        console.log(`[SupportNotify] Skipping ${eventType} notification for ticket ${ticketId}: area "${ticket.area}" has no eligible assignees — no staff notified`);
+        return;
+      }
+      recipients = areaRecipients;
+      console.log(`[SupportNotify] Routing ${eventType} to ${recipients.length} area-assigned member(s) for area "${ticket.area}"`);
     }
 
     if (recipients.length === 0) {
