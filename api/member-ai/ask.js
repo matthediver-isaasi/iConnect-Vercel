@@ -31,6 +31,18 @@ import {
   makeFeatureAccessChecker,
 } from '../_lib/memberFeatureAccess.js';
 import { isChunkVisibleToMember } from '../_lib/memberContentVisibility.js';
+import {
+  isRecencyQuestion,
+  recencyScore,
+  formatChunkDate,
+  mergeCandidates,
+  rerankByRecency,
+  selectContextChunks,
+} from '../_lib/memberAiRanking.js';
+
+// Re-export the pure ranking helpers for backwards compatibility (tests and
+// any other importers use api/_lib/memberAiRanking.js as the source of truth).
+export { isRecencyQuestion, recencyScore, formatChunkDate };
 
 const rateLimits = new Map();
 const RATE_LIMIT = 10;
@@ -46,10 +58,8 @@ const MAX_QUESTION_LEN = 1000;
 const MAX_HISTORY_TURNS = 6;
 const MIN_WORDS_FOR_EXPANSION = 5; // skip multi-query expansion for short factual questions
 const MAX_EXPANDED_QUERIES = 3;
-// Blend weights + decay for recency-aware re-ranking (applied only AFTER the
-// visibility filter, and only when the question signals recency).
-const RECENCY_WEIGHT = 0.3;
-const RECENCY_HALF_LIFE_DAYS = 180;
+// Recency blend weights/decay live in api/_lib/memberAiRanking.js
+// (RECENCY_WEIGHT / RECENCY_HALF_LIFE_DAYS) alongside the pure helpers.
 
 const CONTENT_TYPE_LABEL = {
   resource: 'Resource',
@@ -100,45 +110,6 @@ function sanitizeHistory(raw) {
     .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
     .slice(-MAX_HISTORY_TURNS)
     .map((m) => ({ role: m.role, content: m.content.slice(0, MAX_QUESTION_LEN) }));
-}
-
-// Recency signal in the question ("latest", "recent", "new", "this year", ...).
-const RECENCY_RE =
-  /\b(latest|recent|recently|new|newest|current|currently|upcoming|update|updates|updated|trend|trends|trending|development|developments|news|nowadays|what'?s (new|happening)|this (year|month|week)|these days)\b/i;
-
-export function isRecencyQuestion(question) {
-  return RECENCY_RE.test(question);
-}
-
-// Best available date for a chunk: published_date for articles/news, start_date
-// for events. Returns a Date or null.
-function chunkDate(m) {
-  const raw = m.published_date || m.start_date;
-  if (!raw) return null;
-  const d = new Date(raw);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
-// Exponential decay on how far the chunk's date is from now (past OR future —
-// an event next week is just as "current" as news from last week). Undated
-// chunks score 0 so they rank purely on similarity.
-export function recencyScore(m, now) {
-  const d = chunkDate(m);
-  if (!d) return 0;
-  const ageDays = Math.abs(now.getTime() - d.getTime()) / 86400000;
-  return Math.exp(-ageDays / RECENCY_HALF_LIFE_DAYS);
-}
-
-export function formatChunkDate(m) {
-  const d = chunkDate(m);
-  if (!d) return '';
-  const s = d.toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
-  const isEvent = m.content_type === 'event' || m.content_type === 'complex_event';
-  return isEvent ? ` (event date: ${s})` : ` (published: ${s})`;
 }
 
 // Cheap LLM pass: rewrite a broad question into up to 3 short alternative
@@ -293,19 +264,10 @@ export default async function handler(req, res) {
 
     // Merge/dedupe candidates across queries, keeping each chunk's best
     // similarity. This all happens BEFORE the visibility filter.
-    const byId = new Map();
     for (const r of matchResults) {
       if (r.error) throw r.error;
-      for (const m of r.data || []) {
-        const prev = byId.get(m.id);
-        if (!prev || (m.similarity ?? 0) > (prev.similarity ?? 0)) {
-          byId.set(m.id, m);
-        }
-      }
     }
-    const candidates = [...byId.values()].sort(
-      (a, b) => (b.similarity ?? 0) - (a.similarity ?? 0)
-    );
+    const candidates = mergeCandidates(matchResults.map((r) => r.data));
 
     // --- Security boundary: keep only accessible, relevant chunks ---
     const now = new Date();
@@ -354,38 +316,14 @@ export default async function handler(req, res) {
 
     // --- Recency-aware re-rank (strictly AFTER the visibility filter) ---
     const recency = isRecencyQuestion(question);
-    const ranked = recency
-      ? [...visible].sort((a, b) => {
-          const scoreA =
-            (1 - RECENCY_WEIGHT) * (a.similarity ?? 0) +
-            RECENCY_WEIGHT * recencyScore(a, now);
-          const scoreB =
-            (1 - RECENCY_WEIGHT) * (b.similarity ?? 0) +
-            RECENCY_WEIGHT * recencyScore(b, now);
-          return scoreB - scoreA;
-        })
-      : visible;
+    const ranked = rerankByRecency(visible, { recency, now });
 
     // --- Select context chunks with a per-source cap so one source can't
     // crowd out the rest; backfill from leftovers if under budget. ---
-    const accessible = [];
-    const perSource = new Map();
-    const leftovers = [];
-    for (const m of ranked) {
-      if (accessible.length >= CONTEXT_CHUNKS) break;
-      const key = `${m.content_type}:${m.source_id}`;
-      const count = perSource.get(key) || 0;
-      if (count < MAX_CHUNKS_PER_SOURCE) {
-        accessible.push(m);
-        perSource.set(key, count + 1);
-      } else {
-        leftovers.push(m);
-      }
-    }
-    for (const m of leftovers) {
-      if (accessible.length >= CONTEXT_CHUNKS) break;
-      accessible.push(m);
-    }
+    const accessible = selectContextChunks(ranked, {
+      contextChunks: CONTEXT_CHUNKS,
+      maxPerSource: MAX_CHUNKS_PER_SOURCE,
+    });
 
     // Deduped citations (order preserved, most-relevant first).
     const sources = [];
