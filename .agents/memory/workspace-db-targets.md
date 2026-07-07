@@ -24,3 +24,13 @@ projects/events/forum toggles) go to **DEST only**, via the pooler
 pollute the SOURCE DB. To test a helper that imports the module-level `supabase`
 against the real schema, run the node process with
 `SUPABASE_URL=$DEST_SUPABASE_URL SUPABASE_SERVICE_KEY=$DEST_SUPABASE_KEY`.
+
+**Member-auth E2E is impossible in this workspace:** `getSessionMember`
+selects `member` with an embedded `organization:organization_id(tenant_id)`
+join, and the SOURCE DB's `organization` table has no `tenant_id` column —
+the join errors at plan time, so every member session resolves to null (logged
+as "Member not found in database", session deleted). Any member-authenticated
+endpoint (member AI ask/history, etc.) can only be exercised end-to-end on the
+Vercel preview (`dev.iconn.app`), never locally. Verify locally via: routing
+(401 not 404), direct table CRUD against DEST with supabase-js, and code
+parity with an existing member endpoint.
