@@ -11,7 +11,10 @@
  * completion by re-invoking until the returned summary reports it is done.
  *
  * Required env vars:
- *   DEST_SUPABASE_URL, DEST_SUPABASE_KEY     (storage backup)
+ *   DEST_SUPABASE_URL or SUPABASE_URL        (storage backup; DEST_SUPABASE_URL
+ *   DEST_SUPABASE_KEY or SUPABASE_SERVICE_KEY preferred, falls back to the
+ *                                             SUPABASE_* names — Vercel only
+ *                                             has the latter)
  *   DEST_DATABASE_URL or DATABASE_URL        (database backup; DEST_DATABASE_URL
  *                                             preferred, falls back to DATABASE_URL —
  *                                             Vercel only has the latter)
@@ -45,8 +48,8 @@ export const DEFAULT_DB_TIME_BUDGET_MS = 250_000;
 // ── shared helpers ──────────────────────────────────────────────────────────
 
 function makeSupabase() {
-  const url = process.env.DEST_SUPABASE_URL;
-  const key = process.env.DEST_SUPABASE_KEY;
+  const url = process.env.DEST_SUPABASE_URL || process.env.SUPABASE_URL;
+  const key = process.env.DEST_SUPABASE_KEY || process.env.SUPABASE_SERVICE_KEY;
   if (!url || !key) return null;
   return createClient(url, key, { auth: { persistSession: false } });
 }
@@ -141,7 +144,7 @@ export async function runStorageBackup({ timeBudgetMs = DEFAULT_STORAGE_TIME_BUD
 
   const supabase = makeSupabase();
   if (!supabase) {
-    return { ok: false, error: 'DEST_SUPABASE_URL / DEST_SUPABASE_KEY not configured', ...summary };
+    return { ok: false, error: 'Supabase credentials not configured (set DEST_SUPABASE_URL/DEST_SUPABASE_KEY or SUPABASE_URL/SUPABASE_SERVICE_KEY)', ...summary };
   }
   const ctx = r2Context();
   if (!ctx) {
