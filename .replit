@@ -34,6 +34,10 @@ args = "Start application"
 task = "workflow.run"
 args = "test"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "ai-assistant-tests"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -53,6 +57,17 @@ outputType = "console"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "npx tsx --test client/src/lib/roleAccessMap.test.ts client/src/components/help/HelpArticleContent.test.jsx api/_lib/helpArticleChunker.test.mjs"
+
+[[workflows.workflow]]
+name = "ai-assistant-tests"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node --test api/_lib/*.test.mjs"
+
+[workflows.workflow.metadata]
+isValidation = true
 
 [userenv]
 
