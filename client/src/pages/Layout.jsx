@@ -51,6 +51,8 @@ import { SiGoogle } from "react-icons/si";
 import BookmarkDrawer from "@/components/bookmarks/BookmarkDrawer";
 import InboxUnreadPopup from "@/components/inbox/InboxUnreadPopup";
 import MemberAiAssistant from "@/components/ai/MemberAiAssistant";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import dougalAvatar from "@assets/ChatGPT_Image_Jul_4,_2026,_06_26_22_PM_1783182456658.png";
 
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from "@/api/base44Client";
@@ -1082,6 +1084,23 @@ const { data: memberRecord } = useQuery({
     }
   },
 });
+
+// Task #2401: AI help persona for the Ask AI launcher button (shared query key with MemberAiAssistant)
+const { data: aiPersona, isFetched: aiPersonaFetched } = useQuery({
+  queryKey: ["/ai-help-persona"],
+  queryFn: async () => {
+    const res = await fetch("/api/public/ai-help-persona", {
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error("Failed to load assistant");
+    return res.json();
+  },
+  staleTime: 5 * 60 * 1000,
+  enabled: !!memberInfo,
+});
+const aiPersonaName = (aiPersona?.name || "Dougal").trim() || "Dougal";
+const aiPersonaAvatarUrl = aiPersona?.avatarUrl || dougalAvatar;
+const aiPersonaInitial = aiPersonaName.charAt(0).toUpperCase();
 
 // Fetch member role
 const { data: memberRole } = useQuery({
@@ -2436,8 +2455,17 @@ useEffect(() => {
                     className="w-full justify-start gap-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
                     data-testid="button-ask-ai"
                   >
-                    <Sparkles className="h-4 w-4 shrink-0" />
-                    <span className="group-data-[collapsible=icon]:hidden">Ask AI</span>
+                    {aiPersonaFetched ? (
+                      <Avatar className="h-5 w-5 shrink-0">
+                        <AvatarImage src={aiPersonaAvatarUrl} alt={aiPersonaName} />
+                        <AvatarFallback className="text-[10px]">{aiPersonaInitial}</AvatarFallback>
+                      </Avatar>
+                    ) : (
+                      <Sparkles className="h-4 w-4 shrink-0" />
+                    )}
+                    <span className="group-data-[collapsible=icon]:hidden">
+                      {aiPersonaFetched ? `Ask ${aiPersonaName}` : "Ask\u2026"}
+                    </span>
                   </Button>
                 </div>
               )}
