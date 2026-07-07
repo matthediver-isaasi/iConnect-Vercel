@@ -89,6 +89,7 @@ import EventCard from "@/components/events/EventCard";
 import ResourceCard from "@/components/resources/ResourceCard";
 import ForumThreadList from "@/components/forum/ForumThreadList";
 import GroupEmailManager from "@/components/group-email/GroupEmailManager";
+import GroupAdminSupportSection from "@/components/support/GroupAdminSupportSection";
 import { uploadFileWithProgress, UPLOAD_TYPES } from "@/lib/tenantUpload";
 import { createPageUrl } from "@/utils";
 import MemberProfileModal from "@/components/MemberProfileModal";
@@ -2778,6 +2779,14 @@ export default function MemberGroupDetailPage() {
               <GroupEmailManager group={emailGroup} heading="Email campaigns" />
             </CardContent>
           </Card>
+        )}
+
+        {/* Support tickets for group admins (Task #2416). Group admins are
+            identified by their assignment (is_group_admin), not RBAC roles, so
+            this stays available even when the Support nav item is RBAC-hidden.
+            Mounted only for active group admins — ticket data is lazy-loaded. */}
+        {isGroupAdmin && memberInfo && (
+          <GroupAdminSupportSection memberInfo={memberInfo} />
         )}
       </div>
 
