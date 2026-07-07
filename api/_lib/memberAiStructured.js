@@ -75,6 +75,8 @@ export const STRUCTURED_ENTITIES = {
       title: { type: 'text', groupable: false },
       event_type: { type: 'text', groupable: true },
       location: { type: 'text', groupable: true },
+      // Member-visible: returned unconditionally by api/public/events.js.
+      available_seats: { type: 'numeric', groupable: false },
     },
     dateFields: { start_date: true },
   },
@@ -87,6 +89,8 @@ export const STRUCTURED_ENTITIES = {
       title: { type: 'text', groupable: false },
       event_type: { type: 'text', groupable: true },
       location: { type: 'text', groupable: true },
+      // Member-visible: returned unconditionally by api/public/complex-events.js.
+      available_seats: { type: 'numeric', groupable: false },
     },
     dateFields: { start_date: true },
   },
@@ -129,6 +133,11 @@ export const STRUCTURED_ENTITIES = {
 };
 
 const FILTER_OPS = new Set(['eq', 'contains']);
+
+// Task #2424: numeric aggregations over catalog fields marked type:'numeric'.
+// Never allowed on aggregate-only entities (bookings) — min/max would expose
+// row-level values from other members' records.
+export const NUMERIC_AGGREGATIONS = new Set(['sum', 'avg', 'min', 'max']);
 
 // ---------------------------------------------------------------------------
 // Query spec validation (pure)
@@ -185,13 +194,44 @@ export function validateQuerySpec(raw, { prefFields = [] } = {}) {
   }
 
   const aggregation = raw.aggregation;
-  if (aggregation !== 'count' && aggregation !== 'count_by') {
+  const isNumericAgg = NUMERIC_AGGREGATIONS.has(aggregation);
+  if (aggregation !== 'count' && aggregation !== 'count_by' && !isNumericAgg) {
     return { ok: false, reason: `Unsupported aggregation: ${String(aggregation)}` };
   }
 
-  // groupBy (only for count_by)
+  // Numeric aggregations (sum/avg/min/max): require a whitelisted numeric
+  // column, and are refused outright on aggregate-only entities — min/max
+  // would expose row-level values from other members' records.
+  let field = null;
+  if (isNumericAgg) {
+    if (catalogEntry.aggregateOnly) {
+      return {
+        ok: false,
+        reason: `Numeric aggregations are not available on ${raw.entity} (aggregate counts only)`,
+      };
+    }
+    const resolved = resolveField(raw.field, catalogEntry, prefFields);
+    if (!resolved) {
+      return { ok: false, reason: `Unknown aggregation field: ${String(raw.field)}` };
+    }
+    if (
+      resolved.kind !== 'column' ||
+      catalogEntry.nativeFields[resolved.field].type !== 'numeric'
+    ) {
+      return {
+        ok: false,
+        reason: `Field is not numeric: ${resolved.kind === 'preference' ? resolved.label : resolved.field}`,
+      };
+    }
+    field = resolved;
+  } else if (raw.field) {
+    return { ok: false, reason: 'field is only allowed with sum/avg/min/max' };
+  }
+
+  // groupBy: required for count_by, optional for numeric aggregations
+  // (grouped sum/avg/min/max), forbidden for plain count.
   let groupBy = null;
-  if (aggregation === 'count_by') {
+  if (aggregation === 'count_by' || (isNumericAgg && raw.groupBy)) {
     const resolved = resolveField(raw.groupBy, catalogEntry, prefFields);
     if (!resolved) {
       return { ok: false, reason: `Unknown group-by field: ${String(raw.groupBy)}` };
@@ -204,7 +244,7 @@ export function validateQuerySpec(raw, { prefFields = [] } = {}) {
     }
     groupBy = resolved;
   } else if (raw.groupBy) {
-    return { ok: false, reason: 'groupBy is only allowed with count_by' };
+    return { ok: false, reason: 'groupBy is only allowed with count_by or a numeric aggregation' };
   }
 
   // filters
@@ -259,7 +299,7 @@ export function validateQuerySpec(raw, { prefFields = [] } = {}) {
 
   return {
     ok: true,
-    spec: { entity: raw.entity, aggregation, groupBy, filters, dateRange },
+    spec: { entity: raw.entity, aggregation, field, groupBy, filters, dateRange },
   };
 }
 
@@ -417,6 +457,61 @@ export function groupAndCount(rows, getValues) {
   return { groups: shown, truncated };
 }
 
+// Task #2424: numeric aggregation (sum/avg/min/max) over a value extractor.
+// Rows with null / non-numeric values are skipped; valueCount says how many
+// rows actually contributed. Empty input -> value null (never NaN/0-as-avg).
+export function computeNumericAggregate(rows, getValue, aggregation) {
+  const values = [];
+  for (const row of rows) {
+    const raw = getValue(row);
+    if (raw == null || raw === '') continue;
+    const n = Number(raw);
+    if (Number.isFinite(n)) values.push(n);
+  }
+  if (values.length === 0) return { value: null, valueCount: 0 };
+  let value;
+  if (aggregation === 'sum') value = values.reduce((s, v) => s + v, 0);
+  else if (aggregation === 'avg')
+    value = values.reduce((s, v) => s + v, 0) / values.length;
+  else if (aggregation === 'min') value = Math.min(...values);
+  else if (aggregation === 'max') value = Math.max(...values);
+  else throw new Error(`Unsupported numeric aggregation: ${aggregation}`);
+  return { value, valueCount: values.length };
+}
+
+// Grouped numeric aggregation. Groups follow the same multi-value semantics
+// as groupAndCount (a row with several group values contributes its numeric
+// value to each). Sorted by aggregate value desc; truncated to MAX_GROUPS
+// with no "(other)" bucket (a combined bucket is meaningless for avg/min/max).
+export function groupAndAggregate(rows, getGroupValues, getValue, aggregation) {
+  const buckets = new Map();
+  for (const row of rows) {
+    let values = getGroupValues(row);
+    if (!Array.isArray(values)) values = [values];
+    const cleaned = values
+      .map((v) => (v == null || String(v).trim() === '' ? null : String(v).trim()))
+      .filter((v, i, a) => a.indexOf(v) === i);
+    const finalValues = cleaned.length > 0 ? cleaned : [null];
+    for (const v of finalValues) {
+      const key = v == null ? '(not set)' : v;
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push(row);
+    }
+  }
+  const groups = [...buckets.entries()]
+    .map(([value, groupRows]) => {
+      const agg = computeNumericAggregate(groupRows, getValue, aggregation);
+      return { value, count: groupRows.length, aggregate: agg.value };
+    })
+    .sort((a, b) => {
+      const av = a.aggregate ?? -Infinity;
+      const bv = b.aggregate ?? -Infinity;
+      return bv - av || b.count - a.count || a.value.localeCompare(b.value);
+    });
+  const truncated = groups.length > MAX_GROUPS;
+  return { groups: truncated ? groups.slice(0, MAX_GROUPS) : groups, truncated };
+}
+
 // ---------------------------------------------------------------------------
 // DB helpers (paginated — never trust a single PostgREST page as a full set)
 // ---------------------------------------------------------------------------
@@ -554,9 +649,10 @@ function buildResult(spec, rows, catalogEntry, prefMaps) {
   if (spec.aggregation === 'count') {
     return { total: rows.length, groups: null, truncated: false, appliedFilters };
   }
+
   const gb = spec.groupBy;
-  const getValues =
-    gb.kind === 'preference'
+  const getGroupValues = gb
+    ? gb.kind === 'preference'
       ? (r) => prefValueEntries((prefMaps.get(gb.fieldId) || new Map()).get(r.id))
       : (r) => {
           const def = catalogEntry.nativeFields[gb.field];
@@ -566,8 +662,47 @@ function buildResult(spec, rows, catalogEntry, prefMaps) {
               ? v
               : prefValueEntries(v)
             : v;
-        };
-  const { groups, truncated } = groupAndCount(rows, getValues);
+        }
+    : null;
+
+  // Numeric aggregations (sum/avg/min/max), overall or grouped.
+  if (NUMERIC_AGGREGATIONS.has(spec.aggregation)) {
+    const getValue = (r) => r[spec.field.field];
+    if (!gb) {
+      const { value, valueCount } = computeNumericAggregate(
+        rows,
+        getValue,
+        spec.aggregation
+      );
+      return {
+        total: rows.length,
+        aggregation: spec.aggregation,
+        field: spec.field.field,
+        value,
+        valueCount,
+        groups: null,
+        truncated: false,
+        appliedFilters,
+      };
+    }
+    const { groups, truncated } = groupAndAggregate(
+      rows,
+      getGroupValues,
+      getValue,
+      spec.aggregation
+    );
+    return {
+      total: rows.length,
+      aggregation: spec.aggregation,
+      field: spec.field.field,
+      groupByLabel: gb.kind === 'preference' ? gb.label : gb.field,
+      groups,
+      truncated,
+      appliedFilters,
+    };
+  }
+
+  const { groups, truncated } = groupAndCount(rows, getGroupValues);
   return {
     total: rows.length,
     groupByLabel: gb.kind === 'preference' ? gb.label : gb.field,
@@ -689,7 +824,7 @@ async function fetchVisibleEvents({ supabase, tenantId, viewer, complex }) {
     supabase
       .from(table)
       .select(
-        'id, title, status, event_state, member_group_id, group_event_public, event_type, location, start_date, end_date'
+        'id, title, status, event_state, member_group_id, group_event_public, event_type, location, start_date, end_date, available_seats'
       )
       .eq('tenant_id', tenantId)
       .in('status', ['published', 'tbc'])
@@ -735,6 +870,11 @@ async function execResources({ supabase, tenantId, spec, viewer, catalogEntry })
 // Bookings are AGGREGATE-ONLY: counts of confirmed bookings on events the
 // member can see. No attendee identities are ever fetched or returned.
 async function execBookings({ supabase, tenantId, spec, viewer, catalogEntry }) {
+  // Defense-in-depth: validateQuerySpec already refuses numeric aggregations
+  // on aggregate-only entities; never let one through to row values here.
+  if (NUMERIC_AGGREGATIONS.has(spec.aggregation)) {
+    throw new Error('Numeric aggregations are not available on bookings');
+  }
   const complex = spec.entity === 'complex_event_booking';
   let events = await fetchVisibleEvents({ supabase, tenantId, viewer, complex });
 
@@ -859,7 +999,7 @@ export async function executeQuerySpec({ supabase, tenantId, spec, viewer }) {
 // Cheap heuristic: only run the (LLM) planner for questions that look like
 // count/aggregate/breakdown questions. Content questions skip straight to RAG.
 const STRUCTURED_HINT_RE =
-  /\b(how many|number of|count of|count the|total (number|count)|breakdown|break down|per (country|city|region|category|type|role|group|year|month|location|tier)|by (country|city|region|category|type|year|month|location)|(most|fewest) (bookings|registrations|attendees|members|organi[sz]ations))\b/i;
+  /\b(how many|number of|count of|count the|total (number|count|seats|capacity)|breakdown|break down|per (country|city|region|category|type|role|group|year|month|location|tier)|by (country|city|region|category|type|year|month|location)|(most|fewest) (bookings|registrations|attendees|members|organi[sz]ations)|average|avg|sum of|(largest|smallest|biggest|highest|lowest|maximum|minimum) (seats?|capacity|event|number))\b/i;
 
 export function looksLikeStructuredQuestion(question) {
   return STRUCTURED_HINT_RE.test(String(question || ''));
@@ -885,7 +1025,9 @@ export function buildPlannerCatalog(prefFields = []) {
   for (const [entity, cfg] of Object.entries(STRUCTURED_ENTITIES)) {
     const fieldBits = Object.entries(cfg.nativeFields).map(
       ([name, def]) =>
-        `${name} (${def.type}${def.groupable ? ', groupable' : ''})`
+        `${name} (${def.type}${def.groupable ? ', groupable' : ''}${
+          def.type === 'numeric' ? ', usable with sum/avg/min/max' : ''
+        })`
     );
     const dateBits = Object.keys(cfg.dateFields);
     let line = `- entity "${entity}" — ${cfg.label}. Fields: ${fieldBits.join(', ') || 'none'}.`;
@@ -913,6 +1055,65 @@ export function buildPlannerCatalog(prefFields = []) {
   return lines.join('\n');
 }
 
+// ---------------------------------------------------------------------------
+// Deterministic answer fallback (pure)
+// ---------------------------------------------------------------------------
+
+const AGG_PHRASE = {
+  sum: 'total',
+  avg: 'average',
+  min: 'lowest',
+  max: 'highest',
+};
+
+function formatNumber(n) {
+  if (n == null) return 'n/a';
+  const rounded = Math.round(n * 100) / 100;
+  return String(rounded);
+}
+
+// Deterministic phrasing fallback used when the synthesis LLM call fails —
+// the numbers always come straight from the executor, never the model.
+export function templateStructuredAnswer(result) {
+  const filterNote = result.appliedFilters?.length
+    ? ` (${result.appliedFilters.join(', ')})`
+    : '';
+  const entityLabel = result.entity.replace(/_/g, ' ');
+
+  if (NUMERIC_AGGREGATIONS.has(result.aggregation)) {
+    const phrase = AGG_PHRASE[result.aggregation];
+    const fieldLabel = String(result.field || '').replace(/_/g, ' ');
+    if (!result.groups) {
+      if (result.valueCount === 0) {
+        return `None of the ${result.total} matching ${entityLabel} records${filterNote} have a value for ${fieldLabel}.`;
+      }
+      return (
+        `The ${phrase} ${fieldLabel} across ${result.valueCount} matching ` +
+        `${entityLabel} records${filterNote} is ${formatNumber(result.value)}.`
+      );
+    }
+    const lines = result.groups.map(
+      (g) =>
+        `- ${g.value}: ${g.aggregate == null ? 'no value' : formatNumber(g.aggregate)} (${g.count} record${g.count === 1 ? '' : 's'})`
+    );
+    return (
+      `${phrase[0].toUpperCase() + phrase.slice(1)} ${fieldLabel} by ${result.groupByLabel}${filterNote}:\n` +
+      lines.join('\n') +
+      (result.truncated ? '\n(only the top groups are shown)' : '')
+    );
+  }
+
+  if (!result.groups) {
+    return `There are ${result.total} matching ${entityLabel} records${filterNote}.`;
+  }
+  const lines = result.groups.map((g) => `- ${g.value}: ${g.count}`);
+  return (
+    `Breakdown by ${result.groupByLabel}${filterNote} — total ${result.total}:\n` +
+    lines.join('\n') +
+    (result.truncated ? '\n(only the largest groups are shown)' : '')
+  );
+}
+
 export function buildPlannerMessages(question, prefFields) {
   const catalog = buildPlannerCatalog(prefFields);
   const system =
@@ -922,12 +1123,17 @@ export function buildPlannerMessages(question, prefFields) {
     'fields listed below — never invent fields.\n\n' +
     'Available entities and fields:\n' +
     catalog +
-    '\n\nSpec format: {"entity": "...", "aggregation": "count"|"count_by", ' +
-    '"groupBy": "<field>" (only for count_by), ' +
+    '\n\nSpec format: {"entity": "...", ' +
+    '"aggregation": "count"|"count_by"|"sum"|"avg"|"min"|"max", ' +
+    '"field": "<numeric field>" (required for sum/avg/min/max), ' +
+    '"groupBy": "<groupable field>" (required for count_by, optional for sum/avg/min/max), ' +
     '"filters": [{"field": "<field or pref:id>", "op": "eq"|"contains", "value": "..."}], ' +
     '"dateRange": {"field": "<date field>", "from": "YYYY-MM-DD", "to": "YYYY-MM-DD"} (optional)}\n\n' +
     'Rules:\n' +
     '- Respond with JSON only: {"structured": true, "spec": {...}} or {"structured": false}.\n' +
+    '- sum/avg/min/max only work on fields marked (numeric) above; they are ' +
+    'never available on booking entities. If a total/average is asked over a ' +
+    'field that is not listed as numeric, answer {"structured": true, "spec": null}.\n' +
     '- Map tenant vocabulary to custom fields where they clearly match (e.g. ' +
     '"schools" may correspond to a custom field value or simply mean the ' +
     'organization entity — prefer a filter only when a listed field/option matches).\n' +

@@ -44,6 +44,7 @@ const EXECUTOR_SELECTED_COLUMNS = {
     'location',
     'start_date',
     'end_date',
+    'available_seats',
   ],
   complex_event: [
     'id',
@@ -57,6 +58,7 @@ const EXECUTOR_SELECTED_COLUMNS = {
     'location',
     'start_date',
     'end_date',
+    'available_seats',
   ],
   resource: [
     'id',

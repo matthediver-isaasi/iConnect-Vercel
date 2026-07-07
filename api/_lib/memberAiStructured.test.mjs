@@ -18,6 +18,9 @@ import {
   isPrefFieldDirectoryVisible,
   matchesColumnFilter,
   groupAndCount,
+  computeNumericAggregate,
+  groupAndAggregate,
+  templateStructuredAnswer,
   looksLikeStructuredQuestion,
   buildPlannerCatalog,
   STRUCTURED_ENTITIES,
@@ -619,4 +622,301 @@ test('buildPlannerCatalog: lists entities and scoped active custom fields only',
   // member-scoped field appears under member, and inactive fields never appear
   assert.match(catalog, /pref:pf-region.*Region/);
   assert.doesNotMatch(catalog, /pf-inactive/);
+});
+
+// ---------------------------------------------------------------------------
+// Task #2424: numeric aggregations (sum/avg/min/max)
+// ---------------------------------------------------------------------------
+
+test('validateQuerySpec: accepts sum/avg/min/max on a numeric field', () => {
+  for (const agg of ['sum', 'avg', 'min', 'max']) {
+    const r = validateQuerySpec({
+      entity: 'event',
+      aggregation: agg,
+      field: 'available_seats',
+    });
+    assert.equal(r.ok, true, `${agg} should be accepted`);
+    assert.equal(r.spec.aggregation, agg);
+    assert.deepEqual(r.spec.field, { kind: 'column', field: 'available_seats' });
+    assert.equal(r.spec.groupBy, null);
+  }
+  // complex_event too
+  const ce = validateQuerySpec({
+    entity: 'complex_event',
+    aggregation: 'max',
+    field: 'available_seats',
+  });
+  assert.equal(ce.ok, true);
+});
+
+test('validateQuerySpec: numeric aggs reject non-numeric and unknown fields', () => {
+  const nonNumeric = validateQuerySpec({
+    entity: 'event',
+    aggregation: 'sum',
+    field: 'title',
+  });
+  assert.equal(nonNumeric.ok, false);
+  assert.match(nonNumeric.reason, /not numeric/);
+
+  const unknown = validateQuerySpec({
+    entity: 'event',
+    aggregation: 'avg',
+    field: 'ticket_price',
+  });
+  assert.equal(unknown.ok, false);
+  assert.match(unknown.reason, /Unknown aggregation field/);
+
+  const missing = validateQuerySpec({ entity: 'event', aggregation: 'sum' });
+  assert.equal(missing.ok, false);
+
+  // preference fields are never numeric-aggregable
+  const pref = validateQuerySpec(
+    {
+      entity: 'organization',
+      aggregation: 'sum',
+      field: 'pref:pf-school-type',
+    },
+    { prefFields: PREF_FIELDS }
+  );
+  assert.equal(pref.ok, false);
+  assert.match(pref.reason, /not numeric/);
+});
+
+test('validateQuerySpec: numeric aggs refused on aggregate-only booking entities', () => {
+  for (const entity of ['booking', 'complex_event_booking']) {
+    const r = validateQuerySpec({
+      entity,
+      aggregation: 'sum',
+      field: 'event_title',
+    });
+    assert.equal(r.ok, false, `${entity} must refuse numeric aggregations`);
+    assert.match(r.reason, /aggregate counts only/);
+  }
+});
+
+test('validateQuerySpec: grouped numeric aggregation rules', () => {
+  const grouped = validateQuerySpec({
+    entity: 'event',
+    aggregation: 'avg',
+    field: 'available_seats',
+    groupBy: 'event_type',
+  });
+  assert.equal(grouped.ok, true);
+  assert.deepEqual(grouped.spec.groupBy, { kind: 'column', field: 'event_type' });
+
+  // groupBy must still be groupable
+  const notGroupable = validateQuerySpec({
+    entity: 'event',
+    aggregation: 'avg',
+    field: 'available_seats',
+    groupBy: 'title',
+  });
+  assert.equal(notGroupable.ok, false);
+  assert.match(notGroupable.reason, /not groupable/);
+
+  // field is reserved for numeric aggregations
+  const strayField = validateQuerySpec({
+    entity: 'event',
+    aggregation: 'count',
+    field: 'available_seats',
+  });
+  assert.equal(strayField.ok, false);
+
+  // plain count still rejects groupBy
+  const countGroup = validateQuerySpec({
+    entity: 'event',
+    aggregation: 'count',
+    groupBy: 'event_type',
+  });
+  assert.equal(countGroup.ok, false);
+});
+
+test('computeNumericAggregate: math, null/non-numeric skipping, empty input', () => {
+  const rows = [
+    { n: 10 },
+    { n: '20' },
+    { n: null },
+    { n: 'abc' },
+    { n: '' },
+    { n: 30 },
+  ];
+  const get = (r) => r.n;
+  assert.deepEqual(computeNumericAggregate(rows, get, 'sum'), {
+    value: 60,
+    valueCount: 3,
+  });
+  assert.deepEqual(computeNumericAggregate(rows, get, 'avg'), {
+    value: 20,
+    valueCount: 3,
+  });
+  assert.deepEqual(computeNumericAggregate(rows, get, 'min'), {
+    value: 10,
+    valueCount: 3,
+  });
+  assert.deepEqual(computeNumericAggregate(rows, get, 'max'), {
+    value: 30,
+    valueCount: 3,
+  });
+  // zero is a real value, not "missing"
+  assert.deepEqual(computeNumericAggregate([{ n: 0 }], get, 'min'), {
+    value: 0,
+    valueCount: 1,
+  });
+  // no numeric values at all -> null, never NaN or 0
+  assert.deepEqual(computeNumericAggregate([{ n: null }], get, 'sum'), {
+    value: null,
+    valueCount: 0,
+  });
+  assert.deepEqual(computeNumericAggregate([], get, 'avg'), {
+    value: null,
+    valueCount: 0,
+  });
+});
+
+test('groupAndAggregate: per-group math, (not set) bucket, sort, truncation', () => {
+  const rows = [
+    { type: 'Workshop', seats: 10 },
+    { type: 'Workshop', seats: 30 },
+    { type: 'Webinar', seats: 100 },
+    { type: null, seats: 5 },
+    { type: 'Gala', seats: null },
+  ];
+  const { groups, truncated } = groupAndAggregate(
+    rows,
+    (r) => r.type,
+    (r) => r.seats,
+    'sum'
+  );
+  assert.equal(truncated, false);
+  assert.deepEqual(groups, [
+    { value: 'Webinar', count: 1, aggregate: 100 },
+    { value: 'Workshop', count: 2, aggregate: 40 },
+    { value: '(not set)', count: 1, aggregate: 5 },
+    { value: 'Gala', count: 1, aggregate: null }, // no value sorts last
+  ]);
+
+  const avg = groupAndAggregate(
+    rows,
+    (r) => r.type,
+    (r) => r.seats,
+    'avg'
+  );
+  assert.equal(avg.groups.find((g) => g.value === 'Workshop').aggregate, 20);
+
+  // truncation keeps the top MAX_GROUPS with no (other) bucket
+  const many = Array.from({ length: MAX_GROUPS + 5 }, (_, i) => ({
+    type: `t-${i}`,
+    seats: i,
+  }));
+  const t = groupAndAggregate(
+    many,
+    (r) => r.type,
+    (r) => r.seats,
+    'max'
+  );
+  assert.equal(t.truncated, true);
+  assert.equal(t.groups.length, MAX_GROUPS);
+  assert.ok(!t.groups.some((g) => g.value === '(other)'));
+  // sorted desc by aggregate: the largest seat counts survive
+  assert.equal(t.groups[0].aggregate, MAX_GROUPS + 4);
+});
+
+test('templateStructuredAnswer: counts, breakdowns, and numeric shapes', () => {
+  // plain count (existing shape)
+  assert.equal(
+    templateStructuredAnswer({
+      entity: 'event',
+      total: 7,
+      groups: null,
+      truncated: false,
+      appliedFilters: [],
+    }),
+    'There are 7 matching event records.'
+  );
+  // count_by breakdown (existing shape)
+  const breakdown = templateStructuredAnswer({
+    entity: 'organization',
+    total: 3,
+    groupByLabel: 'tags',
+    groups: [
+      { value: 'A', count: 2 },
+      { value: 'B', count: 1 },
+    ],
+    truncated: false,
+    appliedFilters: ['tags = "x"'],
+  });
+  assert.match(breakdown, /Breakdown by tags \(tags = "x"\) — total 3:/);
+  assert.match(breakdown, /- A: 2/);
+
+  // plain numeric
+  assert.equal(
+    templateStructuredAnswer({
+      entity: 'event',
+      aggregation: 'avg',
+      field: 'available_seats',
+      total: 4,
+      value: 33.333333,
+      valueCount: 3,
+      groups: null,
+      truncated: false,
+      appliedFilters: [],
+    }),
+    'The average available seats across 3 matching event records is 33.33.'
+  );
+  // numeric with no values at all
+  assert.match(
+    templateStructuredAnswer({
+      entity: 'event',
+      aggregation: 'sum',
+      field: 'available_seats',
+      total: 2,
+      value: null,
+      valueCount: 0,
+      groups: null,
+      truncated: false,
+      appliedFilters: [],
+    }),
+    /None of the 2 matching event records have a value for available seats\./
+  );
+  // grouped numeric
+  const grouped = templateStructuredAnswer({
+    entity: 'event',
+    aggregation: 'max',
+    field: 'available_seats',
+    groupByLabel: 'event_type',
+    total: 5,
+    groups: [
+      { value: 'Gala', count: 2, aggregate: 200 },
+      { value: 'Webinar', count: 3, aggregate: null },
+    ],
+    truncated: true,
+    appliedFilters: [],
+  });
+  assert.match(grouped, /Highest available seats by event_type:/);
+  assert.match(grouped, /- Gala: 200 \(2 records\)/);
+  assert.match(grouped, /- Webinar: no value \(3 records\)/);
+  assert.match(grouped, /only the top groups are shown/);
+});
+
+test('planner catalog advertises numeric fields automatically', () => {
+  const catalog = buildPlannerCatalog([]);
+  assert.match(
+    catalog,
+    /available_seats \(numeric, usable with sum\/avg\/min\/max\)/
+  );
+});
+
+test('looksLikeStructuredQuestion: numeric aggregation phrasings', () => {
+  assert.equal(
+    looksLikeStructuredQuestion('What is the average seats per event?'),
+    true
+  );
+  assert.equal(
+    looksLikeStructuredQuestion('total capacity of upcoming events'),
+    true
+  );
+  assert.equal(
+    looksLikeStructuredQuestion('which event has the largest capacity?'),
+    true
+  );
 });

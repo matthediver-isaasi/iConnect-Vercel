@@ -45,6 +45,7 @@ import {
   fetchStructuredPrefFields,
   validateQuerySpec,
   executeQuerySpec,
+  templateStructuredAnswer,
 } from '../_lib/memberAiStructured.js';
 
 // Re-export the pure ranking helpers for backwards compatibility (tests and
@@ -183,21 +184,9 @@ async function planStructuredQuery(openai, question, prefFields) {
 }
 
 // Deterministic phrasing fallback if the synthesis LLM call fails — the
-// numbers always come straight from the executor, never the model.
-function templateStructuredAnswer(result) {
-  const filterNote = result.appliedFilters?.length
-    ? ` (${result.appliedFilters.join(', ')})`
-    : '';
-  if (!result.groups) {
-    return `There are ${result.total} matching ${result.entity.replace(/_/g, ' ')} records${filterNote}.`;
-  }
-  const lines = result.groups.map((g) => `- ${g.value}: ${g.count}`);
-  return (
-    `Breakdown by ${result.groupByLabel}${filterNote} — total ${result.total}:\n` +
-    lines.join('\n') +
-    (result.truncated ? '\n(only the largest groups are shown)' : '')
-  );
-}
+// numbers always come straight from the executor, never the model. Lives in
+// api/_lib/memberAiStructured.js (templateStructuredAnswer) so it can handle
+// count and sum/avg/min/max result shapes and be unit tested.
 
 // Phrase executor results as a concise natural-language answer. The model is
 // strictly instructed to only state numbers present in the results.
