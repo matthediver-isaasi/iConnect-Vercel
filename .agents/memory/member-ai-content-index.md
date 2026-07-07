@@ -58,6 +58,24 @@ The on-save hook DEFERS indexable content to the cron when no key is present; th
 backfill script's `--apply` and the cron both require the key. Dry-run works
 anywhere (chunk plan only).
 
+## Broad/recency questions fail at the PROMPT, not retrieval
+When the assistant gives its stock "I don't have that information" answer despite
+a healthy index, check the model refusal path first: retrieval can succeed (good
+chunks reach the model) and the strictly-grounded model still declines to
+synthesise "latest developments in X" because excerpts carry no dates and the
+prompt forbids anything not directly answered. Fixes that matter, in order:
+synthesis-permissive prompt + today's date, per-excerpt published/event dates,
+bigger deduped context budget (per-source cap), recency re-rank (blended
+similarity+date decay, strictly AFTER the visibility filter), multi-query
+expansion for broad questions (skipped for short factual ones, best-effort so a
+failure never blocks answering). The hard fallback path logs a structured line
+(candidate count, drops by similarity floor vs visibility, top similarities) so
+future misses are diagnosable from Vercel logs — distinguish "fallback fired"
+from "model refused" before touching retrieval.
+
+**Why:** the first diagnosis assumed the FALLBACK_ANSWER fired; prod showed the
+model itself refused. Retrieval-side "fixes" would not have changed the answer.
+
 ## Reindex cron is a resumable self-triggering chain (60s cap)
 `reindexAllMemberContent` takes `deadlineMs` + `cursor` and returns `{done,
 nextCursor}`. The cron processes a ~40s slice then self-triggers the next slice
