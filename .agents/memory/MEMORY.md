@@ -67,3 +67,4 @@
 - [Member AI structured Q&A](member-ai-structured-qa.md) — count questions use a whitelisted query spec; no dynamic_directory rows = legacy directory (unrestricted), pref-field visibility is directory_visibility not is_filterable.
 - [Microsite path-prefix surfaces](microsite-prefix-surfaces.md) — rows with microsite_id serve only at /{prefix}/{slug}; page-by-slug, nav, branding, entityMeta, sitemap must all exclude them from the default site.
 - [RBAC feature key rollout](rbac-key-rollout.md) — Role Management builds from the global role_access_item table in prod (hardcoded map only a fallback); a new key needs an idempotent seed script or admins can't untick it.
+- [DD file-upload payload shape](dd-file-upload-payload-shape.md) — file values store a RELATIVE secure-url + storage_path with NO bucket key; consumers must parse bucket/path from the secure-url query.

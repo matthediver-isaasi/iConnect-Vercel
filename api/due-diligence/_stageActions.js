@@ -2041,12 +2041,32 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
       return null;
     };
 
+    // Parse a relative (or absolute) `/api/storage/secure-url?bucket=..&path=..`
+    // link into { bucket, storagePath }. File-upload payloads store this
+    // relative URL as `file_url`, which is NOT directly usable as a logo URL.
+    const parseSecureStorageUrl = (url) => {
+      if (typeof url !== 'string' || !url.includes('/api/storage/')) return null;
+      const qs = url.split('?')[1];
+      if (!qs) return null;
+      try {
+        const params = new URLSearchParams(qs);
+        const bucket = params.get('bucket');
+        const path = params.get('path') || params.get('storagePath');
+        if (!bucket || !path) return null;
+        return { bucket, storagePath: path };
+      } catch {
+        return null;
+      }
+    };
+
     const extractLogoFileMetadata = (value, depth = 0) => {
       if (!value || depth > 3) return null;
       if (typeof value === 'string') {
         if (value.startsWith('{') || value.startsWith('[')) {
           try { return extractLogoFileMetadata(JSON.parse(value), depth + 1); } catch { return null; }
         }
+        const secure = parseSecureStorageUrl(value);
+        if (secure) return secure;
         if (value.startsWith('http')) return { directUrl: value };
         return null;
       }
@@ -2058,9 +2078,14 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
           return { bucket: value.bucket, storagePath: value.storage_path };
         }
         const directUrl = value.file_url || value.url || value.publicUrl || value.signedUrl || value.downloadUrl || value.src;
-        if (directUrl && typeof directUrl === 'string' && directUrl.startsWith('http')) {
-          return { directUrl };
+        if (directUrl && typeof directUrl === 'string') {
+          // Relative secure-url payloads carry bucket+path in the query string.
+          const secure = parseSecureStorageUrl(directUrl);
+          if (secure) return secure;
+          if (directUrl.startsWith('http')) return { directUrl };
         }
+        // storage_path present but bucket missing and file_url unparseable —
+        // fall through to nested shapes rather than guessing a bucket.
         if (value.value) return extractLogoFileMetadata(value.value, depth + 1);
         if (value.data) return extractLogoFileMetadata(value.data, depth + 1);
         if (value.file) return extractLogoFileMetadata(value.file, depth + 1);
