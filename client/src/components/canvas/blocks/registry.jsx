@@ -83,7 +83,9 @@ import {
   hasAnyResponsiveValue,
   writeResponsiveValue,
   BREAKPOINT_MAX_PX,
+  BREAKPOINT_WIDTHS,
   resolveBlockAtBreakpoint,
+  clampGeomToStage,
   normalizeCanvasDesign,
   getRootChildren,
 } from '@/lib/canvasDesign';
@@ -7069,12 +7071,21 @@ function BoxInspector() {
 // wrapper already positions the whole instance, so children stay relative to
 // it. Non-interactive: the parent symbol content overlay is pointer-events:
 // none, so clicks fall through to the symbol instance for selection.
-function SymbolChildPreview({ block, breakpoint }) {
+function SymbolChildPreview({ block, breakpoint, hostWidth }) {
   const def = getBlockDefinition(block.type);
   const Renderer = def?.Renderer;
   const style = block.style || {};
   const a11y = block.a11y || {};
-  const geom = resolveBlockAtBreakpoint(block, breakpoint || 'desktop');
+  const bp = breakpoint || 'desktop';
+  // Task #2463: symbol children resolve their per-breakpoint geometry in the
+  // symbol's local coordinate space, so a desktop-authored child (e.g. an
+  // image at x=860 w=300) would spill past the clamped host box — and the
+  // 375px mobile stage — because the symbol host allows overflow. Clamp the
+  // RENDERED child frame to the host box width, mirroring what the stage
+  // does for top-level blocks since #2451/#2460. clampGeomToStage is a
+  // no-op on desktop and on frames that already fit, so desktop rendering
+  // and stored geometry are untouched.
+  const geom = clampGeomToStage(resolveBlockAtBreakpoint(block, bp), bp, hostWidth);
   if (geom.hidden) return null;
   const isSection = block.type === BLOCK_TYPES.SECTION;
   return (
@@ -7132,6 +7143,18 @@ function SymbolRender({ block, breakpoint, asEditor }) {
     if (sym && sym.design) {
       const symDesign = normalizeCanvasDesign(sym.design);
       const kids = getRootChildren(symDesign);
+      // Task #2463: compute the host instance box width as the stage renders
+      // it (per-breakpoint resolve + display clamp against the editor stage
+      // width) so children can be clamped relative to the box they actually
+      // sit in. On desktop both calls are no-ops, so this is undefined there
+      // in effect (clampGeomToStage returns the raw frame untouched).
+      const bp = breakpoint || 'desktop';
+      const stageW = BREAKPOINT_WIDTHS[bp] || BREAKPOINT_WIDTHS.desktop;
+      const hostGeom = clampGeomToStage(
+        resolveBlockAtBreakpoint(block, bp, { canvasWidth: stageW }),
+        bp,
+        stageW,
+      );
       return (
         <div
           className="absolute inset-0"
@@ -7139,7 +7162,12 @@ function SymbolRender({ block, breakpoint, asEditor }) {
           data-symbol-preview="true"
         >
           {kids.map((child) => (
-            <SymbolChildPreview key={child.id} block={child} breakpoint={breakpoint} />
+            <SymbolChildPreview
+              key={child.id}
+              block={child}
+              breakpoint={breakpoint}
+              hostWidth={hostGeom.w}
+            />
           ))}
           {/* Subtle, non-intrusive symbol affordance: a faint dashed outline
               plus a small corner badge so authors can tell a symbol instance
