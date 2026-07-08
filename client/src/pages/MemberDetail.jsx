@@ -1082,9 +1082,10 @@ export default function MemberDetail() {
         );
       case 'dropdown':
         return isEditing ? (
-          <Select value={value || ''} onValueChange={(v) => setValue(v)} disabled={isLocked}>
+          <Select value={value || ''} onValueChange={(v) => setValue(v === '__clear__' ? '' : v)} disabled={isLocked}>
             <SelectTrigger data-testid={`select-${prefix}-custom-${field.id}`}><SelectValue placeholder={`Select ${field.label}`} /></SelectTrigger>
             <SelectContent>
+              <SelectItem value="__clear__" className="text-muted-foreground italic" data-testid={`select-${prefix}-custom-${field.id}-clear`}>None (clear selection)</SelectItem>
               {(field.options || []).map((opt, idx) => (
                 <SelectItem key={idx} value={opt.value}>{opt.label || opt.value}</SelectItem>
               ))}
@@ -1197,9 +1198,10 @@ export default function MemberDetail() {
           return byCode ? byCode.name : value;
         })();
         return isEditing ? (
-          <Select value={resolvedValue} onValueChange={(v) => setValue(v)} disabled={isLocked}>
+          <Select value={resolvedValue} onValueChange={(v) => setValue(v === '__clear__' ? '' : v)} disabled={isLocked}>
             <SelectTrigger data-testid={`select-${prefix}-custom-${field.id}`}><SelectValue placeholder={`Select ${field.label}`} /></SelectTrigger>
             <SelectContent>
+              <SelectItem value="__clear__" className="text-muted-foreground italic" data-testid={`select-${prefix}-custom-${field.id}-clear`}>None (clear selection)</SelectItem>
               {availableCountries.map((country) => (
                 <SelectItem key={country.code} value={country.name}>{country.name}</SelectItem>
               ))}

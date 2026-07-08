@@ -1177,13 +1177,14 @@ export default function OrganisationDetailView({
         return (
           <Select
             value={value || ''}
-            onValueChange={(v) => setCustomFieldValues(prev => ({ ...prev, [field.id]: v }))}
+            onValueChange={(v) => setCustomFieldValues(prev => ({ ...prev, [field.id]: v === '__clear__' ? '' : v }))}
             disabled={disabledOverride}
           >
             <SelectTrigger data-testid={`select-custom-${field.id}`}>
               <SelectValue placeholder={`Select ${field.label}`} />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="__clear__" className="text-muted-foreground italic" data-testid={`select-custom-${field.id}-clear`}>None (clear selection)</SelectItem>
               {(field.options || []).map((opt, idx) => (
                 <SelectItem key={idx} value={opt.value}>{opt.label || opt.value}</SelectItem>
               ))}
@@ -1228,13 +1229,14 @@ export default function OrganisationDetailView({
         return isEditing ? (
           <Select
             value={resolvedValue}
-            onValueChange={(v) => setCustomFieldValues(prev => ({ ...prev, [field.id]: v }))}
+            onValueChange={(v) => setCustomFieldValues(prev => ({ ...prev, [field.id]: v === '__clear__' ? '' : v }))}
             disabled={disabledOverride}
           >
             <SelectTrigger data-testid={`select-custom-country-${field.id}`}>
               <SelectValue placeholder={`Select ${field.label}`} />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="__clear__" className="text-muted-foreground italic" data-testid={`select-custom-country-${field.id}-clear`}>None (clear selection)</SelectItem>
               {availableCountries.map((country) => (
                 <SelectItem key={country.code} value={country.name}>{country.name}</SelectItem>
               ))}
