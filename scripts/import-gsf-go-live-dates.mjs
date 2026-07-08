@@ -1,14 +1,24 @@
 // Import GSF "Go live date" (go_live) organisational custom field values from
-// attached_assets/Organisations_date_member_since_08.07.26_1783505156783.xlsx.
+// an attached spreadsheet.
 //
 // Hard-pinned to the Global Schools Forum tenant and the go_live field.
-// Reads Sheet1 columns: id (organization UUID), Registration_Date (Excel serial date).
+// Reads Sheet1 columns: id (organization UUID) and a date column of Excel
+// serial date numbers (column name configurable via --date-column).
 // Converts Excel serials to YYYY-MM-DD (Excel 1900 date system via the xlsx library)
 // and upserts into organization_preference_value keyed on (organization_id, field_id).
 //
 // Usage:
-//   node scripts/import-gsf-go-live-dates.mjs           # dry-run (default): prints planned changes
-//   node scripts/import-gsf-go-live-dates.mjs --apply   # perform the writes
+//   node scripts/import-gsf-go-live-dates.mjs [--file=<path>] [--date-column=<name>]           # dry-run (default)
+//   node scripts/import-gsf-go-live-dates.mjs [--file=<path>] [--date-column=<name>] --apply   # perform the writes
+//
+// Defaults (batch 1):
+//   --file=attached_assets/Organisations_date_member_since_08.07.26_1783505156783.xlsx
+//   --date-column=Registration_Date
+//
+// Batch 2 (July 2026):
+//   node scripts/import-gsf-go-live-dates.mjs \
+//     --file=attached_assets/Organisations_without_join_date_1783531493630.xlsx \
+//     '--date-column=Go live date' --apply
 //
 // Idempotent: re-running with --apply is a no-op once values match.
 
@@ -17,7 +27,15 @@ import XLSX from 'xlsx';
 
 const TENANT_ID = '21296ad6-1350-483a-a90c-1b06ece70501'; // gsf
 const FIELD_ID = '7e4cb8fd-7d7a-4fa9-814a-67ebb054cd0e'; // go_live (date)
-const XLSX_PATH = 'attached_assets/Organisations_date_member_since_08.07.26_1783505156783.xlsx';
+
+function argValue(name, fallback) {
+  const prefix = `--${name}=`;
+  const arg = process.argv.find((a) => a.startsWith(prefix));
+  return arg ? arg.slice(prefix.length) : fallback;
+}
+
+const XLSX_PATH = argValue('file', 'attached_assets/Organisations_date_member_since_08.07.26_1783505156783.xlsx');
+const DATE_COLUMN = argValue('date-column', 'Registration_Date');
 
 const APPLY = process.argv.includes('--apply');
 
@@ -55,6 +73,8 @@ async function fetchAll(table, select, filterFn) {
 
 async function main() {
   console.log(`Mode: ${APPLY ? 'APPLY' : 'DRY-RUN'}`);
+  console.log(`File: ${XLSX_PATH}`);
+  console.log(`Date column: ${DATE_COLUMN}`);
 
   // 1. Read spreadsheet
   const wb = XLSX.readFile(XLSX_PATH);
@@ -69,7 +89,7 @@ async function main() {
   const seen = new Set();
   for (const row of rows) {
     const id = String(row.id || '').trim();
-    const iso = excelSerialToISO(row.Registration_Date);
+    const iso = excelSerialToISO(row[DATE_COLUMN]);
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) || !iso) {
       badRows.push(row);
       continue;
