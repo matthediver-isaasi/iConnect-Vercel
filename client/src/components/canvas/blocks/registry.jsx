@@ -838,6 +838,42 @@ function buildTextResponsiveTypographyCss(blockId, tenantStyle) {
   return buildTenantTypographyResponsiveCss(`[data-cb="${safeId}"]`, tenantStyle);
 }
 
+// Task #2444: per-breakpoint caps for the Hero block's internal content
+// padding. `block.style.padding*` is desktop-authored (frequently 80–120px)
+// and there is no per-breakpoint style layer, so on narrow stages those
+// values crush the text/CTAs. Values are only ever capped (Math.min) — a
+// hero authored with small desktop padding renders unchanged everywhere.
+const HERO_PAD_MAX = {
+  tablet: { top: 40, right: 40, bottom: 40, left: 40 },
+  mobile: { top: 32, right: 24, bottom: 32, left: 24 },
+};
+
+// Public-visitor path of the padding caps above: emit @media rules (same
+// boundaries as the geometry stylesheet) targeting the hero's padded
+// content wrapper. Rules are only emitted for sides whose desktop value
+// exceeds the cap, so most heroes contribute no CSS at all. Mobile rules
+// are emitted after tablet ones — with equal specificity + !important the
+// later mobile declaration wins below 640px.
+function buildHeroPaddingResponsiveCss(safeBlockId, basePadding) {
+  if (!safeBlockId) return null;
+  const SIDES = ['top', 'right', 'bottom', 'left'];
+  const parts = [];
+  for (const bp of ['tablet', 'mobile']) {
+    const cap = HERO_PAD_MAX[bp];
+    const decls = [];
+    for (const side of SIDES) {
+      const v = Number(basePadding[side]) || 0;
+      if (v > cap[side]) decls.push(`padding-${side}:${cap[side]}px !important;`);
+    }
+    if (decls.length) {
+      parts.push(
+        `@media (max-width:${BREAKPOINT_MAX_PX[bp]}px){[data-cb="${safeBlockId}"] [data-hero-pad]{${decls.join('')}}}`,
+      );
+    }
+  }
+  return parts.length ? parts.join('') : null;
+}
+
 // Task #974: extract distinct `data-fs-tablet="..."` / `data-fs-mobile="..."`
 // values from sanitized Tiptap HTML and emit per-value CSS rules so
 // real visitor browsers apply the right font-size at each viewport
@@ -1209,20 +1245,40 @@ function HeroRender({ block, asEditor, priority, breakpoint }) {
   // block.style.padding* (mirrors the Section block) and falls back to 24px
   // per side so legacy heroes that never set padding render exactly as the
   // old hardcoded `p-6`.
+  //
+  // Task #2444: the stored values are desktop-authored (often 80–120px for
+  // a dramatic hero) and there is no per-breakpoint style layer, so on the
+  // 375px mobile stage they crush the text/CTAs into a sliver. Cap (never
+  // raise) each side per breakpoint: preview paths (editor stage + `?_bp=`
+  // iframe) get the cap inline via the `breakpoint` prop; public visitors
+  // get equivalent `@media` rules emitted below. Desktop is untouched, and
+  // heroes authored with small padding (≤ cap) render byte-identically.
   const s = block.style || {};
-  const heroPadding = {
-    paddingTop: s.paddingTop ?? 24,
-    paddingRight: s.paddingRight ?? 24,
-    paddingBottom: s.paddingBottom ?? 24,
-    paddingLeft: s.paddingLeft ?? 24,
+  const basePadding = {
+    top: s.paddingTop ?? 24,
+    right: s.paddingRight ?? 24,
+    bottom: s.paddingBottom ?? 24,
+    left: s.paddingLeft ?? 24,
   };
+  const padCap = HERO_PAD_MAX[bpForInline] || null;
+  const heroPadding = {
+    paddingTop: padCap ? Math.min(basePadding.top, padCap.top) : basePadding.top,
+    paddingRight: padCap ? Math.min(basePadding.right, padCap.right) : basePadding.right,
+    paddingBottom: padCap ? Math.min(basePadding.bottom, padCap.bottom) : basePadding.bottom,
+    paddingLeft: padCap ? Math.min(basePadding.left, padCap.left) : basePadding.left,
+  };
+  // Public path (no forced breakpoint prop): emit per-block @media rules so
+  // real tablet/mobile visitors get the same caps without any runtime JS.
+  const heroPaddingCss = !isPreview
+    ? buildHeroPaddingResponsiveCss(safeBlockId, basePadding)
+    : null;
   return (
     <div
       className="absolute inset-0 overflow-hidden"
       style={{ ...(bg || {}), borderRadius: block.style.borderRadius || 0 }}
     >
-      {heroResponsiveCss && (
-        <style dangerouslySetInnerHTML={{ __html: heroResponsiveCss }} />
+      {(heroResponsiveCss || heroPaddingCss) && (
+        <style dangerouslySetInnerHTML={{ __html: [heroResponsiveCss, heroPaddingCss].filter(Boolean).join('') }} />
       )}
       {isImageBg && (() => {
         const r = buildResponsiveImage(c.bgImageUrl, { sizes: '100vw' });
@@ -1257,6 +1313,7 @@ function HeroRender({ block, asEditor, priority, breakpoint }) {
       />
       <div
         className="relative h-full w-full flex flex-col"
+        data-hero-pad=""
         style={{ alignItems: justify, justifyContent: 'center', textAlign, color: c.textColor || '#ffffff', ...heroPadding, ...(railStyle || {}) }}
       >
         <Heading style={headlineInline} data-tg-r="headline">

@@ -183,9 +183,16 @@ function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint, windowBp, pinS
       // resolves against the host browser window, not the pinned stage, so
       // full-bleed sections balloon past the stage and escape the dialog.
       // Constrain them to the stage instead so they fill it edge-to-edge
-      // without overflowing. Normal/published and `?_bp=` iframe paths keep
-      // using `100vw` (full-bleed intentionally runs edge-to-edge there).
-      forcedStyle = pinStageWidth
+      // without overflowing.
+      //
+      // Task #2444: forced tablet/mobile previews (`?_bp=` iframe sized to
+      // exactly 768/375px by the editor) also use the stage-filling branch.
+      // The stage already spans the full iframe width there, and `100vw`
+      // includes the iframe's vertical scrollbar width, so full-bleed blocks
+      // (e.g. a Hero) overflowed the stage horizontally by the scrollbar
+      // width. `?_bp=desktop` keeps `100vw` — its iframe can be wider than
+      // the 1200px centred stage, so full-bleed must still break out of it.
+      forcedStyle = (pinStageWidth || forcedBreakpoint !== 'desktop')
         ? { position: 'absolute', left: 0, right: 'auto', transform: 'none', width: '100%', top, height }
         : { position: 'absolute', left: '50%', transform: 'translateX(-50%)', width: '100vw', top, height };
     } else if (fullWidth) {
