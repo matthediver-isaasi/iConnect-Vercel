@@ -2,7 +2,7 @@ import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import useEdgeAutoScroll from './useEdgeAutoScroll';
 import { Group as GroupIcon, Ungroup as UngroupIcon } from 'lucide-react';
-import { resolveBlockAtBreakpoint, blockIsFullWidthLike, BLOCK_TYPES } from '@/lib/canvasDesign';
+import { resolveBlockAtBreakpoint, blockIsFullWidthLike, clampGeomToStage, BLOCK_TYPES } from '@/lib/canvasDesign';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -292,26 +292,13 @@ function handleCursor(h) {
   return map[h] || 'pointer';
 }
 
-// Display-only clamp for the tablet/mobile editor stage. Desktop-authored
-// geometry cascades down when a block has no explicit tablet/mobile frame, so
-// a 1200px-wide block would spill past the 375px stage edge in the builder.
-// Constrain the RENDERED wrapper so x + w never exceeds the canvas width:
-// clamp the width, and pull x back inside the stage if x alone is past the
-// edge. This never touches stored geometry — drag/resize handlers and the
-// Position inspector keep reading/writing the raw per-breakpoint frames, and
-// desktop rendering is untouched.
-function clampGeomToStage(geom, breakpoint, canvasWidth) {
-  if (breakpoint === 'desktop') return geom;
-  if (!geom || geom.hidden) return geom;
-  if (!Number.isFinite(canvasWidth) || canvasWidth <= 0) return geom;
-  const x = Number.isFinite(geom.x) ? geom.x : 0;
-  const w = Number.isFinite(geom.w) ? geom.w : 0;
-  if (x + w <= canvasWidth) return geom;
-  let nx = x;
-  if (nx >= canvasWidth) nx = Math.max(0, canvasWidth - Math.min(w, canvasWidth));
-  const nw = Math.max(1, Math.min(w, canvasWidth - Math.max(0, nx)));
-  return { ...geom, x: nx, w: nw };
-}
+// Task #2451/#2460: the display-only tablet/mobile clamp (clampGeomToStage)
+// now lives in @/lib/canvasDesign so the editor stage, the published-page
+// stylesheet (buildCanvasCss) and the forced-breakpoint preview
+// (CanvasPageRenderer) all share the exact same rule and can't drift.
+// It never touches stored geometry — drag/resize handlers and the Position
+// inspector keep reading/writing the raw per-breakpoint frames, and desktop
+// rendering is untouched.
 
 function CanvasStageInner({
   blocks,

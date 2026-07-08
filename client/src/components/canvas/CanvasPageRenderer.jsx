@@ -8,6 +8,7 @@ import {
   resolveSymbolsInDesign,
   buildThemeCssVars,
   stageHeightForBreakpoint,
+  clampGeomToStage,
   BLOCK_TYPES,
   BREAKPOINT_WIDTHS,
   blockSupportsFullBleed,
@@ -198,7 +199,12 @@ function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint, windowBp, pinS
     } else if (fullWidth) {
       forcedStyle = { position: 'absolute', left: 0, top, width: '100%', height };
     } else {
-      forcedStyle = { position: 'absolute', left: g.x, top, width: g.w, height };
+      // Task #2460: clamp the rendered frame to the forced breakpoint's
+      // stage width so the `?_bp=` preview matches the published CSS
+      // (which emits clamped overrides) and the editor stage. Display
+      // only — stored geometry is never rewritten.
+      const cg = clampGeomToStage(g, forcedBreakpoint, BREAKPOINT_WIDTHS[forcedBreakpoint]);
+      forcedStyle = { position: 'absolute', left: cg.x, top, width: cg.w, height };
     }
   }
 

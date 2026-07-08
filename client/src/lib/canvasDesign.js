@@ -1735,6 +1735,29 @@ export function resolveBlockAtBreakpoint(block, breakpoint, options) {
   return geom;
 }
 
+// Task #2451 / #2460: display-only clamp for tablet/mobile rendering.
+// Desktop-authored geometry cascades down when a block has no explicit
+// tablet/mobile frame, so a 1200px-wide block would spill past the 375px
+// stage edge. Constrain the RENDERED geometry so x + w never exceeds the
+// stage width: clamp the width, and pull x back inside the stage if x alone
+// is past the edge. This never touches stored geometry — it is a no-op on
+// desktop and on frames that already fit. Shared by the editor stage
+// (CanvasStage), the published-page stylesheet (buildCanvasCss) and the
+// forced-breakpoint preview (CanvasPageRenderer) so the three surfaces
+// can't drift.
+export function clampGeomToStage(geom, breakpoint, canvasWidth) {
+  if (breakpoint === 'desktop') return geom;
+  if (!geom || geom.hidden) return geom;
+  if (!Number.isFinite(canvasWidth) || canvasWidth <= 0) return geom;
+  const x = Number.isFinite(geom.x) ? geom.x : 0;
+  const w = Number.isFinite(geom.w) ? geom.w : 0;
+  if (x + w <= canvasWidth) return geom;
+  let nx = x;
+  if (nx >= canvasWidth) nx = Math.max(0, canvasWidth - Math.min(w, canvasWidth));
+  const nw = Math.max(1, Math.min(w, canvasWidth - Math.max(0, nx)));
+  return { ...geom, x: nx, w: nw };
+}
+
 // Task #970: per-device raw-px values (font size, line spacing, icon size,
 // button size sub-fields). Stored either as a scalar number (no responsive
 // override — byte-identical to pre-#970 blocks) or as a partial object
@@ -2437,7 +2460,16 @@ export function buildCanvasCss(blocks, scope) {
     const fullWidth = !!b.fullWidth;
     const heightCss = resolveBlockHeightCss(b);
     const dG = resolveBlockAtBreakpoint(b, 'desktop');
-    const tG = resolveBlockAtBreakpoint(b, 'tablet');
+    // Task #2460: clamp the rendered tablet geometry to the tablet stage
+    // width BEFORE comparing to desktop, so a desktop-cascaded over-wide
+    // block (identical stored frames) still emits a clamped override rule
+    // instead of letting the desktop width spill past the stage edge.
+    // Full-width/full-bleed blocks are skipped (x/w forced by geomRule).
+    const tG = clampGeomToStage(
+      resolveBlockAtBreakpoint(b, 'tablet'),
+      'tablet',
+      BREAKPOINT_WIDTHS.tablet,
+    );
     // Full-width / full-bleed blocks have their x/w forced by geomRule
     // (100% or 100vw), so per-breakpoint x/w differences (which only come
     // from the breakpoint stage width) must not trigger a redundant
@@ -2481,8 +2513,20 @@ export function buildCanvasCss(blocks, scope) {
     const fullBleed = blockSupportsFullBleed(b.type) && !!(b.content && b.content.fullBleed);
     const fullWidth = !!b.fullWidth;
     const heightCss = resolveBlockHeightCss(b);
-    const tG = resolveBlockAtBreakpoint(b, 'tablet');
-    const mG = resolveBlockAtBreakpoint(b, 'mobile');
+    // Task #2460: compare the clamped mobile geometry against the clamped
+    // tablet geometry — the tablet @media rule (which also matches at
+    // mobile widths) already renders the clamped tablet frame, so the
+    // mobile override only needs emitting when the clamped results differ.
+    const tG = clampGeomToStage(
+      resolveBlockAtBreakpoint(b, 'tablet'),
+      'tablet',
+      BREAKPOINT_WIDTHS.tablet,
+    );
+    const mG = clampGeomToStage(
+      resolveBlockAtBreakpoint(b, 'mobile'),
+      'mobile',
+      BREAKPOINT_WIDTHS.mobile,
+    );
     const fwLike = fullWidth || fullBleed;
     const geomDiffers = fwLike
       ? (mG.y !== tG.y || mG.h !== tG.h || !!mG.hidden !== !!tG.hidden)
