@@ -276,7 +276,8 @@ export default function OrganisationDetailView({
   const realtimeEnabled = !!organization?.id && !!memberInfo?.tenant_id;
 
   useRealtimeSubscription('organization', [
-    ['organizations-crm-list']
+    ['organizations-crm-paginated'],
+    ['organization-direct', organization?.id]
   ], { 
     enabled: realtimeEnabled, 
     tenantId: memberInfo?.tenant_id 
@@ -296,7 +297,8 @@ export default function OrganisationDetailView({
     entityId: organization?.id,
     enabled: realtimeEnabled,
     queryKeysToInvalidate: [
-      ['organizations-crm-list'],
+      ['organizations-crm-paginated'],
+      ['organization-direct', organization?.id],
       ['org-detail-preference-values', organization?.id],
       ['all-org-preference-values-crm']
     ]
@@ -459,7 +461,7 @@ export default function OrganisationDetailView({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['organization-direct', organization?.id] });
-      queryClient.invalidateQueries({ queryKey: ['organizations-crm-list'] });
+      queryClient.invalidateQueries({ queryKey: ['organizations-crm-paginated'] });
       queryClient.invalidateQueries({ queryKey: ['organizations'] });
       toast.success('Guest Access updated');
     },
@@ -862,7 +864,7 @@ export default function OrganisationDetailView({
       return await base44.entities.Organization.create(newOrg);
     },
     onSuccess: (createdOrg) => {
-      queryClient.invalidateQueries({ queryKey: ['organizations-crm-list'] });
+      queryClient.invalidateQueries({ queryKey: ['organizations-crm-paginated'] });
       toast.success('Organisation created successfully');
       if (createdOrg?._zohoCrmSync) showZohoCrmSyncToast(createdOrg._zohoCrmSync);
       if (onCreated) {
@@ -879,7 +881,8 @@ export default function OrganisationDetailView({
       return await base44.entities.Organization.update(organization.id, updates);
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['organizations-crm-list'] });
+      queryClient.invalidateQueries({ queryKey: ['organizations-crm-paginated'] });
+      queryClient.invalidateQueries({ queryKey: ['organization-direct', organization?.id] });
       toast.success('Organisation updated successfully');
       if (data?._zohoCrmSync) showZohoCrmSyncToast(data._zohoCrmSync);
       setIsEditing(false);
@@ -909,7 +912,7 @@ export default function OrganisationDetailView({
     try {
       const result = await base44.integrations.Core.UploadFile({ file });
       await base44.entities.Organization.update(organization.id, { logo_url: result.file_url });
-      queryClient.invalidateQueries({ queryKey: ['organizations-crm-list'] });
+      queryClient.invalidateQueries({ queryKey: ['organizations-crm-paginated'] });
       queryClient.invalidateQueries({ queryKey: ['organization-direct', organization.id] });
       queryClient.invalidateQueries({ queryKey: ['organizations'] });
       toast.success('Logo updated');
@@ -1832,7 +1835,8 @@ export default function OrganisationDetailView({
                       onChange={async (newTags) => {
                         try {
                           await base44.entities.Organization.update(organization.id, { tags: newTags });
-                          queryClient.invalidateQueries({ queryKey: ['organizations-crm-list'] });
+                          queryClient.invalidateQueries({ queryKey: ['organizations-crm-paginated'] });
+                          queryClient.invalidateQueries({ queryKey: ['organization-direct', organization.id] });
                           queryClient.invalidateQueries({ queryKey: ['admin-organizations-tags'] });
                         } catch (err) {
                           toast.error('Failed to update tags: ' + err.message);
