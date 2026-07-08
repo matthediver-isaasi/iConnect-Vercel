@@ -36,3 +36,9 @@ id = "vRAAVRf2iHTJl2DiEwJEr"
 uri = "file://exports/GFI-Security-and-Support-Board-Paper-v1.0.docx"
 type = "word_document"
 title = "GFI Security & 5-Year Support — Board Paper v1.0"
+
+[[outputs]]
+id = "72kzeHLD3gkxPvjWWw4-s"
+uri = "file://guides/canvasbuilder-accessibility-board-report.pdf"
+type = "pdf"
+title = "CanvasBuilder Accessibility — Board Report (PDF)"
