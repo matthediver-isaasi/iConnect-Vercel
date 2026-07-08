@@ -2649,9 +2649,18 @@ async function evaluateScheduledConditions(workflow, entityType, record) {
 //   logTriggerType — trigger_type recorded in workflow_log trigger_data
 //                    (default 'scheduled'; the manual backfill endpoint passes
 //                    'manual_backfill' so manual runs are distinguishable).
+//   budgetMs       — wall-clock budget for THIS invocation. When elapsed time
+//                    reaches the budget the run stops cleanly BETWEEN records
+//                    (never mid-record) and returns complete:false with
+//                    nextOffset pointing at the first UNprocessed record.
+//                    Needed because execute cost is driven by matched records
+//                    (each match does several sequential awaits), so a
+//                    record-count cap alone can blow the serverless
+//                    maxDuration. Default: no budget (cron behaviour).
 //
-// `complete` is false when the invocation stopped at recordLimit with more
-// records potentially remaining; `nextOffset` is the offset to resume from.
+// `complete` is false when the invocation stopped at recordLimit or budgetMs
+// with more records potentially remaining; `nextOffset` is the offset to
+// resume from.
 export async function runScheduledWorkflow(workflow, baseUrl, options = {}) {
   const summary = { evaluated: 0, matched: 0, executed: 0, skipped: 0, errors: 0, complete: true, nextOffset: null };
   if (!supabase) {
@@ -2671,12 +2680,20 @@ export async function runScheduledWorkflow(workflow, baseUrl, options = {}) {
   const startOffset = Number.isFinite(options.offset) && options.offset > 0 ? Math.floor(options.offset) : 0;
   const dryRun = options.dryRun === true;
   const logTriggerType = options.logTriggerType || 'scheduled';
+  const budgetMs = Number.isFinite(options.budgetMs) && options.budgetMs > 0 ? options.budgetMs : null;
+  const startedAt = Date.now();
+  const budgetExceeded = () => budgetMs !== null && (Date.now() - startedAt) >= budgetMs;
   const pageSize = 500;
 
   let from = startOffset;
   let processed = 0;
   let exhausted = false;
+  let stoppedForBudget = false;
   while (processed < recordLimit) {
+    if (budgetExceeded()) {
+      stoppedForBudget = true;
+      break;
+    }
     const batchSize = Math.min(pageSize, recordLimit - processed);
     const to = from + batchSize - 1;
     // ORDER BY is required for stable .range() pagination — without it
@@ -2698,9 +2715,18 @@ export async function runScheduledWorkflow(workflow, baseUrl, options = {}) {
       break;
     }
 
+    // Track how many records of THIS page were fully processed so a
+    // budget-stop mid-page can resume at the exact next record (the old
+    // implementation only advanced `from` at page boundaries).
+    let processedInPage = 0;
     for (const record of records) {
+      if (budgetExceeded()) {
+        stoppedForBudget = true;
+        break;
+      }
       summary.evaluated++;
       processed++;
+      processedInPage++;
       try {
         // Cheap skip: a once_per_record workflow that already ran for this
         // record needs no condition evaluation at all.
@@ -2732,14 +2758,17 @@ export async function runScheduledWorkflow(workflow, baseUrl, options = {}) {
       }
     }
 
-    from += records.length;
+    from += processedInPage;
+    if (stoppedForBudget) {
+      break;
+    }
     if (records.length < batchSize) {
       exhausted = true;
       break;
     }
   }
 
-  if (!exhausted && processed >= recordLimit) {
+  if (stoppedForBudget || (!exhausted && processed >= recordLimit)) {
     summary.complete = false;
     summary.nextOffset = from;
   }

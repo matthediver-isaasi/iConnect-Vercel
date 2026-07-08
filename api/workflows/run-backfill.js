@@ -16,6 +16,15 @@
  * until `complete` is true, keeping each request well inside the serverless
  * duration limit regardless of tenant size.
  *
+ * Each chunk is bounded TWO ways: page_size (record count) and a ~45s
+ * wall-clock budget. The budget is the one that matters for execute mode —
+ * cost is driven by MATCHED records (each match does several sequential
+ * awaits: once-per-record check, condition eval, actions, logging), so a
+ * chunk full of matches could otherwise exceed Vercel's 60s maxDuration and
+ * 504. On a budget stop the chunk returns complete:false with nextOffset at
+ * the first unprocessed record, and may have processed far fewer than
+ * page_size records — that's expected.
+ *
  * dry_run evaluates conditions and counts matches but executes no actions and
  * writes no logs. execute logs each run with trigger_type 'manual_backfill'
  * so manual runs are distinguishable in the execution logs tab.
@@ -99,11 +108,17 @@ export default async function handler(req, res) {
     }
     const baseUrl = host ? `${protocol}://${host}` : (process.env.VITE_APP_URL || '');
 
+    // ~45s wall-clock budget keeps each invocation safely inside the 60s
+    // serverless maxDuration no matter how slow individual actions are.
+    // Applied to both modes (execute is the one that needs it; dry-run is
+    // harmless). The hourly cron does NOT pass a budget — its behaviour is
+    // unchanged.
     const summary = await runScheduledWorkflow(workflow, baseUrl, {
       dryRun: mode === 'dry_run',
       offset: startOffset,
       recordLimit: pageSize,
       logTriggerType: 'manual_backfill',
+      budgetMs: 45000,
     });
 
     return res.status(200).json({

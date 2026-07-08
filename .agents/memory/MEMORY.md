@@ -70,3 +70,4 @@
 - [RBAC feature key rollout](rbac-key-rollout.md) — Role Management builds from the global role_access_item table in prod (hardcoded map only a fallback); a new key needs an idempotent seed script or admins can't untick it.
 - [DD file-upload payload shape](dd-file-upload-payload-shape.md) — file values store a RELATIVE secure-url + storage_path with NO bucket key; consumers must parse bucket/path from the secure-url query.
 - [Canvas mobile stage clamp](canvas-mobile-stage-clamp.md) — editor tablet/mobile geoms are clamped for display only; interactions/inspector read raw frames, and the public CSS path has no clamp.
+- [Serverless chunk time budget](serverless-chunk-time-budget.md) — record-count chunking still 504s when matches drive cost; budget wall-clock per invocation with an exact per-record resume cursor.

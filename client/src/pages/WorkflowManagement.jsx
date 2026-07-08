@@ -378,7 +378,14 @@ export default function WorkflowManagementPage() {
   // "Run against all records" (manual backfill)
   // ---------------------------------------------------------------------
   const BACKFILL_PAGE_SIZE = 200;
-  const BACKFILL_MAX_CHUNKS = 500;
+  // Overall wall-clock cap for the whole browser-driven loop. Chunks are now
+  // time-budgeted server-side (~45s each) and may process far fewer than
+  // page_size records, so a fixed chunk-count cap would be wrong — a slow
+  // tenant legitimately needs many small chunks.
+  const BACKFILL_MAX_RUN_MS = 2 * 60 * 60 * 1000; // 2 hours
+  const BACKFILL_CHUNK_RETRIES = 3;
+  const BACKFILL_RETRYABLE_STATUSES = [502, 503, 504];
+  const BACKFILL_SAFE_RERUN_NOTE = 'The run stopped partway through, but it is safe to run again: records that already ran are logged, and workflows set to run once per record will skip them automatically.';
 
   const workflowUsesChangeOperators = (workflow) =>
     (workflow?.conditions || []).some(c => c?.operator === 'changed_to' || c?.operator === 'changed_from');
@@ -392,9 +399,29 @@ export default function WorkflowManagementPage() {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      throw new Error(data.error || `Request failed (${res.status})`);
+      const err = new Error(data.error || `Request failed (${res.status})`);
+      err.status = res.status;
+      throw err;
     }
     return data;
+  };
+
+  // Retry a chunk on transient gateway errors (502/503/504) or network
+  // failures (no status) with a short backoff, so one hiccup doesn't kill
+  // the whole run mid-way. Real 4xx/5xx application errors are not retried.
+  const backfillRequestWithRetry = async (workflowId, mode, offset) => {
+    let lastErr;
+    for (let attempt = 1; attempt <= BACKFILL_CHUNK_RETRIES; attempt++) {
+      try {
+        return await backfillRequest(workflowId, mode, offset);
+      } catch (err) {
+        lastErr = err;
+        const retryable = err.status === undefined || BACKFILL_RETRYABLE_STATUSES.includes(err.status);
+        if (!retryable || attempt === BACKFILL_CHUNK_RETRIES) break;
+        await new Promise(r => setTimeout(r, 1500 * attempt));
+      }
+    }
+    throw lastErr;
   };
 
   // Drive chunked requests until the run reports complete, accumulating the
@@ -402,8 +429,21 @@ export default function WorkflowManagementPage() {
   const runBackfillLoop = async (workflowId, mode, onProgress) => {
     const totals = { evaluated: 0, matched: 0, executed: 0, skipped: 0, errors: 0 };
     let offset = 0;
-    for (let chunk = 0; chunk < BACKFILL_MAX_CHUNKS; chunk++) {
-      const data = await backfillRequest(workflowId, mode, offset);
+    let stalledChunks = 0;
+    const startedAt = Date.now();
+    while (true) {
+      if (Date.now() - startedAt > BACKFILL_MAX_RUN_MS) {
+        throw new Error(`This run took longer than 2 hours and was stopped as a safety measure. ${mode === 'execute' ? BACKFILL_SAFE_RERUN_NOTE : 'Please try again or contact support.'}`);
+      }
+      let data;
+      try {
+        data = await backfillRequestWithRetry(workflowId, mode, offset);
+      } catch (err) {
+        if (mode === 'execute') {
+          throw new Error(`${err.message}. ${BACKFILL_SAFE_RERUN_NOTE}`);
+        }
+        throw err;
+      }
       totals.evaluated += data.evaluated || 0;
       totals.matched += data.matched || 0;
       totals.executed += data.executed || 0;
@@ -411,9 +451,18 @@ export default function WorkflowManagementPage() {
       totals.errors += data.errors || 0;
       if (onProgress) onProgress({ ...totals });
       if (data.complete !== false) return totals;
-      offset = data.nextOffset ?? (offset + BACKFILL_PAGE_SIZE);
+      const next = data.nextOffset ?? (offset + BACKFILL_PAGE_SIZE);
+      // Guard against a server that reports incomplete but makes no progress.
+      if (next <= offset && (data.evaluated || 0) === 0) {
+        stalledChunks++;
+        if (stalledChunks >= 3) {
+          throw new Error(`The run stopped making progress. ${mode === 'execute' ? BACKFILL_SAFE_RERUN_NOTE : 'Please try again or contact support.'}`);
+        }
+      } else {
+        stalledChunks = 0;
+      }
+      offset = next;
     }
-    throw new Error('Run stopped after too many chunks — please try again or contact support.');
   };
 
   const openBackfillDialog = async (workflow) => {
