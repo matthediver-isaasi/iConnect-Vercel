@@ -61,6 +61,7 @@ export default function CommunicationsManagementPage() {
   const [eventTicketTypesCache, setEventTicketTypesCache] = useState({});
   const [eventTicketTypesLoading, setEventTicketTypesLoading] = useState({});
   const [eventTicketTypeSelections, setEventTicketTypeSelections] = useState({});
+  const [eventAttendanceSelections, setEventAttendanceSelections] = useState({});
   const [eventFormSearchInput, setEventFormSearchInput] = useState('');
   const [selectedEventForm, setSelectedEventForm] = useState(null);
   const [addListEventFormReceived, setAddListEventFormReceived] = useState(true);
@@ -447,12 +448,19 @@ export default function CommunicationsManagementPage() {
     if (segment.type === 'event_attendees') {
       const lookup = segment.names || {};
       const ticketSel = segment.ticket_type_selection || {};
+      const attendanceSel = segment.attendance_selection || {};
+      const attendanceLabels = { attended: 'Attended only', not_attended: 'Did not attend' };
       const eventSummaries = (segment.ids || []).map(id => {
         const evName = lookup[id] || eventLookup[id] || id;
         const sel = ticketSel[id];
-        if (!sel || sel === 'all' || !Array.isArray(sel) || sel.length === 0) return evName;
-        const tcNames = sel.map(tc => tc.name).filter(Boolean).join(', ');
-        return `${evName} (${tcNames})`;
+        const parts = [];
+        if (sel && sel !== 'all' && Array.isArray(sel) && sel.length > 0) {
+          parts.push(sel.map(tc => tc.name).filter(Boolean).join(', '));
+        }
+        if (attendanceLabels[attendanceSel[id]]) {
+          parts.push(attendanceLabels[attendanceSel[id]]);
+        }
+        return parts.length > 0 ? `${evName} (${parts.join(' — ')})` : evName;
       }).filter(Boolean);
       return eventSummaries.length > 0 ? `${label}: ${eventSummaries.join('; ')}` : `${label} (${count})`;
     }
@@ -565,6 +573,7 @@ export default function CommunicationsManagementPage() {
     setEventTicketTypesCache({});
     setEventTicketTypesLoading({});
     setEventTicketTypeSelections({});
+    setEventAttendanceSelections({});
   };
 
   const formatEventDate = (dateStr) => {
@@ -2796,6 +2805,20 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                   setAddListSegmentIds(prev => [...prev, ev.id]);
                                   setEventSearchInput('');
                                   fetchEventTicketTypes(ev.id);
+                                  // Hydrate saved per-event selections from the existing
+                                  // segment so re-adding an event doesn't silently reset
+                                  // its ticket-type / attendance filters on save.
+                                  const savedSeg = editListAudiences.find(a => a.type === 'event_attendees' && (a.ids || []).includes(ev.id));
+                                  if (savedSeg) {
+                                    const savedTicketSel = savedSeg.ticket_type_selection?.[ev.id];
+                                    if (Array.isArray(savedTicketSel) && savedTicketSel.length > 0) {
+                                      setEventTicketTypeSelections(prev => (prev[ev.id] !== undefined ? prev : { ...prev, [ev.id]: savedTicketSel }));
+                                    }
+                                    const savedAtt = savedSeg.attendance_selection?.[ev.id];
+                                    if (savedAtt === 'attended' || savedAtt === 'not_attended') {
+                                      setEventAttendanceSelections(prev => (prev[ev.id] !== undefined ? prev : { ...prev, [ev.id]: savedAtt }));
+                                    }
+                                  }
                                 }}
                                 data-testid={`event-result-${ev.id}`}
                               >
@@ -2853,6 +2876,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                         setSelectedEvents(prev => prev.filter(s => s.id !== ev.id));
                                         setAddListSegmentIds(prev => prev.filter(i => i !== ev.id));
                                         setEventTicketTypeSelections(prev => { const n = { ...prev }; delete n[ev.id]; return n; });
+                                        setEventAttendanceSelections(prev => { const n = { ...prev }; delete n[ev.id]; return n; });
                                       }}
                                       data-testid={`button-remove-event-${ev.id}`}
                                     >
@@ -2896,6 +2920,29 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                       ))}
                                     </div>
                                   )}
+                                  <div className="pl-1 pt-0.5 flex items-center gap-1.5" data-testid={`event-attendance-${ev.id}`}>
+                                    <span className="text-xs text-muted-foreground shrink-0">Attendance:</span>
+                                    <Select
+                                      value={eventAttendanceSelections[ev.id] || 'all'}
+                                      onValueChange={(val) => {
+                                        setEventAttendanceSelections(prev => {
+                                          const n = { ...prev };
+                                          if (val === 'all') delete n[ev.id];
+                                          else n[ev.id] = val;
+                                          return n;
+                                        });
+                                      }}
+                                    >
+                                      <SelectTrigger className="h-7 text-xs w-40" data-testid={`select-attendance-${ev.id}`}>
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="all">All bookings</SelectItem>
+                                        <SelectItem value="attended">Attended</SelectItem>
+                                        <SelectItem value="not_attended">Did not attend</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
                                 </div>
                               );
                             })}
@@ -3513,10 +3560,15 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                             const newNames = {};
                             selectedEvents.forEach(ev => { newNames[ev.id] = ev.title; });
                             const newTicketSel = {};
+                            const newAttendanceSel = {};
                             selectedEvents.forEach(ev => {
                               const sel = eventTicketTypeSelections[ev.id];
                               if (Array.isArray(sel) && sel.length > 0) {
                                 newTicketSel[ev.id] = sel;
+                              }
+                              const att = eventAttendanceSelections[ev.id];
+                              if (att === 'attended' || att === 'not_attended') {
+                                newAttendanceSel[ev.id] = att;
                               }
                             });
                             const existingIdx = editListAudiences.findIndex(a => a.type === 'event_attendees');
@@ -3526,6 +3578,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                 const existing = new Set(updated[existingIdx].ids || []);
                                 const existingNames = { ...(updated[existingIdx].names || {}) };
                                 const existingTicketSel = { ...(updated[existingIdx].ticket_type_selection || {}) };
+                                const existingAttendanceSel = { ...(updated[existingIdx].attendance_selection || {}) };
                                 selectedEvents.forEach(ev => {
                                   existing.add(ev.id);
                                   existingNames[ev.id] = ev.title;
@@ -3535,6 +3588,12 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                   } else {
                                     delete existingTicketSel[ev.id];
                                   }
+                                  const att = eventAttendanceSelections[ev.id];
+                                  if (att === 'attended' || att === 'not_attended') {
+                                    existingAttendanceSel[ev.id] = att;
+                                  } else {
+                                    delete existingAttendanceSel[ev.id];
+                                  }
                                 });
                                 const updatedSeg = { ...updated[existingIdx], ids: [...existing], names: existingNames };
                                 if (Object.keys(existingTicketSel).length > 0) {
@@ -3542,12 +3601,18 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                 } else {
                                   delete updatedSeg.ticket_type_selection;
                                 }
+                                if (Object.keys(existingAttendanceSel).length > 0) {
+                                  updatedSeg.attendance_selection = existingAttendanceSel;
+                                } else {
+                                  delete updatedSeg.attendance_selection;
+                                }
                                 updated[existingIdx] = updatedSeg;
                                 return updated;
                               });
                             } else {
                               const seg = { type: 'event_attendees', ids: selectedEvents.map(ev => ev.id), names: newNames };
                               if (Object.keys(newTicketSel).length > 0) seg.ticket_type_selection = newTicketSel;
+                              if (Object.keys(newAttendanceSel).length > 0) seg.attendance_selection = newAttendanceSel;
                               setEditListAudiences(prev => [...prev, seg]);
                             }
                           } else if (addListSegmentType === 'event_form' && selectedEventForm) {

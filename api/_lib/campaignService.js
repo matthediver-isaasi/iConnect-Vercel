@@ -1248,6 +1248,16 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
     // ticket class matches. Absent or 'all' means include all confirmed attendees.
     const ticketTypeSel = (segmentData && segmentData.ticket_type_selection) || null;
 
+    // Per-event attendance selection: { [eventId]: 'all' | 'attended' | 'not_attended' }
+    // Absent or 'all' means include all confirmed bookings regardless of check-in.
+    const attendanceSelRaw = (segmentData && segmentData.attendance_selection) || null;
+    const attendanceSel = attendanceSelRaw && typeof attendanceSelRaw === 'object'
+      ? Object.fromEntries(
+          Object.entries(attendanceSelRaw).filter(([, v]) => v === 'attended' || v === 'not_attended')
+        )
+      : null;
+    const hasAttendanceFilter = attendanceSel && Object.keys(attendanceSel).length > 0;
+
     const NO_TICKET_TYPE_SENTINEL = '__no_ticket_type__';
 
     const shouldKeepBooking = (row, isComplex) => {
@@ -1278,6 +1288,13 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
     const collectBookings = async (table, isComplex) => {
       const rows = [];
       const idBatchSize = 200;
+      // Simple bookings carry check-in state directly; complex bookings need
+      // their id so session check-ins can be looked up afterwards.
+      const selectCols = hasAttendanceFilter
+        ? (isComplex
+            ? 'id, event_id, ticket_class_id, ticket_class_name, attendee_email, attendee_first_name, attendee_last_name, member_id'
+            : 'event_id, ticket_class_id, ticket_class_name, attendee_email, attendee_first_name, attendee_last_name, member_id, checked_in_at')
+        : 'event_id, ticket_class_id, ticket_class_name, attendee_email, attendee_first_name, attendee_last_name, member_id';
       for (let i = 0; i < targetIds.length; i += idBatchSize) {
         const idBatch = targetIds.slice(i, i + idBatchSize);
         let offset = 0;
@@ -1286,7 +1303,7 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
         while (hasMore) {
           const { data, error } = await supabase
             .from(table)
-            .select('event_id, ticket_class_id, ticket_class_name, attendee_email, attendee_first_name, attendee_last_name, member_id')
+            .select(selectCols)
             .eq('tenant_id', tenantId)
             .eq('status', 'confirmed')
             .in('event_id', idBatch)
@@ -1308,10 +1325,56 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
       return rows;
     };
 
-    const [regularBookings, complexBookings] = await Promise.all([
+    let [regularBookings, complexBookings] = await Promise.all([
       collectBookings('booking', false),
       collectBookings('complex_event_booking', true),
     ]);
+
+    if (hasAttendanceFilter) {
+      // Complex events: attended = at least one session check-in with checked_in_at set.
+      const complexIdsNeedingLookup = complexBookings
+        .filter(row => attendanceSel[row.event_id])
+        .map(row => row.id)
+        .filter(Boolean);
+      const attendedComplexBookingIds = new Set();
+      const ckBatchSize = 200;
+      for (let i = 0; i < complexIdsNeedingLookup.length; i += ckBatchSize) {
+        const idBatch = complexIdsNeedingLookup.slice(i, i + ckBatchSize);
+        let offset = 0;
+        const pageSize = 1000;
+        let hasMore = true;
+        while (hasMore) {
+          const { data, error } = await supabase
+            .from('complex_event_session_checkin')
+            .select('booking_id')
+            .eq('tenant_id', tenantId)
+            .in('booking_id', idBatch)
+            .not('checked_in_at', 'is', null)
+            .range(offset, offset + pageSize - 1);
+          if (error) {
+            console.error('[EventAttendees] session check-in lookup error:', error);
+            break;
+          }
+          if (data && data.length > 0) {
+            for (const ck of data) attendedComplexBookingIds.add(ck.booking_id);
+            offset += data.length;
+            hasMore = data.length === pageSize;
+          } else {
+            hasMore = false;
+          }
+        }
+      }
+
+      const keepByAttendance = (row, attended) => {
+        const sel = attendanceSel[row.event_id];
+        if (!sel) return true;
+        return sel === 'attended' ? attended : !attended;
+      };
+
+      regularBookings = regularBookings.filter(row => keepByAttendance(row, !!row.checked_in_at));
+      complexBookings = complexBookings.filter(row => keepByAttendance(row, attendedComplexBookingIds.has(row.id)));
+    }
+
     const bookingRows = [...regularBookings, ...complexBookings];
 
     if (bookingRows.length > 0) {
