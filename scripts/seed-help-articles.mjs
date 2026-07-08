@@ -476,6 +476,99 @@ Select any item to view or download it. Where sharing is enabled, you can copy a
 ## Why you might not see everything
 Access to some resources depends on your membership — for example, certain items are only available to particular groups, or to people who attended a linked event. If you can't see something you expect, check with your organisation.`,
   },
+  {
+    slug: 'creating-resources',
+    title: 'How to create a resource',
+    category: 'Resources',
+    summary: 'Add downloads, videos and external links to your resource library, and control who can see them.',
+    status: 'published',
+    sort_order: 31,
+    required_feature: 'content.resource-management',
+    body: `Resources are the documents, videos and links your organisation shares in the Resources area. You create and manage them from the Resource Management admin page. This guide walks through creating a resource: choosing its type, adding the content, setting who can see it, and publishing it.
+
+## Creating a new resource
+To create a resource, open Resource Management and select "Add Resource". In the dialog:
+
+1. Give the resource a title (required) and a short description. The description has a character limit (500 by default; your organisation may have changed this in Resource Settings).
+2. Choose the resource type — Download, Video or External Link.
+3. Select at least one category subcategory (required) so members can find it.
+4. Add the content itself — a file, an embed code, or a link — as described in the sections below.
+5. Set visibility, an image and any tags, then save.
+
+{{screenshot: The Create New Resource dialog}}
+
+## The three resource types
+Every resource is one of three types, chosen from the Resource Type dropdown:
+
+- Download — a file members can download, such as a PDF guide or a template. The file can come from your File Repository or be any direct file URL.
+- Video — an embedded video, played on the resource card using an embed code from a platform like YouTube or Vimeo.
+- External Link — a link to another website, with the option to open it in a new browser tab.
+
+## Adding a downloadable file (Download resources)
+For a Download resource, the "Download File" field accepts either:
+
+- A direct file URL — paste a link to a file hosted anywhere.
+- A file from your File Repository — choose "Select from Repository" and browse your organisation's uploaded files, including folders, with search and pagination.
+
+{{screenshot: Selecting a download file from the repository}}
+
+{{feature: content.files}}
+## Uploading files for resources (File Repository)
+Files used by Download resources are uploaded on the File Management page, which is your organisation's File Repository. Uploads are organised into folders and can be any common file type — documents (PDF, Word, Excel, PowerPoint, text, CSV), images (JPEG, PNG, GIF, WebP, SVG) or videos (MP4, WebM).
+
+The maximum size per uploaded file is 25MB by default. This limit is configurable per organisation via the resource_max_upload_mb system setting, so yours may be higher or lower. Uploads also count toward your plan's overall storage allowance — if an upload is rejected for storage reasons, you'll see a prompt about your plan limit.
+{{/feature}}
+
+## Embedding a video (Video resources)
+For a Video resource, paste the complete embed code from your video platform into the "Video Embed Code" field — for example, the full iframe embed snippet that YouTube or Vimeo provides under Share → Embed. Pasting only the watch-page link is not enough; use the embed code so the video plays correctly on the resource card.
+
+{{screenshot: Pasting a video embed code}}
+
+## Linking to an external page (External Link resources)
+For an External Link resource, enter the destination URL in the "External Link URL" field. An "Open in new tab" switch (on by default) controls whether the link opens in a new browser tab or in the same tab.
+
+## Public vs private: who can see a resource
+The "Public Resource" switch controls the audience:
+
+- Public (on) — the resource is visible to everyone, including non-members browsing your public Resources page.
+- Private (off) — the resource is only available to signed-in members. Visitors who aren't signed in see it locked, with a prompt to sign in.
+
+Private resources can be narrowed further:
+
+- Role Access Control — tick the member roles allowed to access the resource. Leave every role unchecked to allow all member roles.
+- Linked Events — restrict access to members who attended specific events. A member needs a confirmed booking for at least one linked event (or a specific session of a multi-session event) to see the resource.
+
+{{screenshot: The visibility and role access settings}}
+
+## Group resources
+Resources that belong to a member group are managed from that group's own admin page, not from the tenant-wide Resource Management library. A group resource stays private to its group unless it is tagged with one of the subcategories the group has linked, in which case it also appears in the main Resources area.
+
+## Card images and social sharing images
+Two separate images can be set on a resource:
+
+- Image URL — the thumbnail shown on the resource card in the Resources grid. Recommended for every resource, as cards with images are far more inviting. Paste an image URL or choose "Select from Repository" to pick an image from your File Repository; a preview appears once set.
+- SEO / social sharing image — in the SEO settings section you can set an SEO title, search description, and a social sharing (Open Graph) image used when the resource link is shared on social media. These are optional overrides; leave them blank to fall back to the resource's own title and description.
+
+{{screenshot: Setting a card image for a resource}}
+
+## Categories, subcategories, tags and folders
+Resources are organised in several ways:
+
+- Subcategories (required) — every resource must have at least one subcategory ticked. Subcategories belong to categories managed in Category Management, and members use them to filter the Resources area.
+- Tags — free-text labels for finer-grained search. As you type, matching tags already used on other resources are suggested so naming stays consistent.
+- Folders — you can file resources into folders inside Resource Management. Folders are for your admin team's organisation only; members browsing Resources see the grid with category filters, not your folders.
+
+## Choosing an author
+A resource can optionally credit an author. The Author dropdown lists members and team members whose roles have been designated as author roles in Resource Settings; if no author roles are configured, the dropdown doesn't appear. The author's name is shown with the resource.
+
+## Draft vs active, and release dates
+Two controls decide when members see a resource:
+
+- Status — the Active/Draft switch at the top of the dialog. Active resources are visible to users; Draft resources are hidden from members while you work on them.
+- Release Date & Time — the date shown on the resource and used for newest-first ordering. Setting a future date flags the resource as scheduled in the admin screen; a past date shows when it was originally published. If you want a resource fully hidden until launch, keep it in Draft and switch it to Active when you're ready.
+
+For how members browse and filter what you publish, see "Finding resources and documents".`,
+  },
 
   // ---------------------------------------------------------------- Balances
   {
