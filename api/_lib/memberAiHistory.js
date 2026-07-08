@@ -9,6 +9,11 @@
 
 import { getSessionMember } from './session.js';
 import { getTenantContext } from './tenantContext.js';
+import { supabase } from './database.js';
+import {
+  resolveMemberExclusions,
+  makeFeatureAccessChecker,
+} from './memberFeatureAccess.js';
 
 export const MAX_TITLE_LEN = 120;
 export const MAX_CONTENT_LEN = 8000;
@@ -55,6 +60,32 @@ export async function resolveMemberScope(req, res) {
     res.status(403).json({
       error: 'Chat history is only available for member accounts.',
       code: 'not_member',
+    });
+    return null;
+  }
+  // Task #2441: RBAC gate — members excluded from support.member-ai cannot
+  // use the assistant, including its conversation-history endpoints. Fails
+  // CLOSED: if role exclusions can't be loaded we return 500 rather than
+  // silently granting access (callers don't wrap scope resolution).
+  let exclusions;
+  try {
+    exclusions = await resolveMemberExclusions(
+      {
+        roleId: member.role_id,
+        memberExcludedFeatures: member.member_excluded_features,
+      },
+      supabase
+    );
+  } catch (error) {
+    console.error('[Member AI History] Failed to resolve exclusions:', error);
+    res.status(500).json({ error: 'Something went wrong with chat history.' });
+    return null;
+  }
+  const access = makeFeatureAccessChecker(exclusions);
+  if (!access.canAccessFeature('support.member-ai')) {
+    res.status(403).json({
+      error: 'The AI assistant is not available for your account.',
+      code: 'feature_excluded',
     });
     return null;
   }

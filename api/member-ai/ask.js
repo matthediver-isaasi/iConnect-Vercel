@@ -285,6 +285,16 @@ export default async function handler(req, res) {
     }
     const access = makeFeatureAccessChecker(exclusions);
 
+    // Task #2441: RBAC gate — members whose effective exclusions include
+    // support.member-ai cannot use the assistant. Admin/non-member sessions
+    // are unaffected (isAdmin branch above leaves exclusions empty).
+    if (member && !access.canAccessFeature('support.member-ai')) {
+      return res.status(403).json({
+        error: 'The AI assistant is not available for your account.',
+        code: 'feature_excluded',
+      });
+    }
+
     // --- Validate the question ---
     const question =
       typeof req.body?.question === 'string' ? req.body.question.trim() : '';

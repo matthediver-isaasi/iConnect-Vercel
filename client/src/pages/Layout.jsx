@@ -2447,7 +2447,7 @@ useEffect(() => {
               <SubmissionStatsBar />
 
               {/* Task #2363: Member AI Knowledge Assistant launcher, pinned at top of nav */}
-              {memberInfo && (
+              {memberInfo && !isFeatureExcluded('support.member-ai') && (
                 <div className="mb-2 group-data-[collapsible=icon]:px-0">
                   <Button
                     type="button"
@@ -2634,7 +2634,7 @@ useEffect(() => {
             </SidebarFooter>
           </Sidebar>
 
-          {memberInfo && (
+          {memberInfo && !isFeatureExcluded('support.member-ai') && (
             <MemberAiAssistant open={aiAssistantOpen} onOpenChange={setAiAssistantOpen} />
           )}
 

@@ -604,6 +604,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
         label: "Help Center"
       },
       {
+        id: "support.member-ai",
+        label: "Member AI Assistant"
+      },
+      {
         id: "support.management",
         label: "Support Management"
       }
