@@ -76,7 +76,32 @@ function normalizePreferenceValue(val) {
   return val;
 }
 
-function matchesCustomFieldFilter(orgFieldValue, filterValue) {
+// True when a customFieldFilters entry should actually filter the export.
+// Array values (multi-select option filters) are active when they contain a
+// real value; legacy string values keep the old truthy/'all' semantics.
+export function isActiveExportFilterValue(filterValue) {
+  if (Array.isArray(filterValue)) {
+    return filterValue.some(v => v && v !== 'all');
+  }
+  return Boolean(filterValue && filterValue !== 'all' && filterValue.trim() !== '');
+}
+
+export function matchesSingleOptionValue(orgFieldValue, optionValue) {
+  if (Array.isArray(orgFieldValue)) {
+    return orgFieldValue.includes(optionValue);
+  }
+  return orgFieldValue === optionValue;
+}
+
+export function matchesCustomFieldFilter(orgFieldValue, filterValue) {
+  // Multi-select option filter: OR across the selected values.
+  if (Array.isArray(filterValue)) {
+    const vals = filterValue.filter(v => v && v !== 'all');
+    if (vals.length === 0) return true;
+    if (orgFieldValue === null || orgFieldValue === undefined) return false;
+    return vals.some(v => matchesSingleOptionValue(orgFieldValue, v));
+  }
+
   if (!filterValue || filterValue === 'all' || filterValue.trim() === '') return true;
   if (orgFieldValue === null || orgFieldValue === undefined) return false;
 
@@ -88,10 +113,7 @@ function matchesCustomFieldFilter(orgFieldValue, filterValue) {
     return strVal.toLowerCase().includes(actualValue);
   }
 
-  if (Array.isArray(orgFieldValue)) {
-    return orgFieldValue.includes(filterValue);
-  }
-  return orgFieldValue === filterValue;
+  return matchesSingleOptionValue(orgFieldValue, filterValue);
 }
 
 export default async function handler(req, res) {
@@ -182,9 +204,7 @@ export default async function handler(req, res) {
         customFilterMap = JSON.parse(customFieldFiltersParam);
       } catch {}
     }
-    const hasCustomFilters = Object.entries(customFilterMap).some(
-      ([, v]) => v && v !== 'all' && v.trim() !== ''
-    );
+    const hasCustomFilters = Object.values(customFilterMap).some(isActiveExportFilterValue);
 
     const coreHeaders = [
       'name', 'slug', 'description', 'website_url', 'logo_url',
@@ -325,7 +345,7 @@ export default async function handler(req, res) {
           for (const org of pageData) {
             if (hasCustomFilters) {
               const passes = Object.entries(customFilterMap).every(([fieldId, filterValue]) => {
-                if (!filterValue || filterValue === 'all' || filterValue.trim() === '') return true;
+                if (!isActiveExportFilterValue(filterValue)) return true;
                 const orgFieldValue = pagePrefMap[org.id]?.[fieldId];
                 return matchesCustomFieldFilter(orgFieldValue, filterValue);
               });

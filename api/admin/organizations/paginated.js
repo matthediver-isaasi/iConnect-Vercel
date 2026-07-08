@@ -1,6 +1,7 @@
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext } from '../../_lib/tenantContext.js';
 import { getCountryByName } from '../../../shared/countries.js';
+import { buildOptionValueOrConditions, parseCustomFilterRawValue } from '../../_lib/prefValueOptionFilter.js';
 
 const DELETED_EMAIL_PATTERN = 'deleted_%@deleted.local';
 
@@ -49,17 +50,18 @@ export default async function handler(req, res) {
     const offset = (pageNum - 1) * limitNum;
 
     // Parse custom field filters (applied at DB level so paging + totals span the
-    // whole tenant). Shape: { "<fieldId>": "<value>" | "__text__:<substring>" }.
+    // whole tenant). Shape: { "<fieldId>": ["A","B"] } for option filters (OR
+    // within the field), "__text__:<substring>" / "__bool__:Yes|No" /
+    // "__country__:<name>" for the prefixed encodings, or a legacy plain string
+    // from an old saved view.
     let parsedCustomFilters = {};
     if (customFilters && customFilters.trim()) {
       try {
         const obj = JSON.parse(customFilters);
         if (obj && typeof obj === 'object') {
           for (const [fieldId, raw] of Object.entries(obj)) {
-            if (raw === undefined || raw === null) continue;
-            const val = String(raw);
-            if (val === '' || val === 'all') continue;
-            parsedCustomFilters[fieldId] = val;
+            const parsed = parseCustomFilterRawValue(raw);
+            if (parsed !== null) parsedCustomFilters[fieldId] = parsed;
           }
         }
       } catch {
@@ -86,7 +88,11 @@ export default async function handler(req, res) {
       customFilterEntries.forEach(([fieldId, value], idx) => {
         const alias = `cf${idx}`;
         query = query.eq(`${alias}.field_id`, fieldId);
-        if (value.startsWith('__text__:')) {
+        if (Array.isArray(value)) {
+          // Multi-select option filter: OR across the selected values, each
+          // matching scalar or JSON-array storage.
+          query = query.or(buildOptionValueOrConditions(value), { foreignTable: alias });
+        } else if (value.startsWith('__text__:')) {
           const substr = value.slice('__text__:'.length);
           query = query.ilike(`${alias}.value`, `%${substr}%`);
         } else if (value.startsWith('__bool__:')) {
@@ -114,7 +120,9 @@ export default async function handler(req, res) {
           }
           query = query.or(conditions.join(','), { foreignTable: alias });
         } else {
-          query = query.eq(`${alias}.value`, value);
+          // Legacy single-value option filter (old saved views / bookmarked
+          // URLs): same matching so JSON-array-stored rows are found too.
+          query = query.or(buildOptionValueOrConditions([value]), { foreignTable: alias });
         }
       });
       if (search && search.trim()) {

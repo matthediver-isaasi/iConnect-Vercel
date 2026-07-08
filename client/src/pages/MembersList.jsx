@@ -53,6 +53,8 @@ import { isMemberAdminColumnVisible, isMemberAdminFilterVisible } from "@/pages/
 import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
 import { createPageUrl, isDeletedMember } from "@/utils";
 import SortableHeader, { getAriaSort } from "@/components/SortableHeader";
+import MultiSelectFilter from "@/components/MultiSelectFilter";
+import { coerceCustomFilters, isActiveCustomFilterValue } from "@/lib/customFilterUtils";
 
 const MEMBER_SORT_KEYS = {
   name: 'first_name',
@@ -280,7 +282,7 @@ export default function MembersListPage() {
   const activeCustomFilters = useMemo(() => {
     const obj = {};
     Object.entries(customFieldFilters).forEach(([fieldId, v]) => {
-      if (v && v !== 'all' && v.trim() !== '') obj[fieldId] = v;
+      if (isActiveCustomFilterValue(v)) obj[fieldId] = v;
     });
     return obj;
   }, [customFieldFilters]);
@@ -417,7 +419,8 @@ export default function MembersListPage() {
               setCoreFieldFilters(prev => ({ ...prev, ...f.coreFieldFilters }));
             }
             if (f.customFieldFilters && typeof f.customFieldFilters === 'object') {
-              setCustomFieldFilters(f.customFieldFilters);
+              // Coerce legacy single-value option filters (plain strings) to arrays.
+              setCustomFieldFilters(coerceCustomFilters(f.customFieldFilters));
             }
             if (typeof f.sortField === 'string') setSortField(f.sortField);
             if (f.sortDir === 'asc' || f.sortDir === 'desc') setSortDir(f.sortDir);
@@ -928,32 +931,52 @@ export default function MembersListPage() {
         );
         const hasOptions = validOptions.length > 0;
         if (hasOptions) {
+          const rawVal = customFieldFilters[field.id];
+          const selectedValues = Array.isArray(rawVal)
+            ? rawVal
+            : (rawVal && rawVal !== 'all' ? [rawVal] : []);
+          const labelForValue = (val) => {
+            const opt = validOptions.find(o => o.value === val);
+            return opt?.label || val;
+          };
+          const setSelectedValues = (vals) => {
+            setCustomFieldFilters(prev => ({ ...prev, [field.id]: vals }));
+            setCurrentPage(1);
+          };
           return (
             <div className="space-y-1.5">
               <Label className="text-[11px] text-slate-600 break-words leading-tight">{field.label}</Label>
-              <Select
-                value={customFieldFilters[field.id] || 'all'}
-                onValueChange={(v) => {
-                  setCustomFieldFilters(prev => ({ ...prev, [field.id]: v }));
-                  setCurrentPage(1);
-                }}
-              >
-                <SelectTrigger className="h-8 text-xs" data-testid={`select-member-filter-${field.id}`}>
-                  <SelectValue placeholder="All" />
-                </SelectTrigger>
-                <SelectContent className="max-w-[260px]">
-                  <SelectItem value="all" className="text-xs">All</SelectItem>
-                  {validOptions.map((opt, idx) => (
-                    <SelectItem
-                      key={idx}
-                      value={opt.value}
-                      className="text-xs whitespace-normal break-words"
+              <MultiSelectFilter
+                options={validOptions.map(opt => ({ value: opt.value, label: opt.label || opt.value }))}
+                selected={selectedValues}
+                onChange={setSelectedValues}
+                placeholder="All"
+                className="h-8 min-h-8 w-full text-xs"
+                data-testid={`select-member-filter-${field.id}`}
+              />
+              {selectedValues.length > 1 && (
+                <div className="flex flex-wrap gap-1">
+                  {selectedValues.map(val => (
+                    <Badge
+                      key={val}
+                      variant="secondary"
+                      className="text-[10px] font-normal max-w-full gap-1"
+                      data-testid={`badge-member-filter-${field.id}-${val}`}
                     >
-                      {opt.label || opt.value}
-                    </SelectItem>
+                      <span className="truncate">{labelForValue(val)}</span>
+                      <button
+                        type="button"
+                        className="shrink-0 rounded-full"
+                        onClick={() => setSelectedValues(selectedValues.filter(v => v !== val))}
+                        aria-label={`Remove ${labelForValue(val)}`}
+                        data-testid={`button-remove-member-filter-${field.id}-${val}`}
+                      >
+                        <X className="h-2.5 w-2.5" />
+                      </button>
+                    </Badge>
                   ))}
-                </SelectContent>
-              </Select>
+                </div>
+              )}
             </div>
           );
         }
@@ -986,7 +1009,7 @@ export default function MembersListPage() {
     orgFilter !== 'all' ||
     roleFilter !== 'all' ||
     Object.values(coreFieldFilters).some(v => v && v.trim() !== '') ||
-    Object.values(customFieldFilters).some(v => v && v !== 'all' && v.trim() !== '');
+    Object.values(customFieldFilters).some(isActiveCustomFilterValue);
 
   // Reconcile columns when custom fields load or when their column-visibility changes:
   // add any newly column-visible fields and prune custom columns whose field is no
