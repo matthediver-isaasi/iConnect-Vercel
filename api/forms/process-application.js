@@ -221,6 +221,21 @@ const coerceBooleanField = (fieldName, value) => {
   return false;
 };
 
+// Resolve the dynamic {today} token in a static mapping value to the current
+// UTC date as YYYY-MM-DD. Mirrors the DD stage-action resolver in
+// api/due-diligence/_stageActions.js (same trim/lowercase matching and UTC
+// formatting) so no executor can persist the literal token.
+const resolveStaticTodayToken = (value) => {
+  if (typeof value === 'string' && value.trim().toLowerCase() === '{today}') {
+    const now = new Date();
+    const yyyy = now.getUTCFullYear();
+    const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(now.getUTCDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  return value;
+};
+
 // Helper function to apply value transformations
 const applyTransformation = (value, transformation) => {
   if (value === null || value === undefined) return value;
@@ -1067,7 +1082,7 @@ export default async function handler(req, res) {
           console.log('[AppProcessor] Current date mapping:', target_field, '=', value);
         } else if (source_type === 'static') {
           // Static value mapping - use the fixed value
-          value = static_value;
+          value = resolveStaticTodayToken(static_value);
           if (value === undefined || value === null || value === '') continue;
           sourceFieldKeyPresent = true;
           console.log('[AppProcessor] Static mapping:', target_field, '=', value);
@@ -1265,7 +1280,7 @@ export default async function handler(req, res) {
           let value;
           let sourceFieldKeyPresent = false;
           if (mapping.source_type === 'static') {
-            value = mapping.static_value;
+            value = resolveStaticTodayToken(mapping.static_value);
             sourceFieldKeyPresent = true;
           } else if (mapping.transformation === 'current_date') {
             value = new Date().toISOString().split('T')[0];
@@ -2682,7 +2697,7 @@ export default async function handler(req, res) {
             if (mapping.source_type === 'current_date' || mapping.transformation === 'current_date') {
               value = new Date().toISOString().split('T')[0];
             } else if (mapping.source_type === 'static') {
-              value = mapping.static_value;
+              value = resolveStaticTodayToken(mapping.static_value);
             } else if (mapping.source_field_id) {
               value = form_values[mapping.source_field_id];
               
