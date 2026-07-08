@@ -2638,9 +2638,22 @@ async function evaluateScheduledConditions(workflow, entityType, record) {
 }
 
 // Run a single scheduled workflow across its tenant's entity records.
-// Returns a summary { evaluated, matched, executed, skipped, errors }.
+// Returns a summary { evaluated, matched, executed, skipped, errors, complete, nextOffset }.
+//
+// Options (all optional; defaults preserve the hourly-cron behaviour):
+//   recordLimit    — max records to process in THIS invocation (default 2000).
+//   offset         — record offset to start from, for resumable chunked runs
+//                    driven by the manual-backfill endpoint (default 0).
+//   dryRun         — evaluate conditions and count matches but execute NO
+//                    actions and write NO workflow_log rows (default false).
+//   logTriggerType — trigger_type recorded in workflow_log trigger_data
+//                    (default 'scheduled'; the manual backfill endpoint passes
+//                    'manual_backfill' so manual runs are distinguishable).
+//
+// `complete` is false when the invocation stopped at recordLimit with more
+// records potentially remaining; `nextOffset` is the offset to resume from.
 export async function runScheduledWorkflow(workflow, baseUrl, options = {}) {
-  const summary = { evaluated: 0, matched: 0, executed: 0, skipped: 0, errors: 0 };
+  const summary = { evaluated: 0, matched: 0, executed: 0, skipped: 0, errors: 0, complete: true, nextOffset: null };
   if (!supabase) {
     console.error('[Workflows] runScheduledWorkflow: Supabase not configured');
     return summary;
@@ -2655,17 +2668,24 @@ export async function runScheduledWorkflow(workflow, baseUrl, options = {}) {
 
   const table = entityType === 'job_posting' ? 'job_posting' : entityType;
   const recordLimit = Number.isFinite(options.recordLimit) ? options.recordLimit : 2000;
+  const startOffset = Number.isFinite(options.offset) && options.offset > 0 ? Math.floor(options.offset) : 0;
+  const dryRun = options.dryRun === true;
+  const logTriggerType = options.logTriggerType || 'scheduled';
   const pageSize = 500;
 
-  let from = 0;
+  let from = startOffset;
   let processed = 0;
+  let exhausted = false;
   while (processed < recordLimit) {
-    const remaining = recordLimit - processed;
-    const to = from + Math.min(pageSize, remaining) - 1;
+    const batchSize = Math.min(pageSize, recordLimit - processed);
+    const to = from + batchSize - 1;
+    // ORDER BY is required for stable .range() pagination — without it
+    // PostgREST may skip/repeat rows across pages.
     const { data: records, error } = await supabase
       .from(table)
       .select('*')
       .eq('tenant_id', tenantId)
+      .order('id', { ascending: true })
       .range(from, to);
 
     if (error) {
@@ -2673,7 +2693,10 @@ export async function runScheduledWorkflow(workflow, baseUrl, options = {}) {
       summary.errors++;
       break;
     }
-    if (!records || records.length === 0) break;
+    if (!records || records.length === 0) {
+      exhausted = true;
+      break;
+    }
 
     for (const record of records) {
       summary.evaluated++;
@@ -2690,6 +2713,8 @@ export async function runScheduledWorkflow(workflow, baseUrl, options = {}) {
         if (!matched) continue;
         summary.matched++;
 
+        if (dryRun) continue;
+
         const entityData = { ...record };
         if (entityData.first_name || entityData.last_name) {
           entityData.recipient_name = `${entityData.first_name || ''} ${entityData.last_name || ''}`.trim();
@@ -2697,7 +2722,7 @@ export async function runScheduledWorkflow(workflow, baseUrl, options = {}) {
 
         const results = await executeWorkflowActions(workflow, entityType, record.id, entityData, baseUrl);
         await logWorkflowExecution(workflow, entityType, record.id, {
-          trigger_type: 'scheduled',
+          trigger_type: logTriggerType,
           scheduled_at: new Date().toISOString(),
         }, results);
         summary.executed++;
@@ -2707,12 +2732,32 @@ export async function runScheduledWorkflow(workflow, baseUrl, options = {}) {
       }
     }
 
-    if (records.length < pageSize) break;
-    from += pageSize;
+    from += records.length;
+    if (records.length < batchSize) {
+      exhausted = true;
+      break;
+    }
   }
 
-  console.log(`[Workflows] runScheduledWorkflow "${workflow.name}" (${workflow.id}): ${JSON.stringify(summary)}`);
+  if (!exhausted && processed >= recordLimit) {
+    summary.complete = false;
+    summary.nextOffset = from;
+  }
+
+  console.log(`[Workflows] runScheduledWorkflow "${workflow.name}" (${workflow.id})${dryRun ? ' [dry-run]' : ''}: ${JSON.stringify(summary)}`);
   return summary;
+}
+
+// Return the list of condition operators in a workflow that cannot be
+// evaluated without a "before" value (change-based operators). Used by the
+// manual backfill endpoint to reject workflows whose conditions are
+// meaningless in a current-state-only evaluation.
+export function getChangeBasedConditionOperators(workflow) {
+  const conditions = Array.isArray(workflow?.conditions) ? workflow.conditions : [];
+  const changeOps = new Set(['changed_to', 'changed_from']);
+  return conditions
+    .map(c => c?.operator)
+    .filter(op => changeOps.has(op));
 }
 
 // Decide whether a scheduled workflow is due to run at the given evaluation

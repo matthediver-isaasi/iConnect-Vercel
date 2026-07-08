@@ -208,6 +208,14 @@ export default function WorkflowManagementPage() {
   const [builderStep, setBuilderStep] = useState(1);
   const [accessChecked, setAccessChecked] = useState(false);
   
+  // "Run against all records" (manual backfill) dialog state
+  const [backfillWorkflow, setBackfillWorkflow] = useState(null);
+  const [backfillPhase, setBackfillPhase] = useState('idle'); // idle | previewing | preview | running | done | error
+  const [backfillPreview, setBackfillPreview] = useState(null);
+  const [backfillResult, setBackfillResult] = useState(null);
+  const [backfillProgress, setBackfillProgress] = useState(null);
+  const [backfillError, setBackfillError] = useState(null);
+
   const [showDryRunDialog, setShowDryRunDialog] = useState(false);
   const [dryRunActionIndex, setDryRunActionIndex] = useState(null);
   const [dryRunEntityId, setDryRunEntityId] = useState('');
@@ -364,6 +372,100 @@ export default function WorkflowManagementPage() {
     } finally {
       setDryRunLoading(false);
     }
+  };
+
+  // ---------------------------------------------------------------------
+  // "Run against all records" (manual backfill)
+  // ---------------------------------------------------------------------
+  const BACKFILL_PAGE_SIZE = 200;
+  const BACKFILL_MAX_CHUNKS = 500;
+
+  const workflowUsesChangeOperators = (workflow) =>
+    (workflow?.conditions || []).some(c => c?.operator === 'changed_to' || c?.operator === 'changed_from');
+
+  const backfillRequest = async (workflowId, mode, offset) => {
+    const res = await fetch('/api/workflows/run-backfill', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ workflow_id: workflowId, mode, offset, page_size: BACKFILL_PAGE_SIZE }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || `Request failed (${res.status})`);
+    }
+    return data;
+  };
+
+  // Drive chunked requests until the run reports complete, accumulating the
+  // summary across chunks so large tenants never hit the serverless timeout.
+  const runBackfillLoop = async (workflowId, mode, onProgress) => {
+    const totals = { evaluated: 0, matched: 0, executed: 0, skipped: 0, errors: 0 };
+    let offset = 0;
+    for (let chunk = 0; chunk < BACKFILL_MAX_CHUNKS; chunk++) {
+      const data = await backfillRequest(workflowId, mode, offset);
+      totals.evaluated += data.evaluated || 0;
+      totals.matched += data.matched || 0;
+      totals.executed += data.executed || 0;
+      totals.skipped += data.skipped || 0;
+      totals.errors += data.errors || 0;
+      if (onProgress) onProgress({ ...totals });
+      if (data.complete !== false) return totals;
+      offset = data.nextOffset ?? (offset + BACKFILL_PAGE_SIZE);
+    }
+    throw new Error('Run stopped after too many chunks — please try again or contact support.');
+  };
+
+  const openBackfillDialog = async (workflow) => {
+    setBackfillWorkflow(workflow);
+    setBackfillPreview(null);
+    setBackfillResult(null);
+    setBackfillProgress(null);
+    setBackfillError(null);
+
+    if (workflowUsesChangeOperators(workflow)) {
+      setBackfillPhase('error');
+      setBackfillError('This workflow has conditions using "Changed To" or "Changed From", which compare a record\'s previous value to its new value. A run against all records only sees each record\'s current value, so these conditions can\'t be evaluated. Edit the workflow to use current-value operators (e.g. Equals / Contains) first.');
+      return;
+    }
+
+    setBackfillPhase('previewing');
+    try {
+      const totals = await runBackfillLoop(workflow.id, 'dry_run', (p) => setBackfillProgress(p));
+      setBackfillPreview(totals);
+      setBackfillPhase('preview');
+    } catch (err) {
+      setBackfillError(err.message);
+      setBackfillPhase('error');
+    }
+  };
+
+  const executeBackfill = async () => {
+    if (!backfillWorkflow) return;
+    setBackfillPhase('running');
+    setBackfillProgress(null);
+    try {
+      const totals = await runBackfillLoop(backfillWorkflow.id, 'execute', (p) => setBackfillProgress(p));
+      setBackfillResult(totals);
+      setBackfillPhase('done');
+      queryClient.invalidateQueries({ queryKey: ['workflows'] });
+      queryClient.invalidateQueries({ queryKey: ['workflow-logs'] });
+    } catch (err) {
+      setBackfillError(err.message);
+      setBackfillPhase('error');
+      queryClient.invalidateQueries({ queryKey: ['workflow-logs'] });
+    }
+  };
+
+  const closeBackfillDialog = () => {
+    // Don't allow closing mid-execution to avoid a half-finished run going unnoticed
+    if (backfillPhase === 'running') return;
+    setBackfillWorkflow(null);
+    setBackfillPhase('idle');
+    setBackfillPreview(null);
+    setBackfillResult(null);
+    setBackfillProgress(null);
+    setBackfillError(null);
   };
 
   const orgCustomFields = customFields.filter(f => f.entity_scope === 'organization');
@@ -757,6 +859,15 @@ export default function WorkflowManagementPage() {
                           onCheckedChange={(checked) => toggleActiveMutation.mutate({ id: workflow.id, is_active: checked })}
                           data-testid={`switch-workflow-active-${workflow.id}`}
                         />
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="Run against all records"
+                          onClick={() => openBackfillDialog(workflow)}
+                          data-testid={`button-run-all-records-${workflow.id}`}
+                        >
+                          <Play className="h-4 w-4" />
+                        </Button>
                         <Button variant="ghost" size="icon" onClick={() => handleEditWorkflow(workflow)} data-testid={`button-edit-workflow-${workflow.id}`}>
                           <Pencil className="h-4 w-4" />
                         </Button>
@@ -811,7 +922,15 @@ export default function WorkflowManagementPage() {
                             <XCircle className="h-5 w-5 text-red-500 mt-0.5" />
                           )}
                           <div>
-                            <p className="font-medium">{workflow?.name || 'Unknown Workflow'}</p>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="font-medium">{workflow?.name || 'Unknown Workflow'}</p>
+                              {log.trigger_data?.trigger_type === 'manual_backfill' && (
+                                <Badge variant="outline" data-testid={`badge-manual-run-${log.id}`}>
+                                  <Play className="h-3 w-3 mr-1" />
+                                  Manual run
+                                </Badge>
+                              )}
+                            </div>
                             <p className="text-sm text-muted-foreground">
                               {log.entity_type} #{log.entity_id}
                             </p>
@@ -2506,6 +2625,118 @@ export default function WorkflowManagementPage() {
             >
               {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Run against all records (manual backfill) dialog */}
+      <Dialog open={!!backfillWorkflow} onOpenChange={(open) => !open && closeBackfillDialog()}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Run Against All Records</DialogTitle>
+            <DialogDescription>
+              {backfillWorkflow?.name} — checks every{' '}
+              {backfillWorkflow?.entity_type === 'organization' ? 'organisation' : backfillWorkflow?.entity_type === 'job_posting' ? 'job posting' : 'member'}{' '}
+              against this workflow's conditions and runs its actions on the ones that match.
+            </DialogDescription>
+          </DialogHeader>
+
+          {backfillPhase === 'previewing' && (
+            <div className="flex flex-col items-center gap-3 py-6" data-testid="status-backfill-previewing">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+              <p className="text-sm text-muted-foreground">
+                Checking records{backfillProgress ? ` — ${backfillProgress.evaluated} checked, ${backfillProgress.matched} match` : '...'}
+              </p>
+            </div>
+          )}
+
+          {backfillPhase === 'preview' && backfillPreview && (
+            <div className="space-y-4 py-2" data-testid="status-backfill-preview">
+              <div className="grid grid-cols-3 gap-3 text-center">
+                <div className="rounded-md border p-3">
+                  <p className="text-2xl font-semibold" data-testid="text-backfill-evaluated">{backfillPreview.evaluated}</p>
+                  <p className="text-xs text-muted-foreground">Records checked</p>
+                </div>
+                <div className="rounded-md border p-3">
+                  <p className="text-2xl font-semibold" data-testid="text-backfill-matched">{backfillPreview.matched}</p>
+                  <p className="text-xs text-muted-foreground">Match conditions</p>
+                </div>
+                <div className="rounded-md border p-3">
+                  <p className="text-2xl font-semibold" data-testid="text-backfill-skipped">{backfillPreview.skipped}</p>
+                  <p className="text-xs text-muted-foreground">Already run (skipped)</p>
+                </div>
+              </div>
+              {backfillPreview.matched > 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Confirming will run this workflow's {backfillWorkflow?.actions?.length || 0} action(s) on each of the {backfillPreview.matched} matching record(s). This cannot be undone.
+                </p>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No records currently match this workflow's conditions, so there is nothing to run.
+                </p>
+              )}
+            </div>
+          )}
+
+          {backfillPhase === 'running' && (
+            <div className="flex flex-col items-center gap-3 py-6" data-testid="status-backfill-running">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+              <p className="text-sm text-muted-foreground">
+                Running workflow{backfillProgress ? ` — ${backfillProgress.executed} run of ${backfillProgress.evaluated} checked` : '...'}
+              </p>
+              <p className="text-xs text-muted-foreground">Please keep this window open until the run finishes.</p>
+            </div>
+          )}
+
+          {backfillPhase === 'done' && backfillResult && (
+            <div className="space-y-4 py-2" data-testid="status-backfill-done">
+              <div className="flex items-center gap-2">
+                {backfillResult.errors > 0 ? (
+                  <AlertCircle className="h-5 w-5 text-warning" />
+                ) : (
+                  <CheckCircle2 className="h-5 w-5 text-green-500" />
+                )}
+                <p className="font-medium">{backfillResult.errors > 0 ? 'Run finished with some errors' : 'Run complete'}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="flex justify-between rounded-md border p-2 gap-2"><span className="text-muted-foreground">Checked</span><span data-testid="text-backfill-result-evaluated">{backfillResult.evaluated}</span></div>
+                <div className="flex justify-between rounded-md border p-2 gap-2"><span className="text-muted-foreground">Matched</span><span data-testid="text-backfill-result-matched">{backfillResult.matched}</span></div>
+                <div className="flex justify-between rounded-md border p-2 gap-2"><span className="text-muted-foreground">Actions run</span><span data-testid="text-backfill-result-executed">{backfillResult.executed}</span></div>
+                <div className="flex justify-between rounded-md border p-2 gap-2"><span className="text-muted-foreground">Skipped</span><span data-testid="text-backfill-result-skipped">{backfillResult.skipped}</span></div>
+                <div className="flex justify-between rounded-md border p-2 gap-2 col-span-2"><span className="text-muted-foreground">Errors</span><span data-testid="text-backfill-result-errors">{backfillResult.errors}</span></div>
+              </div>
+              <p className="text-xs text-muted-foreground">Each run is recorded in the Execution Logs tab, marked as a manual run.</p>
+            </div>
+          )}
+
+          {backfillPhase === 'error' && (
+            <div className="flex items-start gap-2 py-2" data-testid="status-backfill-error">
+              <AlertTriangle className="h-5 w-5 text-warning mt-0.5 shrink-0" />
+              <p className="text-sm">{backfillError}</p>
+            </div>
+          )}
+
+          <DialogFooter>
+            {backfillPhase === 'preview' && (
+              <>
+                <Button variant="outline" onClick={closeBackfillDialog} data-testid="button-backfill-cancel">
+                  Cancel
+                </Button>
+                <Button
+                  onClick={executeBackfill}
+                  disabled={!backfillPreview || backfillPreview.matched === 0}
+                  data-testid="button-backfill-confirm"
+                >
+                  <Play className="h-4 w-4 mr-2" />
+                  Run on {backfillPreview?.matched ?? 0} record(s)
+                </Button>
+              </>
+            )}
+            {(backfillPhase === 'done' || backfillPhase === 'error') && (
+              <Button onClick={closeBackfillDialog} data-testid="button-backfill-close">
+                Close
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
