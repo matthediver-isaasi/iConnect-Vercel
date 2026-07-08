@@ -3,6 +3,7 @@ import { triggerWorkflows } from '../_lib/workflows.js';
 import { calculateMembershipYearWindow } from '../_lib/membershipYear.js';
 import { resolveEffectiveOrgGuestAccess } from '../_lib/orgGuestAccess.js';
 import { notifyGuestSignup } from '../_lib/guestSignupNotification.js';
+import { resolveStaticTodayToken } from '../_lib/staticValueTokens.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -219,21 +220,6 @@ const coerceBooleanField = (fieldName, value) => {
   }
   // Default: treat as false for boolean fields
   return false;
-};
-
-// Resolve the dynamic {today} token in a static mapping value to the current
-// UTC date as YYYY-MM-DD. Mirrors the DD stage-action resolver in
-// api/due-diligence/_stageActions.js (same trim/lowercase matching and UTC
-// formatting) so no executor can persist the literal token.
-const resolveStaticTodayToken = (value) => {
-  if (typeof value === 'string' && value.trim().toLowerCase() === '{today}') {
-    const now = new Date();
-    const yyyy = now.getUTCFullYear();
-    const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
-    const dd = String(now.getUTCDate()).padStart(2, '0');
-    return `${yyyy}-${mm}-${dd}`;
-  }
-  return value;
 };
 
 // Helper function to apply value transformations

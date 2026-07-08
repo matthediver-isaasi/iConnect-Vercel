@@ -7,6 +7,7 @@ import { resolveDdOwnerForSubmission } from '../_lib/ddOwner.js';
 import { buildContractBracketPlaceholders, replaceContractBracketPlaceholders } from '../_lib/contractPlaceholders.js';
 import { triggerWorkflows, triggerPreferenceWorkflows } from '../_lib/workflows.js';
 import { coerceBooleanPreferenceValue } from '../_lib/booleanCoercion.js';
+import { resolveStaticTodayToken } from '../_lib/staticValueTokens.js';
 import { 
   isZohoCrmConnected,
   lookupCountryInZoho,
@@ -2113,14 +2114,11 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
           valueSource = 'static';
 
           // Resolve dynamic {today} token to current date as YYYY-MM-DD
-          if (typeof sourceValue === 'string' && sourceValue.trim().toLowerCase() === '{today}') {
-            const now = new Date();
-            const yyyy = now.getUTCFullYear();
-            const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
-            const dd = String(now.getUTCDate()).padStart(2, '0');
-            const resolved = `${yyyy}-${mm}-${dd}`;
-            console.log(`[DD Field Mapping] Target ${target_field}: resolved {today} token to "${resolved}"`);
-            sourceValue = resolved;
+          // (shared resolver — keep in sync via api/_lib/staticValueTokens.js)
+          const resolvedStatic = resolveStaticTodayToken(sourceValue);
+          if (resolvedStatic !== sourceValue) {
+            console.log(`[DD Field Mapping] Target ${target_field}: resolved {today} token to "${resolvedStatic}"`);
+            sourceValue = resolvedStatic;
           }
           
           // Check if static value is usable
