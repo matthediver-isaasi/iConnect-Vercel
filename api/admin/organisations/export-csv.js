@@ -6,6 +6,7 @@ import {
   parseCoreFilters,
   applyDirectColumnFilter,
 } from '../../_lib/prefValueOptionFilter.js';
+import { escapeCsvCell as escapeCSV, CSV_BOM, CSV_ROW_SEPARATOR } from '../../_lib/csvCell.js';
 
 // Direct organization columns filterable through the coreFilters param
 // (mirrors /api/admin/organizations/paginated).
@@ -15,23 +16,6 @@ const CORE_FILTER_COLUMNS = {
   invoicing_email: {},
   invoicing_address: {},
 };
-
-function sanitizeForCSV(value) {
-  if (value === null || value === undefined) return '';
-  let str = String(value);
-  if (/^[=+\-@\t\r]/.test(str)) {
-    str = "'" + str;
-  }
-  return str;
-}
-
-function escapeCSV(value) {
-  const str = sanitizeForCSV(value);
-  if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
-    return `"${str.replace(/"/g, '""')}"`;
-  }
-  return str;
-}
 
 function formatDate(dateStr) {
   if (!dateStr) return '';
@@ -412,7 +396,8 @@ export default async function handler(req, res) {
     res.setHeader('X-Accel-Buffering', 'no');
     if (typeof res.flushHeaders === 'function') res.flushHeaders();
 
-    res.write(headerRow);
+    // UTF-8 BOM so Excel decodes non-ASCII characters correctly.
+    res.write(CSV_BOM + headerRow);
 
     try {
       let pageData = firstPage.data || [];
@@ -430,7 +415,7 @@ export default async function handler(req, res) {
               });
               if (!passes) continue;
             }
-            chunk += '\n' + buildOrgRow(org, pagePrefMap, pageRawMap);
+            chunk += CSV_ROW_SEPARATOR + buildOrgRow(org, pagePrefMap, pageRawMap);
           }
           if (chunk) {
             res.write(chunk);

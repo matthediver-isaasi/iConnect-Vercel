@@ -1,11 +1,13 @@
 // Self-contained client-side CSV helpers. No external dependencies.
 
-// Escape a single CSV cell: wrap in double-quotes when it contains a comma,
-// double-quote, or newline, and double any embedded quotes (RFC 4180).
+// Escape a single CSV cell: flatten embedded line breaks to a single space
+// (Excel's double-click opener often splits quoted multi-line values across
+// rows), wrap in double-quotes when the value contains a comma or
+// double-quote, and double any embedded quotes (RFC 4180).
 function escapeCsvCell(value) {
   if (value === null || value === undefined) return "";
-  const str = String(value);
-  if (/[",\n\r]/.test(str)) {
+  const str = String(value).replace(/\r\n|[\r\n]/g, " ");
+  if (/[",]/.test(str)) {
     return `"${str.replace(/"/g, '""')}"`;
   }
   return str;

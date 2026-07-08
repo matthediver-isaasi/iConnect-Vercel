@@ -1,22 +1,6 @@
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext } from '../../_lib/tenantContext.js';
-
-function sanitizeForCSV(value) {
-  if (value === null || value === undefined) return '';
-  let str = String(value);
-  if (/^[=+\-@\t\r]/.test(str)) {
-    str = "'" + str;
-  }
-  return str;
-}
-
-function escapeCSV(value) {
-  const str = sanitizeForCSV(value);
-  if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
-    return `"${str.replace(/"/g, '""')}"`;
-  }
-  return str;
-}
+import { escapeCsvCell as escapeCSV, CSV_BOM, CSV_ROW_SEPARATOR } from '../../_lib/csvCell.js';
 
 function formatDate(dateStr) {
   if (!dateStr) return '';
@@ -257,7 +241,8 @@ export default async function handler(req, res) {
     res.setHeader('X-Accel-Buffering', 'no');
     if (typeof res.flushHeaders === 'function') res.flushHeaders();
 
-    res.write(headerRow);
+    // UTF-8 BOM so Excel decodes non-ASCII characters correctly.
+    res.write(CSV_BOM + headerRow);
 
     try {
       let pageData = firstPage.data || [];
@@ -268,7 +253,7 @@ export default async function handler(req, res) {
           const pagePrefMap = await loadPrefValuesForMembers(memberIds);
           let chunk = '';
           for (const member of pageData) {
-            chunk += '\n' + buildMemberRow(member, pagePrefMap);
+            chunk += CSV_ROW_SEPARATOR + buildMemberRow(member, pagePrefMap);
           }
           res.write(chunk);
           // Yield to the event loop so the buffered chunk flushes to the network.
