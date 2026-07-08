@@ -1,6 +1,20 @@
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext } from '../../_lib/tenantContext.js';
-import { buildOptionValueOrConditions, parseCustomFilterRawValue } from '../../_lib/prefValueOptionFilter.js';
+import {
+  normalizeCustomFilterEntry,
+  applyPrefFilterEntry,
+  prefEntryNeedsAntiJoin,
+  parseCoreFilters,
+  applyDirectColumnFilter,
+} from '../../_lib/prefValueOptionFilter.js';
+
+// Direct member columns filterable through the coreFilters param.
+const CORE_FILTER_COLUMNS = {
+  job_title: {},
+  mobile: {},
+  organization_id: { idColumn: true },
+  role_id: { idColumn: true },
+};
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -28,6 +42,7 @@ export default async function handler(req, res) {
       sortField = 'created_on',
       sortDir = 'desc',
       customFilters = '',
+      coreFilters = '',
       fields = ''
     } = req.query;
 
@@ -38,15 +53,16 @@ export default async function handler(req, res) {
     // Parse custom field filters (applied at DB level so paging + count span the whole tenant).
     // Shape: { "<fieldId>": ["A","B"] } for option filters (OR within the field),
     // "<fieldId>": "__text__:<substring>" / "__bool__:Yes|No" for the prefixed
-    // encodings, or a legacy plain string from an old saved view.
+    // encodings, a legacy plain string from an old saved view, or an operator
+    // object like { "op": "none_of", "value": [...] } / { "op": "empty" }.
     let parsedCustomFilters = {};
     if (customFilters && customFilters.trim()) {
       try {
         const obj = JSON.parse(customFilters);
         if (obj && typeof obj === 'object') {
           for (const [fieldId, raw] of Object.entries(obj)) {
-            const parsed = parseCustomFilterRawValue(raw);
-            if (parsed !== null) parsedCustomFilters[fieldId] = parsed;
+            const entry = normalizeCustomFilterEntry(raw);
+            if (entry !== null) parsedCustomFilters[fieldId] = entry;
           }
         }
       } catch {
@@ -57,9 +73,14 @@ export default async function handler(req, res) {
     const MAX_CUSTOM_FILTERS = 20;
     const customFilterEntries = Object.entries(parsedCustomFilters).slice(0, MAX_CUSTOM_FILTERS);
 
+    // Direct-column filters with operators ({ "job_title": { op, value }, ... }).
+    const coreFilterEntries = parseCoreFilters(coreFilters, CORE_FILTER_COLUMNS);
+
     // Build the core select. For each active custom filter we add an aliased
-    // inner join on member_preference_value so the join restricts (and counts)
-    // members across the entire tenant, not just the current page.
+    // join on member_preference_value. Positive operators use an inner join so
+    // the join restricts (and counts) members across the entire tenant;
+    // negative operators use a left join whose matches are then excluded
+    // (`.is(alias, null)`), so members without any row also qualify.
     let selectClause = `
       id,
       first_name,
@@ -78,8 +99,9 @@ export default async function handler(req, res) {
       guest_expires_at,
       organization (id, name, tenant_id)`;
 
-    customFilterEntries.forEach((_, idx) => {
-      selectClause += `,\n      cf${idx}:member_preference_value!inner(field_id, value)`;
+    customFilterEntries.forEach(([, entry], idx) => {
+      const joinType = prefEntryNeedsAntiJoin(entry) ? '!left' : '!inner';
+      selectClause += `,\n      cf${idx}:member_preference_value${joinType}(field_id, value)`;
     });
 
     let query = supabase
@@ -90,29 +112,18 @@ export default async function handler(req, res) {
 
     query = query.not('email', 'like', 'deleted_%@deleted.local');
 
-    customFilterEntries.forEach(([fieldId, value], idx) => {
+    customFilterEntries.forEach(([fieldId, entry], idx) => {
       const alias = `cf${idx}`;
-      query = query.eq(`${alias}.field_id`, fieldId);
-      if (Array.isArray(value)) {
-        // Multi-select option filter: OR across the selected values, each
-        // matching scalar or JSON-array storage.
-        query = query.or(buildOptionValueOrConditions(value), { foreignTable: alias });
-      } else if (value.startsWith('__text__:')) {
-        const substr = value.slice('__text__:'.length);
-        query = query.ilike(`${alias}.value`, `%${substr}%`);
-      } else if (value.startsWith('__bool__:')) {
-        const boolLabel = value.slice('__bool__:'.length);
-        if (boolLabel === 'Yes') {
-          query = query.or('value.eq.Yes,value.eq.true', { foreignTable: alias });
-        } else {
-          query = query.or('value.eq.No,value.eq.false', { foreignTable: alias });
-        }
-      } else {
-        // Legacy single-value option filter (old saved views / bookmarked
-        // URLs): same matching so JSON-array-stored rows are found too.
-        query = query.or(buildOptionValueOrConditions([value]), { foreignTable: alias });
+      query = applyPrefFilterEntry(query, alias, fieldId, entry);
+      if (prefEntryNeedsAntiJoin(entry)) {
+        // Anti-join: keep only members with NO matching preference-value row.
+        query = query.is(alias, null);
       }
     });
+
+    for (const coreEntry of coreFilterEntries) {
+      query = applyDirectColumnFilter(query, coreEntry);
+    }
 
     if (search && search.trim()) {
       const tokens = search.trim().split(/\s+/).filter(Boolean);

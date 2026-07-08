@@ -1,7 +1,40 @@
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext } from '../../_lib/tenantContext.js';
 import { getCountryByName } from '../../../shared/countries.js';
-import { buildOptionValueOrConditions, parseCustomFilterRawValue } from '../../_lib/prefValueOptionFilter.js';
+import {
+  normalizeCustomFilterEntry,
+  applyPrefFilterEntry,
+  prefEntryNeedsAntiJoin,
+  parseCoreFilters,
+  applyDirectColumnFilter,
+} from '../../_lib/prefValueOptionFilter.js';
+
+// Direct organization columns filterable through the coreFilters param.
+const CORE_FILTER_COLUMNS = {
+  phone: {},
+  website_url: {},
+  invoicing_email: {},
+  invoicing_address: {},
+};
+
+// Build the OR conditions matching a set of country names against
+// single-select storage (name or legacy ISO-2 code) and multi-select storage
+// (JSON array containing the name or code). Quoting the name in the ilike
+// pattern prevents substring false-positives (e.g. "Niger" vs "Nigeria").
+export function buildCountryOrConditions(names) {
+  const conditions = [];
+  for (const countryName of names) {
+    const countryRecord = getCountryByName(countryName);
+    const isoCode = countryRecord?.code;
+    conditions.push(`value.eq.${countryName}`);
+    conditions.push(`value.ilike.*"${countryName}"*`);
+    if (isoCode) {
+      conditions.push(`value.eq.${isoCode}`);
+      conditions.push(`value.ilike.*"${isoCode}"*`);
+    }
+  }
+  return conditions.join(',');
+}
 
 const DELETED_EMAIL_PATTERN = 'deleted_%@deleted.local';
 
@@ -42,6 +75,7 @@ export default async function handler(req, res) {
       sortField = 'name',
       sortDir = 'asc',
       customFilters = '',
+      coreFilters = '',
       fields = ''
     } = req.query;
 
@@ -52,16 +86,17 @@ export default async function handler(req, res) {
     // Parse custom field filters (applied at DB level so paging + totals span the
     // whole tenant). Shape: { "<fieldId>": ["A","B"] } for option filters (OR
     // within the field), "__text__:<substring>" / "__bool__:Yes|No" /
-    // "__country__:<name>" for the prefixed encodings, or a legacy plain string
-    // from an old saved view.
+    // "__country__:<name>" for the prefixed encodings, a legacy plain string
+    // from an old saved view, or an operator object like
+    // { "op": "none_of", "value": [...] } / { "op": "empty" }.
     let parsedCustomFilters = {};
     if (customFilters && customFilters.trim()) {
       try {
         const obj = JSON.parse(customFilters);
         if (obj && typeof obj === 'object') {
           for (const [fieldId, raw] of Object.entries(obj)) {
-            const parsed = parseCustomFilterRawValue(raw);
-            if (parsed !== null) parsedCustomFilters[fieldId] = parsed;
+            const entry = normalizeCustomFilterEntry(raw);
+            if (entry !== null) parsedCustomFilters[fieldId] = entry;
           }
         }
       } catch {
@@ -72,59 +107,38 @@ export default async function handler(req, res) {
     const MAX_CUSTOM_FILTERS = 20;
     const customFilterEntries = Object.entries(parsedCustomFilters).slice(0, MAX_CUSTOM_FILTERS);
 
-    // For each active custom filter add an aliased inner join on
-    // organization_preference_value so the join restricts (and counts) orgs
-    // across the entire tenant, not just the current page.
+    // Direct-column filters with operators ({ "phone": { op, value }, ... }).
+    const coreFilterEntries = parseCoreFilters(coreFilters, CORE_FILTER_COLUMNS);
+
+    // For each active custom filter add an aliased join on
+    // organization_preference_value. Positive operators use an inner join so
+    // the join restricts (and counts) orgs across the entire tenant; negative
+    // operators use a left join whose matches are then excluded
+    // (`.is(alias, null)`), so orgs without any row also qualify.
     const buildSelect = (base) => {
       let sel = base;
-      customFilterEntries.forEach((_, idx) => {
-        sel += `, cf${idx}:organization_preference_value!inner(field_id, value)`;
+      customFilterEntries.forEach(([, entry], idx) => {
+        const joinType = prefEntryNeedsAntiJoin(entry) ? '!left' : '!inner';
+        sel += `, cf${idx}:organization_preference_value${joinType}(field_id, value)`;
       });
       return sel;
     };
 
     const applyFilters = (query) => {
       query = query.eq('tenant_id', tenantId);
-      customFilterEntries.forEach(([fieldId, value], idx) => {
+      customFilterEntries.forEach(([fieldId, entry], idx) => {
         const alias = `cf${idx}`;
-        query = query.eq(`${alias}.field_id`, fieldId);
-        if (Array.isArray(value)) {
-          // Multi-select option filter: OR across the selected values, each
-          // matching scalar or JSON-array storage.
-          query = query.or(buildOptionValueOrConditions(value), { foreignTable: alias });
-        } else if (value.startsWith('__text__:')) {
-          const substr = value.slice('__text__:'.length);
-          query = query.ilike(`${alias}.value`, `%${substr}%`);
-        } else if (value.startsWith('__bool__:')) {
-          const boolLabel = value.slice('__bool__:'.length);
-          if (boolLabel === 'Yes') {
-            query = query.or('value.eq.Yes,value.eq.true', { foreignTable: alias });
-          } else {
-            query = query.or('value.eq.No,value.eq.false', { foreignTable: alias });
-          }
-        } else if (value.startsWith('__country__:')) {
-          const countryName = value.slice('__country__:'.length);
-          const countryRecord = getCountryByName(countryName);
-          const isoCode = countryRecord?.code;
-          // Match single-select (stored as name or legacy ISO-2 code) and
-          // multi-select (stored as JSON array containing the name or code).
-          // Surrounding the name with quotes in the ilike pattern prevents
-          // substring false-positives (e.g. "Niger" vs "Nigeria") in JSON arrays.
-          const conditions = [
-            `value.eq.${countryName}`,
-            `value.ilike.*"${countryName}"*`,
-          ];
-          if (isoCode) {
-            conditions.push(`value.eq.${isoCode}`);
-            conditions.push(`value.ilike.*"${isoCode}"*`);
-          }
-          query = query.or(conditions.join(','), { foreignTable: alias });
-        } else {
-          // Legacy single-value option filter (old saved views / bookmarked
-          // URLs): same matching so JSON-array-stored rows are found too.
-          query = query.or(buildOptionValueOrConditions([value]), { foreignTable: alias });
+        query = applyPrefFilterEntry(query, alias, fieldId, entry, {
+          buildCountryConditions: buildCountryOrConditions,
+        });
+        if (prefEntryNeedsAntiJoin(entry)) {
+          // Anti-join: keep only orgs with NO matching preference-value row.
+          query = query.is(alias, null);
         }
       });
+      for (const coreEntry of coreFilterEntries) {
+        query = applyDirectColumnFilter(query, coreEntry);
+      }
       if (search && search.trim()) {
         const term = `%${search.trim().toLowerCase()}%`;
         query = query.or(

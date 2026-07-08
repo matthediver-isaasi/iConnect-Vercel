@@ -54,7 +54,18 @@ import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
 import { createPageUrl, isDeletedMember } from "@/utils";
 import SortableHeader, { getAriaSort } from "@/components/SortableHeader";
 import MultiSelectFilter from "@/components/MultiSelectFilter";
-import { coerceCustomFilters, isActiveCustomFilterValue } from "@/lib/customFilterUtils";
+import {
+  coerceCustomFilters,
+  isActiveCustomFilterValue,
+  TEXT_OPERATORS,
+  OPTION_OPERATORS,
+  BOOLEAN_OPERATORS,
+  SELECT_OPERATORS,
+  isEmptinessOp,
+  buildCustomFilterWireValue,
+  sanitizeFilterOps,
+} from "@/lib/customFilterUtils";
+import FilterOperatorMenu from "@/components/FilterOperatorMenu";
 
 const MEMBER_SORT_KEYS = {
   name: 'first_name',
@@ -143,6 +154,9 @@ export default function MembersListPage() {
     job_title: ''
   });
   const [customFieldFilters, setCustomFieldFilters] = useState({});
+  // Per-filter condition operators, keyed by filter id (custom field id or
+  // core filter id). Absent key = the filter's default operator.
+  const [filterOps, setFilterOps] = useState({});
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(50);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
@@ -281,19 +295,65 @@ export default function MembersListPage() {
 
   const activeCustomFilters = useMemo(() => {
     const obj = {};
-    Object.entries(customFieldFilters).forEach(([fieldId, v]) => {
-      if (isActiveCustomFilterValue(v)) obj[fieldId] = v;
+    // Union of ids with a value and ids with an emptiness operator (which
+    // filter without any value).
+    const ids = new Set([
+      ...Object.keys(customFieldFilters),
+      ...memberFilterFields.map(f => f.id).filter(id => isEmptinessOp(filterOps[id])),
+    ]);
+    ids.forEach((fieldId) => {
+      const op = filterOps[fieldId];
+      if (isEmptinessOp(op)) {
+        obj[fieldId] = { op };
+      } else if (isActiveCustomFilterValue(customFieldFilters[fieldId])) {
+        obj[fieldId] = buildCustomFilterWireValue(customFieldFilters[fieldId], op);
+      }
     });
     return obj;
-  }, [customFieldFilters]);
+  }, [customFieldFilters, filterOps, memberFilterFields]);
   const customFiltersParam = useMemo(() => JSON.stringify(activeCustomFilters), [activeCustomFilters]);
   const customFieldIdsParam = useMemo(
     () => memberCustomFields.map(f => f.id).join(','),
     [memberCustomFields]
   );
 
+  // Direct-column filters with operators, sent as the coreFilters param and
+  // applied server-side. Filter id -> DB column: phone stores in `mobile`.
+  const coreFiltersParam = useMemo(() => {
+    const obj = {};
+    const addText = (filterId, column) => {
+      const op = filterOps[filterId] || 'contains';
+      const value = (coreFieldFilters[filterId] || '').trim();
+      if (isEmptinessOp(op)) {
+        obj[column] = { op };
+      } else if (value) {
+        obj[column] = { op, value };
+      }
+    };
+    addText('job_title', 'job_title');
+    addText('phone', 'mobile');
+    // Organisation / role become core filters only for non-default operators;
+    // the default "is" keeps using the legacy organizationId/roleId params.
+    const addId = (filterId, column, selected) => {
+      const op = filterOps[filterId] || 'any_of';
+      if (isEmptinessOp(op)) {
+        obj[column] = { op };
+      } else if (op === 'none_of' && selected && selected !== 'all') {
+        obj[column] = { op, value: selected };
+      }
+    };
+    addId('organisation', 'organization_id', orgFilter);
+    addId('role', 'role_id', roleFilter);
+    return Object.keys(obj).length > 0 ? JSON.stringify(obj) : '';
+  }, [filterOps, coreFieldFilters, orgFilter, roleFilter]);
+
+  // Legacy params must be suppressed when the operator moved the org/role
+  // filter into coreFilters (otherwise both would apply and conflict).
+  const effectiveOrgParam = (filterOps['organisation'] || 'any_of') === 'any_of' ? orgFilter : 'all';
+  const effectiveRoleParam = (filterOps['role'] || 'any_of') === 'any_of' ? roleFilter : 'all';
+
   const { data: membersData, isLoading: membersLoading, isFetching: membersFetching } = useQuery({
-    queryKey: ['members-paginated', currentPage, itemsPerPage, debouncedSearch, orgFilter, roleFilter, statusFilter, sortField, sortDir, customFiltersParam, customFieldIdsParam],
+    queryKey: ['members-paginated', currentPage, itemsPerPage, debouncedSearch, effectiveOrgParam, effectiveRoleParam, statusFilter, sortField, sortDir, customFiltersParam, coreFiltersParam, customFieldIdsParam],
     enabled: accessChecked && filtersReady,
     keepPreviousData: true,
     queryFn: async () => {
@@ -301,14 +361,17 @@ export default function MembersListPage() {
         page: currentPage.toString(),
         limit: itemsPerPage.toString(),
         search: debouncedSearch,
-        organizationId: orgFilter,
-        roleId: roleFilter,
+        organizationId: effectiveOrgParam,
+        roleId: effectiveRoleParam,
         status: statusFilter,
         sortField,
         sortDir
       });
       if (customFiltersParam && customFiltersParam !== '{}') {
         params.set('customFilters', customFiltersParam);
+      }
+      if (coreFiltersParam) {
+        params.set('coreFilters', coreFiltersParam);
       }
       if (customFieldIdsParam) {
         params.set('fields', customFieldIdsParam);
@@ -422,6 +485,9 @@ export default function MembersListPage() {
               // Coerce legacy single-value option filters (plain strings) to arrays.
               setCustomFieldFilters(coerceCustomFilters(f.customFieldFilters));
             }
+            if (f.filterOps && typeof f.filterOps === 'object') {
+              setFilterOps(sanitizeFilterOps(f.filterOps));
+            }
             if (typeof f.sortField === 'string') setSortField(f.sortField);
             if (f.sortDir === 'asc' || f.sortDir === 'desc') setSortDir(f.sortDir);
             if (Array.isArray(f.filterOrder)) {
@@ -486,6 +552,7 @@ export default function MembersListPage() {
         roleFilter,
         coreFieldFilters,
         customFieldFilters,
+        filterOps,
         sortField,
         sortDir,
         filterOrder,
@@ -674,23 +741,12 @@ export default function MembersListPage() {
     return map;
   }, [members]);
 
-  const filteredMembers = useMemo(() => {
-    let result = [...members];
-    
-    result = result.filter(m => !isDeletedMember(m));
-
-    Object.entries(coreFieldFilters).forEach(([field, filterValue]) => {
-      if (filterValue && filterValue.trim()) {
-        const query = filterValue.toLowerCase().trim();
-        result = result.filter(m => {
-          const fieldVal = m[field];
-          return fieldVal && fieldVal.toLowerCase().includes(query);
-        });
-      }
-    });
-
-    return result;
-  }, [members, coreFieldFilters]);
+  // Core-field filters (job title / phone) are applied server-side via the
+  // coreFilters param, so only the deleted-member guard remains client-side.
+  const filteredMembers = useMemo(
+    () => members.filter(m => !isDeletedMember(m)),
+    [members]
+  );
 
   const paginatedMembers = filteredMembers;
 
@@ -705,6 +761,7 @@ export default function MembersListPage() {
     setRoleFilter('all');
     setCoreFieldFilters({ job_title: '' });
     setCustomFieldFilters({});
+    setFilterOps({});
     setFilterOrder(availableFilterIds);
     setHiddenFilterIds([]);
     setCurrentPage(1);
@@ -733,6 +790,19 @@ export default function MembersListPage() {
       case 'job_title': setCoreFieldFilters(prev => ({ ...prev, job_title: '' })); break;
       default: setCustomFieldFilters(prev => ({ ...prev, [id]: '' })); break;
     }
+    // Clearing a filter also resets its condition back to the default.
+    setFilterOps(prev => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    setCurrentPage(1);
+  }, []);
+
+  // Change a filter's condition operator; emptiness operators drop the value.
+  const setMemberFilterOp = useCallback((id, op) => {
+    setFilterOps(prev => ({ ...prev, [id]: op }));
     setCurrentPage(1);
   }, []);
 
@@ -830,99 +900,159 @@ export default function MembersListPage() {
             </Select>
           </div>
         );
-      case 'organisation':
+      case 'organisation': {
+        const op = filterOps['organisation'] || 'any_of';
         return (
           <div className="space-y-1.5">
-            <Label className="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Organisation</Label>
-            <Select value={orgFilter} onValueChange={(v) => { setOrgFilter(v); setCurrentPage(1); }}>
-              <SelectTrigger className="h-8 text-xs" data-testid="select-member-org-filter">
-                <SelectValue placeholder="All Organisations" />
-              </SelectTrigger>
-              <SelectContent className="max-w-[260px]">
-                <SelectItem value="all" className="text-xs">All Organisations</SelectItem>
-                {organizations.map(org => (
-                  <SelectItem key={org.id} value={org.id} className="text-xs whitespace-normal break-words">
-                    {org.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="flex items-center justify-between gap-1">
+              <Label className="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Organisation</Label>
+              <FilterOperatorMenu
+                operators={SELECT_OPERATORS}
+                value={op}
+                onChange={(v) => setMemberFilterOp('organisation', v)}
+                testId="op-member-filter-organisation"
+              />
+            </div>
+            {!isEmptinessOp(op) && (
+              <Select value={orgFilter} onValueChange={(v) => { setOrgFilter(v); setCurrentPage(1); }}>
+                <SelectTrigger className="h-8 text-xs" data-testid="select-member-org-filter">
+                  <SelectValue placeholder="All Organisations" />
+                </SelectTrigger>
+                <SelectContent className="max-w-[260px]">
+                  <SelectItem value="all" className="text-xs">All Organisations</SelectItem>
+                  {organizations.map(org => (
+                    <SelectItem key={org.id} value={org.id} className="text-xs whitespace-normal break-words">
+                      {org.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
         );
-      case 'role':
+      }
+      case 'role': {
+        const op = filterOps['role'] || 'any_of';
         return (
           <div className="space-y-1.5">
-            <Label className="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Role</Label>
-            <Select value={roleFilter} onValueChange={(v) => { setRoleFilter(v); setCurrentPage(1); }}>
-              <SelectTrigger className="h-8 text-xs" data-testid="select-member-role-filter">
-                <SelectValue placeholder="All Roles" />
-              </SelectTrigger>
-              <SelectContent className="max-w-[260px]">
-                <SelectItem value="all" className="text-xs">All Roles</SelectItem>
-                {roles.map(role => (
-                  <SelectItem key={role.id} value={role.id} className="text-xs whitespace-normal break-words">
-                    {role.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="flex items-center justify-between gap-1">
+              <Label className="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Role</Label>
+              <FilterOperatorMenu
+                operators={SELECT_OPERATORS}
+                value={op}
+                onChange={(v) => setMemberFilterOp('role', v)}
+                testId="op-member-filter-role"
+              />
+            </div>
+            {!isEmptinessOp(op) && (
+              <Select value={roleFilter} onValueChange={(v) => { setRoleFilter(v); setCurrentPage(1); }}>
+                <SelectTrigger className="h-8 text-xs" data-testid="select-member-role-filter">
+                  <SelectValue placeholder="All Roles" />
+                </SelectTrigger>
+                <SelectContent className="max-w-[260px]">
+                  <SelectItem value="all" className="text-xs">All Roles</SelectItem>
+                  {roles.map(role => (
+                    <SelectItem key={role.id} value={role.id} className="text-xs whitespace-normal break-words">
+                      {role.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
         );
-      case 'phone':
+      }
+      case 'phone': {
+        const op = filterOps['phone'] || 'contains';
         return (
           <div className="space-y-1.5">
-            <Label className="text-[11px] text-slate-600 break-words">Phone</Label>
-            <Input
-              placeholder="Filter by phone..."
-              value={coreFieldFilters.phone || ''}
-              onChange={(e) => {
-                setCoreFieldFilters(prev => ({ ...prev, phone: e.target.value }));
-                setCurrentPage(1);
-              }}
-              className="h-8 text-xs"
-              data-testid="input-filter-member-phone"
-            />
+            <div className="flex items-center justify-between gap-1">
+              <Label className="text-[11px] text-slate-600 break-words">Phone</Label>
+              <FilterOperatorMenu
+                operators={TEXT_OPERATORS}
+                value={op}
+                onChange={(v) => setMemberFilterOp('phone', v)}
+                testId="op-member-filter-phone"
+              />
+            </div>
+            {!isEmptinessOp(op) && (
+              <Input
+                placeholder="Filter by phone..."
+                value={coreFieldFilters.phone || ''}
+                onChange={(e) => {
+                  setCoreFieldFilters(prev => ({ ...prev, phone: e.target.value }));
+                  setCurrentPage(1);
+                }}
+                className="h-8 text-xs"
+                data-testid="input-filter-member-phone"
+              />
+            )}
           </div>
         );
-      case 'job_title':
+      }
+      case 'job_title': {
+        const op = filterOps['job_title'] || 'contains';
         return (
           <div className="space-y-1.5">
-            <Label className="text-[11px] text-slate-600 break-words">Job Title</Label>
-            <Input
-              placeholder="Filter by job title..."
-              value={coreFieldFilters.job_title || ''}
-              onChange={(e) => {
-                setCoreFieldFilters(prev => ({ ...prev, job_title: e.target.value }));
-                setCurrentPage(1);
-              }}
-              className="h-8 text-xs"
-              data-testid="input-filter-member-job-title"
-            />
+            <div className="flex items-center justify-between gap-1">
+              <Label className="text-[11px] text-slate-600 break-words">Job Title</Label>
+              <FilterOperatorMenu
+                operators={TEXT_OPERATORS}
+                value={op}
+                onChange={(v) => setMemberFilterOp('job_title', v)}
+                testId="op-member-filter-job-title"
+              />
+            </div>
+            {!isEmptinessOp(op) && (
+              <Input
+                placeholder="Filter by job title..."
+                value={coreFieldFilters.job_title || ''}
+                onChange={(e) => {
+                  setCoreFieldFilters(prev => ({ ...prev, job_title: e.target.value }));
+                  setCurrentPage(1);
+                }}
+                className="h-8 text-xs"
+                data-testid="input-filter-member-job-title"
+              />
+            )}
           </div>
         );
+      }
       default: {
         const field = memberFilterFields.find(f => f.id === id);
         if (!field) return null;
+        const fieldOp = filterOps[field.id];
         if (field.field_type === 'boolean') {
+          const op = fieldOp || 'is';
           return (
             <div className="space-y-1.5">
-              <Label className="text-[11px] text-slate-600 break-words leading-tight">{field.label}</Label>
-              <Select
-                value={customFieldFilters[field.id] || 'all'}
-                onValueChange={(v) => {
-                  setCustomFieldFilters(prev => ({ ...prev, [field.id]: v === 'all' ? '' : v }));
-                  setCurrentPage(1);
-                }}
-              >
-                <SelectTrigger className="h-8 text-xs" data-testid={`select-member-filter-bool-${field.id}`}>
-                  <SelectValue placeholder="All" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all" className="text-xs">All</SelectItem>
-                  <SelectItem value="__bool__:Yes" className="text-xs">Yes</SelectItem>
-                  <SelectItem value="__bool__:No" className="text-xs">No</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="flex items-center justify-between gap-1">
+                <Label className="text-[11px] text-slate-600 break-words leading-tight">{field.label}</Label>
+                <FilterOperatorMenu
+                  operators={BOOLEAN_OPERATORS}
+                  value={op}
+                  onChange={(v) => setMemberFilterOp(field.id, v)}
+                  testId={`op-member-filter-${field.id}`}
+                />
+              </div>
+              {!isEmptinessOp(op) && (
+                <Select
+                  value={customFieldFilters[field.id] || 'all'}
+                  onValueChange={(v) => {
+                    setCustomFieldFilters(prev => ({ ...prev, [field.id]: v === 'all' ? '' : v }));
+                    setCurrentPage(1);
+                  }}
+                >
+                  <SelectTrigger className="h-8 text-xs" data-testid={`select-member-filter-bool-${field.id}`}>
+                    <SelectValue placeholder="All" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all" className="text-xs">All</SelectItem>
+                    <SelectItem value="__bool__:Yes" className="text-xs">Yes</SelectItem>
+                    <SelectItem value="__bool__:No" className="text-xs">No</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
             </div>
           );
         }
@@ -931,6 +1061,7 @@ export default function MembersListPage() {
         );
         const hasOptions = validOptions.length > 0;
         if (hasOptions) {
+          const op = fieldOp || 'any_of';
           const rawVal = customFieldFilters[field.id];
           const selectedValues = Array.isArray(rawVal)
             ? rawVal
@@ -945,59 +1076,84 @@ export default function MembersListPage() {
           };
           return (
             <div className="space-y-1.5">
-              <Label className="text-[11px] text-slate-600 break-words leading-tight">{field.label}</Label>
-              <MultiSelectFilter
-                options={validOptions.map(opt => ({ value: opt.value, label: opt.label || opt.value }))}
-                selected={selectedValues}
-                onChange={setSelectedValues}
-                placeholder="All"
-                className="h-8 min-h-8 w-full text-xs"
-                data-testid={`select-member-filter-${field.id}`}
-              />
-              {selectedValues.length > 1 && (
-                <div className="flex flex-wrap gap-1">
-                  {selectedValues.map(val => (
-                    <Badge
-                      key={val}
-                      variant="secondary"
-                      className="text-[10px] font-normal max-w-full gap-1"
-                      data-testid={`badge-member-filter-${field.id}-${val}`}
-                    >
-                      <span className="truncate">{labelForValue(val)}</span>
-                      <button
-                        type="button"
-                        className="shrink-0 rounded-full"
-                        onClick={() => setSelectedValues(selectedValues.filter(v => v !== val))}
-                        aria-label={`Remove ${labelForValue(val)}`}
-                        data-testid={`button-remove-member-filter-${field.id}-${val}`}
-                      >
-                        <X className="h-2.5 w-2.5" />
-                      </button>
-                    </Badge>
-                  ))}
-                </div>
+              <div className="flex items-center justify-between gap-1">
+                <Label className="text-[11px] text-slate-600 break-words leading-tight">{field.label}</Label>
+                <FilterOperatorMenu
+                  operators={OPTION_OPERATORS}
+                  value={op}
+                  onChange={(v) => setMemberFilterOp(field.id, v)}
+                  testId={`op-member-filter-${field.id}`}
+                />
+              </div>
+              {!isEmptinessOp(op) && (
+                <>
+                  <MultiSelectFilter
+                    options={validOptions.map(opt => ({ value: opt.value, label: opt.label || opt.value }))}
+                    selected={selectedValues}
+                    onChange={setSelectedValues}
+                    placeholder="All"
+                    className="h-8 min-h-8 w-full text-xs"
+                    data-testid={`select-member-filter-${field.id}`}
+                  />
+                  {selectedValues.length > 1 && (
+                    <div className="flex flex-wrap gap-1">
+                      {selectedValues.map(val => (
+                        <Badge
+                          key={val}
+                          variant="secondary"
+                          className="text-[10px] font-normal max-w-full gap-1"
+                          data-testid={`badge-member-filter-${field.id}-${val}`}
+                        >
+                          <span className="truncate">{labelForValue(val)}</span>
+                          <button
+                            type="button"
+                            className="shrink-0 rounded-full"
+                            onClick={() => setSelectedValues(selectedValues.filter(v => v !== val))}
+                            aria-label={`Remove ${labelForValue(val)}`}
+                            data-testid={`button-remove-member-filter-${field.id}-${val}`}
+                          >
+                            <X className="h-2.5 w-2.5" />
+                          </button>
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           );
         }
-        const textValue = customFieldFilters[field.id]?.replace('__text__:', '') || '';
+        const op = fieldOp || 'contains';
+        const textValue = typeof customFieldFilters[field.id] === 'string'
+          ? customFieldFilters[field.id].replace('__text__:', '')
+          : '';
         return (
           <div className="space-y-1.5">
-            <Label className="text-[11px] text-slate-600 break-words leading-tight">{field.label}</Label>
-            <Input
-              placeholder="Filter..."
-              value={textValue}
-              onChange={(e) => {
-                const val = e.target.value;
-                setCustomFieldFilters(prev => ({
-                  ...prev,
-                  [field.id]: val ? `__text__:${val}` : ''
-                }));
-                setCurrentPage(1);
-              }}
-              className="h-8 text-xs"
-              data-testid={`input-member-filter-cf-${field.id}`}
-            />
+            <div className="flex items-center justify-between gap-1">
+              <Label className="text-[11px] text-slate-600 break-words leading-tight">{field.label}</Label>
+              <FilterOperatorMenu
+                operators={TEXT_OPERATORS}
+                value={op}
+                onChange={(v) => setMemberFilterOp(field.id, v)}
+                testId={`op-member-filter-${field.id}`}
+              />
+            </div>
+            {!isEmptinessOp(op) && (
+              <Input
+                placeholder="Filter..."
+                value={textValue}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setCustomFieldFilters(prev => ({
+                    ...prev,
+                    [field.id]: val ? `__text__:${val}` : ''
+                  }));
+                  setCurrentPage(1);
+                }}
+                className="h-8 text-xs"
+                data-testid={`input-member-filter-cf-${field.id}`}
+              />
+            )}
           </div>
         );
       }
@@ -1009,7 +1165,8 @@ export default function MembersListPage() {
     orgFilter !== 'all' ||
     roleFilter !== 'all' ||
     Object.values(coreFieldFilters).some(v => v && v.trim() !== '') ||
-    Object.values(customFieldFilters).some(isActiveCustomFilterValue);
+    Object.values(customFieldFilters).some(isActiveCustomFilterValue) ||
+    Object.values(filterOps).some(isEmptinessOp);
 
   // Reconcile columns when custom fields load or when their column-visibility changes:
   // add any newly column-visible fields and prune custom columns whose field is no

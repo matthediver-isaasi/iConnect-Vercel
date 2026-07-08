@@ -66,7 +66,18 @@ import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import SortableHeader, { getAriaSort } from "@/components/SortableHeader";
 import { safeLogoSrc } from "@/lib/safeLogoSrc";
 import MultiSelectFilter from "@/components/MultiSelectFilter";
-import { coerceCustomFilters, isActiveCustomFilterValue } from "@/lib/customFilterUtils";
+import {
+  coerceCustomFilters,
+  isActiveCustomFilterValue,
+  TEXT_OPERATORS,
+  OPTION_OPERATORS,
+  BOOLEAN_OPERATORS,
+  COUNTRY_OPERATORS,
+  isEmptinessOp,
+  buildCustomFilterWireValue,
+  sanitizeFilterOps,
+} from "@/lib/customFilterUtils";
+import FilterOperatorMenu from "@/components/FilterOperatorMenu";
 
 function useDebounce(value, delay) {
   const [debouncedValue, setDebouncedValue] = useState(value);
@@ -123,7 +134,7 @@ const saveLocalColumns = (columns, tenantSlug) => {
 };
 
 
-function CountryFilterCombobox({ label, fieldId, selectedName, onChange }) {
+function CountryFilterCombobox({ label, fieldId, selectedName, onChange, operatorMenu, hideValue }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const filtered = search
@@ -131,7 +142,11 @@ function CountryFilterCombobox({ label, fieldId, selectedName, onChange }) {
     : COUNTRIES;
   return (
     <div className="space-y-1.5">
-      <Label className="text-[11px] text-slate-600 break-words leading-tight">{label}</Label>
+      <div className="flex items-center justify-between gap-1">
+        <Label className="text-[11px] text-slate-600 break-words leading-tight">{label}</Label>
+        {operatorMenu}
+      </div>
+      {hideValue ? null : (
       <Popover open={open} onOpenChange={(v) => { setOpen(v); if (!v) setSearch(''); }}>
         <PopoverTrigger asChild>
           <Button
@@ -175,6 +190,7 @@ function CountryFilterCombobox({ label, fieldId, selectedName, onChange }) {
           </Command>
         </PopoverContent>
       </Popover>
+      )}
     </div>
   );
 }
@@ -199,6 +215,9 @@ export default function OrganisationsListPage() {
     invoicing_address: ''
   });
   const [customFieldFilters, setCustomFieldFilters] = useState({});
+  // Per-filter condition operators, keyed by filter id (custom field id or
+  // core filter id). Absent key = the filter's default operator.
+  const [filterOps, setFilterOps] = useState({});
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(20);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
@@ -334,11 +353,22 @@ export default function OrganisationsListPage() {
   // the DB level (totals + paging span the whole tenant, not just one page).
   const activeCustomFilters = useMemo(() => {
     const obj = {};
-    Object.entries(customFieldFilters).forEach(([fieldId, v]) => {
-      if (isActiveCustomFilterValue(v)) obj[fieldId] = v;
+    // Union of ids with a value and ids with an emptiness operator (which
+    // filter without any value).
+    const ids = new Set([
+      ...Object.keys(customFieldFilters),
+      ...orgFilterFields.map(f => f.id).filter(id => isEmptinessOp(filterOps[id])),
+    ]);
+    ids.forEach((fieldId) => {
+      const op = filterOps[fieldId];
+      if (isEmptinessOp(op)) {
+        obj[fieldId] = { op };
+      } else if (isActiveCustomFilterValue(customFieldFilters[fieldId])) {
+        obj[fieldId] = buildCustomFilterWireValue(customFieldFilters[fieldId], op);
+      }
     });
     return obj;
-  }, [customFieldFilters]);
+  }, [customFieldFilters, filterOps, orgFilterFields]);
   const customFiltersParam = useMemo(() => JSON.stringify(activeCustomFilters), [activeCustomFilters]);
   // Custom field ids whose values the server should fetch for the current page
   // so custom-field columns populate on every row.
@@ -346,7 +376,25 @@ export default function OrganisationsListPage() {
     () => orgColumnFields.map(f => f.id).join(','),
     [orgColumnFields]
   );
-  const coreFiltersParam = useMemo(() => JSON.stringify(coreFieldFilters), [coreFieldFilters]);
+  // Direct-column filters with operators, sent as the coreFilters param and
+  // applied server-side. Filter id -> DB column mapping.
+  const coreFiltersParam = useMemo(() => {
+    const obj = {};
+    const addText = (filterId, stateKey, column) => {
+      const op = filterOps[filterId] || 'contains';
+      const value = (coreFieldFilters[stateKey] || '').trim();
+      if (isEmptinessOp(op)) {
+        obj[column] = { op };
+      } else if (value) {
+        obj[column] = { op, value };
+      }
+    };
+    addText('phone', 'phone', 'phone');
+    addText('email', 'invoicing_email', 'invoicing_email');
+    addText('website', 'website_url', 'website_url');
+    addText('address', 'invoicing_address', 'invoicing_address');
+    return Object.keys(obj).length > 0 ? JSON.stringify(obj) : '';
+  }, [coreFieldFilters, filterOps]);
 
   const { data: orgsData, isLoading: orgsLoading } = useQuery({
     queryKey: ['organizations-crm-paginated', currentPage, itemsPerPage, debouncedSearch, coreFiltersParam, customFiltersParam, customFieldIdsParam, sortField, sortDir],
@@ -360,9 +408,9 @@ export default function OrganisationsListPage() {
         sortField,
         sortDir
       });
-      Object.entries(coreFieldFilters).forEach(([key, val]) => {
-        if (val && val.trim()) params.set(key, val.trim());
-      });
+      if (coreFiltersParam) {
+        params.set('coreFilters', coreFiltersParam);
+      }
       if (customFiltersParam && customFiltersParam !== '{}') {
         params.set('customFilters', customFiltersParam);
       }
@@ -520,6 +568,9 @@ export default function OrganisationsListPage() {
               // Coerce legacy single-value option filters (plain strings) to arrays.
               setCustomFieldFilters(coerceCustomFilters(f.customFieldFilters));
             }
+            if (f.filterOps && typeof f.filterOps === 'object') {
+              setFilterOps(sanitizeFilterOps(f.filterOps));
+            }
             if (typeof f.sortField === 'string') setSortField(f.sortField);
             if (f.sortDir === 'asc' || f.sortDir === 'desc') setSortDir(f.sortDir);
             if (Array.isArray(f.filterOrder)) {
@@ -581,6 +632,7 @@ export default function OrganisationsListPage() {
         searchQuery,
         coreFieldFilters,
         customFieldFilters,
+        filterOps,
         sortField,
         sortDir,
         filterOrder,
@@ -739,18 +791,10 @@ export default function OrganisationsListPage() {
       if (selectAllFiltered) {
         if (searchQuery.trim()) params.set('search', searchQuery.trim());
         params.set('excludePrimary', 'true');
-        Object.entries(coreFieldFilters).forEach(([key, val]) => {
-          if (val && val.trim()) params.set(key, val.trim());
-        });
-        const activeCustomFilters = {};
-        let hasCustom = false;
-        Object.entries(customFieldFilters).forEach(([fieldId, val]) => {
-          if (isActiveCustomFilterValue(val)) {
-            activeCustomFilters[fieldId] = val;
-            hasCustom = true;
-          }
-        });
-        if (hasCustom) params.set('customFieldFilters', JSON.stringify(activeCustomFilters));
+        if (coreFiltersParam) params.set('coreFilters', coreFiltersParam);
+        if (customFiltersParam && customFiltersParam !== '{}') {
+          params.set('customFieldFilters', customFiltersParam);
+        }
       } else {
         params.set('ids', selectedOrgs.join(','));
       }
@@ -845,6 +889,7 @@ export default function OrganisationsListPage() {
     setSearchQuery('');
     setCoreFieldFilters({ phone: '', website_url: '', invoicing_email: '', invoicing_address: '' });
     setCustomFieldFilters({});
+    setFilterOps({});
     setFilterOrder(availableFilterIds);
     setHiddenFilterIds([]);
     setCurrentPage(1);
@@ -871,6 +916,19 @@ export default function OrganisationsListPage() {
       case 'address': setCoreFieldFilters(prev => ({ ...prev, invoicing_address: '' })); break;
       default: setCustomFieldFilters(prev => ({ ...prev, [id]: '' })); break;
     }
+    // Clearing a filter also resets its condition back to the default.
+    setFilterOps(prev => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    setCurrentPage(1);
+  }, []);
+
+  // Change a filter's condition operator; emptiness operators drop the value.
+  const setOrgFilterOp = useCallback((id, op) => {
+    setFilterOps(prev => ({ ...prev, [id]: op }));
     setCurrentPage(1);
   }, []);
 
@@ -950,107 +1008,105 @@ export default function OrganisationsListPage() {
     setDraggedFilterId(null);
   };
 
+  // Shared renderer for the four core text filters (phone/email/website/address).
+  const renderCoreTextFilter = (id, label, stateKey, testId) => {
+    const op = filterOps[id] || 'contains';
+    return (
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between gap-1">
+          <Label className="text-[11px] text-slate-600 break-words">{label}</Label>
+          <FilterOperatorMenu
+            operators={TEXT_OPERATORS}
+            value={op}
+            onChange={(v) => setOrgFilterOp(id, v)}
+            testId={`op-org-filter-${id}`}
+          />
+        </div>
+        {!isEmptinessOp(op) && (
+          <Input
+            placeholder={`Filter by ${label.toLowerCase()}...`}
+            value={coreFieldFilters[stateKey] || ''}
+            onChange={(e) => {
+              setCoreFieldFilters(prev => ({ ...prev, [stateKey]: e.target.value }));
+              setCurrentPage(1);
+            }}
+            className="h-8 text-xs"
+            data-testid={testId}
+          />
+        )}
+      </div>
+    );
+  };
+
   const renderOrgFilterControl = (id) => {
     switch (id) {
       case 'phone':
-        return (
-          <div className="space-y-1.5">
-            <Label className="text-[11px] text-slate-600 break-words">Phone</Label>
-            <Input
-              placeholder="Filter by phone..."
-              value={coreFieldFilters.phone || ''}
-              onChange={(e) => {
-                setCoreFieldFilters(prev => ({ ...prev, phone: e.target.value }));
-                setCurrentPage(1);
-              }}
-              className="h-8 text-xs"
-              data-testid="input-filter-phone"
-            />
-          </div>
-        );
+        return renderCoreTextFilter('phone', 'Phone', 'phone', 'input-filter-phone');
       case 'email':
-        return (
-          <div className="space-y-1.5">
-            <Label className="text-[11px] text-slate-600 break-words">Email</Label>
-            <Input
-              placeholder="Filter by email..."
-              value={coreFieldFilters.invoicing_email || ''}
-              onChange={(e) => {
-                setCoreFieldFilters(prev => ({ ...prev, invoicing_email: e.target.value }));
-                setCurrentPage(1);
-              }}
-              className="h-8 text-xs"
-              data-testid="input-filter-email"
-            />
-          </div>
-        );
+        return renderCoreTextFilter('email', 'Email', 'invoicing_email', 'input-filter-email');
       case 'website':
-        return (
-          <div className="space-y-1.5">
-            <Label className="text-[11px] text-slate-600 break-words">Website</Label>
-            <Input
-              placeholder="Filter by website..."
-              value={coreFieldFilters.website_url || ''}
-              onChange={(e) => {
-                setCoreFieldFilters(prev => ({ ...prev, website_url: e.target.value }));
-                setCurrentPage(1);
-              }}
-              className="h-8 text-xs"
-              data-testid="input-filter-website"
-            />
-          </div>
-        );
+        return renderCoreTextFilter('website', 'Website', 'website_url', 'input-filter-website');
       case 'address':
-        return (
-          <div className="space-y-1.5">
-            <Label className="text-[11px] text-slate-600 break-words">Address</Label>
-            <Input
-              placeholder="Filter by address..."
-              value={coreFieldFilters.invoicing_address || ''}
-              onChange={(e) => {
-                setCoreFieldFilters(prev => ({ ...prev, invoicing_address: e.target.value }));
-                setCurrentPage(1);
-              }}
-              className="h-8 text-xs"
-              data-testid="input-filter-address"
-            />
-          </div>
-        );
+        return renderCoreTextFilter('address', 'Address', 'invoicing_address', 'input-filter-address');
       default: {
         const field = orgFilterFields.find(f => f.id === id);
         if (!field) return null;
+        const fieldOp = filterOps[field.id];
         if (field.field_type === 'boolean') {
+          const op = fieldOp || 'is';
           return (
             <div className="space-y-1.5">
-              <Label className="text-[11px] text-slate-600 break-words leading-tight">{field.label}</Label>
-              <Select
-                value={customFieldFilters[field.id] || 'all'}
-                onValueChange={(v) => {
-                  setCustomFieldFilters(prev => ({ ...prev, [field.id]: v === 'all' ? '' : v }));
-                  setCurrentPage(1);
-                }}
-              >
-                <SelectTrigger className="h-8 text-xs" data-testid={`select-filter-bool-${field.id}`}>
-                  <SelectValue placeholder="All" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all" className="text-xs">All</SelectItem>
-                  <SelectItem value="__bool__:Yes" className="text-xs">Yes</SelectItem>
-                  <SelectItem value="__bool__:No" className="text-xs">No</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="flex items-center justify-between gap-1">
+                <Label className="text-[11px] text-slate-600 break-words leading-tight">{field.label}</Label>
+                <FilterOperatorMenu
+                  operators={BOOLEAN_OPERATORS}
+                  value={op}
+                  onChange={(v) => setOrgFilterOp(field.id, v)}
+                  testId={`op-org-filter-${field.id}`}
+                />
+              </div>
+              {!isEmptinessOp(op) && (
+                <Select
+                  value={customFieldFilters[field.id] || 'all'}
+                  onValueChange={(v) => {
+                    setCustomFieldFilters(prev => ({ ...prev, [field.id]: v === 'all' ? '' : v }));
+                    setCurrentPage(1);
+                  }}
+                >
+                  <SelectTrigger className="h-8 text-xs" data-testid={`select-filter-bool-${field.id}`}>
+                    <SelectValue placeholder="All" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all" className="text-xs">All</SelectItem>
+                    <SelectItem value="__bool__:Yes" className="text-xs">Yes</SelectItem>
+                    <SelectItem value="__bool__:No" className="text-xs">No</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
             </div>
           );
         }
         if (field.field_type === 'country' || field.field_type === 'countries') {
+          const op = fieldOp || 'any_of';
           const rawVal = customFieldFilters[field.id] || '';
-          const selectedName = rawVal.startsWith('__country__:') ? rawVal.slice('__country__:'.length) : '';
+          const selectedName = typeof rawVal === 'string' && rawVal.startsWith('__country__:')
+            ? rawVal.slice('__country__:'.length)
+            : '';
           return (
             <CountryFilterCombobox
               key={field.id}
               label={field.label}
               fieldId={field.id}
               selectedName={selectedName}
+              hideValue={isEmptinessOp(op)}
+              operatorMenu={
+                <FilterOperatorMenu
+                  operators={COUNTRY_OPERATORS}
+                  value={op}
+                  onChange={(v) => setOrgFilterOp(field.id, v)}
+                  testId={`op-org-filter-${field.id}`}
+                />
+              }
               onChange={(name) => {
                 setCustomFieldFilters(prev => ({
                   ...prev,
@@ -1066,6 +1122,7 @@ export default function OrganisationsListPage() {
         );
         const hasOptions = validOptions.length > 0;
         if (hasOptions) {
+          const op = fieldOp || 'any_of';
           const rawVal = customFieldFilters[field.id];
           const selectedValues = Array.isArray(rawVal)
             ? rawVal
@@ -1080,59 +1137,84 @@ export default function OrganisationsListPage() {
           };
           return (
             <div className="space-y-1.5">
-              <Label className="text-[11px] text-slate-600 break-words leading-tight">{field.label}</Label>
-              <MultiSelectFilter
-                options={validOptions.map(opt => ({ value: opt.value, label: opt.label || opt.value }))}
-                selected={selectedValues}
-                onChange={setSelectedValues}
-                placeholder="All"
-                className="h-8 min-h-8 w-full text-xs"
-                data-testid={`select-filter-${field.id}`}
-              />
-              {selectedValues.length > 1 && (
-                <div className="flex flex-wrap gap-1">
-                  {selectedValues.map(val => (
-                    <Badge
-                      key={val}
-                      variant="secondary"
-                      className="text-[10px] font-normal max-w-full gap-1"
-                      data-testid={`badge-filter-${field.id}-${val}`}
-                    >
-                      <span className="truncate">{labelForValue(val)}</span>
-                      <button
-                        type="button"
-                        className="shrink-0 rounded-full"
-                        onClick={() => setSelectedValues(selectedValues.filter(v => v !== val))}
-                        aria-label={`Remove ${labelForValue(val)}`}
-                        data-testid={`button-remove-filter-${field.id}-${val}`}
-                      >
-                        <X className="h-2.5 w-2.5" />
-                      </button>
-                    </Badge>
-                  ))}
-                </div>
+              <div className="flex items-center justify-between gap-1">
+                <Label className="text-[11px] text-slate-600 break-words leading-tight">{field.label}</Label>
+                <FilterOperatorMenu
+                  operators={OPTION_OPERATORS}
+                  value={op}
+                  onChange={(v) => setOrgFilterOp(field.id, v)}
+                  testId={`op-org-filter-${field.id}`}
+                />
+              </div>
+              {!isEmptinessOp(op) && (
+                <>
+                  <MultiSelectFilter
+                    options={validOptions.map(opt => ({ value: opt.value, label: opt.label || opt.value }))}
+                    selected={selectedValues}
+                    onChange={setSelectedValues}
+                    placeholder="All"
+                    className="h-8 min-h-8 w-full text-xs"
+                    data-testid={`select-filter-${field.id}`}
+                  />
+                  {selectedValues.length > 1 && (
+                    <div className="flex flex-wrap gap-1">
+                      {selectedValues.map(val => (
+                        <Badge
+                          key={val}
+                          variant="secondary"
+                          className="text-[10px] font-normal max-w-full gap-1"
+                          data-testid={`badge-filter-${field.id}-${val}`}
+                        >
+                          <span className="truncate">{labelForValue(val)}</span>
+                          <button
+                            type="button"
+                            className="shrink-0 rounded-full"
+                            onClick={() => setSelectedValues(selectedValues.filter(v => v !== val))}
+                            aria-label={`Remove ${labelForValue(val)}`}
+                            data-testid={`button-remove-filter-${field.id}-${val}`}
+                          >
+                            <X className="h-2.5 w-2.5" />
+                          </button>
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           );
         }
-        const textValue = customFieldFilters[field.id]?.replace('__text__:', '') || '';
+        const op = fieldOp || 'contains';
+        const textValue = typeof customFieldFilters[field.id] === 'string'
+          ? customFieldFilters[field.id].replace('__text__:', '')
+          : '';
         return (
           <div className="space-y-1.5">
-            <Label className="text-[11px] text-slate-600 break-words leading-tight">{field.label}</Label>
-            <Input
-              placeholder={`Filter...`}
-              value={textValue}
-              onChange={(e) => {
-                const val = e.target.value;
-                setCustomFieldFilters(prev => ({
-                  ...prev,
-                  [field.id]: val ? `__text__:${val}` : ''
-                }));
-                setCurrentPage(1);
-              }}
-              className="h-8 text-xs"
-              data-testid={`input-filter-cf-${field.id}`}
-            />
+            <div className="flex items-center justify-between gap-1">
+              <Label className="text-[11px] text-slate-600 break-words leading-tight">{field.label}</Label>
+              <FilterOperatorMenu
+                operators={TEXT_OPERATORS}
+                value={op}
+                onChange={(v) => setOrgFilterOp(field.id, v)}
+                testId={`op-org-filter-${field.id}`}
+              />
+            </div>
+            {!isEmptinessOp(op) && (
+              <Input
+                placeholder={`Filter...`}
+                value={textValue}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setCustomFieldFilters(prev => ({
+                    ...prev,
+                    [field.id]: val ? `__text__:${val}` : ''
+                  }));
+                  setCurrentPage(1);
+                }}
+                className="h-8 text-xs"
+                data-testid={`input-filter-cf-${field.id}`}
+              />
+            )}
           </div>
         );
       }
@@ -1141,7 +1223,8 @@ export default function OrganisationsListPage() {
 
   const hasActiveFilters = searchQuery || 
     Object.values(coreFieldFilters).some(v => v && v.trim() !== '') ||
-    Object.values(customFieldFilters).some(isActiveCustomFilterValue);
+    Object.values(customFieldFilters).some(isActiveCustomFilterValue) ||
+    Object.values(filterOps).some(isEmptinessOp);
 
   // Reconcile columns when custom fields load or when their column-visibility changes:
   // add any newly column-visible fields, and prune custom columns whose field is no

@@ -1,5 +1,20 @@
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext } from '../../_lib/tenantContext.js';
+import { getCountryByName } from '../../../shared/countries.js';
+import {
+  normalizeCustomFilterEntry,
+  parseCoreFilters,
+  applyDirectColumnFilter,
+} from '../../_lib/prefValueOptionFilter.js';
+
+// Direct organization columns filterable through the coreFilters param
+// (mirrors /api/admin/organizations/paginated).
+const CORE_FILTER_COLUMNS = {
+  phone: {},
+  website_url: {},
+  invoicing_email: {},
+  invoicing_address: {},
+};
 
 function sanitizeForCSV(value) {
   if (value === null || value === undefined) return '';
@@ -78,10 +93,14 @@ function normalizePreferenceValue(val) {
 
 // True when a customFieldFilters entry should actually filter the export.
 // Array values (multi-select option filters) are active when they contain a
-// real value; legacy string values keep the old truthy/'all' semantics.
+// real value; operator objects are active when they normalize to a usable
+// entry; legacy string values keep the old truthy/'all' semantics.
 export function isActiveExportFilterValue(filterValue) {
   if (Array.isArray(filterValue)) {
     return filterValue.some(v => v && v !== 'all');
+  }
+  if (filterValue && typeof filterValue === 'object') {
+    return normalizeCustomFilterEntry(filterValue) !== null;
   }
   return Boolean(filterValue && filterValue !== 'all' && filterValue.trim() !== '');
 }
@@ -116,6 +135,56 @@ export function matchesCustomFieldFilter(orgFieldValue, filterValue) {
   return matchesSingleOptionValue(orgFieldValue, filterValue);
 }
 
+// Expand a set of country names with their ISO-2 codes so stored legacy codes
+// still match (mirrors the DB-side country matching in the paginated endpoint).
+function expandCountryValues(names) {
+  const out = [];
+  for (const name of names) {
+    out.push(name);
+    const code = getCountryByName(name)?.code;
+    if (code) out.push(code);
+  }
+  return out;
+}
+
+// In-memory matcher for a normalized filter entry (see
+// normalizeCustomFilterEntry) against one org's normalized field value.
+export function matchesNormalizedEntry(orgFieldValue, entry) {
+  const isEmptyVal = orgFieldValue === null || orgFieldValue === undefined
+    || (typeof orgFieldValue === 'string' && orgFieldValue.trim() === '')
+    || (Array.isArray(orgFieldValue) && orgFieldValue.length === 0);
+  switch (entry.op) {
+    case 'empty':
+      return isEmptyVal;
+    case 'not_empty':
+      return !isEmptyVal;
+    case 'contains':
+    case 'not_contains': {
+      const strVal = isEmptyVal
+        ? ''
+        : (Array.isArray(orgFieldValue) ? orgFieldValue.join(' ') : String(orgFieldValue));
+      const matched = !isEmptyVal && strVal.toLowerCase().includes(String(entry.value).toLowerCase());
+      return entry.op === 'contains' ? matched : !matched;
+    }
+    case 'equals':
+      return !isEmptyVal && !Array.isArray(orgFieldValue)
+        && String(orgFieldValue).toLowerCase() === String(entry.value).toLowerCase();
+    case 'bool_is': {
+      if (isEmptyVal) return false;
+      const target = entry.value === 'Yes' ? ['yes', 'true'] : ['no', 'false'];
+      return target.includes(String(orgFieldValue).toLowerCase());
+    }
+    case 'any_of':
+    case 'none_of': {
+      const values = entry.kind === 'country' ? expandCountryValues(entry.values) : entry.values;
+      const matched = !isEmptyVal && values.some(v => matchesSingleOptionValue(orgFieldValue, v));
+      return entry.op === 'any_of' ? matched : !matched;
+    }
+    default:
+      return true;
+  }
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -140,8 +209,11 @@ export default async function handler(req, res) {
       website_url = '',
       invoicing_email = '',
       invoicing_address = '',
+      coreFilters = '',
       customFieldFilters: customFieldFiltersParam = ''
     } = req.query;
+
+    const coreFilterEntries = parseCoreFilters(coreFilters, CORE_FILTER_COLUMNS);
 
     let idList = null;
     if (ids) {
@@ -177,6 +249,9 @@ export default async function handler(req, res) {
         if (invoicing_address && invoicing_address.trim()) {
           q = q.ilike('invoicing_address', `%${invoicing_address.trim()}%`);
         }
+        for (const coreEntry of coreFilterEntries) {
+          q = applyDirectColumnFilter(q, coreEntry);
+        }
       }
 
       if (excludePrimary === 'true') {
@@ -204,7 +279,12 @@ export default async function handler(req, res) {
         customFilterMap = JSON.parse(customFieldFiltersParam);
       } catch {}
     }
-    const hasCustomFilters = Object.values(customFilterMap).some(isActiveExportFilterValue);
+    // Normalize each active filter entry once (legacy encodings and operator
+    // objects share the same canonical shape).
+    const normalizedCustomFilters = Object.entries(customFilterMap)
+      .map(([fieldId, raw]) => [fieldId, normalizeCustomFilterEntry(raw)])
+      .filter(([, entry]) => entry !== null);
+    const hasCustomFilters = normalizedCustomFilters.length > 0;
 
     const coreHeaders = [
       'name', 'slug', 'description', 'website_url', 'logo_url',
@@ -344,10 +424,9 @@ export default async function handler(req, res) {
           let chunk = '';
           for (const org of pageData) {
             if (hasCustomFilters) {
-              const passes = Object.entries(customFilterMap).every(([fieldId, filterValue]) => {
-                if (!isActiveExportFilterValue(filterValue)) return true;
+              const passes = normalizedCustomFilters.every(([fieldId, entry]) => {
                 const orgFieldValue = pagePrefMap[org.id]?.[fieldId];
-                return matchesCustomFieldFilter(orgFieldValue, filterValue);
+                return matchesNormalizedEntry(orgFieldValue, entry);
               });
               if (!passes) continue;
             }
