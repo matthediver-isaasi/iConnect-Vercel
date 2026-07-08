@@ -42,6 +42,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart";
+import { formatNumber } from "@/components/dashboard/WidgetCard";
 
 const CHART_COLOURS = [
   "hsl(var(--chart-1))",
@@ -135,6 +136,8 @@ const DEFAULT_DRAFT = {
     timeBucket: null,
     // DD-only stage-transition mode; null for every other source.
     transition: null,
+    // Stat/KPI-only number format; null = legacy compact style (1.5M).
+    numberFormat: null,
     filters: [],
   },
 };
@@ -209,6 +212,7 @@ export default function WidgetBuilderModal({
           timeBucket: seed.config?.timeBucket || null,
           cumulative: !!seed.config?.cumulative,
           transition: seed.config?.transition || null,
+          numberFormat: seed.config?.numberFormat || null,
           filters: seed.config?.filters || [],
         },
       });
@@ -576,6 +580,68 @@ export default function WidgetBuilderModal({
               </div>
             </div>
 
+            {draft.widget_type === "stat" && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Number format</Label>
+                  <Select
+                    value={draft.config.numberFormat?.mode === "full" ? "full" : "compact"}
+                    onValueChange={value =>
+                      updateConfig({
+                        numberFormat:
+                          value === "full"
+                            ? {
+                                mode: "full",
+                                decimals: Number.isInteger(
+                                  draft.config.numberFormat?.decimals,
+                                )
+                                  ? draft.config.numberFormat.decimals
+                                  : 0,
+                              }
+                            : null,
+                      })
+                    }
+                  >
+                    <SelectTrigger data-testid="select-widget-number-format">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="compact">Compact (e.g. 1.5M)</SelectItem>
+                      <SelectItem value="full">Full number (e.g. 1,534,207)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {draft.config.numberFormat?.mode === "full" && (
+                  <div className="space-y-2">
+                    <Label>Decimal places</Label>
+                    <Select
+                      value={String(
+                        Number.isInteger(draft.config.numberFormat?.decimals)
+                          ? draft.config.numberFormat.decimals
+                          : 0,
+                      )}
+                      onValueChange={value =>
+                        updateConfig({
+                          numberFormat: { mode: "full", decimals: Number(value) },
+                        })
+                      }
+                    >
+                      <SelectTrigger data-testid="select-widget-decimals">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {[0, 1, 2, 3, 4].map(d => (
+                          <SelectItem key={d} value={String(d)}>
+                            {d}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+            )}
+
             {(canSaveShared || canSavePersonal) && (
               <div className="space-y-2">
                 <Label>Visibility</Label>
@@ -629,6 +695,9 @@ export default function WidgetBuilderModal({
                       groupBy: null,
                       timeBucket: null,
                       cumulative: false,
+                      // Display-only settings survive a source change.
+                      color: prev.config.color || "default",
+                      numberFormat: prev.config.numberFormat || null,
                       filters: [],
                     },
                   }))
@@ -1228,7 +1297,11 @@ function PreviewBody({ widget, payload }) {
       return (
         <div className="space-y-1">
           <p className="text-3xl font-semibold tracking-tight">
-            {value === null || value === undefined ? "—" : Number(value).toLocaleString()}
+            {widget.config.numberFormat?.mode === "full"
+              ? formatNumber(value, widget.config.numberFormat)
+              : value === null || value === undefined
+                ? "—"
+                : Number(value).toLocaleString()}
           </p>
           <p className="text-xs uppercase text-muted-foreground">
             {widget.config.transition?.mode

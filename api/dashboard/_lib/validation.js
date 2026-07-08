@@ -68,6 +68,14 @@ const transitionSchema = z.object({
   toStage: z.string().nullable().optional(),
 });
 
+// Stat/KPI display-only formatting. Absent/null keeps the legacy compact
+// style (e.g. 1.5M). `mode: 'full'` renders the exact value with locale
+// thousands separators and `decimals` fraction digits (0–4, default 0).
+const numberFormatSchema = z.object({
+  mode: z.enum(['compact', 'full']),
+  decimals: z.number().int().min(0).max(4).nullable().optional(),
+});
+
 export const widgetConfigSchema = z.object({
   source: z.string(),
   measure: measureSchema,
@@ -81,6 +89,8 @@ export const widgetConfigSchema = z.object({
   // DD-only: present (with a mode) to switch the Due Diligence aggregator
   // into stage-transition counting. Null/absent for every other widget.
   transition: transitionSchema.nullable().optional(),
+  // Stat/KPI-only display formatting; null/absent = legacy compact style.
+  numberFormat: numberFormatSchema.nullable().optional(),
   filters: z.array(filterSchema).default([]),
 }).passthrough();
 

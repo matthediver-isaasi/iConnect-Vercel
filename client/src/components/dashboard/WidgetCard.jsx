@@ -73,8 +73,20 @@ const CHART_COLOURS = [
 // drag transform animation and the floating drag-overlay's measured
 // rect). The card itself just fills whatever box its parent provides.
 
-function formatNumber(value) {
+export function formatNumber(value, numberFormat = null) {
   if (value === null || value === undefined || Number.isNaN(value)) return "—";
+  // Stat/KPI display option: full un-compacted number with locale
+  // thousands separators and a fixed number of decimals (0–4). Absent
+  // or `compact` mode keeps the legacy compact style below.
+  if (numberFormat?.mode === "full") {
+    const decimals = Number.isInteger(numberFormat.decimals)
+      ? Math.min(Math.max(numberFormat.decimals, 0), 4)
+      : 0;
+    return Number(value).toLocaleString(undefined, {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    });
+  }
   if (Math.abs(value) >= 1000) {
     return new Intl.NumberFormat(undefined, {
       maximumFractionDigits: 1,
@@ -320,7 +332,7 @@ function StatBody({ widget, payload }) {
         className="text-3xl font-semibold tracking-tight"
         data-testid={`stat-value-${widget.id}`}
       >
-        {formatNumber(value)}
+        {formatNumber(value, widget.config?.numberFormat)}
       </p>
       <p className="text-xs uppercase text-muted-foreground">
         {widget.config?.transition?.mode
