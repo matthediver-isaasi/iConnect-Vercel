@@ -115,10 +115,19 @@ function CanvasRulers({ width, height, gridSize, zoom = 1, onCreateGuide, childr
   const labelStep = step * labelEvery;
   const widthScaled = width * zoom;
   const heightScaled = height * zoom;
+  // Regular ticks stop BEFORE the stage edge — a dedicated edge tick with the
+  // exact stage dimension ("375" on mobile, "1200" desktop, …) is always
+  // appended at width/height below, so the ruler visibly ends at the true
+  // stage size at every zoom level.
   const hTicks = [];
-  for (let x = 0; x <= width; x += step) hTicks.push(x);
+  for (let x = 0; x < width; x += step) hTicks.push(x);
   const vTicks = [];
-  for (let y = 0; y <= height; y += step) vTicks.push(y);
+  for (let y = 0; y < height; y += step) vTicks.push(y);
+  // Suppress a regular label when it would visually collide with the
+  // always-rendered edge label at the current zoom (screen-px thresholds:
+  // labels are ~20px wide at the 9px font, plus breathing room).
+  const H_EDGE_LABEL_CLEARANCE = 40;
+  const V_EDGE_LABEL_CLEARANCE = 22;
 
   return (
     <div
@@ -139,7 +148,8 @@ function CanvasRulers({ width, height, gridSize, zoom = 1, onCreateGuide, childr
         onPointerDown={(e) => { if (e.button === 0) onCreateGuide?.('horizontal', e); }}
       >
         {hTicks.map((x) => {
-          const isLabel = x % labelStep === 0;
+          const isLabel = x % labelStep === 0
+            && (width - x) * zoom >= H_EDGE_LABEL_CLEARANCE;
           return (
             <div
               key={`h-${x}`}
@@ -162,6 +172,26 @@ function CanvasRulers({ width, height, gridSize, zoom = 1, onCreateGuide, childr
             </div>
           );
         })}
+        {/* Edge tick + label at the exact stage width. The label hangs to the
+            LEFT of the tick (right-anchored) so the ruler's overflow-hidden
+            never clips it. */}
+        <div
+          className="absolute bg-slate-500"
+          style={{
+            left: Math.max(0, widthScaled - 1),
+            top: RULER_SIZE - 10,
+            width: 1,
+            height: 10,
+          }}
+          data-testid="ruler-h-edge"
+        >
+          <span
+            className="absolute text-[9px] text-slate-600 font-medium leading-none"
+            style={{ right: 2, top: -10, whiteSpace: 'nowrap' }}
+          >
+            {width}
+          </span>
+        </div>
       </div>
       {/* Left ruler — drag right to create a vertical guide */}
       <div
@@ -171,7 +201,8 @@ function CanvasRulers({ width, height, gridSize, zoom = 1, onCreateGuide, childr
         onPointerDown={(e) => { if (e.button === 0) onCreateGuide?.('vertical', e); }}
       >
         {vTicks.map((y) => {
-          const isLabel = y % labelStep === 0;
+          const isLabel = y % labelStep === 0
+            && (height - y) * zoom >= V_EDGE_LABEL_CLEARANCE;
           return (
             <div
               key={`v-${y}`}
@@ -194,6 +225,26 @@ function CanvasRulers({ width, height, gridSize, zoom = 1, onCreateGuide, childr
             </div>
           );
         })}
+        {/* Edge tick + label at the exact stage height. The label sits ABOVE
+            the tick (bottom-anchored) so the ruler's overflow-hidden never
+            clips it. */}
+        <div
+          className="absolute bg-slate-500"
+          style={{
+            top: Math.max(0, heightScaled - 1),
+            left: RULER_SIZE - 10,
+            height: 1,
+            width: 10,
+          }}
+          data-testid="ruler-v-edge"
+        >
+          <span
+            className="absolute text-[9px] text-slate-600 font-medium leading-none"
+            style={{ bottom: 2, left: -14, width: 14, textAlign: 'right' }}
+          >
+            {height}
+          </span>
+        </div>
       </div>
       <div>{children}</div>
     </div>

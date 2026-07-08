@@ -292,6 +292,27 @@ function handleCursor(h) {
   return map[h] || 'pointer';
 }
 
+// Display-only clamp for the tablet/mobile editor stage. Desktop-authored
+// geometry cascades down when a block has no explicit tablet/mobile frame, so
+// a 1200px-wide block would spill past the 375px stage edge in the builder.
+// Constrain the RENDERED wrapper so x + w never exceeds the canvas width:
+// clamp the width, and pull x back inside the stage if x alone is past the
+// edge. This never touches stored geometry — drag/resize handlers and the
+// Position inspector keep reading/writing the raw per-breakpoint frames, and
+// desktop rendering is untouched.
+function clampGeomToStage(geom, breakpoint, canvasWidth) {
+  if (breakpoint === 'desktop') return geom;
+  if (!geom || geom.hidden) return geom;
+  if (!Number.isFinite(canvasWidth) || canvasWidth <= 0) return geom;
+  const x = Number.isFinite(geom.x) ? geom.x : 0;
+  const w = Number.isFinite(geom.w) ? geom.w : 0;
+  if (x + w <= canvasWidth) return geom;
+  let nx = x;
+  if (nx >= canvasWidth) nx = Math.max(0, canvasWidth - Math.min(w, canvasWidth));
+  const nw = Math.max(1, Math.min(w, canvasWidth - Math.max(0, nx)));
+  return { ...geom, x: nx, w: nw };
+}
+
 function CanvasStageInner({
   blocks,
   selectedIds,
@@ -357,7 +378,13 @@ function CanvasStageInner({
   const resolvedBlocks = useMemo(
     () => blocks.map((b) => ({
       block: b,
-      geom: resolveBlockAtBreakpoint(b, breakpoint, { canvasWidth }),
+      // Render-path clamp only (no-op on desktop): snapping siblings and
+      // marquee hit-testing also read these geoms so they match the visuals.
+      geom: clampGeomToStage(
+        resolveBlockAtBreakpoint(b, breakpoint, { canvasWidth }),
+        breakpoint,
+        canvasWidth,
+      ),
     })),
     [blocks, breakpoint, canvasWidth],
   );
@@ -720,7 +747,11 @@ function CanvasStageInner({
     >
       {resolvedBlocks.map(({ block, geom }, index) => {
         const preview = previewGeoms[block.id];
-        const effective = preview ? { ...geom, ...preview } : geom;
+        // Preview geoms are derived from the raw stored frames, so re-clamp
+        // the merged result to keep the wrapper inside the stage mid-drag too.
+        const effective = preview
+          ? clampGeomToStage({ ...geom, ...preview }, breakpoint, canvasWidth)
+          : geom;
         // Live wrapper growth only while dragging THIS card's n/s handle.
         const liveHeight = (
           interactionState?.kind === 'resize' &&
