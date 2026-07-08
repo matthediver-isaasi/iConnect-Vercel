@@ -36,7 +36,18 @@ import {
   Accessibility,
   Group as GroupIcon,
   Ungroup as UngroupIcon,
+  Wand2,
 } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import {
   createBlock,
   getBlockDefaults,
@@ -74,6 +85,10 @@ import {
   suggestHeadingLevel,
   headingFieldFor,
 } from '@/lib/canvasA11y';
+import {
+  generateAutoLayout,
+  hasResponsiveGeometryOverrides,
+} from '@/lib/canvasAutoLayout';
 
 const BREAKPOINTS = [
   { id: 'desktop', label: 'Desktop', icon: Monitor },
@@ -658,6 +673,33 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     for (const t of autoHeightTimers.current.values()) clearTimeout(t);
     autoHeightTimers.current.clear();
   }, []);
+
+  // ---- Auto build tablet + mobile layouts (Task #2434) ----
+  // Generates both breakpoint layouts from the desktop layout in a single
+  // setDesign call, so the whole operation is one undo step. Desktop
+  // geometry is never touched. Afterwards the editor switches to the
+  // mobile breakpoint so the result is immediately visible (and the
+  // auto-height commit path refines estimated text/accordion heights
+  // against the real render).
+  const [showAutoBuildConfirm, setShowAutoBuildConfirm] = useState(false);
+  const runAutoBuild = useCallback(() => {
+    // Resolve symbol content extents so symbol hosts can be kept on the
+    // stage (a symbol box's stored w/h are placeholders — the rendered
+    // size comes from the symbol's own design per breakpoint).
+    const getSymbolExtent = (symbolId, bp) => {
+      const sym = symbolsById?.get(symbolId);
+      return sym?.design ? symbolContentExtent(sym.design, bp) : null;
+    };
+    setDesign((prev) => generateAutoLayout(prev, { getBlockDefinition, getSymbolExtent }));
+    onBreakpointChange?.('mobile');
+  }, [setDesign, onBreakpointChange, symbolsById]);
+  const handleAutoBuildClick = useCallback(() => {
+    if (hasResponsiveGeometryOverrides(design)) {
+      setShowAutoBuildConfirm(true);
+    } else {
+      runAutoBuild();
+    }
+  }, [design, runAutoBuild]);
 
   // ---- DnD palette -> canvas ----
   const sensors = useSensors(
@@ -1574,6 +1616,15 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
           <Button size="icon" variant="ghost" onClick={deleteSelected} disabled={selectedIds.length === 0} title="Delete" data-testid="button-delete-selected">
             <Trash2 className="w-4 h-4" />
           </Button>
+          <div className="w-px h-6 bg-slate-200 mx-1" />
+          <Button
+            size="sm" variant="ghost"
+            onClick={handleAutoBuildClick}
+            title="Automatically build tablet & mobile layouts from the desktop layout"
+            data-testid="button-auto-build"
+          >
+            <Wand2 className="w-4 h-4 mr-1.5" /> Auto build
+          </Button>
           <div className="flex-1" />
           <Button
             size="sm" variant="ghost"
@@ -1846,6 +1897,31 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
           </div>
         ) : null}
       </DragOverlay>
+
+      {/* Task #2434: confirm before replacing existing tablet/mobile overrides. */}
+      <AlertDialog open={showAutoBuildConfirm} onOpenChange={setShowAutoBuildConfirm}>
+        <AlertDialogContent data-testid="dialog-auto-build-confirm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Replace tablet &amp; mobile layouts?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Some blocks already have their own tablet or mobile positions.
+              Auto build will replace those with freshly generated layouts based
+              on the current desktop layout. Blocks you have hidden per
+              breakpoint stay hidden, and the desktop layout is not changed.
+              You can undo this in one step.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-auto-build-cancel">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => { setShowAutoBuildConfirm(false); runAutoBuild(); }}
+              data-testid="button-auto-build-confirm"
+            >
+              Replace layouts
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </DndContext>
   );
 });
