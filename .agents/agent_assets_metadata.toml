@@ -48,3 +48,9 @@ id = "LoUrLCdSsQf9xpcI3LBby"
 uri = "file://reports/iConnect-Search-and-Member-AI-Board-Report.docx"
 type = "word_document"
 title = "iConnect Search & Member AI — Board Report"
+
+[[outputs]]
+id = "6aUPznNyx_OakArBO13rz"
+uri = "file://guides/canvasbuilder-accessibility-board-report.docx"
+type = "word_document"
+title = "CanvasBuilder Accessibility Board Report (Word)"
