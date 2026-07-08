@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { sendEmail, replacePlaceholders } from '../_lib/emailService.js';
+import { resolveDdOwnerForSubmission, applyDdOwnerPlaceholders } from '../_lib/ddOwner.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -153,6 +154,18 @@ export default async function handler(req, res) {
     };
     subject = replacePlaceholders(subject, 'member', agentMemberContext, { tenantId, memberId: agentMember?.id || null });
     body = replacePlaceholders(body, 'member', agentMemberContext, { tenantId, memberId: agentMember?.id || null });
+
+    // Resolve {{dd_owner}} / {{dd_owner_email}} / [[dd_owner]] via the meeting
+    // request's linked DD form submission. When no submission is linked the
+    // helper returns '' for both fields, so the tokens collapse to empty
+    // strings instead of leaking literally into the outbound email.
+    const ddOwner = await resolveDdOwnerForSubmission({
+      supabase,
+      tenantId,
+      formSubmissionId: meetingRequest.form_submission_id || null,
+    });
+    subject = applyDdOwnerPlaceholders(subject, ddOwner);
+    body = applyDdOwnerPlaceholders(body, ddOwner);
 
     await sendEmail({
       to: meetingRequest.recipient_email,

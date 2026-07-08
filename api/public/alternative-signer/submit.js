@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
+import { resolveDdOwnerForSubmission, applyDdOwnerPlaceholders } from '../../_lib/ddOwner.js';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -217,6 +218,20 @@ export default async function handler(req, res) {
         emailBody = emailBody.replace(regex, value || '');
         emailSubject = emailSubject.replace(regex, value || '');
       }
+
+      // Resolve {{dd_owner}} / {{dd_owner_email}} / [[dd_owner]] via the
+      // contract instance's linked DD form submission, falling back to the
+      // contract settings' source DD form (mirrors api/contracts/send-original.js).
+      // The helper collapses the tokens to '' when no owner is resolvable, so
+      // they never leak literally into the outbound email.
+      const ddOwner = await resolveDdOwnerForSubmission({
+        supabase,
+        tenantId: contractInstance.tenant_id,
+        formSubmissionId: contractInstance.form_submission_id || null,
+        formId: contractForm.contract_settings?.source_dd_form_id || null,
+      });
+      emailSubject = applyDdOwnerPlaceholders(emailSubject, ddOwner);
+      emailBody = applyDdOwnerPlaceholders(emailBody, ddOwner);
 
       const senderEmail = tenant?.sender_email || tenant?.contact_email || 'noreply@iconn.app';
       const senderName = tenant?.sender_name || tenant?.name || 'Contract Signing';

@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { sendEmail, replacePlaceholders } from '../_lib/emailService.js';
+import { resolveDdOwnerForSubmission, applyDdOwnerPlaceholders } from '../_lib/ddOwner.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -229,6 +230,18 @@ export default async function handler(req, res) {
         };
         subject = replacePlaceholders(subject, 'member', agentMemberContext, { tenantId, memberId: agent?.id || null });
         body = replacePlaceholders(body, 'member', agentMemberContext, { tenantId, memberId: agent?.id || null });
+
+        // Resolve {{dd_owner}} / {{dd_owner_email}} / [[dd_owner]] via the DD
+        // form submission this alternative request is being created against.
+        // The helper collapses the tokens to '' when no owner is resolvable,
+        // so they never leak literally into the invitation email.
+        const ddOwner = await resolveDdOwnerForSubmission({
+          supabase,
+          tenantId,
+          formSubmissionId,
+        });
+        subject = applyDdOwnerPlaceholders(subject, ddOwner);
+        body = applyDdOwnerPlaceholders(body, ddOwner);
 
         try {
           await sendEmail({

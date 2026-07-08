@@ -5,6 +5,7 @@ import { getZoomAccessTokenForTenant } from '../../_lib/zoomClient.js';
 import { formatInTimeZone } from 'date-fns-tz';
 import { sendEmail } from '../../_lib/emailService.js';
 import { buildInboxDelivery } from '../../_lib/transactionalInbox.js';
+import { resolveDdOwnerForSubmission, applyDdOwnerPlaceholders } from '../../_lib/ddOwner.js';
 
 /**
  * Build a single human-readable "how to join" block for a booking confirmation
@@ -438,6 +439,7 @@ export default async function handler(req, res) {
 
       // Check if this booking completes any pending DD meeting requests (first-past-the-post)
       let linkedMeetingRequestId = null;
+      let linkedDdFormSubmissionId = null;
       try {
         // Check for dd_request parameter in URL (passed from booking link)
         const ddRequestId = req.body.dd_request_id || req.query.dd_request;
@@ -487,6 +489,7 @@ export default async function handler(req, res) {
           
           if (!linkError) {
             linkedMeetingRequestId = winningRequest.id;
+            linkedDdFormSubmissionId = winningRequest.form_submission_id || null;
             console.log(`[Public Booking] Linked DD meeting request ${winningRequest.id} to booking ${booking.id}`);
             
             // Update the booking with form_submission_id for traceability
@@ -608,6 +611,19 @@ export default async function handler(req, res) {
               subject = subject.replace(regex, value);
               body = body.replace(regex, value);
             });
+
+            // Resolve {{dd_owner}} / {{dd_owner_email}} / [[dd_owner]] when the
+            // booking was linked to a DD meeting request above. When there is
+            // no DD linkage, the helper returns '' for both fields so the
+            // replacement pass still runs and the tokens collapse to empty
+            // strings instead of leaking literally into the confirmation email.
+            const ddOwner = await resolveDdOwnerForSubmission({
+              supabase,
+              tenantId,
+              formSubmissionId: linkedDdFormSubmissionId,
+            });
+            subject = applyDdOwnerPlaceholders(subject, ddOwner);
+            body = applyDdOwnerPlaceholders(body, ddOwner);
 
             const inboxDelivery = await buildInboxDelivery({
               tenantId,
