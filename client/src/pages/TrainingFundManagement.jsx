@@ -88,6 +88,7 @@ export default function TrainingFundManagementPage() {
   const [adjustmentType, setAdjustmentType] = useState("add");
   const [adjustmentAmount, setAdjustmentAmount] = useState("");
   const [adjustmentReason, setAdjustmentReason] = useState("");
+  const [adjustmentDate, setAdjustmentDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
   const [showAdjustDialog, setShowAdjustDialog] = useState(false);
   
   const [selectedOrg, setSelectedOrg] = useState(null);
@@ -309,8 +310,8 @@ export default function TrainingFundManagementPage() {
   });
 
   const updateBalanceMutation = useMutation({
-    mutationFn: async ({ orgId, newBalance, balanceBefore, type, reason }) => {
-      console.log('[TrainingFund] Starting balance update:', { orgId, newBalance, balanceBefore, type, reason });
+    mutationFn: async ({ orgId, newBalance, balanceBefore, type, reason, createdDate }) => {
+      console.log('[TrainingFund] Starting balance update:', { orgId, newBalance, balanceBefore, type, reason, createdDate });
       
       try {
         console.log('[TrainingFund] Updating organization balance...');
@@ -326,7 +327,7 @@ export default function TrainingFundManagementPage() {
           balance_after: newBalance,
           reason: reason || (type === 'add' ? 'Funds added' : 'Funds deducted'),
           created_by: memberInfo?.id || null,
-          created_date: new Date().toISOString()
+          created_date: createdDate || new Date().toISOString()
         });
         console.log('[TrainingFund] Transaction record created successfully');
         
@@ -357,6 +358,7 @@ export default function TrainingFundManagementPage() {
     setAdjustmentType("add");
     setAdjustmentAmount("");
     setAdjustmentReason("");
+    setAdjustmentDate(format(new Date(), 'yyyy-MM-dd'));
     setShowAdjustDialog(true);
   };
 
@@ -366,6 +368,24 @@ export default function TrainingFundManagementPage() {
       toast.error('Please enter a valid amount greater than 0');
       return;
     }
+
+    if (!adjustmentDate || !/^\d{4}-\d{2}-\d{2}$/.test(adjustmentDate)) {
+      toast.error('Please select a valid date');
+      return;
+    }
+    const [year, month, day] = adjustmentDate.split('-').map(Number);
+    const now = new Date();
+    const chosenDate = new Date(year, month - 1, day, now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
+    if (isNaN(chosenDate.getTime()) || chosenDate.getFullYear() !== year || chosenDate.getMonth() !== month - 1 || chosenDate.getDate() !== day) {
+      toast.error('Please select a valid date');
+      return;
+    }
+    const todayStr = format(now, 'yyyy-MM-dd');
+    if (adjustmentDate > todayStr) {
+      toast.error('The transaction date cannot be in the future');
+      return;
+    }
+    const createdDate = adjustmentDate === todayStr ? now.toISOString() : chosenDate.toISOString();
 
     const currentBalance = adjustingOrg.training_fund_balance || 0;
     let newBalance;
@@ -385,7 +405,8 @@ export default function TrainingFundManagementPage() {
       newBalance: newBalance,
       balanceBefore: currentBalance,
       type: adjustmentType,
-      reason: adjustmentReason
+      reason: adjustmentReason,
+      createdDate
     });
   };
 
@@ -901,6 +922,18 @@ export default function TrainingFundManagementPage() {
                 </div>
 
                 <div className="space-y-2">
+                  <Label htmlFor="date-history">Transaction Date *</Label>
+                  <Input
+                    id="date-history"
+                    type="date"
+                    value={adjustmentDate}
+                    max={format(new Date(), 'yyyy-MM-dd')}
+                    onChange={(e) => setAdjustmentDate(e.target.value)}
+                    data-testid="input-adjustment-date-history"
+                  />
+                </div>
+
+                <div className="space-y-2">
                   <Label htmlFor="reason-history">Reason (optional)</Label>
                   <Textarea
                     id="reason-history"
@@ -1290,6 +1323,18 @@ export default function TrainingFundManagementPage() {
                     onChange={(e) => setAdjustmentAmount(e.target.value)}
                     placeholder="0.00"
                     data-testid="input-adjustment-amount"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="adjustment-date">Transaction Date *</Label>
+                  <Input
+                    id="adjustment-date"
+                    type="date"
+                    value={adjustmentDate}
+                    max={format(new Date(), 'yyyy-MM-dd')}
+                    onChange={(e) => setAdjustmentDate(e.target.value)}
+                    data-testid="input-adjustment-date"
                   />
                 </div>
 
