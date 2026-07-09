@@ -255,7 +255,7 @@ function renderPage(p) {
   L.push(`| Content width | ${fmt(sig.contentWidth)} | ${TARGET.CONTENT_W} |`);
   L.push(`| Content right margin | ${fmt(sig.contentRightMargin)} | ${TARGET.MARGIN} |`);
   sig.heroes.forEach((h, i) => {
-    L.push(`| hero[${i}] height / padX / fullBleed | ${h.h} / ${h.padLeft}·${h.padRight} / ${h.fullBleed} | ${i === 0 ? TARGET.HERO_OPEN_H : TARGET.HERO_CLOSE_H} / ${TARGET.HERO_PAD_X} / true |`);
+    L.push(`| hero[${i}] height / padX / fullBleed·fullWidth | ${h.h} / ${h.padLeft}·${h.padRight} / ${h.fullBleed}·${h.fullWidth} | ${i === 0 ? TARGET.HERO_OPEN_H : TARGET.HERO_CLOSE_H} / ${TARGET.HERO_PAD_X} / either true |`);
   });
   sig.bands.forEach((b, i) => {
     L.push(`| band[${i}] pad (T·R·B·L) / innerTop | ${b.padTop}·${b.padRight}·${b.padBottom}·${b.padLeft} / ${fmt(b.innerTop)} | ${TARGET.BAND_PAD} / ${TARGET.BAND_INNER_TOP} |`);

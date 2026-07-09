@@ -14,6 +14,8 @@ import {
   validateBlock,
   sanitizeAnchorId,
   BLOCK_TYPES,
+  blockSupportsFullBleed,
+  setBlockContentFullBleed,
 } from '@/lib/canvasDesign';
 import { useCanvasAnchors } from './CanvasAnchorContext';
 import {
@@ -278,6 +280,18 @@ function SingleBlockInspector({ block, breakpoint, blockIssues, onUpdate, onTogg
     });
   };
 
+  // Task #2506: full-bleed (content.fullBleed) pins x/w exactly like
+  // fullWidth does (via blockIsFullWidthLike), so the Position panel must
+  // disable the X/Width inputs and offer a visible escape hatch instead of
+  // leaving dead-looking controls. Turning it off snapshots the currently
+  // rendered x/w into the active breakpoint first (shared helper).
+  const isFullBleed = blockSupportsFullBleed(block.type) && !!block.content?.fullBleed;
+  const horizontallyPinned = block.fullWidth || isFullBleed;
+
+  const toggleFullBleed = () => {
+    onUpdate((b) => setBlockContentFullBleed(b, breakpoint, !(b.content && b.content.fullBleed)));
+  };
+
   const visibilityToggleOnBp = (bp) => {
     onUpdate((b) => {
       const current = resolveBlockAtBreakpoint(b, bp).hidden;
@@ -362,9 +376,32 @@ function SingleBlockInspector({ block, breakpoint, blockIssues, onUpdate, onTogg
             </Button>
           </div>
         )}
-        {block.fullWidth && !def?.noResize && (
+        {blockSupportsFullBleed(block.type) && !def?.noResize && (
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <div className="flex items-center gap-1.5 text-xs text-slate-600">
+              <Maximize2 className="w-3.5 h-3.5" />
+              <span>Full-bleed</span>
+            </div>
+            <Button
+              size="sm"
+              variant={isFullBleed ? 'default' : 'outline'}
+              onClick={toggleFullBleed}
+              className="toggle-elevate"
+              data-testid="button-toggle-full-bleed"
+              data-state={isFullBleed ? 'on' : 'off'}
+              title={isFullBleed
+                ? 'Disable full-bleed (block keeps its current size; width becomes editable)'
+                : 'Stretch block edge-to-edge across the full screen width'}
+            >
+              {isFullBleed ? 'On' : 'Off'}
+            </Button>
+          </div>
+        )}
+        {horizontallyPinned && !def?.noResize && (
           <p className="text-xs text-slate-500 mb-2" data-testid="text-full-width-hint">
-            X and Width are pinned to the canvas at each breakpoint. Disable to edit horizontally.
+            {isFullBleed && !block.fullWidth
+              ? 'Full-bleed pins X and Width to the canvas edge at every breakpoint. Turn it off above to edit horizontally.'
+              : 'X and Width are pinned to the canvas at each breakpoint. Disable to edit horizontally.'}
           </p>
         )}
         <div className="grid grid-cols-2 gap-2">
@@ -373,7 +410,7 @@ function SingleBlockInspector({ block, breakpoint, blockIssues, onUpdate, onTogg
             value={geom.x}
             onChange={(v) => updateGeom('x', v)}
             override={hasOverride(block, breakpoint, 'x')}
-            disabled={block.fullWidth}
+            disabled={horizontallyPinned}
           />
           <NumberField
             id="inp-y" label="Y" testId="input-y"
@@ -386,7 +423,7 @@ function SingleBlockInspector({ block, breakpoint, blockIssues, onUpdate, onTogg
             value={geom.w}
             onChange={(v) => updateGeom('w', v)}
             override={hasOverride(block, breakpoint, 'w')}
-            disabled={block.fullWidth || def?.noResize}
+            disabled={horizontallyPinned || def?.noResize}
           />
           <NumberField
             id="inp-h" label="Height" testId="input-h" min={10}

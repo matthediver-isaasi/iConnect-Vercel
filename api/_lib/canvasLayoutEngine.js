@@ -184,6 +184,8 @@ function makeHero(
     a11y: a11y(),
     name: 'Events hero',
     type: 'hero',
+    // Task #2506: contained hero — pin to the canvas column, not 100vw.
+    fullWidth: true,
     style: {
       zIndex: 1,
       opacity: 1,
@@ -205,7 +207,11 @@ function makeHero(
       darkWash: 0.4,
       headline,
       alignment: 'left',
-      fullBleed: true,
+      // Task #2506: heroes are generated CONTAINED — the generic fullWidth
+      // pin spans the full canvas at every breakpoint, so the hero stops at
+      // the page column edge on mobile (editor, preview and published)
+      // instead of breaking out to 100vw via fullBleed.
+      fullBleed: false,
       textColor: 'var(--cb-color-on-primary, #ffffff)',
       bgImageUrl,
       bgVideoUrl: '',

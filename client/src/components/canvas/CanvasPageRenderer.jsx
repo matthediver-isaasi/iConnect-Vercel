@@ -243,10 +243,16 @@ function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint, windowBp, pinS
         borderRadius: style.borderRadius,
         opacity: style.opacity,
         zIndex: style.zIndex,
-        paddingTop: style.paddingTop || 0,
-        paddingRight: style.paddingRight || 0,
-        paddingBottom: style.paddingBottom || 0,
-        paddingLeft: style.paddingLeft || 0,
+        // Task #2506: absoluteFill blocks (Hero, Hero Carousel) consume
+        // block.style.padding* inside their own renderer (`absolute inset-0`
+        // spans the padding box, making wrapper padding visually inert), and
+        // with border-box a padding sum wider than the block (auto-built
+        // heroes carry 200+200px) force-expands the wrapper past the 375px
+        // stage. Skip wrapper padding for them on every surface.
+        paddingTop: def?.absoluteFill ? 0 : (style.paddingTop || 0),
+        paddingRight: def?.absoluteFill ? 0 : (style.paddingRight || 0),
+        paddingBottom: def?.absoluteFill ? 0 : (style.paddingBottom || 0),
+        paddingLeft: def?.absoluteFill ? 0 : (style.paddingLeft || 0),
         boxSizing: 'border-box',
         overflow: (isSection || def?.allowOverflow) ? 'visible' : 'hidden',
       }}

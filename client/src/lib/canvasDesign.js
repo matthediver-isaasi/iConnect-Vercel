@@ -218,6 +218,25 @@ export function blockIsFullWidthLike(block) {
   return blockSupportsFullBleed(block.type) && !!(block.content && block.content.fullBleed);
 }
 
+// Task #2506: toggle `content.fullBleed` with snapshot-on-release semantics,
+// mirroring the Position panel's Full width toggle. While full-bleed is on,
+// the editor pins the rendered frame to x=0 / w=stage-width — so when it is
+// turned OFF we first write that currently rendered x/w into the active
+// breakpoint frame. The block keeps its visual size and the X/Width inputs
+// work immediately instead of snapping back to a stale stored frame.
+// Turning ON just sets the flag (stored frames are preserved underneath the
+// pin, same as fullWidth). Used by BOTH the Position panel's Full-bleed
+// control and block content inspectors (e.g. the Hero's toggle) so the two
+// entry points can't drift.
+export function setBlockContentFullBleed(block, breakpoint, on) {
+  if (on) {
+    return { ...block, content: { ...block.content, fullBleed: true } };
+  }
+  const cw = BREAKPOINT_WIDTHS[breakpoint] || BREAKPOINT_WIDTHS.desktop;
+  const withGeom = setBlockBp(block, breakpoint, { x: 0, w: cw });
+  return { ...withGeom, content: { ...withGeom.content, fullBleed: false } };
+}
+
 const DEFAULT_STYLE = {
   background: 'transparent',
   borderColor: '#cbd5e1',

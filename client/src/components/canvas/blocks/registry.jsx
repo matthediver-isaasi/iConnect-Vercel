@@ -88,6 +88,7 @@ import {
   clampGeomToStage,
   normalizeCanvasDesign,
   getRootChildren,
+  setBlockContentFullBleed,
 } from '@/lib/canvasDesign';
 import ImageSelector from '@/components/ImageSelector';
 import { FocalPointPicker, getFocalPointStyle } from '@/components/FocalPointPicker';
@@ -1344,10 +1345,15 @@ function HeroRender({ block, asEditor, priority, breakpoint }) {
   );
 }
 
-function HeroInspector({ block, update }) {
+function HeroInspector({ block, update, breakpoint }) {
   const c = block.content || {};
   const s = block.style || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+  // Task #2506: turning full-bleed OFF snapshots the currently rendered
+  // x/w into the active breakpoint (shared helper, mirrors the Position
+  // panel's Full width release) so the hero keeps its visual size and the
+  // Width input works immediately.
+  const setFullBleed = (v) => update((b) => setBlockContentFullBleed(b, breakpoint || 'desktop', !!v));
   const setStyle = (patch) => update((b) => ({ ...b, style: { ...b.style, ...patch } }));
   const clampPad = (v) => Math.max(0, Number(v) || 0);
   // Tenant branding powers the extra "Tenant …" CTA variants (mirrors the
@@ -1498,7 +1504,7 @@ function HeroInspector({ block, update }) {
       <ToggleField
         label="Full-bleed (span full screen width)"
         value={!!c.fullBleed}
-        onChange={(v) => set({ fullBleed: v })}
+        onChange={setFullBleed}
         testId="toggle-hero-full-bleed"
       />
       <ColorField label="Text colour" value={c.textColor} onChange={(v) => set({ textColor: v })} testId="input-hero-text-color" />
@@ -7106,10 +7112,13 @@ function SymbolChildPreview({ block, breakpoint, hostWidth }) {
         borderRadius: style.borderRadius,
         opacity: style.opacity,
         zIndex: style.zIndex,
-        paddingTop: style.paddingTop || 0,
-        paddingRight: style.paddingRight || 0,
-        paddingBottom: style.paddingBottom || 0,
-        paddingLeft: style.paddingLeft || 0,
+        // Task #2506: absoluteFill blocks own their padding internally —
+        // wrapper padding is inert but border-box expands past the host box
+        // when the padding sum exceeds the clamped width. Skip it here too.
+        paddingTop: def?.absoluteFill ? 0 : (style.paddingTop || 0),
+        paddingRight: def?.absoluteFill ? 0 : (style.paddingRight || 0),
+        paddingBottom: def?.absoluteFill ? 0 : (style.paddingBottom || 0),
+        paddingLeft: def?.absoluteFill ? 0 : (style.paddingLeft || 0),
         boxSizing: 'border-box',
         overflow: (isSection || def?.allowOverflow) ? 'visible' : 'hidden',
       }}
@@ -8757,7 +8766,7 @@ function HeroCarouselInspector({ block, update, breakpoint }) {
           <ToggleField
             label="Full-bleed (span full screen width)"
             value={!!c.fullBleed}
-            onChange={(v) => set({ fullBleed: v })}
+            onChange={(v) => update((b) => setBlockContentFullBleed(b, breakpoint || 'desktop', !!v))}
             testId="toggle-hcc-full-bleed"
           />
         </div>

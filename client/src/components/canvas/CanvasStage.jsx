@@ -191,6 +191,14 @@ function CanvasBlockView({
   const isAutoHeight = !!def?.autoHeight;
   const fullWidth = blockIsFullWidthLike(block);
   const noResize = !!def?.noResize;
+  // Task #2506: absoluteFill blocks (Hero, Hero Carousel) render their
+  // content via `absolute inset-0` — which spans the wrapper's PADDING box —
+  // and consume block.style.padding* internally, so wrapper padding is
+  // visually inert for them. Worse, with box-sizing:border-box a padding sum
+  // larger than the pinned width (e.g. an auto-built hero's 200+200px on the
+  // 375px mobile stage) force-expands the border box past the stage edge.
+  // Skip wrapper padding for these blocks; their renderers own the padding.
+  const skipWrapperPadding = !!def?.absoluteFill;
   // Width-resize-only blocks (auto-height text) let authors control wrapping
   // width but never fight the content-driven height, so only the horizontal
   // handles are offered.
@@ -239,10 +247,10 @@ function CanvasBlockView({
         borderRadius: style.borderRadius,
         opacity: style.opacity,
         zIndex: style.zIndex,
-        paddingTop: style.paddingTop || 0,
-        paddingRight: style.paddingRight || 0,
-        paddingBottom: style.paddingBottom || 0,
-        paddingLeft: style.paddingLeft || 0,
+        paddingTop: skipWrapperPadding ? 0 : (style.paddingTop || 0),
+        paddingRight: skipWrapperPadding ? 0 : (style.paddingRight || 0),
+        paddingBottom: skipWrapperPadding ? 0 : (style.paddingBottom || 0),
+        paddingLeft: skipWrapperPadding ? 0 : (style.paddingLeft || 0),
         boxSizing: 'border-box',
         overflow: def.allowOverflow ? 'visible' : 'hidden',
       }}

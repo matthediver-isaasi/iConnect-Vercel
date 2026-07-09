@@ -191,6 +191,9 @@ export function extractSignature(design) {
       padLeft: num(b.style?.paddingLeft) ?? 0,
       padRight: num(b.style?.paddingRight) ?? 0,
       fullBleed: !!b.content?.fullBleed,
+      // Task #2506: layout engine now emits contained heroes (fullWidth
+      // pin instead of the 100vw fullBleed breakout).
+      fullWidth: !!b.fullWidth,
     };
   }).sort((a, b) => a.y - b.y);
 
@@ -302,8 +305,11 @@ export function compareToTarget(sig) {
     push(`hero[${i}].padLeft`, hero.padLeft, TARGET.HERO_PAD_X, TOLERANCE.heroPadX);
     push(`hero[${i}].padRight`, hero.padRight, TARGET.HERO_PAD_X, TOLERANCE.heroPadX);
     push(`hero[${i}].height`, hero.h, targetH, TOLERANCE.heroHeight);
-    if (!hero.fullBleed) {
-      deltas.push({ metric: `hero[${i}].fullBleed`, current: false, target: true, delta: 'not full-bleed' });
+    // Task #2506: the layout engine now emits contained heroes (fullWidth
+    // pin) instead of the 100vw fullBleed breakout — accept either flag as
+    // "spans the full page column"; flag only heroes with neither.
+    if (!hero.fullBleed && !hero.fullWidth) {
+      deltas.push({ metric: `hero[${i}].fullBleed`, current: false, target: true, delta: 'not full-bleed or full-width' });
     }
   });
 
