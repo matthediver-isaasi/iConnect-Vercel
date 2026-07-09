@@ -279,6 +279,15 @@ export default async function handler(req, res) {
   const dateFilterActive = !!(fromIso || toIso);
   const canUseDbDateFilter = dateField === 'date' && !dateFallbackField;
 
+  const excludeExpiredRaw = q.exclude_expired_in_range;
+  const excludeExpiredInRange = excludeExpiredRaw === 'true' || excludeExpiredRaw === '1';
+  if (excludeExpiredRaw !== undefined && !excludeExpiredInRange && excludeExpiredRaw !== 'false' && excludeExpiredRaw !== '0') {
+    return res.status(400).json({ error: 'Invalid exclude_expired_in_range value' });
+  }
+  if (excludeExpiredInRange && !dateFilterActive) {
+    return res.status(400).json({ error: 'exclude_expired_in_range requires a "from" and/or "to" date' });
+  }
+
   let sortRules;
   if (Object.prototype.hasOwnProperty.call(q, 'sort')) {
     const { rules, error } = parseSortRules(q.sort);
@@ -668,6 +677,28 @@ export default async function handler(req, res) {
         if (fromIso && iso < fromIso) return false;
         if (toIso && iso > toIso) return false;
         return true;
+      });
+      allTransactions.length = 0;
+      allTransactions.push(...filtered);
+    }
+
+    if (excludeExpiredInRange && dateFilterActive) {
+      // Drop every row (transaction AND synthetic awarded rows) whose linked
+      // voucher's expiry date falls inside the selected From/To window.
+      // Boundary dates count as inside the range. Rows with no linked
+      // voucher, no expiry date, or an unparseable/out-of-range expiry are
+      // kept.
+      const fromMs = fromIso ? new Date(fromIso).getTime() : null;
+      const toMs = toIso ? new Date(toIso).getTime() : null;
+      const filtered = allTransactions.filter((t) => {
+        if (!t.voucher_id) return true;
+        const exp = voucherMap[t.voucher_id]?.expires_at;
+        if (!exp) return true;
+        const ms = new Date(exp).getTime();
+        if (isNaN(ms)) return true;
+        if (fromMs !== null && ms < fromMs) return true;
+        if (toMs !== null && ms > toMs) return true;
+        return false;
       });
       allTransactions.length = 0;
       allTransactions.push(...filtered);

@@ -96,6 +96,7 @@ export default function VoucherManagementPage() {
   const [exportSortRules, setExportSortRules] = useState(() => DEFAULT_EXPORT_SORT_RULES.map(r => ({ ...r })));
   const [exportDateField, setExportDateField] = useState('date');
   const [exportDateFallbackField, setExportDateFallbackField] = useState('');
+  const [exportExcludeExpired, setExportExcludeExpired] = useState(false);
   const [exportEmptyMessage, setExportEmptyMessage] = useState("");
 
   // Tenant-shared saved export reports: one SystemSettings row per tenant
@@ -327,6 +328,7 @@ export default function VoucherManagementPage() {
     setExportSortRules(DEFAULT_EXPORT_SORT_RULES.map(r => ({ ...r })));
     setExportDateField('date');
     setExportDateFallbackField('');
+    setExportExcludeExpired(false);
     setExportEmptyMessage("");
     setActiveExportReportId(null);
     // Pick up reports other admins may have saved since the last open.
@@ -611,6 +613,9 @@ export default function VoucherManagementPage() {
         params.set('date_field', exportDateField);
         if (exportDateFallbackField) {
           params.set('date_fallback_field', exportDateFallbackField);
+        }
+        if (exportExcludeExpired) {
+          params.set('exclude_expired_in_range', 'true');
         }
       }
       if (!exportAllOrgs) params.set('organization_ids', Array.from(exportOrgIds).join(','));
@@ -1657,6 +1662,26 @@ export default function VoucherManagementPage() {
                     </PopoverContent>
                   </Popover>
                 </div>
+              </div>
+
+              <div>
+                <label
+                  className={`flex items-center gap-2 text-sm ${(exportFromDate || exportToDate) ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
+                  data-testid="label-export-voucher-exclude-expired"
+                >
+                  <Checkbox
+                    checked={exportExcludeExpired && !!(exportFromDate || exportToDate)}
+                    disabled={!exportFromDate && !exportToDate}
+                    onCheckedChange={(v) => setExportExcludeExpired(v === true)}
+                    data-testid="checkbox-export-voucher-exclude-expired"
+                  />
+                  <span>Exclude vouchers that expired in this date range</span>
+                </label>
+                {!exportFromDate && !exportToDate && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Set a From and/or To date to enable this option.
+                  </p>
+                )}
               </div>
 
               <div>
