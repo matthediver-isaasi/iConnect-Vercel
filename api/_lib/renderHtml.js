@@ -325,8 +325,12 @@ export async function renderTenantHtml(req) {
   const tenantTitle = tenant?.name
     ? (effectiveTagline ? `${tenant.name} — ${effectiveTagline}` : tenant.name)
     : DEFAULTS.title;
-  const tenantDescription = msDescription || msTagline
-    || tenant?.description || tenant?.tagline || DEFAULTS.description;
+  // Description inherits independently: microsite description override first,
+  // then the tenant description. The tagline (microsite override or tenant)
+  // is only the last-resort fallback when no description exists at all —
+  // overriding the tagline must NOT displace an existing tenant description.
+  const tenantDescription = msDescription || tenant?.description
+    || effectiveTagline || DEFAULTS.description;
   const tenantOgImage = makeAbsolute(
     msSocialImage || (microsite ? msLogo : null) || tenant?.social_image_url || tenant?.logo_url,
     req
