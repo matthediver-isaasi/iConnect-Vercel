@@ -762,6 +762,12 @@ export default function CreateComplexEvent() {
     return setting ? parseInt(setting.setting_value) || 150 : 150;
   }, [systemSettings]);
 
+  // Whether an internal reference is required to save an event (defaults to false)
+  const requireInternalReference = useMemo(() => {
+    const setting = systemSettings.find(s => s.setting_key === 'require_internal_reference');
+    return setting ? setting.setting_value === 'true' : false;
+  }, [systemSettings]);
+
   const handleTimingChange = (newTiming) => {
     setFormData(prev => ({
       ...prev,
@@ -1771,6 +1777,10 @@ export default function CreateComplexEvent() {
       toast.error("Please fix the URL slug before saving");
       return;
     }
+    if (requireInternalReference && !isGroupLimited && !formData.internal_reference?.trim()) {
+      toast.error("Please enter an internal reference");
+      return;
+    }
 
     if (isGroupLimited && !lockedGroupId) {
       toast.error("This group event is missing its group. Please reopen it from the Group Events page.");
@@ -2667,7 +2677,7 @@ export default function CreateComplexEvent() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {!isGroupLimited && (
                   <div className="space-y-2">
-                    <Label htmlFor="internal_reference">Internal Reference</Label>
+                    <Label htmlFor="internal_reference">Internal Reference{requireInternalReference && ' *'}</Label>
                     <Input
                       id="internal_reference"
                       value={formData.internal_reference}

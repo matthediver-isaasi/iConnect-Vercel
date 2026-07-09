@@ -107,6 +107,9 @@ export default function EventSettingsPage() {
   // Transfer role restriction
   const [transferRestrictByRole, setTransferRestrictByRole] = useState(true);
   
+  // Require internal reference on events
+  const [requireInternalReference, setRequireInternalReference] = useState(false);
+  
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -286,6 +289,11 @@ export default function EventSettingsPage() {
     const transferRoleSetting = settings.find(s => s.setting_key === 'transfer_restrict_by_role');
     if (transferRoleSetting) {
       setTransferRestrictByRole(transferRoleSetting.setting_value !== 'false');
+    }
+
+    const requireInternalRefSetting = settings.find(s => s.setting_key === 'require_internal_reference');
+    if (requireInternalRefSetting) {
+      setRequireInternalReference(requireInternalRefSetting.setting_value === 'true');
     }
 
     const featuredBgSetting = settings.find(s => s.setting_key === 'featured_events_background');
@@ -620,6 +628,21 @@ export default function EventSettingsPage() {
           setting_key: 'transfer_restrict_by_role',
           setting_value: transferRestrictByRole.toString(),
           description: 'Restrict ticket transfers to members with the same role within the organisation'
+        });
+      }
+
+      // Save require internal reference setting
+      const requireInternalRefSetting = settings.find(s => s.setting_key === 'require_internal_reference');
+      if (requireInternalRefSetting) {
+        await base44.entities.SystemSettings.update(requireInternalRefSetting.id, {
+          setting_value: requireInternalReference.toString(),
+          description: 'Require an internal reference when creating or editing events'
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'require_internal_reference',
+          setting_value: requireInternalReference.toString(),
+          description: 'Require an internal reference when creating or editing events'
         });
       }
 
@@ -1736,6 +1759,46 @@ export default function EventSettingsPage() {
                 <p className="text-xs text-slate-500">
                   This limit applies when creating or editing events. The summary is displayed on event cards and listings.
                 </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Event Field Requirements Section */}
+        <Card className="border-slate-200 shadow-sm mb-8">
+          <CardHeader className="border-b border-slate-200">
+            <div className="flex items-center gap-2">
+              <FileText className="w-5 h-5 text-indigo-600" />
+              <CardTitle>Event Field Requirements</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-6">
+            <div className="max-w-2xl space-y-4">
+              <div className="flex items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <Label htmlFor="require-internal-reference-toggle">
+                    Require internal reference on events
+                  </Label>
+                  <p className="text-xs text-slate-500">
+                    When enabled, the Internal Reference field must be filled in before an event can be saved in the event editors.
+                  </p>
+                </div>
+                <Switch
+                  id="require-internal-reference-toggle"
+                  checked={requireInternalReference}
+                  onCheckedChange={setRequireInternalReference}
+                  data-testid="switch-require-internal-reference"
+                />
+              </div>
+              <div className="flex justify-end pt-2">
+                <Button
+                  onClick={handleSaveSettings}
+                  disabled={isSaving}
+                  data-testid="button-save-field-requirements"
+                >
+                  <Save className="w-4 h-4 mr-2" />
+                  Save
+                </Button>
               </div>
             </div>
           </CardContent>

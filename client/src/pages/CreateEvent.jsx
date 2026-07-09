@@ -321,6 +321,12 @@ export default function CreateEvent() {
     return setting ? parseInt(setting.setting_value) || 150 : 150;
   }, [systemSettings]);
 
+  // Whether an internal reference is required to save an event (defaults to false)
+  const requireInternalReference = useMemo(() => {
+    const setting = systemSettings.find(s => s.setting_key === 'require_internal_reference');
+    return setting ? setting.setting_value === 'true' : false;
+  }, [systemSettings]);
+
   // Check if global seat visibility is enabled (defaults to true)
   const globalShowSeats = useMemo(() => {
     const setting = systemSettings.find(s => s.setting_key === 'show_event_seats');
@@ -682,6 +688,12 @@ export default function CreateEvent() {
     // Basic field validation
     if (!formData.title) {
       errors.push('Please enter an event title');
+    }
+    
+    // Internal reference required when the tenant setting is enabled
+    // (skipped in group-limited mode — the field is hidden there)
+    if (requireInternalReference && !isGroupLimited && !formData.internal_reference?.trim()) {
+      errors.push('Please enter an internal reference');
     }
     
     // Summary length validation
@@ -1768,7 +1780,7 @@ export default function CreateEvent() {
               {!isGroupLimited && (<>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="internal_reference">Internal Reference</Label>
+                  <Label htmlFor="internal_reference">Internal Reference{requireInternalReference && ' *'}</Label>
                   <Input
                     id="internal_reference"
                     value={formData.internal_reference}
