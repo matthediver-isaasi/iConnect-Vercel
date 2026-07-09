@@ -14,3 +14,5 @@ Microsites override tenant chrome via three per-microsite JSON columns: `header_
 **Why:** SSR and the public branding endpoint are two independent resolution paths; wiring only one makes previews and client chrome disagree (caught in review — description/social image were SSR-only at first).
 
 **Inherit semantics:** empty/missing = inherit tenant value everywhere. The editor's per-card Override toggles implement this by stripping managed keys on save; unmanaged `header_config`/`footer_config` keys from the legacy raw-JSON era must be preserved by spreading the stored object and only touching managed keys.
+
+**Shared card controls:** the full-parity Secondary Bar and Footer editing cards (plus legacy hydration helpers: gradientColors→stops, secondaryBar/footer full-shape hydration) live in the shared branding module used by both /admin/branding-era shapes and the microsite editor. New chrome options should be added to the shared controls, not re-implemented per surface — AdminBranding's inline sections still duplicate them (deferred refactor; drift risk).

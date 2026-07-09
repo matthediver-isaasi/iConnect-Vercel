@@ -15,8 +15,12 @@ import {
 import {
   GradientStopsEditor,
   HeaderLinkControls,
+  SecondaryBarControls,
+  FooterControls,
+  hydrateSecondaryBarConfig,
+  hydrateFooterConfig,
+  getHeaderGradientStops,
   DEFAULT_HEADER_GRADIENT_STOPS,
-  DEFAULT_SECONDARY_BAR_GRADIENT_STOPS,
   DEFAULT_LOGIN_BUTTON_GRADIENT_STOPS,
 } from "@/components/branding/brandingShared";
 
@@ -37,13 +41,40 @@ import {
  *  - everything else -> microsite.branding_config (whitelisted server-side)
  */
 
-const FOOTER_KEYS = ["backgroundColor", "textColor", "ctaText", "ctaButtonText", "newsletterText", "legalText"];
+// Full managed footer key set — mirrors every option /admin/branding exposes
+// for footer_config (plus the CTA keys it hydrates), so a microsite override
+// can express anything the tenant footer can.
+const FOOTER_KEYS = [
+  "columns", "columnAlignments", "ctaText", "ctaButtonText", "ctaLink",
+  "newsletterText", "gradientColors", "backgroundColor", "textColor",
+  "address", "contact", "legalText", "termsAndConditionsUrl", "privacyPolicyUrl",
+];
 
 function hasVal(v) {
   if (v === null || v === undefined || v === "") return false;
   if (Array.isArray(v)) return v.length > 0;
   if (typeof v === "object") return Object.keys(v).length > 0;
   return true;
+}
+
+// Recursively drop empty strings / arrays / objects so overrides only persist
+// keys the admin actually filled in. Booleans and numbers (including false/0)
+// are always kept. Returns undefined when nothing remains.
+function pruneEmpty(v) {
+  if (v === null || v === undefined || v === "") return undefined;
+  if (Array.isArray(v)) {
+    const arr = v.map(pruneEmpty).filter((x) => x !== undefined);
+    return arr.length > 0 ? arr : undefined;
+  }
+  if (typeof v === "object") {
+    const out = {};
+    for (const [k, val] of Object.entries(v)) {
+      const p = pruneEmpty(val);
+      if (p !== undefined) out[k] = p;
+    }
+    return Object.keys(out).length > 0 ? out : undefined;
+  }
+  return v;
 }
 
 async function readJson(res) {
@@ -202,12 +233,12 @@ export default function MicrositeChromeEditor({ microsite }) {
         colors: hasVal(bc.primary_color) || hasVal(bc.secondary_color),
         logo: hasVal(bc.logo_url),
         headerLogo: hasVal(bc.header_logo_url),
-        headerGradient: hasVal(hc.gradientStops),
+        headerGradient: hasVal(hc.gradientStops) || hasVal(hc.gradientColors),
         loginButton: hasVal(hc.loginLink),
         memberButton: hasVal(hc.memberAreaLink),
         secondaryBar: hasVal(hc.secondaryBar),
         linkPreviews: hasVal(bc.social_image_url) || hasVal(bc.tagline) || hasVal(bc.description),
-        footer: FOOTER_KEYS.some((k) => hasVal(fc[k])),
+        footer: FOOTER_KEYS.some((k) => pruneEmpty(fc[k]) !== undefined),
         socialIcons: hasVal(bc.headerSocialIconColor) || hasVal(bc.footerSocialIconColor),
       },
       branding: {
@@ -222,19 +253,18 @@ export default function MicrositeChromeEditor({ microsite }) {
         footerSocialIconColor: bc.footerSocialIconColor || "",
       },
       header: {
-        gradientStops: Array.isArray(hc.gradientStops) ? hc.gradientStops : [],
+        // Legacy microsites may store gradientColors (plain color array)
+        // instead of gradientStops — hydrate both shapes, like /admin/branding.
+        gradientStops: (hasVal(hc.gradientStops) || hasVal(hc.gradientColors))
+          ? getHeaderGradientStops(hc)
+          : [],
         loginLink: (hc.loginLink && typeof hc.loginLink === "object") ? hc.loginLink : {},
         memberAreaLink: (hc.memberAreaLink && typeof hc.memberAreaLink === "object") ? hc.memberAreaLink : {},
-        secondaryBar: (hc.secondaryBar && typeof hc.secondaryBar === "object") ? hc.secondaryBar : {},
+        secondaryBar: (hc.secondaryBar && typeof hc.secondaryBar === "object")
+          ? hydrateSecondaryBarConfig(hc.secondaryBar)
+          : {},
       },
-      footer: {
-        backgroundColor: fc.backgroundColor || "",
-        textColor: fc.textColor || "",
-        ctaText: fc.ctaText || "",
-        ctaButtonText: fc.ctaButtonText || "",
-        newsletterText: fc.newsletterText || "",
-        legalText: fc.legalText || "",
-      },
+      footer: hydrateFooterConfig(fc, { withDefaults: false }),
     };
   };
 
@@ -282,21 +312,22 @@ export default function MicrositeChromeEditor({ microsite }) {
   const seedSecondaryBar = () => setHeader({
     secondaryBar: hasVal(header.secondaryBar)
       ? header.secondaryBar
-      : { enabled: true, gradientStops: DEFAULT_SECONDARY_BAR_GRADIENT_STOPS, ...(thc.secondaryBar || {}) },
+      : hydrateSecondaryBarConfig(
+          thc.secondaryBar && typeof thc.secondaryBar === "object"
+            ? thc.secondaryBar
+            : { enabled: true }
+        ),
   });
   const seedLinkPreviews = () => setBranding({
     tagline: branding.tagline || tb.tagline || "",
     description: branding.description || tb.description || "",
     social_image_url: branding.social_image_url || tb.socialImageUrl || "",
   });
-  const seedFooter = () => setFooter({
-    backgroundColor: footer.backgroundColor || tfc.backgroundColor || "",
-    textColor: footer.textColor || tfc.textColor || "",
-    ctaText: footer.ctaText || tfc.ctaText || "",
-    ctaButtonText: footer.ctaButtonText || tfc.ctaButtonText || "",
-    newsletterText: footer.newsletterText || tfc.newsletterText || "",
-    legalText: footer.legalText || tfc.legalText || "",
-  });
+  // Seed the footer card from the tenant footer config, keeping any values
+  // already stored on the microsite.
+  const seedFooter = () => setFooter(
+    hydrateFooterConfig({ ...(tfc || {}), ...(pruneEmpty(footer) || {}) })
+  );
   const seedSocialIcons = () => setBranding({
     headerSocialIconColor: branding.headerSocialIconColor || tbc.headerSocialIconColor || "#5C0085",
     footerSocialIconColor: branding.footerSocialIconColor || tbc.footerSocialIconColor || "#FFFFFF",
@@ -312,12 +343,14 @@ export default function MicrositeChromeEditor({ microsite }) {
       else delete headerOut.loginLink;
       if (overrides.memberButton && hasVal(header.memberAreaLink)) headerOut.memberAreaLink = header.memberAreaLink;
       else delete headerOut.memberAreaLink;
-      if (overrides.secondaryBar && hasVal(header.secondaryBar)) headerOut.secondaryBar = header.secondaryBar;
+      const prunedSecondaryBar = overrides.secondaryBar ? pruneEmpty(header.secondaryBar) : undefined;
+      if (prunedSecondaryBar !== undefined) headerOut.secondaryBar = prunedSecondaryBar;
       else delete headerOut.secondaryBar;
 
       const footerOut = { ...(microsite.footer_config || {}) };
       for (const k of FOOTER_KEYS) {
-        if (overrides.footer && hasVal(footer[k])) footerOut[k] = footer[k];
+        const pruned = overrides.footer ? pruneEmpty(footer[k]) : undefined;
+        if (pruned !== undefined) footerOut[k] = pruned;
         else delete footerOut[k];
       }
 
@@ -480,63 +513,29 @@ export default function MicrositeChromeEditor({ microsite }) {
       )}
 
       {/* 7. Secondary Bar */}
-      <ChromeCard
-        icon={Rows3}
-        title="Secondary Lower Navigation Bar"
-        description="Optional second bar under the main header with its own colors."
-        overridden={overrides.secondaryBar}
-        onToggle={(on) => toggleWithSeed("secondaryBar", on, seedSecondaryBar)}
-        testId="switch-override-secondary-bar"
-      >
-        <div className="flex items-center justify-between gap-3">
-          <div className="space-y-0.5">
-            <Label className="text-slate-300">Show secondary bar</Label>
-            <p className="text-xs text-slate-500">Turn the lower navigation bar on or off for this microsite.</p>
-          </div>
-          <Switch
-            checked={!!secondaryBar.enabled}
-            onCheckedChange={(checked) => setHeader({ secondaryBar: { ...secondaryBar, enabled: checked } })}
-            data-testid="switch-ms-secondary-bar-enabled"
-          />
-        </div>
-        {secondaryBar.enabled && (
-          <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label className="text-slate-300">Bar Height (px)</Label>
-                <Input
-                  type="number"
-                  min="20"
-                  max="200"
-                  placeholder="Default"
-                  value={secondaryBar.height ?? ""}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setHeader({ secondaryBar: { ...secondaryBar, height: v === "" ? "" : parseInt(v, 10) } });
-                  }}
-                  className="bg-slate-900 border-slate-600 text-white"
-                  data-testid="input-ms-secondary-bar-height"
-                />
-              </div>
-              <ColorField
-                label="Text Color"
-                value={secondaryBar.textColor}
-                onChange={(v) => setHeader({ secondaryBar: { ...secondaryBar, textColor: v } })}
-                placeholder="#FFFFFF"
-                testId="input-ms-secondary-bar-text-color"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-slate-300">Bar Background Gradient</Label>
-              <GradientStopsEditor
-                stops={Array.isArray(secondaryBar.gradientStops) && secondaryBar.gradientStops.length > 0 ? secondaryBar.gradientStops : DEFAULT_SECONDARY_BAR_GRADIENT_STOPS}
-                onChange={(s) => setHeader({ secondaryBar: { ...secondaryBar, gradientStops: s } })}
-                testIdPrefix="ms-secondary-bar-gradient"
-              />
-            </div>
-          </>
-        )}
-      </ChromeCard>
+      {overrides.secondaryBar ? (
+        <SecondaryBarControls
+          value={secondaryBar}
+          onChange={(sb) => setHeader({ secondaryBar: sb })}
+          headerLogoUrl={branding.header_logo_url || tb.headerLogoUrl || branding.logo_url || microsite.logo_url || tb.logoUrl || ""}
+          siteName={microsite.name}
+          primaryColor={branding.primary_color || tb.primaryColor}
+          secondaryColor={branding.secondary_color || tb.secondaryColor}
+          testIdPrefix="ms-secondary-bar"
+          title="Secondary Lower Navigation Bar"
+          description="Optional second bar under the main header with its own height, colors and active-item indicator."
+          headerExtra={<OverrideToggle checked onChange={(on) => setOverride("secondaryBar", on)} testId="switch-override-secondary-bar" />}
+        />
+      ) : (
+        <ChromeCard
+          icon={Rows3}
+          title="Secondary Lower Navigation Bar"
+          description="Optional second bar under the main header with its own height, colors and active-item indicator."
+          overridden={false}
+          onToggle={(on) => toggleWithSeed("secondaryBar", on, seedSecondaryBar)}
+          testId="switch-override-secondary-bar"
+        />
+      )}
 
       {/* 8. Link Previews */}
       <ChromeCard
@@ -583,65 +582,25 @@ export default function MicrositeChromeEditor({ microsite }) {
       </ChromeCard>
 
       {/* 9. Footer */}
-      <ChromeCard
-        icon={PanelBottom}
-        title="Footer Configuration"
-        description="Colors and text of the footer on microsite pages."
-        overridden={overrides.footer}
-        onToggle={(on) => toggleWithSeed("footer", on, seedFooter)}
-        testId="switch-override-footer"
-      >
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <ColorField label="Background Color" value={footer.backgroundColor} onChange={(v) => setFooter({ backgroundColor: v })} placeholder="#000000" testId="input-ms-footer-bg" />
-          <ColorField label="Text Color" value={footer.textColor} onChange={(v) => setFooter({ textColor: v })} placeholder="#FFFFFF" testId="input-ms-footer-text" />
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label className="text-slate-300">Call-to-action Text</Label>
-            <Input
-              type="text"
-              placeholder="Become a member today"
-              value={footer.ctaText}
-              onChange={(e) => setFooter({ ctaText: e.target.value })}
-              className="bg-slate-900 border-slate-600 text-white"
-              data-testid="input-ms-footer-cta-text"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label className="text-slate-300">Call-to-action Button</Label>
-            <Input
-              type="text"
-              placeholder="Join Us"
-              value={footer.ctaButtonText}
-              onChange={(e) => setFooter({ ctaButtonText: e.target.value })}
-              className="bg-slate-900 border-slate-600 text-white"
-              data-testid="input-ms-footer-cta-button"
-            />
-          </div>
-        </div>
-        <div className="space-y-2">
-          <Label className="text-slate-300">Newsletter Text</Label>
-          <Input
-            type="text"
-            placeholder="Sign up to our newsletter"
-            value={footer.newsletterText}
-            onChange={(e) => setFooter({ newsletterText: e.target.value })}
-            className="bg-slate-900 border-slate-600 text-white"
-            data-testid="input-ms-footer-newsletter"
-          />
-        </div>
-        <div className="space-y-2">
-          <Label className="text-slate-300">Legal / Copyright Text</Label>
-          <Textarea
-            rows={2}
-            placeholder="Inherits tenant legal text"
-            value={footer.legalText}
-            onChange={(e) => setFooter({ legalText: e.target.value })}
-            className="bg-slate-900 border-slate-600 text-white"
-            data-testid="input-ms-footer-legal"
-          />
-        </div>
-      </ChromeCard>
+      {overrides.footer ? (
+        <FooterControls
+          value={footer}
+          onChange={(fc) => setState((s) => ({ ...s, footer: fc }))}
+          testIdPrefix="ms-footer"
+          title="Footer Configuration"
+          description="Columns, colors, address, contact details and legal text of the footer on microsite pages."
+          headerExtra={<OverrideToggle checked onChange={(on) => setOverride("footer", on)} testId="switch-override-footer" />}
+        />
+      ) : (
+        <ChromeCard
+          icon={PanelBottom}
+          title="Footer Configuration"
+          description="Columns, colors, address, contact details and legal text of the footer on microsite pages."
+          overridden={false}
+          onToggle={(on) => toggleWithSeed("footer", on, seedFooter)}
+          testId="switch-override-footer"
+        />
+      )}
 
       {/* 10. Social Icon Colors */}
       <ChromeCard
