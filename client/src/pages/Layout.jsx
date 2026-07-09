@@ -485,6 +485,11 @@ const adminNavigationItems = [
         featureId: "page_NavigationManagement"
       },
       {
+        title: "Microsites",
+        url: createPageUrl("MicrositeManagement"),
+        featureId: "page_MicrositeManagement"
+      },
+      {
         title: "Buttons",
         url: createPageUrl("ButtonElements"),
         featureId: "page_ButtonElements"

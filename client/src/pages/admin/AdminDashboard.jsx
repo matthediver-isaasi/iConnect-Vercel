@@ -29,8 +29,7 @@ import {
   Mail,
   Clock,
   Plug,
-  BarChart3,
-  Layers
+  BarChart3
 } from "lucide-react";
 import OnboardingChecklist from "@/components/dashboard/OnboardingChecklist";
 import { setActiveTenantId } from "@/api/base44Client";
@@ -214,13 +213,6 @@ export default function AdminDashboard() {
       icon: Palette,
       href: "/admin/branding",
       color: "text-purple-400"
-    },
-    {
-      title: "Microsites",
-      description: "Page groups with their own header, footer and nav",
-      icon: Layers,
-      href: "/admin/microsites",
-      color: "text-cyan-400"
     },
     {
       title: "Billing",

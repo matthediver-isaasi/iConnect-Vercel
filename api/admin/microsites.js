@@ -1,4 +1,4 @@
-import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
+import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tenantContext.js';
 import { supabase } from '../_lib/database.js';
 import {
   validateMicrositePrefix,
@@ -14,8 +14,11 @@ import {
  * PATCH  /api/admin/microsites?id=<uuid>  → update
  * DELETE /api/admin/microsites?id=<uuid>  → delete + unassign pages/nav
  *
- * All writes require tenant-admin access (getTenantContext + hasAdminAccess —
- * getTenantIdFromSession alone only proves membership, not admin role).
+ * Access: tenant-admin access (getTenantContext + hasAdminAccess —
+ * getTenantIdFromSession alone only proves membership, not admin role) OR a
+ * portal role that includes the `site-builder.micro-sites` feature (Task
+ * #2523 — mirrors the canvas endpoints' dual-gate pattern so tenants can
+ * grant microsite management to non-admin roles via Role Management).
  */
 
 const MICROSITE_COLUMNS =
@@ -58,8 +61,11 @@ export default async function handler(req, res) {
   if (!context.tenantId) {
     return res.status(400).json({ error: 'Tenant context not found' });
   }
-  const isAdmin = await hasAdminAccess(context);
-  if (!isAdmin) {
+  let canManageMicrosites = await hasAdminAccess(context);
+  if (!canManageMicrosites && context.roleId) {
+    canManageMicrosites = await hasFeatureAccess(context.roleId, 'site-builder.micro-sites');
+  }
+  if (!canManageMicrosites) {
     return res.status(403).json({ error: 'Access denied' });
   }
 

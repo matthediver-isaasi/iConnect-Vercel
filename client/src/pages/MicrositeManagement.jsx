@@ -1,5 +1,4 @@
-import { useState, useMemo } from "react";
-import { Link } from "react-router-dom";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,15 +15,19 @@ import {
 import { useToast } from "@/components/ui/use-toast";
 import { adminFetch } from "@/lib/adminFetch";
 import { base44 } from "@/api/base44Client";
+import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { createPageUrl } from "@/utils";
 import {
-  ArrowLeft, Plus, Globe, Trash2, Pencil, ExternalLink, Loader2, PanelTop, FileText, List,
+  Plus, Globe, Trash2, Pencil, ExternalLink, Loader2, PanelTop, FileText, List,
 } from "lucide-react";
 
 /**
- * Task #2426: tenant microsite management.
+ * Microsite management (Task #2523: moved from /admin/microsites to the main
+ * portal, gated by the `site-builder.micro-sites` RBAC feature so tenants can
+ * grant it to non-admin roles via Role Management).
  *
  * Microsites are groups of public pages served under /{prefix}/{slug} with
- * their own header, footer and navigation. This admin page covers:
+ * their own header, footer and navigation. This page covers:
  *  - list / create / edit / delete microsites
  *  - assigning pages into a microsite
  *  - microsite-scoped navigation items
@@ -56,15 +59,27 @@ async function readJson(res) {
   return data;
 }
 
-export default function AdminMicrosites() {
+export default function MicrositeManagement() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const [accessChecked, setAccessChecked] = useState(false);
 
   const [selectedId, setSelectedId] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [deleteTarget, setDeleteTarget] = useState(null);
+
+  useEffect(() => {
+    if (isAccessReady) {
+      if (isFeatureExcluded('site-builder.micro-sites')) {
+        window.location.href = createPageUrl('Events');
+      } else {
+        setAccessChecked(true);
+      }
+    }
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: micrositesData, isLoading } = useQuery({
     queryKey: ["admin-microsites"],
@@ -73,6 +88,7 @@ export default function AdminMicrosites() {
       const data = await readJson(res);
       return data.microsites || [];
     },
+    enabled: accessChecked,
   });
   const microsites = micrositesData || [];
   const selected = useMemo(
@@ -86,6 +102,7 @@ export default function AdminMicrosites() {
       const result = await base44.entities.IEditPage.list();
       return Array.isArray(result) ? result : [];
     },
+    enabled: accessChecked,
   });
   const pages = pagesData || [];
 
@@ -173,136 +190,135 @@ export default function AdminMicrosites() {
     [pages, selected]
   );
 
-  return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="max-w-6xl mx-auto px-4 py-8">
-        <div className="flex items-center justify-between gap-2 flex-wrap mb-6">
-          <div className="flex items-center gap-3 flex-wrap">
-            <Link to="/admin/dashboard" data-testid="link-back-dashboard">
-              <Button variant="ghost" size="icon">
-                <ArrowLeft />
-              </Button>
-            </Link>
-            <div>
-              <h1 className="text-2xl font-bold" data-testid="text-microsites-title">Microsites</h1>
-              <p className="text-sm text-slate-400">
-                Groups of public pages served under their own URL prefix with their own header, footer and navigation.
-              </p>
-            </div>
-          </div>
-          <Button onClick={openCreate} data-testid="button-create-microsite">
-            <Plus className="w-4 h-4 mr-2" /> New microsite
-          </Button>
-        </div>
-
-        {isLoading ? (
-          <div className="flex items-center gap-2 text-slate-400 py-12 justify-center" data-testid="loading-microsites">
-            <Loader2 className="w-5 h-5 animate-spin" /> Loading microsites…
-          </div>
-        ) : microsites.length === 0 ? (
-          <Card className="bg-slate-900 border-slate-800">
-            <CardContent className="py-12 text-center">
-              <Globe className="w-10 h-10 mx-auto mb-3 text-slate-500" />
-              <p className="text-slate-300 font-medium mb-1" data-testid="text-no-microsites">No microsites yet</p>
-              <p className="text-sm text-slate-400 mb-4">
-                Create one to serve a set of pages under its own URL section, e.g. <code>/summit/…</code>
-              </p>
-              <Button onClick={openCreate} data-testid="button-create-first-microsite">
-                <Plus className="w-4 h-4 mr-2" /> Create microsite
-              </Button>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div className="space-y-2">
-              {microsites.map((m) => (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={() => setSelectedId(m.id)}
-                  className={`w-full text-left rounded-md border p-3 hover-elevate ${
-                    selectedId === m.id ? "border-slate-500 bg-slate-900" : "border-slate-800 bg-slate-900/50"
-                  }`}
-                  data-testid={`card-microsite-${m.id}`}
-                >
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <span className="font-medium">{m.name}</span>
-                    {m.is_active === false && <Badge variant="secondary">Inactive</Badge>}
-                  </div>
-                  <div className="text-sm text-slate-400 mt-0.5">/{m.path_prefix}/…</div>
-                </button>
-              ))}
-            </div>
-
-            <div className="lg:col-span-2">
-              {!selected ? (
-                <Card className="bg-slate-900 border-slate-800">
-                  <CardContent className="py-12 text-center text-slate-400" data-testid="text-select-microsite">
-                    Select a microsite to manage its pages, navigation and chrome.
-                  </CardContent>
-                </Card>
-              ) : (
-                <Card className="bg-slate-900 border-slate-800">
-                  <CardHeader>
-                    <div className="flex items-start justify-between gap-2 flex-wrap">
-                      <div>
-                        <CardTitle data-testid="text-selected-name">{selected.name}</CardTitle>
-                        <CardDescription>
-                          Pages live at <code>/{selected.path_prefix}/&#123;page-slug&#125;</code>
-                        </CardDescription>
-                      </div>
-                      <div className="flex gap-2 flex-wrap">
-                        <Button variant="outline" onClick={() => openEdit(selected)} data-testid="button-edit-microsite">
-                          <Pencil className="w-4 h-4 mr-2" /> Edit
-                        </Button>
-                        <Button
-                          variant="outline"
-                          onClick={() => setDeleteTarget(selected)}
-                          data-testid="button-delete-microsite"
-                        >
-                          <Trash2 className="w-4 h-4 mr-2" /> Delete
-                        </Button>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <Tabs defaultValue="pages">
-                      <TabsList>
-                        <TabsTrigger value="pages" data-testid="tab-pages">
-                          <FileText className="w-4 h-4 mr-1.5" /> Pages
-                        </TabsTrigger>
-                        <TabsTrigger value="navigation" data-testid="tab-navigation">
-                          <List className="w-4 h-4 mr-1.5" /> Navigation
-                        </TabsTrigger>
-                        <TabsTrigger value="chrome" data-testid="tab-chrome">
-                          <PanelTop className="w-4 h-4 mr-1.5" /> Header &amp; Footer
-                        </TabsTrigger>
-                      </TabsList>
-                      <TabsContent value="pages">
-                        <MicrositePagesTab
-                          microsite={selected}
-                          pages={pages}
-                          micrositePages={micrositePages}
-                        />
-                      </TabsContent>
-                      <TabsContent value="navigation">
-                        <MicrositeNavTab microsite={selected} micrositePages={micrositePages} />
-                      </TabsContent>
-                      <TabsContent value="chrome">
-                        <MicrositeChromeTab microsite={selected} />
-                      </TabsContent>
-                    </Tabs>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
-          </div>
-        )}
+  if (!accessChecked) {
+    return (
+      <div className="flex items-center justify-center py-24" data-testid="loading-access-check">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
       </div>
+    );
+  }
+
+  return (
+    <div className="max-w-6xl mx-auto px-4 py-8">
+      <div className="flex items-center justify-between gap-2 flex-wrap mb-6">
+        <div>
+          <h1 className="text-2xl font-bold" data-testid="text-microsites-title">Microsites</h1>
+          <p className="text-sm text-muted-foreground">
+            Groups of public pages served under their own URL prefix with their own header, footer and navigation.
+          </p>
+        </div>
+        <Button onClick={openCreate} data-testid="button-create-microsite">
+          <Plus className="w-4 h-4 mr-2" /> New microsite
+        </Button>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-muted-foreground py-12 justify-center" data-testid="loading-microsites">
+          <Loader2 className="w-5 h-5 animate-spin" /> Loading microsites…
+        </div>
+      ) : microsites.length === 0 ? (
+        <Card>
+          <CardContent className="py-12 text-center">
+            <Globe className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
+            <p className="font-medium mb-1" data-testid="text-no-microsites">No microsites yet</p>
+            <p className="text-sm text-muted-foreground mb-4">
+              Create one to serve a set of pages under its own URL section, e.g. <code>/summit/…</code>
+            </p>
+            <Button onClick={openCreate} data-testid="button-create-first-microsite">
+              <Plus className="w-4 h-4 mr-2" /> Create microsite
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="space-y-2">
+            {microsites.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => setSelectedId(m.id)}
+                className={`w-full text-left rounded-md border p-3 hover-elevate ${
+                  selectedId === m.id ? "border-foreground/30 bg-muted" : "border-border bg-card"
+                }`}
+                data-testid={`card-microsite-${m.id}`}
+              >
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span className="font-medium">{m.name}</span>
+                  {m.is_active === false && <Badge variant="secondary">Inactive</Badge>}
+                </div>
+                <div className="text-sm text-muted-foreground mt-0.5">/{m.path_prefix}/…</div>
+              </button>
+            ))}
+          </div>
+
+          <div className="lg:col-span-2">
+            {!selected ? (
+              <Card>
+                <CardContent className="py-12 text-center text-muted-foreground" data-testid="text-select-microsite">
+                  Select a microsite to manage its pages, navigation and chrome.
+                </CardContent>
+              </Card>
+            ) : (
+              <Card>
+                <CardHeader>
+                  <div className="flex items-start justify-between gap-2 flex-wrap">
+                    <div>
+                      <CardTitle data-testid="text-selected-name">{selected.name}</CardTitle>
+                      <CardDescription>
+                        Pages live at <code>/{selected.path_prefix}/&#123;page-slug&#125;</code>
+                      </CardDescription>
+                    </div>
+                    <div className="flex gap-2 flex-wrap">
+                      <Button variant="outline" onClick={() => openEdit(selected)} data-testid="button-edit-microsite">
+                        <Pencil className="w-4 h-4 mr-2" /> Edit
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => setDeleteTarget(selected)}
+                        data-testid="button-delete-microsite"
+                      >
+                        <Trash2 className="w-4 h-4 mr-2" /> Delete
+                      </Button>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <Tabs defaultValue="pages">
+                    <TabsList>
+                      <TabsTrigger value="pages" data-testid="tab-pages">
+                        <FileText className="w-4 h-4 mr-1.5" /> Pages
+                      </TabsTrigger>
+                      <TabsTrigger value="navigation" data-testid="tab-navigation">
+                        <List className="w-4 h-4 mr-1.5" /> Navigation
+                      </TabsTrigger>
+                      <TabsTrigger value="chrome" data-testid="tab-chrome">
+                        <PanelTop className="w-4 h-4 mr-1.5" /> Header &amp; Footer
+                      </TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="pages">
+                      <MicrositePagesTab
+                        microsite={selected}
+                        pages={pages}
+                        micrositePages={micrositePages}
+                      />
+                    </TabsContent>
+                    <TabsContent value="navigation">
+                      <MicrositeNavTab microsite={selected} micrositePages={micrositePages} />
+                    </TabsContent>
+                    <TabsContent value="chrome">
+                      <MicrositeChromeTab microsite={selected} />
+                    </TabsContent>
+                  </Tabs>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Create / edit dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="bg-slate-900 border-slate-800 text-slate-100">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>{editingId ? "Edit microsite" : "New microsite"}</DialogTitle>
             <DialogDescription>
@@ -331,7 +347,7 @@ export default function AdminMicrosites() {
                 required
                 data-testid="input-microsite-prefix"
               />
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-muted-foreground">
                 Lowercase letters, numbers and hyphens. Cannot be a reserved route (admin, events, …) or an existing page slug.
               </p>
             </div>
@@ -374,7 +390,7 @@ export default function AdminMicrosites() {
                       ))}
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-slate-400">The microsite logo links here. Choose from pages assigned to this microsite.</p>
+                <p className="text-xs text-muted-foreground">The microsite logo links here. Choose from pages assigned to this microsite.</p>
               </div>
             )}
             <div className="flex items-center gap-2">
@@ -400,7 +416,7 @@ export default function AdminMicrosites() {
 
       {/* Delete confirmation */}
       <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <DialogContent className="bg-slate-900 border-slate-800 text-slate-100">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete microsite?</DialogTitle>
             <DialogDescription>
@@ -453,7 +469,7 @@ function MicrositePagesTab({ microsite, pages, micrositePages }) {
       <div>
         <h3 className="font-medium mb-2">Pages in this microsite</h3>
         {micrositePages.length === 0 ? (
-          <p className="text-sm text-slate-400" data-testid="text-no-assigned-pages">
+          <p className="text-sm text-muted-foreground" data-testid="text-no-assigned-pages">
             No pages assigned yet. Assign pages below — each is then served at /{microsite.path_prefix}/&#123;slug&#125;.
           </p>
         ) : (
@@ -461,12 +477,12 @@ function MicrositePagesTab({ microsite, pages, micrositePages }) {
             {micrositePages.map((p) => (
               <div
                 key={p.id}
-                className="flex items-center justify-between gap-2 flex-wrap rounded-md border border-slate-800 p-3"
+                className="flex items-center justify-between gap-2 flex-wrap rounded-md border p-3"
                 data-testid={`row-assigned-page-${p.id}`}
               >
                 <div className="min-w-0">
                   <div className="font-medium truncate">{p.title || p.slug}</div>
-                  <div className="text-sm text-slate-400 flex items-center gap-2 flex-wrap">
+                  <div className="text-sm text-muted-foreground flex items-center gap-2 flex-wrap">
                     <span>/{microsite.path_prefix}/{p.slug}</span>
                     {p.status !== "published" && <Badge variant="secondary">{p.status}</Badge>}
                     {microsite.home_page_id === p.id && <Badge>Home</Badge>}
@@ -504,18 +520,18 @@ function MicrositePagesTab({ microsite, pages, micrositePages }) {
       <div>
         <h3 className="font-medium mb-2">Assign an existing page</h3>
         {availablePages.length === 0 ? (
-          <p className="text-sm text-slate-400">All pages are already assigned.</p>
+          <p className="text-sm text-muted-foreground">All pages are already assigned.</p>
         ) : (
           <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
             {availablePages.map((p) => (
               <div
                 key={p.id}
-                className="flex items-center justify-between gap-2 flex-wrap rounded-md border border-slate-800 p-3"
+                className="flex items-center justify-between gap-2 flex-wrap rounded-md border p-3"
                 data-testid={`row-available-page-${p.id}`}
               >
                 <div className="min-w-0">
                   <div className="font-medium truncate">{p.title || p.slug}</div>
-                  <div className="text-sm text-slate-400">/{p.slug}</div>
+                  <div className="text-sm text-muted-foreground">/{p.slug}</div>
                 </div>
                 <Button
                   variant="outline"
@@ -530,7 +546,7 @@ function MicrositePagesTab({ microsite, pages, micrositePages }) {
             ))}
           </div>
         )}
-        <p className="text-xs text-slate-400 mt-2">
+        <p className="text-xs text-muted-foreground mt-2">
           Assigned pages stop being served at their bare slug on the default site and move under /{microsite.path_prefix}/.
         </p>
       </div>
@@ -622,7 +638,7 @@ function MicrositeNavTab({ microsite, micrositePages }) {
   return (
     <div className="space-y-4 pt-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <p className="text-sm text-slate-400">
+        <p className="text-sm text-muted-foreground">
           These items replace the tenant navigation on microsite pages. Internal links to microsite pages
           should use the prefixed path, e.g. <code>/{microsite.path_prefix}/about</code>.
         </p>
@@ -632,28 +648,28 @@ function MicrositeNavTab({ microsite, micrositePages }) {
       </div>
 
       {isLoading ? (
-        <div className="flex items-center gap-2 text-slate-400 py-6 justify-center">
+        <div className="flex items-center gap-2 text-muted-foreground py-6 justify-center">
           <Loader2 className="w-4 h-4 animate-spin" /> Loading…
         </div>
       ) : navItems.length === 0 ? (
-        <p className="text-sm text-slate-400" data-testid="text-no-nav-items">No navigation items yet.</p>
+        <p className="text-sm text-muted-foreground" data-testid="text-no-nav-items">No navigation items yet.</p>
       ) : (
         NAV_LOCATIONS.map(({ value, label }) => {
           const items = navItems.filter((i) => i.location === value);
           if (items.length === 0) return null;
           return (
             <div key={value}>
-              <h4 className="text-sm font-medium text-slate-300 mb-1.5">{label}</h4>
+              <h4 className="text-sm font-medium mb-1.5">{label}</h4>
               <div className="space-y-1.5">
                 {items.map((item, idx) => (
                   <div
                     key={item.id}
-                    className="flex items-center justify-between gap-2 flex-wrap rounded-md border border-slate-800 p-2.5"
+                    className="flex items-center justify-between gap-2 flex-wrap rounded-md border p-2.5"
                     data-testid={`row-nav-item-${item.id}`}
                   >
                     <div className="min-w-0">
                       <span className="font-medium">{item.title}</span>
-                      <span className="text-sm text-slate-400 ml-2">{item.url}</span>
+                      <span className="text-sm text-muted-foreground ml-2">{item.url}</span>
                       {item.is_active === false && <Badge variant="secondary" className="ml-2">Hidden</Badge>}
                     </div>
                     <div className="flex items-center gap-1 flex-wrap">
@@ -697,7 +713,7 @@ function MicrositeNavTab({ microsite, micrositePages }) {
       )}
 
       <Dialog open={navDialogOpen} onOpenChange={setNavDialogOpen}>
-        <DialogContent className="bg-slate-900 border-slate-800 text-slate-100">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>{editingItem ? "Edit navigation item" : "Add navigation item"}</DialogTitle>
           </DialogHeader>
@@ -824,7 +840,7 @@ function MicrositeChromeTab({ microsite }) {
 
   return (
     <div className="space-y-4 pt-4">
-      <p className="text-sm text-slate-400">
+      <p className="text-sm text-muted-foreground">
         These override the tenant header and footer on microsite pages. Any field left out (or empty)
         falls back to the tenant default, so you only need to specify what differs. The structure matches
         the tenant's <code>header_config</code> / <code>footer_config</code> from Branding.

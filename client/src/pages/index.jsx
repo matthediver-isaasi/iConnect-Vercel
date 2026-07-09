@@ -360,7 +360,7 @@ import AdminSettings from "./admin/AdminSettings";
 import OnboardingWizard from "./admin/OnboardingWizard";
 import PlanUsage from "./admin/PlanUsage";
 import AdminBranding from "./admin/AdminBranding";
-import AdminMicrosites from "./admin/AdminMicrosites";
+import MicrositeManagement from "./MicrositeManagement";
 import AdminLmicCountries from "./admin/AdminLmicCountries";
 import AdminDomains from "./admin/AdminDomains";
 import AdminTeam from "./admin/AdminTeam";
@@ -564,6 +564,8 @@ const PAGES = {
     testpage: testpage,
     
     NavigationManagement: NavigationManagement,
+    
+    MicrositeManagement: MicrositeManagement,
     
     Preferences: Preferences,
     
@@ -950,6 +952,8 @@ function PagesContent() {
                 
                 <Route path="/NavigationManagement" element={<NavigationManagement />} />
                 
+                <Route path="/MicrositeManagement" element={<MicrositeManagement />} />
+                
                 <Route path="/about-me" element={<Preferences />} />
                 <Route path="/AboutMe" element={<Preferences />} />
                 <Route path="/Preferences" element={<Preferences />} />
@@ -1218,7 +1222,6 @@ function AdminRoutes() {
             <Route path="/admin/dashboard" element={<AdminDashboard />} />
             <Route path="/admin/settings" element={<AdminSettings />} />
             <Route path="/admin/branding" element={<AdminBranding />} />
-            <Route path="/admin/microsites" element={<AdminMicrosites />} />
             <Route path="/admin/lmic-countries" element={<AdminLmicCountries />} />
             <Route path="/admin/domains" element={<AdminDomains />} />
             <Route path="/admin/team" element={<AdminTeam />} />
@@ -1260,7 +1263,6 @@ function SaasRoutes() {
             <Route path="/admin/dashboard" element={<AdminDashboard />} />
             <Route path="/admin/settings" element={<AdminSettings />} />
             <Route path="/admin/branding" element={<AdminBranding />} />
-            <Route path="/admin/microsites" element={<AdminMicrosites />} />
             <Route path="/admin/lmic-countries" element={<AdminLmicCountries />} />
             <Route path="/admin/domains" element={<AdminDomains />} />
             <Route path="/admin/team" element={<AdminTeam />} />

@@ -500,6 +500,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
         label: "Navigation Items"
       },
       {
+        id: "site-builder.micro-sites",
+        label: "Microsites"
+      },
+      {
         id: "site-builder.buttons",
         label: "Buttons"
       },
@@ -941,6 +945,7 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_admin_IEditTemplateManagement": "site-builder.templates",
   "page_admin_PageBannerManagement": "site-builder.banners",
   "page_admin_NavigationManagement": "site-builder.navigation",
+  "page_admin_MicrositeManagement": "site-builder.micro-sites",
   "page_admin_ButtonElements": "site-builder.buttons",
   "page_admin_ButtonStyleManagement": "site-builder.button-styles",
   "page_admin_WallOfFameManagement": "site-builder.wall-of-fame",
@@ -1082,6 +1087,7 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_IEditPageManagement": "site-builder.pages",
   "page_IEditTemplateManagement": "site-builder.templates",
   "page_NavigationManagement": "site-builder.navigation",
+  "page_MicrositeManagement": "site-builder.micro-sites",
   "page_ButtonElements": "site-builder.buttons",
   "page_DataExport": "admin.data-export",
   "page_SiteMap": "system.site-map",
