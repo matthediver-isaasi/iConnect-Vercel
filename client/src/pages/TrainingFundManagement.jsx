@@ -20,6 +20,8 @@ import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useAdminBalancesRealtime } from "@/hooks/useAdminBalancesRealtime";
+import { useSavedExportReports } from "@/hooks/useSavedExportReports";
+import ExportReportSwitcher from "@/components/ExportReportSwitcher";
 
 const ITEMS_PER_PAGE = 15;
 
@@ -79,6 +81,25 @@ export default function TrainingFundManagementPage() {
   const [exportDateField, setExportDateField] = useState('date');
   const [exportDateFallbackField, setExportDateFallbackField] = useState('');
   const [exportEmptyMessage, setExportEmptyMessage] = useState("");
+
+  // Tenant-shared saved export reports: one SystemSettings row per tenant
+  // holding a named list of export configurations any admin can reuse.
+  const {
+    reports: exportReports,
+    refetch: refetchExportReports,
+    activeReportId: activeExportReportId,
+    setActiveReportId: setActiveExportReportId,
+    activeReport: activeExportReport,
+    createReport: createExportReport,
+    updateReport: updateExportReport,
+    renameReport: renameExportReport,
+    deleteReport: deleteExportReport,
+    isSaving: isSavingExportReport,
+  } = useSavedExportReports({
+    settingKey: 'training_fund_export_reports',
+    description: 'Training fund export saved reports',
+    enabled: !!accessChecked,
+  });
 
   const [searchTerm, setSearchTerm] = useState("");
   const [balanceFilter, setBalanceFilter] = useState("all");
@@ -429,6 +450,9 @@ export default function TrainingFundManagementPage() {
     setExportDateField('date');
     setExportDateFallbackField('');
     setExportEmptyMessage("");
+    setActiveExportReportId(null);
+    // Pick up reports other admins may have saved since the last open.
+    refetchExportReports();
     setShowExportDialog(true);
   };
 
@@ -506,6 +530,142 @@ export default function TrainingFundManagementPage() {
     const day = String(d.getDate()).padStart(2, '0');
     return `${y}-${m}-${day}`;
   };
+
+  const parseIsoDateOnly = (str) => {
+    if (typeof str !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(str)) return null;
+    const [y, m, d] = str.split('-').map(n => parseInt(n, 10));
+    const date = new Date(y, m - 1, d);
+    if (
+      date.getFullYear() !== y ||
+      date.getMonth() !== m - 1 ||
+      date.getDate() !== d
+    ) return null;
+    return date;
+  };
+
+  // Snapshot the current export dialog settings as a saved-report config.
+  // Normalized (column order fixed, org ids sorted) so configs can be
+  // compared for the "Modified" indicator.
+  const serializeExportConfig = () => ({
+    columns: ALL_EXPORT_COLUMN_KEYS.filter(k => exportColumns.has(k)),
+    fromDate: exportFromDate ? toIsoDateOnly(exportFromDate) : null,
+    toDate: exportToDate ? toIsoDateOnly(exportToDate) : null,
+    dateField: exportDateField,
+    dateFallbackField: exportDateFallbackField || null,
+    allOrgs: exportAllOrgs,
+    orgIds: exportAllOrgs ? [] : Array.from(exportOrgIds).sort(),
+    sortRules: exportSortRules.map(r => ({
+      field: r.field,
+      dir: r.dir === 'desc' ? 'desc' : 'asc',
+      fallback: r.fallback || null,
+    })),
+  });
+
+  // Hydrate the export dialog state from a saved report config, gracefully
+  // dropping anything that no longer exists (columns, fields, org ids).
+  const applyExportReport = (report) => {
+    const cfg = report?.config || {};
+
+    const cols = Array.isArray(cfg.columns)
+      ? ALL_EXPORT_COLUMN_KEYS.filter(k => cfg.columns.includes(k))
+      : [];
+    setExportColumns(new Set(cols.length > 0 ? cols : ALL_EXPORT_COLUMN_KEYS));
+
+    setExportFromDate(parseIsoDateOnly(cfg.fromDate));
+    setExportToDate(parseIsoDateOnly(cfg.toDate));
+
+    const dateField = EXPORT_DATE_FILTER_FIELDS.some(f => f.key === cfg.dateField)
+      ? cfg.dateField
+      : 'date';
+    setExportDateField(dateField);
+    const fallbackField =
+      cfg.dateFallbackField &&
+      cfg.dateFallbackField !== dateField &&
+      EXPORT_DATE_FILTER_FIELDS.some(f => f.key === cfg.dateFallbackField)
+        ? cfg.dateFallbackField
+        : '';
+    setExportDateFallbackField(fallbackField);
+
+    // Skip organisation ids that no longer resolve. Only filter against the
+    // loaded org list when we actually have one, so a slow orgs query can't
+    // wipe a valid selection.
+    const knownOrgIds = new Set(organizations.map(o => o.id));
+    const rawOrgIds = Array.isArray(cfg.orgIds) ? cfg.orgIds : [];
+    const resolvedOrgIds = organizations.length > 0
+      ? rawOrgIds.filter(id => knownOrgIds.has(id))
+      : rawOrgIds;
+    // Keep the stored all-orgs/restricted choice as configured. If every
+    // stored org id has stopped resolving, the selection ends up empty and
+    // the existing pre-export validation asks the admin to re-select rather
+    // than silently exporting every organisation.
+    const allOrgs = cfg.allOrgs !== false;
+    setExportAllOrgs(allOrgs);
+    setExportOrgIds(new Set(allOrgs ? [] : resolvedOrgIds));
+    setExportOrgSearch("");
+
+    // Rebuild sort rules, dropping unknown/duplicate fields and any fallback
+    // that no longer matches the primary field's data type.
+    const seenSortFields = new Set();
+    const sortRules = (Array.isArray(cfg.sortRules) ? cfg.sortRules : [])
+      .filter(r =>
+        r &&
+        typeof r === 'object' &&
+        EXPORT_SORT_FIELD_TYPES[r.field] &&
+        !seenSortFields.has(r.field) &&
+        (seenSortFields.add(r.field) || true)
+      )
+      .map(r => ({
+        field: r.field,
+        dir: r.dir === 'desc' ? 'desc' : 'asc',
+        fallback:
+          r.fallback &&
+          r.fallback !== r.field &&
+          EXPORT_SORT_FIELD_TYPES[r.fallback] === EXPORT_SORT_FIELD_TYPES[r.field]
+            ? r.fallback
+            : '',
+      }));
+    setExportSortRules(
+      sortRules.length > 0 ? sortRules : DEFAULT_EXPORT_SORT_RULES.map(r => ({ ...r }))
+    );
+
+    setExportEmptyMessage("");
+    setActiveExportReportId(report.id);
+  };
+
+  const exportReportIsDirty = useMemo(() => {
+    if (!activeExportReport) return false;
+    // Normalize the stored config through the same shape rules used when
+    // serializing so cosmetic differences (missing keys, order) don't count.
+    const stored = activeExportReport.config || {};
+    const normalizedStored = {
+      columns: Array.isArray(stored.columns)
+        ? ALL_EXPORT_COLUMN_KEYS.filter(k => stored.columns.includes(k))
+        : [],
+      fromDate: typeof stored.fromDate === 'string' ? stored.fromDate : null,
+      toDate: typeof stored.toDate === 'string' ? stored.toDate : null,
+      dateField: stored.dateField || 'date',
+      dateFallbackField: stored.dateFallbackField || null,
+      allOrgs: stored.allOrgs !== false,
+      orgIds: Array.isArray(stored.orgIds) ? [...stored.orgIds].sort() : [],
+      sortRules: (Array.isArray(stored.sortRules) ? stored.sortRules : []).map(r => ({
+        field: r?.field,
+        dir: r?.dir === 'desc' ? 'desc' : 'asc',
+        fallback: r?.fallback || null,
+      })),
+    };
+    return JSON.stringify(serializeExportConfig()) !== JSON.stringify(normalizedStored);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    activeExportReport,
+    exportColumns,
+    exportFromDate,
+    exportToDate,
+    exportDateField,
+    exportDateFallbackField,
+    exportAllOrgs,
+    exportOrgIds,
+    exportSortRules,
+  ]);
 
   const handleConfirmExport = async () => {
     setExportEmptyMessage("");
@@ -1392,6 +1552,28 @@ export default function TrainingFundManagementPage() {
             </DialogHeader>
 
             <div className="space-y-6">
+              <div>
+                <Label className="text-sm font-medium">Saved report</Label>
+                <div className="mt-1">
+                  <ExportReportSwitcher
+                    reports={exportReports}
+                    activeReportId={activeExportReportId}
+                    isDirty={exportReportIsDirty}
+                    isSaving={isSavingExportReport}
+                    onApplyReport={applyExportReport}
+                    onClearReport={() => setActiveExportReportId(null)}
+                    onCreateReport={async (name) => {
+                      const report = await createExportReport(name, serializeExportConfig());
+                      if (report?.id) setActiveExportReportId(report.id);
+                    }}
+                    onUpdateReport={(report) => updateExportReport(report.id, serializeExportConfig())}
+                    onRenameReport={(report, name) => renameExportReport(report.id, name)}
+                    onDeleteReport={(report) => deleteExportReport(report.id)}
+                    testIdPrefix="export-report"
+                  />
+                </div>
+              </div>
+
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <Label className="text-sm font-medium">Columns</Label>
