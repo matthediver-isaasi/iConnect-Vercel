@@ -54,3 +54,21 @@ id = "6aUPznNyx_OakArBO13rz"
 uri = "file://guides/canvasbuilder-accessibility-board-report.docx"
 type = "word_document"
 title = "CanvasBuilder Accessibility Board Report (Word)"
+
+[[outputs]]
+id = "MOntkLH5GvWaSFOVeH2rf"
+uri = "file://deliverables/gsf-map-switchover/class-zoho-api.iconnect.php.txt"
+type = "text"
+title = "Annotated WordPress plugin file (Zoho → iConnect)"
+
+[[outputs]]
+id = "0XgBoHweJu_bqx8dUgi1L"
+uri = "file://deliverables/gsf-map-switchover/HANDOVER.md"
+type = "text"
+title = "Handover note for the WordPress developers"
+
+[[outputs]]
+id = "Fpuq_XA8DI46uNcZHuKuZ"
+uri = "file://deliverables/gsf-map-switchover/gsf-map-iconnect-switchover.zip"
+type = "unspecified"
+title = "Both files zipped (includes the .php version)"
