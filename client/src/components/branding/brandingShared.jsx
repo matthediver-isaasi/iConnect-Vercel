@@ -44,6 +44,64 @@ export const HEADER_LINK_GRADIENT_STOPS = [
   { color: '#BA0087', position: 100 }
 ];
 
+// Tone-keyed class maps for the shared branding controls. The `dark` tone is
+// the original hardcoded styling used by /admin/branding (unchanged); the
+// `light` tone maps every surface to theme-token classes so the same controls
+// read correctly on white pages like /micrositemanagement. Dynamic inline
+// styles (gradient/swatch previews) are tone-independent by design.
+export const BRANDING_TONES = {
+  dark: {
+    card: 'bg-slate-800/50 border-slate-700',
+    cardTitle: 'text-white',
+    cardDesc: 'text-slate-400',
+    label: 'text-slate-300',
+    labelStrong: 'text-slate-200',
+    hint: 'text-xs text-slate-500',
+    helpText: 'text-slate-400 text-sm',
+    heading: 'text-white font-medium',
+    input: 'bg-slate-900 border-slate-600 text-white',
+    inputSoft: 'bg-slate-900/50 border-slate-600 text-white',
+    stopRow: 'bg-slate-900/50',
+    track: 'bg-slate-700',
+    stopValue: 'text-slate-300',
+    stopMeta: 'text-slate-400',
+    removeBtn: 'text-slate-400 hover:text-red-400',
+    divider: 'border-slate-700',
+    outlineBtn: 'border-slate-600 text-slate-300',
+    previewBorder: 'border-slate-600',
+    chip: 'bg-slate-700',
+    chipText: 'text-white',
+    chipRemove: 'text-slate-400 hover:text-red-400'
+  },
+  light: {
+    card: '',
+    cardTitle: '',
+    cardDesc: '',
+    label: '',
+    labelStrong: '',
+    hint: 'text-xs text-muted-foreground',
+    helpText: 'text-muted-foreground text-sm',
+    heading: 'font-medium',
+    input: '',
+    inputSoft: '',
+    stopRow: 'bg-muted',
+    track: 'bg-slate-300',
+    stopValue: 'text-foreground',
+    stopMeta: 'text-muted-foreground',
+    removeBtn: 'text-muted-foreground hover:text-red-500',
+    divider: 'border-border',
+    outlineBtn: '',
+    previewBorder: 'border-input',
+    chip: 'bg-muted',
+    chipText: 'text-foreground',
+    chipRemove: 'text-muted-foreground hover:text-red-500'
+  }
+};
+
+export function getBrandingTone(tone) {
+  return BRANDING_TONES[tone] || BRANDING_TONES.dark;
+}
+
 export const DEFAULT_HEADER_GRADIENT_STOPS = [
   { color: '#FFFFFF', position: 0 },
   { color: '#FFFFFF', position: 30 },
@@ -66,14 +124,15 @@ export const DEFAULT_LOGIN_BUTTON_GRADIENT_STOPS = [
 
 // Reusable multi-point gradient-stop editor (color picker + position slider +
 // add/remove). `onChange` receives the updated stops array.
-export function GradientStopsEditor({ stops, onChange, testIdPrefix }) {
+export function GradientStopsEditor({ stops, onChange, testIdPrefix, tone = 'dark' }) {
+  const t = getBrandingTone(tone);
   const [newColor, setNewColor] = useState('#000000');
   const [newPosition, setNewPosition] = useState(100);
   const list = Array.isArray(stops) && stops.length > 0 ? stops : DEFAULT_INDICATOR_GRADIENT_STOPS;
   return (
     <div className="space-y-3">
       {list.map((stop, index) => (
-        <div key={index} className="flex items-center gap-3 bg-slate-900/50 rounded-lg p-3">
+        <div key={index} className={`flex items-center gap-3 ${t.stopRow} rounded-lg p-3`}>
           <input
             type="color"
             value={stop.color}
@@ -86,8 +145,8 @@ export function GradientStopsEditor({ stops, onChange, testIdPrefix }) {
           />
           <div className="flex-1 space-y-1">
             <div className="flex items-center justify-between">
-              <span className="text-slate-300 text-sm font-mono">{stop.color}</span>
-              <span className="text-slate-400 text-sm">{stop.position}%</span>
+              <span className={`${t.stopValue} text-sm font-mono`}>{stop.color}</span>
+              <span className={`${t.stopMeta} text-sm`}>{stop.position}%</span>
             </div>
             <input
               type="range"
@@ -99,7 +158,7 @@ export function GradientStopsEditor({ stops, onChange, testIdPrefix }) {
                 ns[index] = { ...ns[index], position: parseInt(e.target.value) };
                 onChange(ns);
               }}
-              className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+              className={`w-full h-2 ${t.track} rounded-lg appearance-none cursor-pointer accent-purple-500`}
               data-testid={`slider-${testIdPrefix}-position-${index}`}
             />
           </div>
@@ -107,7 +166,7 @@ export function GradientStopsEditor({ stops, onChange, testIdPrefix }) {
             type="button"
             variant="ghost"
             size="icon"
-            className="h-8 w-8 text-slate-400 hover:text-red-400 flex-shrink-0"
+            className={`h-8 w-8 ${t.removeBtn} flex-shrink-0`}
             onClick={() => onChange(list.filter((_, i) => i !== index))}
             data-testid={`button-remove-${testIdPrefix}-${index}`}
           >
@@ -115,7 +174,7 @@ export function GradientStopsEditor({ stops, onChange, testIdPrefix }) {
           </Button>
         </div>
       ))}
-      <div className="flex items-center gap-3 pt-2 border-t border-slate-700">
+      <div className={`flex items-center gap-3 pt-2 border-t ${t.divider}`}>
         <input
           type="color"
           value={newColor}
@@ -124,8 +183,8 @@ export function GradientStopsEditor({ stops, onChange, testIdPrefix }) {
         />
         <div className="flex-1 space-y-1">
           <div className="flex items-center justify-between">
-            <span className="text-slate-400 text-sm">New color position</span>
-            <span className="text-slate-400 text-sm">{newPosition}%</span>
+            <span className={`${t.stopMeta} text-sm`}>New color position</span>
+            <span className={`${t.stopMeta} text-sm`}>{newPosition}%</span>
           </div>
           <input
             type="range"
@@ -133,7 +192,7 @@ export function GradientStopsEditor({ stops, onChange, testIdPrefix }) {
             max="100"
             value={newPosition}
             onChange={(e) => setNewPosition(parseInt(e.target.value))}
-            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+            className={`w-full h-2 ${t.track} rounded-lg appearance-none cursor-pointer accent-purple-500`}
             data-testid={`slider-${testIdPrefix}-new-position`}
           />
         </div>
@@ -145,7 +204,7 @@ export function GradientStopsEditor({ stops, onChange, testIdPrefix }) {
             onChange([...list, { color: newColor, position: newPosition }].sort((a, b) => a.position - b.position));
             setNewColor('#000000');
           }}
-          className="border-slate-600 text-slate-300"
+          className={t.outlineBtn}
           data-testid={`button-add-${testIdPrefix}`}
         >
           <Plus className="w-4 h-4 mr-2" />
@@ -159,7 +218,8 @@ export function GradientStopsEditor({ stops, onChange, testIdPrefix }) {
 // Multi-point stops editor that also exposes a per-stop opacity (0-100%) so the
 // underlying image can show through. Used by the portal sidebar image-overlay
 // and gradient backgrounds. `stops` is [{ color, opacity, position }].
-export function OpacityStopsEditor({ stops, onChange, testIdPrefix }) {
+export function OpacityStopsEditor({ stops, onChange, testIdPrefix, tone = 'dark' }) {
+  const t = getBrandingTone(tone);
   const list = Array.isArray(stops) && stops.length > 0
     ? stops
     : [{ color: '#000000', opacity: 0.6, position: 0 }, { color: '#000000', opacity: 0, position: 100 }];
@@ -171,7 +231,7 @@ export function OpacityStopsEditor({ stops, onChange, testIdPrefix }) {
   return (
     <div className="space-y-3">
       {list.map((stop, index) => (
-        <div key={index} className="flex items-center gap-3 bg-slate-900/50 rounded-lg p-3">
+        <div key={index} className={`flex items-center gap-3 ${t.stopRow} rounded-lg p-3`}>
           <input
             type="color"
             value={stop.color || '#000000'}
@@ -181,8 +241,8 @@ export function OpacityStopsEditor({ stops, onChange, testIdPrefix }) {
           />
           <div className="flex-1 space-y-2">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-slate-300 text-sm font-mono">{stop.color}</span>
-              <span className="text-slate-400 text-sm">{stop.position}%</span>
+              <span className={`${t.stopValue} text-sm font-mono`}>{stop.color}</span>
+              <span className={`${t.stopMeta} text-sm`}>{stop.position}%</span>
             </div>
             <input
               type="range"
@@ -190,12 +250,12 @@ export function OpacityStopsEditor({ stops, onChange, testIdPrefix }) {
               max="100"
               value={stop.position}
               onChange={(e) => update(index, { position: parseInt(e.target.value, 10) })}
-              className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+              className={`w-full h-2 ${t.track} rounded-lg appearance-none cursor-pointer accent-purple-500`}
               data-testid={`slider-${testIdPrefix}-position-${index}`}
             />
             <div className="flex items-center justify-between gap-2">
-              <span className="text-slate-400 text-xs">Opacity</span>
-              <span className="text-slate-400 text-xs">{Math.round((stop.opacity ?? 1) * 100)}%</span>
+              <span className={`${t.stopMeta} text-xs`}>Opacity</span>
+              <span className={`${t.stopMeta} text-xs`}>{Math.round((stop.opacity ?? 1) * 100)}%</span>
             </div>
             <input
               type="range"
@@ -203,7 +263,7 @@ export function OpacityStopsEditor({ stops, onChange, testIdPrefix }) {
               max="100"
               value={Math.round((stop.opacity ?? 1) * 100)}
               onChange={(e) => update(index, { opacity: parseInt(e.target.value, 10) / 100 })}
-              className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+              className={`w-full h-2 ${t.track} rounded-lg appearance-none cursor-pointer accent-purple-500`}
               data-testid={`slider-${testIdPrefix}-opacity-${index}`}
             />
           </div>
@@ -211,7 +271,7 @@ export function OpacityStopsEditor({ stops, onChange, testIdPrefix }) {
             type="button"
             variant="ghost"
             size="icon"
-            className="h-8 w-8 text-slate-400 hover:text-red-400 flex-shrink-0"
+            className={`h-8 w-8 ${t.removeBtn} flex-shrink-0`}
             onClick={() => onChange(list.filter((_, i) => i !== index))}
             disabled={list.length <= 2}
             data-testid={`button-remove-${testIdPrefix}-${index}`}
@@ -225,7 +285,7 @@ export function OpacityStopsEditor({ stops, onChange, testIdPrefix }) {
         variant="outline"
         size="sm"
         onClick={() => onChange([...list, { color: '#000000', opacity: 0.5, position: 100 }].sort((a, b) => a.position - b.position))}
-        className="border-slate-600 text-slate-300"
+        className={t.outlineBtn}
         data-testid={`button-add-${testIdPrefix}`}
       >
         <Plus className="w-4 h-4 mr-2" />
@@ -237,14 +297,15 @@ export function OpacityStopsEditor({ stops, onChange, testIdPrefix }) {
 
 // Per-bar active-item indicator controls: enable toggle, height, and an
 // independent multi-point gradient. `value` is the bar's indicator config.
-export function IndicatorEditor({ value, onChange, testIdPrefix }) {
+export function IndicatorEditor({ value, onChange, testIdPrefix, tone = 'dark' }) {
+  const t = getBrandingTone(tone);
   const cfg = value || {};
   return (
-    <div className="space-y-4 pt-3 border-t border-slate-700">
+    <div className={`space-y-4 pt-3 border-t ${t.divider}`}>
       <div className="flex items-center justify-between gap-3">
         <div className="space-y-0.5">
-          <Label className="text-slate-300">Active item indicator</Label>
-          <p className="text-xs text-slate-500">Show a colored bar under the currently selected menu item</p>
+          <Label className={t.label}>Active item indicator</Label>
+          <p className={t.hint}>Show a colored bar under the currently selected menu item</p>
         </div>
         <Switch
           checked={!!cfg.enabled}
@@ -255,7 +316,7 @@ export function IndicatorEditor({ value, onChange, testIdPrefix }) {
       {cfg.enabled && (
         <>
           <div className="space-y-2">
-            <Label className="text-slate-300">Indicator Height (px)</Label>
+            <Label className={t.label}>Indicator Height (px)</Label>
             <Input
               type="number"
               min="1"
@@ -266,17 +327,18 @@ export function IndicatorEditor({ value, onChange, testIdPrefix }) {
                 const v = e.target.value;
                 onChange({ ...cfg, height: v === '' ? '' : parseInt(v, 10) });
               }}
-              className="bg-slate-900 border-slate-600 text-white"
+              className={t.input}
               data-testid={`input-${testIdPrefix}-height`}
             />
-            <p className="text-xs text-slate-500">Height of the indicator bar. Leave blank for the default (5px).</p>
+            <p className={t.hint}>Height of the indicator bar. Leave blank for the default (5px).</p>
           </div>
           <div className="space-y-2">
-            <Label className="text-slate-300">Indicator Gradient</Label>
+            <Label className={t.label}>Indicator Gradient</Label>
             <GradientStopsEditor
               stops={cfg.gradientStops}
               onChange={(s) => onChange({ ...cfg, gradientStops: s })}
               testIdPrefix={`${testIdPrefix}-gradient`}
+              tone={tone}
             />
           </div>
         </>
@@ -291,20 +353,21 @@ export function IndicatorEditor({ value, onChange, testIdPrefix }) {
 // the link object from formData.header_config; `onChange(patch)` shallow-merges
 // the patch into that object. `defaultLabel` is the placeholder/fallback shown
 // when the label is blank (e.g. "Login" / "Member Area").
-export function HeaderLinkControls({ config, onChange, title, description, defaultLabel, testIdPrefix, previewBackgroundStops, headerExtra }) {
+export function HeaderLinkControls({ config, onChange, title, description, defaultLabel, testIdPrefix, previewBackgroundStops, headerExtra, tone = 'dark' }) {
+  const t = getBrandingTone(tone);
   const cfg = config || {};
   const update = (patch) => onChange(patch);
   const previewLabel = (typeof cfg.label === 'string' && cfg.label.trim()) ? cfg.label.trim() : defaultLabel;
   return (
-    <Card className="bg-slate-800/50 border-slate-700">
+    <Card className={t.card}>
       <CardHeader>
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-1.5">
-            <CardTitle className="text-white flex items-center gap-2">
+            <CardTitle className={`${t.cardTitle} flex items-center gap-2`}>
               <User className="w-5 h-5" />
               {title}
             </CardTitle>
-            <CardDescription className="text-slate-400">
+            <CardDescription className={t.cardDesc}>
               {description}
             </CardDescription>
           </div>
@@ -313,23 +376,23 @@ export function HeaderLinkControls({ config, onChange, title, description, defau
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="space-y-2">
-          <Label className="text-slate-300">Custom label</Label>
+          <Label className={t.label}>Custom label</Label>
           <Input
             type="text"
             maxLength={60}
             placeholder={defaultLabel}
             value={cfg.label || ''}
             onChange={(e) => update({ label: e.target.value })}
-            className="bg-slate-900 border-slate-600 text-white"
+            className={t.input}
             data-testid={`input-${testIdPrefix}-label`}
           />
-          <p className="text-xs text-slate-500">Text shown on the {defaultLabel.toLowerCase()} item. Leave blank to use the default "{defaultLabel}".</p>
+          <p className={t.hint}>Text shown on the {defaultLabel.toLowerCase()} item. Leave blank to use the default "{defaultLabel}".</p>
         </div>
 
         <div className="flex items-center justify-between gap-3">
           <div className="space-y-0.5">
-            <Label className="text-slate-300">Render as button</Label>
-            <p className="text-xs text-slate-500">Off keeps a plain text link. On shows a styled button.</p>
+            <Label className={t.label}>Render as button</Label>
+            <p className={t.hint}>Off keeps a plain text link. On shows a styled button.</p>
           </div>
           <Switch
             checked={!!cfg.asButton}
@@ -341,9 +404,9 @@ export function HeaderLinkControls({ config, onChange, title, description, defau
         {cfg.asButton && (
           <>
             <div className="space-y-1">
-              <Label className="text-slate-300 text-xs">Live Preview</Label>
+              <Label className={`${t.label} text-xs`}>Live Preview</Label>
               <div
-                className="rounded-lg border border-slate-600 overflow-hidden flex items-center justify-end p-4"
+                className={`rounded-lg border ${t.previewBorder} overflow-hidden flex items-center justify-end p-4`}
                 style={{
                   background: `linear-gradient(to right, ${(previewBackgroundStops || HEADER_LINK_GRADIENT_STOPS)
                     .slice()
@@ -380,12 +443,12 @@ export function HeaderLinkControls({ config, onChange, title, description, defau
             </div>
 
             <div className="space-y-2">
-              <Label className="text-slate-300">Background style</Label>
+              <Label className={t.label}>Background style</Label>
               <Select
                 value={cfg.backgroundMode || 'solid'}
                 onValueChange={(val) => update({ backgroundMode: val })}
               >
-                <SelectTrigger className="bg-slate-900 border-slate-600 text-white" data-testid={`select-${testIdPrefix}-background-mode`}>
+                <SelectTrigger className={t.input} data-testid={`select-${testIdPrefix}-background-mode`}>
                   <SelectValue placeholder="Solid color" />
                 </SelectTrigger>
                 <SelectContent>
@@ -397,7 +460,7 @@ export function HeaderLinkControls({ config, onChange, title, description, defau
 
             {(cfg.backgroundMode || 'solid') === 'solid' ? (
               <div className="space-y-2">
-                <Label className="text-slate-300">Background Color</Label>
+                <Label className={t.label}>Background Color</Label>
                 <div className="flex items-center gap-2">
                   <input
                     type="color"
@@ -411,26 +474,27 @@ export function HeaderLinkControls({ config, onChange, title, description, defau
                     placeholder="#5C0085"
                     value={cfg.solidColor || ''}
                     onChange={(e) => update({ solidColor: e.target.value })}
-                    className="bg-slate-900 border-slate-600 text-white font-mono"
+                    className={`${t.input} font-mono`}
                     data-testid={`input-${testIdPrefix}-solid-color-hex`}
                   />
                 </div>
-                <p className="text-xs text-slate-500">Solid background color for the button.</p>
+                <p className={t.hint}>Solid background color for the button.</p>
               </div>
             ) : (
               <div className="space-y-2">
-                <Label className="text-slate-300">Background Gradient</Label>
+                <Label className={t.label}>Background Gradient</Label>
                 <GradientStopsEditor
                   stops={cfg.gradientStops || HEADER_LINK_GRADIENT_STOPS}
                   onChange={(s) => update({ gradientStops: s })}
                   testIdPrefix={`${testIdPrefix}-gradient`}
+                  tone={tone}
                 />
               </div>
             )}
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label className="text-slate-300">Corner Radius (px)</Label>
+                <Label className={t.label}>Corner Radius (px)</Label>
                 <Input
                   type="number"
                   min="0"
@@ -441,13 +505,13 @@ export function HeaderLinkControls({ config, onChange, title, description, defau
                     const val = e.target.value;
                     update({ cornerRadius: val === '' ? '' : parseInt(val, 10) });
                   }}
-                  className="bg-slate-900 border-slate-600 text-white"
+                  className={t.input}
                   data-testid={`input-${testIdPrefix}-corner-radius`}
                 />
-                <p className="text-xs text-slate-500">Roundness of the button corners. Leave blank for square (0px).</p>
+                <p className={t.hint}>Roundness of the button corners. Leave blank for square (0px).</p>
               </div>
               <div className="space-y-2">
-                <Label className="text-slate-300">Border Width (px)</Label>
+                <Label className={t.label}>Border Width (px)</Label>
                 <Input
                   type="number"
                   min="0"
@@ -458,13 +522,13 @@ export function HeaderLinkControls({ config, onChange, title, description, defau
                     const val = e.target.value;
                     update({ borderWidth: val === '' ? '' : parseInt(val, 10) });
                   }}
-                  className="bg-slate-900 border-slate-600 text-white"
+                  className={t.input}
                   data-testid={`input-${testIdPrefix}-border-width`}
                 />
-                <p className="text-xs text-slate-500">Thickness of the border. Leave blank for no border.</p>
+                <p className={t.hint}>Thickness of the border. Leave blank for no border.</p>
               </div>
               <div className="space-y-2">
-                <Label className="text-slate-300">Border Color</Label>
+                <Label className={t.label}>Border Color</Label>
                 <div className="flex items-center gap-2">
                   <input
                     type="color"
@@ -478,18 +542,18 @@ export function HeaderLinkControls({ config, onChange, title, description, defau
                     placeholder="No border color"
                     value={cfg.borderColor || ''}
                     onChange={(e) => update({ borderColor: e.target.value })}
-                    className="bg-slate-900 border-slate-600 text-white font-mono"
+                    className={`${t.input} font-mono`}
                     data-testid={`input-${testIdPrefix}-border-color-hex`}
                   />
                 </div>
               </div>
               <div className="space-y-2">
-                <Label className="text-slate-300">Border Style</Label>
+                <Label className={t.label}>Border Style</Label>
                 <Select
                   value={cfg.borderStyle || 'solid'}
                   onValueChange={(val) => update({ borderStyle: val })}
                 >
-                  <SelectTrigger className="bg-slate-900 border-slate-600 text-white" data-testid={`select-${testIdPrefix}-border-style`}>
+                  <SelectTrigger className={t.input} data-testid={`select-${testIdPrefix}-border-style`}>
                     <SelectValue placeholder="Solid" />
                   </SelectTrigger>
                   <SelectContent>
@@ -503,7 +567,7 @@ export function HeaderLinkControls({ config, onChange, title, description, defau
             </div>
 
             <div className="space-y-2">
-              <Label className="text-slate-300">Label Color</Label>
+              <Label className={t.label}>Label Color</Label>
               <div className="flex items-center gap-2">
                 <input
                   type="color"
@@ -517,16 +581,16 @@ export function HeaderLinkControls({ config, onChange, title, description, defau
                   placeholder="Inherit nav text color"
                   value={cfg.labelColor || ''}
                   onChange={(e) => update({ labelColor: e.target.value })}
-                  className="bg-slate-900 border-slate-600 text-white font-mono"
+                  className={`${t.input} font-mono`}
                   data-testid={`input-${testIdPrefix}-label-color-hex`}
                 />
               </div>
-              <p className="text-xs text-slate-500">Color of the button label text. Leave blank to inherit the top-nav text color.</p>
+              <p className={t.hint}>Color of the button label text. Leave blank to inherit the top-nav text color.</p>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label className="text-slate-300">Height (px)</Label>
+                <Label className={t.label}>Height (px)</Label>
                 <Input
                   type="number"
                   min="0"
@@ -537,13 +601,13 @@ export function HeaderLinkControls({ config, onChange, title, description, defau
                     const val = e.target.value;
                     update({ height: val === '' ? '' : parseInt(val, 10) });
                   }}
-                  className="bg-slate-900 border-slate-600 text-white"
+                  className={t.input}
                   data-testid={`input-${testIdPrefix}-height`}
                 />
-                <p className="text-xs text-slate-500">Button height. Leave blank to size to content.</p>
+                <p className={t.hint}>Button height. Leave blank to size to content.</p>
               </div>
               <div className="space-y-2">
-                <Label className="text-slate-300">Width (px)</Label>
+                <Label className={t.label}>Width (px)</Label>
                 <Input
                   type="number"
                   min="0"
@@ -554,10 +618,10 @@ export function HeaderLinkControls({ config, onChange, title, description, defau
                     const val = e.target.value;
                     update({ width: val === '' ? '' : parseInt(val, 10) });
                   }}
-                  className="bg-slate-900 border-slate-600 text-white"
+                  className={t.input}
                   data-testid={`input-${testIdPrefix}-width`}
                 />
-                <p className="text-xs text-slate-500">Button width. Leave blank to size to content.</p>
+                <p className={t.hint}>Button width. Leave blank to size to content.</p>
               </div>
             </div>
           </>
@@ -670,8 +734,10 @@ export function SecondaryBarControls({
   testIdPrefix = 'secondary-bar',
   headerExtra,
   title = 'Secondary Lower Navigation Bar',
-  description = 'Add an optional second bar below the top navigation bar with its own height and gradient background'
+  description = 'Add an optional second bar below the top navigation bar with its own height and gradient background',
+  tone = 'dark'
 }) {
+  const t = getBrandingTone(tone);
   const sb = value || {};
   const set = (patch) => onChange({ ...sb, ...patch });
   const navLabels = (mainNavItems && mainNavItems.length > 0)
@@ -679,15 +745,15 @@ export function SecondaryBarControls({
     : ['Membership', 'Resources', 'News', 'Get Involved'];
   const hoverClass = `sb-preview-link-${testIdPrefix}`;
   return (
-    <Card className="bg-slate-800/50 border-slate-700">
+    <Card className={t.card}>
       <CardHeader>
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-1.5">
-            <CardTitle className="text-white flex items-center gap-2">
+            <CardTitle className={`${t.cardTitle} flex items-center gap-2`}>
               <Palette className="w-5 h-5" />
               {title}
             </CardTitle>
-            <CardDescription className="text-slate-400">{description}</CardDescription>
+            <CardDescription className={t.cardDesc}>{description}</CardDescription>
           </div>
           {headerExtra || null}
         </div>
@@ -698,8 +764,8 @@ export function SecondaryBarControls({
         ) : null}
         <div className="flex items-center justify-between gap-3">
           <div className="space-y-0.5">
-            <Label className="text-slate-300">Enable secondary bar</Label>
-            <p className="text-xs text-slate-500">Renders a second bar directly beneath the top navigation bar</p>
+            <Label className={t.label}>Enable secondary bar</Label>
+            <p className={t.hint}>Renders a second bar directly beneath the top navigation bar</p>
           </div>
           <Switch
             checked={!!sb.enabled}
@@ -711,7 +777,7 @@ export function SecondaryBarControls({
         {sb.enabled && (
           <>
             <div className="space-y-2">
-              <Label className="text-slate-300">Secondary Bar Height (px)</Label>
+              <Label className={t.label}>Secondary Bar Height (px)</Label>
               <Input
                 type="number"
                 min="20"
@@ -722,15 +788,15 @@ export function SecondaryBarControls({
                   const val = e.target.value;
                   set({ height: val === '' ? '' : parseInt(val, 10) });
                 }}
-                className="bg-slate-900 border-slate-600 text-white"
+                className={t.input}
                 data-testid={`input-${testIdPrefix}-height`}
               />
             </div>
 
             <div className="space-y-1">
-              <Label className="text-slate-300 text-xs">Live Preview</Label>
+              <Label className={`${t.label} text-xs`}>Live Preview</Label>
               <div
-                className="rounded-lg border border-slate-600 overflow-hidden flex"
+                className={`rounded-lg border ${t.previewBorder} overflow-hidden flex`}
                 style={{
                   minHeight: `${Math.min(Math.max(parseInt(sb.height, 10) || 48, 24), 120)}px`,
                   background: `linear-gradient(to right, ${(sb.gradientStops || DEFAULT_SECONDARY_BAR_GRADIENT_STOPS)
@@ -802,18 +868,19 @@ export function SecondaryBarControls({
             </div>
 
             <div className="space-y-2">
-              <Label className="text-slate-300">Bar Background Gradient</Label>
+              <Label className={t.label}>Bar Background Gradient</Label>
               <GradientStopsEditor
                 stops={sb.gradientStops || DEFAULT_SECONDARY_BAR_GRADIENT_STOPS}
                 onChange={(s) => set({ gradientStops: s })}
                 testIdPrefix={`${testIdPrefix}-gradient`}
+                tone={tone}
               />
-              <p className="text-xs text-slate-500">Adjust sliders to control where each color appears in the gradient (0% = left, 100% = right).</p>
+              <p className={t.hint}>Adjust sliders to control where each color appears in the gradient (0% = left, 100% = right).</p>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-700">
+            <div className={`grid grid-cols-2 gap-4 pt-2 border-t ${t.divider}`}>
               <div className="space-y-2">
-                <Label className="text-slate-300">Link Text Color</Label>
+                <Label className={t.label}>Link Text Color</Label>
                 <div className="flex items-center gap-2">
                   <input
                     type="color"
@@ -827,14 +894,14 @@ export function SecondaryBarControls({
                     placeholder="#FFFFFF"
                     value={sb.textColor || ''}
                     onChange={(e) => set({ textColor: e.target.value })}
-                    className="bg-slate-900 border-slate-600 text-white font-mono"
+                    className={`${t.input} font-mono`}
                     data-testid={`input-${testIdPrefix}-text-color-hex`}
                   />
                 </div>
-                <p className="text-xs text-slate-500">Color of the main menu link text in this bar. Defaults to white.</p>
+                <p className={t.hint}>Color of the main menu link text in this bar. Defaults to white.</p>
               </div>
               <div className="space-y-2">
-                <Label className="text-slate-300">Link Font Size (px)</Label>
+                <Label className={t.label}>Link Font Size (px)</Label>
                 <Input
                   type="number"
                   min="8"
@@ -845,13 +912,13 @@ export function SecondaryBarControls({
                     const val = e.target.value;
                     set({ fontSize: val === '' ? '' : parseInt(val, 10) });
                   }}
-                  className="bg-slate-900 border-slate-600 text-white"
+                  className={t.input}
                   data-testid={`input-${testIdPrefix}-font-size`}
                 />
-                <p className="text-xs text-slate-500">Size of the main menu link text. Leave blank for default.</p>
+                <p className={t.hint}>Size of the main menu link text. Leave blank for default.</p>
               </div>
               <div className="space-y-2">
-                <Label className="text-slate-300">Link Hover Color</Label>
+                <Label className={t.label}>Link Hover Color</Label>
                 <div className="flex items-center gap-2">
                   <input
                     type="color"
@@ -865,19 +932,19 @@ export function SecondaryBarControls({
                     placeholder="No hover change"
                     value={sb.hoverColor || ''}
                     onChange={(e) => set({ hoverColor: e.target.value })}
-                    className="bg-slate-900 border-slate-600 text-white font-mono"
+                    className={`${t.input} font-mono`}
                     data-testid={`input-${testIdPrefix}-hover-color-hex`}
                   />
                 </div>
-                <p className="text-xs text-slate-500">Color links change to on hover. Leave blank to keep current behavior.</p>
+                <p className={t.hint}>Color links change to on hover. Leave blank to keep current behavior.</p>
               </div>
               <div className="space-y-2">
-                <Label className="text-slate-300">Link Font Weight</Label>
+                <Label className={t.label}>Link Font Weight</Label>
                 <Select
                   value={sb.fontWeight ? String(sb.fontWeight) : 'default'}
                   onValueChange={(val) => set({ fontWeight: val === 'default' ? '' : parseInt(val, 10) })}
                 >
-                  <SelectTrigger className="bg-slate-900 border-slate-600 text-white" data-testid={`select-${testIdPrefix}-font-weight`}>
+                  <SelectTrigger className={t.input} data-testid={`select-${testIdPrefix}-font-weight`}>
                     <SelectValue placeholder="Default" />
                   </SelectTrigger>
                   <SelectContent>
@@ -887,15 +954,15 @@ export function SecondaryBarControls({
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-slate-500">Weight of the main menu link text. Leave at default to keep current styling.</p>
+                <p className={t.hint}>Weight of the main menu link text. Leave at default to keep current styling.</p>
               </div>
               <div className="space-y-2">
-                <Label className="text-slate-300">Base Font Family</Label>
+                <Label className={t.label}>Base Font Family</Label>
                 <Select
                   value={sb.fontFamily || 'default'}
                   onValueChange={(val) => set({ fontFamily: val === 'default' ? '' : val })}
                 >
-                  <SelectTrigger className="bg-slate-900 border-slate-600 text-white" data-testid={`select-${testIdPrefix}-font-family`}>
+                  <SelectTrigger className={t.input} data-testid={`select-${testIdPrefix}-font-family`}>
                     <SelectValue placeholder="Poppins" />
                   </SelectTrigger>
                   <SelectContent>
@@ -905,7 +972,7 @@ export function SecondaryBarControls({
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-slate-500">Font family for the main menu links. Defaults to Poppins.</p>
+                <p className={t.hint}>Font family for the main menu links. Defaults to Poppins.</p>
               </div>
             </div>
 
@@ -913,6 +980,7 @@ export function SecondaryBarControls({
               value={sb.indicator}
               onChange={(ind) => set({ indicator: ind })}
               testIdPrefix={`${testIdPrefix}-indicator`}
+              tone={tone}
             />
           </>
         )}
@@ -932,8 +1000,10 @@ export function FooterControls({
   testIdPrefix = 'footer',
   headerExtra,
   title = 'Footer Configuration',
-  description = 'Customize the public website footer content'
+  description = 'Customize the public website footer content',
+  tone = 'dark'
 }) {
+  const t = getBrandingTone(tone);
   const fc = value || {};
   const set = (patch) => onChange({ ...fc, ...patch });
   const [newGradientColor, setNewGradientColor] = useState('#5C0085');
@@ -946,28 +1016,28 @@ export function FooterControls({
   };
 
   return (
-    <Card className="bg-slate-800/50 border-slate-700">
+    <Card className={t.card}>
       <CardHeader>
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-1.5">
-            <CardTitle className="text-white flex items-center gap-2">
+            <CardTitle className={`${t.cardTitle} flex items-center gap-2`}>
               <Palette className="w-5 h-5" />
               {title}
             </CardTitle>
-            <CardDescription className="text-slate-400">{description}</CardDescription>
+            <CardDescription className={t.cardDesc}>{description}</CardDescription>
           </div>
           {headerExtra || null}
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="space-y-2">
-          <Label className="text-slate-200">Number of Footer Columns</Label>
-          <p className="text-slate-400 text-sm">How many navigation columns to display in the footer (configured in Portal Navigation Management)</p>
+          <Label className={t.labelStrong}>Number of Footer Columns</Label>
+          <p className={`${t.stopMeta} text-sm`}>How many navigation columns to display in the footer (configured in Portal Navigation Management)</p>
           <Select
             value={String(fc.columns || 4)}
             onValueChange={(value) => set({ columns: parseInt(value, 10) })}
           >
-            <SelectTrigger className="bg-slate-900/50 border-slate-600 text-white w-32" data-testid={`select-${testIdPrefix}-columns`}>
+            <SelectTrigger className={`${t.inputSoft} w-32`} data-testid={`select-${testIdPrefix}-columns`}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -982,33 +1052,33 @@ export function FooterControls({
         </div>
 
         <div className="space-y-2">
-          <Label className="text-slate-200">Newsletter Heading</Label>
+          <Label className={t.labelStrong}>Newsletter Heading</Label>
           <Input
             value={fc.newsletterText || ''}
             onChange={(e) => set({ newsletterText: e.target.value })}
-            className="bg-slate-900/50 border-slate-600 text-white"
+            className={t.inputSoft}
             placeholder="Sign up to our newsletter"
             data-testid={`input-${testIdPrefix}-newsletter-text`}
           />
         </div>
 
         <div className="space-y-3">
-          <Label className="text-slate-200">Gradient Colors</Label>
-          <p className="text-slate-400 text-sm">Colors used in the footer gradient bar and buttons</p>
+          <Label className={t.labelStrong}>Gradient Colors</Label>
+          <p className={`${t.stopMeta} text-sm`}>Colors used in the footer gradient bar and buttons</p>
           <div className="flex flex-wrap gap-2 mb-2">
             {(fc.gradientColors || []).map((color, index) => (
-              <div key={index} className="flex items-center gap-1 bg-slate-700 rounded px-2 py-1">
+              <div key={index} className={`flex items-center gap-1 ${t.chip} rounded px-2 py-1`}>
                 <input
                   type="color"
                   value={color}
                   onChange={(e) => set({ gradientColors: (fc.gradientColors || []).map((c, i) => i === index ? e.target.value : c) })}
                   className="w-6 h-6 rounded cursor-pointer"
                 />
-                <span className="text-white text-sm">{color}</span>
+                <span className={`${t.chipText} text-sm`}>{color}</span>
                 <button
                   type="button"
                   onClick={() => set({ gradientColors: (fc.gradientColors || []).filter((_, i) => i !== index) })}
-                  className="text-slate-400 hover:text-red-400 ml-1"
+                  className={`${t.chipRemove} ml-1`}
                   data-testid={`button-remove-${testIdPrefix}-gradient-${index}`}
                 >
                   <X className="w-3 h-3" />
@@ -1028,7 +1098,7 @@ export function FooterControls({
               variant="outline"
               size="sm"
               onClick={() => set({ gradientColors: [...(fc.gradientColors || []), newGradientColor] })}
-              className="border-slate-600 text-slate-300"
+              className={t.outlineBtn}
               data-testid={`button-add-${testIdPrefix}-gradient-color`}
             >
               <Plus className="w-4 h-4 mr-1" />
@@ -1045,8 +1115,8 @@ export function FooterControls({
 
         <div className="grid md:grid-cols-2 gap-6">
           <div className="space-y-2">
-            <Label className="text-slate-200">Background Color</Label>
-            <p className="text-slate-400 text-sm">The background color for the footer section</p>
+            <Label className={t.labelStrong}>Background Color</Label>
+            <p className={`${t.stopMeta} text-sm`}>The background color for the footer section</p>
             <div className="flex items-center gap-3">
               <input
                 type="color"
@@ -1058,15 +1128,15 @@ export function FooterControls({
               <Input
                 value={fc.backgroundColor || ''}
                 onChange={(e) => set({ backgroundColor: e.target.value })}
-                className="bg-slate-900/50 border-slate-600 text-white flex-1"
+                className={`${t.inputSoft} flex-1`}
                 placeholder="#000000"
                 data-testid={`input-${testIdPrefix}-background-color-text`}
               />
             </div>
           </div>
           <div className="space-y-2">
-            <Label className="text-slate-200">Text Color</Label>
-            <p className="text-slate-400 text-sm">The text color for footer content</p>
+            <Label className={t.labelStrong}>Text Color</Label>
+            <p className={`${t.stopMeta} text-sm`}>The text color for footer content</p>
             <div className="flex items-center gap-3">
               <input
                 type="color"
@@ -1078,7 +1148,7 @@ export function FooterControls({
               <Input
                 value={fc.textColor || ''}
                 onChange={(e) => set({ textColor: e.target.value })}
-                className="bg-slate-900/50 border-slate-600 text-white flex-1"
+                className={`${t.inputSoft} flex-1`}
                 placeholder="#FFFFFF"
                 data-testid={`input-${testIdPrefix}-text-color-text`}
               />
@@ -1086,27 +1156,27 @@ export function FooterControls({
           </div>
         </div>
 
-        <div className="border-t border-slate-700 pt-4 space-y-4">
-          <h4 className="text-white font-medium">Address</h4>
+        <div className={`border-t ${t.divider} pt-4 space-y-4`}>
+          <h4 className={t.heading}>Address</h4>
           <div className="space-y-2">
-            <Label className="text-slate-200">Organization Name</Label>
+            <Label className={t.labelStrong}>Organization Name</Label>
             <Input
               value={fc.address?.name || ''}
               onChange={(e) => set({ address: { ...(fc.address || {}), name: e.target.value } })}
-              className="bg-slate-900/50 border-slate-600 text-white"
+              className={t.inputSoft}
               placeholder="Your Organization Name"
               data-testid={`input-${testIdPrefix}-address-name`}
             />
           </div>
           <div className="space-y-2">
-            <Label className="text-slate-200">Address Lines</Label>
+            <Label className={t.labelStrong}>Address Lines</Label>
             <div className="space-y-2">
               {(fc.address?.lines || []).map((line, index) => (
                 <div key={index} className="flex items-center gap-2">
                   <Input
                     value={line}
                     disabled
-                    className="bg-slate-900/50 border-slate-600 text-white flex-1"
+                    className={`${t.inputSoft} flex-1`}
                   />
                   <Button
                     type="button"
@@ -1123,7 +1193,7 @@ export function FooterControls({
                 <Input
                   value={newAddressLine}
                   onChange={(e) => setNewAddressLine(e.target.value)}
-                  className="bg-slate-900/50 border-slate-600 text-white flex-1"
+                  className={`${t.inputSoft} flex-1`}
                   placeholder="Add address line..."
                   onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addAddressLine())}
                   data-testid={`input-${testIdPrefix}-new-address-line`}
@@ -1133,7 +1203,7 @@ export function FooterControls({
                   variant="outline"
                   size="icon"
                   onClick={addAddressLine}
-                  className="border-slate-600 text-slate-300"
+                  className={t.outlineBtn}
                   data-testid={`button-add-${testIdPrefix}-address-line`}
                 >
                   <Plus className="w-4 h-4" />
@@ -1143,25 +1213,25 @@ export function FooterControls({
           </div>
         </div>
 
-        <div className="border-t border-slate-700 pt-4 space-y-4">
-          <h4 className="text-white font-medium">Contact Information</h4>
+        <div className={`border-t ${t.divider} pt-4 space-y-4`}>
+          <h4 className={t.heading}>Contact Information</h4>
           <div className="grid md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label className="text-slate-200">Phone Number</Label>
+              <Label className={t.labelStrong}>Phone Number</Label>
               <Input
                 value={fc.contact?.phone || ''}
                 onChange={(e) => set({ contact: { ...(fc.contact || {}), phone: e.target.value } })}
-                className="bg-slate-900/50 border-slate-600 text-white"
+                className={t.inputSoft}
                 placeholder="+44 (0)114 251 5750"
                 data-testid={`input-${testIdPrefix}-phone`}
               />
             </div>
             <div className="space-y-2">
-              <Label className="text-slate-200">Email Address</Label>
+              <Label className={t.labelStrong}>Email Address</Label>
               <Input
                 value={fc.contact?.email || ''}
                 onChange={(e) => set({ contact: { ...(fc.contact || {}), email: e.target.value } })}
-                className="bg-slate-900/50 border-slate-600 text-white"
+                className={t.inputSoft}
                 placeholder="hello@example.org"
                 data-testid={`input-${testIdPrefix}-email`}
               />
@@ -1169,35 +1239,35 @@ export function FooterControls({
           </div>
         </div>
 
-        <div className="border-t border-slate-700 pt-4 space-y-4">
-          <h4 className="text-white font-medium">Legal</h4>
+        <div className={`border-t ${t.divider} pt-4 space-y-4`}>
+          <h4 className={t.heading}>Legal</h4>
           <div className="space-y-2">
-            <Label className="text-slate-200">Legal / Charity Text</Label>
+            <Label className={t.labelStrong}>Legal / Charity Text</Label>
             <Textarea
               value={fc.legalText || ''}
               onChange={(e) => set({ legalText: e.target.value })}
-              className="bg-slate-900/50 border-slate-600 text-white min-h-[80px]"
+              className={`${t.inputSoft} min-h-[80px]`}
               placeholder="Registered charity number, company registration info, etc."
               data-testid={`input-${testIdPrefix}-legal-text`}
             />
           </div>
           <div className="grid md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label className="text-slate-200">Terms & Conditions URL</Label>
+              <Label className={t.labelStrong}>Terms & Conditions URL</Label>
               <Input
                 value={fc.termsAndConditionsUrl || ''}
                 onChange={(e) => set({ termsAndConditionsUrl: e.target.value })}
-                className="bg-slate-900/50 border-slate-600 text-white"
+                className={t.inputSoft}
                 placeholder="https://..."
                 data-testid={`input-${testIdPrefix}-terms-url`}
               />
             </div>
             <div className="space-y-2">
-              <Label className="text-slate-200">Privacy Policy URL</Label>
+              <Label className={t.labelStrong}>Privacy Policy URL</Label>
               <Input
                 value={fc.privacyPolicyUrl || ''}
                 onChange={(e) => set({ privacyPolicyUrl: e.target.value })}
-                className="bg-slate-900/50 border-slate-600 text-white"
+                className={t.inputSoft}
                 placeholder="https://..."
                 data-testid={`input-${testIdPrefix}-privacy-url`}
               />

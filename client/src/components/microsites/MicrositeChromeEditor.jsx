@@ -87,7 +87,7 @@ async function readJson(res) {
 function OverrideToggle({ checked, onChange, testId }) {
   return (
     <div className="flex items-center gap-2 flex-shrink-0">
-      <span className="text-xs text-slate-400">Override</span>
+      <span className="text-xs text-muted-foreground">Override</span>
       <Switch checked={checked} onCheckedChange={onChange} data-testid={testId} />
     </div>
   );
@@ -95,15 +95,15 @@ function OverrideToggle({ checked, onChange, testId }) {
 
 function ChromeCard({ icon: Icon, title, description, overridden, onToggle, testId, children }) {
   return (
-    <Card className="bg-slate-800/50 border-slate-700">
+    <Card>
       <CardHeader>
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-1.5">
-            <CardTitle className="text-white flex items-center gap-2 text-base">
+            <CardTitle className="flex items-center gap-2 text-base">
               <Icon className="w-5 h-5" />
               {title}
             </CardTitle>
-            <CardDescription className="text-slate-400">{description}</CardDescription>
+            <CardDescription>{description}</CardDescription>
           </div>
           <OverrideToggle checked={overridden} onChange={onToggle} testId={testId} />
         </div>
@@ -112,7 +112,7 @@ function ChromeCard({ icon: Icon, title, description, overridden, onToggle, test
         <CardContent className="space-y-4">{children}</CardContent>
       ) : (
         <CardContent>
-          <p className="text-sm text-slate-500">Inheriting the tenant branding for this section.</p>
+          <p className="text-sm text-muted-foreground">Inheriting the tenant branding for this section.</p>
         </CardContent>
       )}
     </Card>
@@ -122,7 +122,7 @@ function ChromeCard({ icon: Icon, title, description, overridden, onToggle, test
 function ColorField({ label, value, onChange, placeholder, testId, hint }) {
   return (
     <div className="space-y-2">
-      <Label className="text-slate-300">{label}</Label>
+      <Label className="">{label}</Label>
       <div className="flex items-center gap-2">
         <input
           type="color"
@@ -136,11 +136,11 @@ function ColorField({ label, value, onChange, placeholder, testId, hint }) {
           placeholder={placeholder || "#5C0085"}
           value={value || ""}
           onChange={(e) => onChange(e.target.value)}
-          className="bg-slate-900 border-slate-600 text-white font-mono"
+          className="font-mono"
           data-testid={testId}
         />
       </div>
-      {hint && <p className="text-xs text-slate-500">{hint}</p>}
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
   );
 }
@@ -174,9 +174,9 @@ function ImageField({ label, value, onChange, hint, testIdPrefix, toast }) {
 
   return (
     <div className="space-y-2">
-      <Label className="text-slate-300">{label}</Label>
+      <Label className="">{label}</Label>
       {value && (
-        <div className="rounded-lg border border-slate-600 bg-slate-900/50 p-3 inline-block">
+        <div className="rounded-lg border bg-muted p-3 inline-block">
           <img src={value} alt={label} className="max-h-16 max-w-[200px] object-contain" data-testid={`img-${testIdPrefix}`} />
         </div>
       )}
@@ -186,7 +186,7 @@ function ImageField({ label, value, onChange, hint, testIdPrefix, toast }) {
           type="button"
           variant="outline"
           size="sm"
-          className="border-slate-600 text-slate-300"
+          className=""
           disabled={uploading}
           onClick={() => inputRef.current?.click()}
           data-testid={`button-upload-${testIdPrefix}`}
@@ -199,11 +199,11 @@ function ImageField({ label, value, onChange, hint, testIdPrefix, toast }) {
           placeholder="https://…"
           value={value || ""}
           onChange={(e) => onChange(e.target.value)}
-          className="bg-slate-900 border-slate-600 text-white flex-1 min-w-[200px]"
+          className="flex-1 min-w-[200px]"
           data-testid={`input-${testIdPrefix}-url`}
         />
       </div>
-      {hint && <p className="text-xs text-slate-500">{hint}</p>}
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
   );
 }
@@ -449,7 +449,7 @@ export default function MicrositeChromeEditor({ microsite }) {
         testId="switch-override-header-gradient"
       >
         <div
-          className="rounded-lg border border-slate-600 h-10"
+          className="rounded-lg border h-10"
           style={{
             background: `linear-gradient(to right, ${(header.gradientStops.length > 0 ? header.gradientStops : DEFAULT_HEADER_GRADIENT_STOPS)
               .slice()
@@ -463,6 +463,7 @@ export default function MicrositeChromeEditor({ microsite }) {
           stops={header.gradientStops.length > 0 ? header.gradientStops : DEFAULT_HEADER_GRADIENT_STOPS}
           onChange={(s) => setHeader({ gradientStops: s })}
           testIdPrefix="ms-header-gradient"
+          tone="light"
         />
       </ChromeCard>
 
@@ -475,6 +476,7 @@ export default function MicrositeChromeEditor({ microsite }) {
           description="Style of the Login item shown to logged-out visitors on microsite pages."
           defaultLabel="Login"
           testIdPrefix="ms-login-link"
+          tone="light"
           previewBackgroundStops={header.gradientStops.length > 0 ? header.gradientStops : (thc.gradientStops || DEFAULT_LOGIN_BUTTON_GRADIENT_STOPS)}
           headerExtra={<OverrideToggle checked onChange={(on) => setOverride("loginButton", on)} testId="switch-override-login-button" />}
         />
@@ -498,6 +500,7 @@ export default function MicrositeChromeEditor({ microsite }) {
           description="Style of the Member Area item shown to logged-in members on microsite pages."
           defaultLabel="Member Area"
           testIdPrefix="ms-member-area-link"
+          tone="light"
           previewBackgroundStops={header.gradientStops.length > 0 ? header.gradientStops : (thc.gradientStops || DEFAULT_LOGIN_BUTTON_GRADIENT_STOPS)}
           headerExtra={<OverrideToggle checked onChange={(on) => setOverride("memberButton", on)} testId="switch-override-member-button" />}
         />
@@ -522,6 +525,7 @@ export default function MicrositeChromeEditor({ microsite }) {
           primaryColor={branding.primary_color || tb.primaryColor}
           secondaryColor={branding.secondary_color || tb.secondaryColor}
           testIdPrefix="ms-secondary-bar"
+          tone="light"
           title="Secondary Lower Navigation Bar"
           description="Optional second bar under the main header with its own height, colors and active-item indicator."
           headerExtra={<OverrideToggle checked onChange={(on) => setOverride("secondaryBar", on)} testId="switch-override-secondary-bar" />}
@@ -555,29 +559,29 @@ export default function MicrositeChromeEditor({ microsite }) {
           toast={toast}
         />
         <div className="space-y-2">
-          <Label className="text-slate-300">Tagline</Label>
+          <Label className="">Tagline</Label>
           <Input
             type="text"
             maxLength={120}
             placeholder="Inherits tenant tagline"
             value={branding.tagline}
             onChange={(e) => setBranding({ tagline: e.target.value })}
-            className="bg-slate-900 border-slate-600 text-white"
+            className=""
             data-testid="input-ms-tagline"
           />
         </div>
         <div className="space-y-2">
-          <Label className="text-slate-300">Description</Label>
+          <Label className="">Description</Label>
           <Textarea
             rows={3}
             maxLength={300}
             placeholder="Inherits tenant description"
             value={branding.description}
             onChange={(e) => setBranding({ description: e.target.value })}
-            className="bg-slate-900 border-slate-600 text-white"
+            className=""
             data-testid="input-ms-description"
           />
-          <p className="text-xs text-slate-500">Shown in search results and link previews for this microsite's pages.</p>
+          <p className="text-xs text-muted-foreground">Shown in search results and link previews for this microsite's pages.</p>
         </div>
       </ChromeCard>
 
@@ -587,6 +591,7 @@ export default function MicrositeChromeEditor({ microsite }) {
           value={footer}
           onChange={(fc) => setState((s) => ({ ...s, footer: fc }))}
           testIdPrefix="ms-footer"
+          tone="light"
           title="Footer Configuration"
           description="Columns, colors, address, contact details and legal text of the footer on microsite pages."
           headerExtra={<OverrideToggle checked onChange={(on) => setOverride("footer", on)} testId="switch-override-footer" />}
