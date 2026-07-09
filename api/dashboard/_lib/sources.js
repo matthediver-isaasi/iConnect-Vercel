@@ -28,6 +28,33 @@ export const DASHBOARD_SOURCES = {
       // count_distinct(country) measure used by seeded widgets can be
       // configured from the builder against organization.country.
       { name: 'country', label: 'Country', type: 'text' },
+      {
+        // Derived dimension: world region classified from the org's
+        // "Countries of operation" multi-country preference field(s)
+        // (field_type `countries`). Not a stored column — the
+        // aggregation engine computes each row's bucket at query time
+        // via shared/countryRegions.js (one region → its name, several
+        // → "Multi-region", none/unresolvable → "Unknown").
+        // `derived` keeps it out of the SQL column selection;
+        // `groupOnly` tells the builder to offer it exclusively as a
+        // Group-by option (it can't be measured, filtered or
+        // time-bucketed).
+        name: 'region',
+        label: 'Region',
+        type: 'enum',
+        derived: 'region',
+        groupOnly: true,
+        options: [
+          { value: 'Africa', label: 'Africa' },
+          { value: 'Asia', label: 'Asia' },
+          { value: 'Europe', label: 'Europe' },
+          { value: 'Latin America', label: 'Latin America' },
+          { value: 'North America', label: 'North America' },
+          { value: 'Oceania', label: 'Oceania' },
+          { value: 'Multi-region', label: 'Multi-region' },
+          { value: 'Unknown', label: 'Unknown' },
+        ],
+      },
       { name: 'created_at', label: 'Created at', type: 'date' },
       { name: 'last_synced', label: 'Last synced', type: 'date' },
       { name: 'training_fund_balance', label: 'Training fund balance', type: 'number', aggregatable: true },

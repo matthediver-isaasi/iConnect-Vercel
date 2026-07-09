@@ -2,6 +2,7 @@ import { supabase } from '../../_lib/database.js';
 import { tenantFilter } from './permissions.js';
 import { getSourceDef, getCustomFieldsForSource } from './sources.js';
 import { resolveCountryToIso2 } from '../../../shared/countries.js';
+import { deriveRegionBucket, REGION_UNKNOWN } from '../../../shared/countryRegions.js';
 import {
   buildStageMaps,
   mkMatchers,
@@ -64,6 +65,24 @@ export async function runWidgetConfig(config, tenantId) {
     throw new Error('Choose either group-by or time-bucket, not both');
   }
 
+  // Derived "Region" dimension: classified at query time from the
+  // tenant's `countries`-typed preference fields (e.g. "Countries of
+  // operation"). There is no stored `region` column, so the field is
+  // only valid as a group-by — reject any other reference up front so a
+  // malformed config fails with a clear message instead of a SQL error.
+  const regionField = (source.systemFields || []).find(f => f.derived === 'region') || null;
+  const isRegionRef = ref => !!regionField
+    && !!ref
+    && (ref.fieldKind === 'system' || ref.kind === 'system' || (!ref.fieldKind && !ref.kind))
+    && ref.field === regionField.name;
+  const regionGroupBy = !!(groupBy && groupBy.kind === 'system' && isRegionRef(groupBy));
+  if (isRegionRef(measure)
+    || (measure.additionalFields || []).some(isRegionRef)
+    || (config.filters || []).some(isRegionRef)
+    || (timeBucket && isRegionRef(timeBucket))) {
+    throw new Error('Region is a derived dimension and can only be used for grouping');
+  }
+
   // count and count_distinct accept any field type; numeric aggregators
   // require a numeric field. Reject mismatches up front. This
   // prevents silent string coercion that would otherwise return zero or NaN.
@@ -87,7 +106,10 @@ export async function runWidgetConfig(config, tenantId) {
   if (measure.field && measure.fieldKind === 'system') {
     systemColumns.add(measure.field);
   }
-  if (groupBy?.kind === 'system') systemColumns.add(groupBy.field);
+  // The derived region dimension has no stored column — its per-row value
+  // is computed below from preference values, so it must never reach the
+  // SQL column selection.
+  if (groupBy?.kind === 'system' && !regionGroupBy) systemColumns.add(groupBy.field);
   // Custom-field timeBucket (e.g. organisation.go_live) does NOT add to the
   // system column set — its value is hydrated via the preference store
   // below, not the base row.
@@ -166,6 +188,36 @@ export async function runWidgetConfig(config, tenantId) {
     });
   }
 
+  // Hydrate the derived Region bucket per row. Every value of every
+  // `countries`-typed preference field contributes (the FULL stored list,
+  // deliberately bypassing the first-element semantics of valueFor /
+  // extractPrimitive): one distinct region → its name, several →
+  // "Multi-region", none / unresolvable → "Unknown".
+  let regionByRowId = null;
+  if (regionGroupBy && workingRows.length > 0) {
+    const allCustomFields = await getCustomFieldsForSource(source, tenantId);
+    const countryFieldIds = allCustomFields
+      .filter(f => f.fieldType === 'countries')
+      .map(f => f.id);
+    const regionPrefMap = countryFieldIds.length > 0
+      ? await loadPreferenceValues({
+          table: source.preferenceTable,
+          fkColumn: source.preferenceFkColumn,
+          ids: workingRows.map(r => r.id),
+          fieldIds: countryFieldIds,
+        })
+      : new Map();
+    regionByRowId = new Map();
+    for (const row of workingRows) {
+      const prefs = regionPrefMap.get(row.id) || {};
+      const countries = [];
+      for (const fieldId of countryFieldIds) {
+        countries.push(...toList(prefs[fieldId]));
+      }
+      regionByRowId.set(row.id, deriveRegionBucket(countries));
+    }
+  }
+
   // Resolve a value for each row. When measure.additionalFields is set
   // (e.g. children_impacted_direct + children_impacted_indirect) the
   // per-row value is the numeric sum of the primary field's value plus
@@ -228,7 +280,9 @@ export async function runWidgetConfig(config, tenantId) {
       }
     : (target, row) => target.push(measureValueOf(row));
   const groupKeyOf = groupBy
-    ? row => normaliseKey(valueFor(row, groupBy, prefMap))
+    ? (regionGroupBy
+        ? row => regionByRowId?.get(row.id) || REGION_UNKNOWN
+        : row => normaliseKey(valueFor(row, groupBy, prefMap)))
     : null;
   // timeBucket on a custom date field reads through the preference map; for
   // system date columns it reads the value directly off the base row.

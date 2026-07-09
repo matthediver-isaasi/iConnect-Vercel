@@ -161,6 +161,10 @@ function buildFieldOptions(source) {
     // stage picked alongside it; carry the marker + canonical stage list.
     stageField: !!f.stageField,
     stageOptions: Array.isArray(f.stageOptions) ? f.stageOptions : null,
+    // Derived dimensions (e.g. organisation Region) have no stored column
+    // and are only valid as a Group-by — the measure and filter pickers
+    // exclude them.
+    groupOnly: !!f.groupOnly,
   }));
   const custom = (source.customFields || []).map(f => ({
     value: `custom:${f.id}`,
@@ -857,6 +861,9 @@ export default function WidgetBuilderModal({
                   <SelectContent>
                     {fieldOptions
                       .filter(opt => {
+                        // Derived group-only dimensions (e.g. Region) have
+                        // no stored column to measure over.
+                        if (opt.groupOnly) return false;
                         // count / count_distinct accept any field type
                         // (e.g. count_distinct on country); numeric
                         // aggregators are restricted to aggregatable fields.
@@ -1106,11 +1113,15 @@ export default function WidgetBuilderModal({
                           <SelectValue placeholder="Field" />
                         </SelectTrigger>
                         <SelectContent>
-                          {fieldOptions.map(o => (
-                            <SelectItem key={o.value} value={o.value}>
-                              {o.label}
-                            </SelectItem>
-                          ))}
+                          {fieldOptions
+                            // Derived group-only dimensions (e.g. Region)
+                            // can't be filtered — no stored column.
+                            .filter(o => !o.groupOnly)
+                            .map(o => (
+                              <SelectItem key={o.value} value={o.value}>
+                                {o.label}
+                              </SelectItem>
+                            ))}
                         </SelectContent>
                       </Select>
                       <Select
