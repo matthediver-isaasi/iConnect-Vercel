@@ -17,6 +17,7 @@ import { adminFetch } from "@/lib/adminFetch";
 import { base44 } from "@/api/base44Client";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
+import MicrositeChromeEditor from "@/components/microsites/MicrositeChromeEditor";
 import {
   Plus, Globe, Trash2, Pencil, ExternalLink, Loader2, PanelTop, FileText, List,
 } from "lucide-react";
@@ -800,77 +801,6 @@ function MicrositeNavTab({ microsite, micrositePages }) {
 }
 
 function MicrositeChromeTab({ microsite }) {
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
-  const [headerJson, setHeaderJson] = useState(() => JSON.stringify(microsite.header_config || {}, null, 2));
-  const [footerJson, setFooterJson] = useState(() => JSON.stringify(microsite.footer_config || {}, null, 2));
-  const [lastLoadedId, setLastLoadedId] = useState(microsite.id);
-
-  // Reset editors when switching microsites.
-  if (lastLoadedId !== microsite.id) {
-    setHeaderJson(JSON.stringify(microsite.header_config || {}, null, 2));
-    setFooterJson(JSON.stringify(microsite.footer_config || {}, null, 2));
-    setLastLoadedId(microsite.id);
-  }
-
-  const saveMutation = useMutation({
-    mutationFn: async () => {
-      let header, footer;
-      try {
-        header = headerJson.trim() ? JSON.parse(headerJson) : {};
-        footer = footerJson.trim() ? JSON.parse(footerJson) : {};
-      } catch (e) {
-        throw new Error("Invalid JSON — please fix the highlighted config before saving.");
-      }
-      const res = await adminFetch(`/api/admin/microsites?id=${microsite.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ header_config: header, footer_config: footer }),
-        credentials: "include",
-      });
-      return readJson(res);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-microsites"] });
-      queryClient.invalidateQueries({ queryKey: ["public-microsite-branding"] });
-      toast({ title: "Header & footer saved" });
-    },
-    onError: (e) => toast({ title: "Could not save", description: e.message, variant: "destructive" }),
-  });
-
-  return (
-    <div className="space-y-4 pt-4">
-      <p className="text-sm text-muted-foreground">
-        These override the tenant header and footer on microsite pages. Any field left out (or empty)
-        falls back to the tenant default, so you only need to specify what differs. The structure matches
-        the tenant's <code>header_config</code> / <code>footer_config</code> from Branding.
-      </p>
-      <div className="space-y-2">
-        <Label htmlFor="ms-header-json">Header overrides (JSON)</Label>
-        <Textarea
-          id="ms-header-json"
-          value={headerJson}
-          onChange={(e) => setHeaderJson(e.target.value)}
-          rows={10}
-          className="font-mono text-xs"
-          data-testid="input-header-config"
-        />
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="ms-footer-json">Footer overrides (JSON)</Label>
-        <Textarea
-          id="ms-footer-json"
-          value={footerJson}
-          onChange={(e) => setFooterJson(e.target.value)}
-          rows={10}
-          className="font-mono text-xs"
-          data-testid="input-footer-config"
-        />
-      </div>
-      <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} data-testid="button-save-chrome">
-        {saveMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-        Save header &amp; footer
-      </Button>
-    </div>
-  );
+  // Task #2525: visual branding cards replaced the old raw-JSON textareas.
+  return <MicrositeChromeEditor microsite={microsite} />;
 }

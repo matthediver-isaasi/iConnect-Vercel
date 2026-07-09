@@ -64,7 +64,7 @@ export async function resolveMicrositeByPrefix(supabase, tenantId, prefix) {
   if (!supabase || !tenantId || !prefix) return null;
   const { data, error } = await supabase
     .from('microsite')
-    .select('id, tenant_id, name, path_prefix, description, is_active, logo_url, header_config, footer_config, home_page_id')
+    .select('id, tenant_id, name, path_prefix, description, is_active, logo_url, header_config, footer_config, branding_config, home_page_id')
     .eq('tenant_id', tenantId)
     .eq('path_prefix', String(prefix).toLowerCase())
     .eq('is_active', true)
@@ -119,4 +119,46 @@ export function mergeMicrositeConfig(tenantConfig, micrositeConfig) {
     if (!isEmptyValue(value)) merged[key] = value;
   }
   return merged;
+}
+
+/**
+ * Task #2525: whitelisted per-microsite branding override keys stored in
+ * microsite.branding_config. Anything else sent by a client is dropped.
+ * Custom social SVGs (socialIconCustomSvgs) intentionally stay tenant-only.
+ */
+export const MICROSITE_BRANDING_KEYS = [
+  'primary_color',
+  'secondary_color',
+  'logo_url',
+  'header_logo_url',
+  'social_image_url',
+  'tagline',
+  'description',
+  'headerSocialIconColor',
+  'footerSocialIconColor',
+];
+
+/**
+ * Keep only whitelisted, non-empty string values from a submitted
+ * branding_config object. Returns a plain object (possibly empty).
+ */
+export function sanitizeMicrositeBrandingConfig(value) {
+  const src = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {};
+  const out = {};
+  for (const key of MICROSITE_BRANDING_KEYS) {
+    const v = src[key];
+    if (typeof v === 'string' && v.trim() !== '') out[key] = v.trim();
+  }
+  return out;
+}
+
+/**
+ * Return the microsite's branding override for `key`, or null when the
+ * microsite doesn't override it (caller falls back to the tenant value).
+ */
+export function micrositeBrandingValue(microsite, key) {
+  const cfg = microsite?.branding_config;
+  if (!cfg || typeof cfg !== 'object') return null;
+  const v = cfg[key];
+  return (typeof v === 'string' && v.trim() !== '') ? v.trim() : null;
 }

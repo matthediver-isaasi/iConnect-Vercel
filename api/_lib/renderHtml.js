@@ -3,6 +3,7 @@ import path from 'node:path';
 import { resolveTenantFromRequest, getHostFromRequest } from './tenantResolver.js';
 import { resolveEntityMeta } from './entityMeta.js';
 import { supabase } from './database.js';
+import { resolveMicrositeByPrefix, micrositeBrandingValue } from './microsites.js';
 
 let cachedTemplate = null;
 
@@ -45,11 +46,9 @@ function loadTemplate() {
   throw new Error('renderHtml: could not locate index.html template');
 }
 
-function buildOgUrl(req) {
-  const host = getHostFromRequest(req) || 'iconn.app';
-  const proto = req.headers['x-forwarded-proto'] || 'https';
+function getRequestPathname(req) {
   // On Vercel the rewrite to /api/render rewrites req.url. Prefer the original
-  // request URI so og:url reflects the page the user actually visited.
+  // request URI so we see the page the user actually visited.
   const original =
     req.headers['x-original-uri'] ||
     req.headers['x-vercel-original-pathname'] ||
@@ -60,8 +59,30 @@ function buildOgUrl(req) {
   if (!original && /^\/api\/render(\?|$)/i.test(pathPart)) {
     pathPart = '/';
   }
-  pathPart = pathPart.split('?')[0];
-  return `${proto}://${host}${pathPart}`;
+  return pathPart.split('?')[0];
+}
+
+function buildOgUrl(req) {
+  const host = getHostFromRequest(req) || 'iconn.app';
+  const proto = req.headers['x-forwarded-proto'] || 'https';
+  return `${proto}://${host}${getRequestPathname(req)}`;
+}
+
+// Task #2525: for microsite pages (/{prefix}/{slug}) the microsite's
+// branding overrides (social_image_url, tagline, description, logo_url)
+// replace the tenant defaults in link previews. Returns the microsite row
+// or null when the path isn't a microsite page.
+async function resolveMicrositeForRequest(req, tenant) {
+  if (!tenant?.id || !supabase) return null;
+  const pathname = getRequestPathname(req);
+  const m = pathname.match(/^\/([^/]+)\/([^/]+)\/?$/);
+  if (!m) return null;
+  try {
+    const prefix = decodeURIComponent(m[1]).toLowerCase();
+    return await resolveMicrositeByPrefix(supabase, tenant.id, prefix);
+  } catch {
+    return null;
+  }
 }
 
 function makeAbsolute(url, req) {
@@ -276,10 +297,12 @@ export async function renderTenantHtml(req) {
 
   let entity = null;
   let typographyStyles = null;
+  let microsite = null;
   if (tenant) {
-    const [entityResult, stylesResult] = await Promise.allSettled([
+    const [entityResult, stylesResult, micrositeResult] = await Promise.allSettled([
       resolveEntityMeta(req, tenant),
       fetchTypographyStylesForTenant(tenant.id),
+      resolveMicrositeForRequest(req, tenant),
     ]);
     if (entityResult.status === 'fulfilled') {
       entity = entityResult.value;
@@ -287,14 +310,27 @@ export async function renderTenantHtml(req) {
       console.error('[renderHtml] entity meta resolution failed:', entityResult.reason?.message);
     }
     typographyStyles = stylesResult.status === 'fulfilled' ? stylesResult.value : [];
+    microsite = micrositeResult.status === 'fulfilled' ? micrositeResult.value : null;
   }
 
+  // Task #2525: microsite branding overrides replace tenant defaults on
+  // microsite pages. Keys the microsite leaves unset fall back to tenant.
+  const msTagline = micrositeBrandingValue(microsite, 'tagline');
+  const msDescription = micrositeBrandingValue(microsite, 'description');
+  const msSocialImage = micrositeBrandingValue(microsite, 'social_image_url');
+  const msLogo = micrositeBrandingValue(microsite, 'logo_url') || microsite?.logo_url || null;
+
   const tenantSiteName = tenant?.name || DEFAULTS.siteName;
+  const effectiveTagline = msTagline || tenant?.tagline || null;
   const tenantTitle = tenant?.name
-    ? (tenant.tagline ? `${tenant.name} — ${tenant.tagline}` : tenant.name)
+    ? (effectiveTagline ? `${tenant.name} — ${effectiveTagline}` : tenant.name)
     : DEFAULTS.title;
-  const tenantDescription = tenant?.description || tenant?.tagline || DEFAULTS.description;
-  const tenantOgImage = makeAbsolute(tenant?.social_image_url || tenant?.logo_url, req) || DEFAULTS.ogImage;
+  const tenantDescription = msDescription || msTagline
+    || tenant?.description || tenant?.tagline || DEFAULTS.description;
+  const tenantOgImage = makeAbsolute(
+    msSocialImage || (microsite ? msLogo : null) || tenant?.social_image_url || tenant?.logo_url,
+    req
+  ) || DEFAULTS.ogImage;
 
   // If we resolved an entity, override the canonical og:url so unfurl bots
   // see a stable URL even when visiting alternate routes (e.g. /EventDetails?id=…).

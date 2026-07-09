@@ -1,6 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
-import { resolveMicrositeByPrefix, mergeMicrositeConfig } from '../_lib/microsites.js';
+import { resolveMicrositeByPrefix, mergeMicrositeConfig, micrositeBrandingValue } from '../_lib/microsites.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -55,18 +55,37 @@ export default async function handler(req, res) {
       ? mergeMicrositeConfig(tenantData.footer_config, microsite.footer_config)
       : (tenantData.footer_config || {});
 
+    // Task #2525: per-microsite branding overrides (visual branding cards).
+    // Each whitelisted key overrides the matching tenant value; anything the
+    // microsite leaves unset falls back to the tenant default.
+    const msBrand = (key) => micrositeBrandingValue(microsite, key);
+    let brandingConfig = tenantData.branding_config || {};
+    if (microsite) {
+      const headerIconColor = msBrand('headerSocialIconColor');
+      const footerIconColor = msBrand('footerSocialIconColor');
+      if (headerIconColor || footerIconColor) {
+        brandingConfig = {
+          ...brandingConfig,
+          ...(headerIconColor ? { headerSocialIconColor: headerIconColor } : {}),
+          ...(footerIconColor ? { footerSocialIconColor: footerIconColor } : {}),
+        };
+      }
+    }
+
     res.json({
       success: true,
       branding: {
         id: tenantData.id,
         name: tenantData.name,
         slug: tenantData.slug,
-        logoUrl: (microsite?.logo_url || tenantData.logo_url),
-        headerLogoUrl: (microsite?.logo_url || tenantData.header_logo_url),
+        logoUrl: (msBrand('logo_url') || microsite?.logo_url || tenantData.logo_url),
+        headerLogoUrl: (msBrand('header_logo_url') || microsite?.logo_url || tenantData.header_logo_url),
         faviconUrl: tenantData.favicon_url,
-        primaryColor: tenantData.primary_color || '#5C0085',
-        secondaryColor: tenantData.secondary_color,
-        tagline: tenantData.tagline,
+        primaryColor: msBrand('primary_color') || tenantData.primary_color || '#5C0085',
+        secondaryColor: msBrand('secondary_color') || tenantData.secondary_color,
+        tagline: msBrand('tagline') || tenantData.tagline,
+        description: msBrand('description') || tenantData.description || null,
+        socialImageUrl: msBrand('social_image_url') || tenantData.social_image_url || null,
         headerConfig,
         footerConfig,
         microsite: microsite ? {
@@ -76,7 +95,7 @@ export default async function handler(req, res) {
           logoUrl: microsite.logo_url || null,
           homePageId: microsite.home_page_id || null,
         } : null,
-        brandingConfig: tenantData.branding_config || {},
+        brandingConfig,
         platformBranding: tenantData.platform_branding || { showPlatformBranding: true },
         buttonStyles: buttonStyles,
         allowSearchIndexing: allowSearchIndexing,
