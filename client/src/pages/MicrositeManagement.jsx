@@ -20,7 +20,11 @@ import { createPageUrl } from "@/utils";
 import MicrositeChromeEditor from "@/components/microsites/MicrositeChromeEditor";
 import {
   Plus, Globe, Trash2, Pencil, ExternalLink, Loader2, PanelTop, FileText, List,
+  ChevronDown, ChevronRight, ChevronUp, PanelLeftClose, PanelLeftOpen,
 } from "lucide-react";
+import {
+  MAX_NAV_DEPTH, buildNavTree, collectDescendants, isInSubtree, getItemDepth, getHierarchyPrefix,
+} from "@/components/navigation/navTreeUtils";
 
 /**
  * Microsite management (Task #2523: moved from /admin/microsites to the main
@@ -71,6 +75,7 @@ export default function MicrositeManagement() {
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [drawerOpen, setDrawerOpen] = useState(true);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -200,13 +205,25 @@ export default function MicrositeManagement() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8">
+    <div className="px-4 lg:px-6 py-8">
       <div className="flex items-center justify-between gap-2 flex-wrap mb-6">
-        <div>
-          <h1 className="text-2xl font-bold" data-testid="text-microsites-title">Microsites</h1>
-          <p className="text-sm text-muted-foreground">
-            Groups of public pages served under their own URL prefix with their own header, footer and navigation.
-          </p>
+        <div className="flex items-start gap-3 min-w-0">
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setDrawerOpen((o) => !o)}
+            title={drawerOpen ? "Hide microsite list" : "Show microsite list"}
+            aria-label={drawerOpen ? "Hide microsite list" : "Show microsite list"}
+            data-testid="button-toggle-drawer"
+          >
+            {drawerOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
+          </Button>
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold" data-testid="text-microsites-title">Microsites</h1>
+            <p className="text-sm text-muted-foreground">
+              Groups of public pages served under their own URL prefix with their own header, footer and navigation.
+            </p>
+          </div>
         </div>
         <Button onClick={openCreate} data-testid="button-create-microsite">
           <Plus className="w-4 h-4 mr-2" /> New microsite
@@ -231,28 +248,30 @@ export default function MicrositeManagement() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className="space-y-2">
-            {microsites.map((m) => (
-              <button
-                key={m.id}
-                type="button"
-                onClick={() => setSelectedId(m.id)}
-                className={`w-full text-left rounded-md border p-3 hover-elevate ${
-                  selectedId === m.id ? "border-foreground/30 bg-muted" : "border-border bg-card"
-                }`}
-                data-testid={`card-microsite-${m.id}`}
-              >
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <span className="font-medium">{m.name}</span>
-                  {m.is_active === false && <Badge variant="secondary">Inactive</Badge>}
-                </div>
-                <div className="text-sm text-muted-foreground mt-0.5">/{m.path_prefix}/…</div>
-              </button>
-            ))}
-          </div>
+        <div className="flex flex-col lg:flex-row gap-4 items-start">
+          {drawerOpen && (
+            <aside className="w-full lg:w-72 lg:shrink-0 space-y-2" data-testid="drawer-microsites">
+              {microsites.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => setSelectedId(m.id)}
+                  className={`w-full text-left rounded-md border p-3 hover-elevate ${
+                    selectedId === m.id ? "border-foreground/30 bg-muted" : "border-border bg-card"
+                  }`}
+                  data-testid={`card-microsite-${m.id}`}
+                >
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <span className="font-medium">{m.name}</span>
+                    {m.is_active === false && <Badge variant="secondary">Inactive</Badge>}
+                  </div>
+                  <div className="text-sm text-muted-foreground mt-0.5">/{m.path_prefix}/…</div>
+                </button>
+              ))}
+            </aside>
+          )}
 
-          <div className="lg:col-span-2">
+          <div className="flex-1 min-w-0 w-full">
             {!selected ? (
               <Card>
                 <CardContent className="py-12 text-center text-muted-foreground" data-testid="text-select-microsite">
@@ -555,7 +574,7 @@ function MicrositePagesTab({ microsite, pages, micrositePages }) {
   );
 }
 
-const EMPTY_NAV_FORM = { title: "", url: "", location: "main_nav", link_type: "internal", is_active: true };
+const EMPTY_NAV_FORM = { title: "", url: "", location: "main_nav", link_type: "internal", is_active: true, parent_id: null };
 
 function MicrositeNavTab({ microsite, micrositePages }) {
   const { toast } = useToast();
@@ -563,6 +582,8 @@ function MicrositeNavTab({ microsite, micrositePages }) {
   const [navDialogOpen, setNavDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [navForm, setNavForm] = useState(EMPTY_NAV_FORM);
+  const [expanded, setExpanded] = useState({});
+  const [deleteNavTarget, setDeleteNavTarget] = useState(null);
 
   const { data: navItemsData, isLoading } = useQuery({
     queryKey: ["microsite-nav-items", microsite.id],
@@ -573,24 +594,54 @@ function MicrositeNavTab({ microsite, micrositePages }) {
   });
   const navItems = navItemsData || [];
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["microsite-nav-items", microsite.id] });
+  // Tree per location (children always share their parent's location, same as
+  // the standard NavigationManagement page). Footer stays a flat list.
+  const treesByLocation = useMemo(() => {
+    const out = {};
+    for (const loc of NAV_LOCATIONS) {
+      out[loc.value] = buildNavTree(navItems, { location: loc.value });
+    }
+    return out;
+  }, [navItems]);
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["microsite-nav-items", microsite.id] });
+    queryClient.invalidateQueries({ queryKey: ["navigation-items"] });
+  };
+
+  const siblingsOf = (location, parentId) =>
+    navItems
+      .filter((i) => i.location === location && (i.parent_id || null) === (parentId || null))
+      .sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
 
   const saveNavMutation = useMutation({
     mutationFn: async () => {
+      const parentId = navForm.location === "footer" ? null : navForm.parent_id || null;
       const payload = {
         title: navForm.title,
         url: navForm.url,
         location: navForm.location,
         link_type: navForm.link_type,
         is_active: navForm.is_active,
+        parent_id: parentId,
         microsite_id: microsite.id,
       };
       if (editingItem) {
-        return base44.entities.NavigationItem.update(editingItem.id, payload);
+        await base44.entities.NavigationItem.update(editingItem.id, payload);
+        // Children must stay in the same bar as their parent, otherwise the
+        // public header tree filter drops them (same rule as the standard
+        // manager's moveToOtherBar).
+        if (editingItem.location !== navForm.location) {
+          const descendants = collectDescendants(navItems, editingItem.id);
+          for (const d of descendants) {
+            await base44.entities.NavigationItem.update(d.id, { location: navForm.location });
+          }
+        }
+        return;
       }
-      return base44.entities.NavigationItem.create({
+      await base44.entities.NavigationItem.create({
         ...payload,
-        display_order: navItems.filter((i) => i.location === navForm.location).length,
+        display_order: siblingsOf(navForm.location, parentId).length,
       });
     },
     onSuccess: () => {
@@ -602,26 +653,44 @@ function MicrositeNavTab({ microsite, micrositePages }) {
   });
 
   const deleteNavMutation = useMutation({
-    mutationFn: (id) => base44.entities.NavigationItem.delete(id),
-    onSuccess: () => invalidate(),
+    mutationFn: async (item) => {
+      // Delete the item together with all its descendants.
+      const doomed = [item, ...collectDescendants(navItems, item.id)];
+      for (const d of doomed.reverse()) {
+        await base44.entities.NavigationItem.delete(d.id);
+      }
+    },
+    onSuccess: () => {
+      invalidate();
+      setDeleteNavTarget(null);
+      toast({ title: "Navigation item deleted" });
+    },
     onError: (e) => toast({ title: "Could not delete item", description: e.message, variant: "destructive" }),
   });
 
   const moveMutation = useMutation({
     mutationFn: async ({ item, direction }) => {
-      const siblings = navItems.filter((i) => i.location === item.location);
+      // Reorder within siblings (same location AND same parent), then
+      // renumber the whole sibling group so duplicate display_order values
+      // from legacy rows can't make the swap a no-op.
+      const siblings = siblingsOf(item.location, item.parent_id);
       const idx = siblings.findIndex((i) => i.id === item.id);
-      const swapWith = siblings[idx + direction];
-      if (!swapWith) return;
-      await base44.entities.NavigationItem.update(item.id, { display_order: swapWith.display_order ?? 0 });
-      await base44.entities.NavigationItem.update(swapWith.id, { display_order: item.display_order ?? 0 });
+      const newIdx = idx + direction;
+      if (idx === -1 || newIdx < 0 || newIdx >= siblings.length) return;
+      const reordered = [...siblings];
+      const [moved] = reordered.splice(idx, 1);
+      reordered.splice(newIdx, 0, moved);
+      for (let i = 0; i < reordered.length; i++) {
+        await base44.entities.NavigationItem.update(reordered[i].id, { display_order: i });
+      }
     },
     onSuccess: () => invalidate(),
+    onError: (e) => toast({ title: "Could not reorder", description: e.message, variant: "destructive" }),
   });
 
-  const openCreateNav = () => {
+  const openCreateNav = (location = "main_nav", parentId = null) => {
     setEditingItem(null);
-    setNavForm(EMPTY_NAV_FORM);
+    setNavForm({ ...EMPTY_NAV_FORM, location, parent_id: parentId });
     setNavDialogOpen(true);
   };
   const openEditNav = (item) => {
@@ -632,18 +701,135 @@ function MicrositeNavTab({ microsite, micrositePages }) {
       location: item.location || "main_nav",
       link_type: item.link_type || "internal",
       is_active: item.is_active !== false,
+      parent_id: item.parent_id || null,
     });
     setNavDialogOpen(true);
   };
+
+  const toggleExpand = (id) => setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
+
+  // Parent options for the dialog: same location, not footer, not the item
+  // itself or anything inside its subtree, and shallow enough that the child
+  // still fits within the 3 levels the public header renders.
+  const parentOptions = useMemo(() => {
+    if (navForm.location === "footer") return [];
+    return navItems
+      .filter((i) => {
+        if (i.location !== navForm.location) return false;
+        if (editingItem && isInSubtree(navItems, editingItem.id, i.id)) return false;
+        return getItemDepth(navItems, i) < MAX_NAV_DEPTH;
+      })
+      .sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+  }, [navItems, navForm.location, editingItem]);
+
+  const renderTree = (items, level = 0) =>
+    items.map((item, idx) => {
+      const hasChildren = item.children && item.children.length > 0;
+      const isExpanded = expanded[item.id] !== false; // expanded by default
+      const canAddChild = item.location !== "footer" && level < MAX_NAV_DEPTH;
+      return (
+        <div key={item.id}>
+          <div
+            className="flex items-center justify-between gap-2 flex-wrap rounded-md border p-2.5"
+            data-testid={`row-nav-item-${item.id}`}
+          >
+            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+              {hasChildren ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => toggleExpand(item.id)}
+                  aria-label={isExpanded ? "Collapse sub-items" : "Expand sub-items"}
+                  data-testid={`button-expand-${item.id}`}
+                >
+                  {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                </Button>
+              ) : (
+                <div className="w-9 shrink-0" />
+              )}
+              <div className="min-w-0">
+                <span className="font-medium">{item.title}</span>
+                <span className="text-sm text-muted-foreground ml-2 break-all">{item.url}</span>
+                {item.is_active === false && <Badge variant="secondary" className="ml-2">Hidden</Badge>}
+                {hasChildren && (
+                  <Badge variant="outline" className="ml-2">
+                    {item.children.length} sub-item{item.children.length > 1 ? "s" : ""}
+                  </Badge>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-1 flex-wrap">
+              {canAddChild && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  title="Add sub-item"
+                  aria-label="Add sub-item"
+                  onClick={() => openCreateNav(item.location, item.id)}
+                  data-testid={`button-add-child-${item.id}`}
+                >
+                  <Plus />
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="icon"
+                title="Move up"
+                aria-label="Move up"
+                disabled={idx === 0 || moveMutation.isPending}
+                onClick={() => moveMutation.mutate({ item, direction: -1 })}
+                data-testid={`button-move-up-${item.id}`}
+              >
+                <ChevronUp />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                title="Move down"
+                aria-label="Move down"
+                disabled={idx === items.length - 1 || moveMutation.isPending}
+                onClick={() => moveMutation.mutate({ item, direction: 1 })}
+                data-testid={`button-move-down-${item.id}`}
+              >
+                <ChevronDown />
+              </Button>
+              <Button variant="ghost" size="icon" title="Edit" aria-label="Edit" onClick={() => openEditNav(item)} data-testid={`button-edit-nav-${item.id}`}>
+                <Pencil />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                title="Delete"
+                aria-label="Delete"
+                onClick={() => setDeleteNavTarget(item)}
+                data-testid={`button-delete-nav-${item.id}`}
+              >
+                <Trash2 />
+              </Button>
+            </div>
+          </div>
+          {hasChildren && isExpanded && (
+            <div className="ml-6 lg:ml-8 mt-1.5 space-y-1.5">
+              {renderTree(item.children, level + 1)}
+            </div>
+          )}
+        </div>
+      );
+    });
+
+  const deleteDescendantsCount = deleteNavTarget
+    ? collectDescendants(navItems, deleteNavTarget.id).length
+    : 0;
 
   return (
     <div className="space-y-4 pt-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <p className="text-sm text-muted-foreground">
           These items replace the tenant navigation on microsite pages. Internal links to microsite pages
-          should use the prefixed path, e.g. <code>/{microsite.path_prefix}/about</code>.
+          should use the prefixed path, e.g. <code>/{microsite.path_prefix}/about</code>. Add sub-items to a
+          menu item to create dropdown menus (up to 3 levels).
         </p>
-        <Button onClick={openCreateNav} data-testid="button-add-nav-item">
+        <Button onClick={() => openCreateNav()} data-testid="button-add-nav-item">
           <Plus className="w-4 h-4 mr-2" /> Add item
         </Button>
       </div>
@@ -656,58 +842,12 @@ function MicrositeNavTab({ microsite, micrositePages }) {
         <p className="text-sm text-muted-foreground" data-testid="text-no-nav-items">No navigation items yet.</p>
       ) : (
         NAV_LOCATIONS.map(({ value, label }) => {
-          const items = navItems.filter((i) => i.location === value);
-          if (items.length === 0) return null;
+          const tree = treesByLocation[value] || [];
+          if (tree.length === 0) return null;
           return (
             <div key={value}>
               <h4 className="text-sm font-medium mb-1.5">{label}</h4>
-              <div className="space-y-1.5">
-                {items.map((item, idx) => (
-                  <div
-                    key={item.id}
-                    className="flex items-center justify-between gap-2 flex-wrap rounded-md border p-2.5"
-                    data-testid={`row-nav-item-${item.id}`}
-                  >
-                    <div className="min-w-0">
-                      <span className="font-medium">{item.title}</span>
-                      <span className="text-sm text-muted-foreground ml-2">{item.url}</span>
-                      {item.is_active === false && <Badge variant="secondary" className="ml-2">Hidden</Badge>}
-                    </div>
-                    <div className="flex items-center gap-1 flex-wrap">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={idx === 0 || moveMutation.isPending}
-                        onClick={() => moveMutation.mutate({ item, direction: -1 })}
-                        data-testid={`button-move-up-${item.id}`}
-                      >
-                        Up
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={idx === items.length - 1 || moveMutation.isPending}
-                        onClick={() => moveMutation.mutate({ item, direction: 1 })}
-                        data-testid={`button-move-down-${item.id}`}
-                      >
-                        Down
-                      </Button>
-                      <Button variant="ghost" size="icon" onClick={() => openEditNav(item)} data-testid={`button-edit-nav-${item.id}`}>
-                        <Pencil />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => deleteNavMutation.mutate(item.id)}
-                        disabled={deleteNavMutation.isPending}
-                        data-testid={`button-delete-nav-${item.id}`}
-                      >
-                        <Trash2 />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <div className="space-y-1.5">{renderTree(tree)}</div>
             </div>
           );
         })
@@ -766,7 +906,7 @@ function MicrositeNavTab({ microsite, micrositePages }) {
               <Label>Shows in</Label>
               <Select
                 value={navForm.location}
-                onValueChange={(v) => setNavForm((f) => ({ ...f, location: v }))}
+                onValueChange={(v) => setNavForm((f) => ({ ...f, location: v, parent_id: null }))}
               >
                 <SelectTrigger data-testid="select-nav-location">
                   <SelectValue />
@@ -777,7 +917,37 @@ function MicrositeNavTab({ microsite, micrositePages }) {
                   ))}
                 </SelectContent>
               </Select>
+              {editingItem && editingItem.location !== navForm.location &&
+                collectDescendants(navItems, editingItem.id).length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Sub-items of this item will move with it.
+                </p>
+              )}
             </div>
+            {navForm.location !== "footer" && (
+              <div className="space-y-2">
+                <Label>Parent item</Label>
+                <Select
+                  value={navForm.parent_id || "none"}
+                  onValueChange={(v) => setNavForm((f) => ({ ...f, parent_id: v === "none" ? null : v }))}
+                >
+                  <SelectTrigger data-testid="select-nav-parent">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">None (top level)</SelectItem>
+                    {parentOptions.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {getHierarchyPrefix(navItems, p.parent_id)}{p.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Items with a parent appear in a dropdown under that parent.
+                </p>
+              </div>
+            )}
             <div className="flex items-center gap-2">
               <Switch
                 checked={navForm.is_active}
@@ -794,6 +964,36 @@ function MicrositeNavTab({ microsite, micrositePages }) {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!deleteNavTarget} onOpenChange={(o) => !o && setDeleteNavTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete navigation item?</DialogTitle>
+            <DialogDescription>
+              {deleteNavTarget && deleteDescendantsCount > 0
+                ? `"${deleteNavTarget.title}" and its ${deleteDescendantsCount} sub-item${deleteDescendantsCount > 1 ? "s" : ""} will be removed from this microsite's navigation.`
+                : deleteNavTarget
+                  ? `"${deleteNavTarget.title}" will be removed from this microsite's navigation.`
+                  : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setDeleteNavTarget(null)} data-testid="button-cancel-delete-nav">
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={deleteNavMutation.isPending}
+              onClick={() => deleteNavMutation.mutate(deleteNavTarget)}
+              data-testid="button-confirm-delete-nav"
+            >
+              {deleteNavMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Delete
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
