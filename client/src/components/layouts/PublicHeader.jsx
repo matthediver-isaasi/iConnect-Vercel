@@ -794,7 +794,15 @@ export default function PublicHeader() {
   const handleViewAllResults = () => {
     if (searchQuery.trim()) {
       setSearchOpen(false);
-      navigate(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
+      // Task #2629: when the microsite search is scope-only, land on the
+      // microsite-prefixed results page so both the scope and the microsite
+      // theme/chrome are preserved. Otherwise keep tenant-wide /search.
+      const q = encodeURIComponent(searchQuery.trim());
+      navigate(
+        micrositeSearchScopeOnly && micrositePrefix
+          ? `/${micrositePrefix}/search?q=${q}`
+          : `/search?q=${q}`
+      );
     }
   };
 
@@ -1092,7 +1100,14 @@ export default function PublicHeader() {
               <button
                 onClick={() => {
                   setMobileMenuOpen(false);
-                  navigate(`/search?q=${encodeURIComponent(mobileSearchQuery.trim())}`);
+                  // Task #2629: mirror the desktop scope-only routing so the
+                  // mobile "View all results" also lands on the microsite path.
+                  const q = encodeURIComponent(mobileSearchQuery.trim());
+                  navigate(
+                    micrositeSearchScopeOnly && micrositePrefix
+                      ? `/${micrositePrefix}/search?q=${q}`
+                      : `/search?q=${q}`
+                  );
                 }}
                 className="w-full px-3 py-2 text-center text-sm font-medium text-purple-600 hover:bg-slate-50 transition-colors"
                 data-testid="button-mobile-view-all-results"

@@ -1168,6 +1168,16 @@ function PagesContent() {
                 {/* Dynamic CMS pages - catch-all route for IEdit pages by slug */}
                 <Route path="/:slug" element={<DynamicPage />} />
 
+                {/* Task #2629: microsite-scoped full results page. Registered
+                    before the generic /{prefix}/{slug} microsite page route so
+                    "search" is treated as the results page, not a page slug.
+                    Rendering under the microsite prefix lets MicrositeContext
+                    (which keys off the first path segment) paint the microsite
+                    theme/chrome, and SearchResults reads the scope from the
+                    route params. */}
+                <Route path="/:micrositePrefix/search" element={<SearchResults />} />
+                <Route path="/:micrositePrefix/Search" element={<SearchResults />} />
+
                 {/* Task #2426: microsite pages at /{prefix}/{slug}. DynamicPage
                     validates the prefix against the tenant's active microsites
                     and renders not-found for unknown two-segment URLs. */}

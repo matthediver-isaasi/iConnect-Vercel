@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useSearchParams, Link, useNavigate } from "react-router-dom";
+import { useSearchParams, useParams, Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Search, Loader2, Calendar, BookOpen, Newspaper, FolderOpen, FileText, ArrowRight, Lock } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -41,6 +41,7 @@ function hexToRgba(hex, alpha) {
 
 export default function SearchResults() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const params = useParams();
   const navigate = useNavigate();
   const { memberInfo } = useMemberAccess();
   const isAuthenticated = !!memberInfo;
@@ -51,10 +52,22 @@ export default function SearchResults() {
   const [isLoading, setIsLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
 
-  // Resolve branding scoped to any microsite carried in the URL so microsite
-  // searches use that microsite's identity. The server merges microsite → tenant
-  // for these keys, and unset values simply come back absent (built-in default).
-  const brandingMicrositePrefix = searchParams.get('microsite') || null;
+  // Task #2629: resolve the microsite scope. Two paths reach this page:
+  //   1. Route-based /{prefix}/search — the microsite header's scope-only
+  //      "View all results" link; the prefix comes from the route params and
+  //      the scope is implicitly "only".
+  //   2. Query-param /search?microsite=…&micrositeScope=… — the existing
+  //      Canvas Search Input path, unchanged.
+  const routeMicrositePrefix = params.micrositePrefix || null;
+  const micrositePrefix = routeMicrositePrefix || searchParams.get('microsite') || null;
+  const micrositeScope = routeMicrositePrefix
+    ? 'only'
+    : (searchParams.get('micrositeScope') || null);
+
+  // Resolve branding scoped to the resolved microsite so microsite searches use
+  // that microsite's identity. The server merges microsite → tenant for these
+  // keys, and unset values simply come back absent (built-in default).
+  const brandingMicrositePrefix = micrositePrefix;
   const { data: brandingData } = useQuery({
     queryKey: ['search-results-branding', brandingMicrositePrefix],
     queryFn: () => publicClient.getTenantBranding(brandingMicrositePrefix),
@@ -123,10 +136,9 @@ export default function SearchResults() {
     setHasSearched(true);
 
     try {
-      // Honour microsite scope carried in the URL from a Canvas Search Input
-      // block so the toggle controls the full results page, not just the popover.
-      const micrositePrefix = searchParams.get('microsite') || null;
-      const micrositeScope = searchParams.get('micrositeScope') || null;
+      // Honour the microsite scope resolved from the route (/{prefix}/search)
+      // or query params (Canvas Search Input) so the toggle controls the full
+      // results page, not just the popover.
       const data = await publicClient.search(searchTerm.trim(), micrositePrefix
         ? { micrositePrefix, micrositeScope }
         : undefined);
@@ -143,12 +155,16 @@ export default function SearchResults() {
     e.preventDefault();
     if (query.trim().length >= 2) {
       const next = { q: query.trim() };
-      // Preserve any microsite scope carried into this page.
-      const microsite = searchParams.get('microsite');
-      const micrositeScope = searchParams.get('micrositeScope');
-      if (microsite) {
-        next.microsite = microsite;
-        if (micrositeScope) next.micrositeScope = micrositeScope;
+      // Preserve the microsite scope on re-submit. On the /{prefix}/search
+      // route the scope lives in the path (which setSearchParams leaves
+      // untouched), so we only need to carry query-param scope here.
+      if (!routeMicrositePrefix) {
+        const microsite = searchParams.get('microsite');
+        const scope = searchParams.get('micrositeScope');
+        if (microsite) {
+          next.microsite = microsite;
+          if (scope) next.micrositeScope = scope;
+        }
       }
       setSearchParams(next);
       performSearch(query);
