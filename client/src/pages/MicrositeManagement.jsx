@@ -469,6 +469,7 @@ function MicrositePagesTab({ microsite, pages, micrositePages }) {
   const queryClient = useQueryClient();
   const [pendingId, setPendingId] = useState(null);
   const [pageSearch, setPageSearch] = useState("");
+  const [assignedSearch, setAssignedSearch] = useState("");
 
   const assignMutation = useMutation({
     mutationFn: async ({ pageId, micrositeId }) => {
@@ -484,6 +485,14 @@ function MicrositePagesTab({ microsite, pages, micrositePages }) {
   });
 
   const availablePages = pages.filter((p) => !p.microsite_id);
+  const trimmedAssignedSearch = assignedSearch.trim().toLowerCase();
+  const filteredAssignedPages = trimmedAssignedSearch
+    ? micrositePages.filter((p) => {
+        const title = (p.title || "").toLowerCase();
+        const slug = (p.slug || "").toLowerCase();
+        return title.includes(trimmedAssignedSearch) || slug.includes(trimmedAssignedSearch);
+      })
+    : micrositePages;
   const trimmedSearch = pageSearch.trim().toLowerCase();
   const filteredAvailablePages = trimmedSearch
     ? availablePages.filter((p) => {
@@ -502,8 +511,22 @@ function MicrositePagesTab({ microsite, pages, micrositePages }) {
             No pages assigned yet. Assign pages below — each is then served at /{microsite.path_prefix}/&#123;slug&#125;.
           </p>
         ) : (
-          <div className="space-y-2">
-            {micrositePages.map((p) => (
+          <>
+            <Input
+              type="search"
+              value={assignedSearch}
+              onChange={(e) => setAssignedSearch(e.target.value)}
+              placeholder="Search pages by title or slug…"
+              className="mb-2"
+              data-testid="input-search-assigned-pages"
+            />
+            {filteredAssignedPages.length === 0 ? (
+              <p className="text-sm text-muted-foreground" data-testid="text-no-assigned-page-matches">
+                No pages match “{assignedSearch.trim()}”.
+              </p>
+            ) : (
+              <div className="space-y-2 max-h-[32rem] overflow-y-auto pr-1">
+                {filteredAssignedPages.map((p) => (
               <div
                 key={p.id}
                 className="flex items-center justify-between gap-2 flex-wrap rounded-md border p-3"
@@ -541,8 +564,10 @@ function MicrositePagesTab({ microsite, pages, micrositePages }) {
                   </Button>
                 </div>
               </div>
-            ))}
-          </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
 
