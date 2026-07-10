@@ -36,6 +36,7 @@ import {
   Accessibility,
   Group as GroupIcon,
   Ungroup as UngroupIcon,
+  Layers,
   Wand2,
 } from 'lucide-react';
 import {
@@ -79,6 +80,7 @@ import { CanvasAnchorProvider } from './CanvasAnchorContext';
 import { CanvasSymbolsProvider, useCanvasSymbolsData } from './CanvasSymbolsContext';
 import CanvasLayers from './CanvasLayers';
 import CanvasA11yPanel from './CanvasA11yPanel';
+import CanvasFloatingPanel from './CanvasFloatingPanel';
 import {
   auditCanvasDesign,
   issuesByBlock as buildIssuesByBlock,
@@ -279,6 +281,8 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   const [zoom, setZoom] = useState(1);
   const [showReadingOrder, setShowReadingOrder] = useState(false);
   const [showA11yPanel, setShowA11yPanel] = useState(false);
+  // Floating, draggable Layers panel (open by default so nothing appears missing).
+  const [showLayersPanel, setShowLayersPanel] = useState(true);
   // Task #1665: editor-only ruler guides.
   const [showGuides, setShowGuides] = useState(true);
   // guideDrag holds the immutable descriptor of an in-progress guide drag
@@ -1679,6 +1683,16 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
           <div className="flex-1" />
           <Button
             size="sm" variant="ghost"
+            onClick={() => setShowLayersPanel((v) => !v)}
+            className={`toggle-elevate ${showLayersPanel ? 'toggle-elevated' : ''}`}
+            aria-pressed={showLayersPanel}
+            title="Show/hide the Layers panel"
+            data-testid="button-toggle-layers"
+          >
+            <Layers className="w-4 h-4 mr-1.5" /> Layers
+          </Button>
+          <Button
+            size="sm" variant="ghost"
             onClick={() => setShowReadingOrder((v) => !v)}
             className={`toggle-elevate ${showReadingOrder ? 'toggle-elevated' : ''}`}
             aria-pressed={showReadingOrder}
@@ -1772,7 +1786,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
         </div>
 
         {/* Main layout */}
-        <div className="flex-1 flex min-h-0">
+        <div className="flex-1 flex min-h-0 relative">
           {/* Palette */}
           <aside
             className="w-56 border-r border-slate-200 bg-white p-3 overflow-y-auto"
@@ -1781,28 +1795,6 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
           >
             <h2 className="text-sm font-semibold text-slate-900 mb-2">Blocks</h2>
             <CanvasPalette />
-            <div className="mt-6">
-              <CanvasLayers
-                blocks={children}
-                groups={groups}
-                selectedIds={selectedIds}
-                breakpoint={breakpoint}
-                issuesByBlock={a11yIssuesByBlock}
-                onSelect={handleSelect}
-                onReorder={handleReorderLayers}
-                onToggleHidden={toggleHiddenById}
-                onToggleLocked={toggleLockedById}
-                onDelete={deleteById}
-                onDuplicate={duplicateById}
-                onRename={renameById}
-                onSelectGroup={selectGroup}
-                onRenameGroup={renameGroup}
-                onToggleGroupCollapsed={toggleGroupCollapsed}
-                onToggleGroupHidden={toggleGroupHidden}
-                onToggleGroupLocked={toggleGroupLocked}
-                onUngroup={ungroupById}
-              />
-            </div>
             {showA11yPanel && (
               <div className="mt-6 pt-4 border-t border-slate-200">
                 <CanvasA11yPanel
@@ -1937,6 +1929,39 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
             />
             </CanvasAnchorProvider>
           </aside>
+
+          {/* Floating, draggable Layers panel (moved out of the narrow left sidebar). */}
+          {showLayersPanel && (
+            <CanvasFloatingPanel
+              title="Layers"
+              icon={<Layers className="w-4 h-4 text-slate-500 shrink-0" />}
+              onClose={() => setShowLayersPanel(false)}
+              defaultPosition={{ x: 16, y: 16 }}
+              width={340}
+              testId="floating-layers-panel"
+            >
+              <CanvasLayers
+                blocks={children}
+                groups={groups}
+                selectedIds={selectedIds}
+                breakpoint={breakpoint}
+                issuesByBlock={a11yIssuesByBlock}
+                onSelect={handleSelect}
+                onReorder={handleReorderLayers}
+                onToggleHidden={toggleHiddenById}
+                onToggleLocked={toggleLockedById}
+                onDelete={deleteById}
+                onDuplicate={duplicateById}
+                onRename={renameById}
+                onSelectGroup={selectGroup}
+                onRenameGroup={renameGroup}
+                onToggleGroupCollapsed={toggleGroupCollapsed}
+                onToggleGroupHidden={toggleGroupHidden}
+                onToggleGroupLocked={toggleGroupLocked}
+                onUngroup={ungroupById}
+              />
+            </CanvasFloatingPanel>
+          )}
         </div>
       </div>
 
