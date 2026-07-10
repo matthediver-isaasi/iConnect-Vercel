@@ -4,6 +4,7 @@ import { resolveTenantFromRequest, getHostFromRequest } from './tenantResolver.j
 import { resolveEntityMeta } from './entityMeta.js';
 import { supabase } from './database.js';
 import { resolveMicrositeByPrefix, micrositeBrandingValue } from './microsites.js';
+import { buildTenantBrandingPayload } from './tenantBranding.js';
 
 let cachedTemplate = null;
 
@@ -68,18 +69,34 @@ function buildOgUrl(req) {
   return `${proto}://${host}${getRequestPathname(req)}`;
 }
 
-// Task #2525: for microsite pages (/{prefix}/{slug}) the microsite's
-// branding overrides (social_image_url, tagline, description, logo_url)
-// replace the tenant defaults in link previews. Returns the microsite row
-// or null when the path isn't a microsite page.
-async function resolveMicrositeForRequest(req, tenant) {
+// Two-segment microsite page path: /{prefix}/{slug}. Task #2525 SEO overrides
+// only apply on this exact shape (the microsite "page" URL).
+const MICROSITE_PAGE_PATH_REGEX = /^\/[^/]+\/[^/]+\/?$/;
+
+// Task #2426/#2533: resolve the microsite whose prefix matches the request's
+// FIRST path segment (mirrors the client MicrositeContext), plus its home-page
+// slug. Used to inject the merged microsite chrome branding server-side so the
+// correct header/footer paints on first load (no flash of tenant chrome).
+// Returns { microsite, homeSlug } or null when the path isn't under a microsite.
+async function resolveMicrositeChromeForRequest(req, tenant) {
   if (!tenant?.id || !supabase) return null;
   const pathname = getRequestPathname(req);
-  const m = pathname.match(/^\/([^/]+)\/([^/]+)\/?$/);
-  if (!m) return null;
+  const firstSegment = (pathname || '/').split('/').filter(Boolean)[0] || '';
+  if (!firstSegment) return null;
   try {
-    const prefix = decodeURIComponent(m[1]).toLowerCase();
-    return await resolveMicrositeByPrefix(supabase, tenant.id, prefix);
+    const prefix = decodeURIComponent(firstSegment).toLowerCase();
+    const microsite = await resolveMicrositeByPrefix(supabase, tenant.id, prefix);
+    if (!microsite) return null;
+    let homeSlug = null;
+    if (microsite.home_page_id) {
+      const { data } = await supabase
+        .from('i_edit_page')
+        .select('slug')
+        .eq('id', microsite.home_page_id)
+        .maybeSingle();
+      homeSlug = data?.slug || null;
+    }
+    return { microsite, homeSlug };
   } catch {
     return null;
   }
@@ -184,6 +201,32 @@ function serializeForScript(value) {
 function injectTypographyStyles(html, styles) {
   if (!Array.isArray(styles)) return html;
   const tag = `<script>window.__TENANT_TYPOGRAPHY_STYLES__=${serializeForScript(styles)}</script>`;
+  return html.replace('</head>', `    ${tag}\n  </head>`);
+}
+
+// Task #2533: inject the resolved microsite chrome (active microsite + merged
+// branding) as a synchronous global the client reads on first paint
+// (window.__MICROSITE_CONTEXT__), mirroring the typography-styles injection.
+// Only emitted on microsite routes when a tenant resolved server-side, so the
+// default site and tenant-less hosts keep the legacy client-fetch path.
+function injectMicrositeChrome(html, chrome, tenantData) {
+  if (!chrome?.microsite || !tenantData) return html;
+  const { microsite, homeSlug } = chrome;
+  const payload = {
+    // Shape matches the /api/public/microsites list rows so the client's
+    // MicrositeContext can seed activeMicrosite (incl. home_slug for the logo link).
+    activeMicrosite: {
+      id: microsite.id,
+      name: microsite.name,
+      path_prefix: microsite.path_prefix,
+      logo_url: microsite.logo_url || null,
+      home_page_id: microsite.home_page_id || null,
+      home_slug: homeSlug || null,
+    },
+    // Byte-identical to what /api/public/tenant-branding?microsite=prefix returns.
+    branding: buildTenantBrandingPayload(tenantData, microsite),
+  };
+  const tag = `<script>window.__MICROSITE_CONTEXT__=${serializeForScript(payload)}</script>`;
   return html.replace('</head>', `    ${tag}\n  </head>`);
 }
 
@@ -297,12 +340,12 @@ export async function renderTenantHtml(req) {
 
   let entity = null;
   let typographyStyles = null;
-  let microsite = null;
+  let micrositeChrome = null;
   if (tenant) {
-    const [entityResult, stylesResult, micrositeResult] = await Promise.allSettled([
+    const [entityResult, stylesResult, chromeResult] = await Promise.allSettled([
       resolveEntityMeta(req, tenant),
       fetchTypographyStylesForTenant(tenant.id),
-      resolveMicrositeForRequest(req, tenant),
+      resolveMicrositeChromeForRequest(req, tenant),
     ]);
     if (entityResult.status === 'fulfilled') {
       entity = entityResult.value;
@@ -310,11 +353,17 @@ export async function renderTenantHtml(req) {
       console.error('[renderHtml] entity meta resolution failed:', entityResult.reason?.message);
     }
     typographyStyles = stylesResult.status === 'fulfilled' ? stylesResult.value : [];
-    microsite = micrositeResult.status === 'fulfilled' ? micrositeResult.value : null;
+    micrositeChrome = chromeResult.status === 'fulfilled' ? chromeResult.value : null;
   }
 
-  // Task #2525: microsite branding overrides replace tenant defaults on
-  // microsite pages. Keys the microsite leaves unset fall back to tenant.
+  // Task #2525: microsite branding overrides replace tenant defaults in link
+  // previews only on the two-segment microsite page path (/{prefix}/{slug}).
+  // The chrome resolver matches on the first segment (any depth); gate the SEO
+  // overrides here so their behaviour is unchanged.
+  const microsite = (micrositeChrome?.microsite
+    && MICROSITE_PAGE_PATH_REGEX.test(getRequestPathname(req)))
+    ? micrositeChrome.microsite
+    : null;
   const msTagline = micrositeBrandingValue(microsite, 'tagline');
   const msDescription = micrositeBrandingValue(microsite, 'description');
   const msSocialImage = micrositeBrandingValue(microsite, 'social_image_url');
@@ -369,6 +418,12 @@ export async function renderTenantHtml(req) {
   // keeps its legacy fetch-then-fallback path (no flash either way).
   if (tenant && Array.isArray(typographyStyles)) {
     out = injectTypographyStyles(out, typographyStyles);
+  }
+  // Seed microsite chrome only when a tenant resolved server-side AND the
+  // request is under an active microsite prefix. The default site and
+  // tenant-less hosts leave the global absent and keep the client-fetch path.
+  if (tenant && micrositeChrome?.microsite) {
+    out = injectMicrositeChrome(out, micrositeChrome, tenant);
   }
   return out;
 }

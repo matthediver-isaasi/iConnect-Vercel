@@ -17,6 +17,22 @@ import { useTenantBranding } from '@/contexts/TenantBrandingContext';
 
 const MicrositeContext = createContext(null);
 
+/**
+ * Task #2533: the SSR layer injects the resolved microsite chrome (active
+ * microsite + merged branding) as window.__MICROSITE_CONTEXT__ on microsite
+ * routes so the correct header/footer paints on first load. Read it once so we
+ * can seed the context synchronously; absent (default site / tenant-less host)
+ * we fall back to the client-fetch path with no change.
+ */
+function readInjectedMicrositeContext() {
+  if (typeof window === 'undefined') return null;
+  const g = window.__MICROSITE_CONTEXT__;
+  if (g && typeof g === 'object' && g.activeMicrosite?.path_prefix && g.branding) {
+    return g;
+  }
+  return null;
+}
+
 export function useMicrosite() {
   return useContext(MicrositeContext) || {
     microsites: [],
@@ -46,6 +62,8 @@ export function usePublicChromeBranding() {
 
 export function MicrositeProvider({ children }) {
   const location = useLocation();
+  // Read once per mount — the SSR-injected global doesn't change at runtime.
+  const injected = useMemo(() => readInjectedMicrositeContext(), []);
 
   const { data: micrositesData, isFetched: micrositesLoaded } = useQuery({
     queryKey: ['public-microsites'],
@@ -71,11 +89,27 @@ export function MicrositeProvider({ children }) {
   }, [location.pathname]);
 
   const activeMicrosite = useMemo(() => {
-    if (!firstSegment || microsites.length === 0) return null;
-    return microsites.find((m) => m.path_prefix === firstSegment) || null;
-  }, [firstSegment, microsites]);
+    if (!firstSegment) return null;
+    // Prefer the freshly fetched list row once available.
+    const fromList = microsites.find((m) => m.path_prefix === firstSegment) || null;
+    if (fromList) return fromList;
+    // First paint on a microsite route: seed from the SSR-injected global so
+    // the chrome resolves synchronously before the microsites list loads.
+    if (injected?.activeMicrosite?.path_prefix === firstSegment) {
+      return injected.activeMicrosite;
+    }
+    return null;
+  }, [firstSegment, microsites, injected]);
 
   const micrositePrefix = activeMicrosite?.path_prefix || null;
+
+  // Seed the branding query from the injected global when it's for this route,
+  // so usePublicChromeBranding returns microsite branding on the very first
+  // paint. initialDataUpdatedAt: 0 keeps it "stale" so the client still
+  // refetches in the background (refresh/fallback path unchanged).
+  const injectedBrandingForRoute = (injected?.activeMicrosite?.path_prefix === micrositePrefix)
+    ? injected.branding
+    : undefined;
 
   const { data: micrositeBrandingData, isLoading: micrositeBrandingLoading } = useQuery({
     queryKey: ['public-microsite-branding', micrositePrefix],
@@ -85,6 +119,8 @@ export function MicrositeProvider({ children }) {
     },
     enabled: !!micrositePrefix,
     staleTime: 5 * 60 * 1000,
+    initialData: injectedBrandingForRoute,
+    initialDataUpdatedAt: injectedBrandingForRoute ? 0 : undefined,
   });
 
   const value = useMemo(() => ({
