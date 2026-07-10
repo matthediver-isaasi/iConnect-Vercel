@@ -86,6 +86,11 @@ const TEXT_TRANSFORMS = [
 
 const AVAILABLE_FONTS = CURATED_FONTS;
 
+// Radix <Select.Item> forbids an empty-string value, so the "Main site" scope
+// (internally represented as '') uses this non-empty sentinel in the picker.
+// Microsite ids are UUIDs, so they can never collide with it.
+const MAIN_SITE_SCOPE_VALUE = '__main__';
+
 const defaultStyle = {
   name: '',
   style_type: 'h1',
@@ -1309,12 +1314,15 @@ export default function InstalledFontsPage() {
                 {/* Task #2572: scope switcher — main site + each active microsite */}
                 <div className="flex items-center gap-2">
                   <Label htmlFor="typography-scope" className="text-sm text-slate-600 whitespace-nowrap">Scope</Label>
-                  <Select value={selectedScope} onValueChange={setSelectedScope}>
+                  <Select
+                    value={selectedScope || MAIN_SITE_SCOPE_VALUE}
+                    onValueChange={(v) => setSelectedScope(v === MAIN_SITE_SCOPE_VALUE ? '' : v)}
+                  >
                     <SelectTrigger id="typography-scope" className="w-48" data-testid="select-typography-scope">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="" data-testid="scope-option-main">Main site</SelectItem>
+                      <SelectItem value={MAIN_SITE_SCOPE_VALUE} data-testid="scope-option-main">Main site</SelectItem>
                       {microsites.map((m) => (
                         <SelectItem key={m.id} value={String(m.id)} data-testid={`scope-option-${m.id}`}>
                           {m.name}
