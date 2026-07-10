@@ -4,6 +4,7 @@ import { resolveTenantFromRequest, getHostFromRequest } from './tenantResolver.j
 import { resolveEntityMeta } from './entityMeta.js';
 import { supabase } from './database.js';
 import { resolveMicrositeByPrefix, micrositeBrandingValue } from './microsites.js';
+import { resolveScopedTypographyStyles } from './typographyScope.js';
 import { buildTenantBrandingPayload } from './tenantBranding.js';
 import { buildGoogleFontsHref } from './installedFontsShared.js';
 
@@ -143,7 +144,7 @@ function proxyOgImage(absoluteUrl, req) {
 // api/public/typography-styles.js so the injected list is identical to what
 // the client would otherwise fetch. Returns [] on any failure (the client
 // then falls back to its normal fetch).
-async function fetchTypographyStylesForTenant(tenantId) {
+async function fetchTypographyStylesForTenant(tenantId, micrositeId = null) {
   if (!supabase || !tenantId) return [];
   try {
     const { data, error } = await supabase
@@ -169,7 +170,8 @@ async function fetchTypographyStylesForTenant(tenantId) {
         margin_bottom_tablet,
         margin_bottom_mobile,
         is_default,
-        is_active
+        is_active,
+        microsite_id
       `)
       .eq('tenant_id', tenantId)
       .eq('is_active', true)
@@ -178,7 +180,9 @@ async function fetchTypographyStylesForTenant(tenantId) {
       console.error('[renderHtml] typography styles query error:', error.message);
       return [];
     }
-    return Array.isArray(data) ? data : [];
+    // Task #2572: scope to the current page — microsite pages get the microsite's
+    // styles plus main-site styles with the microsite default winning per type.
+    return resolveScopedTypographyStyles(data, micrositeId);
   } catch (err) {
     console.error('[renderHtml] typography styles fetch failed:', err?.message);
     return [];
@@ -376,10 +380,14 @@ export async function renderTenantHtml(req) {
   let micrositeChrome = null;
   let installedFonts = null;
   if (tenant) {
-    const [entityResult, stylesResult, chromeResult, fontsResult] = await Promise.allSettled([
+    // Task #2572: resolve the microsite chrome first so typography styles can be
+    // scoped to the current page (microsite pages get microsite + main-site
+    // styles with the microsite default winning per style_type).
+    micrositeChrome = await resolveMicrositeChromeForRequest(req, tenant).catch(() => null);
+    const micrositeId = micrositeChrome?.microsite?.id || null;
+    const [entityResult, stylesResult, fontsResult] = await Promise.allSettled([
       resolveEntityMeta(req, tenant),
-      fetchTypographyStylesForTenant(tenant.id),
-      resolveMicrositeChromeForRequest(req, tenant),
+      fetchTypographyStylesForTenant(tenant.id, micrositeId),
       fetchInstalledFontsForTenant(tenant.id),
     ]);
     if (entityResult.status === 'fulfilled') {
@@ -388,7 +396,6 @@ export async function renderTenantHtml(req) {
       console.error('[renderHtml] entity meta resolution failed:', entityResult.reason?.message);
     }
     typographyStyles = stylesResult.status === 'fulfilled' ? stylesResult.value : [];
-    micrositeChrome = chromeResult.status === 'fulfilled' ? chromeResult.value : null;
     installedFonts = fontsResult.status === 'fulfilled' ? fontsResult.value : [];
   }
 

@@ -75,3 +75,4 @@
 - [Microsite branding overrides](microsite-branding-overrides.md) — a new overridable key needs whitelist + tenant-branding merge + SSR renderHtml + editor card; SSR and the branding endpoint are separate resolution paths.
 - [Per-tenant installable fonts](installed-fonts.md) — installed_font table replaces hardcoded CURATED_FONTS; all font dropdowns/previews/SSR use useInstalledFonts() (curated fallback); removal 409-guarded server-side.
 - [Canvas flow (auto-layout) model](canvas-flow-model.md) — v2 flow doc coexists with v1 via isFlowDesign branch; ONE pure resolveFlowLayout drives builder+page; nullable flow props must dodge Number(null)===0 or re-save drifts to 0.
+- [Typography styles microsite scoping](typography-microsite-scope.md) — a style is scoped to main-site OR one microsite; effective default per style_type = microsite default ?? main-site default; is_default unique per (scope,type) app-level only.

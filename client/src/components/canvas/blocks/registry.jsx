@@ -96,6 +96,7 @@ import { sanitizeRichText, stripTrailingEmptyParagraphs, sanitizeCustomHtml, isR
 import { DYNAMIC_BLOCK_DEFINITIONS } from './dynamicBlocks';
 import { publicClient } from '@/api/publicClient';
 import { useTenantBranding } from '@/contexts/TenantBrandingContext';
+import { useMicrosite } from '@/contexts/MicrositeContext';
 import {
   TENANT_BUTTON_DEFAULT_SIZE,
   bgCssFromConfig,
@@ -646,14 +647,16 @@ function textColorForRole(role) {
 // Text inspectors/renderers on the page share a single network call.
 // ---------------------------------------------------------------------------
 
-async function fetchTenantTypographyStyles() {
+async function fetchTenantTypographyStyles(micrositePrefix = null) {
   // Prefer the authenticated entity endpoint — it resolves the tenant
   // from the logged-in session and therefore works in every editor
   // context (Replit dev URLs, *.replit.dev preview hosts, the admin
   // subdomain, custom domains, etc.). This is the same source
   // /InstalledFonts and the legacy IEdit typography picker use, so the
   // canvas dropdown now stays in sync with the admin font config no
-  // matter which host the editor is loaded on.
+  // matter which host the editor is loaded on. The editor path is
+  // intentionally unscoped (returns every scope's styles) so any block's
+  // typographyStyleId still resolves while editing.
   try {
     const { base44 } = await import('@/api/base44Client');
     const styles = await base44.entities.TypographyStyle.list();
@@ -668,8 +671,14 @@ async function fetchTenantTypographyStyles() {
   // hosts the resolver can't map to a tenant (localhost, *.replit.dev,
   // *.repl.co), in which case the block falls back to the legacy
   // Paragraph/H1–H6 path with hardcoded Tailwind sizes.
+  //
+  // Task #2572: on a microsite page pass the microsite prefix so the
+  // endpoint returns that microsite's scoped styles (microsite + main-site
+  // with the microsite default winning per style_type) — matching what the
+  // SSR layer injected, so the post-hydration refetch doesn't change fonts.
   try {
-    const res = await fetch('/api/public/typography-styles', { credentials: 'include' });
+    const suffix = micrositePrefix ? `?microsite=${encodeURIComponent(micrositePrefix)}` : '';
+    const res = await fetch(`/api/public/typography-styles${suffix}`, { credentials: 'include' });
     if (!res.ok) return [];
     const body = await res.json();
     return Array.isArray(body) ? body : [];
@@ -692,14 +701,28 @@ function readInjectedTypographyStyles() {
 }
 
 export function useTenantTypographyStylesState() {
+  // Task #2572: scope the query to the current page's microsite (null on the
+  // main site). The prefix resolves synchronously from the SSR-injected
+  // microsite context, so it's correct on the very first render.
+  const { activeMicrosite } = useMicrosite();
+  const micrositePrefix = activeMicrosite?.path_prefix || null;
+
+  // Only seed from the SSR-injected list when it corresponds to the SAME scope
+  // as this page. The injected list matches the initially-loaded page's scope;
+  // on client-side navigation into a different scope we must refetch instead of
+  // reusing a mismatched seed.
+  const injectedPrefix =
+    (typeof window !== 'undefined' && window.__MICROSITE_CONTEXT__?.activeMicrosite?.path_prefix) || null;
+  const initialData = injectedPrefix === micrositePrefix ? readInjectedTypographyStyles : undefined;
+
   const { data } = useQuery({
-    queryKey: ['/api/public/typography-styles'],
-    queryFn: fetchTenantTypographyStyles,
+    queryKey: ['/api/public/typography-styles', micrositePrefix],
+    queryFn: () => fetchTenantTypographyStyles(micrositePrefix),
     // Seed from the SSR-injected list when present so the very first render
     // already has the styles. Treated as stale (updatedAt 0) so a
     // background refetch still reconciles with the authoritative source
     // (e.g. the authenticated base44 list in the editor).
-    initialData: readInjectedTypographyStyles,
+    initialData,
     initialDataUpdatedAt: 0,
     staleTime: 60_000,
     retry: false,

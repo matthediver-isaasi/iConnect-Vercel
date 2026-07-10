@@ -1054,6 +1054,12 @@ export default function InstalledFontsPage() {
   const [deleteConfirmStyle, setDeleteConfirmStyle] = useState(null);
   const [activeTab, setActiveTab] = useState('fonts');
 
+  // Task #2572: microsite scope. '' = main site; otherwise a microsite id.
+  // Styles are scoped to exactly one of these; the switcher filters the list
+  // and targets new/duplicated styles + default changes to the chosen scope.
+  const [microsites, setMicrosites] = useState([]);
+  const [selectedScope, setSelectedScope] = useState('');
+
   useEffect(() => {
     if (isAccessReady) {
       if (isFeatureExcluded('page_InstalledFonts')) {
@@ -1064,12 +1070,31 @@ export default function InstalledFontsPage() {
     }
   }, [isFeatureExcluded, isAccessReady]);
 
-  // Load typography styles
+  // Load typography styles + active microsites (scope options)
   useEffect(() => {
     if (accessChecked) {
       loadTypographyStyles();
+      loadMicrosites();
     }
   }, [accessChecked]);
+
+  const loadMicrosites = async () => {
+    try {
+      const rows = await base44.entities.Microsite.list();
+      const active = (Array.isArray(rows) ? rows : [])
+        .filter((m) => m && m.is_active !== false)
+        .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+      setMicrosites(active);
+    } catch (error) {
+      console.error('Failed to load microsites:', error);
+      setMicrosites([]);
+    }
+  };
+
+  const scopeLabel = (micrositeId) => {
+    if (!micrositeId) return 'Main site';
+    return microsites.find((m) => String(m.id) === String(micrositeId))?.name || 'Microsite';
+  };
 
   const loadTypographyStyles = async () => {
     setIsLoadingStyles(true);
@@ -1090,17 +1115,26 @@ export default function InstalledFontsPage() {
 
   const handleCreateStyle = async (styleData) => {
     try {
-      // If setting as default, unset other defaults of same type
-      if (styleData.is_default) {
+      // Task #2572: target the selected scope unless the seed already carries
+      // one (e.g. duplicate keeps the source style's scope).
+      const targetScope = styleData.microsite_id !== undefined
+        ? (styleData.microsite_id || null)
+        : (selectedScope || null);
+      const payload = { ...styleData, microsite_id: targetScope };
+
+      // If setting as default, unset other defaults of the same type IN THE
+      // SAME SCOPE (default is unique per scope + style_type).
+      if (payload.is_default) {
         const existingDefault = typographyStyles.find(
-          s => s.style_type === styleData.style_type && s.is_default
+          s => s.style_type === payload.style_type && s.is_default
+            && (s.microsite_id || null) === targetScope
         );
         if (existingDefault) {
           await base44.entities.TypographyStyle.update(existingDefault.id, { is_default: false });
         }
       }
 
-      await base44.entities.TypographyStyle.create(styleData);
+      await base44.entities.TypographyStyle.create(payload);
       toast({
         title: "Success",
         description: "Typography style created successfully"
@@ -1128,6 +1162,9 @@ export default function InstalledFontsPage() {
     });
     seed.name = `${style.name || 'Style'} (Copy)`;
     seed.is_default = false;
+    // Task #2572: a duplicate stays in the same scope as its source. defaultStyle
+    // has no microsite_id key, so carry it explicitly here.
+    seed.microsite_id = style.microsite_id || null;
     setEditingStyle(null);
     setCreateSeed(seed);
     setIsCreating(true);
@@ -1135,10 +1172,13 @@ export default function InstalledFontsPage() {
 
   const handleUpdateStyle = async (styleData) => {
     try {
-      // If setting as default, unset other defaults of same type
+      const targetScope = styleData.microsite_id || null;
+      // If setting as default, unset other defaults of the same type IN THE
+      // SAME SCOPE (default is unique per scope + style_type).
       if (styleData.is_default) {
         const existingDefault = typographyStyles.find(
-          s => s.style_type === styleData.style_type && s.is_default && s.id !== styleData.id
+          s => s.style_type === styleData.style_type && s.is_default
+            && (s.microsite_id || null) === targetScope && s.id !== styleData.id
         );
         if (existingDefault) {
           await base44.entities.TypographyStyle.update(existingDefault.id, { is_default: false });
@@ -1185,9 +1225,11 @@ export default function InstalledFontsPage() {
 
   const handleSetDefault = async (style) => {
     try {
-      // Unset existing default of same type
+      const targetScope = style.microsite_id || null;
+      // Unset existing default of same type IN THE SAME SCOPE
       const existingDefault = typographyStyles.find(
         s => s.style_type === style.style_type && s.is_default
+          && (s.microsite_id || null) === targetScope && s.id !== style.id
       );
       if (existingDefault) {
         await base44.entities.TypographyStyle.update(existingDefault.id, { is_default: false });
@@ -1210,8 +1252,14 @@ export default function InstalledFontsPage() {
     }
   };
 
+  // Task #2572: only show styles belonging to the selected scope.
+  const scopedStyles = typographyStyles.filter((s) => {
+    const sid = s.microsite_id || null;
+    return selectedScope ? String(sid) === String(selectedScope) : !sid;
+  });
+
   // Group styles by type
-  const stylesByType = typographyStyles.reduce((acc, style) => {
+  const stylesByType = scopedStyles.reduce((acc, style) => {
     if (!acc[style.style_type]) {
       acc[style.style_type] = [];
     }
@@ -1252,27 +1300,48 @@ export default function InstalledFontsPage() {
 
           <TabsContent value="typography" className="space-y-6">
             {/* Create New Style Button */}
-            <div className="flex justify-between items-center">
+            <div className="flex flex-wrap justify-between items-center gap-4">
               <div>
                 <h2 className="text-xl font-semibold text-slate-900">Typography Styles</h2>
                 <p className="text-sm text-slate-600">Define consistent heading and paragraph styles for use across the page builder</p>
               </div>
-              <Button onClick={() => { setCreateSeed(null); setEditingStyle(null); setIsCreating(true); }} data-testid="button-create-style">
-                <Plus className="w-4 h-4 mr-2" />
-                New Style
-              </Button>
+              <div className="flex flex-wrap items-center gap-3">
+                {/* Task #2572: scope switcher — main site + each active microsite */}
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="typography-scope" className="text-sm text-slate-600 whitespace-nowrap">Scope</Label>
+                  <Select value={selectedScope} onValueChange={setSelectedScope}>
+                    <SelectTrigger id="typography-scope" className="w-48" data-testid="select-typography-scope">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="" data-testid="scope-option-main">Main site</SelectItem>
+                      {microsites.map((m) => (
+                        <SelectItem key={m.id} value={String(m.id)} data-testid={`scope-option-${m.id}`}>
+                          {m.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button onClick={() => { setCreateSeed(null); setEditingStyle(null); setIsCreating(true); }} data-testid="button-create-style">
+                  <Plus className="w-4 h-4 mr-2" />
+                  New Style
+                </Button>
+              </div>
             </div>
 
             {isLoadingStyles ? (
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
               </div>
-            ) : typographyStyles.length === 0 ? (
+            ) : scopedStyles.length === 0 ? (
               <Card className="border-dashed border-2 border-slate-300">
                 <CardContent className="py-12 text-center">
                   <Type className="w-12 h-12 mx-auto text-slate-400 mb-4" />
                   <h3 className="text-lg font-semibold text-slate-700 mb-2">No Typography Styles</h3>
-                  <p className="text-slate-500 mb-4">Create your first typography style to get started</p>
+                  <p className="text-slate-500 mb-4">
+                    No typography styles for <span className="font-medium">{scopeLabel(selectedScope)}</span> yet. Create your first one to get started.
+                  </p>
                   <Button onClick={() => { setCreateSeed(null); setEditingStyle(null); setIsCreating(true); }} data-testid="button-create-first-style">
                     <Plus className="w-4 h-4 mr-2" />
                     Create Style
@@ -1324,6 +1393,18 @@ export default function InstalledFontsPage() {
               <DialogTitle>
                 {isCreating ? 'Create Typography Style' : 'Edit Typography Style'}
               </DialogTitle>
+              <p className="text-sm text-slate-500" data-testid="text-editor-scope">
+                Scope:{' '}
+                <span className="font-medium text-slate-700">
+                  {scopeLabel(
+                    editingStyle
+                      ? (editingStyle.microsite_id || null)
+                      : (createSeed && createSeed.microsite_id !== undefined
+                          ? (createSeed.microsite_id || null)
+                          : (selectedScope || null))
+                  )}
+                </span>
+              </p>
             </DialogHeader>
             <TypographyStyleEditor
               style={editingStyle || createSeed || defaultStyle}
