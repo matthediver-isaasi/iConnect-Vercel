@@ -397,6 +397,11 @@ function CanvasStageInner({
   const handlePointerDownBlock = useCallback((e, blockId) => {
     if (e.button !== 0) return;
     e.stopPropagation();
+    // Suppress the browser's native text-selection gesture. Without this,
+    // shift-clicking blocks highlights the text between them, and that live
+    // native selection makes the browser hijack the first drag as a text-drag
+    // (so the move preview is discarded on pointer-up and snaps back).
+    e.preventDefault();
     const block = blocks.find((b) => b.id === blockId);
     if (!block) return;
 
@@ -430,6 +435,9 @@ function CanvasStageInner({
       const b = blocks.find((bb) => bb.id === id);
       initialGeoms[id] = resolveBlockAtBreakpoint(b, breakpoint, { canvasWidth });
     }
+    // Safeguard: drop any residual native text selection so it can't hijack
+    // the initial drag as a text-drag and cause the move to snap back.
+    try { window.getSelection?.()?.removeAllRanges?.(); } catch {}
     setInteractionState({
       kind: 'drag',
       ids: idsToDrag,
@@ -734,7 +742,7 @@ function CanvasStageInner({
   return (
     <div
       ref={setRefs}
-      className={`relative bg-white ${isOver ? 'ring-2 ring-primary ring-inset' : ''}`}
+      className={`relative bg-white select-none ${isOver ? 'ring-2 ring-primary ring-inset' : ''}`}
       style={{ width: canvasWidth, minHeight: effectiveMinHeight, ...gridStyle }}
       onPointerDown={handleStagePointerDown}
       data-testid="canvas-stage"
