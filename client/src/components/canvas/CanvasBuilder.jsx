@@ -368,6 +368,19 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   const [, forceHistTick] = useState(0);
   const MAX_HISTORY = 50;
 
+  // True once the author has made a real (history-pushing) edit since the
+  // current design was hydrated. Auto-height baking (commitAutoHeight) is a
+  // mechanical reflow re-measure, not an author action, so it must not persist
+  // — and thus must not trip autosave — until an actual edit has happened. This
+  // is the guard that stops a hard-refresh of the editor from silently
+  // rewriting a correctly-saved page (see commitAutoHeight).
+  const authorEditedRef = useRef(false);
+  // True once web fonts and the stage's initial images have settled. Before
+  // that, measured auto-height reflects fallback-font / undecoded-image metrics
+  // that differ from the real render, so any height baked from them would be
+  // wrong. Gates commitAutoHeight so the first committed measurement is real.
+  const layoutSettledRef = useRef(false);
+
   // Last saved JSON snapshot lives in state so isDirty recomputes when a
   // save succeeds. We also track which initialDesign object identity we
   // already hydrated to avoid clobbering local state on refetches.
@@ -389,6 +402,9 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       undoStack.current = [];
       redoStack.current = [];
       hydratedFromRef.current = initialDesign;
+      // A fresh design has had no author edits yet, so auto-height baking must
+      // be re-gated until the author actually touches this page.
+      authorEditedRef.current = false;
       forceHistTick((n) => n + 1);
     }
   }, [initialDesign]);
@@ -435,6 +451,10 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
         undoStack.current = [...undoStack.current.slice(-(MAX_HISTORY - 1)), prev];
         redoStack.current = [];
         forceHistTick((n) => n + 1);
+        // A history-pushing change is, by definition, a real author edit. This
+        // is what unblocks auto-height baking (commitAutoHeight) — mechanical
+        // reflow re-measures set skipHistoryRef and so never flip this flag.
+        authorEditedRef.current = true;
       }
       skipHistoryRef.current = false;
       return next;
@@ -765,6 +785,18 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   const autoHeightTimers = useRef(new Map());
   const commitAutoHeight = useCallback((blockId, measuredHeight) => {
     if (!blockId || !Number.isFinite(measuredHeight)) return;
+    // Gate 1 — settle: never bake a measurement taken before web fonts and the
+    // stage's initial images have loaded. Fallback-font / undecoded-image
+    // metrics differ from the real render, so baking them would corrupt the
+    // stored geometry with wrong heights.
+    if (!layoutSettledRef.current) return;
+    // Gate 2 — author intent: a mount-time reflow re-measure is mechanical, not
+    // an author edit. Persisting it here would flip isDirty and let the 2s
+    // autosave silently overwrite a correctly-saved page on a hard refresh with
+    // zero user interaction. Only bake once the author has actually edited
+    // (add/move/resize/edit-content), at which point re-baking auto-height so
+    // SSR/CSS stays correct is exactly what we want.
+    if (!authorEditedRef.current) return;
     const rounded = Math.round(measuredHeight);
     if (rounded <= 0) return;
     const timers = autoHeightTimers.current;
@@ -822,6 +854,46 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   useEffect(() => () => {
     for (const t of autoHeightTimers.current.values()) clearTimeout(t);
     autoHeightTimers.current.clear();
+  }, []);
+
+  // Flip the settle gate once web fonts and the stage's initial images have
+  // loaded. Auto-height blocks (Text, FAQ/Accordion) measure text, so the
+  // font swap is the metric that matters most; images are included so late
+  // decodes don't feed a bogus height either. A hard timeout guarantees the
+  // gate opens even if fonts.ready never resolves. Runs once on mount; a later
+  // page swap keeps the gate open but re-arms author-intent (Gate 2), so a
+  // freshly hydrated page still won't bake on load.
+  useEffect(() => {
+    let cancelled = false;
+    const markSettled = () => {
+      if (cancelled) return;
+      // One extra frame so a ResizeObserver fired by the font swap / image
+      // decode has flushed before commits are allowed through.
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          if (!cancelled) layoutSettledRef.current = true;
+        }));
+      } else {
+        layoutSettledRef.current = true;
+      }
+    };
+    const waits = [];
+    if (typeof document !== 'undefined' && document.fonts && document.fonts.ready) {
+      waits.push(document.fonts.ready.catch(() => {}));
+    }
+    const wrap = stageWrapperRef.current;
+    if (wrap) {
+      for (const img of Array.from(wrap.querySelectorAll('img'))) {
+        if (img.complete) continue;
+        waits.push(new Promise((res) => {
+          img.addEventListener('load', res, { once: true });
+          img.addEventListener('error', res, { once: true });
+        }));
+      }
+    }
+    Promise.all(waits).then(markSettled);
+    const t = setTimeout(markSettled, 4000);
+    return () => { cancelled = true; clearTimeout(t); };
   }, []);
 
   // ---- Auto build tablet + mobile layouts (Task #2434) ----
