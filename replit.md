@@ -23,6 +23,7 @@ Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPAB
 | `MAILGUN_API_KEY`, `MAILGUN_REGION` (default `eu`), `MAILGUN_FROM_EMAIL`, `APP_DOMAIN` (default `iconn.app`) | Email sending. `MAILGUN_FROM_EMAIL` is the non-system default From; system emails are pinned to `noreply@mail.${APP_DOMAIN}` regardless. |
 | `STRIPE_SECRET_KEY` | Tenant Stripe AND platform-side paid-plan upgrade Checkout. |
 | `STRIPE_PLAN_WEBHOOK_SECRET` | Verifies `/api/webhooks/stripe-plan` from the platform Stripe account. Configure dashboard to deliver `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
+| `GOOGLE_FONTS_API_KEY` | Server-side key for the Google Fonts Developer API. Powers live font search in the `/InstalledFonts` add dialog via `api/public/google-fonts.js`. If unset, the picker falls back to the curated `POPULAR_GOOGLE_FONTS` list. |
 | `XERO_CLIENT_ID` | Xero OAuth. |
 | `QUICKBOOKS_REDIRECT_URI` (optional) | Overrides default `${origin}/api/quickbooks/callback` for stable QBO OAuth redirect. |
 | `BROWSERLESS_API_TOKEN`, `BROWSERLESS_BASE_URL` (opt), `BROWSERLESS_AUDIT_TIMEOUT_MS` (opt) | Accessibility audits via browserless.io. |

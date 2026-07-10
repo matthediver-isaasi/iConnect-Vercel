@@ -36,6 +36,12 @@ fonts and new fonts wouldn't render on public/SSR pages. The 409 guard prevents 
 that would break existing styling.
 
 **Store shape:** `font_stack` is the CSS value (quote multi-word names, append generic family —
-see `buildFontStack`); `google_family` uses '+' for spaces (see `googleFamilyToken`). The
-"browse" picker uses `POPULAR_GOOGLE_FONTS` (a curated list, not the full Google catalogue which
-needs an API key); manual name entry covers anything else.
+see `buildFontStack`); `google_family` uses '+' for spaces (see `googleFamilyToken`).
+
+**Live browse search:** the add-font "browse" picker searches the full Google Fonts catalogue
+via `api/public/google-fonts.js`, which proxies the Google Fonts Developer API (needs
+`GOOGLE_FONTS_API_KEY`, kept server-side; caches the popularity-sorted catalogue in module
+scope). The endpoint always returns 200 with a `fallback` flag — true when the key is missing or
+upstream fails — so the client drops back to the curated `POPULAR_GOOGLE_FONTS` list. `category`
+from Google maps 1:1 onto `buildFontStack`'s generic-family choice.
+**Why:** admins needed to add any font, not just the curated shortlist, without leaking the key.

@@ -626,6 +626,9 @@ function InstalledFontsManager() {
   const [addOpen, setAddOpen] = useState(false);
   const [addMode, setAddMode] = useState('browse');
   const [search, setSearch] = useState('');
+  const [liveResults, setLiveResults] = useState(null);
+  const [liveFallback, setLiveFallback] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
   const [manualName, setManualName] = useState('');
   const [manualCategory, setManualCategory] = useState('sans-serif');
   const [savingName, setSavingName] = useState(null);
@@ -663,22 +666,43 @@ function InstalledFontsManager() {
     if (fonts.length) injectInstalledFontsStylesheet(fonts);
   }, [fonts]);
 
-  // While the add dialog is open, load the popular-font previews so labels render
-  // in their own typeface.
+  // Search the live Google Fonts catalogue (proxied server-side so the API key
+  // stays private). Debounced on the search term. When the proxy signals a
+  // fallback (key missing / upstream error) we drop back to the curated list.
   useEffect(() => {
-    if (!addOpen) return;
-    const id = 'installed-fonts-browse-preview';
-    if (document.getElementById(id)) return;
-    const href =
-      'https://fonts.googleapis.com/css2?' +
-      POPULAR_GOOGLE_FONTS.map((f) => `family=${googleFamilyToken(f.name)}:wght@400;600`).join('&') +
-      '&display=swap';
-    const link = document.createElement('link');
-    link.id = id;
-    link.rel = 'stylesheet';
-    link.href = href;
-    document.head.appendChild(link);
-  }, [addOpen]);
+    if (!addOpen || addMode !== 'browse') return;
+    let alive = true;
+    const q = search.trim();
+    setIsSearching(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/public/google-fonts?q=${encodeURIComponent(q)}`,
+          { credentials: 'include' }
+        );
+        const data = res.ok ? await res.json() : null;
+        if (!alive) return;
+        if (data && Array.isArray(data.items) && !data.fallback) {
+          setLiveResults(data.items);
+          setLiveFallback(false);
+        } else {
+          setLiveResults(null);
+          setLiveFallback(true);
+        }
+      } catch {
+        if (alive) {
+          setLiveResults(null);
+          setLiveFallback(true);
+        }
+      } finally {
+        if (alive) setIsSearching(false);
+      }
+    }, 250);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [addOpen, addMode, search]);
 
   const installedNames = React.useMemo(
     () => new Set(fonts.map((f) => String(f.label || '').toLowerCase())),
@@ -739,14 +763,37 @@ function InstalledFontsManager() {
     }
   };
 
-  const filteredPopular = React.useMemo(() => {
+  // Fonts to show in the browse list: prefer live Google Fonts results; when the
+  // proxy signals a fallback (no key / upstream error), use the curated list.
+  const browseResults = React.useMemo(() => {
     const q = search.trim().toLowerCase();
-    return POPULAR_GOOGLE_FONTS.filter((f) => {
-      if (installedNames.has(f.name.toLowerCase())) return false;
-      if (!q) return true;
-      return f.name.toLowerCase().includes(q);
-    });
-  }, [search, installedNames]);
+    const usingLive = !liveFallback && liveResults !== null;
+    const source = usingLive
+      ? liveResults
+      : POPULAR_GOOGLE_FONTS.filter((f) => !q || f.name.toLowerCase().includes(q));
+    return source.filter((f) => !installedNames.has(f.name.toLowerCase()));
+  }, [search, installedNames, liveResults, liveFallback]);
+
+  // Load previews for the fonts currently shown so labels render in their own
+  // typeface. Kept to a modest slice to keep the css2 request URL reasonable.
+  useEffect(() => {
+    if (!addOpen || addMode !== 'browse') return;
+    const families = browseResults.slice(0, 40);
+    if (families.length === 0) return;
+    const id = 'installed-fonts-browse-preview';
+    const href =
+      'https://fonts.googleapis.com/css2?' +
+      families.map((f) => `family=${googleFamilyToken(f.name)}:wght@400;600`).join('&') +
+      '&display=swap';
+    let link = document.getElementById(id);
+    if (!link) {
+      link = document.createElement('link');
+      link.id = id;
+      link.rel = 'stylesheet';
+      document.head.appendChild(link);
+    }
+    if (link.getAttribute('href') !== href) link.setAttribute('href', href);
+  }, [addOpen, addMode, browseResults]);
 
   return (
     <div className="space-y-6">
@@ -845,14 +892,23 @@ function InstalledFontsManager() {
                   className="pl-9"
                   data-testid="input-search-fonts"
                 />
+                {isSearching && (
+                  <Loader2 className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 animate-spin" />
+                )}
               </div>
+              {liveFallback && (
+                <p className="text-xs text-slate-500" data-testid="text-fonts-fallback">
+                  Showing a curated selection. Search the full Google Fonts library is
+                  unavailable right now — use "Add by Name" for any other font.
+                </p>
+              )}
               <div className="max-h-80 overflow-y-auto space-y-1 pr-1">
-                {filteredPopular.length === 0 ? (
+                {browseResults.length === 0 ? (
                   <p className="text-sm text-slate-500 py-6 text-center">
                     No matching fonts. Try "Add by Name" for any Google font.
                   </p>
                 ) : (
-                  filteredPopular.map((f) => (
+                  browseResults.map((f) => (
                     <div
                       key={f.name}
                       className="flex items-center justify-between gap-3 rounded-md p-2 hover-elevate"
