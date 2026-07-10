@@ -179,6 +179,7 @@ function CanvasBlockView({
   reflowSectionGrowth,
   isSelected,
   isAnchor,
+  showAllBoxes,
   breakpoint,
   onPointerDownBlock,
   onPointerDownResize,
@@ -217,11 +218,16 @@ function CanvasBlockView({
         : (widthResizeOnly ? WIDTH_ONLY_RESIZE_HANDLES : RESIZE_HANDLES)));
   // Anchor (align-to target) gets a thicker, pink outline so users can
   // visually distinguish which block other blocks will align to.
+  // When "Show all boxes" is on, every unselected block gets a subtle light
+  // outline so authors can verify each element's bounding box. Selected/anchor
+  // blocks keep their distinct blue/pink outlines regardless of the toggle.
   const outlineClass = isAnchor
     ? 'outline outline-[3px] outline-pink-500 outline-offset-[-2px]'
     : isSelected
       ? 'outline outline-2 outline-primary outline-offset-[-1px]'
-      : '';
+      : showAllBoxes
+        ? 'outline outline-1 outline-slate-400/60 outline-offset-[-1px]'
+        : '';
   const topOff = reflowTopOffset || 0;
   const sectionGrow = reflowSectionGrowth || 0;
   return (
@@ -317,6 +323,7 @@ function CanvasStageInner({
   canvasHeight,
   gridSize = 8,
   showGrid = true,
+  showAllBoxes = false,
   zoom = 1,
   showReadingOrder = false,
   userGuides = { vertical: [], horizontal: [] },
@@ -790,6 +797,7 @@ function CanvasStageInner({
                     breakpoint={breakpoint}
                     isSelected={selectedIds.includes(block.id)}
                     isAnchor={anchorId === block.id}
+                    showAllBoxes={showAllBoxes}
                     onPointerDownBlock={handlePointerDownBlock}
                     onPointerDownResize={handlePointerDownResize}
                     liveHeight={liveHeight}

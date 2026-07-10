@@ -25,6 +25,8 @@ import {
   AlignEndVertical,
   AlignVerticalDistributeCenter,
   AlignHorizontalDistributeCenter,
+  Rows3,
+  BoxSelect,
   Grid3x3,
   Ruler,
   Eraser,
@@ -306,6 +308,9 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   const [activeDragType, setActiveDragType] = useState(null);
   const [showGrid, setShowGrid] = useState(true);
   const [gridSize, setGridSize] = useState(8);
+  // Task #2594: outline every block on the stage (not just selected/anchor)
+  // so authors can verify each element's bounding box while adjusting layout.
+  const [showAllBoxes, setShowAllBoxes] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [showReadingOrder, setShowReadingOrder] = useState(false);
   const [showA11yPanel, setShowA11yPanel] = useState(false);
@@ -1400,6 +1405,55 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     if (Object.keys(updates).length > 0) applyGeometry(updates);
   }, [selectedIds, children, breakpoint, applyGeometry]);
 
+  // Stack the selection into a flush vertical column (zero gap). Units are
+  // partitioned the same way distribute does — a group of blocks is one unit
+  // that moves together — then sorted top-to-bottom by current y. The topmost
+  // unit stays put; every subsequent unit's top edge is snapped onto the
+  // running bottom of the previous unit. X positions and sizes are untouched,
+  // and all moves land as a single undo entry via applyGeometry.
+  const stackVerticalSelected = useCallback(() => {
+    if (selectedIds.length < 2) return;
+    const blocksGeom = selectedIds
+      .map((id) => {
+        const b = children.find((c) => c.id === id);
+        if (!b) return null;
+        return { id, geom: resolveBlockAtBreakpoint(b, breakpoint), groupId: b.groupId || null };
+      })
+      .filter(Boolean);
+
+    // Partition into units: grouped blocks stack as one unit (by their combined
+    // bounding box); ungrouped blocks are each their own unit.
+    const unitMap = new Map();
+    for (const item of blocksGeom) {
+      const k = item.groupId ? `group:${item.groupId}` : `block:${item.id}`;
+      if (!unitMap.has(k)) unitMap.set(k, []);
+      unitMap.get(k).push(item);
+    }
+    const units = Array.from(unitMap.values()).map((members) => {
+      const y = Math.min(...members.map((m) => m.geom.y));
+      const bottom = Math.max(...members.map((m) => m.geom.y + m.geom.h));
+      return { members, y, bottom };
+    });
+    if (units.length < 2) return;
+
+    // Sort top-to-bottom by current top edge; keep the topmost unit fixed.
+    units.sort((a, b) => a.y - b.y);
+    let runningBottom = units[0].bottom;
+    const updates = {};
+    for (let i = 1; i < units.length; i += 1) {
+      const unit = units[i];
+      const dy = runningBottom - unit.y;
+      const unitHeight = unit.bottom - unit.y;
+      if (dy !== 0) {
+        for (const m of unit.members) {
+          updates[m.id] = { ...m.geom, y: m.geom.y + dy };
+        }
+      }
+      runningBottom += unitHeight;
+    }
+    if (Object.keys(updates).length > 0) applyGeometry(updates);
+  }, [selectedIds, children, breakpoint, applyGeometry]);
+
   const canvasWidth = BREAKPOINT_WIDTHS[breakpoint] || BREAKPOINT_WIDTHS.desktop;
 
   // ---- Ruler guides (Task #1665) ----
@@ -1719,6 +1773,9 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
           <Button size="icon" variant="ghost" onClick={() => distributeSelected('v')} disabled={selectedIds.length < 3} title="Distribute vertically" data-testid="button-distribute-v">
             <AlignVerticalDistributeCenter className="w-4 h-4" />
           </Button>
+          <Button size="icon" variant="ghost" onClick={stackVerticalSelected} disabled={selectedIds.length < 2} title="Stack vertically (close gaps)" data-testid="button-stack-v">
+            <Rows3 className="w-4 h-4" />
+          </Button>
           <div className="w-px h-6 bg-slate-200 mx-1" />
           <Button size="icon" variant="ghost" onClick={groupSelected} disabled={!canGroupSelection} title="Group (Ctrl/Cmd+G)" data-testid="button-group">
             <GroupIcon className="w-4 h-4" />
@@ -1794,6 +1851,16 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
                 {a11yIssues.length}
               </Badge>
             )}
+          </Button>
+          <Button
+            size="sm" variant="ghost"
+            onClick={() => setShowAllBoxes((v) => !v)}
+            className={`toggle-elevate ${showAllBoxes ? 'toggle-elevated' : ''}`}
+            aria-pressed={showAllBoxes}
+            title="Outline every block's bounding box"
+            data-testid="button-toggle-boxes"
+          >
+            <BoxSelect className="w-4 h-4 mr-1.5" /> Boxes
           </Button>
           <Button
             size="sm" variant="ghost"
@@ -1950,6 +2017,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
                       canvasHeight={stageHeight}
                       gridSize={gridSize}
                       showGrid={showGrid}
+                      showAllBoxes={showAllBoxes}
                       zoom={zoom}
                       showReadingOrder={showReadingOrder}
                       issuesByBlock={a11yIssuesByBlock}
