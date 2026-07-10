@@ -626,6 +626,7 @@ function InstalledFontsManager() {
   const [addOpen, setAddOpen] = useState(false);
   const [addMode, setAddMode] = useState('browse');
   const [search, setSearch] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('all');
   const [liveResults, setLiveResults] = useState(null);
   const [liveFallback, setLiveFallback] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
@@ -676,8 +677,11 @@ function InstalledFontsManager() {
     setIsSearching(true);
     const timer = setTimeout(async () => {
       try {
+        const params = new URLSearchParams();
+        if (q) params.set('q', q);
+        if (categoryFilter !== 'all') params.set('category', categoryFilter);
         const res = await fetch(
-          `/api/public/google-fonts?q=${encodeURIComponent(q)}`,
+          `/api/public/google-fonts?${params.toString()}`,
           { credentials: 'include' }
         );
         const data = res.ok ? await res.json() : null;
@@ -702,7 +706,7 @@ function InstalledFontsManager() {
       alive = false;
       clearTimeout(timer);
     };
-  }, [addOpen, addMode, search]);
+  }, [addOpen, addMode, search, categoryFilter]);
 
   const installedNames = React.useMemo(
     () => new Set(fonts.map((f) => String(f.label || '').toLowerCase())),
@@ -768,11 +772,17 @@ function InstalledFontsManager() {
   const browseResults = React.useMemo(() => {
     const q = search.trim().toLowerCase();
     const usingLive = !liveFallback && liveResults !== null;
+    // Live results are already filtered by category server-side; the curated
+    // fallback list must be filtered client-side to match.
     const source = usingLive
       ? liveResults
-      : POPULAR_GOOGLE_FONTS.filter((f) => !q || f.name.toLowerCase().includes(q));
+      : POPULAR_GOOGLE_FONTS.filter(
+          (f) =>
+            (!q || f.name.toLowerCase().includes(q)) &&
+            (categoryFilter === 'all' || f.category === categoryFilter)
+        );
     return source.filter((f) => !installedNames.has(f.name.toLowerCase()));
-  }, [search, installedNames, liveResults, liveFallback]);
+  }, [search, categoryFilter, installedNames, liveResults, liveFallback]);
 
   // Load previews for the fonts currently shown so labels render in their own
   // typeface. Kept to a modest slice to keep the css2 request URL reasonable.
@@ -883,18 +893,33 @@ function InstalledFontsManager() {
             </TabsList>
 
             <TabsContent value="browse" className="space-y-4">
-              <div className="relative">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <Input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search Google Fonts..."
-                  className="pl-9"
-                  data-testid="input-search-fonts"
-                />
-                {isSearching && (
-                  <Loader2 className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 animate-spin" />
-                )}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative flex-1 min-w-[12rem]">
+                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <Input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search Google Fonts..."
+                    className="pl-9"
+                    data-testid="input-search-fonts"
+                  />
+                  {isSearching && (
+                    <Loader2 className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 animate-spin" />
+                  )}
+                </div>
+                <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                  <SelectTrigger className="w-[11rem]" data-testid="select-category-filter">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All styles</SelectItem>
+                    <SelectItem value="sans-serif">Sans-serif</SelectItem>
+                    <SelectItem value="serif">Serif</SelectItem>
+                    <SelectItem value="display">Display</SelectItem>
+                    <SelectItem value="handwriting">Handwriting</SelectItem>
+                    <SelectItem value="monospace">Monospace</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               {liveFallback && (
                 <p className="text-xs text-slate-500" data-testid="text-fonts-fallback">

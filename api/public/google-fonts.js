@@ -2,8 +2,11 @@
 // Google Fonts catalogue from the Installed Fonts add dialog. The API key is
 // kept server-side (GOOGLE_FONTS_API_KEY); the browser never sees it.
 //
-// GET /api/public/google-fonts?q=<search>&limit=<n>
+// GET /api/public/google-fonts?q=<search>&limit=<n>&category=<style>
 //   -> [{ name, category }, ...]
+//
+// `category` (optional) narrows results to a single Google Fonts style category
+// (serif, sans-serif, display, handwriting, monospace).
 //
 // The full catalogue is fetched once from Google and cached in-memory (module
 // scope) with a TTL, so repeated searches don't re-hit Google. When the key is
@@ -65,6 +68,7 @@ export default async function handler(req, res) {
   }
 
   const q = String(req.query?.q || '').trim().toLowerCase();
+  const category = String(req.query?.category || '').trim().toLowerCase();
   let limit = parseInt(req.query?.limit, 10);
   if (!Number.isFinite(limit) || limit <= 0) limit = DEFAULT_LIMIT;
   if (limit > MAX_LIMIT) limit = MAX_LIMIT;
@@ -72,8 +76,11 @@ export default async function handler(req, res) {
   try {
     const catalogue = await getCatalogue(apiKey);
     let matches = catalogue;
+    if (category) {
+      matches = matches.filter((f) => f.category === category);
+    }
     if (q) {
-      matches = catalogue.filter((f) => f.name.toLowerCase().includes(q));
+      matches = matches.filter((f) => f.name.toLowerCase().includes(q));
       // Rank names that start with the query ahead of mid-string matches,
       // preserving Google's popularity order within each group.
       matches.sort((a, b) => {
