@@ -529,6 +529,7 @@ export const BLOCK_DEFAULTS = {
       lineStyle: 'solid', // solid | dashed | dotted
       color: 'var(--cb-color-border, #e2e8f0)',
       thickness: 1,
+      angle: 0, // rotation in degrees (0–360); 0 = horizontal (legacy default)
     },
   },
   [BLOCK_TYPES.ACCORDION]: {
@@ -2192,6 +2193,14 @@ function normalizeBlock(block) {
         paddingLeft: 0,
       };
     }
+  }
+
+  // DIVIDER: clamp the optional rotation angle into 0–360 so a malformed
+  // stored value can't produce a broken CSS transform. A missing angle
+  // (legacy dividers) normalises to 0 so they keep rendering horizontally.
+  if (type === BLOCK_TYPES.DIVIDER) {
+    const a = Number(normalized.content.angle);
+    normalized.content.angle = Number.isFinite(a) ? ((a % 360) + 360) % 360 : 0;
   }
 
   // Task #1675: preserve resolved symbol children across re-normalization.
