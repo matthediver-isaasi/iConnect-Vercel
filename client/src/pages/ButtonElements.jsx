@@ -6,6 +6,13 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Save, Loader2, Eye, RotateCcw, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -16,6 +23,11 @@ import { LUCIDE_ICONS, getLucideIcon } from "@/components/canvas/blocks/registry
 // (renders nothing). `color === ''` means "inherit the button's text colour".
 // Additive: older saved configs with no `icon` block load with no icon.
 const DEFAULT_ICON = { name: '', color: '', position: 'before', size: 18 };
+
+// Radix <Select.Item> forbids an empty-string value, so the "Main site" scope
+// (internally represented as '') uses this non-empty sentinel in the picker.
+// Microsite ids are UUIDs, so they can never collide with it.
+const MAIN_SITE_SCOPE_VALUE = '__main__';
 
 // UI-only stable identity for custom style rows. Used as the React list key
 // and as the target for update/rename/delete so a row is never keyed by its
@@ -1128,6 +1140,10 @@ export default function ButtonElementsPage() {
   // (render path is never filtered — Task #2562).
   const [microsites, setMicrosites] = useState([]);
 
+  // Scope filter: '' = main site; otherwise a microsite id. Filters the
+  // additional custom styles list to one scope and targets new styles to it.
+  const [selectedScope, setSelectedScope] = useState('');
+
   // Slugify a label to a kebab-case key, ensuring it doesn't collide with
   // reserved keys (`primary`, `secondary`) or any other existing key.
   const slugifyKey = (label, existingKeys) => {
@@ -1155,7 +1171,10 @@ export default function ButtonElementsPage() {
       // the target for update/rename/delete. It must NOT be the mutable
       // slugified `key`, or re-slugifying on each keystroke remounts the row
       // and the rename input loses focus after one character (Task #2562).
-      return [...prev, { uid: genCustomStyleUid(), key, label: 'New style', isNew: true, microsites: [], ...clone }];
+      // Default the new style's scope to whatever scope is currently
+      // selected: a specific microsite -> assigned to it; main site -> [].
+      const initialMicrosites = selectedScope ? [String(selectedScope)] : [];
+      return [...prev, { uid: genCustomStyleUid(), key, label: 'New style', isNew: true, microsites: initialMicrosites, ...clone }];
     });
   };
 
@@ -1396,6 +1415,15 @@ export default function ButtonElementsPage() {
     );
   }
 
+  // Only show custom styles belonging to the selected scope: an empty
+  // `microsites` array is a main-site style; otherwise membership in the
+  // selected microsite id. Primary/Secondary defaults are global and shown
+  // regardless of scope.
+  const scopedCustomStyles = customStyles.filter((entry) => {
+    const assigned = Array.isArray(entry.microsites) ? entry.microsites.map(String) : [];
+    return selectedScope ? assigned.includes(String(selectedScope)) : assigned.length === 0;
+  });
+
   return (
     <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-6xl mx-auto">
@@ -1452,32 +1480,54 @@ export default function ButtonElementsPage() {
 
         {/* Additional (free-form) button styles — canvas Button block only */}
         <div className="mt-10">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
             <div>
               <h2 className="text-xl font-semibold text-slate-900">Additional button styles</h2>
               <p className="text-sm text-slate-600">
                 Extra named styles available in the page builder's Button block. Use these for contrast against specific section backgrounds (e.g. "On dark hero", "On orange banner"). Primary and Secondary above remain the defaults used by navigation, header, and IEdit CTA buttons.
               </p>
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={addCustomStyle}
-              data-testid="button-add-custom-style"
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              Add button style
-            </Button>
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Scope switcher — main site + each active microsite */}
+              <div className="flex items-center gap-2">
+                <Label htmlFor="button-style-scope" className="text-sm text-slate-600 whitespace-nowrap">Scope</Label>
+                <Select
+                  value={selectedScope || MAIN_SITE_SCOPE_VALUE}
+                  onValueChange={(v) => setSelectedScope(v === MAIN_SITE_SCOPE_VALUE ? '' : v)}
+                >
+                  <SelectTrigger id="button-style-scope" className="w-48" data-testid="select-button-style-scope">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={MAIN_SITE_SCOPE_VALUE} data-testid="scope-option-main">Main site</SelectItem>
+                    {microsites.map((m) => (
+                      <SelectItem key={m.id} value={String(m.id)} data-testid={`scope-option-${m.id}`}>
+                        {m.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={addCustomStyle}
+                data-testid="button-add-custom-style"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Add button style
+              </Button>
+            </div>
           </div>
-          {customStyles.length === 0 ? (
+          {scopedCustomStyles.length === 0 ? (
             <Card>
               <CardContent className="py-8 text-center text-slate-500 text-sm">
-                No additional styles yet. Click "Add button style" to create one.
+                No additional styles in this scope yet. Click "Add button style" to create one.
               </CardContent>
             </Card>
           ) : (
             <div className="grid lg:grid-cols-2 gap-8">
-              {customStyles.map((entry) => (
+              {scopedCustomStyles.map((entry) => (
                 <ButtonStyleEditor
                   key={entry.uid}
                   style={entry}
