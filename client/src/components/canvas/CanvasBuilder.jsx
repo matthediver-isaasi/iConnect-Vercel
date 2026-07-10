@@ -282,7 +282,25 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   const [showReadingOrder, setShowReadingOrder] = useState(false);
   const [showA11yPanel, setShowA11yPanel] = useState(false);
   // Floating, draggable Layers panel (open by default so nothing appears missing).
-  const [showLayersPanel, setShowLayersPanel] = useState(true);
+  // Open/closed state persists per-user via localStorage across editor reloads.
+  const [showLayersPanel, setShowLayersPanel] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    try {
+      const raw = window.localStorage.getItem('canvas.layersPanel.open');
+      if (raw === null) return true;
+      return raw === 'true';
+    } catch {
+      return true;
+    }
+  });
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem('canvas.layersPanel.open', String(showLayersPanel));
+    } catch {
+      // Best-effort persistence; ignore storage errors.
+    }
+  }, [showLayersPanel]);
   // Task #1665: editor-only ruler guides.
   const [showGuides, setShowGuides] = useState(true);
   // guideDrag holds the immutable descriptor of an in-progress guide drag
@@ -1939,6 +1957,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
               defaultPosition={{ x: 16, y: 16 }}
               width={340}
               testId="floating-layers-panel"
+              storageKey="canvas.layersPanel.position"
             >
               <CanvasLayers
                 blocks={children}

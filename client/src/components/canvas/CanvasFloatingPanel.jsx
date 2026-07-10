@@ -3,9 +3,34 @@ import { X, GripHorizontal } from 'lucide-react';
 
 const PANEL_WIDTH = 340;
 
+// Read a persisted {x, y} position for the given storage key. Returns null when
+// nothing valid is stored (or when localStorage is unavailable).
+function readStoredPosition(storageKey) {
+  if (!storageKey || typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (
+      parsed &&
+      typeof parsed.x === 'number' &&
+      typeof parsed.y === 'number' &&
+      Number.isFinite(parsed.x) &&
+      Number.isFinite(parsed.y)
+    ) {
+      return { x: parsed.x, y: parsed.y };
+    }
+  } catch {
+    // Ignore malformed JSON / storage access errors and fall back to default.
+  }
+  return null;
+}
+
 // A lightweight floating, draggable window. It positions itself absolutely
 // within its offset parent (the editor main area) and can be moved by dragging
 // its header. Movement is clamped so the panel never leaves the viewport.
+// When `storageKey` is supplied, the last-dragged position is persisted to
+// localStorage so it survives editor reloads (per-user/local only).
 export default function CanvasFloatingPanel({
   title,
   icon,
@@ -14,10 +39,11 @@ export default function CanvasFloatingPanel({
   defaultPosition = { x: 16, y: 16 },
   width = PANEL_WIDTH,
   testId = 'floating-panel',
+  storageKey,
 }) {
   const panelRef = useRef(null);
   const dragState = useRef(null);
-  const [pos, setPos] = useState(defaultPosition);
+  const [pos, setPos] = useState(() => readStoredPosition(storageKey) || defaultPosition);
 
   const clampToParent = useCallback((x, y) => {
     const panel = panelRef.current;
@@ -37,11 +63,24 @@ export default function CanvasFloatingPanel({
     setPos(clampToParent(e.clientX - ds.offsetX, e.clientY - ds.offsetY));
   }, [clampToParent]);
 
+  const persistPosition = useCallback((p) => {
+    if (!storageKey || typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify({ x: p.x, y: p.y }));
+    } catch {
+      // Ignore storage quota / access errors — persistence is best-effort.
+    }
+  }, [storageKey]);
+
   const handlePointerUp = useCallback(() => {
     dragState.current = null;
     window.removeEventListener('pointermove', handlePointerMove);
     window.removeEventListener('pointerup', handlePointerUp);
-  }, [handlePointerMove]);
+    setPos((p) => {
+      persistPosition(p);
+      return p;
+    });
+  }, [handlePointerMove, persistPosition]);
 
   const handleHeaderPointerDown = useCallback((e) => {
     if (e.button !== 0) return;
