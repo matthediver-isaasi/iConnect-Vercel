@@ -74,3 +74,4 @@
 - [Dashboard derived group-only dimensions](dashboard-derived-dimensions.md) — derived dims (Region) need groupOnly wiring in source+engine+builder; engine guards are the only server-side protection; local 500-id in-list needs bigger header cap.
 - [Microsite branding overrides](microsite-branding-overrides.md) — a new overridable key needs whitelist + tenant-branding merge + SSR renderHtml + editor card; SSR and the branding endpoint are separate resolution paths.
 - [Per-tenant installable fonts](installed-fonts.md) — installed_font table replaces hardcoded CURATED_FONTS; all font dropdowns/previews/SSR use useInstalledFonts() (curated fallback); removal 409-guarded server-side.
+- [Canvas flow (auto-layout) model](canvas-flow-model.md) — v2 flow doc coexists with v1 via isFlowDesign branch; ONE pure resolveFlowLayout drives builder+page; nullable flow props must dodge Number(null)===0 or re-save drifts to 0.

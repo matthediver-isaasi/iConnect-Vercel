@@ -21,6 +21,15 @@
 // EMPTY_TYPO + a NEUTRAL_THEME whose colours are tenant CSS variables, so the
 // generated page adopts the current tenant's branding.
 
+// Task #2558 — flow (auto-layout) model helpers. Imported from the React-free
+// data layer (same module the builder + renderer use), so buildFlowDesign emits
+// documents that normalize/resolve identically wherever they run.
+import {
+  BLOCK_TYPES,
+  LAYOUT_MODES,
+  normalizeFlowDesign,
+} from '../../client/src/lib/canvasDesign.js';
+
 // ---------------------------------------------------------------------------
 // Typography style ids from the BNMS award/application pages (verified as
 // tenant-owned). Only meaningful for the BNMS tenant; other tenants pass
@@ -772,6 +781,191 @@ export function buildDesign(spec) {
 // adopts the current tenant's branding and default fonts.
 export function buildNeutralDesign(spec) {
   return buildDesign({ ...spec, theme: NEUTRAL_THEME, typo: EMPTY_TYPO });
+}
+
+// ---------------------------------------------------------------------------
+// Task #2558 — flow (auto-layout) emitter.
+//
+// buildFlowDesign(spec) consumes the SAME spec shape as buildDesign(spec) but
+// emits a version-2 flow document: an ordered tree of sections → rows → leaves
+// where ORDER is the source of truth and vertical position is derived by the
+// shared layout engine (canvasFlowLayout.resolveFlowLayout). No x/y cursor is
+// tracked here — a section simply lists its children in order; a two-column
+// section becomes a real Row; a hero+logo overlay becomes a free-position group
+// (overlap preserved). The result is run through normalizeFlowDesign so every
+// node is fully-formed (styles/content/flow defaults filled).
+//
+// Leaf heights: content blocks whose size is intrinsic (headings, dividers,
+// heroes, icons) are pinned via flow.heightMode:'fixed' so the emitted design
+// is deterministic without measurement; body/accordion copy stays 'auto' so it
+// reflows to measured height in the builder/renderer.
+// ---------------------------------------------------------------------------
+
+// Wrap a v1 block (from a make* factory) as a flow leaf node.
+function flowLeaf(block, { height, heightMode = 'fixed', grow, basis } = {}) {
+  const flow = {
+    heightMode,
+    height: height != null ? height : (block.bp && block.bp.desktop ? block.bp.desktop.h : null),
+  };
+  if (grow != null) flow.grow = grow;
+  if (basis != null) flow.basis = basis;
+  return { ...block, layoutMode: LAYOUT_MODES.FLOW, flow, responsive: { tablet: {}, mobile: {} } };
+}
+
+// Build a container node (section/row/group). Missing style/content/flow are
+// filled by normalizeFlowDesign, so callers only pass what differs.
+function flowContainer(type, children, { layoutMode = LAYOUT_MODES.FLOW, name, style, content, flow } = {}) {
+  const node = {
+    id: genId(),
+    type,
+    name: name || type,
+    layoutMode,
+    a11y: a11y(),
+    locked: false,
+    children,
+    responsive: { tablet: {}, mobile: {} },
+  };
+  if (style) node.style = style;
+  if (content) node.content = content;
+  if (flow) node.flow = flow;
+  return node;
+}
+
+export function buildFlowDesign(spec) {
+  THEME = resolveTheme(spec.theme);
+  TYPO_ACTIVE = spec.typo || TYPO;
+
+  const g = (w, h) => ({ x: 0, y: 0, w, h });
+  const sections = [];
+
+  // --- Opening hero (optional logo overlay -> free group) --------------------
+  const heroBlock = makeHero(spec.hero, g(CANVAS_W, HERO_H));
+  if (THEME.logoUrl) {
+    const logoW = 300;
+    const logoH = 96;
+    const logoBlock = makeLogo(THEME.logoUrl, { x: CANVAS_W - logoW - 40, y: 32, w: logoW, h: logoH });
+    // Overlap of hero + logo is preserved as a rigid free-position group.
+    const group = flowContainer(
+      BLOCK_TYPES.GROUP,
+      [flowLeaf(heroBlock, { height: HERO_H }), flowLeaf(logoBlock, { height: logoH })],
+      { layoutMode: LAYOUT_MODES.FREE, name: 'Hero + logo' }
+    );
+    sections.push(flowContainer(BLOCK_TYPES.SECTION, [group], { name: 'Hero' }));
+  } else {
+    sections.push(flowContainer(BLOCK_TYPES.SECTION, [flowLeaf(heroBlock, { height: HERO_H })], { name: 'Hero' }));
+  }
+
+  // --- Intro (centered icon + strapline + body) ------------------------------
+  if (spec.intro) {
+    const introKids = [];
+    if (spec.intro.icon) {
+      introKids.push(flowLeaf(makeIcon(spec.intro.icon, g(144, 136), { iconSize: 50 }), { height: 136, basis: 144 }));
+    }
+    if (spec.intro.strapline) {
+      introKids.push(flowLeaf(makeH2(spec.intro.strapline, g(CONTENT_W, 60), { center: true }), { height: 60 }));
+    }
+    introKids.push(flowLeaf(makeIntro(spec.intro.html, g(CONTENT_W, spec.intro.h)), { height: spec.intro.h, heightMode: 'auto' }));
+    sections.push(flowContainer(BLOCK_TYPES.SECTION, introKids, {
+      name: 'Intro',
+      flow: { align: 'center', gap: 12, maxWidth: CONTENT_W },
+    }));
+  }
+
+  // --- Content sections (wrapped in one colour band section) ------------------
+  const bandKids = [];
+  for (const section of spec.sections || []) {
+    if (section.heading) {
+      bandKids.push(flowLeaf(makeH2(section.heading, g(CONTENT_W, 60)), { height: 60 }));
+      bandKids.push(flowLeaf(makeDivider(g(300, 24)), { height: 24 }));
+    }
+
+    if (section.type === 'columns') {
+      const columns = (section.columns || []).map((col) => {
+        const colKids = [];
+        if (col.icon) colKids.push(flowLeaf(makeIcon(col.icon, g(48, 64)), { height: 64 }));
+        colKids.push(flowLeaf(makeH3(col.h3, g(COL_W, 50)), { height: 50 }));
+        colKids.push(flowLeaf(makeDivider(g(260, 24)), { height: 24 }));
+        colKids.push(flowLeaf(makeBody(col.html, g(COL_W, col.h), { bullets: col.bullets !== false }), {
+          height: col.h,
+          heightMode: 'auto',
+        }));
+        return flowContainer(BLOCK_TYPES.SECTION, colKids, { name: 'Column', flow: { grow: 1, gap: 12 } });
+      });
+      bandKids.push(flowContainer(BLOCK_TYPES.ROW, columns, {
+        name: 'Columns',
+        content: { columns: { desktop: columns.length, tablet: columns.length, mobile: 1 }, stackMobile: true },
+        flow: { gap: COL_GAP },
+      }));
+    } else if (section.type === 'accordion') {
+      bandKids.push(flowLeaf(makeAccordion(section.items, g(CONTENT_W, section.h || 360)), {
+        height: section.h || 360,
+        heightMode: 'auto',
+      }));
+    } else if (section.type === 'cards') {
+      if (section.subheading) {
+        bandKids.push(flowLeaf(makeH3(section.subheading, g(CONTENT_W, 50)), { height: 50 }));
+      }
+      const cols = section.columns || 3;
+      for (let r = 0; r < Math.ceil(section.cards.length / cols); r += 1) {
+        const rowCards = section.cards.slice(r * cols, r * cols + cols);
+        const cardNodes = rowCards.map((card) =>
+          flowLeaf(makeCard(card, g(320, card.h || section.cardH || 340)), {
+            height: card.h || section.cardH || 340,
+            grow: 1,
+          }));
+        bandKids.push(flowContainer(BLOCK_TYPES.ROW, cardNodes, {
+          name: 'Cards',
+          content: { columns: { desktop: cols, tablet: Math.min(cols, 2), mobile: 1 }, stackMobile: true },
+          flow: { gap: 24 },
+        }));
+      }
+    } else if (section.type === 'placeholder') {
+      bandKids.push(flowLeaf(makeNote(section.note, g(CONTENT_W, section.h || 120)), { height: section.h || 120 }));
+    } else {
+      // 'text' / 'feature' — body copy + optional CTA button row.
+      bandKids.push(flowLeaf(makeBody(section.html, g(CONTENT_W, section.h), { bullets: !!section.bullets }), {
+        height: section.h,
+        heightMode: 'auto',
+      }));
+      const btnLabels = section.buttons || (section.cta ? [section.cta] : []);
+      if (btnLabels.length) {
+        const btnNodes = btnLabels.map((btn) => {
+          const label = typeof btn === 'string' ? btn : btn.label;
+          const href = typeof btn === 'string' ? undefined : btn.href;
+          return flowLeaf(makeButton(label, g(340, 48), href), { height: 48, basis: 340 });
+        });
+        bandKids.push(flowContainer(BLOCK_TYPES.ROW, btnNodes, {
+          name: 'Buttons',
+          content: { columns: { desktop: btnNodes.length, tablet: btnNodes.length, mobile: 1 }, stackMobile: true },
+          flow: { gap: 20, justify: 'start' },
+        }));
+      }
+    }
+  }
+  if (bandKids.length) {
+    sections.push(flowContainer(BLOCK_TYPES.SECTION, bandKids, {
+      name: 'Content',
+      style: makeSection(g(CANVAS_W, 0)).style,
+      flow: { padTop: 56, padBottom: 56, gap: 20, maxWidth: CONTENT_W },
+    }));
+  }
+
+  // --- Closing hero CTA (only when supplied) ---------------------------------
+  if (spec.closingHero && String(spec.closingHero.headline || '').trim()) {
+    sections.push(flowContainer(
+      BLOCK_TYPES.SECTION,
+      [flowLeaf(makeHero(spec.closingHero, g(CANVAS_W, CLOSING_HERO_H)), { height: CLOSING_HERO_H })],
+      { name: 'Closing' }
+    ));
+  }
+
+  return normalizeFlowDesign({ root: { background: null, layout: 'flow', sections } });
+}
+
+// Neutral (tenant-branded) variant of the flow emitter, mirroring
+// buildNeutralDesign for the v1 path.
+export function buildNeutralFlowDesign(spec) {
+  return buildFlowDesign({ ...spec, theme: NEUTRAL_THEME, typo: EMPTY_TYPO });
 }
 
 // ---------------------------------------------------------------------------

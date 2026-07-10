@@ -32,6 +32,23 @@
 
 export const CANVAS_DESIGN_VERSION = 1;
 
+// Task #2558 — flow (auto-layout) schema. Version 2 documents describe the page
+// as an ordered tree of containers (section → row → group → element) where
+// vertical position is DERIVED from block order + measured height, not stored.
+// Version 1 (absolute x/y coordinates) and version 2 coexist during rollout:
+// `isFlowDesign()` selects which normalizer / renderer path applies. Newly
+// created pages and the autobuild generator still emit v1 by default until the
+// flow renderer (Step 2) and builder (Step 3) land — so version 1 remains the
+// live default and there is no user-facing behaviour change from this step.
+export const CANVAS_FLOW_VERSION = 2;
+
+// Per-node layout mode. `flow` = children participate in auto-layout (their
+// position is derived from order + measured height, and editing one reflows
+// the rest inside AND outside the container). `free` = children are placed
+// absolutely by their per-breakpoint geometry and may overlap; the free
+// container is rigid internally but is still a normal flow item in its parent.
+export const LAYOUT_MODES = { FLOW: 'flow', FREE: 'free' };
+
 export const BREAKPOINTS = ['desktop', 'tablet', 'mobile'];
 
 export const BREAKPOINT_WIDTHS = {
@@ -183,7 +200,27 @@ export const BLOCK_TYPES = {
   LOGIN_FORM: 'login-form',
   // Styled public-search field that reuses /api/public/search.
   SEARCH_INPUT: 'search-input',
+  // Task #2558 — flow (auto-layout) layout containers. `row` lays its children
+  // out horizontally as columns (the real Row/Columns primitive that replaces
+  // expressing side-by-side layouts with X coordinates); `group` is a
+  // free-position cluster whose children are placed absolutely and may overlap.
+  // Both are containers: they carry a `children` array and a `layoutMode`.
+  ROW: 'row',
+  GROUP: 'group',
 };
+
+// Container block types in the flow model. A container carries a `children`
+// array and a `layoutMode`; a leaf does not. `section` already exists as a
+// visual box in v1 but becomes a flow container in v2.
+export const FLOW_CONTAINER_TYPES = new Set([
+  BLOCK_TYPES.SECTION,
+  BLOCK_TYPES.ROW,
+  BLOCK_TYPES.GROUP,
+]);
+
+export function isFlowContainerType(type) {
+  return FLOW_CONTAINER_TYPES.has(type);
+}
 
 // Block types that support the "full-bleed" treatment — a true 100vw
 // viewport-edge breakout (vs. the generic `fullWidth`, which only fills the
@@ -457,6 +494,31 @@ export const BLOCK_DEFAULTS = {
     style: { background: 'transparent', borderWidth: 0 },
     // Spacer height is driven entirely by the block's per-breakpoint
     // geometry (Position panel) — no duplicate content fields.
+    content: {},
+  },
+  // Task #2558 — flow Row container. Lays its children out horizontally as
+  // columns. `content.columns` is the desired column count per breakpoint;
+  // tablet/mobile default to stacking. Widths are derived by the layout
+  // engine from each child's `flow.basis`/`flow.grow` (equal split when unset).
+  [BLOCK_TYPES.ROW]: {
+    name: 'Row',
+    geom: { w: 900, h: 200 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      columns: { desktop: 2, tablet: 2, mobile: 1 },
+      // Whether tablet/mobile collapse the row into a vertical stack.
+      stackTablet: false,
+      stackMobile: true,
+    },
+  },
+  // Task #2558 — free-position group. A cluster of children placed absolutely
+  // (by their per-breakpoint geometry) that may overlap — used to preserve
+  // heros/badges-on-images/overlapping cards when migrating v1 pages. Rigid
+  // internally, but flows as one item in its parent.
+  [BLOCK_TYPES.GROUP]: {
+    name: 'Group',
+    geom: { w: 900, h: 300 },
+    style: { background: 'transparent', borderWidth: 0 },
     content: {},
   },
   [BLOCK_TYPES.DIVIDER]: {
@@ -1510,6 +1572,243 @@ function generateId(prefix = 'block') {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+// ===========================================================================
+// Task #2558 — Flow (auto-layout) model, version 2.
+//
+// A flow design is an ordered tree of nodes. Every node has the same v1 leaf
+// shape (id/type/name/anchorId/locked/groupId/fullWidth/style/a11y/content/bp)
+// PLUS flow-model fields:
+//   - layoutMode : 'flow' | 'free'   (containers only)
+//   - flow       : spacing/sizing expressed as gaps/margins, NOT coordinates
+//   - responsive : per-breakpoint order/visibility/column overrides
+//   - children   : array of child nodes (containers only)
+//
+// `bp` (absolute per-breakpoint geometry) is RETAINED and is the source of
+// truth for a node's placement ONLY when it is inside a `free` container. In
+// flow containers, `bp` is ignored for position (position is derived) but a
+// leaf may pin its own height via `flow.heightMode:'fixed'` + `flow.height`.
+//
+// These helpers are additive and never touch the v1 path — `normalizeCanvasDesign`
+// only routes into the flow normalizer when `isFlowDesign()` is true.
+// ===========================================================================
+
+export function isFlowDesign(design) {
+  if (!design || typeof design !== 'object') return false;
+  if (design.version === CANVAS_FLOW_VERSION) return true;
+  return design.root && typeof design.root === 'object' && design.root.layout === 'flow';
+}
+
+function defaultFlowProps() {
+  return {
+    // Gap between a container's children (px). Ignored on leaves.
+    gap: 24,
+    // Inner padding of a container (px). On a leaf these are ignored in favour
+    // of style.padding*, kept here only so the shape is uniform.
+    padTop: 0,
+    padRight: 0,
+    padBottom: 0,
+    padLeft: 0,
+    // Cross-axis alignment of children (start|center|end|stretch).
+    align: 'stretch',
+    // Main-axis distribution of children (start|center|end|between|around).
+    justify: 'start',
+    // This node's flex-grow within a Row (0 = don't grow).
+    grow: 0,
+    // Preferred main-size within a Row: a px number, a `'<n>%'` string, or null
+    // (equal split). Sections/leaves in a vertical stack ignore this.
+    basis: null,
+    // Outer vertical margins (px) added above/below this node in its parent.
+    marginTop: 0,
+    marginBottom: 0,
+    // Height resolution: 'auto' = derived from measured/child content;
+    // 'fixed' = use `flow.height` (px). Leaves like spacer/divider/hero use
+    // 'fixed'; text/accordion use 'auto' so editing content reflows.
+    heightMode: 'auto',
+    height: null,
+    // Optional centered content max-width for a container (px), null = full.
+    maxWidth: null,
+  };
+}
+
+const FLOW_ALIGN = new Set(['start', 'center', 'end', 'stretch']);
+const FLOW_JUSTIFY = new Set(['start', 'center', 'end', 'between', 'around']);
+
+function normalizeFlowProps(flow) {
+  const f = flow && typeof flow === 'object' ? flow : {};
+  const d = defaultFlowProps();
+  const numOr = (v, fallback) => (Number.isFinite(Number(v)) ? Number(v) : fallback);
+  // Nullable numeric: null/undefined/'' stay null (Number(null) === 0 would
+  // otherwise flip a null height/maxWidth to 0 on re-normalize — breaking
+  // idempotency).
+  const numOrNull = (v) =>
+    v === null || v === undefined || v === '' ? null : Number.isFinite(Number(v)) ? Number(v) : null;
+  let basis = null;
+  if (typeof f.basis === 'number' && Number.isFinite(f.basis)) basis = f.basis;
+  else if (typeof f.basis === 'string' && f.basis.trim()) basis = f.basis.trim();
+  return {
+    gap: numOr(f.gap, d.gap),
+    padTop: numOr(f.padTop, d.padTop),
+    padRight: numOr(f.padRight, d.padRight),
+    padBottom: numOr(f.padBottom, d.padBottom),
+    padLeft: numOr(f.padLeft, d.padLeft),
+    align: FLOW_ALIGN.has(f.align) ? f.align : d.align,
+    justify: FLOW_JUSTIFY.has(f.justify) ? f.justify : d.justify,
+    grow: numOr(f.grow, d.grow),
+    basis,
+    marginTop: numOr(f.marginTop, d.marginTop),
+    marginBottom: numOr(f.marginBottom, d.marginBottom),
+    heightMode: f.heightMode === 'fixed' ? 'fixed' : 'auto',
+    height: numOrNull(f.height),
+    maxWidth: numOrNull(f.maxWidth),
+  };
+}
+
+// Per-breakpoint flow overrides. `hidden` toggles visibility, `order` reorders
+// within the parent (lower first; null = source order), `columns` overrides a
+// Row's column count, `stack` forces a Row to stack vertically.
+function normalizeResponsiveBp(o) {
+  const s = o && typeof o === 'object' ? o : {};
+  const out = {};
+  if (typeof s.hidden === 'boolean') out.hidden = s.hidden;
+  if (Number.isFinite(Number(s.order))) out.order = Number(s.order);
+  if (Number.isFinite(Number(s.columns))) out.columns = Number(s.columns);
+  if (typeof s.stack === 'boolean') out.stack = s.stack;
+  return out;
+}
+
+function normalizeResponsive(responsive) {
+  const r = responsive && typeof responsive === 'object' ? responsive : {};
+  return {
+    tablet: normalizeResponsiveBp(r.tablet),
+    mobile: normalizeResponsiveBp(r.mobile),
+  };
+}
+
+// Build a fully-formed flow node (leaf or container) from a type + overrides.
+// Reuses createBlock for the shared leaf shape so styling/content defaults and
+// the bp frame stay identical to v1 blocks.
+export function createFlowNode(type = BLOCK_TYPES.BOX, overrides = {}) {
+  const base = createBlock(type, overrides);
+  const isContainer = isFlowContainerType(type);
+  const defaultMode = type === BLOCK_TYPES.GROUP ? LAYOUT_MODES.FREE : LAYOUT_MODES.FLOW;
+  const node = {
+    ...base,
+    layoutMode: isContainer
+      ? (overrides.layoutMode === LAYOUT_MODES.FREE || overrides.layoutMode === LAYOUT_MODES.FLOW
+        ? overrides.layoutMode
+        : defaultMode)
+      : LAYOUT_MODES.FLOW,
+    flow: normalizeFlowProps(overrides.flow),
+    responsive: normalizeResponsive(overrides.responsive),
+  };
+  if (isContainer) {
+    node.children = Array.isArray(overrides.children)
+      ? overrides.children.map((c) => normalizeFlowNode(c)).filter(Boolean)
+      : [];
+  }
+  return node;
+}
+
+export function createFlowSection(overrides = {}) {
+  return createFlowNode(BLOCK_TYPES.SECTION, { layoutMode: LAYOUT_MODES.FLOW, ...overrides });
+}
+
+export function createRow(overrides = {}) {
+  return createFlowNode(BLOCK_TYPES.ROW, { layoutMode: LAYOUT_MODES.FLOW, ...overrides });
+}
+
+export function createFreeGroup(overrides = {}) {
+  return createFlowNode(BLOCK_TYPES.GROUP, { layoutMode: LAYOUT_MODES.FREE, ...overrides });
+}
+
+export function createFlowDesign() {
+  return {
+    version: CANVAS_FLOW_VERSION,
+    root: {
+      background: null,
+      groups: [],
+      guides: { vertical: [], horizontal: [] },
+      layout: 'flow',
+      sections: [createFlowSection({ name: 'Section' })],
+    },
+  };
+}
+
+// Normalize one flow node (recursive). Reuses normalizeBlock for the leaf
+// shape (so the CARD inset shim and __symbolChildren preservation keep working)
+// then layers on the flow-model fields. Containers recurse into children.
+function normalizeFlowNode(node) {
+  if (!node || typeof node !== 'object') return null;
+  const type = node.type || BLOCK_TYPES.BOX;
+  const leaf = normalizeBlock(node);
+  if (!leaf) return null;
+  const isContainer = isFlowContainerType(type);
+  const defaultMode = type === BLOCK_TYPES.GROUP ? LAYOUT_MODES.FREE : LAYOUT_MODES.FLOW;
+  const out = {
+    ...leaf,
+    layoutMode: isContainer
+      ? (node.layoutMode === LAYOUT_MODES.FREE || node.layoutMode === LAYOUT_MODES.FLOW
+        ? node.layoutMode
+        : defaultMode)
+      : LAYOUT_MODES.FLOW,
+    flow: normalizeFlowProps(node.flow),
+    responsive: normalizeResponsive(node.responsive),
+  };
+  if (isContainer) {
+    out.children = Array.isArray(node.children)
+      ? node.children.map(normalizeFlowNode).filter(Boolean)
+      : [];
+  }
+  return out;
+}
+
+// Normalize a whole flow (v2) design. Top-level sections must be containers;
+// a non-container top-level node is wrapped defensively is not done here — the
+// converter (Step 4) is responsible for producing well-formed section roots.
+export function normalizeFlowDesign(design) {
+  if (!design || typeof design !== 'object') return createFlowDesign();
+  const root = design.root && typeof design.root === 'object' ? design.root : {};
+  let sections = Array.isArray(root.sections) && root.sections.length > 0
+    ? root.sections.map(normalizeFlowNode).filter(Boolean)
+    : [];
+  if (sections.length === 0) sections = [createFlowSection({ name: 'Section' })];
+
+  // Preserve the layer-group registry + editor guides exactly as the v1 path
+  // does (they remain valid organisational/authoring aids in the flow model).
+  const groups = Array.isArray(root.groups)
+    ? root.groups.map(normalizeGroup).filter(Boolean)
+    : [];
+  const guides = normalizeGuides(root.guides);
+
+  return {
+    version: CANVAS_FLOW_VERSION,
+    root: {
+      background: root.background ?? null,
+      groups,
+      guides,
+      layout: 'flow',
+      sections,
+    },
+  };
+}
+
+// DFS walk over every node in a flow design (sections first, then descendants).
+// `fn(node, { parent, depth, index })` is called for each node.
+export function forEachFlowNode(design, fn) {
+  const walk = (node, ctx) => {
+    fn(node, ctx);
+    if (Array.isArray(node.children)) {
+      node.children.forEach((child, index) => walk(child, { parent: node, depth: ctx.depth + 1, index }));
+    }
+  };
+  const sections = design?.root?.sections || [];
+  sections.forEach((section, index) => walk(section, { parent: null, depth: 0, index }));
+}
+
+export function getFlowSections(design) {
+  return design?.root?.sections || [];
+}
+
 // Formats a Date into the "YYYY-MM-DDTHH:mm" string an <input type="datetime-local">
 // expects, using the viewer's local timezone (matching how the Countdown
 // inspector captures and the renderer parses the value).
@@ -1579,6 +1878,9 @@ function deepClone(v) {
 
 export function normalizeCanvasDesign(design) {
   if (!design || typeof design !== 'object') return createEmptyCanvasDesign();
+  // Task #2558 — route flow (v2) designs into the flow normalizer. The v1
+  // path below is left byte-identical for existing (absolute-geometry) pages.
+  if (isFlowDesign(design)) return normalizeFlowDesign(design);
   const root = design.root && typeof design.root === 'object' ? design.root : {};
   const sections = Array.isArray(root.sections) && root.sections.length > 0
     ? root.sections.map(normalizeSection)
