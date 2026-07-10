@@ -21,6 +21,7 @@ import MicrositeChromeEditor from "@/components/microsites/MicrositeChromeEditor
 import {
   Plus, Globe, Trash2, Pencil, ExternalLink, Loader2, PanelTop, FileText, List,
   ChevronDown, ChevronRight, ChevronUp, PanelLeftClose, PanelLeftOpen,
+  Search, Share2, UserCheck,
 } from "lucide-react";
 import {
   MAX_NAV_DEPTH, buildNavTree, collectDescendants, isInSubtree, getItemDepth, getHierarchyPrefix,
@@ -45,6 +46,20 @@ const NAV_LOCATIONS = [
   { value: "top_nav", label: "Top bar" },
   { value: "footer", label: "Footer" },
 ];
+
+// Locations a positionable header control element can live in (never footer),
+// mirroring the standard navigation editor's Header Elements card.
+const HEADER_NAV_LOCATIONS = NAV_LOCATIONS.filter((l) => l.value !== "footer");
+
+// Positionable header control elements (search / social / account). These
+// mirror the "Header Elements" card in NavigationManagement.jsx so microsite
+// headers can carry the same controls, scoped to the microsite being edited.
+const HEADER_CONTENT_BLOCKS = [
+  { type: "search", label: "Search", icon: Search, description: "Search box and results popover" },
+  { type: "social", label: "Social Icons", icon: Share2, description: "Social media icons from settings" },
+  { type: "account", label: "Account", icon: UserCheck, description: "Login link, or Logout when signed in" },
+];
+const HEADER_CONTENT_BLOCK_TYPES = HEADER_CONTENT_BLOCKS.map((b) => b.type);
 
 const EMPTY_FORM = {
   name: "",
@@ -666,12 +681,18 @@ function MicrositeNavTab({ microsite, micrositePages }) {
 
   const saveNavMutation = useMutation({
     mutationFn: async () => {
-      const parentId = navForm.location === "footer" ? null : navForm.parent_id || null;
+      const isContentBlock = navForm.link_type === "content_block";
+      // Header control elements are always top-level; a normal item follows the
+      // footer/parent rules.
+      const parentId = isContentBlock || navForm.location === "footer" ? null : navForm.parent_id || null;
       const payload = {
         title: navForm.title,
-        url: navForm.url,
+        url: isContentBlock ? "" : navForm.url,
         location: navForm.location,
         link_type: navForm.link_type,
+        // Preserve the block type so editing a Search/Social/Account element
+        // doesn't silently convert it into a normal link.
+        content_block_type: isContentBlock ? navForm.content_block_type : null,
         is_active: navForm.is_active,
         parent_id: parentId,
         microsite_id: microsite.id,
@@ -752,9 +773,38 @@ function MicrositeNavTab({ microsite, micrositePages }) {
       link_type: item.link_type || "internal",
       is_active: item.is_active !== false,
       parent_id: item.parent_id || null,
+      // Carry the block type so a Search/Social/Account element keeps its type
+      // when saved from the edit dialog.
+      content_block_type: item.content_block_type || null,
     });
     setNavDialogOpen(true);
   };
+
+  // Add a positionable header control element (search / social / account),
+  // scoped to this microsite. Defaults to the Top bar; it can be moved to the
+  // Main navigation afterwards. Each element may be added once per microsite.
+  const createHeaderBlockMutation = useMutation({
+    mutationFn: async (blockType) => {
+      const location = "top_nav";
+      const blockDef = HEADER_CONTENT_BLOCKS.find((b) => b.type === blockType);
+      await base44.entities.NavigationItem.create({
+        title: blockDef?.label || blockType,
+        url: "",
+        location,
+        link_type: "content_block",
+        content_block_type: blockType,
+        is_active: true,
+        parent_id: null,
+        display_order: siblingsOf(location, null).length,
+        microsite_id: microsite.id,
+      });
+    },
+    onSuccess: () => {
+      invalidate();
+      toast({ title: "Header element added" });
+    },
+    onError: (e) => toast({ title: "Could not add element", description: e.message, variant: "destructive" }),
+  });
 
   const toggleExpand = (id) => setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
 
@@ -776,7 +826,12 @@ function MicrositeNavTab({ microsite, micrositePages }) {
     items.map((item, idx) => {
       const hasChildren = item.children && item.children.length > 0;
       const isExpanded = expanded[item.id] !== false; // expanded by default
-      const canAddChild = item.location !== "footer" && level < MAX_NAV_DEPTH;
+      const blockDef = item.link_type === "content_block"
+        ? HEADER_CONTENT_BLOCKS.find((b) => b.type === item.content_block_type)
+        : null;
+      const BlockIcon = blockDef?.icon;
+      // Header control elements never take children (they're single controls).
+      const canAddChild = item.location !== "footer" && !blockDef && level < MAX_NAV_DEPTH;
       return (
         <div key={item.id}>
           <div
@@ -797,9 +852,14 @@ function MicrositeNavTab({ microsite, micrositePages }) {
               ) : (
                 <div className="w-9 shrink-0" />
               )}
+              {BlockIcon && <BlockIcon className="w-4 h-4 shrink-0 text-muted-foreground" />}
               <div className="min-w-0">
                 <span className="font-medium">{item.title}</span>
-                <span className="text-sm text-muted-foreground ml-2 break-all">{item.url}</span>
+                {blockDef ? (
+                  <Badge variant="outline" className="ml-2">{blockDef.label}</Badge>
+                ) : (
+                  <span className="text-sm text-muted-foreground ml-2 break-all">{item.url}</span>
+                )}
                 {item.is_active === false && <Badge variant="secondary" className="ml-2">Hidden</Badge>}
                 {hasChildren && (
                   <Badge variant="outline" className="ml-2">
@@ -884,6 +944,46 @@ function MicrositeNavTab({ microsite, micrositePages }) {
         </Button>
       </div>
 
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Header Elements</CardTitle>
+          <CardDescription>
+            Add the search box, social icons, or login/account control as a navigation item for this
+            microsite. Once added you can position it anywhere in the Top or Main bar, just like any other
+            item. Each element can be used once.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid sm:grid-cols-3 gap-3">
+            {HEADER_CONTENT_BLOCKS.map((block) => {
+              const ElementIcon = block.icon;
+              const alreadyAdded = navItems.some(
+                (i) =>
+                  i.link_type === "content_block" &&
+                  i.content_block_type === block.type &&
+                  (i.location === "top_nav" || i.location === "main_nav")
+              );
+              return (
+                <Button
+                  key={block.type}
+                  variant="outline"
+                  className="h-auto py-3 flex flex-col items-center gap-2 whitespace-normal"
+                  disabled={alreadyAdded || createHeaderBlockMutation.isPending}
+                  onClick={() => createHeaderBlockMutation.mutate(block.type)}
+                  data-testid={`button-add-header-${block.type}`}
+                >
+                  <ElementIcon className="w-5 h-5" />
+                  <span className="font-medium">{block.label}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {alreadyAdded ? "Already added" : block.description}
+                  </span>
+                </Button>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
       {isLoading ? (
         <div className="flex items-center gap-2 text-muted-foreground py-6 justify-center">
           <Loader2 className="w-4 h-4 animate-spin" /> Loading…
@@ -922,36 +1022,46 @@ function MicrositeNavTab({ microsite, micrositePages }) {
                 data-testid="input-nav-title"
               />
             </div>
-            <div className="space-y-2">
-              <Label>Link</Label>
-              {micrositePages.length > 0 && (
-                <Select
-                  value="placeholder"
-                  onValueChange={(v) => {
-                    if (v !== "placeholder") {
-                      setNavForm((f) => ({ ...f, url: `/${microsite.path_prefix}/${v}`, link_type: "internal" }));
-                    }
-                  }}
-                >
-                  <SelectTrigger data-testid="select-nav-page">
-                    <SelectValue placeholder="Pick a microsite page…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="placeholder">Pick a microsite page…</SelectItem>
-                    {micrositePages.map((p) => (
-                      <SelectItem key={p.id} value={p.slug}>{p.title || p.slug}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-              <Input
-                value={navForm.url}
-                onChange={(e) => setNavForm((f) => ({ ...f, url: e.target.value }))}
-                placeholder={`/${microsite.path_prefix}/about or https://…`}
-                required
-                data-testid="input-nav-url"
-              />
-            </div>
+            {navForm.link_type === "content_block" ? (
+              <div className="space-y-2">
+                <Label>Element type</Label>
+                <p className="text-sm text-muted-foreground" data-testid="text-nav-block-type">
+                  {HEADER_CONTENT_BLOCKS.find((b) => b.type === navForm.content_block_type)?.label
+                    || "Header element"}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label>Link</Label>
+                {micrositePages.length > 0 && (
+                  <Select
+                    value="placeholder"
+                    onValueChange={(v) => {
+                      if (v !== "placeholder") {
+                        setNavForm((f) => ({ ...f, url: `/${microsite.path_prefix}/${v}`, link_type: "internal" }));
+                      }
+                    }}
+                  >
+                    <SelectTrigger data-testid="select-nav-page">
+                      <SelectValue placeholder="Pick a microsite page…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="placeholder">Pick a microsite page…</SelectItem>
+                      {micrositePages.map((p) => (
+                        <SelectItem key={p.id} value={p.slug}>{p.title || p.slug}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                <Input
+                  value={navForm.url}
+                  onChange={(e) => setNavForm((f) => ({ ...f, url: e.target.value }))}
+                  placeholder={`/${microsite.path_prefix}/about or https://…`}
+                  required
+                  data-testid="input-nav-url"
+                />
+              </div>
+            )}
             <div className="space-y-2">
               <Label>Shows in</Label>
               <Select
@@ -962,7 +1072,7 @@ function MicrositeNavTab({ microsite, micrositePages }) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {NAV_LOCATIONS.map((l) => (
+                  {(navForm.link_type === "content_block" ? HEADER_NAV_LOCATIONS : NAV_LOCATIONS).map((l) => (
                     <SelectItem key={l.value} value={l.value}>{l.label}</SelectItem>
                   ))}
                 </SelectContent>
@@ -974,7 +1084,7 @@ function MicrositeNavTab({ microsite, micrositePages }) {
                 </p>
               )}
             </div>
-            {navForm.location !== "footer" && (
+            {navForm.location !== "footer" && navForm.link_type !== "content_block" && (
               <div className="space-y-2">
                 <Label>Parent item</Label>
                 <Select
