@@ -45,7 +45,7 @@ import { publicClient } from '@/api/publicClient';
 import { base44 } from '@/api/base44Client';
 import { useNavigate } from 'react-router-dom';
 import { useTenantBranding } from '@/contexts/TenantBrandingContext';
-import { useMicrosite } from '@/contexts/MicrositeContext';
+import { useMicrosite, usePublicChromeBranding } from '@/contexts/MicrositeContext';
 import { useCanvasEditorPage } from '../CanvasEditorPageContext';
 import {
   isTenantButtonVariant,
@@ -6186,6 +6186,11 @@ function SearchInputRender({ block, asEditor }) {
   const c = block?.content || {};
   const navigate = useNavigate();
   const { micrositePrefix } = useMicrosite();
+  // Search-results branding, resolved the same way the full /search page does:
+  // microsite branding on a microsite route, tenant branding otherwise.
+  const { branding: chromeBranding } = usePublicChromeBranding() || {};
+  const searchResultsFont = chromeBranding?.brandingConfig?.searchResultsFont || null;
+  const searchTypeLabelColor = chromeBranding?.brandingConfig?.searchResultsTypeLabelColor || null;
   const size = SEARCH_INPUT_SIZES[c.size] || SEARCH_INPUT_SIZES.md;
   const showIcon = c.showIcon !== false;
   const placeholder = c.placeholder || 'Search…';
@@ -6329,7 +6334,7 @@ function SearchInputRender({ block, asEditor }) {
           <div
             role="listbox"
             className="absolute left-0 right-0 z-50 mt-1 max-h-80 overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg"
-            style={{ top: '100%' }}
+            style={{ top: '100%', ...(searchResultsFont ? { fontFamily: searchResultsFont } : {}) }}
             data-testid="popover-canvas-search-results"
           >
             {results.length === 0 ? (
@@ -6349,7 +6354,16 @@ function SearchInputRender({ block, asEditor }) {
                       <div className="text-sm font-medium text-slate-900 truncate">{r.title || 'Untitled'}</div>
                       {(r.type || r.description) && (
                         <div className="text-xs text-slate-500 truncate">
-                          {[r.type, r.description].filter(Boolean).join(' · ')}
+                          {r.type && (
+                            <span
+                              className={searchTypeLabelColor ? 'font-medium' : undefined}
+                              style={searchTypeLabelColor ? { color: searchTypeLabelColor } : undefined}
+                            >
+                              {r.type}
+                            </span>
+                          )}
+                          {r.type && r.description ? ' · ' : ''}
+                          {r.description || ''}
                         </div>
                       )}
                     </a>

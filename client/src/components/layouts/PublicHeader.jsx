@@ -56,6 +56,19 @@ const NEUTRAL_GRADIENT_STOPS = [
   { color: '#E2E8F0', position: 100 }
 ];
 const NEUTRAL_SOCIAL_ICON_COLOR = '#64748B';
+
+// Mirror SearchResults.jsx: derive a subtle tinted background from a hex label
+// colour so the header search dropdown matches the full results page.
+function hexToRgba(hex, alpha) {
+  if (typeof hex !== 'string') return null;
+  let h = hex.trim().replace(/^#/, '');
+  if (h.length === 3) h = h.split('').map((c) => c + c).join('');
+  if (!/^[0-9A-Fa-f]{6}$/.test(h)) return null;
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
 const BUTTON_ACCENT_GRADIENT = 'linear-gradient(to top right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)';
 const BUTTON_ACCENT_GRADIENT_HORIZONTAL = 'linear-gradient(to right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)';
 
@@ -274,6 +287,11 @@ export default function PublicHeader() {
     ? `/${activeMicrosite.path_prefix}/${activeMicrosite.home_slug}`
     : "/";
   const buttonStyles = branding?.brandingConfig?.button_styles || {};
+  // Search-results branding (mirrors the full /search page): apply the
+  // configured font to result text and the configured colour to type labels
+  // / the "View all" affordance. Falls back to the current look when unset.
+  const searchResultsFont = branding?.brandingConfig?.searchResultsFont || null;
+  const searchTypeLabelColor = branding?.brandingConfig?.searchResultsTypeLabelColor || null;
   const headerSocialIconColor = branding?.brandingConfig?.headerSocialIconColor || NEUTRAL_SOCIAL_ICON_COLOR;
   const socialIconCustomSvgs = branding?.brandingConfig?.socialIconCustomSvgs || {};
   const resolvedSocialSvgs = useResolvedSocialIcons(socialIconCustomSvgs);
@@ -916,7 +934,10 @@ export default function PublicHeader() {
             </div>
 
             {searchQuery.length >= 2 && (
-              <div className="max-h-80 overflow-y-auto">
+              <div
+                className="max-h-80 overflow-y-auto"
+                style={searchResultsFont ? { fontFamily: searchResultsFont } : undefined}
+              >
                 {searchResults.length > 0 ? (
                   <>
                     {searchResults.map((result) => {
@@ -933,7 +954,12 @@ export default function PublicHeader() {
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
-                              <span className="text-xs font-medium text-purple-600 uppercase">{getTypeLabel(result.type)}</span>
+                              <span
+                                className={`text-xs font-medium uppercase${searchTypeLabelColor ? '' : ' text-purple-600'}`}
+                                style={searchTypeLabelColor ? { color: searchTypeLabelColor } : undefined}
+                              >
+                                {getTypeLabel(result.type)}
+                              </span>
                             </div>
                             <p className="font-medium text-slate-900 truncate">{result.title}</p>
                             {result.description && (
@@ -945,7 +971,8 @@ export default function PublicHeader() {
                     })}
                     <button
                       onClick={handleViewAllResults}
-                      className="w-full px-4 py-3 text-center text-sm font-medium text-purple-600 hover:bg-slate-50 transition-colors"
+                      className={`w-full px-4 py-3 text-center text-sm font-medium hover:bg-slate-50 transition-colors${searchTypeLabelColor ? '' : ' text-purple-600'}`}
+                      style={searchTypeLabelColor ? { color: searchTypeLabelColor } : undefined}
                       data-testid="button-view-all-results"
                     >
                       View all results
