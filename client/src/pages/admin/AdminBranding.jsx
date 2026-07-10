@@ -274,6 +274,9 @@ export default function AdminBranding() {
         fontSize: '',
         fontWeight: '',
         fontFamily: '',
+        bottomBorderEnabled: '',
+        bottomBorderColor: '',
+        bottomBorderWidth: '',
         indicator: { enabled: true, height: '', gradientStops: DEFAULT_INDICATOR_GRADIENT_STOPS }
       },
       loginLink: {
@@ -458,6 +461,11 @@ export default function AdminBranding() {
                   fontSize: t?.header_config?.secondaryBar?.fontSize || '',
                   fontWeight: t?.header_config?.secondaryBar?.fontWeight || '',
                   fontFamily: t?.header_config?.secondaryBar?.fontFamily || '',
+                  bottomBorderEnabled: (t?.header_config?.secondaryBar?.bottomBorderEnabled === true || t?.header_config?.secondaryBar?.bottomBorderEnabled === false)
+                    ? t.header_config.secondaryBar.bottomBorderEnabled
+                    : '',
+                  bottomBorderColor: t?.header_config?.secondaryBar?.bottomBorderColor || '',
+                  bottomBorderWidth: t?.header_config?.secondaryBar?.bottomBorderWidth ?? '',
                   indicator: {
                     enabled: t?.header_config?.secondaryBar?.indicator ? !!t.header_config.secondaryBar.indicator.enabled : true,
                     height: t?.header_config?.secondaryBar?.indicator?.height || '',
@@ -3262,7 +3270,12 @@ export default function AdminBranding() {
                           .slice()
                           .sort((a, b) => a.position - b.position)
                           .map(stop => `${stop.color} ${stop.position}%`)
-                          .join(', ')})`
+                          .join(', ')})`,
+                        ...(((formData.header_config?.secondaryBar?.bottomBorderEnabled === true || formData.header_config?.secondaryBar?.bottomBorderEnabled === false)
+                          ? formData.header_config.secondaryBar.bottomBorderEnabled
+                          : !formData.header_config?.secondaryBar?.enabled)
+                          ? { borderBottom: `${parseInt(formData.header_config?.secondaryBar?.bottomBorderWidth, 10) > 0 ? parseInt(formData.header_config.secondaryBar.bottomBorderWidth, 10) : 1}px solid ${formData.header_config?.secondaryBar?.bottomBorderColor || '#E2E8F0'}` }
+                          : {})
                       }}
                       data-testid="preview-secondary-bar"
                     >
@@ -3606,6 +3619,95 @@ export default function AdminBranding() {
                   />
                 </>
               )}
+
+              <div className="space-y-3 pt-2 border-t border-slate-700">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="space-y-0.5">
+                    <Label className="text-slate-300">Bottom Border</Label>
+                    <p className="text-xs text-slate-500">Show a line beneath this bar. Leave untouched to keep the current default look.</p>
+                  </div>
+                  <Switch
+                    checked={(formData.header_config?.secondaryBar?.bottomBorderEnabled === true || formData.header_config?.secondaryBar?.bottomBorderEnabled === false)
+                      ? formData.header_config.secondaryBar.bottomBorderEnabled
+                      : !formData.header_config?.secondaryBar?.enabled}
+                    onCheckedChange={(checked) => {
+                      setFormData(prev => ({
+                        ...prev,
+                        header_config: {
+                          ...prev.header_config,
+                          secondaryBar: { ...prev.header_config?.secondaryBar, bottomBorderEnabled: checked }
+                        }
+                      }));
+                    }}
+                    data-testid="switch-secondary-bar-bottom-border"
+                  />
+                </div>
+
+                {((formData.header_config?.secondaryBar?.bottomBorderEnabled === true || formData.header_config?.secondaryBar?.bottomBorderEnabled === false)
+                  ? formData.header_config.secondaryBar.bottomBorderEnabled
+                  : !formData.header_config?.secondaryBar?.enabled) && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="text-slate-300">Border Color</Label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={formData.header_config?.secondaryBar?.bottomBorderColor || '#E2E8F0'}
+                          onChange={(e) => {
+                            setFormData(prev => ({
+                              ...prev,
+                              header_config: {
+                                ...prev.header_config,
+                                secondaryBar: { ...prev.header_config?.secondaryBar, bottomBorderColor: e.target.value }
+                              }
+                            }));
+                          }}
+                          className="w-10 h-10 rounded cursor-pointer flex-shrink-0"
+                          data-testid="input-secondary-bar-bottom-border-color"
+                        />
+                        <Input
+                          type="text"
+                          placeholder="#E2E8F0"
+                          value={formData.header_config?.secondaryBar?.bottomBorderColor || ''}
+                          onChange={(e) => {
+                            setFormData(prev => ({
+                              ...prev,
+                              header_config: {
+                                ...prev.header_config,
+                                secondaryBar: { ...prev.header_config?.secondaryBar, bottomBorderColor: e.target.value }
+                              }
+                            }));
+                          }}
+                          className="bg-slate-900 border-slate-600 text-white font-mono"
+                          data-testid="input-secondary-bar-bottom-border-color-hex"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-slate-300">Border Thickness (px)</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        max="20"
+                        placeholder="1"
+                        value={formData.header_config?.secondaryBar?.bottomBorderWidth ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setFormData(prev => ({
+                            ...prev,
+                            header_config: {
+                              ...prev.header_config,
+                              secondaryBar: { ...prev.header_config?.secondaryBar, bottomBorderWidth: val === '' ? '' : parseInt(val, 10) }
+                            }
+                          }));
+                        }}
+                        className="bg-slate-900 border-slate-600 text-white"
+                        data-testid="input-secondary-bar-bottom-border-width"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
 

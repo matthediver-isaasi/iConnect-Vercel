@@ -67,6 +67,11 @@ test("secondaryBar: sparse legacy object hydrates every editable subkey", () => 
   assert.equal(out.fontSize, "");
   assert.equal(out.fontWeight, "");
   assert.equal(out.fontFamily, "");
+  // Bottom border stays "unset" ('') so the public renderer keeps today's
+  // default look (line on the white fallback bar, none on the gradient bar).
+  assert.equal(out.bottomBorderEnabled, "");
+  assert.equal(out.bottomBorderColor, "");
+  assert.equal(out.bottomBorderWidth, "");
   assert.deepEqual(out.gradientStops, DEFAULT_SECONDARY_BAR_GRADIENT_STOPS);
   // Indicator defaults to enabled with the default gradient.
   assert.equal(out.indicator.enabled, true);
@@ -81,11 +86,18 @@ test("secondaryBar: stored values survive hydration untouched", () => {
     height: 64,
     gradientStops: stops,
     fontWeight: 700,
+    bottomBorderEnabled: true,
+    bottomBorderColor: "#ABCDEF",
+    bottomBorderWidth: 3,
     indicator: { enabled: false, height: 5, gradientStops: stops },
   });
   assert.equal(out.height, 64);
   assert.deepEqual(out.gradientStops, stops);
   assert.equal(out.fontWeight, 700);
+  // Explicit border settings round-trip untouched (true/false is a real value).
+  assert.equal(out.bottomBorderEnabled, true);
+  assert.equal(out.bottomBorderColor, "#ABCDEF");
+  assert.equal(out.bottomBorderWidth, 3);
   assert.equal(out.indicator.enabled, false);
   assert.equal(out.indicator.height, 5);
   assert.deepEqual(out.indicator.gradientStops, stops);

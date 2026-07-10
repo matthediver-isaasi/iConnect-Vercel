@@ -681,6 +681,13 @@ export function hydrateSecondaryBarConfig(sb) {
     fontSize: s.fontSize ?? '',
     fontWeight: s.fontWeight ?? '',
     fontFamily: s.fontFamily || '',
+    // Bottom border is opt-in: '' means "unset" (keep today's default look);
+    // an explicit true/false governs the rendered border in both states.
+    bottomBorderEnabled: (s.bottomBorderEnabled === true || s.bottomBorderEnabled === false)
+      ? s.bottomBorderEnabled
+      : '',
+    bottomBorderColor: s.bottomBorderColor || '',
+    bottomBorderWidth: s.bottomBorderWidth ?? '',
     indicator: {
       enabled: s.indicator ? !!s.indicator.enabled : true,
       height: s.indicator?.height ?? '',
@@ -742,6 +749,15 @@ export function SecondaryBarControls({
   const { options: fontOptions } = useInstalledFonts();
   const sb = value || {};
   const set = (patch) => onChange({ ...sb, ...patch });
+  // Bottom border: '' = unset (keep today's default), true/false = explicit.
+  // When unset, the effective state mirrors today's look: no line while the
+  // gradient bar is enabled, a line on the plain white fallback bar.
+  const borderExplicit = sb.bottomBorderEnabled === true || sb.bottomBorderEnabled === false;
+  const borderEnabledEffective = borderExplicit ? sb.bottomBorderEnabled : !sb.enabled;
+  const previewBorderWidth = parseInt(sb.bottomBorderWidth, 10) > 0 ? parseInt(sb.bottomBorderWidth, 10) : 1;
+  const previewBottomBorder = borderEnabledEffective
+    ? `${previewBorderWidth}px solid ${sb.bottomBorderColor || '#E2E8F0'}`
+    : null;
   const navLabels = (mainNavItems && mainNavItems.length > 0)
     ? mainNavItems
     : ['Membership', 'Resources', 'News', 'Get Involved'];
@@ -805,7 +821,8 @@ export function SecondaryBarControls({
                     .slice()
                     .sort((a, b) => a.position - b.position)
                     .map(stop => `${stop.color} ${stop.position}%`)
-                    .join(', ')})`
+                    .join(', ')})`,
+                  ...(previewBottomBorder ? { borderBottom: previewBottomBorder } : {})
                 }}
                 data-testid={`preview-${testIdPrefix}`}
               >
@@ -986,6 +1003,61 @@ export function SecondaryBarControls({
             />
           </>
         )}
+
+        <div className={`space-y-3 pt-2 border-t ${t.divider}`}>
+          <div className="flex items-center justify-between gap-3">
+            <div className="space-y-0.5">
+              <Label className={t.label}>Bottom Border</Label>
+              <p className={t.hint}>Show a line beneath this bar. Leave untouched to keep the current default look.</p>
+            </div>
+            <Switch
+              checked={borderEnabledEffective}
+              onCheckedChange={(checked) => set({ bottomBorderEnabled: checked })}
+              data-testid={`switch-${testIdPrefix}-bottom-border`}
+            />
+          </div>
+
+          {borderEnabledEffective && (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className={t.label}>Border Color</Label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={sb.bottomBorderColor || '#E2E8F0'}
+                    onChange={(e) => set({ bottomBorderColor: e.target.value })}
+                    className="w-10 h-10 rounded cursor-pointer flex-shrink-0"
+                    data-testid={`input-${testIdPrefix}-bottom-border-color`}
+                  />
+                  <Input
+                    type="text"
+                    placeholder="#E2E8F0"
+                    value={sb.bottomBorderColor || ''}
+                    onChange={(e) => set({ bottomBorderColor: e.target.value })}
+                    className={`${t.input} font-mono`}
+                    data-testid={`input-${testIdPrefix}-bottom-border-color-hex`}
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label className={t.label}>Border Thickness (px)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  max="20"
+                  placeholder="1"
+                  value={sb.bottomBorderWidth ?? ''}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    set({ bottomBorderWidth: val === '' ? '' : parseInt(val, 10) });
+                  }}
+                  className={t.input}
+                  data-testid={`input-${testIdPrefix}-bottom-border-width`}
+                />
+              </div>
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   );

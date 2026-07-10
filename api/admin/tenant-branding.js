@@ -541,6 +541,22 @@ export default async function handler(req, res) {
             sanitizedSecondaryBar.indicator = sInd;
           }
 
+          // Optional configurable bottom border. Only persist when explicitly
+          // set (true/false) so tenants that never configured it keep today's
+          // default look (line on the white fallback bar, none on the gradient
+          // bar). Colour normalised; width clamped to a sane range.
+          if (sb.bottomBorderEnabled === true || sb.bottomBorderEnabled === false) {
+            sanitizedSecondaryBar.bottomBorderEnabled = sb.bottomBorderEnabled;
+          }
+          const sbbc = normalizeHexColor(sb.bottomBorderColor);
+          if (sbbc) {
+            sanitizedSecondaryBar.bottomBorderColor = sbbc;
+          }
+          const sbbw = parseInt(sb.bottomBorderWidth, 10);
+          if (Number.isFinite(sbbw)) {
+            sanitizedSecondaryBar.bottomBorderWidth = Math.max(0, Math.min(20, sbbw));
+          }
+
           updates.header_config.secondaryBar = sanitizedSecondaryBar;
         } else {
           delete updates.header_config.secondaryBar;

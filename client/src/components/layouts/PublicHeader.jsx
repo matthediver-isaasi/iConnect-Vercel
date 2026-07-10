@@ -393,6 +393,25 @@ export default function PublicHeader() {
   const secondaryBarFontWeight = secondaryBarConfig?.fontWeight;
   const secondaryBarFontFamily = secondaryBarConfig?.fontFamily;
   const secondaryBarIndicator = secondaryBarConfig?.indicator;
+  // Optional configurable bottom border on the desktop combined/secondary bar.
+  // Unset preserves today's look: a 1px #E2E8F0 line only on the plain white
+  // fallback bar (none while the gradient bar is enabled). Once explicitly
+  // configured, the setting governs the border in both states.
+  const secondaryBarBorderExplicit =
+    secondaryBarConfig?.bottomBorderEnabled === true || secondaryBarConfig?.bottomBorderEnabled === false;
+  let secondaryBarBottomBorder;
+  if (secondaryBarBorderExplicit) {
+    if (secondaryBarConfig.bottomBorderEnabled) {
+      const bw = Number(secondaryBarConfig.bottomBorderWidth);
+      const borderWidth = Number.isFinite(bw) && bw > 0 ? bw : 1;
+      const borderColor = secondaryBarConfig.bottomBorderColor || '#E2E8F0';
+      secondaryBarBottomBorder = `${borderWidth}px solid ${borderColor}`;
+    } else {
+      secondaryBarBottomBorder = undefined;
+    }
+  } else {
+    secondaryBarBottomBorder = secondaryBarEnabled ? undefined : '1px solid #E2E8F0';
+  }
 
   // Header action-link (Login / Member Area) styling. Each state has its own
   // config so it can be styled and labelled independently. Defaults reproduce
@@ -1642,8 +1661,8 @@ export default function PublicHeader() {
           <div
             className="relative hidden lg:block"
             style={secondaryBarEnabled
-              ? { background: secondaryBarGradient }
-              : { background: '#FFFFFF', borderBottom: '1px solid #E2E8F0' }}
+              ? { background: secondaryBarGradient, ...(secondaryBarBottomBorder ? { borderBottom: secondaryBarBottomBorder } : {}) }
+              : { background: '#FFFFFF', ...(secondaryBarBottomBorder ? { borderBottom: secondaryBarBottomBorder } : {}) }}
           >
             <div className="max-w-7xl mx-auto px-4">
               <div
