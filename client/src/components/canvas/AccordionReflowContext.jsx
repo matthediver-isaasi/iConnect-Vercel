@@ -17,6 +17,30 @@ export function useAccordionReflow() {
 }
 
 /**
+ * Measure an element's margin-inclusive vertical footprint for reflow.
+ *
+ * `getBoundingClientRect().height` reports the border box only — it excludes
+ * CSS margins by definition. Typography styles apply their configured
+ * "Margin Bottom" as a `margin-bottom` on this very measured element, so the
+ * reflow system would otherwise stack the block below at the border-box bottom
+ * and drop the margin. Add the computed `margin-bottom` back so the reported
+ * footprint is the margin-inclusive bounds. A zero margin adds nothing, so a
+ * block with no typography bottom margin (e.g. the accordion) is unchanged.
+ */
+function measureReflowHeight(el) {
+  if (!el) return 0;
+  const h = el.getBoundingClientRect().height;
+  if (h <= 0) return h;
+  let marginBottom = 0;
+  try {
+    const cs = window.getComputedStyle(el);
+    const mb = parseFloat(cs.marginBottom);
+    if (Number.isFinite(mb) && mb > 0) marginBottom = mb;
+  } catch { /* getComputedStyle unavailable (SSR) — border box only */ }
+  return h + marginBottom;
+}
+
+/**
  * Shared auto-height reflow measurement for canvas blocks that report their
  * rendered height back to the AccordionReflowContext (accordion, text, …).
  *
@@ -26,6 +50,9 @@ export function useAccordionReflow() {
  *     avoiding a visible layout jump when stored height != natural height), and
  *   - an ongoing ResizeObserver that re-reports on any subsequent size change
  *     (expand/collapse, content edits, width-driven rewraps, …).
+ *
+ * The reported height is margin-inclusive (see measureReflowHeight) so a
+ * typography style's Margin Bottom is honoured when stacking the block below.
  *
  * Safe to use even when there is no surrounding provider (reflow is null): the
  * effects simply no-op.
@@ -37,7 +64,7 @@ export function useReportReflowHeight(blockId) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useLayoutEffect(() => {
     if (!reflow || !containerRef.current) return;
-    const h = containerRef.current.getBoundingClientRect().height;
+    const h = measureReflowHeight(containerRef.current);
     if (h > 0) reflow.reportHeight(blockId, Math.round(h));
   }, []); // intentionally mount-only; ResizeObserver below handles ongoing changes
 
@@ -45,7 +72,7 @@ export function useReportReflowHeight(blockId) {
     if (!reflow || !containerRef.current) return;
     const el = containerRef.current;
     const report = () => {
-      const h = el.getBoundingClientRect().height;
+      const h = measureReflowHeight(el);
       if (h > 0) reflow.reportHeight(blockId, Math.round(h));
     };
     const observer = new ResizeObserver(report);
