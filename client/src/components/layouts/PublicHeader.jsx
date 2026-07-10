@@ -417,6 +417,12 @@ export default function PublicHeader() {
   } else {
     secondaryBarBottomBorder = secondaryBarEnabled ? undefined : '1px solid #E2E8F0';
   }
+  // The outer <header> paints a hardcoded shadow-sm that reads as a line under
+  // the secondary bar. When the bottom border is explicitly turned off, drop
+  // that shadow so the header bottom edge is truly clean; otherwise keep the
+  // default shadow so untouched/enabled tenants see no regression.
+  const secondaryBarBorderExplicitlyOff =
+    secondaryBarBorderExplicit && !secondaryBarConfig.bottomBorderEnabled;
 
   // Header action-link (Login / Member Area) styling. Each state has its own
   // config so it can be styled and labelled independently. Defaults reproduce
@@ -1583,7 +1589,7 @@ export default function PublicHeader() {
           ${secondaryBarHoverColor ? `.ph-secnav-link:hover { color: ${secondaryBarHoverColor} !important; }` : ''}
         `}</style>
       )}
-      <header className="bg-white shadow-sm sticky top-0 z-40 relative">
+      <header className={`bg-white ${secondaryBarBorderExplicitlyOff ? '' : 'shadow-sm'} sticky top-0 z-40 relative`}>
         {/* Desktop: Overlapping Logo */}
         {headerIconsConfig.logo && (
         <Link 
