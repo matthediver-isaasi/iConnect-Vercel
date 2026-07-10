@@ -230,6 +230,8 @@ function CanvasBlockView({
         : '';
   const topOff = reflowTopOffset || 0;
   const sectionGrow = reflowSectionGrowth || 0;
+  // Task #2604: divider-only display box grown to the rotated line's footprint.
+  const dispBox = dividerDisplayBox(block, geom);
   return (
     <div
       role={a11y.role || undefined}
@@ -237,10 +239,10 @@ function CanvasBlockView({
       className={`absolute ${cursor} ${outlineClass} ${fullWidth ? 'ring-1 ring-primary/40 ring-inset' : ''}`}
       data-full-width={fullWidth ? 'true' : undefined}
       style={{
-        left: geom.x,
-        top: geom.y + topOff,
-        width: geom.w,
-        height: isAutoHeight ? 'auto' : geom.h + sectionGrow,
+        left: dispBox ? dispBox.x : geom.x,
+        top: (dispBox ? dispBox.y : geom.y) + topOff,
+        width: dispBox ? dispBox.w : geom.w,
+        height: dispBox ? dispBox.h : (isAutoHeight ? 'auto' : geom.h + sectionGrow),
         // Live feedback while dragging a card's n/s handle: the wrapper is
         // height:auto (autoHeight card), so a floor makes the card box visibly
         // grow with the pointer. The resize handler clamps this to the natural
@@ -287,6 +289,29 @@ function CanvasBlockView({
       )}
     </div>
   );
+}
+
+// Task #2604: a rotated divider's visible line sweeps out a larger rectangle
+// than its stored horizontal w×h box. Grow the editor's axis-aligned bounding
+// box (outline, handles, "show all boxes" outline) to enclose that swept
+// rectangle so selection affordances wrap the line the author actually sees.
+// Purely a display transform: the stored geom and public renderer are untouched.
+// A rotated line of length `w` about its centre spans w·|cos| horizontally and
+// w·|sin| vertically; we take the max against the block's own w/h so a 0°
+// divider is byte-for-byte unchanged.
+function dividerDisplayBox(block, geom) {
+  if (block.type !== BLOCK_TYPES.DIVIDER) return null;
+  const raw = Number(block.content?.angle);
+  const angle = Number.isFinite(raw) ? ((raw % 360) + 360) % 360 : 0;
+  if (!angle) return null;
+  const rad = (angle * Math.PI) / 180;
+  const footprintW = Math.abs(Math.cos(rad)) * geom.w;
+  const footprintH = Math.abs(Math.sin(rad)) * geom.w;
+  const w = Math.max(geom.w, footprintW);
+  const h = Math.max(geom.h, footprintH);
+  const cx = geom.x + geom.w / 2;
+  const cy = geom.y + geom.h / 2;
+  return { x: cx - w / 2, y: cy - h / 2, w, h };
 }
 
 function handlePositionStyle(h) {
