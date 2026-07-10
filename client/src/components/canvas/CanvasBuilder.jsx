@@ -298,6 +298,10 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
 }, ref) {
   const [design, setDesignState] = useState(() => normalizeCanvasDesign(initialDesign));
   const [selectedIds, setSelectedIds] = useState([]);
+  // Task #2609 — group "focus" (isolation) mode. When set, the rest of the
+  // canvas is dimmed behind a scrim and only this group's members are
+  // interactive, so a single member can be edited without ungrouping.
+  const [activeGroupId, setActiveGroupId] = useState(null);
   // Manual anchor override — set via the "Align to" dropdown. Cleared
   // automatically whenever the selection changes so the implicit
   // "last selected = anchor" rule resumes.
@@ -518,14 +522,16 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     const gids = new Set();
     for (const id of ids) {
       const b = children.find((c) => c.id === id);
-      if (b?.groupId) gids.add(b.groupId);
+      // Task #2609 — while a group is focused, its members select
+      // individually (no expansion) so a single member can be edited.
+      if (b?.groupId && b.groupId !== activeGroupId) gids.add(b.groupId);
     }
     if (gids.size === 0) return ids;
     for (const b of children) {
       if (b.groupId && gids.has(b.groupId)) set.add(b.id);
     }
     return Array.from(set);
-  }, [children, groups]);
+  }, [children, groups, activeGroupId]);
   // Live bottom Y of in-progress drag/resize previews emitted by CanvasStage.
   // 0 when no interaction is active.
   const [livePreviewBottom, setLivePreviewBottom] = useState(0);
@@ -679,6 +685,29 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       setSelectedIds(expandSelectionToGroups(ids));
     }
   }, [expandSelectionToGroups]);
+
+  // ---- Group focus (isolation) mode (Task #2609) ----
+  // Double-clicking a grouped block enters focus mode for its group and
+  // selects that single member. Clicking the scrim / pressing Escape exits.
+  const enterGroupFocus = useCallback((groupId, blockId) => {
+    if (!groupId) return;
+    setActiveGroupId(groupId);
+    setSelectedIds(blockId ? [blockId] : []);
+  }, []);
+
+  const exitGroupFocus = useCallback(() => {
+    setActiveGroupId(null);
+  }, []);
+
+  // Exit focus if the focused group no longer exists (e.g. ungrouped) or the
+  // selection was emptied by other means.
+  useEffect(() => {
+    if (!activeGroupId) return;
+    if (!groups.some((g) => g.id === activeGroupId)) setActiveGroupId(null);
+  }, [activeGroupId, groups]);
+  useEffect(() => {
+    if (activeGroupId && selectedIds.length === 0) setActiveGroupId(null);
+  }, [activeGroupId, selectedIds]);
 
   // ---- Geometry commit (after drag/resize) ----
   const applyGeometry = useCallback((updates) => {
@@ -1142,6 +1171,11 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       // don't also fall through to block deletion/nudging.
       if (guideDragRef.current) return;
 
+      // Escape exits group focus mode before any other handling.
+      if (e.key === 'Escape' && activeGroupId) {
+        e.preventDefault(); exitGroupFocus(); return;
+      }
+
       const meta = e.metaKey || e.ctrlKey;
       if (meta && e.key.toLowerCase() === 'z' && !e.shiftKey) {
         e.preventDefault(); handleUndo(); return;
@@ -1234,7 +1268,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleUndo, handleRedo, duplicateSelected, deleteSelected, groupSelected, ungroupSelected, selectedIds, children, breakpoint, applyGeometry, gridSize]);
+  }, [handleUndo, handleRedo, duplicateSelected, deleteSelected, groupSelected, ungroupSelected, selectedIds, children, breakpoint, applyGeometry, gridSize, activeGroupId, exitGroupFocus]);
 
   // ---- Align / distribute ----
   // With 2+ blocks selected the most-recently-selected id (last in
@@ -2028,6 +2062,9 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
                       onPreviewBottomChange={setLivePreviewBottom}
                       onCommitAutoHeight={commitAutoHeight}
                       scrollContainerRef={stageWrapperRef}
+                      activeGroupId={activeGroupId}
+                      onEnterGroupFocus={enterGroupFocus}
+                      onExitGroupFocus={exitGroupFocus}
                     />
                     )}
                     </CanvasSymbolsProvider>

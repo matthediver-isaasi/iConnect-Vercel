@@ -26,6 +26,13 @@ const WIDTH_ONLY_RESIZE_HANDLES = ['e', 'w'];
 // unambiguously one axis.
 const CARD_RESIZE_HANDLES = ['n', 's', 'e', 'w'];
 
+// Task #2609 — group focus (isolation) mode z-ordering. The dark scrim sits
+// above all normal blocks; focused group members are lifted above the scrim so
+// they stay interactive and readable. Decorations (anchor tag / reading order)
+// already use 9998/9999 so the scrim stays below them.
+const FOCUS_SCRIM_Z = 5000;
+const FOCUS_MEMBER_Z = 5100;
+
 function snap(value, gridSize) {
   if (!gridSize || gridSize <= 0) return value;
   return Math.round(value / gridSize) * gridSize;
@@ -183,6 +190,8 @@ function CanvasBlockView({
   breakpoint,
   onPointerDownBlock,
   onPointerDownResize,
+  onDoubleClickBlock,
+  focusZIndex,
   liveHeight,
 }) {
   if (geom.hidden) return null;
@@ -254,7 +263,8 @@ function CanvasBlockView({
         borderStyle: style.borderStyle,
         borderRadius: style.borderRadius,
         opacity: style.opacity,
-        zIndex: style.zIndex,
+        // Task #2609 — focused group members render above the focus scrim.
+        zIndex: Number.isFinite(focusZIndex) ? focusZIndex : style.zIndex,
         paddingTop: skipWrapperPadding ? 0 : (style.paddingTop || 0),
         paddingRight: skipWrapperPadding ? 0 : (style.paddingRight || 0),
         paddingBottom: skipWrapperPadding ? 0 : (style.paddingBottom || 0),
@@ -263,6 +273,7 @@ function CanvasBlockView({
         overflow: def.allowOverflow ? 'visible' : 'hidden',
       }}
       onPointerDown={(e) => onPointerDownBlock(e, block.id)}
+      onDoubleClick={(e) => onDoubleClickBlock?.(e, block.id)}
       data-testid={`canvas-block-${block.id}`}
       data-block-id={block.id}
       data-cb={block.id}
@@ -363,6 +374,9 @@ function CanvasStageInner({
   canGroup = false,
   canUngroup = false,
   scrollContainerRef, // ref to the scrollable canvas viewport (the builder's <main>)
+  activeGroupId = null, // Task #2609 — id of the group currently in focus mode
+  onEnterGroupFocus, // (groupId, blockId) => void
+  onExitGroupFocus, // () => void
 }) {
   const reflow = useAccordionReflow();
   // Default to identity when no group-expansion is supplied.
@@ -479,6 +493,16 @@ function CanvasStageInner({
     });
     try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch {}
   }, [blocks, selectedIds, onSelect, getStageCoords, breakpoint, canvasWidth, expand]);
+
+  // Task #2609 — double-clicking a grouped block enters focus mode for its
+  // group and selects just that member. Double-clicking an ungrouped block is
+  // a no-op (existing behaviour unchanged).
+  const handleDoubleClickBlock = useCallback((e, blockId) => {
+    const block = blocks.find((b) => b.id === blockId);
+    if (!block || !block.groupId) return;
+    e.stopPropagation();
+    onEnterGroupFocus?.(block.groupId, blockId);
+  }, [blocks, onEnterGroupFocus]);
 
   // Right-clicking a block selects it (and its group) before the context
   // menu opens so Group/Ungroup act on the expected target.
@@ -809,6 +833,12 @@ function CanvasStageInner({
             : null;
         // Effective rendered top (used for overlay positioning)
         const renderedTop = effective.y + reflowTopOffset;
+        // Task #2609 — while a group is focused, only its members stay lifted
+        // above the scrim (and keep their decorations); everything else is
+        // dimmed and non-interactive beneath it.
+        const isFocusMember = !!activeGroupId && block.groupId === activeGroupId;
+        const focusZIndex = isFocusMember ? FOCUS_MEMBER_Z + index : undefined;
+        const showDecorations = !activeGroupId || isFocusMember;
         return (
           <div key={block.id} onContextMenu={() => handleContextMenuBlock(block.id)}>
             <ContextMenu>
@@ -825,6 +855,8 @@ function CanvasStageInner({
                     showAllBoxes={showAllBoxes}
                     onPointerDownBlock={handlePointerDownBlock}
                     onPointerDownResize={handlePointerDownResize}
+                    onDoubleClickBlock={handleDoubleClickBlock}
+                    focusZIndex={focusZIndex}
                     liveHeight={liveHeight}
                   />
                 </div>
@@ -848,7 +880,7 @@ function CanvasStageInner({
                 </ContextMenuItem>
               </ContextMenuContent>
             </ContextMenu>
-            {!effective.hidden && anchorId === block.id && (
+            {showDecorations && !effective.hidden && anchorId === block.id && (
               <div
                 className="absolute pointer-events-none bg-pink-500 text-white rounded-md text-[10px] font-bold uppercase tracking-wide"
                 style={{
@@ -862,7 +894,7 @@ function CanvasStageInner({
                 Anchor
               </div>
             )}
-            {!effective.hidden && sev && (
+            {showDecorations && !effective.hidden && sev && (
               <div
                 className={`absolute pointer-events-none rounded-full border ${
                   sev === 'error'
@@ -886,7 +918,7 @@ function CanvasStageInner({
                 !
               </div>
             )}
-            {!effective.hidden && showReadingOrder && (
+            {showDecorations && !effective.hidden && showReadingOrder && (
               <div
                 className="absolute pointer-events-none bg-primary text-primary-foreground rounded-md text-xs font-bold"
                 style={{
@@ -903,6 +935,18 @@ function CanvasStageInner({
           </div>
         );
       })}
+
+      {/* Task #2609 — focus (isolation) mode scrim. Sits above non-focused
+          blocks (dimming + blocking interaction) but below the focused group's
+          lifted members. Clicking it exits focus mode. */}
+      {activeGroupId && (
+        <div
+          className="absolute inset-0 bg-black/40"
+          style={{ zIndex: FOCUS_SCRIM_Z }}
+          onPointerDown={(e) => { e.stopPropagation(); onExitGroupFocus?.(); }}
+          data-testid="canvas-focus-scrim"
+        />
+      )}
 
       {/* Alignment guides */}
       {guides.vertical.map((x, i) => (
