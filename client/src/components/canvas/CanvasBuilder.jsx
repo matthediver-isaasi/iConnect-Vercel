@@ -134,18 +134,25 @@ function CanvasRulers({ width, height, gridSize, zoom = 1, onCreateGuide, childr
   return (
     <div
       className="relative"
-      style={{ paddingTop: RULER_SIZE, paddingLeft: RULER_SIZE }}
+      style={{ width: RULER_SIZE + widthScaled, height: RULER_SIZE + heightScaled }}
       data-testid="canvas-rulers"
     >
-      {/* Corner */}
+      {/* Stage content, offset to the right of / below the rulers. */}
+      <div className="absolute" style={{ top: RULER_SIZE, left: RULER_SIZE }}>
+        {children}
+      </div>
+      {/* Top ruler wrapper — spans the FULL stage height (pointer-transparent)
+          so the sticky ruler inside can stay pinned to the top edge of the
+          scroll viewport on vertical scroll, while the wrapper scrolls
+          sideways with the content so ticks stay aligned to the blocks. */}
       <div
-        className="absolute top-0 left-0 bg-slate-200 border-r border-b border-slate-300"
-        style={{ width: RULER_SIZE, height: RULER_SIZE, zIndex: 2 }}
-      />
+        className="absolute top-0 pointer-events-none"
+        style={{ left: RULER_SIZE, width: widthScaled, height: RULER_SIZE + heightScaled, zIndex: 2 }}
+      >
       {/* Top ruler — drag down to create a horizontal guide */}
       <div
-        className="absolute top-0 bg-white border-b border-slate-300 overflow-hidden touch-none"
-        style={{ left: RULER_SIZE, width: widthScaled, height: RULER_SIZE, cursor: onCreateGuide ? 'row-resize' : 'default' }}
+        className="sticky top-0 bg-white border-b border-slate-300 overflow-hidden touch-none pointer-events-auto"
+        style={{ width: widthScaled, height: RULER_SIZE, cursor: onCreateGuide ? 'row-resize' : 'default' }}
         data-testid="ruler-horizontal"
         onPointerDown={(e) => { if (e.button === 0) onCreateGuide?.('horizontal', e); }}
       >
@@ -195,10 +202,19 @@ function CanvasRulers({ width, height, gridSize, zoom = 1, onCreateGuide, childr
           </span>
         </div>
       </div>
+      </div>
+      {/* Left ruler wrapper — spans the FULL stage width (pointer-transparent)
+          so the sticky ruler inside can stay pinned to the left edge of the
+          scroll viewport on horizontal scroll, while the wrapper scrolls
+          vertically with the content so ticks stay aligned to the blocks. */}
+      <div
+        className="absolute left-0 pointer-events-none"
+        style={{ top: RULER_SIZE, width: RULER_SIZE + widthScaled, height: heightScaled, zIndex: 2 }}
+      >
       {/* Left ruler — drag right to create a vertical guide */}
       <div
-        className="absolute left-0 bg-white border-r border-slate-300 overflow-hidden touch-none"
-        style={{ top: RULER_SIZE, width: RULER_SIZE, height: heightScaled, cursor: onCreateGuide ? 'col-resize' : 'default' }}
+        className="sticky left-0 bg-white border-r border-slate-300 overflow-hidden touch-none pointer-events-auto"
+        style={{ width: RULER_SIZE, height: heightScaled, cursor: onCreateGuide ? 'col-resize' : 'default' }}
         data-testid="ruler-vertical"
         onPointerDown={(e) => { if (e.button === 0) onCreateGuide?.('vertical', e); }}
       >
@@ -248,7 +264,12 @@ function CanvasRulers({ width, height, gridSize, zoom = 1, onCreateGuide, childr
           </span>
         </div>
       </div>
-      <div>{children}</div>
+      </div>
+      {/* Corner — pinned to the top-left of the scroll viewport. */}
+      <div
+        className="sticky top-0 left-0 bg-slate-200 border-r border-b border-slate-300"
+        style={{ width: RULER_SIZE, height: RULER_SIZE, zIndex: 3 }}
+      />
     </div>
   );
 }
