@@ -1897,10 +1897,11 @@ function TextRender({ block, breakpoint }) {
   if (awaitingStyle) {
     outerStyle.visibility = 'hidden';
   }
-  // Auto-height: the box always tracks the rendered text height plus a fixed
-  // 10px gap below the last line. This padding is baked into the measured
-  // element so the reported reflow height includes it too.
-  outerStyle.paddingBottom = 10;
+  // Auto-height: the box tracks the rendered text height exactly. Spacing
+  // below the text is author-controlled — it comes from the inspector's
+  // bottom padding (applied on the block wrapper) and/or the typography
+  // style's Margin Bottom (a CSS margin on the last element). No fixed gap
+  // is baked in here, so a zero bottom padding + zero margin hugs the text.
 
   // Report our rendered height to the AccordionReflowContext so blocks below
   // reflow down/up as the text grows or shrinks — the same mechanism the
