@@ -15,6 +15,7 @@ import {
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { ColorField } from './ColorField';
 import { Button } from '@/components/ui/button';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -281,30 +282,8 @@ function CategoryReorderField({ label = 'Category display order', options, value
   );
 }
 
-// Local colour input — mirrors the one in registry.jsx (this file keeps its
-// own copies of inspector primitives to stay self-contained). Empty string
-// means "unset" so renderers can fall back to defaults.
-function ColorField({ label, value, onChange, testId }) {
-  return (
-    <Field label={label}>
-      <div className="flex items-center gap-2">
-        <input
-          type="color"
-          value={value || '#000000'}
-          onChange={(e) => onChange(e.target.value)}
-          className="h-8 w-10 rounded border border-slate-200 cursor-pointer"
-          data-testid={testId}
-        />
-        <Input
-          value={value || ''}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder="(unset)"
-          className="h-8 flex-1 font-mono text-xs"
-        />
-      </div>
-    </Field>
-  );
-}
+// ColorField consolidated into the shared ./ColorField (Task #2561) — it adds
+// palette swatch support and degrades to a plain picker outside the editor.
 
 function PerBreakpointColumns({ value = {}, onChange }) {
   const v = { desktop: 3, tablet: 2, mobile: 1, ...value };

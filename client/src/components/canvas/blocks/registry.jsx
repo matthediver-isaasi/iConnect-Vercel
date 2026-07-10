@@ -104,6 +104,7 @@ import {
 } from '@/lib/tenantButtonStyle';
 import { useCanvasAnchors } from '../CanvasAnchorContext';
 import { useCanvasSymbols } from '../CanvasSymbolsContext';
+import { ColorField } from './ColorField';
 import { useReportReflowHeight, useReportCardContentHeight } from '../AccordionReflowContext';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
@@ -371,26 +372,8 @@ function ToggleField({ label, value, onChange, testId }) {
   );
 }
 
-function ColorField({ label, value, onChange, testId }) {
-  return (
-    <Field label={label}>
-      <div className="flex items-center gap-2">
-        <input
-          type="color"
-          value={value || '#000000'}
-          onChange={(e) => onChange(e.target.value)}
-          className="h-8 w-10 rounded border border-slate-200 cursor-pointer"
-          data-testid={testId}
-        />
-        <Input
-          value={value || ''}
-          onChange={(e) => onChange(e.target.value)}
-          className="h-8 flex-1 font-mono text-xs"
-        />
-      </div>
-    </Field>
-  );
-}
+// ColorField consolidated into the shared ../ColorField (Task #2561) so every
+// inspector picker gains swatch support. Imported at the top of this file.
 
 export function ImageField({ label, value, alt, onChangeSrc, onChangeAlt, testId }) {
   // The "Media library" button asks the editor shell to open the shared

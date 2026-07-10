@@ -27,6 +27,7 @@ import {
   blockHeadingLevel,
 } from '@/lib/canvasA11y';
 import { getBlockDefinition } from './blocks/registry';
+import { ColorField } from './blocks/ColorField';
 
 function NumberField({ id, label, value, onChange, min, max, step = 1, testId, override, disabled }) {
   return (
@@ -739,24 +740,4 @@ function Section({ title, children }) {
   );
 }
 
-function ColorField({ label, value, onChange, testId }) {
-  return (
-    <div className="space-y-1">
-      <Label className="text-xs text-slate-600">{label}</Label>
-      <div className="flex items-center gap-2">
-        <input
-          type="color"
-          value={value || '#ffffff'}
-          onChange={(e) => onChange(e.target.value)}
-          className="h-8 w-10 rounded border border-slate-200 cursor-pointer"
-          data-testid={testId}
-        />
-        <Input
-          value={value || ''}
-          onChange={(e) => onChange(e.target.value)}
-          className="h-8 flex-1 font-mono text-xs"
-        />
-      </div>
-    </div>
-  );
-}
+// ColorField consolidated into the shared ./blocks/ColorField (Task #2561).

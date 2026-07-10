@@ -38,6 +38,7 @@ import {
   Ungroup as UngroupIcon,
   Layers,
   Wand2,
+  Palette,
 } from 'lucide-react';
 import {
   AlertDialog,
@@ -78,6 +79,8 @@ import CanvasGuidesOverlay from './CanvasGuides';
 import CanvasInspector from './CanvasInspector';
 import { CanvasAnchorProvider } from './CanvasAnchorContext';
 import { CanvasEditorPageProvider } from './CanvasEditorPageContext';
+import { CanvasSwatchProvider } from './CanvasSwatchContext';
+import CanvasPalettePanel from './CanvasPalettePanel';
 import { CanvasSymbolsProvider, useCanvasSymbolsData } from './CanvasSymbolsContext';
 import CanvasLayers from './CanvasLayers';
 import CanvasA11yPanel from './CanvasA11yPanel';
@@ -304,6 +307,8 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   const [zoom, setZoom] = useState(1);
   const [showReadingOrder, setShowReadingOrder] = useState(false);
   const [showA11yPanel, setShowA11yPanel] = useState(false);
+  // Task #2561: Colour palette management dialog.
+  const [showPalettePanel, setShowPalettePanel] = useState(false);
   // Floating, draggable Layers panel (open by default so nothing appears missing).
   // Open/closed state persists per-user via localStorage across editor reloads.
   const [showLayersPanel, setShowLayersPanel] = useState(() => {
@@ -1622,6 +1627,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
 
   return (
     <DndContext sensors={sensors} autoScroll={false} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={handleDragCancel}>
+      <CanvasSwatchProvider micrositeId={micrositeId}>
       <div className="flex flex-col h-full" data-testid="canvas-builder">
         {/* Sub-toolbar with alignment + undo/redo + grid */}
         <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-200 bg-white">
@@ -1722,6 +1728,14 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
             <Wand2 className="w-4 h-4 mr-1.5" /> Auto build
           </Button>
           <div className="flex-1" />
+          <Button
+            size="sm" variant="ghost"
+            onClick={() => setShowPalettePanel(true)}
+            title="Manage the colour palette for this page"
+            data-testid="button-open-palette"
+          >
+            <Palette className="w-4 h-4 mr-1.5" /> Palette
+          </Button>
           <Button
             size="sm" variant="ghost"
             onClick={() => setShowLayersPanel((v) => !v)}
@@ -2042,6 +2056,9 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <CanvasPalettePanel open={showPalettePanel} onOpenChange={setShowPalettePanel} />
+      </CanvasSwatchProvider>
     </DndContext>
   );
 });

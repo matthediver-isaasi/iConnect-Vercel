@@ -139,8 +139,42 @@ export const MICROSITE_BRANDING_KEYS = [
 ];
 
 /**
+ * Task #2561: max number of Canvas colour swatches stored per scope
+ * (tenant or microsite). Keeps the branding_config JSON blob bounded.
+ */
+export const MAX_CANVAS_SWATCHES = 48;
+
+/**
+ * Normalise a submitted Canvas swatch list to an array of well-formed,
+ * uppercased, de-duplicated hex-colour strings, capped at
+ * MAX_CANVAS_SWATCHES. Anything invalid is dropped. Order is preserved
+ * (swatch reordering is a supported action). Shared by the tenant branding
+ * endpoint and the microsite endpoint so both scopes validate identically.
+ */
+export function normalizeCanvasSwatches(value) {
+  if (!Array.isArray(value)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const raw of value) {
+    if (typeof raw !== 'string') continue;
+    const trimmed = raw.trim();
+    if (!/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(trimmed)) continue;
+    const hex = trimmed.toUpperCase();
+    if (seen.has(hex)) continue;
+    seen.add(hex);
+    out.push(hex);
+    if (out.length >= MAX_CANVAS_SWATCHES) break;
+  }
+  return out;
+}
+
+/**
  * Keep only whitelisted, non-empty string values from a submitted
  * branding_config object. Returns a plain object (possibly empty).
+ *
+ * Task #2561: `canvas_swatches` (an array of hex strings powering the Canvas
+ * colour palette for this microsite) is preserved here too — it is the one
+ * non-string key allowed through the sanitizer.
  */
 export function sanitizeMicrositeBrandingConfig(value) {
   const src = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {};
@@ -148,6 +182,10 @@ export function sanitizeMicrositeBrandingConfig(value) {
   for (const key of MICROSITE_BRANDING_KEYS) {
     const v = src[key];
     if (typeof v === 'string' && v.trim() !== '') out[key] = v.trim();
+  }
+  if (src.canvas_swatches !== undefined) {
+    const swatches = normalizeCanvasSwatches(src.canvas_swatches);
+    if (swatches.length > 0) out.canvas_swatches = swatches;
   }
   return out;
 }

@@ -1,6 +1,7 @@
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { supabase } from '../_lib/database.js';
 import { clearTenantCache } from '../_lib/tenantResolver.js';
+import { normalizeCanvasSwatches } from '../_lib/microsites.js';
 
 function isValidHexColor(color) {
   if (!color || typeof color !== 'string') return false;
@@ -598,6 +599,12 @@ export default async function handler(req, res) {
         }
         if (updates.branding_config.resourceCategoryTitleColor !== undefined) {
           updates.branding_config.resourceCategoryTitleColor = normalizeHexColor(updates.branding_config.resourceCategoryTitleColor);
+        }
+        // Task #2561: Canvas colour palette swatches (main-site scope). An
+        // array of validated hex strings; the deep-merge below preserves it
+        // alongside the other branding_config keys.
+        if (updates.branding_config.canvas_swatches !== undefined) {
+          updates.branding_config.canvas_swatches = normalizeCanvasSwatches(updates.branding_config.canvas_swatches);
         }
         // Card accent bar (thin bar under the feature image on News, Blog
         // article, and Resource cards). Rebuilt from a whitelist so arbitrary
