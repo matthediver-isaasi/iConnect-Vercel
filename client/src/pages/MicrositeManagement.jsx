@@ -639,7 +639,7 @@ function MicrositePagesTab({ microsite, pages, micrositePages }) {
   );
 }
 
-const EMPTY_NAV_FORM = { title: "", url: "", location: "main_nav", link_type: "internal", is_active: true, parent_id: null };
+const EMPTY_NAV_FORM = { title: "", url: "", location: "main_nav", link_type: "internal", is_active: true, parent_id: null, include_outside_microsite: true };
 
 function MicrositeNavTab({ microsite, micrositePages }) {
   const { toast } = useToast();
@@ -696,6 +696,13 @@ function MicrositeNavTab({ microsite, micrositePages }) {
         is_active: navForm.is_active,
         parent_id: parentId,
         microsite_id: microsite.id,
+        // Search scope toggle: only meaningful for the Search header element,
+        // mirrors the Canvas Builder Search Input block's per-block setting.
+        // Default TRUE = search the whole site; FALSE = this microsite only.
+        include_outside_microsite:
+          isContentBlock && navForm.content_block_type === "search"
+            ? navForm.include_outside_microsite !== false
+            : true,
       };
       if (editingItem) {
         await base44.entities.NavigationItem.update(editingItem.id, payload);
@@ -776,6 +783,9 @@ function MicrositeNavTab({ microsite, micrositePages }) {
       // Carry the block type so a Search/Social/Account element keeps its type
       // when saved from the edit dialog.
       content_block_type: item.content_block_type || null,
+      // Carry the search-scope toggle (default ON) so editing a Search element
+      // doesn't reset it.
+      include_outside_microsite: item.include_outside_microsite !== false,
     });
     setNavDialogOpen(true);
   };
@@ -1116,6 +1126,21 @@ function MicrositeNavTab({ microsite, micrositePages }) {
               />
               <Label>Visible</Label>
             </div>
+            {navForm.link_type === "content_block" && navForm.content_block_type === "search" && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Switch
+                    checked={navForm.include_outside_microsite !== false}
+                    onCheckedChange={(v) => setNavForm((f) => ({ ...f, include_outside_microsite: v }))}
+                    data-testid="switch-nav-include-outside"
+                  />
+                  <Label>Include results from outside this microsite</Label>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  On: search the whole site. Off: show only results from this microsite.
+                </p>
+              </div>
+            )}
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setNavDialogOpen(false)}>Cancel</Button>
               <Button type="submit" disabled={saveNavMutation.isPending} data-testid="button-save-nav-item">

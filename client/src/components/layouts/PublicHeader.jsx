@@ -596,6 +596,19 @@ export default function PublicHeader() {
     }
   }, [micrositePrefix]);
 
+  // Task #2627: microsite header search scoping. When the microsite's Search
+  // header element has "Include results from outside this microsite" turned OFF
+  // (include_outside_microsite === false), scope the live header search to this
+  // microsite only. Tenant (non-microsite) header search is always tenant-wide.
+  const micrositeSearchScopeOnly = useMemo(() => {
+    if (!micrositePrefix) return false;
+    const all = [...(navItems.topNav || []), ...(navItems.mainNav || [])];
+    const searchItem = all.find(
+      (i) => i.link_type === 'content_block' && i.content_block_type === 'search'
+    );
+    return !!searchItem && searchItem.include_outside_microsite === false;
+  }, [micrositePrefix, navItems]);
+
   // Subscribe to realtime navigation changes
   useNavigationRealtime(fetchNavItems);
 
@@ -691,7 +704,10 @@ export default function PublicHeader() {
     
     searchTimeoutRef.current = setTimeout(async () => {
       try {
-        const data = await publicClient.search(query.trim());
+        const searchOpts = micrositeSearchScopeOnly
+          ? { micrositePrefix, micrositeScope: 'only' }
+          : {};
+        const data = await publicClient.search(query.trim(), searchOpts);
         setSearchResults(data.results || []);
       } catch (error) {
         console.error('Search error:', error);
@@ -700,7 +716,7 @@ export default function PublicHeader() {
         setIsSearching(false);
       }
     }, 300);
-  }, []);
+  }, [micrositeSearchScopeOnly, micrositePrefix]);
 
   // Debounced search handler for mobile
   const handleMobileSearch = useCallback((query) => {
@@ -720,7 +736,10 @@ export default function PublicHeader() {
     
     mobileSearchTimeoutRef.current = setTimeout(async () => {
       try {
-        const data = await publicClient.search(query.trim());
+        const searchOpts = micrositeSearchScopeOnly
+          ? { micrositePrefix, micrositeScope: 'only' }
+          : {};
+        const data = await publicClient.search(query.trim(), searchOpts);
         setMobileSearchResults(data.results || []);
       } catch (error) {
         console.error('Mobile search error:', error);
@@ -729,7 +748,7 @@ export default function PublicHeader() {
         setIsMobileSearching(false);
       }
     }, 300);
-  }, []);
+  }, [micrositeSearchScopeOnly, micrositePrefix]);
 
   // Handle clicking a search result
   const handleResultClick = (url) => {

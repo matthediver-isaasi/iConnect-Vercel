@@ -57,7 +57,8 @@ export default async function handler(req, res) {
         content_block_type,
         description,
         typography_style_id,
-        font_size_override
+        font_size_override,
+        include_outside_microsite
       `;
 
     const buildQuery = (scoped) => {
