@@ -13,10 +13,12 @@ import {
   BREAKPOINT_WIDTHS,
   blockSupportsFullBleed,
   resolveBlockHeightCss,
+  isFlowDesign,
 } from "@/lib/canvasDesign";
 import { getBlockDefinition } from "./blocks/registry";
 import { AccordionReflowProvider, useAccordionReflow } from "./AccordionReflowContext";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import CanvasFlowStage from "./CanvasFlowStage";
 
 // Phase 7 — Hooks that fetch the tenant Canvas theme and any referenced
 // symbols. Both are best-effort; failures degrade to "no theme" and
@@ -493,11 +495,17 @@ function CanvasPageStage({ children, lcpBlockId, forcedBreakpoint, windowBp, act
 
 export default function CanvasPageRenderer({ page, symbols, forceBreakpoint }) {
   const baseDesign = useMemo(() => normalizeCanvasDesign(page?.canvas_design), [page?.canvas_design]);
+  // Task #2570 — v2 (flow / auto-layout) documents take a separate render path
+  // (CanvasFlowStage, driven by resolveFlowLayout). v1 (absolute) documents keep
+  // the legacy CSS-positioned renderer below unchanged. `normalizeCanvasDesign`
+  // already routed a v2 doc through the flow normalizer.
+  const isFlow = useMemo(() => isFlowDesign(baseDesign), [baseDesign]);
   const symbolsById = useSymbolsForDesign(baseDesign, symbols);
   const theme = useTenantCanvasTheme();
   const design = useMemo(
-    () => resolveSymbolsInDesign(baseDesign, symbolsById) || baseDesign,
-    [baseDesign, symbolsById],
+    // Symbol splicing is a v1-only transform; leave flow documents untouched.
+    () => (isFlow ? baseDesign : resolveSymbolsInDesign(baseDesign, symbolsById) || baseDesign),
+    [isFlow, baseDesign, symbolsById],
   );
   // Splice symbol children into the flat block list so the CSS layout
   // generator picks them up. Symbols themselves render as transparent
@@ -522,6 +530,10 @@ export default function CanvasPageRenderer({ page, symbols, forceBreakpoint }) {
 
   const windowBp = useWindowBreakpoint();
   const hasBlocks = children.length > 0;
+  const flowHasNodes = useMemo(
+    () => isFlow && (design?.root?.sections || []).some((s) => (s.children?.length || 0) > 0),
+    [isFlow, design],
+  );
   const themeCss = useMemo(() => buildThemeCssVars(theme), [theme]);
 
   // Stable scope id so the per-page CSS only affects this page's stage.
@@ -611,6 +623,70 @@ export default function CanvasPageRenderer({ page, symbols, forceBreakpoint }) {
       rafIds.forEach((id) => cancelAnimationFrame(id));
     };
   }, [design, hasBlocks]);
+
+  // Task #2570 — v2 (flow) render path. Same outer scaffold (scope id,
+  // skip-link, a11y + theme CSS) as the v1 path, but the stage is laid out by
+  // the shared flow engine instead of the per-page absolute CSS.
+  if (isFlow) {
+    if (!flowHasNodes) {
+      return (
+        <div
+          className="w-full"
+          data-testid={`canvas-page-${page?.slug || ''}`}
+          data-canvas-version={design.version}
+        >
+          <a
+            href="#canvas-main-content"
+            className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[9999] focus:px-3 focus:py-2 focus:rounded-md focus:bg-primary focus:text-primary-foreground focus:shadow-md"
+            data-testid="link-skip-to-content"
+          >
+            Skip to content
+          </a>
+          <style>{A11Y_DEFAULTS_CSS}</style>
+          <main
+            id="canvas-main-content"
+            tabIndex={-1}
+            className="min-h-[40vh] flex items-center justify-center focus:outline-none"
+            data-testid="canvas-page-empty"
+          >
+            <div className="text-center px-6">
+              <p className="text-slate-600">
+                This page is currently being built. Please check back soon.
+              </p>
+            </div>
+          </main>
+        </div>
+      );
+    }
+    return (
+      <TooltipProvider>
+        <div
+          ref={containerRef}
+          id={scopeId}
+          className="canvas-page w-full"
+          data-testid={`canvas-page-${page?.slug || ''}`}
+          data-canvas-version={design.version}
+        >
+          <a
+            href="#canvas-main-content"
+            className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[9999] focus:px-3 focus:py-2 focus:rounded-md focus:bg-primary focus:text-primary-foreground focus:shadow-md"
+            data-testid="link-skip-to-content"
+          >
+            Skip to content
+          </a>
+          <style>{A11Y_DEFAULTS_CSS}</style>
+          {themeCss && (
+            <style dangerouslySetInnerHTML={{ __html: `#${scopeId}{${themeCss}}` }} />
+          )}
+          <CanvasFlowStage
+            design={design}
+            forceBreakpoint={forcedBreakpoint}
+            lcpBlockId={null}
+          />
+        </div>
+      </TooltipProvider>
+    );
+  }
 
   if (!hasBlocks) {
     return (

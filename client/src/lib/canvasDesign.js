@@ -1809,6 +1809,164 @@ export function getFlowSections(design) {
   return design?.root?.sections || [];
 }
 
+// Leaf block types whose height is content-driven (measured at render time)
+// rather than pinned. Mirrors the registry `autoHeight: true` flags — kept here
+// in the React-free data layer so the v1->v2 converter (which also runs on the
+// server, without the JSX registry) knows which leaves must flow-size.
+export const AUTO_HEIGHT_LEAF_TYPES = new Set([
+  BLOCK_TYPES.TEXT,
+  BLOCK_TYPES.ACCORDION,
+  BLOCK_TYPES.CARD,
+]);
+
+// ===========================================================================
+// Task #2570 — v1 (absolute) -> v2 (flow) converter.
+//
+// A v1 design positions every block absolutely inside a single root section.
+// The flow model stacks children vertically and lays out side-by-side blocks
+// as Row columns. A perfect 2-D -> 1-D conversion is not generally possible,
+// so this converter makes a faithful, deterministic best-effort:
+//   - Blocks are read from the v1 root's first section (the flat block list).
+//   - They are clustered into vertical BANDS: blocks whose desktop vertical
+//     extents substantially overlap belong to the same band (i.e. they sat
+//     side-by-side on the same visual row).
+//   - A single-block band becomes a stacked flow leaf. A multi-block band
+//     becomes a Row whose columns (left-to-right) carry each block's width as
+//     `flow.basis`, so relative widths are preserved.
+//   - Vertical rhythm is preserved via per-band `flow.marginTop` (the gap from
+//     the previous band's bottom); the section gap is 0 so margins are exact.
+//   - Auto-height leaves (text/accordion/card) flow-size; everything else pins
+//     its height to the authored desktop height.
+//
+// The result is run through `normalizeFlowDesign` so it is a well-formed,
+// idempotent v2 document. Converting an already-v2 design is a no-op
+// (normalize only). This is React-free so the admin opt-in endpoint can import
+// and run it server-side.
+// ===========================================================================
+
+// Fraction of the shorter block height that two blocks' vertical extents must
+// overlap by to be treated as the same visual row (side-by-side columns).
+const FLOW_BAND_OVERLAP_RATIO = 0.5;
+
+function flowLeafFromBlock(block, { marginTop = 0, basis = null } = {}) {
+  const geom = resolveBlockAtBreakpoint(block, 'desktop');
+  const isAuto = AUTO_HEIGHT_LEAF_TYPES.has(block.type);
+  const height = Number.isFinite(geom.h) ? geom.h : null;
+  return normalizeFlowNode({
+    ...block,
+    layoutMode: LAYOUT_MODES.FLOW,
+    flow: {
+      ...(block.flow && typeof block.flow === 'object' ? block.flow : {}),
+      marginTop: Math.max(0, Math.round(marginTop)),
+      basis: basis == null ? null : Math.round(basis),
+      heightMode: isAuto ? 'auto' : 'fixed',
+      height: isAuto ? null : height,
+    },
+    responsive: {},
+  });
+}
+
+export function convertDesignToFlow(design) {
+  // Already a flow document: just normalize (idempotent no-op).
+  if (isFlowDesign(design)) return normalizeFlowDesign(design);
+
+  const v1 = normalizeCanvasDesign(design);
+  const root = (v1 && v1.root) || {};
+  const firstSection = Array.isArray(root.sections) ? root.sections[0] : null;
+  const rawBlocks = (firstSection && Array.isArray(firstSection.children))
+    ? firstSection.children
+    : [];
+
+  // Resolve desktop geometry once, then sort top-to-bottom then left-to-right
+  // so band clustering and column order are deterministic. Desktop-hidden
+  // blocks carry no meaningful position, so they are NOT band-clustered (they
+  // would distort visible rows); they are preserved as standalone leaves at the
+  // end so no authored content is lost by the migration.
+  const resolved = rawBlocks.map((block) => {
+    const g = resolveBlockAtBreakpoint(block, 'desktop');
+    return {
+      block,
+      x: Number.isFinite(g.x) ? g.x : 0,
+      y: Number.isFinite(g.y) ? g.y : 0,
+      w: Number.isFinite(g.w) ? g.w : 0,
+      h: Number.isFinite(g.h) ? g.h : 0,
+      hidden: !!g.hidden,
+    };
+  });
+  const items = resolved
+    .filter((it) => !it.hidden)
+    .sort((a, b) => (a.y - b.y) || (a.x - b.x));
+  const hiddenItems = resolved.filter((it) => it.hidden);
+
+  // Cluster into vertical bands by overlap of vertical extents.
+  const bands = [];
+  for (const it of items) {
+    const last = bands[bands.length - 1];
+    if (last) {
+      const overlap = Math.min(last.bottom, it.y + it.h) - Math.max(last.top, it.y);
+      const minH = Math.max(1, Math.min(last.bottom - last.top, it.h));
+      if (overlap > minH * FLOW_BAND_OVERLAP_RATIO) {
+        last.items.push(it);
+        last.top = Math.min(last.top, it.y);
+        last.bottom = Math.max(last.bottom, it.y + it.h);
+        continue;
+      }
+    }
+    bands.push({ items: [it], top: it.y, bottom: it.y + it.h });
+  }
+
+  let prevBottom = null;
+  const children = bands.map((band) => {
+    const marginTop = prevBottom == null ? 0 : Math.max(0, band.top - prevBottom);
+    prevBottom = band.bottom;
+
+    if (band.items.length === 1) {
+      return flowLeafFromBlock(band.items[0].block, { marginTop });
+    }
+
+    // Multi-block band -> Row of columns (left-to-right).
+    const cols = [...band.items].sort((a, b) => a.x - b.x);
+    const padLeft = Math.max(0, cols[0].x);
+    // Uniform inter-column gap approximated from the first adjacent pair.
+    let gap = 0;
+    if (cols.length >= 2) {
+      const between = cols[1].x - (cols[0].x + cols[0].w);
+      gap = Number.isFinite(between) ? Math.max(0, Math.round(between)) : 0;
+    }
+    const rowChildren = cols.map((c) => flowLeafFromBlock(c.block, { basis: c.w }));
+    return createRow({
+      name: 'Row',
+      flow: { marginTop: Math.max(0, Math.round(marginTop)), gap, padLeft, align: 'start' },
+      children: rowChildren,
+    });
+  });
+
+  // Preserve desktop-hidden blocks as trailing standalone leaves (their own
+  // per-breakpoint hidden flags carry over via normalizeFlowNode) so no content
+  // is dropped by the migration.
+  for (const it of hiddenItems) {
+    children.push(flowLeafFromBlock(it.block, { marginTop: 0 }));
+  }
+
+  const section = createFlowSection({
+    name: (firstSection && firstSection.name) || 'Section',
+    style: firstSection && firstSection.style ? firstSection.style : undefined,
+    flow: { gap: 0 },
+    children,
+  });
+
+  return normalizeFlowDesign({
+    version: CANVAS_FLOW_VERSION,
+    root: {
+      background: root.background ?? null,
+      groups: Array.isArray(root.groups) ? root.groups : [],
+      guides: root.guides,
+      layout: 'flow',
+      sections: [section],
+    },
+  });
+}
+
 // Formats a Date into the "YYYY-MM-DDTHH:mm" string an <input type="datetime-local">
 // expects, using the viewer's local timezone (matching how the Countdown
 // inspector captures and the renderer parses the value).
