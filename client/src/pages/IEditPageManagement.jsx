@@ -31,7 +31,8 @@ import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { useNavigate } from "react-router-dom";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
-import PageFolderSidebar from "@/components/iedit/PageFolderSidebar";
+import PageFolderSidebar, { PRIMARY_SITE } from "@/components/iedit/PageFolderSidebar";
+import { adminFetch } from "@/lib/adminFetch";
 import PageManagerItem from "@/components/iedit/PageManagerItem";
 import { Badge } from "@/components/ui/badge";
 import CanvasPageRenderer from "@/components/canvas/CanvasPageRenderer";
@@ -198,6 +199,9 @@ export default function IEditPageManagementPage() {
   const [cleanupResults, setCleanupResults] = useState(null);
 
   // Folder / view state (Task: folders, sorting & pinning)
+  // Active site context (Task #2534): null = primary tenant site, otherwise a
+  // microsite id. Drives both folder-panel selection and page-list filtering.
+  const [activeSiteId, setActiveSiteId] = useState(null);
   const [selectedFolderId, setSelectedFolderId] = useState("all"); // 'all' | 'root' | <folderId>
   const [viewMode, setViewMode] = useState(() => {
     try {
@@ -225,11 +229,14 @@ export default function IEditPageManagementPage() {
     }
   }, [viewMode]);
 
-  const currentSort = sortMap[selectedFolderId] || DEFAULT_SORT;
+  // Sort preference is scoped per (site, folder) view (Task #2534) so a
+  // microsite folder can be sorted independently of a same-named primary view.
+  const viewSortKey = `${activeSiteId || PRIMARY_SITE}:${selectedFolderId}`;
+  const currentSort = sortMap[viewSortKey] || DEFAULT_SORT;
 
   const setSortForView = (value) => {
     setSortMap((prev) => {
-      const next = { ...prev, [selectedFolderId]: value };
+      const next = { ...prev, [viewSortKey]: value };
       try {
         localStorage.setItem(SORT_MAP_KEY, JSON.stringify(next));
       } catch {
@@ -283,11 +290,25 @@ export default function IEditPageManagementPage() {
     staleTime: 0,
   });
 
+  // Tenant microsites (Task #2534). Used to render the "Microsites" section in
+  // the folder panel and to scope page/folder filtering by microsite.
+  const { data: microsites = [] } = useQuery({
+    queryKey: ['admin-microsites'],
+    queryFn: async () => {
+      const res = await adminFetch('/api/admin/microsites', { credentials: 'include' });
+      if (!res.ok) return [];
+      const data = await res.json().catch(() => ({}));
+      return Array.isArray(data?.microsites) ? data.microsites : [];
+    },
+    staleTime: 30_000,
+  });
+
   const createFolderMutation = useMutation({
-    mutationFn: ({ name, parentId }) =>
+    mutationFn: ({ name, parentId, micrositeId }) =>
       base44.entities.IEditPageFolder.create({
         name,
         parent_id: parentId || null,
+        microsite_id: micrositeId || null,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['iedit-page-folders'] });
@@ -838,22 +859,48 @@ export default function IEditPageManagementPage() {
   };
 
   // Page counts per view (ignores search so the sidebar shows folder sizes).
+  // Per-site page counts (Task #2534). Each site (primary or a microsite)
+  // gets its own all / root / per-folder tallies so the counts shown next to
+  // each view are scoped to the correct site context.
   const countFor = useMemo(() => {
-    const byFolder = new Map();
-    let rootCount = 0;
+    const bySite = new Map(); // key: micrositeId || PRIMARY_SITE
+    const ensure = (key) => {
+      if (!bySite.has(key)) bySite.set(key, { all: 0, root: 0, byFolder: new Map() });
+      return bySite.get(key);
+    };
     for (const p of pages) {
+      const bucket = ensure(p.microsite_id || PRIMARY_SITE);
+      bucket.all += 1;
       if (p.folder_id) {
-        byFolder.set(p.folder_id, (byFolder.get(p.folder_id) || 0) + 1);
+        bucket.byFolder.set(p.folder_id, (bucket.byFolder.get(p.folder_id) || 0) + 1);
       } else {
-        rootCount += 1;
+        bucket.root += 1;
       }
     }
-    return (viewKey) => {
-      if (viewKey === 'all') return pages.length;
-      if (viewKey === 'root') return rootCount;
-      return byFolder.get(viewKey) || 0;
+    return (viewKey, siteId) => {
+      const bucket = bySite.get(siteId || PRIMARY_SITE);
+      if (!bucket) return 0;
+      if (viewKey === 'all') return bucket.all;
+      if (viewKey === 'root') return bucket.root;
+      return bucket.byFolder.get(viewKey) || 0;
     };
   }, [pages]);
+
+  // Folders partitioned by site context (Task #2534).
+  const primaryFolders = useMemo(
+    () => folders.filter((f) => !f.microsite_id),
+    [folders]
+  );
+  const micrositeFoldersById = useMemo(() => {
+    const map = {};
+    for (const f of folders) {
+      if (f.microsite_id) (map[f.microsite_id] ||= []).push(f);
+    }
+    return map;
+  }, [folders]);
+  const contextFolders = activeSiteId
+    ? micrositeFoldersById[activeSiteId] || []
+    : primaryFolders;
 
   const sortPages = (list, sortMode) => {
     const arr = [...list];
@@ -877,6 +924,13 @@ export default function IEditPageManagementPage() {
       page.slug?.toLowerCase().includes(q) ||
       page.description?.toLowerCase().includes(q)
     );
+    // Site context (Task #2534): primary shows pages with no microsite_id;
+    // a microsite context shows only that microsite's pages.
+    if (activeSiteId) {
+      list = list.filter((p) => p.microsite_id === activeSiteId);
+    } else {
+      list = list.filter((p) => !p.microsite_id);
+    }
     if (selectedFolderId === 'root') {
       list = list.filter((p) => !p.folder_id);
     } else if (selectedFolderId !== 'all') {
@@ -888,14 +942,14 @@ export default function IEditPageManagementPage() {
     const pinned = sorted.filter((p) => p.pinned_at);
     const unpinned = sorted.filter((p) => !p.pinned_at);
     return [...pinned, ...unpinned];
-  }, [pages, searchQuery, selectedFolderId, currentSort]);
+  }, [pages, searchQuery, selectedFolderId, activeSiteId, currentSort]);
 
   const filteredPages = visiblePages;
 
   // Clear any selection when the folder view changes (Task #2236).
   useEffect(() => {
     setSelectedPageIds(new Set());
-  }, [selectedFolderId]);
+  }, [selectedFolderId, activeSiteId]);
 
   const togglePageSelected = (pageId) => {
     setSelectedPageIds((prev) => {
@@ -960,13 +1014,31 @@ export default function IEditPageManagementPage() {
     if (!page) return;
 
     let targetFolderId = null;
+    let targetSite = null; // null = primary site, else micrositeId
     const overId = String(over.id);
     if (overId.startsWith('folder:')) {
       targetFolderId = overId.replace('folder:', '');
-    } else if (overId === 'view:root') {
+      const folder = folders.find((f) => f.id === targetFolderId);
+      targetSite = folder?.microsite_id || null;
+    } else if (overId.startsWith('siteview:')) {
+      // siteview:<site>:<view> — site is PRIMARY_SITE or a micrositeId; only
+      // the "root" (Unfiled) view is a valid drop target.
+      const rest = overId.slice('siteview:'.length);
+      const sep = rest.lastIndexOf(':');
+      const sitePart = rest.slice(0, sep);
+      const viewPart = rest.slice(sep + 1);
+      if (viewPart !== 'root') return;
+      targetSite = sitePart === PRIMARY_SITE ? null : sitePart;
       targetFolderId = null;
     } else {
       return; // dropped somewhere that isn't a folder target
+    }
+
+    // Task #2534: folder moves never change a page's microsite assignment.
+    // Only allow dropping a page into a folder/view within its OWN site.
+    if ((page.microsite_id || null) !== (targetSite || null)) {
+      toast.error("You can only move a page within its own site's folders.");
+      return;
     }
 
     // If the dragged page is part of the current selection, move the whole
@@ -977,8 +1049,8 @@ export default function IEditPageManagementPage() {
     movePagesToFolder(idsToMove, targetFolderId);
   };
 
-  const openCreateFolder = (parentId = null) => {
-    setFolderDialog({ mode: 'create', parentId });
+  const openCreateFolder = ({ parentId = null, micrositeId = null } = {}) => {
+    setFolderDialog({ mode: 'create', parentId, micrositeId });
     setFolderName('');
   };
   const openRenameFolder = (folder) => {
@@ -994,7 +1066,11 @@ export default function IEditPageManagementPage() {
     if (folderDialog?.mode === 'rename') {
       renameFolderMutation.mutate({ id: folderDialog.folder.id, name });
     } else {
-      createFolderMutation.mutate({ name, parentId: folderDialog?.parentId || null });
+      createFolderMutation.mutate({
+        name,
+        parentId: folderDialog?.parentId || null,
+        micrositeId: folderDialog?.micrositeId || null,
+      });
     }
   };
 
@@ -1147,12 +1223,25 @@ export default function IEditPageManagementPage() {
           <div className="flex flex-col md:flex-row gap-6 items-start">
             <aside className="w-full md:w-64 flex-shrink-0 bg-white rounded-xl shadow-sm border border-slate-200 p-3">
               <PageFolderSidebar
-                folders={folders}
+                primaryFolders={primaryFolders}
+                microsites={microsites}
+                micrositeFoldersById={micrositeFoldersById}
+                selectedSiteId={activeSiteId}
                 selectedFolderId={selectedFolderId}
-                onSelect={setSelectedFolderId}
+                onSelect={(siteId, folderId) => {
+                  setActiveSiteId(siteId);
+                  setSelectedFolderId(folderId);
+                }}
                 countFor={countFor}
-                onCreateFolder={() => openCreateFolder(null)}
-                onCreateSubfolder={(parent) => openCreateFolder(parent.id)}
+                onCreateFolder={(siteId) =>
+                  openCreateFolder({ micrositeId: siteId })
+                }
+                onCreateSubfolder={(parent) =>
+                  openCreateFolder({
+                    parentId: parent.id,
+                    micrositeId: parent.microsite_id || null,
+                  })
+                }
                 onRename={openRenameFolder}
                 onDelete={setFolderToDelete}
               />
@@ -1189,7 +1278,7 @@ export default function IEditPageManagementPage() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="root">Unfiled</SelectItem>
-                        {folders.map((f) => (
+                        {contextFolders.map((f) => (
                           <SelectItem key={f.id} value={f.id}>
                             {f.name}
                           </SelectItem>
