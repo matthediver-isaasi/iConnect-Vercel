@@ -668,17 +668,25 @@ function CanvasStageInner({
         const dx = interactionState.fullWidth ? 0 : (cur.x - interactionState.start.x);
         const dy = cur.y - interactionState.start.y;
         let next = applyResize(interactionState.handle, interactionState.initialGeom, dx, dy);
-        // grid snap for x/y and w/h edges that changed
-        if (!interactionState.fullWidth) {
-          next.x = snap(next.x, gridSize);
-          next.w = Math.max(10, snap(next.w, gridSize));
-        } else {
+        // Grid-snap ONLY the axis the active handle actually moves. Snapping the
+        // untouched axis rounds a non-grid-aligned block to the nearest grid line
+        // on the very first pointer move, producing a perpendicular "nudge".
+        // Leaving that axis at its original (applyResize-passthrough) value keeps
+        // it exactly where it was.
+        const resizesX = /[ew]/.test(interactionState.handle);
+        const resizesY = /[ns]/.test(interactionState.handle);
+        if (interactionState.fullWidth) {
           // Force x/w back to the pinned values regardless of handle.
           next.x = interactionState.initialGeom.x;
           next.w = interactionState.initialGeom.w;
+        } else if (resizesX) {
+          next.x = snap(next.x, gridSize);
+          next.w = Math.max(10, snap(next.w, gridSize));
         }
-        next.y = snap(next.y, gridSize);
-        next.h = Math.max(10, snap(next.h, gridSize));
+        if (resizesY) {
+          next.y = snap(next.y, gridSize);
+          next.h = Math.max(10, snap(next.h, gridSize));
+        }
         // Task #1665: snap the moving edges to user guides. Full-width blocks
         // keep x/w pinned, so only the vertical (n/s) edges may snap.
         const resizeHandle = interactionState.fullWidth
