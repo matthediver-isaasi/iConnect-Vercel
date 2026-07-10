@@ -70,9 +70,11 @@ import {
   BLOCK_TYPES,
   stageHeightForBreakpoint,
   symbolContentExtent,
+  isFlowDesign,
 } from '@/lib/canvasDesign';
 import CanvasPalette from './CanvasPalette';
 import CanvasStage from './CanvasStage';
+import CanvasFlowEditorStage from './CanvasFlowEditorStage';
 import { getBlockDefinition } from './blocks/registry';
 import useEdgeAutoScroll from './useEdgeAutoScroll';
 import CanvasGuidesOverlay from './CanvasGuides';
@@ -456,6 +458,14 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   // Task #1425: layer groups registry for the current design.
   const groups = useMemo(() => getGroups(design), [design]);
 
+  // Task #2569 (Flow Step 3): flow (v2) documents render through the pure
+  // auto-layout engine + live measurement (CanvasFlowStage) instead of the v1
+  // absolute stage. The v1 path below is untouched for non-flow designs.
+  const isFlow = useMemo(() => isFlowDesign(design), [design]);
+  // Height reported by the flow stage after it resolves + measures, used to
+  // size the ruler/guide area for flow documents.
+  const [flowHeight, setFlowHeight] = useState(STAGE_MIN_HEIGHT);
+
   // Task #1609 — fit symbol instance boxes to their rendered content. The
   // editor draws a symbol's real children inside the instance box, but the
   // box itself keeps its placeholder/default size, so selection + resize/move
@@ -515,12 +525,15 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   // 0 when no interaction is active.
   const [livePreviewBottom, setLivePreviewBottom] = useState(0);
   const stageHeight = useMemo(() => {
+    // Flow (v2) documents derive their height from the auto-layout engine +
+    // live measurement, reported up by CanvasFlowStage.
+    if (isFlow) return Math.max(STAGE_MIN_HEIGHT, flowHeight);
     // Use the content-fitted children so the stage grows to fit a symbol's
     // rendered content rather than its (smaller/larger) placeholder box.
     const committed = stageHeightForBreakpoint(displayChildren, breakpoint);
     const live = livePreviewBottom > 0 ? livePreviewBottom + 80 : 0;
     return Math.max(STAGE_MIN_HEIGHT, committed, live);
-  }, [displayChildren, breakpoint, livePreviewBottom]);
+  }, [isFlow, flowHeight, displayChildren, breakpoint, livePreviewBottom]);
 
   // Live accessibility audit (recomputes on every design change).
   const heuristicA11yIssues = useMemo(() => auditCanvasDesign(design), [design]);
@@ -1910,6 +1923,17 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
                     }}
                   >
                     <CanvasSymbolsProvider>
+                    {isFlow ? (
+                      <CanvasFlowEditorStage
+                        design={design}
+                        breakpoint={breakpoint}
+                        canvasWidth={canvasWidth}
+                        canvasHeight={stageHeight}
+                        selectedIds={selectedIds}
+                        onSelect={handleSelect}
+                        onHeightChange={setFlowHeight}
+                      />
+                    ) : (
                     <CanvasStage
                       blocks={displayChildren}
                       selectedIds={selectedIds}
@@ -1935,6 +1959,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
                       onCommitAutoHeight={commitAutoHeight}
                       scrollContainerRef={stageWrapperRef}
                     />
+                    )}
                     </CanvasSymbolsProvider>
                   </div>
                   <CanvasGuidesOverlay

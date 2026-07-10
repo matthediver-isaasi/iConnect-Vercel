@@ -33,6 +33,17 @@ to `0` on the SECOND pass — not idempotent. Nullable numeric fields must short
 null/undefined/'' to null BEFORE the Number() coercion. Any new nullable flow prop needs
 the same guard, or re-saving a design silently drifts the value.
 
+**Step 3 render surface (live measurement):** `CanvasFlowStage.jsx` + `useFlowMeasurement.js`
+feed real DOM heights into `resolveFlowLayout`'s `measured` map so auto-height leaves
+(text/accordion) reflow blocks below live. Gated in `CanvasBuilder` by `isFlowDesign(design)`
+(v1 path untouched; no v2 docs exist yet so this branch is currently dormant in prod).
+Traps: (1) measure with `el.offsetHeight`, NOT `getBoundingClientRect().height` — the latter
+includes the editor's zoom transform and feeds inflated heights back into the engine.
+(2) The stage reports its resolved height to the parent builder via `useEffect`, never during
+render — calling the parent's setState during a child's render throws the "update a component
+while rendering a different component" warning. (3) `absoluteFill` blocks (hero/carousel) are
+NOT measured; they render at the engine's box height.
+
 **Test coverage:** `api/_lib/canvasFlowLayout.test.mjs` (part of `ai-assistant-tests`).
 Watch out: `createFlowSection({children})` NORMALIZES (clones) its children, so a test
 that mutates the original leaf and expects the tree to change will silently no-op — mutate

@@ -264,6 +264,116 @@ test('buildFlowDesign emits a normalizable, resolvable flow document', () => {
   assert.ok(rows >= 1);
 });
 
+// ---------------------------------------------------------------------------
+// Task #2569 (Flow Step 3): live measurement feed.
+//
+// The builder produces a `measured` map ({ [id]: { height } }) from real DOM
+// heights and passes it to resolveFlowLayout. These tests pin the engine
+// contract that the measurement pass depends on: an auto-height leaf's height
+// comes from `measured`, and changing it reflows everything below in the same
+// deterministic way a fixed-height edit does.
+// ---------------------------------------------------------------------------
+
+// An auto-height leaf: no fixed height, so its height is driven by `measured`.
+function autoLeaf(overrides = {}) {
+  return createFlowNode(BLOCK_TYPES.TEXT, { flow: { heightMode: 'auto' }, ...overrides });
+}
+
+test('measured height drives an auto-height leaf and stacks siblings below it', () => {
+  const a = autoLeaf();
+  const b = autoLeaf();
+  const section = createFlowSection({ children: [a, b], flow: { gap: 16 } });
+  const [na, nb] = section.children;
+  const design = { version: CANVAS_FLOW_VERSION, root: { layout: 'flow', sections: [section] } };
+
+  const measured = { [na.id]: { height: 120 }, [nb.id]: { height: 40 } };
+  const { boxes, height } = resolveFlowLayout(design, { containerWidth: 900, measured });
+
+  assert.equal(boxes[na.id].h, 120);
+  assert.equal(boxes[nb.id].h, 40);
+  // b sits below a + gap.
+  assert.equal(boxes[nb.id].y, 120 + 16);
+  // section wraps both + gap.
+  assert.equal(boxes[section.id].h, 120 + 16 + 40);
+  assert.equal(height, 176);
+});
+
+test('re-measuring a leaf taller (accordion expand) pushes the blocks below down', () => {
+  const a = autoLeaf();
+  const b = autoLeaf();
+  const section = createFlowSection({ children: [a, b], flow: { gap: 10 } });
+  const [na, nb] = section.children;
+  const design = { version: CANVAS_FLOW_VERSION, root: { layout: 'flow', sections: [section] } };
+
+  const collapsed = resolveFlowLayout(design, {
+    containerWidth: 800,
+    measured: { [na.id]: { height: 60 }, [nb.id]: { height: 50 } },
+  });
+  assert.equal(collapsed.boxes[nb.id].y, 70);
+
+  // Accordion expands: a's measured height jumps to 200. b shifts by exactly
+  // the growth (140) and the section grows by the same amount.
+  const expanded = resolveFlowLayout(design, {
+    containerWidth: 800,
+    measured: { [na.id]: { height: 200 }, [nb.id]: { height: 50 } },
+  });
+  assert.equal(expanded.boxes[nb.id].y, 210);
+  assert.equal(
+    expanded.boxes[section.id].h,
+    collapsed.boxes[section.id].h + 140,
+  );
+});
+
+test('a missing measurement falls back to bp geometry height', () => {
+  // Before the ResizeObserver first fires, an auto leaf has no measured entry;
+  // the engine must fall back to the block's bp geometry height, not collapse.
+  const a = createFlowNode(BLOCK_TYPES.TEXT, {
+    flow: { heightMode: 'auto' },
+    desktop: { x: 0, y: 0, w: 300, h: 88 },
+  });
+  const section = createFlowSection({ children: [a] });
+  const [na] = section.children;
+  const design = { version: CANVAS_FLOW_VERSION, root: { layout: 'flow', sections: [section] } };
+
+  const { boxes } = resolveFlowLayout(design, { containerWidth: 600, measured: {} });
+  assert.equal(boxes[na.id].h, 88);
+
+  // Once measured, the live height wins over the stored geometry.
+  const live = resolveFlowLayout(design, {
+    containerWidth: 600,
+    measured: { [na.id]: { height: 132 } },
+  });
+  assert.equal(live.boxes[na.id].h, 132);
+});
+
+test('breakpoint switch re-derives width and independent measured heights', () => {
+  // The builder resets the measured map on a breakpoint switch and re-measures
+  // at the new width. The engine must honour both the new container width and
+  // the freshly-measured (breakpoint-specific) heights.
+  const a = autoLeaf();
+  const b = autoLeaf();
+  const section = createFlowSection({ children: [a, b], flow: { gap: 12 } });
+  const [na, nb] = section.children;
+  const design = { version: CANVAS_FLOW_VERSION, root: { layout: 'flow', sections: [section] } };
+
+  const desktop = resolveFlowLayout(design, {
+    breakpoint: 'desktop',
+    containerWidth: 1200,
+    measured: { [na.id]: { height: 80 }, [nb.id]: { height: 40 } },
+  });
+  assert.equal(desktop.boxes[na.id].w, 1200);
+  assert.equal(desktop.boxes[nb.id].y, 92);
+
+  // Narrower width => text wraps taller; the re-measured heights differ.
+  const mobile = resolveFlowLayout(design, {
+    breakpoint: 'mobile',
+    containerWidth: 375,
+    measured: { [na.id]: { height: 160 }, [nb.id]: { height: 90 } },
+  });
+  assert.equal(mobile.boxes[na.id].w, 375);
+  assert.equal(mobile.boxes[nb.id].y, 172);
+});
+
 test('buildFlowDesign sections appear in vertical document order', () => {
   const design = buildNeutralFlowDesign({
     hero: { headline: 'H' },
