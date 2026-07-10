@@ -49,6 +49,16 @@ export default function CanvasFloatingPanel({
   const dragState = useRef(null);
   const resizeState = useRef(null);
   const [pos, setPos] = useState(() => readStoredPosition(storageKey) || defaultPosition);
+  // Mirror `pos` into a ref so the drag/resize callbacks can read the latest
+  // position without listing `pos` in their dependency arrays. Keeping those
+  // callbacks stable is essential: the unmount cleanup effect depends on them,
+  // and if they were recreated on every `setPos` during a drag the cleanup
+  // would re-run mid-drag and tear down the active window listeners (which is
+  // exactly why the panel stopped moving).
+  const posRef = useRef(pos);
+  useEffect(() => {
+    posRef.current = pos;
+  }, [pos]);
   // `null` height means "auto" (grow with content up to maxHeight) until the
   // user resizes explicitly.
   const [size, setSize] = useState({ width, height: null });
@@ -109,25 +119,27 @@ export default function CanvasFloatingPanel({
     const parent = panel?.offsetParent;
     if (!panel || !parent) return;
     const parentRect = parent.getBoundingClientRect();
+    const current = posRef.current;
     dragState.current = {
-      offsetX: e.clientX - (parentRect.left + pos.x),
-      offsetY: e.clientY - (parentRect.top + pos.y),
+      offsetX: e.clientX - (parentRect.left + current.x),
+      offsetY: e.clientY - (parentRect.top + current.y),
     };
     window.addEventListener('pointermove', handlePointerMove);
     window.addEventListener('pointerup', handlePointerUp);
     e.preventDefault();
-  }, [pos, handlePointerMove, handlePointerUp]);
+  }, [handlePointerMove, handlePointerUp]);
 
   const handleResizeMove = useCallback((e) => {
     const rs = resizeState.current;
     if (!rs) return;
     const panel = panelRef.current;
     const parent = panel?.offsetParent;
+    const current = posRef.current;
     let nextWidth = rs.startWidth;
     let nextHeight = rs.startHeight;
     if (rs.axis === 'x' || rs.axis === 'both') {
       const maxWidth = parent
-        ? Math.max(MIN_WIDTH, parent.clientWidth - pos.x)
+        ? Math.max(MIN_WIDTH, parent.clientWidth - current.x)
         : Infinity;
       nextWidth = Math.min(
         Math.max(MIN_WIDTH, rs.startWidth + (e.clientX - rs.startX)),
@@ -136,7 +148,7 @@ export default function CanvasFloatingPanel({
     }
     if (rs.axis === 'y' || rs.axis === 'both') {
       const maxHeight = parent
-        ? Math.max(MIN_HEIGHT, parent.clientHeight - pos.y)
+        ? Math.max(MIN_HEIGHT, parent.clientHeight - current.y)
         : Infinity;
       nextHeight = Math.min(
         Math.max(MIN_HEIGHT, rs.startHeight + (e.clientY - rs.startY)),
@@ -144,7 +156,7 @@ export default function CanvasFloatingPanel({
       );
     }
     setSize({ width: nextWidth, height: nextHeight });
-  }, [pos]);
+  }, []);
 
   const handleResizeUp = useCallback(() => {
     resizeState.current = null;
