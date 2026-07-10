@@ -103,6 +103,7 @@ import {
   isTenantButtonVariant,
 } from '@/lib/tenantButtonStyle';
 import { useCanvasAnchors } from '../CanvasAnchorContext';
+import { useCanvasEditorPage } from '../CanvasEditorPageContext';
 import { useCanvasSymbols } from '../CanvasSymbolsContext';
 import { ColorField } from './ColorField';
 import { useReportReflowHeight, useReportCardContentHeight } from '../AccordionReflowContext';
@@ -132,6 +133,37 @@ export const LUCIDE_ICONS = {
 
 export function getLucideIcon(name) {
   return LUCIDE_ICONS[name] || null;
+}
+
+// Enumerate the tenant's free-form custom button styles for the canvas
+// inspector variant pickers, scoped to the page's microsite context (Task
+// #2562). A microsite page offers only styles assigned to that microsite; a
+// main-site page offers only unassigned styles. Primary/Secondary are added
+// by each picker separately and are never microsite-scoped. This affects the
+// picker options ONLY — never the render path, which resolves a block's stored
+// variant key directly (so already-built pages keep rendering their style even
+// if it is no longer offered in the picker for the current page).
+export function useCustomButtonStyleEntries() {
+  const branding = useTenantBranding()?.branding || null;
+  const { micrositeId } = useCanvasEditorPage();
+  return useMemo(() => {
+    const styles =
+      branding?.buttonStyles ||
+      branding?.brandingConfig?.button_styles ||
+      null;
+    if (!styles || typeof styles !== 'object') return [];
+    return Object.entries(styles)
+      .filter(([k, v]) => k !== 'primary' && k !== 'secondary' && v && typeof v === 'object')
+      .filter(([, v]) => {
+        const assigned = Array.isArray(v.microsites)
+          ? v.microsites.filter(Boolean).map(String)
+          : [];
+        return micrositeId
+          ? assigned.includes(String(micrositeId))
+          : assigned.length === 0;
+      })
+      .map(([k, v]) => ({ key: k, label: v.label || k }));
+  }, [branding, micrositeId]);
 }
 
 // ---------------------------------------------------------------------------
@@ -1345,18 +1377,9 @@ function HeroInspector({ block, update, breakpoint }) {
   const setStyle = (patch) => update((b) => ({ ...b, style: { ...b.style, ...patch } }));
   const clampPad = (v) => Math.max(0, Number(v) || 0);
   // Tenant branding powers the extra "Tenant …" CTA variants (mirrors the
-  // standalone Button inspector); the hook payload is cached/shared.
-  const branding = useTenantBranding()?.branding || null;
-  const customStyleEntries = (() => {
-    const styles =
-      branding?.buttonStyles ||
-      branding?.brandingConfig?.button_styles ||
-      null;
-    if (!styles || typeof styles !== 'object') return [];
-    return Object.entries(styles)
-      .filter(([k, v]) => k !== 'primary' && k !== 'secondary' && v && typeof v === 'object')
-      .map(([k, v]) => ({ key: k, label: v.label || k }));
-  })();
+  // standalone Button inspector). The custom styles are microsite-scoped to
+  // the page being edited (Task #2562).
+  const customStyleEntries = useCustomButtonStyleEntries();
   const clampDim = (v) => (v === '' || v === null || v === undefined ? undefined : Math.max(0, Number(v) || 0));
   return (
     <>
@@ -2633,19 +2656,10 @@ function ButtonInspector({ block, update, breakpoint }) {
   const c = block.content || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
   // Pull tenant branding so we can append the tenant's free-form custom
-  // button styles (task #960) to the Variant dropdown. The hook is the
-  // same one ButtonRender uses, so the payload is cached.
+  // button styles (task #960) to the Variant dropdown. The custom styles are
+  // microsite-scoped to the page being edited (Task #2562).
   const branding = useTenantBranding()?.branding || null;
-  const customStyleEntries = (() => {
-    const styles =
-      branding?.buttonStyles ||
-      branding?.brandingConfig?.button_styles ||
-      null;
-    if (!styles || typeof styles !== 'object') return [];
-    return Object.entries(styles)
-      .filter(([k, v]) => k !== 'primary' && k !== 'secondary' && v && typeof v === 'object')
-      .map(([k, v]) => ({ key: k, label: v.label || k }));
-  })();
+  const customStyleEntries = useCustomButtonStyleEntries();
   // Task #962: resolve the effective default size for the currently
   // selected variant so the per-block override inputs can show those
   // values as placeholders ("the value you'd get if you leave this
@@ -3848,18 +3862,8 @@ function CardInspector({ block, update }) {
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
   // Tenant custom button styles for the CTA variant picker — same
   // enumeration as ButtonInspector so the Card CTA offers the exact same
-  // tenant-branded options.
-  const branding = useTenantBranding()?.branding || null;
-  const customStyleEntries = (() => {
-    const styles =
-      branding?.buttonStyles ||
-      branding?.brandingConfig?.button_styles ||
-      null;
-    if (!styles || typeof styles !== 'object') return [];
-    return Object.entries(styles)
-      .filter(([k, v]) => k !== 'primary' && k !== 'secondary' && v && typeof v === 'object')
-      .map(([k, v]) => ({ key: k, label: v.label || k }));
-  })();
+  // tenant-branded options, microsite-scoped to the page being edited (Task #2562).
+  const customStyleEntries = useCustomButtonStyleEntries();
   const imageMode = c.imageDisplayMode === 'inline' ? 'inline' : 'full-bleed';
   const ctaEnabled = c.ctaEnabled !== false;
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
@@ -5922,17 +5926,8 @@ function PricingTableInspector({ block, update }) {
   // Tenant branded button styles, sourced the same way the Button/Hero
   // inspectors build their custom style list, so the per-tier CTA picker
   // can offer the tenant's configured button styles alongside the legacy ones.
-  const branding = useTenantBranding()?.branding || null;
-  const customStyleEntries = (() => {
-    const styles =
-      branding?.buttonStyles ||
-      branding?.brandingConfig?.button_styles ||
-      null;
-    if (!styles || typeof styles !== 'object') return [];
-    return Object.entries(styles)
-      .filter(([k, v]) => k !== 'primary' && k !== 'secondary' && v && typeof v === 'object')
-      .map(([k, v]) => ({ key: k, label: v.label || k }));
-  })();
+  // Microsite-scoped to the page being edited (Task #2562).
+  const customStyleEntries = useCustomButtonStyleEntries();
   return (
     <>
       <TextField label="Heading" value={c.heading} onChange={(v) => set({ heading: v })} testId="input-pricing-heading" />

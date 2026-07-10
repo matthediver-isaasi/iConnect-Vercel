@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Save, Loader2, Eye, RotateCcw, Plus, Trash2 } from "lucide-react";
@@ -15,6 +16,16 @@ import { LUCIDE_ICONS, getLucideIcon } from "@/components/canvas/blocks/registry
 // (renders nothing). `color === ''` means "inherit the button's text colour".
 // Additive: older saved configs with no `icon` block load with no icon.
 const DEFAULT_ICON = { name: '', color: '', position: 'before', size: 18 };
+
+// UI-only stable identity for custom style rows. Used as the React list key
+// and as the target for update/rename/delete so a row is never keyed by its
+// mutable slugified `key` (which re-slugifies on each rename keystroke and
+// would otherwise remount the row, dropping input focus — Task #2562).
+let __customStyleUidCounter = 0;
+const genCustomStyleUid = () =>
+  (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+    ? crypto.randomUUID()
+    : `cs-${Date.now()}-${++__customStyleUidCounter}`;
 
 const DEFAULT_PRIMARY_STYLE = {
   background: {
@@ -136,6 +147,13 @@ function ButtonStyleEditor({
   // Optional override so custom entries can carry stable data-testid
   // prefixes derived from their map-key rather than their (renamable) label.
   testIdPrefix: testIdPrefixProp,
+  // Optional — when set, a microsite assignment picker renders in the header.
+  // `micrositeOptions` is the tenant's list of microsites ([{id,name}...]);
+  // `selectedMicrosites` is the array of assigned microsite id strings;
+  // `onMicrositesChange(nextIds)` fires when the selection changes.
+  micrositeOptions,
+  selectedMicrosites,
+  onMicrositesChange,
 }) {
   const [isHovered, setIsHovered] = useState(false);
   const testIdPrefix = testIdPrefixProp || title.toLowerCase().replace(/\s+/g, '-');
@@ -243,6 +261,47 @@ function ButtonStyleEditor({
               <CardTitle className="text-lg">{title}</CardTitle>
             )}
             {description && <CardDescription className="mt-1">{description}</CardDescription>}
+            {onMicrositesChange && (
+              <div className="mt-3" data-testid={`microsites-${testIdPrefix}`}>
+                <Label className="text-xs text-slate-600">Available on</Label>
+                {(!micrositeOptions || micrositeOptions.length === 0) ? (
+                  <p className="text-xs text-slate-500 mt-1">
+                    No microsites yet. This style is available on your main site.
+                  </p>
+                ) : (
+                  <>
+                    <div className="flex flex-col gap-1.5 mt-1.5">
+                      {micrositeOptions.map((m) => {
+                        const idStr = String(m.id);
+                        const checked = Array.isArray(selectedMicrosites) && selectedMicrosites.includes(idStr);
+                        return (
+                          <label
+                            key={idStr}
+                            className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer"
+                          >
+                            <Checkbox
+                              checked={checked}
+                              onCheckedChange={(v) => {
+                                const current = Array.isArray(selectedMicrosites) ? selectedMicrosites : [];
+                                const next = v === true
+                                  ? [...current.filter((x) => x !== idStr), idStr]
+                                  : current.filter((x) => x !== idStr);
+                                onMicrositesChange(next);
+                              }}
+                              data-testid={`checkbox-${testIdPrefix}-microsite-${idStr}`}
+                            />
+                            <span>{m.name || m.slug || idStr}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-1.5">
+                      Leave all unchecked to make this a main-site style.
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
           </div>
           {onDelete && (
             <Button
@@ -1063,6 +1122,11 @@ export default function ButtonElementsPage() {
   // Button blocks already referencing `tenant:<key>` keep resolving. `label`
   // is the human-readable name shown in the canvas Variant dropdown.
   const [customStyles, setCustomStyles] = useState([]);
+  // Tenant microsites, for the per-custom-style assignment picker. A custom
+  // style with 0 assigned microsites is a main-site style; otherwise it is
+  // offered only on the assigned microsites' pages in the canvas builder
+  // (render path is never filtered — Task #2562).
+  const [microsites, setMicrosites] = useState([]);
 
   // Slugify a label to a kebab-case key, ensuring it doesn't collide with
   // reserved keys (`primary`, `secondary`) or any other existing key.
@@ -1087,37 +1151,54 @@ export default function ButtonElementsPage() {
       const clone = JSON.parse(JSON.stringify(DEFAULT_PRIMARY_STYLE));
       // `isNew` is a UI-only flag (stripped on save) that allows the key
       // to be re-slugified from the label until the first save lands.
-      return [...prev, { key, label: 'New style', isNew: true, ...clone }];
+      // `uid` is a UI-only stable identity used as the React list key and as
+      // the target for update/rename/delete. It must NOT be the mutable
+      // slugified `key`, or re-slugifying on each keystroke remounts the row
+      // and the rename input loses focus after one character (Task #2562).
+      return [...prev, { uid: genCustomStyleUid(), key, label: 'New style', isNew: true, microsites: [], ...clone }];
     });
   };
 
-  const updateCustomStyle = (key, nextStyle) => {
+  const updateCustomStyle = (uid, nextStyle) => {
     setCustomStyles((prev) =>
       prev.map((c) =>
-        c.key === key ? { ...nextStyle, key: c.key, label: c.label, isNew: c.isNew } : c
+        c.uid === uid
+          ? { ...nextStyle, uid: c.uid, key: c.key, label: c.label, isNew: c.isNew, microsites: c.microsites }
+          : c
       )
     );
   };
 
-  const renameCustomStyle = (key, nextLabel) => {
+  const renameCustomStyle = (uid, nextLabel) => {
     setCustomStyles((prev) => {
       // For brand-new (never-saved) entries we re-slugify the map-key from
       // the label on every keystroke, so the persisted key reflects the
       // user's chosen name on first save. Once saved (`isNew` is cleared),
       // the key is immutable to keep already-placed canvas Button blocks
-      // resolvable.
+      // resolvable. Rows are targeted by the stable `uid`, never the mutable
+      // `key`, so re-slugifying doesn't remount the row (Task #2562).
       return prev.map((c) => {
-        if (c.key !== key) return c;
+        if (c.uid !== uid) return c;
         if (!c.isNew) return { ...c, label: nextLabel };
-        const otherKeys = prev.filter((x) => x.key !== key).map((x) => x.key);
+        const otherKeys = prev.filter((x) => x.uid !== uid).map((x) => x.key);
         const nextKey = slugifyKey(nextLabel, otherKeys);
         return { ...c, label: nextLabel, key: nextKey };
       });
     });
   };
 
-  const deleteCustomStyle = (key) => {
-    setCustomStyles((prev) => prev.filter((c) => c.key !== key));
+  const setCustomStyleMicrosites = (uid, nextMicrosites) => {
+    setCustomStyles((prev) =>
+      prev.map((c) =>
+        c.uid === uid
+          ? { ...c, microsites: Array.isArray(nextMicrosites) ? nextMicrosites.map(String) : [] }
+          : c
+      )
+    );
+  };
+
+  const deleteCustomStyle = (uid) => {
+    setCustomStyles((prev) => prev.filter((c) => c.uid !== uid));
   };
 
   useEffect(() => {
@@ -1183,10 +1264,15 @@ export default function ButtonElementsPage() {
               if (key === 'primary' || key === 'secondary') return;
               if (!entry || typeof entry !== 'object') return;
               loadedCustom.push({
+                uid: genCustomStyleUid(),
                 key,
                 label: entry.label || key,
                 ...DEFAULT_PRIMARY_STYLE,
                 ...entry,
+                // Coerce persisted microsite assignments to an array of id
+                // strings (additive: older entries with no `microsites` load
+                // as a main-site style).
+                microsites: Array.isArray(entry.microsites) ? entry.microsites.map(String) : [],
                 background: mergeBgBlock(DEFAULT_PRIMARY_STYLE.background, entry.background),
                 hover: mergeBgBlock(DEFAULT_PRIMARY_STYLE.hover, entry.hover),
                 size: { ...DEFAULT_SIZE, ...(entry.size || {}) },
@@ -1206,6 +1292,24 @@ export default function ButtonElementsPage() {
     if (accessChecked) {
       fetchButtonStyles();
     }
+  }, [accessChecked]);
+
+  // Load the tenant's microsites for the per-custom-style assignment picker.
+  // Failure is non-fatal: with no list, custom styles simply behave as
+  // main-site styles.
+  useEffect(() => {
+    if (!accessChecked) return;
+    const fetchMicrosites = async () => {
+      try {
+        const response = await fetch('/api/admin/microsites', { credentials: 'include' });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (Array.isArray(data?.microsites)) setMicrosites(data.microsites);
+      } catch (error) {
+        console.error('Failed to fetch microsites:', error);
+      }
+    };
+    fetchMicrosites();
   }, [accessChecked]);
 
   const handleSave = async () => {
@@ -1228,11 +1332,16 @@ export default function ButtonElementsPage() {
       // collapsed back to an object so the existing storage contract is
       // unchanged.
       const customMap = {};
-      customStyles.forEach(({ key, label, isNew: _isNew, ...rest }) => {
+      customStyles.forEach(({ key, label, isNew: _isNew, uid: _uid, microsites: entryMicrosites, ...rest }) => {
         if (!key) return;
-        // Strip the UI-only `key` and `isNew` fields; keep `label` so it
-        // round-trips. The key becomes the object map-key on save.
-        customMap[key] = { label: label || key, ...rest };
+        // Strip the UI-only `key`, `isNew` and `uid` fields; keep `label` so
+        // it round-trips. The key becomes the object map-key on save.
+        // Persist `microsites` as an array of id strings ([] = main-site).
+        customMap[key] = {
+          label: label || key,
+          microsites: Array.isArray(entryMicrosites) ? entryMicrosites.map(String) : [],
+          ...rest,
+        };
       });
       const updatedBrandingConfig = {
         ...currentBrandingConfig,
@@ -1370,15 +1479,18 @@ export default function ButtonElementsPage() {
             <div className="grid lg:grid-cols-2 gap-8">
               {customStyles.map((entry) => (
                 <ButtonStyleEditor
-                  key={entry.key}
+                  key={entry.uid}
                   style={entry}
-                  onChange={(next) => updateCustomStyle(entry.key, next)}
+                  onChange={(next) => updateCustomStyle(entry.uid, next)}
                   title={entry.label}
                   description={`Variant key: tenant:${entry.key}`}
                   editableLabel
-                  onLabelChange={(v) => renameCustomStyle(entry.key, v)}
-                  onDelete={() => deleteCustomStyle(entry.key)}
+                  onLabelChange={(v) => renameCustomStyle(entry.uid, v)}
+                  onDelete={() => deleteCustomStyle(entry.uid)}
                   testIdPrefix={`custom-${entry.key}`}
+                  micrositeOptions={microsites}
+                  selectedMicrosites={entry.microsites}
+                  onMicrositesChange={(next) => setCustomStyleMicrosites(entry.uid, next)}
                 />
               ))}
             </div>
