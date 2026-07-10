@@ -6272,6 +6272,10 @@ function SearchInputRender({ block, asEditor }) {
 
   const borderWidth = Number.isFinite(c.borderWidth) ? c.borderWidth : 1;
   const cornerRadius = Number.isFinite(c.cornerRadius) ? c.cornerRadius : 8;
+  // Clamp the applied radius to half the input's height so a high value always
+  // renders a clean pill (fully rounded ends) rather than an over-rounded box,
+  // regardless of the selected size. Smaller values still apply literally.
+  const appliedRadius = Math.min(cornerRadius, size.height / 2);
   const inputStyle = {
     width: '100%',
     height: size.height,
@@ -6284,7 +6288,7 @@ function SearchInputRender({ block, asEditor }) {
     borderColor: c.borderColor || '#cbd5e1',
     borderWidth,
     borderStyle: 'solid',
-    borderRadius: cornerRadius,
+    borderRadius: appliedRadius,
     outline: 'none',
     boxSizing: 'border-box',
   };
@@ -6434,7 +6438,7 @@ function SearchInputInspector({ block, update }) {
         label="Corner radius (px)"
         value={c.cornerRadius}
         min={0}
-        max={40}
+        max={100}
         onChange={(v) => set({ cornerRadius: v == null ? 0 : v })}
         testId="input-search-radius"
       />
