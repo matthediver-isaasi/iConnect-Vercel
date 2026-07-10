@@ -61,6 +61,9 @@ export function heroOverlayAngle(c) {
 // array (2+ stops) is present, otherwise the legacy two-stop from→to output so
 // blocks saved before per-stop support are byte-identical.
 export function buildHeroOverlayBackground(c) {
+  if ((c.overlayStyle || 'solid') === 'none') {
+    return null;
+  }
   if ((c.overlayStyle || 'solid') === 'gradient') {
     const stops = getUsableStops(c.overlayStops);
     if (stops) {
@@ -207,15 +210,18 @@ export function buildPortalNavBackgroundStyle(bg) {
     const overlay = buildHeroOverlayBackground(bg);
     // backgroundImage layers must all be gradients/urls — a bare rgba() is not
     // a valid layer, so a solid wash is expressed as a flat two-stop gradient.
-    const overlayLayer = /^(linear|radial)-gradient/.test(overlay)
-      ? overlay
-      : `linear-gradient(${overlay}, ${overlay})`;
+    // A null overlay ('none' style) means no wash layer at all.
+    const overlayLayer = !overlay
+      ? null
+      : /^(linear|radial)-gradient/.test(overlay)
+        ? overlay
+        : `linear-gradient(${overlay}, ${overlay})`;
     const fp = bg.focalPoint || { x: 50, y: 50 };
     const fx = Number.isFinite(Number(fp.x)) ? Number(fp.x) : 50;
     const fy = Number.isFinite(Number(fp.y)) ? Number(fp.y) : 50;
     const url = String(bg.imageUrl).replace(/["\\\n\r]/g, '');
     const style = {
-      backgroundImage: `${overlayLayer}, url("${url}")`,
+      backgroundImage: overlayLayer ? `${overlayLayer}, url("${url}")` : `url("${url}")`,
       backgroundSize: 'cover',
       backgroundPosition: `${fx}% ${fy}%`,
       backgroundRepeat: 'no-repeat',

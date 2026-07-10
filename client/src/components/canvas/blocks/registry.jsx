@@ -1309,11 +1309,16 @@ function HeroRender({ block, asEditor, priority, breakpoint }) {
           aria-hidden="true"
         />
       )}
-      <div
-        className="absolute inset-0"
-        style={{ background: buildHeroOverlayBackground(c) }}
-        aria-hidden="true"
-      />
+      {(() => {
+        const heroOverlayBg = buildHeroOverlayBackground(c);
+        return heroOverlayBg ? (
+          <div
+            className="absolute inset-0"
+            style={{ background: heroOverlayBg }}
+            aria-hidden="true"
+          />
+        ) : null;
+      })()}
       <div
         className="relative h-full w-full flex flex-col"
         data-hero-pad=""
@@ -1462,6 +1467,7 @@ function HeroInspector({ block, update, breakpoint }) {
         value={c.overlayStyle || 'solid'}
         onChange={(v) => set({ overlayStyle: v })}
         options={[
+          { value: 'none', label: 'None' },
           { value: 'solid', label: 'Solid' },
           { value: 'gradient', label: 'Gradient' },
         ]}
