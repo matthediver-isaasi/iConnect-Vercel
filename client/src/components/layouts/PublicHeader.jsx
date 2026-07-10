@@ -384,6 +384,11 @@ export default function PublicHeader() {
   const topNavFontWeight = branding?.headerConfig?.topNavFontWeight;
   const topNavFontFamily = branding?.headerConfig?.topNavFontFamily;
   const topNavIndicator = branding?.headerConfig?.topNavIndicator;
+  // Per-bar label max width (px). When set (>0), the bar's nav labels are
+  // capped at this width and long labels wrap onto multiple lines instead of
+  // rendering on a single line. Unset/0 keeps today's single-line behaviour.
+  const topNavLabelMaxWidth = branding?.headerConfig?.topNavLabelMaxWidth;
+  const secondaryBarLabelMaxWidth = secondaryBarConfig?.labelMaxWidth;
   // How the desktop top-row Search control is presented: 'icon' | 'label' | 'both'.
   // Governs appearance only; on/off visibility is the separate Header Icons toggle.
   const searchDisplay = ['icon', 'label', 'both'].includes(branding?.headerConfig?.searchDisplay)
@@ -1292,18 +1297,36 @@ export default function PublicHeader() {
     // Per-bar link colour + size. Top bar defaults to white at 14px; combined
     // (main nav) bar defaults to its configured colour at 16px with Poppins.
     // Configured font weight / base font family override the defaults per bar.
+    // When a label max width is configured for this bar, cap the label width
+    // and switch it from single-line to wrapping (centered, readable). Unset/0
+    // leaves the label untouched so existing bars look exactly as before.
+    const labelMaxWidthRaw = isTopNav ? topNavLabelMaxWidth : secondaryBarLabelMaxWidth;
+    const labelMaxWidthPx = parseInt(labelMaxWidthRaw, 10);
+    const labelWrapStyle = (Number.isFinite(labelMaxWidthPx) && labelMaxWidthPx > 0)
+      ? {
+          maxWidth: `${labelMaxWidthPx}px`,
+          whiteSpace: 'normal',
+          overflowWrap: 'break-word',
+          wordBreak: 'break-word',
+          textAlign: 'center',
+          lineHeight: 1.2
+        }
+      : {};
+
     const navLinkStyle = isTopNav
       ? {
           color: topNavTextColor,
           fontSize: `${topNavFontSize || 14}px`,
           ...(topNavFontWeight ? { fontWeight: topNavFontWeight } : {}),
-          ...(topNavFontFamily ? { fontFamily: topNavFontFamily } : {})
+          ...(topNavFontFamily ? { fontFamily: topNavFontFamily } : {}),
+          ...labelWrapStyle
         }
       : {
           color: secondaryBarTextColor,
           fontSize: `${secondaryBarFontSize || 16}px`,
           fontFamily: secondaryBarFontFamily || 'Poppins, sans-serif',
-          ...(secondaryBarFontWeight ? { fontWeight: secondaryBarFontWeight } : {})
+          ...(secondaryBarFontWeight ? { fontWeight: secondaryBarFontWeight } : {}),
+          ...labelWrapStyle
         };
 
     // Active-item indicator config for this bar.

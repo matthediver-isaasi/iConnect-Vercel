@@ -688,6 +688,7 @@ export function hydrateSecondaryBarConfig(sb) {
       : '',
     bottomBorderColor: s.bottomBorderColor || '',
     bottomBorderWidth: s.bottomBorderWidth ?? '',
+    labelMaxWidth: s.labelMaxWidth ?? '',
     indicator: {
       enabled: s.indicator ? !!s.indicator.enabled : true,
       height: s.indicator?.height ?? '',
@@ -811,6 +812,24 @@ export function SecondaryBarControls({
               />
             </div>
 
+            <div className="space-y-2">
+              <Label className={t.label}>Label max width (px)</Label>
+              <Input
+                type="number"
+                min="0"
+                max="600"
+                placeholder="No cap (single line)"
+                value={sb.labelMaxWidth ?? ''}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  set({ labelMaxWidth: val === '' ? '' : parseInt(val, 10) });
+                }}
+                className={t.input}
+                data-testid={`input-${testIdPrefix}-label-max-width`}
+              />
+              <p className={t.hint}>Cap each menu label's width so long labels wrap onto multiple lines. Leave blank for single-line labels.</p>
+            </div>
+
             <div className="space-y-1">
               <Label className={`${t.label} text-xs`}>Live Preview</Label>
               <div
@@ -849,7 +868,19 @@ export function SecondaryBarControls({
                     )}
                   </div>
                   <div className="flex items-center gap-8 h-full">
-                    {navLabels.map((label, idx) => (
+                    {navLabels.map((label, idx) => {
+                      const previewMaxWidth = parseInt(sb.labelMaxWidth, 10);
+                      const previewWrap = (Number.isFinite(previewMaxWidth) && previewMaxWidth > 0)
+                        ? {
+                            maxWidth: `${previewMaxWidth}px`,
+                            whiteSpace: 'normal',
+                            overflowWrap: 'break-word',
+                            wordBreak: 'break-word',
+                            textAlign: 'center',
+                            lineHeight: 1.2
+                          }
+                        : { whiteSpace: 'nowrap' };
+                      return (
                       <div key={label} className="relative h-full flex items-center">
                         <span
                           className={hoverClass}
@@ -858,7 +889,7 @@ export function SecondaryBarControls({
                             fontSize: `${parseInt(sb.fontSize, 10) || 16}px`,
                             fontWeight: sb.fontWeight || (idx === 0 ? 700 : 500),
                             fontFamily: sb.fontFamily || 'Poppins, sans-serif',
-                            whiteSpace: 'nowrap'
+                            ...previewWrap
                           }}
                         >
                           {label}
@@ -880,7 +911,8 @@ export function SecondaryBarControls({
                           />
                         )}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               </div>

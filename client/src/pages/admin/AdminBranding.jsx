@@ -263,6 +263,7 @@ export default function AdminBranding() {
       topNavFontSize: '',
       topNavFontWeight: '',
       topNavFontFamily: '',
+      topNavLabelMaxWidth: '',
       searchDisplay: 'both',
       topNavIndicator: { enabled: false, height: '', gradientStops: DEFAULT_INDICATOR_GRADIENT_STOPS },
       secondaryBar: {
@@ -277,6 +278,7 @@ export default function AdminBranding() {
         bottomBorderEnabled: '',
         bottomBorderColor: '',
         bottomBorderWidth: '',
+        labelMaxWidth: '',
         indicator: { enabled: true, height: '', gradientStops: DEFAULT_INDICATOR_GRADIENT_STOPS }
       },
       loginLink: {
@@ -440,6 +442,7 @@ export default function AdminBranding() {
                 topNavFontSize: t?.header_config?.topNavFontSize || '',
                 topNavFontWeight: t?.header_config?.topNavFontWeight || '',
                 topNavFontFamily: t?.header_config?.topNavFontFamily || '',
+                topNavLabelMaxWidth: t?.header_config?.topNavLabelMaxWidth || '',
                 searchDisplay: ['icon', 'label', 'both'].includes(t?.header_config?.searchDisplay)
                   ? t.header_config.searchDisplay
                   : 'both',
@@ -466,6 +469,7 @@ export default function AdminBranding() {
                     : '',
                   bottomBorderColor: t?.header_config?.secondaryBar?.bottomBorderColor || '',
                   bottomBorderWidth: t?.header_config?.secondaryBar?.bottomBorderWidth ?? '',
+                  labelMaxWidth: t?.header_config?.secondaryBar?.labelMaxWidth || '',
                   indicator: {
                     enabled: t?.header_config?.secondaryBar?.indicator ? !!t.header_config.secondaryBar.indicator.enabled : true,
                     height: t?.header_config?.secondaryBar?.indicator?.height || '',
@@ -2960,6 +2964,26 @@ export default function AdminBranding() {
                   </Select>
                   <p className="text-xs text-slate-500">Font family for the top bar menu links. Leave at default to keep current styling.</p>
                 </div>
+                <div className="space-y-2">
+                  <Label className="text-slate-300">Label max width (px)</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    max="600"
+                    placeholder="No cap (single line)"
+                    value={formData.header_config?.topNavLabelMaxWidth ?? ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setFormData(prev => ({
+                        ...prev,
+                        header_config: { ...prev.header_config, topNavLabelMaxWidth: val === '' ? '' : parseInt(val, 10) }
+                      }));
+                    }}
+                    className="bg-slate-900 border-slate-600 text-white"
+                    data-testid="input-top-nav-label-max-width"
+                  />
+                  <p className="text-xs text-slate-500">Cap each top bar label's width so long labels wrap onto multiple lines. Leave blank for single-line labels.</p>
+                </div>
               </div>
               <IndicatorEditor
                 value={formData.header_config?.topNavIndicator}
@@ -3260,6 +3284,30 @@ export default function AdminBranding() {
                     />
                   </div>
 
+                  <div className="space-y-2">
+                    <Label className="text-slate-300">Label max width (px)</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      max="600"
+                      placeholder="No cap (single line)"
+                      value={formData.header_config?.secondaryBar?.labelMaxWidth ?? ''}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setFormData(prev => ({
+                          ...prev,
+                          header_config: {
+                            ...prev.header_config,
+                            secondaryBar: { ...prev.header_config?.secondaryBar, labelMaxWidth: val === '' ? '' : parseInt(val, 10) }
+                          }
+                        }));
+                      }}
+                      className="bg-slate-900 border-slate-600 text-white"
+                      data-testid="input-secondary-bar-label-max-width"
+                    />
+                    <p className="text-xs text-slate-500">Cap each menu label's width so long labels wrap onto multiple lines. Leave blank for single-line labels.</p>
+                  </div>
+
                   <div className="space-y-1">
                     <Label className="text-slate-300 text-xs">Live Preview</Label>
                     <div
@@ -3303,7 +3351,19 @@ export default function AdminBranding() {
                           )}
                         </div>
                         <div className="flex items-center gap-8 h-full">
-                          {(navPreviewItems.mainNav.length > 0 ? navPreviewItems.mainNav : ['Membership', 'Resources', 'News', 'Get Involved']).map((label, idx) => (
+                          {(navPreviewItems.mainNav.length > 0 ? navPreviewItems.mainNav : ['Membership', 'Resources', 'News', 'Get Involved']).map((label, idx) => {
+                            const secPreviewMaxWidth = parseInt(formData.header_config?.secondaryBar?.labelMaxWidth, 10);
+                            const secPreviewWrap = (Number.isFinite(secPreviewMaxWidth) && secPreviewMaxWidth > 0)
+                              ? {
+                                  maxWidth: `${secPreviewMaxWidth}px`,
+                                  whiteSpace: 'normal',
+                                  overflowWrap: 'break-word',
+                                  wordBreak: 'break-word',
+                                  textAlign: 'center',
+                                  lineHeight: 1.2
+                                }
+                              : { whiteSpace: 'nowrap' };
+                            return (
                             <div key={label} className="relative h-full flex items-center">
                               <span
                                 className="ab-sec-preview-link"
@@ -3312,7 +3372,7 @@ export default function AdminBranding() {
                                   fontSize: `${parseInt(formData.header_config?.secondaryBar?.fontSize, 10) || 16}px`,
                                   fontWeight: formData.header_config?.secondaryBar?.fontWeight || (idx === 0 ? 700 : 500),
                                   fontFamily: formData.header_config?.secondaryBar?.fontFamily || 'Poppins, sans-serif',
-                                  whiteSpace: 'nowrap'
+                                  ...secPreviewWrap
                                 }}
                               >
                                 {label}
@@ -3334,7 +3394,8 @@ export default function AdminBranding() {
                                 />
                               )}
                             </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     </div>

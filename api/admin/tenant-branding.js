@@ -471,6 +471,17 @@ export default async function handler(req, res) {
         }
       }
 
+      // Clamp top-nav label max width (px). >0 caps each label's width and wraps
+      // long labels; empty/0/invalid drops the key so labels stay single-line.
+      if (updates.header_config && updates.header_config.topNavLabelMaxWidth !== undefined) {
+        const lw = parseInt(updates.header_config.topNavLabelMaxWidth, 10);
+        if (Number.isFinite(lw) && lw > 0) {
+          updates.header_config.topNavLabelMaxWidth = Math.min(600, lw);
+        } else {
+          delete updates.header_config.topNavLabelMaxWidth;
+        }
+      }
+
       // Validate the desktop top-row Search display mode. Governs appearance
       // only (icon / label / both); the on/off visibility is handled separately
       // by the Header Icons config. Drop anything outside the allowed set so it
@@ -534,6 +545,11 @@ export default async function handler(req, res) {
           const sff = validateNavFontFamily(sb.fontFamily, allowedFontFamilies);
           if (sff) {
             sanitizedSecondaryBar.fontFamily = sff;
+          }
+
+          const slw = parseInt(sb.labelMaxWidth, 10);
+          if (Number.isFinite(slw) && slw > 0) {
+            sanitizedSecondaryBar.labelMaxWidth = Math.min(600, slw);
           }
 
           const sInd = validateIndicatorConfig(sb.indicator, validateGradientStops);

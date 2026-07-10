@@ -234,6 +234,7 @@ export default function MicrositeChromeEditor({ microsite }) {
         logo: hasVal(bc.logo_url),
         headerLogo: hasVal(bc.header_logo_url),
         headerGradient: hasVal(hc.gradientStops) || hasVal(hc.gradientColors),
+        topNavLabelWidth: hasVal(hc.topNavLabelMaxWidth),
         loginButton: hasVal(hc.loginLink),
         memberButton: hasVal(hc.memberAreaLink),
         secondaryBar: hasVal(hc.secondaryBar),
@@ -258,6 +259,7 @@ export default function MicrositeChromeEditor({ microsite }) {
         gradientStops: (hasVal(hc.gradientStops) || hasVal(hc.gradientColors))
           ? getHeaderGradientStops(hc)
           : [],
+        topNavLabelMaxWidth: hc.topNavLabelMaxWidth ?? "",
         loginLink: (hc.loginLink && typeof hc.loginLink === "object") ? hc.loginLink : {},
         memberAreaLink: (hc.memberAreaLink && typeof hc.memberAreaLink === "object") ? hc.memberAreaLink : {},
         secondaryBar: (hc.secondaryBar && typeof hc.secondaryBar === "object")
@@ -303,6 +305,9 @@ export default function MicrositeChromeEditor({ microsite }) {
       ? header.gradientStops
       : (Array.isArray(thc.gradientStops) && thc.gradientStops.length > 0 ? thc.gradientStops : DEFAULT_HEADER_GRADIENT_STOPS),
   });
+  const seedTopNavLabelWidth = () => setHeader({
+    topNavLabelMaxWidth: header.topNavLabelMaxWidth || thc.topNavLabelMaxWidth || "",
+  });
   const seedLogin = () => setHeader({
     loginLink: hasVal(header.loginLink) ? header.loginLink : { ...(thc.loginLink || {}) },
   });
@@ -339,6 +344,12 @@ export default function MicrositeChromeEditor({ microsite }) {
       const headerOut = { ...(microsite.header_config || {}) };
       if (overrides.headerGradient && hasVal(header.gradientStops)) headerOut.gradientStops = header.gradientStops;
       else delete headerOut.gradientStops;
+      const topNavLabelWidthNum = parseInt(header.topNavLabelMaxWidth, 10);
+      if (overrides.topNavLabelWidth && Number.isFinite(topNavLabelWidthNum) && topNavLabelWidthNum > 0) {
+        headerOut.topNavLabelMaxWidth = topNavLabelWidthNum;
+      } else {
+        delete headerOut.topNavLabelMaxWidth;
+      }
       if (overrides.loginButton && hasVal(header.loginLink)) headerOut.loginLink = header.loginLink;
       else delete headerOut.loginLink;
       if (overrides.memberButton && hasVal(header.memberAreaLink)) headerOut.memberAreaLink = header.memberAreaLink;
@@ -465,6 +476,33 @@ export default function MicrositeChromeEditor({ microsite }) {
           testIdPrefix="ms-header-gradient"
           tone="light"
         />
+      </ChromeCard>
+
+      {/* 4b. Top Navigation Bar label wrapping */}
+      <ChromeCard
+        icon={PanelTop}
+        title="Top Navigation Bar"
+        description="Cap the top bar menu label width so long labels wrap onto multiple lines."
+        overridden={overrides.topNavLabelWidth}
+        onToggle={(on) => toggleWithSeed("topNavLabelWidth", on, seedTopNavLabelWidth)}
+        testId="switch-override-top-nav-label-width"
+      >
+        <div className="space-y-2">
+          <Label>Label max width (px)</Label>
+          <Input
+            type="number"
+            min="0"
+            max="600"
+            placeholder="No cap (single line)"
+            value={header.topNavLabelMaxWidth ?? ""}
+            onChange={(e) => {
+              const val = e.target.value;
+              setHeader({ topNavLabelMaxWidth: val === "" ? "" : parseInt(val, 10) });
+            }}
+            data-testid="input-ms-top-nav-label-max-width"
+          />
+          <p className="text-sm text-muted-foreground">Cap each top bar label's width so long labels wrap onto multiple lines. Leave blank for single-line labels.</p>
+        </div>
       </ChromeCard>
 
       {/* 5. Login Button */}
