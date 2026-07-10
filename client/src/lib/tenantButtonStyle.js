@@ -200,6 +200,29 @@ export function getTenantButtonStyleCss(cfg) {
   };
 }
 
+// Compose the inline style for a button's LABEL <span>. A tenant typography
+// style (when one is applied to the label) supplies the BASE font — family,
+// size, weight, line-height, etc. via `typographyCss` — and the button design
+// then overrides on top of it:
+//   - `labelSize` (px, optional): when a finite value > 0 is supplied it wins
+//     over the typography style's font size; when omitted the typography size
+//     (already present in `typographyCss`) is kept.
+//   - `textColor`: the button's own resolved text colour for the current state
+//     (normal/hover). It always wins for the label so the button's colour
+//     picker drives the label, not the typography style's colour.
+// Returns null when there is nothing to apply so callers can pass `undefined`.
+export function composeButtonLabelStyle({ typographyCss = null, textColor = null, labelSize = null } = {}) {
+  const out = typographyCss ? { ...typographyCss } : {};
+  const sizeNum = Number(labelSize);
+  if (Number.isFinite(sizeNum) && sizeNum > 0) {
+    out.fontSize = `${sizeNum}px`;
+  }
+  if (textColor) {
+    out.color = textColor;
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 // Build the inline style object for a tenant button style. Mirrors the tenant
 // path in the Canvas Hero CTA button: background/hover, text colour, radius,
 // border, and (optionally) padding + font size from the style's size block.

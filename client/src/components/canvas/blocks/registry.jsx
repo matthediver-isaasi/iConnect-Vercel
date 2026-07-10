@@ -102,6 +102,7 @@ import {
   bgCssFromConfig,
   resolveTenantButtonStyle,
   isTenantButtonVariant,
+  composeButtonLabelStyle,
 } from '@/lib/tenantButtonStyle';
 import { useCanvasAnchors } from '../CanvasAnchorContext';
 import { useCanvasEditorPage } from '../CanvasEditorPageContext';
@@ -1176,15 +1177,18 @@ function HeroCtaButton({ cta, asEditor, tenantStyles, stylesResolved }) {
       transition: 'background-color 0.2s ease, color 0.2s ease, background 0.2s ease',
       ...sizeStyle,
     };
-    // A typography style applied to the label <span> sets its own `color`,
-    // which would override the tenant button's hover text color (an inline
-    // color on the span wins over the inherited color from the <a>). Mirror
-    // the button's current text color onto the label so the tenant hover
-    // style is respected even when a font style is picked for the CTA.
-    const tenantLabelStyle = (awaitingLabel || ctaLabelInline)
-      ? { ...(ctaLabelInline || {}), color: tenantTextColor, ...(awaitingLabel ? { visibility: 'hidden' } : {}) }
-      : undefined;
-    const tenantLabelSpan = <span style={tenantLabelStyle}>{cta.label || 'CTA'}</span>;
+    // A typography style applied to the label <span> supplies the base font,
+    // but the tenant button's own text color must win (an inline color on the
+    // span otherwise beats the color inherited from the <a>). The button's
+    // optional `labelSize` overrides the typography size on top. This mirrors
+    // the Button Style Creator preview so live CTAs match what admins see.
+    let tenantLabelStyle = composeButtonLabelStyle({
+      typographyCss: ctaLabelInline,
+      textColor: tenantTextColor,
+      labelSize: tenantStyle.labelSize,
+    });
+    if (awaitingLabel) tenantLabelStyle = { ...(tenantLabelStyle || {}), visibility: 'hidden' };
+    const tenantLabelSpan = <span style={tenantLabelStyle || undefined}>{cta.label || 'CTA'}</span>;
     return (
       <a
         href={asEditor ? undefined : (cta.href || '#')}
@@ -2457,7 +2461,24 @@ function ButtonRender({ block, asEditor, breakpoint }) {
     const styleIconSize = StyleIcon && Number.isFinite(styleIconCfg.size) ? styleIconCfg.size : 18;
     const styleIconColor = StyleIcon ? (styleIconCfg.color || undefined) : undefined;
     const styleIconAfter = StyleIcon && styleIconCfg.position === 'after';
-    const labelSpan = <span style={labelInline || undefined}>{c.label || 'Button'}</span>;
+    // The typography style supplies the base label font; the tenant button's
+    // own text color must win for the label (an inline span color otherwise
+    // beats the color inherited from the <a>), and the button's optional
+    // `labelSize` overrides the typography size. Mirrors the Button Style
+    // Creator preview so live buttons match the editor.
+    const tenantTextColorNow = tenantHovered
+      ? tenantStyle.hoverTextColor || tenantStyle.textColor || '#ffffff'
+      : tenantStyle.textColor || '#ffffff';
+    const tenantLabelBase = labelStyleObj
+      ? buildTypographyInlineStyle(labelStyleObj, { omitMarginBottom: true })
+      : null;
+    let tenantLabelInline = composeButtonLabelStyle({
+      typographyCss: tenantLabelBase,
+      textColor: tenantTextColorNow,
+      labelSize: tenantStyle.labelSize,
+    });
+    if (awaitingLabel) tenantLabelInline = { ...(tenantLabelInline || {}), visibility: 'hidden' };
+    const labelSpan = <span style={tenantLabelInline || undefined}>{c.label || 'Button'}</span>;
     const styleIconEl = StyleIcon ? (
       <StyleIcon style={{ width: styleIconSize, height: styleIconSize, color: styleIconColor }} />
     ) : null;

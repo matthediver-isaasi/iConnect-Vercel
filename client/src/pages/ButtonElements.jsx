@@ -19,6 +19,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import { LUCIDE_ICONS, getLucideIcon } from "@/components/canvas/blocks/registry";
 import TypographyStyleSelector, { useTypographyStyles, getTypographyStyleCSS } from "@/components/iedit/TypographyStyleSelector";
+import { composeButtonLabelStyle } from "@/lib/tenantButtonStyle";
 
 // Default icon block shared by all styles. `name === ''` means "no icon"
 // (renders nothing). `color === ''` means "inherit the button's text colour".
@@ -252,7 +253,13 @@ function ButtonStyleEditor({
     const iconEl = IconComp ? (
       <IconComp style={{ width: iconSizePx, height: iconSizePx, color: iconCfg.color || textColor }} />
     ) : null;
-    const labelSpanStyle = labelTypoCss || undefined;
+    // Typography style provides the base font; the button's own text colour and
+    // optional label-size override win on top (matches the live render paths).
+    const labelSpanStyle = composeButtonLabelStyle({
+      typographyCss: labelTypoCss,
+      textColor,
+      labelSize: style.labelSize,
+    }) || undefined;
     return iconPosition === 'after' ? (
       <>
         <span style={labelSpanStyle}>{label}</span>
@@ -409,6 +416,43 @@ function ButtonStyleEditor({
           />
           <p className="text-[11px] text-slate-500 mt-1">
             Buttons using this style render their label in this typography automatically. A per-button override in the page builder still wins.
+          </p>
+
+          {/* Label size override (Task #2597). The typography style supplies the
+              base font; this optionally overrides just the label's font size.
+              Leave blank to inherit the typography style's size (or default). */}
+          <div className="mt-3 flex items-center gap-3 flex-wrap">
+            <Label className="text-xs text-slate-600 min-w-32">Label size override</Label>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min={8}
+                max={72}
+                value={style.labelSize ?? ''}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  updateStyle('labelSize', v === '' ? '' : Number(v));
+                }}
+                placeholder={labelTypoStyle ? `${labelTypoStyle.font_size}px (typography)` : 'Inherit'}
+                className="w-44"
+                data-testid={`input-${testIdPrefix}-label-size`}
+              />
+              <span className="text-sm text-slate-500">px</span>
+              {(style.labelSize ?? '') !== '' && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => updateStyle('labelSize', '')}
+                  data-testid={`button-${testIdPrefix}-label-size-clear`}
+                >
+                  Clear
+                </Button>
+              )}
+            </div>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-1">
+            Overrides the label font size on top of the typography style. The button's text colour also always applies to the label.
           </p>
         </div>
 
