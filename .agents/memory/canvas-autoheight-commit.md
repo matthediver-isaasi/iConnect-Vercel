@@ -39,3 +39,32 @@ uses a 2px dead-band. The tree is FLAT — Sections and their "contained" blocks
 are siblings; containment is purely geometric, matching the reflow helpers.
 Committing h/y never changes a block's rendered height (auto stays auto; pushes
 only move `top`), so there is no measure→commit→re-measure loop.
+
+**Corruption guard (the bake can *destroy* a saved page):** a transient
+too-SHORT measurement — late image decode, web-font swap, or a breakpoint switch
+that re-lays-out at a new width — baked as a negative delta shrinks the block and
+pulls every block below it upward, collapsing the whole page. It then autosaves
+over the good saved version with zero user interaction. The commit is guarded by
+FOUR gates, all editor-side (the public renderer stays pure read-time reflow):
+1. **Settle gate** (`layoutSettledRef`): don't bake until `document.fonts.ready`
+   + the stage's images have loaded. Crucially it is **re-armed on every
+   breakpoint change** (effect depends on `breakpoint`, resets the ref, and
+   clears pending timers) so a mid-switch measure can't bake.
+2. **Author-intent gate** (`authorEditedRef`): only bake after a real
+   add/move/resize/edit — a mount-time mechanical re-measure must never flip
+   isDirty and trigger autosave.
+3. **Suspect-shrink debounce**: if a measurement is `SHRINK_SUSPECT_PX` (12px)+
+   shorter than the *stored* height (read live via a `designRef` updated in
+   render), it uses a long `SHRINK_DEBOUNCE_MS` (700ms) window instead of the
+   normal 200ms; a transient short read gets its debounce reset by the real
+   height before it can bake. Grows/small changes keep the fast 200ms path so
+   legit large deletions still commit.
+4. **Content-ready re-check** (`isBlockContentReady`): at bake time (inside the
+   timeout, before `setDesign`) drop the measurement if the block's own `<img>`s
+   are still loading or fonts are mid-swap. The ResizeObserver re-reports later,
+   so the correct height still bakes; the wrong one never does.
+
+**Why not a consecutive-identical-measurement confirmation map:** it would also
+block legitimate large single-step deletions (one big correct shrink). The
+stored-height comparison + content gate distinguishes "suspiciously short vs the
+last good height" from "author deleted content" without that false-positive.
