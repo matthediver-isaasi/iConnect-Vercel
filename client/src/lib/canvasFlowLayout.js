@@ -35,6 +35,7 @@ import {
   BREAKPOINT_WIDTHS,
   resolveBlockAtBreakpoint,
   isFlowContainerType,
+  AUTO_HEIGHT_LEAF_TYPES,
 } from './canvasDesign.js';
 
 // Resolve a `flow.basis` value (px number, '<n>%' string, or null) against an
@@ -145,23 +146,68 @@ function layoutNode(node, x, y, width, ctx) {
 // recurse (so nested content still gets boxes) but the free child stays rigid
 // at its geometry box — the container's own reported height is its geom h.
 function layoutFreeChildren(node, innerX, innerY, innerW, ctx) {
-  const { breakpoint } = ctx;
-  let maxBottom = 0;
+  const { breakpoint, measured } = ctx;
+  // First pass: place every child and record its stored vs measured height so
+  // the second pass can grow background boxes that wrap taller content.
+  const placed = [];
   for (const child of node.children || []) {
     if (isHiddenAt(child, breakpoint)) continue;
     const geom = resolveBlockAtBreakpoint(child, breakpoint, { canvasWidth: innerW });
     const cx = innerX + (Number.isFinite(geom.x) ? geom.x : 0);
     const cy = innerY + (Number.isFinite(geom.y) ? geom.y : 0);
     const cw = Number.isFinite(geom.w) ? geom.w : innerW;
-    const ch = Number.isFinite(geom.h) ? geom.h : 0;
-    if (isFlowContainerType(child.type)) {
+    const storedH = Number.isFinite(geom.h) ? geom.h : 0;
+    // Use the MEASURED leaf height (falls back to stored/geom h) so a text
+    // block whose content grew past its stored height reports its true bottom.
+    // This also feeds `maxBottom`, so the enclosing FREE container's reported
+    // height correctly pushes sibling sections further down the page.
+    const isContainer = isFlowContainerType(child.type);
+    const ch = isContainer ? storedH : leafHeight(child, breakpoint, measured);
+    if (isContainer) {
       layoutNode(child, cx, cy, cw, ctx);
       // Keep the free child rigid at its authored geometry height.
       ctx.boxes[child.id] = { x: cx, y: cy, w: cw, h: ch };
     } else {
       ctx.boxes[child.id] = { x: cx, y: cy, w: cw, h: ch };
     }
-    maxBottom = Math.max(maxBottom, (cy - innerY) + ch);
+    placed.push({ child, cx, cy, cw, storedH, measuredH: ch });
+  }
+
+  // Second pass: grow background-style boxes to wrap any overlapping child
+  // whose measured height exceeds its stored height. A candidate is a `box`
+  // (or any non-container leaf that is not itself auto-height — future shape
+  // types). A child is "inside" the box when its stored bounds fit within the
+  // box's stored bounds; the box grows by the maximum such height excess.
+  for (const bg of placed) {
+    const isCandidate =
+      bg.child.type === BLOCK_TYPES.BOX ||
+      (!isFlowContainerType(bg.child.type) && !AUTO_HEIGHT_LEAF_TYPES.has(bg.child.type));
+    if (!isCandidate) continue;
+    const bgRight = bg.cx + bg.cw;
+    const bgBottom = bg.cy + bg.storedH;
+    let maxExcess = 0;
+    for (const c of placed) {
+      if (c === bg) continue;
+      const cRight = c.cx + c.cw;
+      const cBottom = c.cy + c.storedH;
+      const inside =
+        c.cx >= bg.cx && c.cy >= bg.cy && cRight <= bgRight && cBottom <= bgBottom;
+      if (!inside) continue;
+      const excess = c.measuredH - c.storedH;
+      if (excess > maxExcess) maxExcess = excess;
+    }
+    if (maxExcess > 0 && ctx.boxes[bg.child.id]) {
+      ctx.boxes[bg.child.id].h = bg.storedH + maxExcess;
+    }
+  }
+
+  // Recompute the container's content height from the (possibly grown) boxes so
+  // its reported height reflects both taller text and any grown background box.
+  let maxBottom = 0;
+  for (const p of placed) {
+    const box = ctx.boxes[p.child.id];
+    const h = box ? box.h : p.measuredH;
+    maxBottom = Math.max(maxBottom, (p.cy - innerY) + h);
   }
   return maxBottom;
 }

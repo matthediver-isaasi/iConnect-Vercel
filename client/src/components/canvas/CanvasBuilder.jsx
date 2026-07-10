@@ -767,9 +767,11 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
           if (targetBottom <= g.y) {
             return setBlockBp(x, breakpoint, { y: Math.round(g.y + delta) });
           }
-          // (3) Section that contains the target -> grow by delta.
+          // (3) Container background (section or box) that contains the target
+          // -> grow by delta so the box's stored height tracks the text and is
+          // persisted on save (matching the published read-time growth).
           if (
-            x.type === BLOCK_TYPES.SECTION &&
+            (x.type === BLOCK_TYPES.SECTION || x.type === BLOCK_TYPES.BOX) &&
             targetTop >= g.y &&
             targetBottom <= gBottom
           ) {

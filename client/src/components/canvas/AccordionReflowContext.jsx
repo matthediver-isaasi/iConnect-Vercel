@@ -353,36 +353,46 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
   }, [editorMode, rowGroups]);
 
   /**
-   * Net height change (px) that should be added to a containing Section
-   * block's rendered height. Non-negative (per-row growth is push-down-only),
-   * so a section never shrinks to close author-intended gaps around its
-   * contained blocks; it only grows when contained content expands. A block is
-   * "inside" the section when its stored top ≥ section.y AND its stored bottom
-   * ≤ section.y + section.h.
+   * Net height change (px) that should be added to a CONTAINING background-style
+   * block's rendered height — a Section, a decorative Box, or any future shape
+   * type that wraps other blocks. Non-negative (per-row growth is
+   * push-down-only), so a container never shrinks to close author-intended gaps
+   * around its contained blocks; it only grows when contained content expands.
+   * A block is "inside" the container when its stored top ≥ container.y AND its
+   * stored bottom ≤ container.y + container.h.
    *
-   * @param sectionBlock  – the Section canvas block
-   * @param sectionGeom   – breakpoint-resolved geometry { x, y, w, h } of
-   *                        the section (avoids re-resolving inside the hook)
+   * This is the generalisation of the original section-only growth: the
+   * containment test is identical, so `box` (and future background types) can
+   * share it. A text block sitting on top of a box therefore grows the box
+   * taller as it gains lines, keeping the box wrapped around the text.
+   *
+   * @param containerBlock – the containing canvas block (section, box, …)
+   * @param containerGeom  – breakpoint-resolved geometry { x, y, w, h } of the
+   *                         container (avoids re-resolving inside the hook)
    */
-  const getSectionGrowth = useCallback(
-    (sectionBlock, sectionGeom) => {
-      // Editor mode: sections keep their stored height (no accordion auto-grow).
+  const getContainerGrowth = useCallback(
+    (containerBlock, containerGeom) => {
+      // Editor mode: containers keep their stored height (no auto-grow); the
+      // editor bakes committed heights into stored geometry instead.
       if (editorMode) return 0;
-      if (!sectionGeom || rowGroups.length === 0) return 0;
+      if (!containerGeom || rowGroups.length === 0) return 0;
       let total = 0;
       for (const grp of rowGroups) {
-        // Row is contained within the section if its stored span fits inside it.
-        if (grp.top >= sectionGeom.y && grp.bottom <= sectionGeom.y + sectionGeom.h) {
+        // Row is contained within the container if its stored span fits inside.
+        if (grp.top >= containerGeom.y && grp.bottom <= containerGeom.y + containerGeom.h) {
           total += grp.growth;
         }
       }
       return total;
     },
-    [rowGroups],
+    [editorMode, rowGroups],
   );
 
+  // Back-compat alias: sections are just one kind of container.
+  const getSectionGrowth = getContainerGrowth;
+
   return (
-    <AccordionReflowCtx.Provider value={{ reportHeight, getOffset, getMeasuredHeight, getContentHeight, getRowHeight, getTotalGrowth, getSectionGrowth }}>
+    <AccordionReflowCtx.Provider value={{ reportHeight, getOffset, getMeasuredHeight, getContentHeight, getRowHeight, getTotalGrowth, getSectionGrowth, getContainerGrowth }}>
       {children}
     </AccordionReflowCtx.Provider>
   );

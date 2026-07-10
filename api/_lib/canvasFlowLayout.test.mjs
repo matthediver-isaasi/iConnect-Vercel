@@ -228,6 +228,61 @@ test('free group places children by absolute geometry and preserves overlap', ()
 });
 
 // ---------------------------------------------------------------------------
+// Task #2575: a decorative background box behind overlapping text grows taller
+// when that text's measured content exceeds its stored height, so the box stays
+// wrapped around the text. Card blocks are out of scope (row-equalized).
+// ---------------------------------------------------------------------------
+
+test('a background box grows to wrap overlapping text that measured taller', () => {
+  const box = createFlowNode(BLOCK_TYPES.BOX, { desktop: { x: 0, y: 0, w: 400, h: 120 } });
+  const text = createFlowNode(BLOCK_TYPES.TEXT, {
+    flow: { heightMode: 'auto' },
+    desktop: { x: 20, y: 20, w: 360, h: 60 },
+  });
+  const group = createFreeGroup({ children: [box, text] });
+  const section = createFlowSection({ children: [group] });
+  const [nbox, ntext] = group.children;
+  const design = { version: CANVAS_FLOW_VERSION, root: { layout: 'flow', sections: [section] } };
+
+  // No measurement: text stays at stored 60, box stays at stored 120.
+  const base = resolveFlowLayout(design, { containerWidth: 1000, measured: {} });
+  assert.equal(base.boxes[nbox.id].h, 120);
+  assert.equal(base.boxes[ntext.id].h, 60);
+  assert.equal(base.boxes[group.id].h, 120);
+
+  // Text measured taller (60 -> 160, excess 100): the box grows by the same
+  // excess (120 -> 220) and the group height tracks the grown box.
+  const grown = resolveFlowLayout(design, {
+    containerWidth: 1000,
+    measured: { [ntext.id]: { height: 160 } },
+  });
+  assert.equal(grown.boxes[ntext.id].h, 160);
+  assert.equal(grown.boxes[nbox.id].h, 220);
+  assert.equal(grown.boxes[group.id].h, 220);
+});
+
+test('a background box does NOT grow for text that is not inside its bounds', () => {
+  // Text sits below the box (not overlapping) -> box must not grow; only the
+  // container height reflects the taller text via push-down.
+  const box = createFlowNode(BLOCK_TYPES.BOX, { desktop: { x: 0, y: 0, w: 400, h: 100 } });
+  const text = createFlowNode(BLOCK_TYPES.TEXT, {
+    flow: { heightMode: 'auto' },
+    desktop: { x: 0, y: 120, w: 400, h: 40 },
+  });
+  const group = createFreeGroup({ children: [box, text] });
+  const section = createFlowSection({ children: [group] });
+  const [nbox, ntext] = group.children;
+  const design = { version: CANVAS_FLOW_VERSION, root: { layout: 'flow', sections: [section] } };
+
+  const grown = resolveFlowLayout(design, {
+    containerWidth: 1000,
+    measured: { [ntext.id]: { height: 140 } },
+  });
+  assert.equal(grown.boxes[nbox.id].h, 100);
+  assert.equal(grown.boxes[ntext.id].h, 140);
+});
+
+// ---------------------------------------------------------------------------
 // Autobuild flow emitter.
 // ---------------------------------------------------------------------------
 

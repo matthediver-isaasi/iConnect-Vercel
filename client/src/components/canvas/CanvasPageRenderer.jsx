@@ -156,6 +156,12 @@ function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint, windowBp, pinS
   const { style, a11y } = block;
   const Tag = tagForBlock(block);
   const isSection = block.type === BLOCK_TYPES.SECTION;
+  // Box (and future background-style shapes) behave like a section for growth:
+  // when a block sitting on top of them grows taller, the background grows to
+  // stay wrapped around it. They are NOT auto-height (their box height is
+  // author-set), so growth is applied on top of the stored height.
+  const isBox = block.type === BLOCK_TYPES.BOX;
+  const isContainerBg = isSection || isBox;
   const isPriority = block.id === lcpBlockId;
   const isAutoHeight = !!def?.autoHeight;
 
@@ -165,9 +171,10 @@ function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint, windowBp, pinS
   const activeBp = forcedBreakpoint || windowBp || 'desktop';
   const storedGeom = resolveBlockAtBreakpoint(block, activeBp);
   const topOffset = reflow ? reflow.getOffset(block.id, storedGeom.y) : 0;
-  // Section blocks also grow/shrink by the net delta of accordions they contain.
-  const sectionGrowth = isSection && reflow
-    ? reflow.getSectionGrowth(block, storedGeom)
+  // Container backgrounds (section, box) grow by the net delta of the
+  // auto-height blocks they contain.
+  const containerGrowth = isContainerBg && reflow
+    ? reflow.getContainerGrowth(block, storedGeom)
     : 0;
 
   // When the editor forces a breakpoint via `?_bp=`, resolve geometry in
@@ -180,7 +187,7 @@ function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint, windowBp, pinS
     const fullWidth = !!block.fullWidth;
     const top = g.y + topOffset;
     const heightOverride = resolveBlockHeightCss(block);
-    const height = heightOverride || (isAutoHeight ? 'auto' : g.h + sectionGrowth);
+    const height = heightOverride || (isAutoHeight ? 'auto' : g.h + containerGrowth);
     if (fullBleed) {
       // In an embedded, pinned-width preview (the doc-import modal), `100vw`
       // resolves against the host browser window, not the pinned stage, so
@@ -223,7 +230,7 @@ function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint, windowBp, pinS
   const cssReflowOverride = !forcedBreakpoint ? {
     ...(topOffset !== 0 ? { top: storedGeom.y + topOffset } : {}),
     ...(isAutoHeight ? { height: 'auto' } : {}),
-    ...(isSection && sectionGrowth !== 0 ? { height: storedGeom.h + sectionGrowth } : {}),
+    ...(isContainerBg && containerGrowth !== 0 ? { height: storedGeom.h + containerGrowth } : {}),
   } : {};
 
   return (
