@@ -468,6 +468,7 @@ function MicrositePagesTab({ microsite, pages, micrositePages }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [pendingId, setPendingId] = useState(null);
+  const [pageSearch, setPageSearch] = useState("");
 
   const assignMutation = useMutation({
     mutationFn: async ({ pageId, micrositeId }) => {
@@ -483,6 +484,14 @@ function MicrositePagesTab({ microsite, pages, micrositePages }) {
   });
 
   const availablePages = pages.filter((p) => !p.microsite_id);
+  const trimmedSearch = pageSearch.trim().toLowerCase();
+  const filteredAvailablePages = trimmedSearch
+    ? availablePages.filter((p) => {
+        const title = (p.title || "").toLowerCase();
+        const slug = (p.slug || "").toLowerCase();
+        return title.includes(trimmedSearch) || slug.includes(trimmedSearch);
+      })
+    : availablePages;
 
   return (
     <div className="space-y-6 pt-4">
@@ -542,29 +551,45 @@ function MicrositePagesTab({ microsite, pages, micrositePages }) {
         {availablePages.length === 0 ? (
           <p className="text-sm text-muted-foreground">All pages are already assigned.</p>
         ) : (
-          <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-            {availablePages.map((p) => (
-              <div
-                key={p.id}
-                className="flex items-center justify-between gap-2 flex-wrap rounded-md border p-3"
-                data-testid={`row-available-page-${p.id}`}
-              >
-                <div className="min-w-0">
-                  <div className="font-medium truncate">{p.title || p.slug}</div>
-                  <div className="text-sm text-muted-foreground">/{p.slug}</div>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={assignMutation.isPending && pendingId === p.id}
-                  onClick={() => assignMutation.mutate({ pageId: p.id, micrositeId: microsite.id })}
-                  data-testid={`button-assign-page-${p.id}`}
-                >
-                  Assign
-                </Button>
+          <>
+            <Input
+              type="search"
+              value={pageSearch}
+              onChange={(e) => setPageSearch(e.target.value)}
+              placeholder="Search pages by title or slug…"
+              className="mb-2"
+              data-testid="input-search-available-pages"
+            />
+            {filteredAvailablePages.length === 0 ? (
+              <p className="text-sm text-muted-foreground" data-testid="text-no-available-page-matches">
+                No pages match “{pageSearch.trim()}”.
+              </p>
+            ) : (
+              <div className="space-y-2 max-h-[32rem] overflow-y-auto pr-1">
+                {filteredAvailablePages.map((p) => (
+                  <div
+                    key={p.id}
+                    className="flex items-center justify-between gap-2 flex-wrap rounded-md border p-3"
+                    data-testid={`row-available-page-${p.id}`}
+                  >
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">{p.title || p.slug}</div>
+                      <div className="text-sm text-muted-foreground">/{p.slug}</div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={assignMutation.isPending && pendingId === p.id}
+                      onClick={() => assignMutation.mutate({ pageId: p.id, micrositeId: microsite.id })}
+                      data-testid={`button-assign-page-${p.id}`}
+                    >
+                      Assign
+                    </Button>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            )}
+          </>
         )}
         <p className="text-xs text-muted-foreground mt-2">
           Assigned pages stop being served at their bare slug on the default site and move under /{microsite.path_prefix}/.
