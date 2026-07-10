@@ -2433,7 +2433,6 @@ function ButtonRender({ block, asEditor, breakpoint }) {
     const border = tenantStyle.border || {};
     const padY = subFieldValue('paddingY', '--cb-btn-py',   tenantBaseline.paddingY);
     const padX = subFieldValue('paddingX', '--cb-btn-px',   tenantBaseline.paddingX);
-    const fs   = subFieldValue('fontSize', '--cb-btn-fs',   tenantBaseline.fontSize);
     const iconPx = subFieldValue('iconSize', '--cb-btn-icon', tenantBaseline.iconSize);
     const inlineStyle = {
       ...bg,
@@ -2449,7 +2448,14 @@ function ButtonRender({ block, asEditor, breakpoint }) {
       paddingBottom: padY,
       paddingLeft: padX,
       paddingRight: padX,
-      fontSize: fs,
+      // Grow horizontally to fit the label + icon + configured horizontal
+      // padding instead of clipping: fill at least the stored block width
+      // (minWidth:100%) but expand to content when the label is longer. The
+      // Button block sets `allowOverflow` so the wrapper won't clip the growth.
+      // The label font comes from the typography / labelSize path only (below),
+      // NOT from the removed Size-tab font slider.
+      minWidth: '100%',
+      width: 'max-content',
       transition: 'background-color 0.2s ease, color 0.2s ease, background 0.2s ease',
     };
     // Default icon from the tenant button style. The per-block icon (c.icon,
@@ -2512,7 +2518,7 @@ function ButtonRender({ block, asEditor, breakpoint }) {
           target={c.newTab ? '_blank' : undefined}
           rel={c.newTab ? 'noopener noreferrer' : undefined}
           aria-label={c.ariaLabel || undefined}
-          className="flex w-full h-full items-center justify-center gap-1.5 font-medium whitespace-nowrap"
+          className="flex h-full items-center justify-center gap-1.5 font-medium whitespace-nowrap"
           style={inlineStyle}
           onMouseEnter={() => setTenantHovered(true)}
           onMouseLeave={() => setTenantHovered(false)}

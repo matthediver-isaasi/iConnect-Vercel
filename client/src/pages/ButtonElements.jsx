@@ -227,12 +227,17 @@ function ButtonStyleEditor({
     };
   };
 
+  // Padding comes live from the Size tab (paddingX/paddingY), falling back to
+  // DEFAULT_SIZE. Dragging the padding sliders updates the preview immediately.
+  const sizeCfg = style.size || DEFAULT_SIZE;
+  const previewPadX = Number.isFinite(sizeCfg.paddingX) ? sizeCfg.paddingX : DEFAULT_SIZE.paddingX;
+  const previewPadY = Number.isFinite(sizeCfg.paddingY) ? sizeCfg.paddingY : DEFAULT_SIZE.paddingY;
   const previewStyle = {
     ...getBackgroundStyle(isHovered ? style.hover : style.background),
     border: `${style.border.width}px ${style.border.style} ${style.border.color}`,
     borderRadius: `${style.radius}px`,
     color: isHovered ? style.hoverTextColor : style.textColor,
-    padding: '12px 24px',
+    padding: `${previewPadY}px ${previewPadX}px`,
     fontWeight: 500,
     cursor: 'pointer',
     transition: 'all 0.2s ease',
@@ -805,42 +810,6 @@ function ButtonStyleEditor({
                 />
                 <span className="text-sm text-slate-500 w-12" data-testid={`text-${testIdPrefix}-size-padding-y-value`}>
                   {style.size?.paddingY ?? DEFAULT_SIZE.paddingY}px
-                </span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-4">
-              <Label className="min-w-32">Font size:</Label>
-              <div className="flex items-center gap-4 flex-1">
-                <Slider
-                  value={[style.size?.fontSize ?? DEFAULT_SIZE.fontSize]}
-                  onValueChange={([val]) => updateStyle('size.fontSize', val)}
-                  min={10}
-                  max={32}
-                  step={1}
-                  className="flex-1"
-                  data-testid={`slider-${testIdPrefix}-size-font`}
-                />
-                <span className="text-sm text-slate-500 w-12" data-testid={`text-${testIdPrefix}-size-font-value`}>
-                  {style.size?.fontSize ?? DEFAULT_SIZE.fontSize}px
-                </span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-4">
-              <Label className="min-w-32">Icon size:</Label>
-              <div className="flex items-center gap-4 flex-1">
-                <Slider
-                  value={[style.size?.iconSize ?? DEFAULT_SIZE.iconSize]}
-                  onValueChange={([val]) => updateStyle('size.iconSize', val)}
-                  min={10}
-                  max={32}
-                  step={1}
-                  className="flex-1"
-                  data-testid={`slider-${testIdPrefix}-size-icon`}
-                />
-                <span className="text-sm text-slate-500 w-12" data-testid={`text-${testIdPrefix}-size-icon-value`}>
-                  {style.size?.iconSize ?? DEFAULT_SIZE.iconSize}px
                 </span>
               </div>
             </div>
