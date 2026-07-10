@@ -20,3 +20,16 @@ with `isSection`). Scope it to the one block that needs it — do NOT remove the
 global clip, other blocks rely on it.
 
 **Why:** introduced for the Mega Menu block whose dropdown opens below the bar.
+
+**Also clips rounded corners, not just overlays:** a block whose child has its
+own `border-radius` LARGER than the wrapper's default 4px (DEFAULT_STYLE.borderRadius
+in canvasDesign.js) gets its corners clipped to ~4px on every surface — the wrapper's
+`overflow: hidden` + its own 4px radius crop the child. This is why a tenant-styled
+Button block's configured/pill radius rendered as a fixed ~5px until BUTTON got
+`allowOverflow: true`. Same one-flag fix; still scope to the affected block.
+
+**Tenant-button radius-0 gotcha (separate):** every tenant-button render path used
+``${style.radius ?? 6}px`` so a configured radius of exactly `0` fell back to 6.
+Use `Number.isFinite(style.radius) ? style.radius : 6`. Paths live in registry.jsx
+(standalone Button, Hero CTA, card CTA, pricing-tier CTA) + the shared helper
+buildTenantButtonInlineStyle in lib/tenantButtonStyle.js — keep them in lockstep.

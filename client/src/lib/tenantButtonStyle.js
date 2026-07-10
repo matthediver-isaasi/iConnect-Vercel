@@ -216,7 +216,7 @@ export function buildTenantButtonInlineStyle(style, { hovered = false, applySize
   const inline = {
     ...bg,
     color: textColor,
-    borderRadius: `${style.radius ?? 6}px`,
+    borderRadius: `${Number.isFinite(style.radius) ? style.radius : 6}px`,
     border:
       border.width > 0
         ? `${border.width}px ${border.style || 'solid'} ${border.color || '#000000'}`

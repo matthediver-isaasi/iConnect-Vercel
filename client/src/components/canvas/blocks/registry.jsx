@@ -1162,7 +1162,7 @@ function HeroCtaButton({ cta, asEditor, tenantStyles, stylesResolved }) {
     const inlineStyle = {
       ...bg,
       color: tenantTextColor,
-      borderRadius: `${tenantStyle.radius ?? 6}px`,
+      borderRadius: `${Number.isFinite(tenantStyle.radius) ? tenantStyle.radius : 6}px`,
       border:
         border.width > 0
           ? `${border.width}px ${border.style || 'solid'} ${border.color || '#000000'}`
@@ -2431,7 +2431,7 @@ function ButtonRender({ block, asEditor, breakpoint }) {
       color: tenantHovered
         ? tenantStyle.hoverTextColor || tenantStyle.textColor || '#ffffff'
         : tenantStyle.textColor || '#ffffff',
-      borderRadius: `${tenantStyle.radius ?? 6}px`,
+      borderRadius: `${Number.isFinite(tenantStyle.radius) ? tenantStyle.radius : 6}px`,
       border:
         border.width > 0
           ? `${border.width}px ${border.style || 'solid'} ${border.color || '#000000'}`
@@ -3831,7 +3831,7 @@ function CardRender({ block, asEditor, priority, breakpoint }) {
               color: ctaHovered
                 ? tenantStyle.hoverTextColor || tenantStyle.textColor || '#ffffff'
                 : tenantStyle.textColor || '#ffffff',
-              borderRadius: `${tenantStyle.radius ?? 6}px`,
+              borderRadius: `${Number.isFinite(tenantStyle.radius) ? tenantStyle.radius : 6}px`,
               border:
                 border.width > 0
                   ? `${border.width}px ${border.style || 'solid'} ${border.color || '#000000'}`
@@ -5607,7 +5607,7 @@ function PricingTierCTA({ tier, index, asEditor, branding }) {
       color: hovered
         ? tenantStyle.hoverTextColor || tenantStyle.textColor || '#ffffff'
         : tenantStyle.textColor || '#ffffff',
-      borderRadius: `${tenantStyle.radius ?? 6}px`,
+      borderRadius: `${Number.isFinite(tenantStyle.radius) ? tenantStyle.radius : 6}px`,
       border:
         border.width > 0
           ? `${border.width}px ${border.style || 'solid'} ${border.color || '#000000'}`
@@ -8792,7 +8792,11 @@ const REGISTRY = {
   [BLOCK_TYPES.HERO]:         { label: 'Hero',           icon: LayoutPanelTop, category: 'content',  Editor: HeroRender,         Renderer: HeroRender,         Inspector: HeroInspector,         absoluteFill: true },
   [BLOCK_TYPES.TEXT]:         { label: 'Text',           icon: Type,           category: 'content',  Editor: TextRender,         Renderer: TextRender,         Inspector: TextInspector, autoHeight: true, widthResizeOnly: true },
   [BLOCK_TYPES.IMAGE]:        { label: 'Image',          icon: ImageIcon,      category: 'content',  Editor: ImageRender,        Renderer: ImageRender,        Inspector: ImageInspector },
-  [BLOCK_TYPES.BUTTON]:       { label: 'Button / CTA',   icon: MousePointerClick, category: 'content', Editor: ButtonRender,    Renderer: ButtonRender,       Inspector: ButtonInspector },
+  // `allowOverflow: true` keeps the wrapper `overflow: visible` (and prevents
+  // its default 4px `borderRadius` from clipping) so a tenant-styled button's
+  // configured corner radius — including large/pill radii — is never capped by
+  // the block wrapper. The button's own `<a>` supplies the visible radius.
+  [BLOCK_TYPES.BUTTON]:       { label: 'Button / CTA',   icon: MousePointerClick, category: 'content', Editor: ButtonRender,    Renderer: ButtonRender,       Inspector: ButtonInspector, allowOverflow: true },
   [BLOCK_TYPES.VIDEO]:        { label: 'Video / embed',  icon: Film,           category: 'media',    Editor: VideoRender,        Renderer: VideoRender,        Inspector: VideoInspector },
   [BLOCK_TYPES.COLUMNS]:      { label: 'Columns',        icon: Columns3,       category: 'layout',   Editor: ColumnsRender,      Renderer: ColumnsRender,      Inspector: ColumnsInspector },
   [BLOCK_TYPES.SPACER]:       { label: 'Spacer',         icon: Rows3,          category: 'layout',   Editor: SpacerRender,       Renderer: SpacerRender,       Inspector: SpacerInspector },
