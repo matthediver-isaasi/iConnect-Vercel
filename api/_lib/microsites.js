@@ -136,7 +136,79 @@ export const MICROSITE_BRANDING_KEYS = [
   'description',
   'headerSocialIconColor',
   'footerSocialIconColor',
+  // Search results page overrides (Task #2628): base font + single type-label
+  // colour. Validated/normalised further by normalizeSearchResultsBranding.
+  'searchResultsFont',
+  'searchResultsTypeLabelColor',
 ];
+
+/**
+ * Task #2628: normalise the search-results branding overrides stored inside a
+ * microsite's branding_config in place. `searchResultsTypeLabelColor` is
+ * normalised to an uppercased hex string (dropped when malformed);
+ * `searchResultsFont` is kept only when it is one of the tenant's allowed font
+ * families. `allowedFonts` is a Set of permitted font-family strings (system
+ * stacks + the tenant's installed fonts). Mirrors the tenant branding
+ * endpoint's validation so both scopes behave identically.
+ */
+export function normalizeSearchResultsBranding(brandingConfig, allowedFonts) {
+  if (!brandingConfig || typeof brandingConfig !== 'object') return brandingConfig;
+  if (brandingConfig.searchResultsTypeLabelColor !== undefined) {
+    const raw = String(brandingConfig.searchResultsTypeLabelColor || '').trim();
+    if (/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(raw)) {
+      brandingConfig.searchResultsTypeLabelColor = raw.toUpperCase();
+    } else {
+      delete brandingConfig.searchResultsTypeLabelColor;
+    }
+  }
+  if (brandingConfig.searchResultsFont !== undefined) {
+    const fam = String(brandingConfig.searchResultsFont || '').trim();
+    if (!fam || !(allowedFonts instanceof Set) || !allowedFonts.has(fam)) {
+      delete brandingConfig.searchResultsFont;
+    } else {
+      brandingConfig.searchResultsFont = fam;
+    }
+  }
+  return brandingConfig;
+}
+
+// Always-allowed base font stacks (kept in sync with the tenant branding
+// endpoint's ALLOWED_SYSTEM_FONT_FAMILIES). Merged with the tenant's installed
+// fonts to build the set a microsite may save.
+const ALLOWED_SYSTEM_FONT_FAMILIES = [
+  'Poppins, sans-serif',
+  'Urbanist, sans-serif',
+  "'Degular Medium', 'Poppins', sans-serif",
+  "'Source Sans Pro', sans-serif",
+  'Georgia, serif',
+  'Arial, sans-serif',
+  "'Times New Roman', serif",
+];
+
+/**
+ * Build the Set of font-family stacks a tenant may save: the always-on system
+ * stacks plus every font_stack in the tenant's installed_font table. Degrades
+ * to just the system stacks when the table/query fails.
+ */
+export async function resolveAllowedFontFamilies(supabase, tenantId) {
+  const allowed = new Set(ALLOWED_SYSTEM_FONT_FAMILIES);
+  if (!supabase || !tenantId) return allowed;
+  try {
+    const { data, error } = await supabase
+      .from('installed_font')
+      .select('font_stack')
+      .eq('tenant_id', tenantId);
+    if (!error && Array.isArray(data)) {
+      for (const row of data) {
+        const stack = (row && typeof row.font_stack === 'string') ? row.font_stack.trim() : '';
+        if (stack) allowed.add(stack);
+      }
+    }
+  } catch (err) {
+    console.error('[Microsites] resolveAllowedFontFamilies error:', err?.message);
+  }
+  return allowed;
+}
 
 /**
  * Task #2561: max number of Canvas colour swatches stored per scope

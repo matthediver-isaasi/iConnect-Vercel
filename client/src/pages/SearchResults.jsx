@@ -25,6 +25,20 @@ const typeColors = {
   page: 'bg-slate-100 text-slate-700'
 };
 
+// Convert a #rgb / #rrggbb hex string to an rgba() with the given alpha, used
+// to build a subtle tinted background behind a chosen type-label colour. Returns
+// null for malformed input so callers can fall back to the default look.
+function hexToRgba(hex, alpha) {
+  if (typeof hex !== 'string') return null;
+  let h = hex.trim().replace(/^#/, '');
+  if (h.length === 3) h = h.split('').map((c) => c + c).join('');
+  if (!/^[0-9A-Fa-f]{6}$/.test(h)) return null;
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 export default function SearchResults() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -36,6 +50,20 @@ export default function SearchResults() {
   const [results, setResults] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+
+  // Resolve branding scoped to any microsite carried in the URL so microsite
+  // searches use that microsite's identity. The server merges microsite → tenant
+  // for these keys, and unset values simply come back absent (built-in default).
+  const brandingMicrositePrefix = searchParams.get('microsite') || null;
+  const { data: brandingData } = useQuery({
+    queryKey: ['search-results-branding', brandingMicrositePrefix],
+    queryFn: () => publicClient.getTenantBranding(brandingMicrositePrefix),
+    staleTime: 5 * 60 * 1000
+  });
+  const brandingConfig = brandingData?.branding?.brandingConfig || {};
+  const searchResultsFont = brandingConfig.searchResultsFont || null;
+  const typeLabelColor = brandingConfig.searchResultsTypeLabelColor || null;
+  const typeLabelBg = typeLabelColor ? hexToRgba(typeLabelColor, 0.12) : null;
 
   // Fetch article display name setting
   const { data: articleDisplayName } = useQuery({
@@ -149,10 +177,10 @@ export default function SearchResults() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-slate-50" style={searchResultsFont ? { fontFamily: searchResultsFont } : undefined}>
       <div className="bg-white border-b border-slate-200">
         <div className="max-w-4xl mx-auto px-4 py-8">
-          <h1 className="text-2xl font-bold text-slate-900 mb-6" style={{ fontFamily: 'Poppins, sans-serif' }}>
+          <h1 className="text-2xl font-bold text-slate-900 mb-6" style={{ fontFamily: searchResultsFont || 'Poppins, sans-serif' }}>
             Search Results
           </h1>
           
@@ -254,7 +282,10 @@ export default function SearchResults() {
                                 )}
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2 mb-1 flex-wrap">
-                                    <Badge className={typeColors[result.type] || 'bg-slate-100 text-slate-700'}>
+                                    <Badge
+                                      className={typeLabelColor ? '' : (typeColors[result.type] || 'bg-slate-100 text-slate-700')}
+                                      style={typeLabelColor ? { color: typeLabelColor, backgroundColor: typeLabelBg || undefined } : undefined}
+                                    >
                                       {getTypeLabel(result.type)}
                                     </Badge>
                                     {isMemberOnlyResource && !isAuthenticated && (

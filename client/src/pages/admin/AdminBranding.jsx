@@ -342,6 +342,8 @@ export default function AdminBranding() {
       portalNav: DEFAULT_PORTAL_NAV,
       basePortalFont: '',
       resourceCategoryTitleColor: '#7e22ce',
+      searchResultsFont: '',
+      searchResultsTypeLabelColor: '',
       cardAccentBar: { enabled: true, color: '#5d0d77' }
     },
     platform_branding: {
@@ -543,6 +545,8 @@ export default function AdminBranding() {
                 portalNav: hydratePortalNav(t?.branding_config?.portalNav),
                 basePortalFont: t?.branding_config?.basePortalFont || '',
                 resourceCategoryTitleColor: t?.branding_config?.resourceCategoryTitleColor || '#7e22ce',
+                searchResultsFont: t?.branding_config?.searchResultsFont || '',
+                searchResultsTypeLabelColor: t?.branding_config?.searchResultsTypeLabelColor || '',
                 cardAccentBar: {
                   enabled: t?.branding_config?.cardAccentBar?.enabled !== false,
                   color: t?.branding_config?.cardAccentBar?.color || '#5d0d77'
@@ -1281,6 +1285,55 @@ export default function AdminBranding() {
                     />
                   </div>
                   <p className="text-xs text-slate-400">Colour of category titles in the Resources sidebar filter. Defaults to purple.</p>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-slate-200">Search results font</Label>
+                  <Select
+                    value={formData.branding_config?.searchResultsFont || 'default'}
+                    onValueChange={(v) => setFormData(prev => ({
+                      ...prev,
+                      branding_config: { ...prev.branding_config, searchResultsFont: v === 'default' ? '' : v }
+                    }))}
+                  >
+                    <SelectTrigger className="bg-slate-900/50 border-slate-600 text-white" data-testid="select-search-results-font">
+                      <SelectValue placeholder="Default" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="default">Default</SelectItem>
+                      {installedFontOptions.map((f) => (
+                        <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-slate-400">Font used across the search results page. Defaults to the built-in style.</p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="search_results_type_label_color" className="text-slate-200">Search results type label colour</Label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="color"
+                      id="search_results_type_label_color"
+                      value={formData.branding_config?.searchResultsTypeLabelColor || '#5C0085'}
+                      onChange={(e) => setFormData({ ...formData, branding_config: { ...formData.branding_config, searchResultsTypeLabelColor: e.target.value } })}
+                      className="w-12 h-10 rounded cursor-pointer"
+                      data-testid="input-search-results-type-label-color"
+                    />
+                    <Input
+                      value={formData.branding_config?.searchResultsTypeLabelColor || ''}
+                      onChange={(e) => setFormData({ ...formData, branding_config: { ...formData.branding_config, searchResultsTypeLabelColor: e.target.value } })}
+                      className="bg-slate-900/50 border-slate-600 text-white flex-1"
+                      placeholder="Default"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setFormData({ ...formData, branding_config: { ...formData.branding_config, searchResultsTypeLabelColor: '' } })}
+                      data-testid="button-clear-search-results-type-label-color"
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                  <p className="text-xs text-slate-400">Single colour applied to every result-type label (Event, Article, News, Resource, Page). Leave blank for the built-in colours.</p>
                 </div>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-3">

@@ -4,6 +4,8 @@ import {
   validateMicrositePrefix,
   isMissingMicrositeSchema,
   sanitizeMicrositeBrandingConfig,
+  normalizeSearchResultsBranding,
+  resolveAllowedFontFamilies,
 } from '../_lib/microsites.js';
 
 /**
@@ -121,7 +123,10 @@ export default async function handler(req, res) {
         logo_url: body.logo_url ? String(body.logo_url) : null,
         header_config: sanitizeConfigObject(body.header_config),
         footer_config: sanitizeConfigObject(body.footer_config),
-        branding_config: sanitizeMicrositeBrandingConfig(body.branding_config),
+        branding_config: normalizeSearchResultsBranding(
+          sanitizeMicrositeBrandingConfig(body.branding_config),
+          await resolveAllowedFontFamilies(supabase, tenantId),
+        ),
         home_page_id: body.home_page_id || null,
       };
 
@@ -176,7 +181,12 @@ export default async function handler(req, res) {
       if (body.logo_url !== undefined) update.logo_url = body.logo_url ? String(body.logo_url) : null;
       if (body.header_config !== undefined) update.header_config = sanitizeConfigObject(body.header_config);
       if (body.footer_config !== undefined) update.footer_config = sanitizeConfigObject(body.footer_config);
-      if (body.branding_config !== undefined) update.branding_config = sanitizeMicrositeBrandingConfig(body.branding_config);
+      if (body.branding_config !== undefined) {
+        update.branding_config = normalizeSearchResultsBranding(
+          sanitizeMicrositeBrandingConfig(body.branding_config),
+          await resolveAllowedFontFamilies(supabase, tenantId),
+        );
+      }
       if (body.home_page_id !== undefined) update.home_page_id = body.home_page_id || null;
 
       if (Object.keys(update).length === 0) {

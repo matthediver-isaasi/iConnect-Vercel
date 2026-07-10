@@ -29,11 +29,19 @@ export function buildTenantBrandingPayload(tenantData, microsite = null) {
   if (microsite) {
     const headerIconColor = msBrand('headerSocialIconColor');
     const footerIconColor = msBrand('footerSocialIconColor');
-    if (headerIconColor || footerIconColor) {
+    // Task #2628: search-results page overrides (base font + type-label colour).
+    // microsite value → tenant value falls out naturally: only splice when the
+    // microsite overrides the key, otherwise the tenant value already present in
+    // brandingConfig stands.
+    const searchFont = msBrand('searchResultsFont');
+    const searchTypeColor = msBrand('searchResultsTypeLabelColor');
+    if (headerIconColor || footerIconColor || searchFont || searchTypeColor) {
       brandingConfig = {
         ...brandingConfig,
         ...(headerIconColor ? { headerSocialIconColor: headerIconColor } : {}),
         ...(footerIconColor ? { footerSocialIconColor: footerIconColor } : {}),
+        ...(searchFont ? { searchResultsFont: searchFont } : {}),
+        ...(searchTypeColor ? { searchResultsTypeLabelColor: searchTypeColor } : {}),
       };
     }
   }

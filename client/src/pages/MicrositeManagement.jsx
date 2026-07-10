@@ -18,6 +18,7 @@ import { base44 } from "@/api/base44Client";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import MicrositeChromeEditor from "@/components/microsites/MicrositeChromeEditor";
+import { useInstalledFonts } from "@/lib/installedFonts";
 import {
   Plus, Globe, Trash2, Pencil, ExternalLink, Loader2, PanelTop, FileText, List,
   ChevronDown, ChevronRight, ChevronUp, PanelLeftClose, PanelLeftOpen,
@@ -644,11 +645,48 @@ const EMPTY_NAV_FORM = { title: "", url: "", location: "main_nav", link_type: "i
 function MicrositeNavTab({ microsite, micrositePages }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { options: installedFontOptions } = useInstalledFonts();
   const [navDialogOpen, setNavDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [navForm, setNavForm] = useState(EMPTY_NAV_FORM);
   const [expanded, setExpanded] = useState({});
   const [deleteNavTarget, setDeleteNavTarget] = useState(null);
+
+  // Task #2628: microsite-level search-results overrides. Empty string = "no
+  // override", which falls back to the tenant value then the built-in default at
+  // render time. Kept local and saved explicitly via the Save button.
+  const [searchFont, setSearchFont] = useState(microsite.branding_config?.searchResultsFont || "");
+  const [searchTypeColor, setSearchTypeColor] = useState(microsite.branding_config?.searchResultsTypeLabelColor || "");
+  useEffect(() => {
+    setSearchFont(microsite.branding_config?.searchResultsFont || "");
+    setSearchTypeColor(microsite.branding_config?.searchResultsTypeLabelColor || "");
+  }, [microsite.id, microsite.branding_config]);
+
+  const saveSearchBrandingMutation = useMutation({
+    mutationFn: async () => {
+      const res = await adminFetch(`/api/admin/microsites?id=${microsite.id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          branding_config: {
+            ...(microsite.branding_config || {}),
+            searchResultsFont: searchFont || "",
+            searchResultsTypeLabelColor: searchTypeColor || "",
+          },
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to save search results branding");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-microsites"] });
+      toast({ title: "Saved", description: "Search results branding updated." });
+    },
+    onError: (e) => {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    },
+  });
 
   const { data: navItemsData, isLoading } = useQuery({
     queryKey: ["microsite-nav-items", microsite.id],
@@ -990,6 +1028,76 @@ function MicrositeNavTab({ microsite, micrositePages }) {
                 </Button>
               );
             })}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Search Results</CardTitle>
+          <CardDescription>
+            Override the font and type-label colour used on this microsite's search results page. Leave a
+            field blank to fall back to the tenant default, then the built-in style.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>Search results font</Label>
+            <Select
+              value={searchFont || "default"}
+              onValueChange={(v) => setSearchFont(v === "default" ? "" : v)}
+            >
+              <SelectTrigger data-testid="select-microsite-search-results-font">
+                <SelectValue placeholder="Default" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="default">Default (use tenant)</SelectItem>
+                {installedFontOptions.map((f) => (
+                  <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="microsite-search-type-color">Search results type label colour</Label>
+            <div className="flex items-center gap-3 flex-wrap">
+              <input
+                type="color"
+                id="microsite-search-type-color"
+                value={searchTypeColor || "#5C0085"}
+                onChange={(e) => setSearchTypeColor(e.target.value)}
+                className="w-12 h-10 rounded cursor-pointer"
+                data-testid="input-microsite-search-type-color"
+              />
+              <Input
+                value={searchTypeColor}
+                onChange={(e) => setSearchTypeColor(e.target.value)}
+                className="flex-1 min-w-[8rem]"
+                placeholder="Default"
+                data-testid="input-microsite-search-type-color-text"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setSearchTypeColor("")}
+                data-testid="button-clear-microsite-search-type-color"
+              >
+                Clear
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Single colour applied to every result-type label (Event, Article, News, Resource, Page).
+            </p>
+          </div>
+          <div className="flex justify-end">
+            <Button
+              onClick={() => saveSearchBrandingMutation.mutate()}
+              disabled={saveSearchBrandingMutation.isPending}
+              data-testid="button-save-microsite-search-branding"
+            >
+              {saveSearchBrandingMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Save
+            </Button>
           </div>
         </CardContent>
       </Card>

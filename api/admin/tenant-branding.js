@@ -632,6 +632,15 @@ export default async function handler(req, res) {
         if (updates.branding_config.resourceCategoryTitleColor !== undefined) {
           updates.branding_config.resourceCategoryTitleColor = normalizeHexColor(updates.branding_config.resourceCategoryTitleColor);
         }
+        // Search results page: base font (validated against installed fonts,
+        // empty = default) and a single type-label colour (hex, normalised).
+        // Mirrors the basePortalFont / resourceCategoryTitleColor patterns.
+        if (updates.branding_config.searchResultsFont !== undefined) {
+          updates.branding_config.searchResultsFont = validateNavFontFamily(updates.branding_config.searchResultsFont, allowedFontFamilies);
+        }
+        if (updates.branding_config.searchResultsTypeLabelColor !== undefined) {
+          updates.branding_config.searchResultsTypeLabelColor = normalizeHexColor(updates.branding_config.searchResultsTypeLabelColor);
+        }
         // Task #2561: Canvas colour palette swatches (main-site scope). An
         // array of validated hex strings; the deep-merge below preserves it
         // alongside the other branding_config keys.
