@@ -95,7 +95,13 @@ export default function SearchResults() {
     setHasSearched(true);
 
     try {
-      const data = await publicClient.search(searchTerm.trim());
+      // Honour microsite scope carried in the URL from a Canvas Search Input
+      // block so the toggle controls the full results page, not just the popover.
+      const micrositePrefix = searchParams.get('microsite') || null;
+      const micrositeScope = searchParams.get('micrositeScope') || null;
+      const data = await publicClient.search(searchTerm.trim(), micrositePrefix
+        ? { micrositePrefix, micrositeScope }
+        : undefined);
       setResults(data.results || []);
     } catch (error) {
       console.error('Search error:', error);
@@ -108,7 +114,15 @@ export default function SearchResults() {
   const handleSubmit = (e) => {
     e.preventDefault();
     if (query.trim().length >= 2) {
-      setSearchParams({ q: query.trim() });
+      const next = { q: query.trim() };
+      // Preserve any microsite scope carried into this page.
+      const microsite = searchParams.get('microsite');
+      const micrositeScope = searchParams.get('micrositeScope');
+      if (microsite) {
+        next.microsite = microsite;
+        if (micrositeScope) next.micrositeScope = micrositeScope;
+      }
+      setSearchParams(next);
       performSearch(query);
     }
   };

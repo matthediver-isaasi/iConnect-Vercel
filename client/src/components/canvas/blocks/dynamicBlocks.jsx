@@ -42,7 +42,10 @@ import {
 } from '@/lib/canvasDesign';
 import { publicClient } from '@/api/publicClient';
 import { base44 } from '@/api/base44Client';
+import { useNavigate } from 'react-router-dom';
 import { useTenantBranding } from '@/contexts/TenantBrandingContext';
+import { useMicrosite } from '@/contexts/MicrositeContext';
+import { useCanvasEditorPage } from '../CanvasEditorPageContext';
 import {
   isTenantButtonVariant,
   resolveTenantButtonStyle,
@@ -6186,6 +6189,275 @@ function LoginFormRendererLazy() {
 }
 
 // ============================================================================
+// Search Input block (Task #2550)
+// ============================================================================
+// A styled public-search field that reuses /api/public/search. Submitting
+// navigates to /search?q=…; a live results popover shows matches as the user
+// types. Renders identically in the editor preview (`asEditor`, interactions
+// disabled) and on the published page. On microsite pages the inspector adds an
+// "Include results from outside this microsite" toggle; the render maps that to
+// the endpoint's microsite scope.
+const SEARCH_INPUT_SIZES = {
+  sm: { height: 36, fontSize: 14, padX: 12, icon: 16 },
+  md: { height: 44, fontSize: 16, padX: 14, icon: 18 },
+  lg: { height: 52, fontSize: 18, padX: 16, icon: 20 },
+};
+
+function SearchInputRender({ block, asEditor }) {
+  const c = block?.content || {};
+  const navigate = useNavigate();
+  const { micrositePrefix } = useMicrosite();
+  const size = SEARCH_INPUT_SIZES[c.size] || SEARCH_INPUT_SIZES.md;
+  const showIcon = c.showIcon !== false;
+  const placeholder = c.placeholder || 'Search…';
+
+  const [query, setQuery] = useState('');
+  const [debounced, setDebounced] = useState('');
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(query.trim()), 250);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  // Microsite scope only matters on an actual microsite route. Toggle OFF
+  // (includeOutsideMicrosite === false) limits results to this microsite;
+  // otherwise search the whole tenant (still resolving this microsite's own
+  // pages to their prefixed URLs).
+  const onMicrosite = !asEditor && !!micrositePrefix;
+  const micrositeScope = onMicrosite
+    ? (c.includeOutsideMicrosite === false ? 'only' : 'all')
+    : null;
+
+  const { data, isFetching } = useQuery({
+    queryKey: ['canvas', 'search-input', debounced, micrositePrefix || '', micrositeScope || ''],
+    queryFn: () => publicClient.search(debounced, {
+      micrositePrefix: onMicrosite ? micrositePrefix : null,
+      micrositeScope,
+    }),
+    enabled: !asEditor && debounced.length >= 2,
+    staleTime: 30_000,
+  });
+  const results = Array.isArray(data?.results) ? data.results : [];
+
+  useEffect(() => {
+    if (asEditor) return undefined;
+    const onDocMouseDown = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDocMouseDown);
+    return () => document.removeEventListener('mousedown', onDocMouseDown);
+  }, [asEditor]);
+
+  const goToSearch = (term) => {
+    const q = (term ?? query).trim();
+    if (!q) return;
+    setOpen(false);
+    const params = new URLSearchParams({ q });
+    // Carry microsite scope through to the /search results page so the toggle
+    // controls the full results, not just the live popover.
+    if (onMicrosite && micrositePrefix) {
+      params.set('microsite', micrositePrefix);
+      params.set('micrositeScope', micrositeScope);
+    }
+    navigate(`/search?${params.toString()}`);
+  };
+
+  const goToResult = (url) => {
+    if (!url) return;
+    setOpen(false);
+    navigate(url);
+  };
+
+  const borderWidth = Number.isFinite(c.borderWidth) ? c.borderWidth : 1;
+  const cornerRadius = Number.isFinite(c.cornerRadius) ? c.cornerRadius : 8;
+  const inputStyle = {
+    width: '100%',
+    height: size.height,
+    maxHeight: '100%',
+    fontSize: size.fontSize,
+    paddingLeft: size.padX,
+    paddingRight: showIcon ? size.height : size.padX,
+    color: c.textColor || '#0f172a',
+    background: c.backgroundColor || '#ffffff',
+    borderColor: c.borderColor || '#cbd5e1',
+    borderWidth,
+    borderStyle: 'solid',
+    borderRadius: cornerRadius,
+    outline: 'none',
+    boxSizing: 'border-box',
+  };
+
+  const showPopover = !asEditor && open && debounced.length >= 2;
+
+  return (
+    <div
+      ref={containerRef}
+      className="w-full h-full flex items-center"
+      style={{ position: 'relative' }}
+    >
+      <div style={{ position: 'relative', width: '100%' }}>
+        <input
+          type="search"
+          value={query}
+          placeholder={placeholder}
+          readOnly={asEditor}
+          aria-label={block?.a11y?.ariaLabel || placeholder}
+          onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+          onFocus={() => { if (!asEditor && debounced.length >= 2) setOpen(true); }}
+          onKeyDown={(e) => {
+            if (asEditor) return;
+            if (e.key === 'Enter') { e.preventDefault(); goToSearch(); }
+            if (e.key === 'Escape') setOpen(false);
+          }}
+          style={inputStyle}
+          data-testid="input-canvas-search"
+        />
+        {showIcon && (
+          <button
+            type="button"
+            aria-label="Search"
+            tabIndex={asEditor ? -1 : 0}
+            onClick={() => { if (!asEditor) goToSearch(); }}
+            style={{
+              position: 'absolute',
+              top: 0,
+              right: 0,
+              height: '100%',
+              width: size.height,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: 'transparent',
+              border: 'none',
+              cursor: asEditor ? 'default' : 'pointer',
+              color: c.textColor || '#0f172a',
+              opacity: 0.7,
+            }}
+            data-testid="button-canvas-search"
+          >
+            {isFetching
+              ? <Loader2 style={{ width: size.icon, height: size.icon }} className="animate-spin" aria-hidden="true" />
+              : <Search style={{ width: size.icon, height: size.icon }} aria-hidden="true" />}
+          </button>
+        )}
+        {showPopover && (
+          <div
+            role="listbox"
+            className="absolute left-0 right-0 z-50 mt-1 max-h-80 overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg"
+            style={{ top: '100%' }}
+            data-testid="popover-canvas-search-results"
+          >
+            {results.length === 0 ? (
+              <div className="px-3 py-3 text-sm text-slate-500" data-testid="text-canvas-search-empty">
+                {isFetching ? 'Searching…' : 'No results found.'}
+              </div>
+            ) : (
+              <ul className="py-1">
+                {results.map((r, i) => (
+                  <li key={`${r.type || 'result'}-${r.id || i}`}>
+                    <a
+                      href={r.url || '#'}
+                      onClick={(e) => { e.preventDefault(); goToResult(r.url); }}
+                      className="block px-3 py-2 hover-elevate"
+                      data-testid={`link-canvas-search-result-${i}`}
+                    >
+                      <div className="text-sm font-medium text-slate-900 truncate">{r.title || 'Untitled'}</div>
+                      {(r.type || r.description) && (
+                        <div className="text-xs text-slate-500 truncate">
+                          {[r.type, r.description].filter(Boolean).join(' · ')}
+                        </div>
+                      )}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SearchInputInspector({ block, update }) {
+  const c = block.content || {};
+  const { isMicrositePage } = useCanvasEditorPage();
+  const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+  return (
+    <>
+      <TextField
+        label="Placeholder text"
+        value={c.placeholder}
+        onChange={(v) => set({ placeholder: v })}
+        testId="input-search-placeholder"
+      />
+      <SelectField
+        label="Size"
+        value={c.size || 'md'}
+        onChange={(v) => set({ size: v })}
+        options={[
+          { value: 'sm', label: 'Small' },
+          { value: 'md', label: 'Medium' },
+          { value: 'lg', label: 'Large' },
+        ]}
+        testId="select-search-size"
+      />
+      <ColorField
+        label="Background colour"
+        value={c.backgroundColor}
+        onChange={(v) => set({ backgroundColor: v })}
+        testId="color-search-bg"
+      />
+      <ColorField
+        label="Text colour"
+        value={c.textColor}
+        onChange={(v) => set({ textColor: v })}
+        testId="color-search-text"
+      />
+      <ColorField
+        label="Border colour"
+        value={c.borderColor}
+        onChange={(v) => set({ borderColor: v })}
+        testId="color-search-border"
+      />
+      <NumberField
+        label="Border width (px)"
+        value={c.borderWidth}
+        min={0}
+        max={8}
+        onChange={(v) => set({ borderWidth: v == null ? 0 : v })}
+        testId="input-search-border-width"
+      />
+      <NumberField
+        label="Corner radius (px)"
+        value={c.cornerRadius}
+        min={0}
+        max={40}
+        onChange={(v) => set({ cornerRadius: v == null ? 0 : v })}
+        testId="input-search-radius"
+      />
+      <ToggleField
+        label="Show search icon"
+        value={c.showIcon !== false}
+        onChange={(v) => set({ showIcon: v })}
+        testId="toggle-search-icon"
+      />
+      {isMicrositePage && (
+        <ToggleField
+          label="Include results from outside this microsite"
+          value={c.includeOutsideMicrosite !== false}
+          onChange={(v) => set({ includeOutsideMicrosite: v })}
+          testId="toggle-search-include-outside"
+          hint="On: search the whole site. Off: show only results from this microsite."
+        />
+      )}
+    </>
+  );
+}
+
+// ============================================================================
 // Registry export
 // ============================================================================
 export const DYNAMIC_BLOCK_DEFINITIONS = {
@@ -6336,5 +6608,14 @@ export const DYNAMIC_BLOCK_DEFINITIONS = {
     Renderer: LoginFormRendererLazy,
     Inspector: LoginFormInspector,
     noResize: true,
+  },
+  [BLOCK_TYPES.SEARCH_INPUT]: {
+    label: 'Search Input',
+    icon: Search,
+    category: 'ui',
+    Editor: (props) => <SearchInputRender {...props} asEditor />,
+    Renderer: SearchInputRender,
+    Inspector: SearchInputInspector,
+    allowOverflow: true,
   },
 };

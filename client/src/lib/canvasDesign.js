@@ -181,6 +181,8 @@ export const BLOCK_TYPES = {
   SYMBOL: 'symbol',
   // System: tenant-customisable login form block (fixed size, position-only).
   LOGIN_FORM: 'login-form',
+  // Styled public-search field that reuses /api/public/search.
+  SEARCH_INPUT: 'search-input',
 };
 
 // Block types that support the "full-bleed" treatment — a true 100vw
@@ -1262,6 +1264,27 @@ BLOCK_DEFAULTS[BLOCK_TYPES.LOGIN_FORM] = {
   geom: { w: 448, h: 520 },
   style: { background: 'transparent', borderWidth: 0 },
   content: {},
+};
+
+// Search input block: a styled search field that reuses the public search
+// endpoint. Renders identically in the editor preview and the published page.
+// `includeOutsideMicrosite` only takes effect on microsite pages (default ON =
+// tenant-wide results; OFF = results limited to the current microsite).
+BLOCK_DEFAULTS[BLOCK_TYPES.SEARCH_INPUT] = {
+  name: 'Search Input',
+  geom: { w: 360, h: 48 },
+  style: { background: 'transparent', borderWidth: 0 },
+  content: {
+    placeholder: 'Search…',
+    size: 'md', // sm | md | lg
+    backgroundColor: '#ffffff',
+    textColor: '#0f172a',
+    borderColor: '#cbd5e1',
+    borderWidth: 1,
+    cornerRadius: 8,
+    showIcon: true,
+    includeOutsideMicrosite: true,
+  },
 };
 
 // Hero Carousel block: slide-based hero with per-slide backgrounds, overlays,

@@ -1250,6 +1250,7 @@ export default function CanvasPageEditorPage() {
             onLocateIssue={handleLocateIssue}
             otherPages={otherPages}
             onUnlinkSymbol={() => unlinkSelectedSymbol(canvasRef)}
+            micrositeId={page?.microsite_id || null}
           />
         </div>
 

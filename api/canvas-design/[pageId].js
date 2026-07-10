@@ -65,12 +65,25 @@ export default async function handler(req, res) {
   const tenantId = context.tenantId;
 
   if (req.method === 'GET') {
-    const { data, error } = await supabase
+    // `microsite_id` tells the editor whether this is a microsite page (so the
+    // Search Input block can offer its microsite-scope toggle). Legacy DBs may
+    // predate that column — fall back to the base select so the editor keeps
+    // working there (the page simply reads as a non-microsite page).
+    const baseColumns = 'id, title, slug, status, layout_type, builder_type, canvas_design';
+    let { data, error } = await supabase
       .from('i_edit_page')
-      .select('id, title, slug, status, layout_type, builder_type, canvas_design')
+      .select(`${baseColumns}, microsite_id`)
       .eq('id', pageId)
       .eq('tenant_id', tenantId)
       .maybeSingle();
+    if (error && error.code === '42703') {
+      ({ data, error } = await supabase
+        .from('i_edit_page')
+        .select(baseColumns)
+        .eq('id', pageId)
+        .eq('tenant_id', tenantId)
+        .maybeSingle());
+    }
     if (error) {
       console.error('[CanvasDesign] GET error:', error);
       return res.status(500).json({ error: 'Failed to load page' });

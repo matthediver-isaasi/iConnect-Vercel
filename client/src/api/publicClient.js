@@ -426,9 +426,17 @@ class PublicClient {
   }
   
   // Search
-  async search(query) {
+  //
+  // Optional microsite scoping (Task #2550): when called from a microsite page,
+  // pass `micrositePrefix` plus `micrositeScope` ('only' = just that microsite's
+  // pages, 'all' = tenant-wide but resolve the microsite's own pages to their
+  // prefixed URLs). Callers that omit the options keep the tenant-wide default.
+  async search(query, { micrositePrefix = null, micrositeScope = null } = {}) {
     if (!query) return { results: [] };
-    return this._fetch(`/api/public/search?q=${encodeURIComponent(query)}`);
+    const params = new URLSearchParams({ q: query });
+    if (micrositePrefix) params.set('microsite', micrositePrefix);
+    if (micrositeScope) params.set('micrositeScope', micrositeScope);
+    return this._fetch(`/api/public/search?${params.toString()}`);
   }
   
   // Forms

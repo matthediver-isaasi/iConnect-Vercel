@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { stripHtml } from '../_lib/searchTextBuilder.js';
+import { resolveMicrositeByPrefix, listActiveMicrosites, isMissingMicrositeSchema } from '../_lib/microsites.js';
 
 function extractSnippet(text, searchTerm, maxLength = 150) {
   if (!text || !searchTerm) return '';
@@ -37,7 +38,7 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    const { q, limit = '20' } = req.query;
+    const { q, limit = '20', microsite: micrositePrefixRaw, micrositeScope: micrositeScopeRaw } = req.query;
     
     if (!q || q.trim().length < 2) {
       return res.json({ results: [], query: q || '', total: 0 });
@@ -47,57 +48,94 @@ export default async function handler(req, res) {
     const searchPattern = `%${searchTerm}%`;
     const limitNum = Math.min(parseInt(limit) || 20, 50);
 
+    // Task #2550: microsite scoping. Search stays tenant-wide by default (every
+    // tenant page across all microsites, exactly like before) — the only new
+    // restriction is opt-in "microsite-only". Pages that belong to a microsite
+    // are served under /{prefix}/{slug}; content entities (events/articles/
+    // news/resources/complex events) are never microsite-scoped.
+    //   - no microsite param             → tenant-wide (unchanged behaviour).
+    //   - microsite + micrositeScope=only → just this microsite's pages, nothing else.
+    //   - microsite (default / 'all')     → tenant-wide (include results from
+    //                                        outside this microsite).
+    const micrositePrefix = typeof micrositePrefixRaw === 'string' ? micrositePrefixRaw.trim() : '';
+    const microsite = micrositePrefix
+      ? await resolveMicrositeByPrefix(supabase, tenant.id, micrositePrefix)
+      : null;
+    const scope = microsite ? (micrositeScopeRaw === 'only' ? 'only' : 'all') : null;
+    const micrositeOnly = scope === 'only';
+
     const results = [];
 
+    // Pages query is legacy-tolerant: if the microsite_id column does not exist
+    // (stale dev DB), fall back to the base select. Only microsite-only mode
+    // restricts the page set; every other mode stays tenant-wide.
+    const runPagesQuery = async () => {
+      const baseSelect = 'id, title, slug, description, published_at, search_text';
+      const buildBase = (select) => supabase
+        .from('i_edit_page')
+        .select(select)
+        .eq('tenant_id', tenant.id)
+        .or(`title.ilike.${searchPattern},description.ilike.${searchPattern},slug.ilike.${searchPattern},search_text.ilike.${searchPattern}`)
+        .eq('status', 'published')
+        .limit(limitNum);
+      let query = buildBase(`${baseSelect}, microsite_id`);
+      if (micrositeOnly) {
+        query = query.eq('microsite_id', microsite.id);
+      }
+      let result = await query;
+      if (result.error && isMissingMicrositeSchema(result.error)) {
+        result = await buildBase(baseSelect);
+      }
+      return result;
+    };
+
+    // Content entities are skipped entirely in microsite-only mode.
+    const emptyResult = { data: [] };
+    const contentQuery = (builder) => (micrositeOnly ? Promise.resolve(emptyResult) : builder);
+
     const [eventsResult, articlesResult, newsResult, resourcesResult, pagesResult, complexEventsResult] = await Promise.all([
-      supabase
+      contentQuery(supabase
         .from('event')
         .select('id, title, description, start_date, end_date, image_url, status, search_text')
         .eq('tenant_id', tenant.id)
         .is('member_group_id', null)
         .or(`title.ilike.${searchPattern},description.ilike.${searchPattern},search_text.ilike.${searchPattern}`)
         .gte('start_date', new Date().toISOString())
-        .limit(limitNum),
+        .limit(limitNum)),
       
-      supabase
+      contentQuery(supabase
         .from('blog_post')
         .select('id, title, summary, content, feature_image_url, feature_image_focal_point, published_date, slug, search_text')
         .eq('tenant_id', tenant.id)
         .or(`title.ilike.${searchPattern},summary.ilike.${searchPattern},search_text.ilike.${searchPattern}`)
         .eq('status', 'published')
-        .limit(limitNum),
+        .limit(limitNum)),
       
-      supabase
+      contentQuery(supabase
         .from('news_post')
         .select('id, title, summary, content, feature_image_url, feature_image_focal_point, published_date, slug, search_text')
         .eq('tenant_id', tenant.id)
         .or(`title.ilike.${searchPattern},summary.ilike.${searchPattern},search_text.ilike.${searchPattern}`)
         .eq('status', 'published')
-        .limit(limitNum),
+        .limit(limitNum)),
       
-      supabase
+      contentQuery(supabase
         .from('resource')
         .select('id, title, description, image_url, resource_type, is_public, search_text')
         .eq('tenant_id', tenant.id)
         .or(`title.ilike.${searchPattern},description.ilike.${searchPattern},search_text.ilike.${searchPattern}`)
         .eq('status', 'active')
-        .limit(limitNum),
+        .limit(limitNum)),
       
-      supabase
-        .from('i_edit_page')
-        .select('id, title, slug, description, published_at, search_text')
-        .eq('tenant_id', tenant.id)
-        .or(`title.ilike.${searchPattern},description.ilike.${searchPattern},slug.ilike.${searchPattern},search_text.ilike.${searchPattern}`)
-        .eq('status', 'published')
-        .limit(limitNum),
+      runPagesQuery(),
 
-      supabase
+      contentQuery(supabase
         .from('complex_event')
         .select('id, title, description, summary, slug, image_url, start_date, end_date, location, search_text')
         .eq('tenant_id', tenant.id)
         .or(`title.ilike.${searchPattern},search_text.ilike.${searchPattern}`)
         .in('status', ['published', 'tbc'])
-        .limit(limitNum)
+        .limit(limitNum))
     ]);
 
     if (eventsResult.data) {
@@ -189,6 +227,18 @@ export default async function handler(req, res) {
       });
     }
 
+    // Build a microsite_id → path_prefix map so microsite pages surfaced in a
+    // tenant-wide search still link to their /{prefix}/{slug} URL. Only hit the
+    // microsites table when a microsite page actually appears in the results.
+    const micrositePrefixMap = {};
+    if (microsite) micrositePrefixMap[microsite.id] = microsite.path_prefix;
+    if (pagesResult.data?.some(p => p.microsite_id && !micrositePrefixMap[p.microsite_id])) {
+      const activeMicrosites = await listActiveMicrosites(supabase, tenant.id).catch(() => []);
+      for (const m of activeMicrosites || []) {
+        if (m?.id && m?.path_prefix) micrositePrefixMap[m.id] = m.path_prefix;
+      }
+    }
+
     if (pagesResult.data) {
       pagesResult.data.forEach(page => {
         const titleMatch = page.title?.toLowerCase().includes(searchTerm.toLowerCase());
@@ -199,13 +249,15 @@ export default async function handler(req, res) {
         } else {
           description = extractSnippet(page.search_text, searchTerm);
         }
+        const prefix = page.microsite_id ? micrositePrefixMap[page.microsite_id] : null;
+        const pageUrl = prefix ? `/${prefix}/${page.slug}` : `/${page.slug}`;
         results.push({
           type: 'page',
           id: page.id,
           title: page.title,
           description,
           image: null,
-          url: `/${page.slug}`,
+          url: pageUrl,
           date: page.published_at
         });
       });

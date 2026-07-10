@@ -77,6 +77,7 @@ import useEdgeAutoScroll from './useEdgeAutoScroll';
 import CanvasGuidesOverlay from './CanvasGuides';
 import CanvasInspector from './CanvasInspector';
 import { CanvasAnchorProvider } from './CanvasAnchorContext';
+import { CanvasEditorPageProvider } from './CanvasEditorPageContext';
 import { CanvasSymbolsProvider, useCanvasSymbolsData } from './CanvasSymbolsContext';
 import CanvasLayers from './CanvasLayers';
 import CanvasA11yPanel from './CanvasA11yPanel';
@@ -286,6 +287,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   onLocateIssue,
   otherPages = [],
   onUnlinkSymbol,
+  micrositeId = null,
 }, ref) {
   const [design, setDesignState] = useState(() => normalizeCanvasDesign(initialDesign));
   const [selectedIds, setSelectedIds] = useState([]);
@@ -1945,6 +1947,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
             data-testid="panel-inspector"
           >
             <CanvasAnchorProvider design={design} pages={otherPages}>
+            <CanvasEditorPageProvider micrositeId={micrositeId}>
             <CanvasInspector
               selectedBlocks={selectedBlocks}
               breakpoint={breakpoint}
@@ -1966,6 +1969,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
               }
               readingOrderTotal={children.length}
             />
+            </CanvasEditorPageProvider>
             </CanvasAnchorProvider>
           </aside>
 
