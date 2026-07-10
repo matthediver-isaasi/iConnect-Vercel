@@ -33,9 +33,9 @@ import { publicClient } from "@/api/publicClient";
 import { FocalPointPicker } from "@/components/FocalPointPicker";
 import { buildPortalNavBackgroundStyle } from "@/lib/canvasBackground";
 
+import { useInstalledFonts } from "@/lib/installedFonts";
 import {
   NAV_FONT_WEIGHTS,
-  NAV_AVAILABLE_FONTS,
   DEFAULT_INDICATOR_GRADIENT_STOPS,
   SOCIAL_ICON_PLATFORMS,
   HEADER_LINK_GRADIENT_STOPS,
@@ -49,6 +49,7 @@ export default function AdminBranding() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { options: installedFontOptions } = useInstalledFonts();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
@@ -2427,7 +2428,7 @@ export default function AdminBranding() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="default">Default</SelectItem>
-                        {NAV_AVAILABLE_FONTS.map((f) => (
+                        {installedFontOptions.map((f) => (
                           <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
                         ))}
                       </SelectContent>
@@ -2944,7 +2945,7 @@ export default function AdminBranding() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="default">Default</SelectItem>
-                      {NAV_AVAILABLE_FONTS.map((f) => (
+                      {installedFontOptions.map((f) => (
                         <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
                       ))}
                     </SelectContent>
@@ -3584,7 +3585,7 @@ export default function AdminBranding() {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="default">Poppins (default)</SelectItem>
-                          {NAV_AVAILABLE_FONTS.map((f) => (
+                          {installedFontOptions.map((f) => (
                             <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
                           ))}
                         </SelectContent>

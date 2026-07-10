@@ -72,6 +72,7 @@ export const ArticleReaction = base44.entities.ArticleReaction;
 export const ArticleView = base44.entities.ArticleView;
 
 export const ButtonStyle = base44.entities.ButtonStyle;
+export const InstalledFont = base44.entities.InstalledFont;
 
 export const Award = base44.entities.Award;
 

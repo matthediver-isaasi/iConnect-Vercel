@@ -100,6 +100,7 @@ const entityToTable = {
   'OrganizationPreferenceValue': 'organization_preference_value',
   'Speaker': 'speaker',
   'TypographyStyle': 'typography_style',
+  'InstalledFont': 'installed_font',
   'CardDeck': 'card_deck',
   'DynamicDirectory': 'dynamic_directory',
   'TrainingFundTransaction': 'training_fund_transaction',
@@ -296,7 +297,7 @@ export default async function handler(req, res) {
             'ExternalWriter', 'ExternalWriterDocument',
             'CrmTagColor',
             'Gallery', 'GalleryPhoto', 'CardDeck',
-            'MemberGroupActivity', 'Microsite'
+            'MemberGroupActivity', 'Microsite', 'InstalledFont'
           ];
           if (tenantCtx.tenantId) {
             query = query.eq('tenant_id', tenantCtx.tenantId);
@@ -433,7 +434,7 @@ export default async function handler(req, res) {
                 'ExternalWriter', 'ExternalWriterDocument',
                 'CrmTagColor',
                 'Gallery', 'GalleryPhoto', 'CardDeck',
-                'MemberGroupActivity', 'Microsite'
+                'MemberGroupActivity', 'Microsite', 'InstalledFont'
               ];
               if (tenantCtx.tenantId) {
                 beforeQuery = beforeQuery.eq('tenant_id', tenantCtx.tenantId);
@@ -810,7 +811,7 @@ export default async function handler(req, res) {
             'ExternalWriter', 'ExternalWriterDocument',
             'CrmTagColor',
             'Gallery', 'GalleryPhoto', 'CardDeck',
-            'MemberGroupActivity', 'Microsite'
+            'MemberGroupActivity', 'Microsite', 'InstalledFont'
           ];
           if (tenantCtx.tenantId) {
             patchQuery = patchQuery.eq('tenant_id', tenantCtx.tenantId);
@@ -1189,6 +1190,73 @@ export default async function handler(req, res) {
         }
       }
 
+      // Task #2549: block removing an installed font that is a base (always-on)
+      // font, or that is still referenced by a typography style or a
+      // nav/portal/branding font setting. The stored value being compared is
+      // the CSS font-stack (installed_font.font_stack), which is exactly what
+      // typography_style.font_family and the *FontFamily branding fields store.
+      if (entity === 'InstalledFont') {
+        const { data: fontRow } = await supabase
+          .from('installed_font')
+          .select('id, tenant_id, label, font_stack, is_base')
+          .eq('id', id)
+          .maybeSingle();
+        if (fontRow) {
+          if (fontRow.is_base) {
+            return res.status(409).json({
+              error: `"${fontRow.label}" is a base font and cannot be removed.`,
+              code: 'font_is_base',
+            });
+          }
+          const stack = fontRow.font_stack;
+          const fontTenantId = fontRow.tenant_id;
+          const usedBy = [];
+
+          const { data: typoUses } = await supabase
+            .from('typography_style')
+            .select('name')
+            .eq('tenant_id', fontTenantId)
+            .eq('font_family', stack)
+            .limit(5);
+          if (typoUses && typoUses.length) {
+            const names = typoUses.map((t) => t.name).filter(Boolean).join(', ');
+            usedBy.push(names ? `typography styles (${names})` : 'a typography style');
+          }
+
+          const { data: tenantRow } = await supabase
+            .from('tenant')
+            .select('header_config, branding_config')
+            .eq('id', fontTenantId)
+            .maybeSingle();
+          const hc = tenantRow?.header_config || {};
+          const bc = tenantRow?.branding_config || {};
+          if (hc.topNavFontFamily === stack) usedBy.push('the top navigation font');
+          if (hc.secondaryBar && hc.secondaryBar.fontFamily === stack) usedBy.push('the secondary bar font');
+          if (bc.basePortalFont === stack) usedBy.push('the portal base font');
+
+          const { data: micrositeUses } = await supabase
+            .from('microsite')
+            .select('name, header_config')
+            .eq('tenant_id', fontTenantId);
+          if (Array.isArray(micrositeUses)) {
+            for (const ms of micrositeUses) {
+              const mhc = ms.header_config || {};
+              if (mhc.topNavFontFamily === stack || (mhc.secondaryBar && mhc.secondaryBar.fontFamily === stack)) {
+                usedBy.push(`microsite "${ms.name}"`);
+              }
+            }
+          }
+
+          if (usedBy.length) {
+            return res.status(409).json({
+              error: `"${fontRow.label}" can't be removed because it's still used by ${usedBy.join(', ')}. Change those to another font first.`,
+              code: 'font_in_use',
+              usedBy,
+            });
+          }
+        }
+      }
+
       // Block the legacy unsafe Event / ComplexEvent delete path. Direct deletion
       // hard-deletes bookings without refunds, credit notes, voucher/training-fund
       // reinstatement, Zoom unregistration, or attendee notifications. All callers
@@ -1283,7 +1351,7 @@ export default async function handler(req, res) {
             'ExternalWriter', 'ExternalWriterDocument',
             'CrmTagColor',
             'Gallery', 'GalleryPhoto', 'CardDeck',
-            'MemberGroupActivity', 'Microsite'
+            'MemberGroupActivity', 'Microsite', 'InstalledFont'
           ];
           if (tenantCtx.tenantId) {
             verifyQuery = verifyQuery.eq('tenant_id', tenantCtx.tenantId);

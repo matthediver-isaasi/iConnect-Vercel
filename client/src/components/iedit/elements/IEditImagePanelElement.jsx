@@ -7,7 +7,7 @@ import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import DOMPurify from 'dompurify';
 import { AlignLeft, AlignCenter, AlignRight, ChevronDown, ChevronUp, ChevronLeft, ChevronRight } from "lucide-react";
-import { CURATED_FONTS } from "@/lib/sharedFonts";
+import { useInstalledFonts } from "@/lib/installedFonts";
 
 const panelQuillModules = {
   toolbar: [
@@ -20,6 +20,7 @@ const panelQuillModules = {
 
 export default function IEditImagePanelElement({ content, variant, settings, previewViewport }) {
   const isMobilePreview = previewViewport === 'mobile';
+  const { options: installedFontOptions } = useInstalledFonts();
   const {
     anchor,
     full_width = false,
@@ -432,6 +433,7 @@ function hexToRgb(hex) {
 }
 
 export function IEditImagePanelElementEditor({ element, onChange }) {
+  const { options: installedFontOptions } = useInstalledFonts();
   const content = element.content || {};
   const backgroundType = content.background_type || 'color';
   const mobileBackgroundType = content.mobile_background_type || 'same';
@@ -643,7 +645,7 @@ export function IEditImagePanelElementEditor({ element, onChange }) {
     }
   };
 
-  const AVAILABLE_FONTS = CURATED_FONTS;
+  const AVAILABLE_FONTS = installedFontOptions;
 
   const fontWeights = [
     { value: 300, label: 'Light' },

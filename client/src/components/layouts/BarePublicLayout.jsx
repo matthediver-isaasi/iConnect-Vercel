@@ -1,8 +1,11 @@
 import React from "react";
+import { InstalledFontsLoader } from "@/lib/installedFonts";
 
 export default function BarePublicLayout({ children }) {
   return (
     <div className="flex flex-col min-h-screen bg-white" style={{ fontFamily: 'Poppins, sans-serif' }}>
+      {/* Base font (Poppins) below; tenant installed fonts loaded dynamically (Task #2549). */}
+      <InstalledFontsLoader />
       {/* Google Fonts - Poppins */}
       <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet" />
       

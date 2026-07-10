@@ -5,6 +5,7 @@ import { resolveEntityMeta } from './entityMeta.js';
 import { supabase } from './database.js';
 import { resolveMicrositeByPrefix, micrositeBrandingValue } from './microsites.js';
 import { buildTenantBrandingPayload } from './tenantBranding.js';
+import { buildGoogleFontsHref } from './installedFontsShared.js';
 
 let cachedTemplate = null;
 
@@ -184,6 +185,38 @@ async function fetchTypographyStylesForTenant(tenantId) {
   }
 }
 
+// Fetch the tenant's active installed google fonts so the SSR layer can emit a
+// <link> before first paint (Task #2549). Mirrors api/public/installed-fonts.js.
+// Returns [] on any failure (client then falls back to its own fetch).
+async function fetchInstalledFontsForTenant(tenantId) {
+  if (!supabase || !tenantId) return [];
+  try {
+    const { data, error } = await supabase
+      .from('installed_font')
+      .select('google_family')
+      .eq('tenant_id', tenantId)
+      .eq('is_active', true);
+    if (error) {
+      console.error('[renderHtml] installed fonts query error:', error.message);
+      return [];
+    }
+    return Array.isArray(data) ? data : [];
+  } catch (err) {
+    console.error('[renderHtml] installed fonts fetch failed:', err?.message);
+    return [];
+  }
+}
+
+// Inject a <link> loading the tenant's installed google fonts. Uses the same
+// element id the client uses (tenant-installed-fonts) so hydration dedupes
+// instead of loading the stylesheet twice.
+function injectInstalledFonts(html, fonts) {
+  const href = buildGoogleFontsHref(fonts);
+  if (!href) return html;
+  const tag = `<link id="tenant-installed-fonts" rel="stylesheet" href="${escapeHtml(href)}">`;
+  return html.replace('</head>', `    ${tag}\n  </head>`);
+}
+
 // Serialize a value for safe embedding inside an inline <script>. Escaping
 // `<` (and the line/paragraph separators) prevents a `</script>` sequence in
 // the data from breaking out of the script element.
@@ -341,11 +374,13 @@ export async function renderTenantHtml(req) {
   let entity = null;
   let typographyStyles = null;
   let micrositeChrome = null;
+  let installedFonts = null;
   if (tenant) {
-    const [entityResult, stylesResult, chromeResult] = await Promise.allSettled([
+    const [entityResult, stylesResult, chromeResult, fontsResult] = await Promise.allSettled([
       resolveEntityMeta(req, tenant),
       fetchTypographyStylesForTenant(tenant.id),
       resolveMicrositeChromeForRequest(req, tenant),
+      fetchInstalledFontsForTenant(tenant.id),
     ]);
     if (entityResult.status === 'fulfilled') {
       entity = entityResult.value;
@@ -354,6 +389,7 @@ export async function renderTenantHtml(req) {
     }
     typographyStyles = stylesResult.status === 'fulfilled' ? stylesResult.value : [];
     micrositeChrome = chromeResult.status === 'fulfilled' ? chromeResult.value : null;
+    installedFonts = fontsResult.status === 'fulfilled' ? fontsResult.value : [];
   }
 
   // Task #2525: microsite branding overrides replace tenant defaults in link
@@ -418,6 +454,11 @@ export async function renderTenantHtml(req) {
   // keeps its legacy fetch-then-fallback path (no flash either way).
   if (tenant && Array.isArray(typographyStyles)) {
     out = injectTypographyStyles(out, typographyStyles);
+  }
+  // Seed the tenant's installed google fonts (Task #2549). Only when a tenant
+  // resolved server-side; tenant-less hosts keep the client-side loader path.
+  if (tenant && Array.isArray(installedFonts)) {
+    out = injectInstalledFonts(out, installedFonts);
   }
   // Seed microsite chrome only when a tenant resolved server-side AND the
   // request is under an active microsite prefix. The default site and

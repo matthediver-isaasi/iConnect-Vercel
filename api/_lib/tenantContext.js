@@ -73,6 +73,8 @@ export const entityTenantScope = {
   // It was previously misclassified as GLOBAL which caused the entity API
   // to skip auth + tenant filtering, returning rows across every tenant.
   'TypographyStyle': TENANT_SCOPE.TENANT,
+  // InstalledFont: per-tenant installable Google/system fonts (Task #2549).
+  'InstalledFont': TENANT_SCOPE.TENANT,
   'IEditElementTemplate': TENANT_SCOPE.GLOBAL,
   'RoleAccessItem': TENANT_SCOPE.GLOBAL,
   'MagicLink': TENANT_SCOPE.GLOBAL, // Magic links are looked up by token, not tenant

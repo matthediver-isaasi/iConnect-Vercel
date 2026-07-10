@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Plus, X, User, Palette } from "lucide-react";
 import { CURATED_FONTS } from "@/lib/sharedFonts";
+import { useInstalledFonts } from "@/lib/installedFonts";
 
 export const NAV_FONT_WEIGHTS = [
   { value: 100, label: '100 - Thin' },
@@ -738,6 +739,7 @@ export function SecondaryBarControls({
   tone = 'dark'
 }) {
   const t = getBrandingTone(tone);
+  const { options: fontOptions } = useInstalledFonts();
   const sb = value || {};
   const set = (patch) => onChange({ ...sb, ...patch });
   const navLabels = (mainNavItems && mainNavItems.length > 0)
@@ -967,7 +969,7 @@ export function SecondaryBarControls({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="default">Poppins (default)</SelectItem>
-                    {NAV_AVAILABLE_FONTS.map((f) => (
+                    {fontOptions.map((f) => (
                       <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
                     ))}
                   </SelectContent>

@@ -9,6 +9,7 @@ import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { isResourceExcluded } from "@/lib/roleVisibility";
 import { migrateLegacyFeatureId } from "@/lib/roleAccessMap";
 import { buildPortalNavBackgroundStyle } from "@/lib/canvasBackground";
+import { InstalledFontsLoader } from "@/lib/installedFonts";
 import { publicClient } from "@/api/publicClient";
 import {
   Sidebar,
@@ -2361,11 +2362,13 @@ useEffect(() => {
 
   return (
     <div style={{ fontFamily: portalRootFont }}>
-      {/* Google Fonts - Poppins */}
+      {/* Base font (Poppins) always loaded below; the tenant's installed google
+          fonts are loaded dynamically (Task #2549), falling back to the curated
+          set when no tenant resolves. */}
+      <InstalledFontsLoader />
       <style>
         {`
           @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap');
-          @import url('https://fonts.googleapis.com/css2?family=Lato:wght@400;700&family=Merriweather:wght@400;700&family=Montserrat:wght@400;600;700&family=Open+Sans:wght@400;600;700&family=Oswald:wght@400;600;700&family=Playfair+Display:wght@400;700&family=Raleway:wght@400;600;700&family=Roboto:wght@400;700&family=Source+Sans+Pro:ital,wght@0,400;0,600;0,700;1,400&family=Urbanist:wght@400;500;600;700;800&display=swap');
           ${isBnmsTenant ? `@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Urbanist:wght@500;600;700;800&display=swap');` : ''}
           ${portalFontImportName ? `@import url('https://fonts.googleapis.com/css2?family=${encodeURIComponent(portalFontImportName).replace(/%20/g, '+')}:wght@400;500;600;700&display=swap');` : ''}
 

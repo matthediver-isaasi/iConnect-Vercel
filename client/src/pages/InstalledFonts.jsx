@@ -16,7 +16,8 @@ import {
   Save, 
   X,
   Star,
-  Eye
+  Eye,
+  Search
 } from "lucide-react";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -47,7 +48,14 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/use-toast";
-import { CURATED_FONTS } from "@/lib/sharedFonts";
+import { CURATED_FONTS, POPULAR_GOOGLE_FONTS } from "@/lib/sharedFonts";
+import {
+  useInstalledFonts,
+  injectInstalledFontsStylesheet,
+  clearInstalledFontsCache,
+  googleFamilyToken,
+  buildFontStack,
+} from "@/lib/installedFonts";
 
 const STYLE_TYPES = [
   { value: 'h1', label: 'H1 - Main Heading' },
@@ -104,6 +112,18 @@ const defaultStyle = {
 function TypographyStyleEditor({ style, onSave, onCancel, isNew = false }) {
   const [formData, setFormData] = useState(style || defaultStyle);
   const [isSaving, setIsSaving] = useState(false);
+  const { options: installedFontOptions } = useInstalledFonts();
+
+  // Show the tenant's installed fonts; keep the currently-selected value visible
+  // even if it is no longer installed (so editing an old style doesn't blank it).
+  const fontOptions = React.useMemo(() => {
+    const base = installedFontOptions && installedFontOptions.length ? installedFontOptions : AVAILABLE_FONTS;
+    const current = formData.font_family;
+    if (current && !base.some((f) => f.value === current)) {
+      return [{ value: current, label: `${current} (not installed)` }, ...base];
+    }
+    return base;
+  }, [installedFontOptions, formData.font_family]);
 
   const handleChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -213,9 +233,9 @@ function TypographyStyleEditor({ style, onSave, onCancel, isNew = false }) {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {AVAILABLE_FONTS.map(font => (
+              {fontOptions.map(font => (
                 <SelectItem key={font.value} value={font.value}>
-                  {font.label}
+                  <span style={{ fontFamily: font.value }}>{font.label}</span>
                 </SelectItem>
               ))}
             </SelectContent>
@@ -590,13 +610,360 @@ function TypographyStyleCard({ style, onEdit, onDuplicate, onDelete, onSetDefaul
   );
 }
 
+const PREVIEW_TEXT = 'The quick brown fox jumps over the lazy dog';
+
+// Extract the human-readable message from a base44 "API Error (409): ..." throw.
+function extractApiError(error, fallback) {
+  const raw = error?.message || '';
+  const stripped = raw.replace(/^API Error \(\d+\):\s*/, '').trim();
+  return stripped || fallback;
+}
+
+function InstalledFontsManager() {
+  const { toast } = useToast();
+  const [fonts, setFonts] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [addOpen, setAddOpen] = useState(false);
+  const [addMode, setAddMode] = useState('browse');
+  const [search, setSearch] = useState('');
+  const [manualName, setManualName] = useState('');
+  const [manualCategory, setManualCategory] = useState('sans-serif');
+  const [savingName, setSavingName] = useState(null);
+  const [removeTarget, setRemoveTarget] = useState(null);
+  const [isRemoving, setIsRemoving] = useState(false);
+
+  const loadFonts = async () => {
+    setIsLoading(true);
+    try {
+      const rows = await base44.entities.InstalledFont.list();
+      const list = Array.isArray(rows) ? rows : [];
+      list.sort((a, b) => {
+        if (!!b.is_base !== !!a.is_base) return b.is_base ? 1 : -1;
+        return String(a.label || '').localeCompare(String(b.label || ''));
+      });
+      setFonts(list);
+    } catch (error) {
+      console.error('Failed to load installed fonts:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to load installed fonts',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadFonts();
+  }, []);
+
+  // Keep previews rendered: inject the combined stylesheet for installed fonts.
+  useEffect(() => {
+    if (fonts.length) injectInstalledFontsStylesheet(fonts);
+  }, [fonts]);
+
+  // While the add dialog is open, load the popular-font previews so labels render
+  // in their own typeface.
+  useEffect(() => {
+    if (!addOpen) return;
+    const id = 'installed-fonts-browse-preview';
+    if (document.getElementById(id)) return;
+    const href =
+      'https://fonts.googleapis.com/css2?' +
+      POPULAR_GOOGLE_FONTS.map((f) => `family=${googleFamilyToken(f.name)}:wght@400;600`).join('&') +
+      '&display=swap';
+    const link = document.createElement('link');
+    link.id = id;
+    link.rel = 'stylesheet';
+    link.href = href;
+    document.head.appendChild(link);
+  }, [addOpen]);
+
+  const installedNames = React.useMemo(
+    () => new Set(fonts.map((f) => String(f.label || '').toLowerCase())),
+    [fonts]
+  );
+
+  const addFont = async (name, category) => {
+    const clean = String(name || '').trim();
+    if (!clean) return;
+    if (installedNames.has(clean.toLowerCase())) {
+      toast({ title: 'Already installed', description: `${clean} is already in your library.` });
+      return;
+    }
+    setSavingName(clean);
+    try {
+      await base44.entities.InstalledFont.create({
+        label: clean,
+        font_stack: buildFontStack(clean, category),
+        google_family: googleFamilyToken(clean),
+        source: 'google',
+        is_base: false,
+        is_active: true,
+      });
+      clearInstalledFontsCache();
+      toast({ title: 'Font added', description: `${clean} is now available.` });
+      setManualName('');
+      await loadFonts();
+    } catch (error) {
+      console.error('Failed to add font:', error);
+      toast({
+        title: 'Error',
+        description: extractApiError(error, 'Failed to add font'),
+        variant: 'destructive',
+      });
+    } finally {
+      setSavingName(null);
+    }
+  };
+
+  const handleRemove = async () => {
+    if (!removeTarget) return;
+    setIsRemoving(true);
+    try {
+      await base44.entities.InstalledFont.delete(removeTarget.id);
+      clearInstalledFontsCache();
+      toast({ title: 'Font removed', description: `${removeTarget.label} was removed.` });
+      setRemoveTarget(null);
+      await loadFonts();
+    } catch (error) {
+      console.error('Failed to remove font:', error);
+      toast({
+        title: "Can't remove font",
+        description: extractApiError(error, 'This font is in use and cannot be removed.'),
+        variant: 'destructive',
+      });
+    } finally {
+      setIsRemoving(false);
+    }
+  };
+
+  const filteredPopular = React.useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return POPULAR_GOOGLE_FONTS.filter((f) => {
+      if (installedNames.has(f.name.toLowerCase())) return false;
+      if (!q) return true;
+      return f.name.toLowerCase().includes(q);
+    });
+  }, [search, installedNames]);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-semibold text-slate-900">Installed Fonts</h2>
+          <p className="text-sm text-slate-600">
+            Fonts available across your typography styles, navigation, and public pages
+          </p>
+        </div>
+        <Button onClick={() => setAddOpen(true)} data-testid="button-add-font">
+          <Plus className="w-4 h-4 mr-2" />
+          Add Font
+        </Button>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+        </div>
+      ) : fonts.length === 0 ? (
+        <Card className="border-dashed border-2 border-slate-300">
+          <CardContent className="py-12 text-center">
+            <Type className="w-12 h-12 mx-auto text-slate-400 mb-4" />
+            <h3 className="text-lg font-semibold text-slate-700 mb-2">No Fonts Installed</h3>
+            <p className="text-slate-500 mb-4">Add a font to make it available across your site</p>
+            <Button onClick={() => setAddOpen(true)} data-testid="button-add-first-font">
+              <Plus className="w-4 h-4 mr-2" />
+              Add Font
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2">
+          {fonts.map((font) => (
+            <Card key={font.id} className="border-slate-200" data-testid={`card-font-${font.id}`}>
+              <CardHeader>
+                <CardTitle className="flex flex-wrap items-center justify-between gap-2">
+                  <span style={{ fontFamily: font.font_stack }} data-testid={`text-font-name-${font.id}`}>
+                    {font.label}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    {font.is_base ? (
+                      <Badge variant="secondary" data-testid={`badge-base-${font.id}`}>Base</Badge>
+                    ) : (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => setRemoveTarget(font)}
+                        data-testid={`button-remove-font-${font.id}`}
+                        aria-label={`Remove ${font.label}`}
+                      >
+                        <Trash2 className="w-4 h-4 text-red-600" />
+                      </Button>
+                    )}
+                  </div>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <p style={{ fontFamily: font.font_stack, fontSize: '22px' }} className="text-slate-900">
+                  {PREVIEW_TEXT}
+                </p>
+                <code className="text-xs bg-slate-100 px-2 py-1 rounded inline-block">
+                  {font.font_stack}
+                </code>
+                {font.is_base && (
+                  <p className="text-xs text-slate-500">
+                    Always available and cannot be removed.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Add a Font</DialogTitle>
+          </DialogHeader>
+
+          <Tabs value={addMode} onValueChange={setAddMode} className="space-y-4">
+            <TabsList>
+              <TabsTrigger value="browse" data-testid="tab-browse-fonts">Browse Library</TabsTrigger>
+              <TabsTrigger value="manual" data-testid="tab-manual-font">Add by Name</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="browse" className="space-y-4">
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <Input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search Google Fonts..."
+                  className="pl-9"
+                  data-testid="input-search-fonts"
+                />
+              </div>
+              <div className="max-h-80 overflow-y-auto space-y-1 pr-1">
+                {filteredPopular.length === 0 ? (
+                  <p className="text-sm text-slate-500 py-6 text-center">
+                    No matching fonts. Try "Add by Name" for any Google font.
+                  </p>
+                ) : (
+                  filteredPopular.map((f) => (
+                    <div
+                      key={f.name}
+                      className="flex items-center justify-between gap-3 rounded-md p-2 hover-elevate"
+                      data-testid={`row-browse-font-${f.name}`}
+                    >
+                      <div className="min-w-0">
+                        <div style={{ fontFamily: buildFontStack(f.name, f.category), fontSize: '18px' }} className="truncate text-slate-900">
+                          {f.name}
+                        </div>
+                        <div className="text-xs text-slate-500">{f.category}</div>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={savingName === f.name}
+                        onClick={() => addFont(f.name, f.category)}
+                        data-testid={`button-add-browse-${f.name}`}
+                      >
+                        {savingName === f.name ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <><Plus className="w-4 h-4 mr-1" />Add</>
+                        )}
+                      </Button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </TabsContent>
+
+            <TabsContent value="manual" className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="manual-font-name">Google Font family name</Label>
+                <Input
+                  id="manual-font-name"
+                  value={manualName}
+                  onChange={(e) => setManualName(e.target.value)}
+                  placeholder="e.g. Space Grotesk"
+                  data-testid="input-manual-font-name"
+                />
+                <p className="text-xs text-slate-500">
+                  Enter the exact family name as it appears on Google Fonts.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label>Fallback style</Label>
+                <Select value={manualCategory} onValueChange={setManualCategory}>
+                  <SelectTrigger data-testid="select-manual-category">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="sans-serif">Sans-serif</SelectItem>
+                    <SelectItem value="serif">Serif</SelectItem>
+                    <SelectItem value="display">Display</SelectItem>
+                    <SelectItem value="handwriting">Handwriting</SelectItem>
+                    <SelectItem value="monospace">Monospace</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <DialogFooter>
+                <Button
+                  onClick={() => addFont(manualName, manualCategory)}
+                  disabled={!manualName.trim() || savingName === manualName.trim()}
+                  data-testid="button-add-manual-font"
+                >
+                  {savingName === manualName.trim() ? (
+                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Adding...</>
+                  ) : (
+                    <><Plus className="w-4 h-4 mr-2" />Add Font</>
+                  )}
+                </Button>
+              </DialogFooter>
+            </TabsContent>
+          </Tabs>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!removeTarget} onOpenChange={(open) => !open && setRemoveTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove {removeTarget?.label}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This font will no longer be available for typography styles, navigation, or branding.
+              If it is currently in use, removal will be blocked.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isRemoving} data-testid="button-cancel-remove-font">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); handleRemove(); }}
+              disabled={isRemoving}
+              data-testid="button-confirm-remove-font"
+            >
+              {isRemoving ? (
+                <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Removing...</>
+              ) : (
+                'Remove'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
 export default function InstalledFontsPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const { toast } = useToast();
   const [accessChecked, setAccessChecked] = useState(false);
-  const [fontLoadStatus, setFontLoadStatus] = useState({});
-  const [debugInfo, setDebugInfo] = useState({});
-  
+
   // Typography styles state
   const [typographyStyles, setTypographyStyles] = useState([]);
   const [isLoadingStyles, setIsLoadingStyles] = useState(true);
@@ -615,45 +982,6 @@ export default function InstalledFontsPage() {
       }
     }
   }, [isFeatureExcluded, isAccessReady]);
-
-  useEffect(() => {
-    if ('fonts' in document) {
-      document.fonts.load('500 16px "Degular Medium"').then(() => {
-        const loaded = document.fonts.check('500 16px "Degular Medium"');
-        setFontLoadStatus({ degular: loaded });
-      }).catch((err) => {
-        setFontLoadStatus({ degular: false, error: err.message });
-      });
-
-      document.fonts.addEventListener('loadingdone', (event) => {
-        const fontFaces = Array.from(document.fonts.values());
-        const degularFont = fontFaces.find(f => f.family === 'Degular Medium');
-        setDebugInfo({
-          totalFonts: fontFaces.length,
-          degularFound: !!degularFont,
-          degularStatus: degularFont?.status,
-          allFontFamilies: fontFaces.map(f => f.family)
-        });
-      });
-    }
-
-    fetch('https://teeone.pythonanywhere.com/font-assets/Degular-Medium.woff', { mode: 'cors' })
-      .then(response => {
-        setDebugInfo(prev => ({
-          ...prev,
-          fetchStatus: response.ok ? 'success' : 'failed',
-          fetchStatusCode: response.status,
-          corsHeaders: response.headers.get('Access-Control-Allow-Origin')
-        }));
-      })
-      .catch(err => {
-        setDebugInfo(prev => ({
-          ...prev,
-          fetchStatus: 'error',
-          fetchError: err.message
-        }));
-      });
-  }, []);
 
   // Load typography styles
   useEffect(() => {
@@ -818,23 +1146,6 @@ export default function InstalledFontsPage() {
     );
   }
 
-  const fonts = [
-    {
-      name: "Poppins",
-      family: "Poppins, sans-serif",
-      source: "Google Fonts",
-      weights: ["400 (Regular)", "600 (Semibold)"],
-      usage: "Body text, general UI elements"
-    },
-    {
-      name: "Degular Medium",
-      family: "'Degular Medium', 'Poppins', sans-serif",
-      source: "https://teeone.pythonanywhere.com/font-assets",
-      weights: ["500 (Medium)"],
-      usage: "H1 headers"
-    }
-  ];
-
   return (
     <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-6xl mx-auto">
@@ -855,138 +1166,7 @@ export default function InstalledFontsPage() {
           </TabsList>
 
           <TabsContent value="fonts" className="space-y-6">
-            {/* Debug Information Card */}
-            <Card className="border-warning/30 bg-warning/10">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-lg">
-                  <AlertCircle className="w-5 h-5 text-warning" />
-                  Font Loading Debug Information
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div>
-                    <h4 className="font-semibold text-sm mb-2">Font API Check</h4>
-                    <div className="space-y-1 text-sm">
-                      <div className="flex items-center gap-2">
-                        {fontLoadStatus.degular ? (
-                          <CheckCircle className="w-4 h-4 text-green-600" />
-                        ) : (
-                          <AlertCircle className="w-4 h-4 text-red-600" />
-                        )}
-                        <span>Degular Medium: </span>
-                        <Badge variant={fontLoadStatus.degular ? "default" : "destructive"}>
-                          {fontLoadStatus.degular ? 'Loaded' : 'Not Loaded'}
-                        </Badge>
-                      </div>
-                      {fontLoadStatus.error && (
-                        <div className="text-xs text-red-600 mt-1">Error: {fontLoadStatus.error}</div>
-                      )}
-                    </div>
-                  </div>
-                  
-                  <div>
-                    <h4 className="font-semibold text-sm mb-2">Network Fetch Test</h4>
-                    <div className="space-y-1 text-sm">
-                      <div>Status: <Badge variant={debugInfo.fetchStatus === 'success' ? 'default' : 'destructive'}>{debugInfo.fetchStatus || 'Testing...'}</Badge></div>
-                      {debugInfo.fetchStatusCode && <div>HTTP Code: {debugInfo.fetchStatusCode}</div>}
-                      {debugInfo.corsHeaders && <div>CORS Header: {debugInfo.corsHeaders}</div>}
-                      {debugInfo.fetchError && <div className="text-xs text-red-600">Error: {debugInfo.fetchError}</div>}
-                    </div>
-                  </div>
-                </div>
-
-                {debugInfo.allFontFamilies && (
-                  <div className="pt-3 border-t border-warning/30">
-                    <h4 className="font-semibold text-sm mb-2">All Loaded Font Families ({debugInfo.totalFonts}):</h4>
-                    <div className="flex flex-wrap gap-1">
-                      {debugInfo.allFontFamilies.map((family, i) => (
-                        <Badge key={i} variant="outline" className="text-xs">
-                          {family}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div className="pt-3 border-t border-warning/30">
-                  <h4 className="font-semibold text-sm mb-2">Browser Console Check:</h4>
-                  <p className="text-xs text-slate-600">
-                    Open your browser's DevTools (F12) → Network tab → Filter by "font" to see if the font file is loading and check for CORS errors.
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-
-            <div className="space-y-6">
-              {fonts.map((font, index) => (
-                <Card key={index} className="border-slate-200">
-                  <CardHeader>
-                    <CardTitle className="flex items-center justify-between">
-                      <span style={{ fontFamily: font.family }}>{font.name}</span>
-                      <span className="text-sm font-normal text-slate-500">{font.source}</span>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="grid md:grid-cols-2 gap-4">
-                      <div>
-                        <h4 className="text-sm font-semibold text-slate-700 mb-2">Font Details</h4>
-                        <div className="space-y-1 text-sm">
-                          <div>
-                            <span className="text-slate-500">Family: </span>
-                            <code className="text-xs bg-slate-100 px-2 py-1 rounded">{font.family}</code>
-                          </div>
-                          <div>
-                            <span className="text-slate-500">Weights: </span>
-                            <span className="text-slate-700">{font.weights.join(", ")}</span>
-                          </div>
-                          <div>
-                            <span className="text-slate-500">Usage: </span>
-                            <span className="text-slate-700">{font.usage}</span>
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <div>
-                        <h4 className="text-sm font-semibold text-slate-700 mb-2">Preview</h4>
-                        <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-2">
-                          <p style={{ fontFamily: font.family, fontSize: '24px' }}>
-                            The quick brown fox jumps over the lazy dog
-                          </p>
-                          <p style={{ fontFamily: font.family, fontSize: '16px' }}>
-                            ABCDEFGHIJKLMNOPQRSTUVWXYZ
-                          </p>
-                          <p style={{ fontFamily: font.family, fontSize: '16px' }}>
-                            abcdefghijklmnopqrstuvwxyz
-                          </p>
-                          <p style={{ fontFamily: font.family, fontSize: '16px' }}>
-                            0123456789
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="pt-4 border-t border-slate-200">
-                      <h4 className="text-sm font-semibold text-slate-700 mb-2">Size Examples</h4>
-                      <div className="space-y-3">
-                        <p style={{ fontFamily: font.family, fontSize: '32px' }}>
-                          32px - Large Heading
-                        </p>
-                        <p style={{ fontFamily: font.family, fontSize: '24px' }}>
-                          24px - Medium Heading
-                        </p>
-                        <p style={{ fontFamily: font.family, fontSize: '16px' }}>
-                          16px - Body Text
-                        </p>
-                        <p style={{ fontFamily: font.family, fontSize: '14px' }}>
-                          14px - Small Text
-                        </p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+            <InstalledFontsManager />
           </TabsContent>
 
           <TabsContent value="typography" className="space-y-6">

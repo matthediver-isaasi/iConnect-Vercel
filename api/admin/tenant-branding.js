@@ -17,7 +17,10 @@ function normalizeHexColor(color) {
 }
 
 const ALLOWED_NAV_FONT_WEIGHTS = [100, 200, 300, 400, 500, 600, 700, 800, 900];
-const ALLOWED_NAV_FONT_FAMILIES = [
+// Always-allowed system/base font stacks. Tenant-installed google fonts are
+// resolved per-request from the installed_font table and merged with these
+// (see resolveAllowedFontFamilies) so newly installed fonts can be saved.
+const ALLOWED_SYSTEM_FONT_FAMILIES = [
   'Poppins, sans-serif',
   'Urbanist, sans-serif',
   "'Degular Medium', 'Poppins', sans-serif",
@@ -32,8 +35,29 @@ function validateNavFontWeight(weight) {
   return ALLOWED_NAV_FONT_WEIGHTS.includes(n) ? n : null;
 }
 
-function validateNavFontFamily(family) {
-  return (typeof family === 'string' && ALLOWED_NAV_FONT_FAMILIES.includes(family)) ? family : null;
+// Build the set of font stacks a tenant may save: the always-on system/base
+// stacks plus every font_stack in the tenant's installed_font table.
+async function resolveAllowedFontFamilies(tenantId) {
+  const allowed = new Set(ALLOWED_SYSTEM_FONT_FAMILIES);
+  try {
+    const { data, error } = await supabase
+      .from('installed_font')
+      .select('font_stack')
+      .eq('tenant_id', tenantId);
+    if (!error && Array.isArray(data)) {
+      for (const row of data) {
+        const stack = (row && typeof row.font_stack === 'string') ? row.font_stack.trim() : '';
+        if (stack) allowed.add(stack);
+      }
+    }
+  } catch (err) {
+    console.error('[Admin] resolveAllowedFontFamilies error:', err?.message);
+  }
+  return allowed;
+}
+
+function validateNavFontFamily(family, allowed) {
+  return (typeof family === 'string' && allowed && allowed.has(family)) ? family : null;
 }
 
 // --- Portal sidebar (authenticated portal nav) branding validators ---
@@ -317,6 +341,10 @@ export default async function handler(req, res) {
         }
       }
 
+      // Font-family values (nav / secondary bar / base portal font) are validated
+      // against the tenant's installed fonts plus the always-on system/base stacks.
+      const allowedFontFamilies = await resolveAllowedFontFamilies(tenantId);
+
       if (updates.primary_color) {
         const normalized = normalizeHexColor(updates.primary_color);
         if (!normalized) {
@@ -434,7 +462,7 @@ export default async function handler(req, res) {
 
       // Validate top-nav base font family against the installed-font list
       if (updates.header_config && updates.header_config.topNavFontFamily !== undefined) {
-        const ff = validateNavFontFamily(updates.header_config.topNavFontFamily);
+        const ff = validateNavFontFamily(updates.header_config.topNavFontFamily, allowedFontFamilies);
         if (ff) {
           updates.header_config.topNavFontFamily = ff;
         } else {
@@ -502,7 +530,7 @@ export default async function handler(req, res) {
             sanitizedSecondaryBar.fontWeight = sfw;
           }
 
-          const sff = validateNavFontFamily(sb.fontFamily);
+          const sff = validateNavFontFamily(sb.fontFamily, allowedFontFamilies);
           if (sff) {
             sanitizedSecondaryBar.fontFamily = sff;
           }
@@ -566,7 +594,7 @@ export default async function handler(req, res) {
           updates.branding_config.portalNav = validatePortalNav(updates.branding_config.portalNav);
         }
         if (updates.branding_config.basePortalFont !== undefined) {
-          updates.branding_config.basePortalFont = validateNavFontFamily(updates.branding_config.basePortalFont);
+          updates.branding_config.basePortalFont = validateNavFontFamily(updates.branding_config.basePortalFont, allowedFontFamilies);
         }
         if (updates.branding_config.resourceCategoryTitleColor !== undefined) {
           updates.branding_config.resourceCategoryTitleColor = normalizeHexColor(updates.branding_config.resourceCategoryTitleColor);

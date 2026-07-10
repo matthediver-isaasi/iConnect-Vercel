@@ -17,6 +17,7 @@ import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { useMicrosite, usePublicChromeBranding } from "@/contexts/MicrositeContext";
 import { useResolvedSocialIcons } from "@/hooks/useResolvedSocialIcons";
 import { useLayoutContext } from "@/contexts/LayoutContext";
+import { InstalledFontsLoader } from "@/lib/installedFonts";
 
 // Map page names to portal page identifiers for banner matching
 // These identifiers must match the PORTAL_PAGES values in PageBannerManagement.jsx
@@ -362,6 +363,8 @@ export default function PublicLayout({ children, currentPageName }) {
   return (
     <>
       <div className="flex flex-col min-h-screen" style={{ fontFamily: 'Poppins, sans-serif' }}>
+        {/* Base font (Poppins) below; tenant installed fonts loaded dynamically (Task #2549). */}
+        <InstalledFontsLoader />
         {/* Google Fonts - Poppins */}
         <style>
           {`

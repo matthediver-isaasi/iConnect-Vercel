@@ -275,6 +275,7 @@ class EntitiesProxy {
   get OrganizationPreferenceValue() { return this._getEntity('OrganizationPreferenceValue'); }
   get Speaker() { return this._getEntity('Speaker'); }
   get TypographyStyle() { return this._getEntity('TypographyStyle'); }
+  get InstalledFont() { return this._getEntity('InstalledFont'); }
   get CardDeck() { return this._getEntity('CardDeck'); }
   get DynamicDirectory() { return this._getEntity('DynamicDirectory'); }
   get TrainingFundTransaction() { return this._getEntity('TrainingFundTransaction'); }

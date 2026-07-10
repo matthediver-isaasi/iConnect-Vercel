@@ -1,0 +1,38 @@
+{
+    "name": "InstalledFont",
+    "type": "object",
+    "properties": {
+      "label": {
+        "type": "string",
+        "description": "Display name of the font (e.g. 'Roboto', 'Open Sans')"
+      },
+      "font_stack": {
+        "type": "string",
+        "description": "CSS font-family value stored on typography styles and branding settings (e.g. 'Roboto, sans-serif')"
+      },
+      "google_family": {
+        "type": "string",
+        "description": "Google Fonts API family token used to build the stylesheet URL (e.g. 'Open+Sans'); empty for system fonts that need no web load"
+      },
+      "source": {
+        "type": "string",
+        "enum": ["google", "system"],
+        "default": "google",
+        "description": "Where the font comes from: a Google web font or a system/local font"
+      },
+      "is_base": {
+        "type": "boolean",
+        "default": false,
+        "description": "Always-on base font (Poppins, Degular Medium) that is loaded everywhere and cannot be removed"
+      },
+      "is_active": {
+        "type": "boolean",
+        "default": true,
+        "description": "Whether the font is available for selection and loaded on public pages"
+      }
+    },
+    "required": [
+      "label",
+      "font_stack"
+    ]
+  }
