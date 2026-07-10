@@ -54,18 +54,35 @@ function measureReflowHeight(el) {
  * The reported height is margin-inclusive (see measureReflowHeight) so a
  * typography style's Margin Bottom is honoured when stacking the block below.
  *
+ * `extraHeight` (Task #2612) folds the block's configured vertical padding —
+ * `paddingTop + paddingBottom` from the inspector's Spacing panel — into the
+ * reported footprint. The measured element is the block's INNER content, while
+ * that padding is applied on the OUTER wrapper, so the raw measurement omits
+ * it and blocks snapped below would overlap into the visible padding. This is
+ * only added in EDITOR mode (where the reported height is baked into stored
+ * geometry and drives snapping/stacking). The public renderer keeps measuring
+ * the bare content footprint so its read-time push-down — which compares the
+ * measured height against the stored geometry — is byte-unchanged on already
+ * published pages whose stored height predates this padding-inclusive commit.
+ *
  * Safe to use even when there is no surrounding provider (reflow is null): the
  * effects simply no-op.
  */
-export function useReportReflowHeight(blockId) {
+export function useReportReflowHeight(blockId, extraHeight = 0) {
   const reflow = useAccordionReflow();
   const containerRef = useRef(null);
+
+  // Only the editor bakes measured heights into stored geometry and snaps
+  // against them, so the wrapper padding is folded in for the editor only.
+  const pad = (reflow?.editorMode && Number.isFinite(extraHeight) && extraHeight > 0)
+    ? extraHeight
+    : 0;
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useLayoutEffect(() => {
     if (!reflow || !containerRef.current) return;
     const h = measureReflowHeight(containerRef.current);
-    if (h > 0) reflow.reportHeight(blockId, Math.round(h));
+    if (h > 0) reflow.reportHeight(blockId, Math.round(h + pad));
   }, []); // intentionally mount-only; ResizeObserver below handles ongoing changes
 
   useEffect(() => {
@@ -73,12 +90,16 @@ export function useReportReflowHeight(blockId) {
     const el = containerRef.current;
     const report = () => {
       const h = measureReflowHeight(el);
-      if (h > 0) reflow.reportHeight(blockId, Math.round(h));
+      if (h > 0) reflow.reportHeight(blockId, Math.round(h + pad));
     };
+    // Re-running on `pad` change (author edited padding in the inspector, which
+    // does not resize the measured inner element) re-observes and re-reports —
+    // ResizeObserver fires an initial callback on observe — so the new padded
+    // footprint is picked up immediately.
     const observer = new ResizeObserver(report);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [reflow, blockId]);
+  }, [reflow, blockId, pad]);
 
   return containerRef;
 }
@@ -419,7 +440,7 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
   const getSectionGrowth = getContainerGrowth;
 
   return (
-    <AccordionReflowCtx.Provider value={{ reportHeight, getOffset, getMeasuredHeight, getContentHeight, getRowHeight, getTotalGrowth, getSectionGrowth, getContainerGrowth }}>
+    <AccordionReflowCtx.Provider value={{ editorMode, reportHeight, getOffset, getMeasuredHeight, getContentHeight, getRowHeight, getTotalGrowth, getSectionGrowth, getContainerGrowth }}>
       {children}
     </AccordionReflowCtx.Provider>
   );

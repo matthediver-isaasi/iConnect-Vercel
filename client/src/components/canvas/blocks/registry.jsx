@@ -1909,8 +1909,13 @@ function TextRender({ block, breakpoint }) {
 
   // Report our rendered height to the AccordionReflowContext so blocks below
   // reflow down/up as the text grows or shrinks — the same mechanism the
-  // FAQ/Accordion block uses.
-  const containerRef = useReportReflowHeight(block.id);
+  // FAQ/Accordion block uses. The measured element is the inner text, so fold
+  // the wrapper's configured vertical padding (Task #2612) into the reported
+  // footprint so the editor snaps blocks below past the visible padding.
+  const containerRef = useReportReflowHeight(
+    block.id,
+    (block.style?.paddingTop || 0) + (block.style?.paddingBottom || 0),
+  );
 
   return (
     <>
@@ -3307,8 +3312,13 @@ function AccordionRender({ block, asEditor }) {
   };
 
   // Report our rendered height to the AccordionReflowContext so that the
-  // canvas renderers can shift blocks below us down by the right delta.
-  const containerRef = useReportReflowHeight(block.id);
+  // canvas renderers can shift blocks below us down by the right delta. Fold
+  // the wrapper's configured vertical padding (Task #2612) into the reported
+  // footprint so the editor snaps blocks below past the visible padding.
+  const containerRef = useReportReflowHeight(
+    block.id,
+    (block.style?.paddingTop || 0) + (block.style?.paddingBottom || 0),
+  );
 
   return (
     <div
