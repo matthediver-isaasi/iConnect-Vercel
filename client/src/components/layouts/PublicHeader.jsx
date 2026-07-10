@@ -1664,7 +1664,7 @@ export default function PublicHeader() {
             ...(topBarHeight ? { height: `${topBarHeight}px` } : {})
           }}
         >
-          <div className="max-w-7xl w-full mx-auto px-4">
+          <div className="max-w-[1200px] w-full mx-auto px-4">
             <div className="flex justify-end items-center">
               <div className="flex items-center gap-6">
                 {/* Dynamic Top Nav Items */}
@@ -1687,7 +1687,7 @@ export default function PublicHeader() {
               ? { background: secondaryBarGradient, ...(secondaryBarBottomBorder ? { borderBottom: secondaryBarBottomBorder } : {}) }
               : { background: '#FFFFFF', ...(secondaryBarBottomBorder ? { borderBottom: secondaryBarBottomBorder } : {}) }}
           >
-            <div className="max-w-7xl mx-auto px-4">
+            <div className="max-w-[1200px] mx-auto px-4">
               <div
                 className="flex justify-between items-center"
                 style={{ height: `${combinedBarHeight}px` }}

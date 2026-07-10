@@ -6,8 +6,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
 import { adminFetch } from "@/lib/adminFetch";
+import { useInstalledFonts } from "@/lib/installedFonts";
 import {
   Loader2, Palette, Image as ImageIcon, PanelTop, LogIn, UserCircle,
   Rows3, Share2, PanelBottom, AtSign, Upload,
@@ -20,6 +22,7 @@ import {
   hydrateSecondaryBarConfig,
   hydrateFooterConfig,
   getHeaderGradientStops,
+  NAV_FONT_WEIGHTS,
   DEFAULT_HEADER_GRADIENT_STOPS,
   DEFAULT_LOGIN_BUTTON_GRADIENT_STOPS,
 } from "@/components/branding/brandingShared";
@@ -211,6 +214,7 @@ function ImageField({ label, value, onChange, hint, testIdPrefix, toast }) {
 export default function MicrositeChromeEditor({ microsite }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { options: fontOptions } = useInstalledFonts();
 
   // Tenant defaults (no prefix -> tenant-level merged branding) used to
   // prefill a card the first time its Override switch is turned on.
@@ -234,7 +238,9 @@ export default function MicrositeChromeEditor({ microsite }) {
         logo: hasVal(bc.logo_url),
         headerLogo: hasVal(bc.header_logo_url),
         headerGradient: hasVal(hc.gradientStops) || hasVal(hc.gradientColors),
-        topNavLabelWidth: hasVal(hc.topNavLabelMaxWidth),
+        topNav: hasVal(hc.topNavFontFamily) || hasVal(hc.topNavFontSize)
+          || hasVal(hc.topNavFontWeight) || hasVal(hc.topNavTextColor)
+          || hasVal(hc.topNavHoverColor) || hasVal(hc.topNavLabelMaxWidth),
         loginButton: hasVal(hc.loginLink),
         memberButton: hasVal(hc.memberAreaLink),
         secondaryBar: hasVal(hc.secondaryBar),
@@ -260,6 +266,11 @@ export default function MicrositeChromeEditor({ microsite }) {
           ? getHeaderGradientStops(hc)
           : [],
         topNavLabelMaxWidth: hc.topNavLabelMaxWidth ?? "",
+        topNavFontFamily: hc.topNavFontFamily || "",
+        topNavFontSize: hc.topNavFontSize ?? "",
+        topNavFontWeight: hc.topNavFontWeight ?? "",
+        topNavTextColor: hc.topNavTextColor || "",
+        topNavHoverColor: hc.topNavHoverColor || "",
         loginLink: (hc.loginLink && typeof hc.loginLink === "object") ? hc.loginLink : {},
         memberAreaLink: (hc.memberAreaLink && typeof hc.memberAreaLink === "object") ? hc.memberAreaLink : {},
         secondaryBar: (hc.secondaryBar && typeof hc.secondaryBar === "object")
@@ -305,7 +316,12 @@ export default function MicrositeChromeEditor({ microsite }) {
       ? header.gradientStops
       : (Array.isArray(thc.gradientStops) && thc.gradientStops.length > 0 ? thc.gradientStops : DEFAULT_HEADER_GRADIENT_STOPS),
   });
-  const seedTopNavLabelWidth = () => setHeader({
+  const seedTopNav = () => setHeader({
+    topNavFontFamily: header.topNavFontFamily || thc.topNavFontFamily || "",
+    topNavFontSize: header.topNavFontSize || thc.topNavFontSize || "",
+    topNavFontWeight: header.topNavFontWeight || thc.topNavFontWeight || "",
+    topNavTextColor: header.topNavTextColor || thc.topNavTextColor || "",
+    topNavHoverColor: header.topNavHoverColor || thc.topNavHoverColor || "",
     topNavLabelMaxWidth: header.topNavLabelMaxWidth || thc.topNavLabelMaxWidth || "",
   });
   const seedLogin = () => setHeader({
@@ -344,8 +360,21 @@ export default function MicrositeChromeEditor({ microsite }) {
       const headerOut = { ...(microsite.header_config || {}) };
       if (overrides.headerGradient && hasVal(header.gradientStops)) headerOut.gradientStops = header.gradientStops;
       else delete headerOut.gradientStops;
+      // Top navigation bar font + colours (mirrors the secondary bar overrides).
+      if (overrides.topNav && hasVal(header.topNavFontFamily)) headerOut.topNavFontFamily = header.topNavFontFamily;
+      else delete headerOut.topNavFontFamily;
+      const topNavFontSizeNum = parseInt(header.topNavFontSize, 10);
+      if (overrides.topNav && Number.isFinite(topNavFontSizeNum) && topNavFontSizeNum > 0) headerOut.topNavFontSize = topNavFontSizeNum;
+      else delete headerOut.topNavFontSize;
+      const topNavFontWeightNum = parseInt(header.topNavFontWeight, 10);
+      if (overrides.topNav && Number.isFinite(topNavFontWeightNum) && topNavFontWeightNum > 0) headerOut.topNavFontWeight = topNavFontWeightNum;
+      else delete headerOut.topNavFontWeight;
+      if (overrides.topNav && hasVal(header.topNavTextColor)) headerOut.topNavTextColor = header.topNavTextColor;
+      else delete headerOut.topNavTextColor;
+      if (overrides.topNav && hasVal(header.topNavHoverColor)) headerOut.topNavHoverColor = header.topNavHoverColor;
+      else delete headerOut.topNavHoverColor;
       const topNavLabelWidthNum = parseInt(header.topNavLabelMaxWidth, 10);
-      if (overrides.topNavLabelWidth && Number.isFinite(topNavLabelWidthNum) && topNavLabelWidthNum > 0) {
+      if (overrides.topNav && Number.isFinite(topNavLabelWidthNum) && topNavLabelWidthNum > 0) {
         headerOut.topNavLabelMaxWidth = topNavLabelWidthNum;
       } else {
         delete headerOut.topNavLabelMaxWidth;
@@ -478,30 +507,100 @@ export default function MicrositeChromeEditor({ microsite }) {
         />
       </ChromeCard>
 
-      {/* 4b. Top Navigation Bar label wrapping */}
+      {/* 4b. Top Navigation Bar font + colours */}
       <ChromeCard
         icon={PanelTop}
         title="Top Navigation Bar"
-        description="Cap the top bar menu label width so long labels wrap onto multiple lines."
-        overridden={overrides.topNavLabelWidth}
-        onToggle={(on) => toggleWithSeed("topNavLabelWidth", on, seedTopNavLabelWidth)}
-        testId="switch-override-top-nav-label-width"
+        description="Base font and colours for the top bar menu links, the same options as the secondary bar."
+        overridden={overrides.topNav}
+        onToggle={(on) => toggleWithSeed("topNav", on, seedTopNav)}
+        testId="switch-override-top-nav"
       >
-        <div className="space-y-2">
-          <Label>Label max width (px)</Label>
-          <Input
-            type="number"
-            min="0"
-            max="600"
-            placeholder="No cap (single line)"
-            value={header.topNavLabelMaxWidth ?? ""}
-            onChange={(e) => {
-              const val = e.target.value;
-              setHeader({ topNavLabelMaxWidth: val === "" ? "" : parseInt(val, 10) });
-            }}
-            data-testid="input-ms-top-nav-label-max-width"
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <ColorField
+            label="Link Text Color"
+            value={header.topNavTextColor}
+            onChange={(v) => setHeader({ topNavTextColor: v })}
+            placeholder="#FFFFFF"
+            testId="input-ms-top-nav-text-color"
+            hint="Color of the top bar menu link text. Defaults to white."
           />
-          <p className="text-sm text-muted-foreground">Cap each top bar label's width so long labels wrap onto multiple lines. Leave blank for single-line labels.</p>
+          <div className="space-y-2">
+            <Label>Link Font Size (px)</Label>
+            <Input
+              type="number"
+              min="8"
+              max="48"
+              placeholder="14"
+              value={header.topNavFontSize ?? ""}
+              onChange={(e) => {
+                const val = e.target.value;
+                setHeader({ topNavFontSize: val === "" ? "" : parseInt(val, 10) });
+              }}
+              data-testid="input-ms-top-nav-font-size"
+            />
+            <p className="text-xs text-muted-foreground">Size of the top bar menu link text. Leave blank for default.</p>
+          </div>
+          <ColorField
+            label="Link Hover Color"
+            value={header.topNavHoverColor}
+            onChange={(v) => setHeader({ topNavHoverColor: v })}
+            placeholder="No hover change"
+            testId="input-ms-top-nav-hover-color"
+            hint="Color links change to on hover. Leave blank to keep current behavior."
+          />
+          <div className="space-y-2">
+            <Label>Link Font Weight</Label>
+            <Select
+              value={header.topNavFontWeight ? String(header.topNavFontWeight) : "default"}
+              onValueChange={(val) => setHeader({ topNavFontWeight: val === "default" ? "" : parseInt(val, 10) })}
+            >
+              <SelectTrigger data-testid="select-ms-top-nav-font-weight">
+                <SelectValue placeholder="Default" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="default">Default</SelectItem>
+                {NAV_FONT_WEIGHTS.map((w) => (
+                  <SelectItem key={w.value} value={String(w.value)}>{w.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">Weight of the top bar menu link text. Leave at default to keep current styling.</p>
+          </div>
+          <div className="space-y-2">
+            <Label>Base Font Family</Label>
+            <Select
+              value={header.topNavFontFamily || "default"}
+              onValueChange={(val) => setHeader({ topNavFontFamily: val === "default" ? "" : val })}
+            >
+              <SelectTrigger data-testid="select-ms-top-nav-font-family">
+                <SelectValue placeholder="Default" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="default">Default</SelectItem>
+                {fontOptions.map((f) => (
+                  <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">Font family for the top bar menu links. Leave at default to keep current styling.</p>
+          </div>
+          <div className="space-y-2">
+            <Label>Label max width (px)</Label>
+            <Input
+              type="number"
+              min="0"
+              max="600"
+              placeholder="No cap (single line)"
+              value={header.topNavLabelMaxWidth ?? ""}
+              onChange={(e) => {
+                const val = e.target.value;
+                setHeader({ topNavLabelMaxWidth: val === "" ? "" : parseInt(val, 10) });
+              }}
+              data-testid="input-ms-top-nav-label-max-width"
+            />
+            <p className="text-xs text-muted-foreground">Cap each top bar label's width so long labels wrap onto multiple lines. Leave blank for single-line labels.</p>
+          </div>
         </div>
       </ChromeCard>
 
