@@ -68,7 +68,20 @@ export default function CanvasFloatingPanel({
   const handlePointerMove = useCallback((e) => {
     const ds = dragState.current;
     if (!ds) return;
-    setPos(clampToParent(e.clientX - ds.offsetX, e.clientY - ds.offsetY));
+    const panel = panelRef.current;
+    const parent = panel?.offsetParent;
+    if (!panel || !parent) return;
+    // `ds.offsetX/Y` is the grab point's distance from the panel's top-left in
+    // viewport coordinates. `e.clientX - ds.offsetX` is therefore the panel's
+    // desired viewport left, but `pos` (CSS left/top) is relative to the offset
+    // parent — so subtract the parent's viewport origin to convert back into the
+    // parent's frame. Recompute the parent rect each move so the math stays
+    // correct even if the container scrolls mid-drag.
+    const parentRect = parent.getBoundingClientRect();
+    setPos(clampToParent(
+      e.clientX - ds.offsetX - parentRect.left,
+      e.clientY - ds.offsetY - parentRect.top,
+    ));
   }, [clampToParent]);
 
   const persistPosition = useCallback((p) => {
