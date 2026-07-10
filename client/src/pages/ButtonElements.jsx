@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import { LUCIDE_ICONS, getLucideIcon } from "@/components/canvas/blocks/registry";
+import TypographyStyleSelector, { useTypographyStyles, getTypographyStyleCSS } from "@/components/iedit/TypographyStyleSelector";
 
 // Default icon block shared by all styles. `name === ''` means "no icon"
 // (renders nothing). `color === ''` means "inherit the button's text colour".
@@ -170,6 +171,14 @@ function ButtonStyleEditor({
   const [isHovered, setIsHovered] = useState(false);
   const testIdPrefix = testIdPrefixProp || title.toLowerCase().replace(/\s+/g, '-');
 
+  // Task #2591: the label typography baked into this button style. When set,
+  // the preview labels render in that typography so the creator is WYSIWYG
+  // with the canvas render path. `getStyleById` resolves from the tenant's
+  // typography styles (all scopes) so microsite-scoped styles also resolve.
+  const { getStyleById } = useTypographyStyles();
+  const labelTypoStyle = getStyleById(style.labelTypographyStyleId);
+  const labelTypoCss = labelTypoStyle ? getTypographyStyleCSS(labelTypoStyle) : null;
+
   const updateStyle = (path, value) => {
     const newStyle = { ...style };
     const keys = path.split('.');
@@ -243,15 +252,16 @@ function ButtonStyleEditor({
     const iconEl = IconComp ? (
       <IconComp style={{ width: iconSizePx, height: iconSizePx, color: iconCfg.color || textColor }} />
     ) : null;
+    const labelSpanStyle = labelTypoCss || undefined;
     return iconPosition === 'after' ? (
       <>
-        <span>{label}</span>
+        <span style={labelSpanStyle}>{label}</span>
         {iconEl}
       </>
     ) : (
       <>
         {iconEl}
-        <span>{label}</span>
+        <span style={labelSpanStyle}>{label}</span>
       </>
     );
   };
@@ -384,6 +394,22 @@ function ButtonStyleEditor({
               {renderPreviewInner(isHovered ? style.hoverTextColor : style.textColor, 'Hover Me')}
             </button>
           </div>
+        </div>
+
+        {/* Label typography (Task #2591). Baked into the button style so any
+            button dropped onto the canvas using this style renders its label
+            in this typography automatically. A per-button override in the
+            page builder still takes precedence. */}
+        <div data-testid={`typography-${testIdPrefix}`}>
+          <TypographyStyleSelector
+            value={style.labelTypographyStyleId || ''}
+            onChange={(styleId) => updateStyle('labelTypographyStyleId', styleId || '')}
+            label="Label typography"
+            placeholder="Default (no typography style)"
+          />
+          <p className="text-[11px] text-slate-500 mt-1">
+            Buttons using this style render their label in this typography automatically. A per-button override in the page builder still wins.
+          </p>
         </div>
 
         <Tabs defaultValue="background" className="w-full">

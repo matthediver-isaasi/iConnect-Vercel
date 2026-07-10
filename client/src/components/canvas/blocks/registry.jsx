@@ -968,12 +968,12 @@ function buildTiptapFontSizeResponsiveCss(blockId, html, breakpoint) {
 // `onChange(id, picked)` — `id` is the chosen style id (or '' for default) and
 // `picked` is the resolved style object (or null) so callers can also persist
 // a graceful-degradation fallback (e.g. mirror `headingLevel`).
-export function TypographyStyleField({ label, value, onChange, testId }) {
+export function TypographyStyleField({ label, value, onChange, testId, noneLabel }) {
   const tenantStyles = useTenantTypographyStyles();
   const sorted = useMemo(() => sortTypographyStyles(tenantStyles), [tenantStyles]);
   if (sorted.length === 0) return null;
   const options = [
-    { value: '__none__', label: 'Default (no tenant style)' },
+    { value: '__none__', label: noneLabel || 'Default (no tenant style)' },
     ...sorted.map((s) => ({
       value: s.id,
       label: `${s.name || 'Untitled style'} (${String(s.style_type || '').toUpperCase() || '—'})`,
@@ -2338,18 +2338,6 @@ function ImageInspector({ block, update }) {
 function ButtonRender({ block, asEditor, breakpoint }) {
   const c = block.content || {};
   const Icon = getLucideIcon(c.icon);
-  // Tenant typography style — when set, the label span carries inline
-  // font-family/size/weight/etc so the button label honours brand type. The
-  // outer anchor still uses the variant/size button classes (background,
-  // radius, hover/active states) so this only changes typography.
-  const { styles: tenantStyles, resolved: stylesResolved } = useTenantTypographyStylesState();
-  const labelStyleObj = resolveTenantStyle(c.typographyStyleId, tenantStyles);
-  const awaitingLabel = isAwaitingTypographyStyle(c.typographyStyleId, labelStyleObj, stylesResolved);
-  // While the referenced style is still loading, hide the label rather than
-  // flash the default text styling that will be replaced a moment later.
-  const labelInline = labelStyleObj
-    ? buildTypographyInlineStyle(labelStyleObj, { omitMarginBottom: true })
-    : (awaitingLabel ? { visibility: 'hidden' } : null);
   // Tenant button variants — when `variant` is `tenant-primary` or
   // `tenant-secondary` we render with inline styles derived from the
   // tenant's saved `branding.buttonStyles[primary|secondary]` instead of
@@ -2357,10 +2345,27 @@ function ButtonRender({ block, asEditor, breakpoint }) {
   // useState approach already used by PublicHeader's StyledNavButton so
   // we don't invent a third hover mechanism. The four legacy variants
   // (`primary`/`default`/`outline`/`ghost`) continue through buttonClasses
-  // unchanged.
+  // unchanged. Resolved up-front so the button style's saved label
+  // typography can act as the default in the typography resolution below.
   const branding = useTenantBranding()?.branding || null;
   const isTenantVariant = isTenantButtonVariant(c.variant);
   const tenantStyle = isTenantVariant ? resolveTenantButtonStyle(c.variant, branding) : null;
+  // Tenant typography style — when set, the label span carries inline
+  // font-family/size/weight/etc so the button label honours brand type. The
+  // outer anchor still uses the variant/size button classes (background,
+  // radius, hover/active states) so this only changes typography.
+  // Task #2591 precedence: an explicit per-block typography (set in the
+  // inspector) wins; otherwise fall back to the label typography baked into
+  // the tenant button style; otherwise no typography styling at all.
+  const { styles: tenantStyles, resolved: stylesResolved } = useTenantTypographyStylesState();
+  const effectiveLabelTypoId = c.typographyStyleId || tenantStyle?.labelTypographyStyleId || '';
+  const labelStyleObj = resolveTenantStyle(effectiveLabelTypoId, tenantStyles);
+  const awaitingLabel = isAwaitingTypographyStyle(effectiveLabelTypoId, labelStyleObj, stylesResolved);
+  // While the referenced style is still loading, hide the label rather than
+  // flash the default text styling that will be replaced a moment later.
+  const labelInline = labelStyleObj
+    ? buildTypographyInlineStyle(labelStyleObj, { omitMarginBottom: true })
+    : (awaitingLabel ? { visibility: 'hidden' } : null);
   const [tenantHovered, setTenantHovered] = useState(false);
 
   // Task #962: per-block size overrides. `content.size` (when stored as
@@ -2696,6 +2701,19 @@ function ButtonInspector({ block, update, breakpoint }) {
     ? { ...TENANT_BUTTON_DEFAULT_SIZE, ...(tenantStyleForBaseline?.size || {}) }
     : (LEGACY_BUTTON_SIZE_BASELINES[readLegacySizeClass(c)] || LEGACY_BUTTON_SIZE_BASELINES.default);
   const inspectorBaselineLabel = isTenantVar ? 'tenant default' : 'preset default';
+  // Task #2591: when the selected tenant button style has a baked-in label
+  // typography, the per-block picker's empty state means "inherit that style"
+  // rather than "no typography". Surface the inherited style's name so the
+  // author knows what the default resolves to. The per-block value, when set,
+  // still overrides it (see ButtonRender precedence).
+  const allTypographyStyles = useTenantTypographyStyles();
+  const inheritedLabelTypoId = isTenantVar ? (tenantStyleForBaseline?.labelTypographyStyleId || '') : '';
+  const inheritedLabelTypoStyle = inheritedLabelTypoId
+    ? allTypographyStyles.find((s) => s.id === inheritedLabelTypoId) || null
+    : null;
+  const labelTypoNoneLabel = inheritedLabelTypoStyle
+    ? `Inherit from button style — ${inheritedLabelTypoStyle.name || 'saved style'}`
+    : (inheritedLabelTypoId ? 'Inherit from button style' : undefined);
   return (
     <>
       <TextField label="Label" value={c.label} onChange={(v) => set({ label: v })} testId="input-button-label" />
@@ -2704,6 +2722,7 @@ function ButtonInspector({ block, update, breakpoint }) {
         value={c.typographyStyleId}
         onChange={(id) => set({ typographyStyleId: id })}
         testId="select-button-typography"
+        noneLabel={labelTypoNoneLabel}
       />
       <LinkField label="Link target" value={c.href} onChange={(v) => set({ href: v })} testId="input-button-href" />
       <MediaLibraryPickButton
