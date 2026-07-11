@@ -142,12 +142,27 @@ export function planAutoSizeBake({
 
   const roundedW = Number.isFinite(measuredWidth) ? Math.round(measuredWidth) : NaN;
   const roundedH = Number.isFinite(measuredHeight) ? Math.round(measuredHeight) : NaN;
-  const wChange =
+  let wChange =
     Number.isFinite(roundedW) && roundedW > 0 &&
     Math.abs(roundedW - (tg.w || 0)) >= deadBandPx;
   const hChange =
     Number.isFinite(roundedH) && roundedH > 0 &&
     Math.abs(roundedH - (tg.h || 0)) >= deadBandPx;
+
+  // Task #2675: a manually-dragged width wins over a text-driven shrink. The
+  // content-span measurement always reports the natural label width, so after
+  // the user widens the button by hand we must not snap it back. A genuine
+  // GROW past the manual width (a longer label) still bakes and clears the
+  // flag so the button resumes auto-tracking its label.
+  let clearManualWidth = false;
+  if (wChange && tg.manualWidth) {
+    if (roundedW > (tg.w || 0)) {
+      clearManualWidth = true;
+    } else {
+      wChange = false;
+    }
+  }
+
   if (!wChange && !hChange) return null;
 
   const heightDelta = hChange ? roundedH - (tg.h || 0) : 0;
@@ -155,7 +170,12 @@ export function planAutoSizeBake({
   const targetBottom = tg.y + (tg.h || 0);
 
   const patch = {};
-  if (wChange) patch.w = roundedW;
+  if (wChange) {
+    patch.w = roundedW;
+    // A grow past the manual width resets the override so the block resumes
+    // auto-tracking its label width (Task #2675).
+    if (clearManualWidth) patch.manualWidth = false;
+  }
   if (hChange) patch.h = roundedH;
 
   const nextKids = kids.map((x) => {

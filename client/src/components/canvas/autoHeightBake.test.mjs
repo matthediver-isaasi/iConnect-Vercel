@@ -248,6 +248,51 @@ test('planAutoSizeBake: dead-band drops tiny width AND height changes', () => {
   assert.equal(hOf(next, 'btn'), 44);
 });
 
+// --- manualWidth override (Task #2675) -----------------------------------
+
+const btnWithManualWidth = (id, geom) => ({
+  id,
+  type: BLOCK_TYPES.BUTTON,
+  bp: { desktop: { manualWidth: true, ...geom } },
+});
+
+const manualWidthOf = (d, id, bp = 'desktop') => {
+  const b = d.root.sections[0].children.find((x) => x.id === id);
+  return resolveBlockAtBreakpoint(b, bp).manualWidth;
+};
+
+test('planAutoSizeBake: manualWidth blocks a text-driven width shrink (no snap-back)', () => {
+  const d = design([btnWithManualWidth('btn', { x: 0, y: 0, w: 300, h: 44 })]);
+  // Content span reports the narrower natural label width (200) but the user
+  // dragged the box to 300 -> the shrink must be ignored.
+  assert.equal(sizeBake(d, 'btn', 200, 44), null);
+});
+
+test('planAutoSizeBake: a text-driven grow past the manual width bakes and clears manualWidth', () => {
+  const d = design([btnWithManualWidth('btn', { x: 0, y: 0, w: 300, h: 44 })]);
+  const next = sizeBake(d, 'btn', 360, 44); // label now genuinely longer than 300
+  assert.ok(next);
+  assert.equal(wOf(next, 'btn'), 360); // grew to fit the longer label
+  assert.equal(manualWidthOf(next, 'btn'), false); // override reset -> auto-tracks again
+});
+
+test('planAutoSizeBake: without manualWidth a text shrink still bakes (existing behaviour)', () => {
+  const d = design([block('btn', BLOCK_TYPES.BUTTON, { x: 0, y: 0, w: 300, h: 44 })]);
+  const next = sizeBake(d, 'btn', 200, 44);
+  assert.ok(next);
+  assert.equal(wOf(next, 'btn'), 200); // shrinks to the shorter label
+});
+
+test('planAutoSizeBake: manualWidth still allows an independent height change on a blocked width shrink', () => {
+  const d = design([btnWithManualWidth('btn', { x: 0, y: 0, w: 300, h: 44 })]);
+  // Width shrink is blocked, but a real height grow must still bake.
+  const next = sizeBake(d, 'btn', 200, 90);
+  assert.ok(next);
+  assert.equal(wOf(next, 'btn'), 300); // width unchanged (manual override wins)
+  assert.equal(hOf(next, 'btn'), 90); // height baked
+  assert.equal(manualWidthOf(next, 'btn'), true); // flag preserved (no width grow)
+});
+
 test('planAutoSizeBake: only autoSize blocks are baked; hidden/missing/non-finite are no-ops', () => {
   // Non-autoSize block (Text) is ignored by the size bake.
   const dText = design([block('t1', BLOCK_TYPES.TEXT, { y: 0, w: 180, h: 44 })]);

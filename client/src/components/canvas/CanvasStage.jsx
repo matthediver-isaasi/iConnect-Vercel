@@ -726,9 +726,20 @@ function CanvasStageInner({
           // block so the reflow context treats the stored height as a floor
           // (the card grows to it and never shrinks below content). Width-only
           // (e/w) card resizes leave the card content-driven (no flag).
+          const flags = {};
           if (interactionState.cardGrow && /[ns]/.test(interactionState.handle)) {
+            flags.manualHeight = true;
+          }
+          // A horizontal (e/w) resize commits an explicit author width: flag it
+          // so an autoSize block (Button / CTA) won't snap back to its
+          // text-driven width on the next ResizeObserver tick (Task #2675). The
+          // flag is ignored by all non-autoSize blocks.
+          if (/[ew]/.test(interactionState.handle)) {
+            flags.manualWidth = true;
+          }
+          if (Object.keys(flags).length > 0) {
             const pg = previewGeoms[interactionState.id];
-            onApplyGeometry({ [interactionState.id]: { ...pg, manualHeight: true } });
+            onApplyGeometry({ [interactionState.id]: { ...pg, ...flags } });
           } else {
             onApplyGeometry(previewGeoms);
           }

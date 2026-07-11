@@ -762,6 +762,11 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       // like any other per-breakpoint override). The reflow context reads it as
       // a lower bound; it has no CSS effect (buildCanvasCss ignores it).
       if (u.manualHeight) patch.manualHeight = true;
+      // A horizontal (e/w) resize commits an explicit author width; flag it so
+      // planAutoSizeBake won't snap an autoSize block back to its text-driven
+      // width on the next ResizeObserver tick (Task #2675). Only meaningful on
+      // non-fullWidth blocks (fullWidth ignores width entirely).
+      if (u.manualWidth && !b.fullWidth) patch.manualWidth = true;
       return setBlockBp(b, breakpoint, patch);
     }));
   }, [replaceChildren, breakpoint]);
