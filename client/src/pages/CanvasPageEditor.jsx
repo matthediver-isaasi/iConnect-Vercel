@@ -1021,7 +1021,7 @@ export default function CanvasPageEditorPage() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-slate-100" data-testid="canvas-page-editor">
+    <div className="h-full min-h-0 flex flex-col bg-slate-100" data-testid="canvas-page-editor">
       {/* Toolbar */}
       <header className="sticky top-0 z-50 bg-white border-b border-slate-200 px-4 py-2 flex items-center gap-3">
         <Button
@@ -1258,7 +1258,7 @@ export default function CanvasPageEditorPage() {
 
       {/* Body */}
       <div className="flex-1 flex min-h-0">
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex-1 flex flex-col min-w-0 min-h-0">
           <CanvasBuilder
             ref={canvasRef}
             initialDesign={initialDesign}

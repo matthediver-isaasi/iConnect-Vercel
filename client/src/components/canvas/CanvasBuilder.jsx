@@ -1782,7 +1782,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       <CanvasSwatchProvider micrositeId={micrositeId}>
       <div className="flex flex-col h-full" data-testid="canvas-builder">
         {/* Sub-toolbar with alignment + undo/redo + grid */}
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-200 bg-white">
+        <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-b border-slate-200 bg-white">
           <Button size="icon" variant="ghost" onClick={handleUndo} disabled={!canUndo} title="Undo" data-testid="button-undo">
             <Undo2 className="w-4 h-4" />
           </Button>
