@@ -257,3 +257,54 @@ test('Gate 3: a measurement while a web font is mid-swap is dropped', async () =
   await flush(260);
   assert.equal(api.setDesignCalls.length, 0, 'measurement dropped while a font is swapping');
 });
+
+// --- Gate 4: suspect-shrink long-debounce window ------------------------
+// A measurement >=12px shorter than the stored height is a "suspect shrink":
+// baked as a negative delta it collapses the block and pulls every block below
+// it upward, silently corrupting a saved page. It gets the long 700ms window
+// (vs the 200ms fast path) so a follow-up real measurement has time to RESET
+// the debounce before the transient short value could ever bake. These two
+// tests exercise the RUNTIME timer behaviour of that window (the pure delay
+// choice is covered in autoHeightBake.test.mjs).
+
+test('Gate 4: a flickering short measurement corrected by the real height within the long window bakes only the real height', async () => {
+  const { api, Harness } = makeHarness(makeDesign([
+    block('t1', BLOCK_TYPES.TEXT, { y: 0, h: 300 }),
+    block('b2', BLOCK_TYPES.IMAGE, { y: 320, h: 100 }),
+  ]));
+  await mount(Harness);
+  addBlockEl(api.wrapperRef.current, 't1');
+  fontsCtl.openReady();
+  await flush(20); // settle gate open
+  // Transient short measurement (>=12px shorter than stored 300) -> 700ms window.
+  api.commit('t1', 150);
+  await flush(250); // past the 200ms fast path but well inside the 700ms shrink window
+  assert.equal(api.setDesignCalls.length, 0, 'the suspect short value must not bake inside the long window');
+  // The real (taller) measurement arrives before the long window elapses and
+  // resets the debounce (a grow -> 200ms normal window).
+  api.commit('t1', 305);
+  await flush(300);
+  assert.equal(api.setDesignCalls.length, 1, 'only the corrected measurement bakes');
+  const baked = api.setDesignCalls[0];
+  const t1 = baked.root.sections[0].children.find((c) => c.id === 't1');
+  assert.equal(t1.bp.desktop.h, 305, 'baked to the real height, never the transient short value');
+});
+
+test('Gate 4: a single genuine large shrink (no follow-up) still bakes after the long window elapses', async () => {
+  const { api, Harness } = makeHarness(makeDesign([
+    block('t1', BLOCK_TYPES.TEXT, { y: 0, h: 300 }),
+    block('b2', BLOCK_TYPES.IMAGE, { y: 320, h: 100 }),
+  ]));
+  await mount(Harness);
+  addBlockEl(api.wrapperRef.current, 't1');
+  fontsCtl.openReady();
+  await flush(20); // settle gate open
+  api.commit('t1', 120); // genuine large deletion -> one correct shrink, no follow-up
+  await flush(250); // still inside the 700ms window -> must not have baked yet
+  assert.equal(api.setDesignCalls.length, 0, 'a suspect shrink waits the full long window before baking');
+  await flush(550); // total elapsed > 700ms; no reset arrived -> now it commits
+  assert.equal(api.setDesignCalls.length, 1, 'a genuine deletion still bakes after the long window');
+  const baked = api.setDesignCalls[0];
+  const t1 = baked.root.sections[0].children.find((c) => c.id === 't1');
+  assert.equal(t1.bp.desktop.h, 120, 'baked to the genuine shrunk height');
+});
