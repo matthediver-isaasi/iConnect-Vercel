@@ -1454,10 +1454,13 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       .filter(Boolean);
 
     // Partition into units: grouped blocks stack as one unit (by their combined
-    // bounding box); ungrouped blocks are each their own unit.
+    // bounding box); ungrouped blocks are each their own unit. While a group is
+    // focused, its members are treated individually (mirrors
+    // expandSelectionToGroups) so shapes inside the active group stack one by one.
     const unitMap = new Map();
     for (const item of blocksGeom) {
-      const k = item.groupId ? `group:${item.groupId}` : `block:${item.id}`;
+      const clustered = item.groupId && item.groupId !== activeGroupId;
+      const k = clustered ? `group:${item.groupId}` : `block:${item.id}`;
       if (!unitMap.has(k)) unitMap.set(k, []);
       unitMap.get(k).push(item);
     }
@@ -1484,7 +1487,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       runningBottom += unitHeight;
     }
     if (Object.keys(updates).length > 0) applyGeometry(updates);
-  }, [selectedIds, children, breakpoint, applyGeometry]);
+  }, [selectedIds, children, breakpoint, activeGroupId, applyGeometry]);
 
   const stackHorizontalSelected = useCallback(() => {
     // Classic absolute-position stage only; Flow (v2) has its own auto-layout.
@@ -1499,10 +1502,13 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       .filter(Boolean);
 
     // Partition into units: grouped blocks stack as one unit (by their combined
-    // bounding box); ungrouped blocks are each their own unit.
+    // bounding box); ungrouped blocks are each their own unit. While a group is
+    // focused, its members are treated individually (mirrors
+    // expandSelectionToGroups) so shapes inside the active group stack one by one.
     const unitMap = new Map();
     for (const item of blocksGeom) {
-      const k = item.groupId ? `group:${item.groupId}` : `block:${item.id}`;
+      const clustered = item.groupId && item.groupId !== activeGroupId;
+      const k = clustered ? `group:${item.groupId}` : `block:${item.id}`;
       if (!unitMap.has(k)) unitMap.set(k, []);
       unitMap.get(k).push(item);
     }
@@ -1529,7 +1535,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       runningRight += unitWidth;
     }
     if (Object.keys(updates).length > 0) applyGeometry(updates);
-  }, [isFlow, selectedIds, children, breakpoint, applyGeometry]);
+  }, [isFlow, selectedIds, children, breakpoint, activeGroupId, applyGeometry]);
 
   const canvasWidth = BREAKPOINT_WIDTHS[breakpoint] || BREAKPOINT_WIDTHS.desktop;
 
