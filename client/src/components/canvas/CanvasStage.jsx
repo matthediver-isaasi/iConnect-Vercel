@@ -239,8 +239,6 @@ function CanvasBlockView({
         : '';
   const topOff = reflowTopOffset || 0;
   const sectionGrow = reflowSectionGrowth || 0;
-  // Task #2604: divider-only display box grown to the rotated line's footprint.
-  const dispBox = dividerDisplayBox(block, geom);
   return (
     <div
       role={a11y.role || undefined}
@@ -248,10 +246,10 @@ function CanvasBlockView({
       className={`absolute ${cursor} ${outlineClass} ${fullWidth ? 'ring-1 ring-primary/40 ring-inset' : ''}`}
       data-full-width={fullWidth ? 'true' : undefined}
       style={{
-        left: dispBox ? dispBox.x : geom.x,
-        top: (dispBox ? dispBox.y : geom.y) + topOff,
-        width: dispBox ? dispBox.w : geom.w,
-        height: dispBox ? dispBox.h : (isAutoHeight ? 'auto' : geom.h + sectionGrow),
+        left: geom.x,
+        top: geom.y + topOff,
+        width: geom.w,
+        height: isAutoHeight ? 'auto' : geom.h + sectionGrow,
         // Live feedback while dragging a card's n/s handle: the wrapper is
         // height:auto (autoHeight card), so a floor makes the card box visibly
         // grow with the pointer. The resize handler clamps this to the natural
@@ -302,36 +300,6 @@ function CanvasBlockView({
   );
 }
 
-// A rotated divider's visible line is a thin rectangle (length `geom.w` ×
-// `thickness`) spun about the block's centre. The editor's selection outline,
-// resize handles and "show all boxes" outline should wrap that rotated line
-// exactly — the true axis-aligned bounding box of the rotated rectangle — not
-// the stored horizontal w×h box. Purely a display transform: the stored geom
-// and the public renderer are untouched.
-//
-// For a rectangle of length L and thickness T rotated by θ, the axis-aligned
-// bounding box is:
-//   width  = L·|cos θ| + T·|sin θ|
-//   height = L·|sin θ| + T·|cos θ|
-// centred on the block's centre. At 0° this collapses to L×T (≈ the horizontal
-// line), at 90° it collapses to T×L (a thin vertical box), and every
-// intermediate angle produces the proper rotated footprint.
-function dividerDisplayBox(block, geom) {
-  if (block.type !== BLOCK_TYPES.DIVIDER) return null;
-  const raw = Number(block.content?.angle);
-  const angle = Number.isFinite(raw) ? ((raw % 360) + 360) % 360 : 0;
-  if (!angle) return null;
-  const rawThickness = Number(block.content?.thickness);
-  const thickness = Number.isFinite(rawThickness) && rawThickness > 0 ? rawThickness : 1;
-  const rad = (angle * Math.PI) / 180;
-  const cos = Math.abs(Math.cos(rad));
-  const sin = Math.abs(Math.sin(rad));
-  const w = geom.w * cos + thickness * sin;
-  const h = geom.w * sin + thickness * cos;
-  const cx = geom.x + geom.w / 2;
-  const cy = geom.y + geom.h / 2;
-  return { x: cx - w / 2, y: cy - h / 2, w, h };
-}
 
 function handlePositionStyle(h) {
   const s = {};

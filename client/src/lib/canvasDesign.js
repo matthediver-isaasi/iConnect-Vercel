@@ -160,6 +160,7 @@ export const BLOCK_TYPES = {
   COLUMNS: 'columns',
   SPACER: 'spacer',
   DIVIDER: 'divider',
+  VERTICAL_DIVIDER: 'vertical-divider',
   ACCORDION: 'accordion',
   TESTIMONIALS: 'testimonials',
   CUSTOM_HTML: 'custom-html',
@@ -529,7 +530,16 @@ export const BLOCK_DEFAULTS = {
       lineStyle: 'solid', // solid | dashed | dotted
       color: 'var(--cb-color-border, #e2e8f0)',
       thickness: 1,
-      angle: 0, // rotation in degrees (0–360); 0 = horizontal (legacy default)
+    },
+  },
+  [BLOCK_TYPES.VERTICAL_DIVIDER]: {
+    name: 'Vertical Divider',
+    geom: { w: 24, h: 200 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      lineStyle: 'solid', // solid | dashed | dotted
+      color: 'var(--cb-color-border, #e2e8f0)',
+      thickness: 1,
     },
   },
   [BLOCK_TYPES.ACCORDION]: {
@@ -2195,14 +2205,6 @@ function normalizeBlock(block) {
     }
   }
 
-  // DIVIDER: clamp the optional rotation angle into 0–360 so a malformed
-  // stored value can't produce a broken CSS transform. A missing angle
-  // (legacy dividers) normalises to 0 so they keep rendering horizontally.
-  if (type === BLOCK_TYPES.DIVIDER) {
-    const a = Number(normalized.content.angle);
-    normalized.content.angle = Number.isFinite(a) ? ((a % 360) + 360) % 360 : 0;
-  }
-
   // Task #1675: preserve resolved symbol children across re-normalization.
   // resolveSymbolsInDesign attaches a non-standard __symbolChildren array onto
   // symbol blocks for the public renderer to splice in. normalizeBlock rebuilds
@@ -2538,6 +2540,11 @@ export function validateBlock(block) {
   const errors = [];
   const c = block.content || {};
   switch (block.type) {
+    case BLOCK_TYPES.VERTICAL_DIVIDER:
+      // Vertical dividers are purely decorative; no required content. The
+      // explicit case registers the block type in the validator (matching the
+      // horizontal divider, which likewise carries no validation errors).
+      break;
     case BLOCK_TYPES.HERO:
       if (!c.headline || !String(c.headline).trim()) {
         errors.push('Hero requires a headline.');

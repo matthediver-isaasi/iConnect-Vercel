@@ -25,6 +25,7 @@ import {
   Film,
   Columns3,
   Minus,
+  SeparatorVertical,
   Rows3,
   HelpCircle,
   Quote,
@@ -3138,12 +3139,9 @@ function SpacerInspector() {
 // DIVIDER --------------------------------------------------------------------
 function DividerRender({ block }) {
   const c = block.content || {};
-  // Normalise the stored angle defensively (legacy dividers have none → 0 →
-  // horizontal). The wrapper opts into the overflow-allow path (allowOverflow
-  // on the registry entry) so a rotated line spans edge-to-edge at 45°/90°
-  // without being clipped by the block box.
-  const rawAngle = Number(c.angle);
-  const angle = Number.isFinite(rawAngle) ? ((rawAngle % 360) + 360) % 360 : 0;
+  // Horizontal-only divider: a clean horizontal rule spanning the block width.
+  // (Rotation was removed — a rotated line collapsed its selection footprint at
+  // 90° and made the divider invisible in the editor.)
   return (
     <div className="w-full h-full flex items-center justify-center overflow-visible">
       <hr
@@ -3153,15 +3151,14 @@ function DividerRender({ block }) {
           borderTopStyle: c.lineStyle || 'solid',
           borderColor: c.color || '#e2e8f0',
           borderRight: 0, borderBottom: 0, borderLeft: 0,
-          transform: angle ? `rotate(${angle}deg)` : undefined,
-          transformOrigin: 'center',
         }}
       />
     </div>
   );
 }
 
-function DividerInspector({ block, update }) {
+// Shared styling controls for both the horizontal and vertical divider.
+function DividerStyleFields({ block, update }) {
   const c = block.content || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
   return (
@@ -3179,39 +3176,37 @@ function DividerInspector({ block, update }) {
       />
       <ColorField label="Colour" value={c.color} onChange={(v) => set({ color: v })} testId="input-divider-color" />
       <NumberField label="Thickness (px)" min={1} max={20} value={c.thickness || 1} onChange={(v) => set({ thickness: Math.max(1, Number(v) || 1) })} testId="input-divider-thickness" />
-      <Field label="Rotation (°)">
-        <Input
-          type="number"
-          min={0}
-          max={360}
-          step={1}
-          value={Number.isFinite(Number(c.angle)) ? Number(c.angle) : 0}
-          onChange={(e) => {
-            const raw = e.target.value;
-            const n = raw === '' ? 0 : Number(raw);
-            const clamped = Number.isFinite(n) ? ((n % 360) + 360) % 360 : 0;
-            set({ angle: clamped });
-          }}
-          className="h-8"
-          data-testid="input-divider-angle"
-        />
-        <div className="flex flex-wrap gap-1 pt-1">
-          {[0, 45, 90, 135, 180, 225, 270, 315].map((preset) => (
-            <Button
-              key={preset}
-              type="button"
-              size="sm"
-              variant={(Number(c.angle) || 0) === preset ? 'default' : 'outline'}
-              onClick={() => set({ angle: preset })}
-              data-testid={`button-divider-angle-${preset}`}
-            >
-              {preset}&deg;
-            </Button>
-          ))}
-        </div>
-      </Field>
     </>
   );
+}
+
+function DividerInspector({ block, update }) {
+  return <DividerStyleFields block={block} update={update} />;
+}
+
+// VERTICAL DIVIDER -----------------------------------------------------------
+function VerticalDividerRender({ block }) {
+  const c = block.content || {};
+  // A clean vertical line spanning the block's full height. Uses a left border
+  // on a full-height element so line-style/thickness/colour apply on the
+  // vertical axis (mirroring the horizontal divider's top border).
+  return (
+    <div className="w-full h-full flex items-stretch justify-center overflow-visible">
+      <div
+        className="h-full m-0"
+        style={{
+          borderLeftWidth: c.thickness || 1,
+          borderLeftStyle: c.lineStyle || 'solid',
+          borderColor: c.color || '#e2e8f0',
+          borderTop: 0, borderRight: 0, borderBottom: 0,
+        }}
+      />
+    </div>
+  );
+}
+
+function VerticalDividerInspector({ block, update }) {
+  return <DividerStyleFields block={block} update={update} />;
 }
 
 // ACCORDION ------------------------------------------------------------------
@@ -8896,6 +8891,7 @@ const REGISTRY = {
   [BLOCK_TYPES.COLUMNS]:      { label: 'Columns',        icon: Columns3,       category: 'layout',   Editor: ColumnsRender,      Renderer: ColumnsRender,      Inspector: ColumnsInspector },
   [BLOCK_TYPES.SPACER]:       { label: 'Spacer',         icon: Rows3,          category: 'layout',   Editor: SpacerRender,       Renderer: SpacerRender,       Inspector: SpacerInspector },
   [BLOCK_TYPES.DIVIDER]:      { label: 'Divider',        icon: Minus,          category: 'layout',   Editor: DividerRender,      Renderer: DividerRender,      Inspector: DividerInspector, allowOverflow: true },
+  [BLOCK_TYPES.VERTICAL_DIVIDER]: { label: 'Vertical Divider', icon: SeparatorVertical, category: 'layout', Editor: VerticalDividerRender, Renderer: VerticalDividerRender, Inspector: VerticalDividerInspector, allowOverflow: true },
   [BLOCK_TYPES.ACCORDION]:    { label: 'FAQ / Accordion',icon: HelpCircle,     category: 'content',  Editor: AccordionRender,    Renderer: AccordionRender,    Inspector: AccordionInspector, allowOverflow: true, autoHeight: true },
   [BLOCK_TYPES.TESTIMONIALS]: { label: 'Testimonials',   icon: Quote,          category: 'content',  Editor: TestimonialsRender, Renderer: TestimonialsRender, Inspector: TestimonialsInspector },
   [BLOCK_TYPES.CUSTOM_HTML]:  { label: 'Custom HTML',    icon: Code2,          category: 'advanced', Editor: CustomHtmlRender,   Renderer: CustomHtmlRender,   Inspector: CustomHtmlInspector },
