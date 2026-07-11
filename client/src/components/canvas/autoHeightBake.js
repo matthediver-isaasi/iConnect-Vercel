@@ -243,6 +243,25 @@ export function computeReanchoredBoxHeight({ containerTop, containerHeight, rows
   return (deepestMeasuredBottom - containerTop) + authoredBottomInset;
 }
 
+// Public-renderer box growth (delta px added to the stored height). GROW-ONLY:
+// a Box grows to wrap content that renders TALLER than its authored (stored)
+// height and returns to that authored height when the content shrinks back, but
+// it NEVER renders shorter than the author drew. The authored (stored) height is
+// exactly what the builder shows for a Box (editorMode keeps containers at their
+// stored geometry), so flooring the front-end at the stored height keeps the two
+// surfaces identical for the common case where contained text renders shorter
+// than its stored geometry — the drift that made a published 300px box collapse
+// to its (shorter) text content while the builder still showed 300px.
+//
+// The re-anchor formula itself can legitimately return LESS than the stored
+// height (that is how the editor bake reverses a prior grow), so the grow-only
+// floor lives here in the public path, not inside computeReanchoredBoxHeight.
+export function computeBoxGrowthDelta({ containerTop, containerHeight, rows }) {
+  const base = Number.isFinite(containerHeight) ? containerHeight : 0;
+  const resizedH = computeReanchoredBoxHeight({ containerTop, containerHeight, rows });
+  return Math.max(0, resizedH - base);
+}
+
 // Compute a Box's re-anchored stored height from a design's contained
 // auto-height (non-card) blocks. Pre-bake stored heights are the "stored"
 // reference (they carry the authored bottom inset); the target block's newly

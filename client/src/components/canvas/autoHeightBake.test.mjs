@@ -17,6 +17,7 @@ import {
   planAutoSizeBake,
   autoSizeDebounceDelay,
   computeReanchoredBoxHeight,
+  computeBoxGrowthDelta,
   SHRINK_SUSPECT_PX,
   SHRINK_DEBOUNCE_MS,
   AUTOHEIGHT_DEBOUNCE_MS,
@@ -173,6 +174,61 @@ test('computeReanchoredBoxHeight: content deeper than the box forces growth (ins
   });
   // containerBottom 100 < deepestStored 90? no: inset = max(0, 100-90) = 10.
   assert.equal(h, 400 + 10);
+});
+
+// --- public-renderer grow-only box growth (front-end never shrinks below the
+// authored/stored height, matching the builder) ---------------------------
+
+test('computeBoxGrowthDelta: static content (measured == stored) yields 0 growth', () => {
+  assert.equal(
+    computeBoxGrowthDelta({
+      containerTop: 0,
+      containerHeight: 300,
+      rows: [{ storedBottom: 250, measuredBottom: 250 }],
+    }),
+    0,
+  );
+});
+
+test('computeBoxGrowthDelta: content taller than stored grows the box', () => {
+  // Box y=0 h=200, row stored bottom 160 (inset 40), measured bottom 260 ->
+  // re-anchored 300 -> delta +100.
+  assert.equal(
+    computeBoxGrowthDelta({
+      containerTop: 0,
+      containerHeight: 200,
+      rows: [{ storedBottom: 160, measuredBottom: 260 }],
+    }),
+    100,
+  );
+});
+
+test('computeBoxGrowthDelta: content SHORTER than stored is floored at 0 (never shrinks the box)', () => {
+  // The reported bug: a box authored at 300 whose text renders shorter than its
+  // stored geometry. The re-anchor formula alone would collapse the box below
+  // 300; grow-only floors the delta at 0 so the front-end keeps the authored
+  // height, matching the builder.
+  const reanchored = computeReanchoredBoxHeight({
+    containerTop: 0,
+    containerHeight: 300,
+    rows: [{ storedBottom: 250, measuredBottom: 214 }],
+  });
+  assert.ok(reanchored < 300); // formula shrinks…
+  assert.equal(
+    computeBoxGrowthDelta({
+      containerTop: 0,
+      containerHeight: 300,
+      rows: [{ storedBottom: 250, measuredBottom: 214 }],
+    }),
+    0, // …but the public path floors it to no shrink
+  );
+});
+
+test('computeBoxGrowthDelta: no contained rows yields 0 growth', () => {
+  assert.equal(
+    computeBoxGrowthDelta({ containerTop: 0, containerHeight: 300, rows: [] }),
+    0,
+  );
 });
 
 test('box bake: single contained block grows -> box grows by the same delta (parity with old delta path)', () => {

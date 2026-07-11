@@ -10,7 +10,7 @@ import {
 } from 'react';
 import { getBlockDefinition } from './blocks/registry';
 import { BLOCK_TYPES } from '../../lib/canvasDesign';
-import { computeReanchoredBoxHeight } from './autoHeightBake';
+import { computeBoxGrowthDelta } from './autoHeightBake';
 
 const AccordionReflowCtx = createContext(null);
 
@@ -539,12 +539,17 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       const isBox = containerBlock?.type === BLOCK_TYPES.BOX;
       const containerBottom = containerGeom.y + containerGeom.h;
       if (isBox) {
-        // Box: re-anchor to the deepest contained content via the SHARED
-        // computeReanchoredBoxHeight formula (Task #2680) so the front-end and
-        // the editor bake produce the SAME box height. Track the geometry of the
-        // deepest contained row (live + stored) rather than a per-row delta, so
-        // an unchanged row can neither block a shrink driven by a shrinking row
-        // nor force spurious growth.
+        // Box: GROW-ONLY on the front-end. Re-anchor to the deepest contained
+        // content via the SHARED formula (Task #2680), but never render the box
+        // SHORTER than its authored (stored) height — the builder shows a Box at
+        // its stored geometry (editorMode keeps containers rigid), so flooring
+        // the front-end at the stored height keeps the two surfaces identical.
+        // Without the floor a published box whose text renders shorter than its
+        // stored geometry collapsed below the authored height on the front-end
+        // while the builder still showed the full height. Track the geometry of
+        // the deepest contained row (live + stored) rather than a per-row delta,
+        // so an unchanged row can neither block a shrink driven by a shrinking
+        // row nor force spurious growth.
         const rows = [];
         for (const grp of rowGroups) {
           if (grp.top >= containerGeom.y && grp.bottom <= containerBottom) {
@@ -552,12 +557,11 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
           }
         }
         if (rows.length === 0) return 0; // no contained content
-        const resizedH = computeReanchoredBoxHeight({
+        return computeBoxGrowthDelta({
           containerTop: containerGeom.y,
           containerHeight: containerGeom.h,
           rows,
         });
-        return resizedH - containerGeom.h;
       }
       // Sections: grow-only by the sum of contained row growth (unchanged).
       let total = 0;

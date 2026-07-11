@@ -77,3 +77,4 @@
 - [Canvas flow (auto-layout) model](canvas-flow-model.md) — v2 flow doc coexists with v1 via isFlowDesign branch; ONE pure resolveFlowLayout drives builder+page; nullable flow props must dodge Number(null)===0 or re-save drifts to 0.
 - [Typography styles microsite scoping](typography-microsite-scope.md) — a style is scoped to main-site OR one microsite; effective default per style_type = microsite default ?? main-site default; is_default unique per (scope,type) app-level only.
 - [Canvas v2 flow first paint](canvas-flow-first-paint.md) — flow pages ship a static per-breakpoint stylesheet (buildFlowCanvasCss) for correct first paint; a `hydrated` gate swaps to inline engine geom before paint; render union of nodes placed at any bp.
+- [Canvas V1 box public grow-only](canvas-box-public-growonly.md) — V1 public box height is grow-only (never below authored/stored) so it matches the builder; editor bake keeps the un-floored re-anchor to reverse prior grows.
