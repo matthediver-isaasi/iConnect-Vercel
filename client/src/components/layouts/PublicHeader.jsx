@@ -9,12 +9,13 @@ import { useNavigationRealtime } from "@/hooks/useNavigationRealtime";
 import { useResolvedSocialIcons } from "@/hooks/useResolvedSocialIcons";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { useMicrosite, usePublicChromeBranding } from "@/contexts/MicrositeContext";
-import { Search, User, ArrowUpRight, LogOut, ChevronDown, ChevronRight, Calendar, Building, Briefcase, FileText, Users, Sparkles, Home, Mail, Phone, Menu, X, Loader2, Newspaper, BookOpen, FolderOpen } from "lucide-react";
+import { Search, User, ArrowUpRight, LogOut, ChevronDown, ChevronRight, Calendar, Building, Briefcase, FileText, Users, Sparkles, Home, Mail, Phone, Menu, X, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import IEditFormElement from "@/components/iedit/elements/IEditFormElement";
 import { resolveSearchResultsBranding } from "@/lib/searchResultsBranding";
+import { searchResultTypeIconMap, getSearchResultTypeLabel, useArticleDisplayName } from "@/lib/searchResultTypes";
 
 // Icon mapping for commonly used Lucide icons
 const iconMap = {
@@ -33,12 +34,7 @@ const iconMap = {
 };
 
 // Type icon mapping for search results
-const typeIconMap = {
-  event: Calendar,
-  article: BookOpen,
-  news: Newspaper,
-  resource: FolderOpen
-};
+const typeIconMap = searchResultTypeIconMap;
 
 
 const DEFAULT_GRADIENT_STOPS = [
@@ -491,25 +487,14 @@ export default function PublicHeader() {
   // Member Area styling/label for the positionable Account element (logged-in state).
   const memberAreaLink = resolveHeaderLink(memberAreaLinkConfig, 'Member Area');
 
-  // Fetch article display name setting
-  const { data: articleDisplayName } = useQuery({
-    queryKey: ['public-article-display-name-setting'],
-    queryFn: async () => {
-      const setting = await publicClient.getSystemSetting('article_display_name');
-      return setting?.setting_value || 'Article';
-    },
-    staleTime: 5 * 60 * 1000
-  });
+  // Fetch article display name setting (shared query + label helper)
+  const articleDisplayName = useArticleDisplayName();
 
   // Dynamic type label that uses custom article display name
-  const getTypeLabel = useCallback((type) => {
-    if (type === 'article') {
-      const name = articleDisplayName || 'Article';
-      return name.endsWith('s') ? name.slice(0, -1) : name;
-    }
-    const labels = { event: 'Event', news: 'News', resource: 'Resource' };
-    return labels[type] || type;
-  }, [articleDisplayName]);
+  const getTypeLabel = useCallback(
+    (type) => getSearchResultTypeLabel(type, articleDisplayName),
+    [articleDisplayName]
+  );
   const [navItems, setNavItems] = useState({ topNav: [], mainNav: [] });
   const [hoveredMenu, setHoveredMenu] = useState(null);
   const [hoveredSubmenu, setHoveredSubmenu] = useState(null);

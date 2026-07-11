@@ -34,6 +34,7 @@ import TenantCtaButton from '@/components/common/TenantCtaButton';
 import { sanitizeRichText } from './sanitize';
 import { cardDescriptionToHtml } from '@/lib/cardDescriptionHtml';
 import { resolveSearchResultsBranding } from '@/lib/searchResultsBranding';
+import { getSearchResultTypeIcon, getSearchResultTypeLabel, useArticleDisplayName } from '@/lib/searchResultTypes';
 import {
   BLOCK_TYPES,
   resolveResponsiveValue,
@@ -6192,6 +6193,7 @@ function SearchInputRender({ block, asEditor }) {
   const { branding: chromeBranding } = usePublicChromeBranding() || {};
   const { font: searchResultsFont, typeLabelColor: searchTypeLabelColor } =
     resolveSearchResultsBranding(chromeBranding?.brandingConfig);
+  const articleDisplayName = useArticleDisplayName();
   const size = SEARCH_INPUT_SIZES[c.size] || SEARCH_INPUT_SIZES.md;
   const showIcon = c.showIcon !== false;
   const placeholder = c.placeholder || 'Search…';
@@ -6343,34 +6345,49 @@ function SearchInputRender({ block, asEditor }) {
                 {isFetching ? 'Searching…' : 'No results found.'}
               </div>
             ) : (
-              <ul className="py-1">
-                {results.map((r, i) => (
-                  <li key={`${r.type || 'result'}-${r.id || i}`}>
-                    <a
-                      href={r.url || '#'}
-                      onClick={(e) => { e.preventDefault(); goToResult(r.url); }}
-                      className="block px-3 py-2 hover-elevate"
+              <>
+                {results.map((r, i) => {
+                  const TypeIcon = getSearchResultTypeIcon(r.type);
+                  return (
+                    <button
+                      key={`${r.type || 'result'}-${r.id || i}`}
+                      type="button"
+                      onClick={() => goToResult(r.url)}
+                      className="w-full px-4 py-3 flex items-start gap-3 hover:bg-slate-50 transition-colors text-left border-b border-slate-50 last:border-0"
                       data-testid={`link-canvas-search-result-${i}`}
                     >
-                      <div className="text-sm font-medium text-slate-900 truncate">{r.title || 'Untitled'}</div>
-                      {(r.type || r.description) && (
-                        <div className="text-xs text-slate-500 truncate">
-                          {r.type && (
+                      <div className="flex-shrink-0 w-8 h-8 bg-slate-100 rounded flex items-center justify-center">
+                        <TypeIcon className="w-4 h-4 text-slate-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        {r.type && (
+                          <div className="flex items-center gap-2">
                             <span
-                              className={searchTypeLabelColor ? 'font-medium' : undefined}
+                              className={`text-xs font-medium uppercase${searchTypeLabelColor ? '' : ' text-purple-600'}`}
                               style={searchTypeLabelColor ? { color: searchTypeLabelColor } : undefined}
                             >
-                              {r.type}
+                              {getSearchResultTypeLabel(r.type, articleDisplayName)}
                             </span>
-                          )}
-                          {r.type && r.description ? ' · ' : ''}
-                          {r.description || ''}
-                        </div>
-                      )}
-                    </a>
-                  </li>
-                ))}
-              </ul>
+                          </div>
+                        )}
+                        <p className="font-medium text-slate-900 truncate">{r.title || 'Untitled'}</p>
+                        {r.description && (
+                          <p className="text-sm text-slate-500 line-clamp-1">{r.description}</p>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  onClick={() => goToSearch()}
+                  className={`w-full px-4 py-3 text-center text-sm font-medium hover:bg-slate-50 transition-colors${searchTypeLabelColor ? '' : ' text-purple-600'}`}
+                  style={searchTypeLabelColor ? { color: searchTypeLabelColor } : undefined}
+                  data-testid="button-canvas-view-all-results"
+                >
+                  View all results
+                </button>
+              </>
             )}
           </div>
         )}
