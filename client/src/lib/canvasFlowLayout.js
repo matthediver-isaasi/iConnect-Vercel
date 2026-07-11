@@ -173,11 +173,25 @@ function layoutFreeChildren(node, innerX, innerY, innerW, ctx) {
     placed.push({ child, cx, cy, cw, storedH, measuredH: ch });
   }
 
-  // Second pass: grow background-style boxes to wrap any overlapping child
-  // whose measured height exceeds its stored height. A candidate is a `box`
-  // (or any non-container leaf that is not itself auto-height — future shape
-  // types). A child is "inside" the box when its stored bounds fit within the
-  // box's stored bounds; the box grows by the maximum such height excess.
+  // Second pass: resize background-style boxes so they stay wrapped around any
+  // overlapping child. A candidate is a `box` (or any non-container leaf that is
+  // not itself auto-height — future shape types). A child is "inside" the box
+  // when its stored bounds fit within the box's stored bounds.
+  //
+  // The box is sized from the GEOMETRY of the content it wraps, not from a global
+  // max over per-child height deltas: it keeps its authored bottom inset (the gap
+  // the author left below the deepest contained child) and re-anchors that inset
+  // beneath the deepest child's LIVE (measured) bottom.
+  //   - content grew: the box GROWS to keep wrapping it (#2575).
+  //   - content shrank / was removed: the box SHRINKS back toward its authored
+  //     height so a box that grew once no longer stays too tall (Task #2583).
+  //   - a fixed-height child (image/icon) that did not change contributes its
+  //     unchanged bottom, so it can neither block a shrink driven by shrinking
+  //     text nor force spurious growth.
+  // With no measurement (measured === stored) the deepest measured bottom equals
+  // the deepest stored bottom, so the box keeps its authored height exactly. The
+  // authored inset is non-negative, so the box always fully contains its live
+  // content and can never clip it.
   for (const bg of placed) {
     const isCandidate =
       bg.child.type === BLOCK_TYPES.BOX ||
@@ -185,7 +199,8 @@ function layoutFreeChildren(node, innerX, innerY, innerW, ctx) {
     if (!isCandidate) continue;
     const bgRight = bg.cx + bg.cw;
     const bgBottom = bg.cy + bg.storedH;
-    let maxExcess = 0;
+    let deepestMeasuredBottomRel = null; // null = no contained child
+    let deepestStoredBottomRel = 0;
     for (const c of placed) {
       if (c === bg) continue;
       const cRight = c.cx + c.cw;
@@ -193,11 +208,16 @@ function layoutFreeChildren(node, innerX, innerY, innerW, ctx) {
       const inside =
         c.cx >= bg.cx && c.cy >= bg.cy && cRight <= bgRight && cBottom <= bgBottom;
       if (!inside) continue;
-      const excess = c.measuredH - c.storedH;
-      if (excess > maxExcess) maxExcess = excess;
+      const measuredBottomRel = (c.cy - bg.cy) + c.measuredH;
+      const storedBottomRel = (c.cy - bg.cy) + c.storedH;
+      if (deepestMeasuredBottomRel === null || measuredBottomRel > deepestMeasuredBottomRel) {
+        deepestMeasuredBottomRel = measuredBottomRel;
+      }
+      if (storedBottomRel > deepestStoredBottomRel) deepestStoredBottomRel = storedBottomRel;
     }
-    if (maxExcess > 0 && ctx.boxes[bg.child.id]) {
-      ctx.boxes[bg.child.id].h = bg.storedH + maxExcess;
+    if (deepestMeasuredBottomRel !== null && ctx.boxes[bg.child.id]) {
+      const authoredBottomInset = Math.max(0, bg.storedH - deepestStoredBottomRel);
+      ctx.boxes[bg.child.id].h = deepestMeasuredBottomRel + authoredBottomInset;
     }
   }
 

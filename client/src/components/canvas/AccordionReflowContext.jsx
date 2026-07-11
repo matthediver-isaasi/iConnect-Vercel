@@ -9,6 +9,7 @@ import {
   useLayoutEffect,
 } from 'react';
 import { getBlockDefinition } from './blocks/registry';
+import { BLOCK_TYPES } from '../../lib/canvasDesign';
 
 const AccordionReflowCtx = createContext(null);
 
@@ -403,16 +404,25 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
   /**
    * Net height change (px) that should be added to a CONTAINING background-style
    * block's rendered height — a Section, a decorative Box, or any future shape
-   * type that wraps other blocks. Non-negative (per-row growth is
-   * push-down-only), so a container never shrinks to close author-intended gaps
-   * around its contained blocks; it only grows when contained content expands.
-   * A block is "inside" the container when its stored top ≥ container.y AND its
-   * stored bottom ≤ container.y + container.h.
+   * type that wraps other blocks. A block is "inside" the container when its
+   * stored top ≥ container.y AND its stored bottom ≤ container.y + container.h.
    *
-   * This is the generalisation of the original section-only growth: the
-   * containment test is identical, so `box` (and future background types) can
-   * share it. A text block sitting on top of a box therefore grows the box
-   * taller as it gains lines, keeping the box wrapped around the text.
+   * SECTIONS are grow-only (non-negative): per-row growth is push-down-only, so
+   * a section never shrinks to close author-intended gaps around its contained
+   * blocks; it only grows when contained content expands.
+   *
+   * BOXES (Task #2583) are decorative backgrounds drawn behind overlapping text
+   * and additionally SHRINK back toward their authored height when that content
+   * shrinks or is removed — reversing the #2575 grow — so a box that grew once
+   * no longer stays too tall. A box is sized from the GEOMETRY of the content it
+   * wraps: it keeps its authored bottom inset (the gap below the deepest
+   * contained row's stored bottom) and re-anchors that inset beneath the deepest
+   * contained row's MEASURED (live) bottom. It therefore grows when content
+   * renders taller and shrinks when it renders shorter, and — because it is
+   * driven by the deepest measured bottom rather than a per-row delta — a fixed
+   * child that did not change can neither block a shrink nor force growth.
+   * Static content (rendered == stored) yields 0, preserving the authored height
+   * exactly; the non-negative inset guarantees the box never clips its content.
    *
    * @param containerBlock – the containing canvas block (section, box, …)
    * @param containerGeom  – breakpoint-resolved geometry { x, y, w, h } of the
@@ -424,12 +434,36 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       // editor bakes committed heights into stored geometry instead.
       if (editorMode) return 0;
       if (!containerGeom || rowGroups.length === 0) return 0;
+      const isBox = containerBlock?.type === BLOCK_TYPES.BOX;
+      const containerBottom = containerGeom.y + containerGeom.h;
       let total = 0;
+      let deepestMeasuredBottom = null; // box: deepest contained live bottom
+      let deepestStoredBottom = containerGeom.y; // box: deepest authored bottom
       for (const grp of rowGroups) {
         // Row is contained within the container if its stored span fits inside.
-        if (grp.top >= containerGeom.y && grp.bottom <= containerGeom.y + containerGeom.h) {
-          total += grp.growth;
+        if (grp.top >= containerGeom.y && grp.bottom <= containerBottom) {
+          if (isBox) {
+            // Track the geometry of the deepest contained content (live + stored)
+            // rather than a per-row delta, so an unchanged row can neither block a
+            // shrink driven by a shrinking row nor force spurious growth.
+            const measuredBottom = grp.top + grp.renderedHeight;
+            if (deepestMeasuredBottom === null || measuredBottom > deepestMeasuredBottom) {
+              deepestMeasuredBottom = measuredBottom;
+            }
+            if (grp.bottom > deepestStoredBottom) deepestStoredBottom = grp.bottom;
+          } else {
+            total += grp.growth; // sections: grow-only (unchanged)
+          }
         }
+      }
+      if (isBox) {
+        if (deepestMeasuredBottom === null) return 0; // no contained content
+        // Keep the authored bottom inset (gap below the deepest stored content)
+        // and re-anchor it beneath the deepest live content. The inset is
+        // non-negative, so the box always fully contains its content.
+        const authoredBottomInset = Math.max(0, containerBottom - deepestStoredBottom);
+        const resizedH = (deepestMeasuredBottom - containerGeom.y) + authoredBottomInset;
+        return resizedH - containerGeom.h;
       }
       return total;
     },

@@ -283,6 +283,123 @@ test('a background box does NOT grow for text that is not inside its bounds', ()
 });
 
 // ---------------------------------------------------------------------------
+// Task #2583: the reverse of #2575 — when overlapping text shrinks (or is
+// removed), a box that previously grew shrinks back toward its authored height,
+// bounded so it never shrinks below the contained content's stored footprint.
+// ---------------------------------------------------------------------------
+
+test('a background box shrinks back when overlapping text measured shorter', () => {
+  // Box stored 220, text stored 160 sitting inside it (y=20, bottom 180, so a
+  // 40px authored bottom inset). This mirrors a box baked to its grown height.
+  const box = createFlowNode(BLOCK_TYPES.BOX, { desktop: { x: 0, y: 0, w: 400, h: 220 } });
+  const text = createFlowNode(BLOCK_TYPES.TEXT, {
+    flow: { heightMode: 'auto' },
+    desktop: { x: 20, y: 20, w: 360, h: 160 },
+  });
+  const group = createFreeGroup({ children: [box, text] });
+  const section = createFlowSection({ children: [group] });
+  const [nbox, ntext] = group.children;
+  const design = { version: CANVAS_FLOW_VERSION, root: { layout: 'flow', sections: [section] } };
+
+  // No measurement: box stays at its stored/authored height exactly.
+  const base = resolveFlowLayout(design, { containerWidth: 1000, measured: {} });
+  assert.equal(base.boxes[nbox.id].h, 220);
+
+  // Text measured shorter (160 -> 40, deficit 120): the box shrinks by the same
+  // deficit (220 -> 100), preserving the authored 40px bottom inset. The group
+  // height tracks the shrunk box.
+  const shrunk = resolveFlowLayout(design, {
+    containerWidth: 1000,
+    measured: { [ntext.id]: { height: 40 } },
+  });
+  assert.equal(shrunk.boxes[ntext.id].h, 40);
+  assert.equal(shrunk.boxes[nbox.id].h, 100);
+  assert.equal(shrunk.boxes[group.id].h, 100);
+});
+
+test('a shrinking box never shrinks so far it clips its live content', () => {
+  // Box stored 200, text stored 120 at y=20 (measured bottom follows the live
+  // height). When the text renders very short the box shrinks by the deficit
+  // but is floored at the text's MEASURED bottom so the content is never clipped.
+  const box = createFlowNode(BLOCK_TYPES.BOX, { desktop: { x: 0, y: 0, w: 400, h: 200 } });
+  const text = createFlowNode(BLOCK_TYPES.TEXT, {
+    flow: { heightMode: 'auto' },
+    desktop: { x: 20, y: 20, w: 360, h: 120 },
+  });
+  const group = createFreeGroup({ children: [box, text] });
+  const section = createFlowSection({ children: [group] });
+  const [nbox, ntext] = group.children;
+  const design = { version: CANVAS_FLOW_VERSION, root: { layout: 'flow', sections: [section] } };
+
+  const removed = resolveFlowLayout(design, {
+    containerWidth: 1000,
+    measured: { [ntext.id]: { height: 4 } },
+  });
+  // Deepest live bottom 20 + 4 = 24; authored inset 200 - (20 + 120) = 60 ->
+  // box = 24 + 60 = 84, which still fully contains the live text (bottom 24).
+  assert.equal(removed.boxes[nbox.id].h, 84);
+  assert.ok(removed.boxes[nbox.id].h >= 20 + 4, 'box still contains the live text');
+});
+
+test('a box shrinks with the text even when it also wraps an unchanged fixed child', () => {
+  // Box stored 220 wrapping BOTH a fixed image (y=0, h=20, never measured) and
+  // an auto text (y=20, stored 160, bottom 180 -> 40px authored inset). The
+  // fixed child's zero height-delta must NOT cancel the text's shrink.
+  const box = createFlowNode(BLOCK_TYPES.BOX, { desktop: { x: 0, y: 0, w: 400, h: 220 } });
+  const image = createFlowNode(BLOCK_TYPES.IMAGE, { desktop: { x: 20, y: 0, w: 40, h: 20 } });
+  const text = createFlowNode(BLOCK_TYPES.TEXT, {
+    flow: { heightMode: 'auto' },
+    desktop: { x: 20, y: 20, w: 360, h: 160 },
+  });
+  const group = createFreeGroup({ children: [box, image, text] });
+  const section = createFlowSection({ children: [group] });
+  const [nbox, , ntext] = group.children;
+  const design = { version: CANVAS_FLOW_VERSION, root: { layout: 'flow', sections: [section] } };
+
+  const shrunk = resolveFlowLayout(design, {
+    containerWidth: 1000,
+    measured: { [ntext.id]: { height: 40 } },
+  });
+  // Deepest live bottom is the text at 20 + 40 = 60; inset 40 -> box 100.
+  // The unchanged image (bottom 20) neither blocks the shrink nor forces growth.
+  assert.equal(shrunk.boxes[nbox.id].h, 100);
+});
+
+test('a box with two texts tracks only the deepest live content', () => {
+  // Box stored 300 wrapping textA (y=20, bottom 120) and textB (y=150,
+  // bottom 250) -> 50px authored inset below the deepest (textB).
+  const box = createFlowNode(BLOCK_TYPES.BOX, { desktop: { x: 0, y: 0, w: 400, h: 300 } });
+  const textA = createFlowNode(BLOCK_TYPES.TEXT, {
+    flow: { heightMode: 'auto' },
+    desktop: { x: 20, y: 20, w: 360, h: 100 },
+  });
+  const textB = createFlowNode(BLOCK_TYPES.TEXT, {
+    flow: { heightMode: 'auto' },
+    desktop: { x: 20, y: 150, w: 360, h: 100 },
+  });
+  const group = createFreeGroup({ children: [box, textA, textB] });
+  const section = createFlowSection({ children: [group] });
+  const [nbox, nA, nB] = group.children;
+  const design = { version: CANVAS_FLOW_VERSION, root: { layout: 'flow', sections: [section] } };
+
+  // Only the SHALLOWER textA shrinks: the box wraps the unchanged deepest textB,
+  // so it stays at its authored height.
+  const shallowShrunk = resolveFlowLayout(design, {
+    containerWidth: 1000,
+    measured: { [nA.id]: { height: 40 } },
+  });
+  assert.equal(shallowShrunk.boxes[nbox.id].h, 300);
+
+  // The DEEPEST textB shrinks (100 -> 40, bottom 250 -> 190): the box shrinks to
+  // 190 + 50 inset = 240.
+  const deepShrunk = resolveFlowLayout(design, {
+    containerWidth: 1000,
+    measured: { [nB.id]: { height: 40 } },
+  });
+  assert.equal(deepShrunk.boxes[nbox.id].h, 240);
+});
+
+// ---------------------------------------------------------------------------
 // Autobuild flow emitter.
 // ---------------------------------------------------------------------------
 
