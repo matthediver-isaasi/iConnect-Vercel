@@ -5,7 +5,7 @@ A multi-tenant SaaS platform unifying member, event, booking, resource, and blog
 -   **Run Dev Server:** `npm run dev`
 -   **Build:** `npm run build`
 -   **Typecheck:** `npm run typecheck`
--   **AI assistant tests:** `node --test api/_lib/*.test.mjs` — runs the member-AI visibility (security boundary), ranking, indexer, and help-chunker suites. Registered as the `ai-assistant-tests` validation step, so it runs automatically on task completion.
+-   **AI assistant tests:** `node --test api/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs` — runs the member-AI visibility (security boundary), ranking, indexer, and help-chunker suites, plus the Canvas auto-height bake corruption-guard regression suite. Registered as the `ai-assistant-tests` validation step, so it runs automatically on task completion.
 -   **Codegen:** `npm run codegen`
 -   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").
 -   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.

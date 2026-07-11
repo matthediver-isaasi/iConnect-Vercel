@@ -68,3 +68,13 @@ FOUR gates, all editor-side (the public renderer stays pure read-time reflow):
 block legitimate large single-step deletions (one big correct shrink). The
 stored-height comparison + content gate distinguishes "suspiciously short vs the
 last good height" from "author deleted content" without that false-positive.
+
+**Testability:** the DOM-free part of the decision (suspect-shrink
+classification, debounce-window choice, and the atomic bake itself — card
+exclusion, delta/dead-band, block-below push + section/box grow) lives in a pure
+module beside `CanvasBuilder.jsx` (`autoHeightBake.js`, block registry passed in
+via `getDefinition` so it imports no React). The tuning constants are exported
+from there as the single source of truth. Regression suite is a sibling
+`*.test.mjs` wired into the `ai-assistant-tests` validation step. The three
+runtime-only gates (settle/breakpoint re-arm, author-intent, content-ready)
+still live in the component — they need refs/DOM and are not in the pure module.

@@ -78,6 +78,10 @@ import CanvasPalette from './CanvasPalette';
 import CanvasStage from './CanvasStage';
 import CanvasFlowEditorStage from './CanvasFlowEditorStage';
 import { getBlockDefinition } from './blocks/registry';
+import {
+  planAutoHeightBake,
+  autoHeightDebounceDelay,
+} from './autoHeightBake';
 import useEdgeAutoScroll from './useEdgeAutoScroll';
 import CanvasGuidesOverlay from './CanvasGuides';
 import CanvasInspector from './CanvasInspector';
@@ -112,32 +116,8 @@ const RULER_SIZE = 20;
 
 const EMPTY_GUIDES = { vertical: [], horizontal: [] };
 
-// Auto-height commit (see commitAutoHeight) tuning.
-//   AUTOHEIGHT_DEBOUNCE_MS — settle window for a normal (grow / small change)
-//     measurement before it bakes.
-//   SHRINK_DEBOUNCE_MS — a longer settle window for a SUSPECT SHRINK (a block
-//     measuring much shorter than its stored height): a transient too-small
-//     measurement must stay the last reported height for this whole window
-//     (otherwise the ResizeObserver would have reset the timer) before it may
-//     bake, so a late image/font/breakpoint measurement can never collapse it.
-//   SHRINK_SUSPECT_PX — how much shorter than stored a measurement must be to
-//     be treated as a suspect shrink.
-const AUTOHEIGHT_DEBOUNCE_MS = 200;
-const SHRINK_DEBOUNCE_MS = 700;
-const SHRINK_SUSPECT_PX = 12;
-
-// Stored (breakpoint-resolved) height of a block, or NaN if missing/hidden.
-function readStoredHeightAtBp(dsn, id, bp) {
-  try {
-    const kids = getRootChildren(dsn);
-    const target = kids.find((x) => x.id === id);
-    if (!target) return NaN;
-    const g = resolveBlockAtBreakpoint(target, bp);
-    return (g && !g.hidden) ? (g.h || 0) : NaN;
-  } catch {
-    return NaN;
-  }
-}
+// Auto-height commit tuning + the pure bake decision live in ./autoHeightBake
+// (imported above) so the corruption guard is covered by DOM-free unit tests.
 
 function snapGuideValue(v, gridSize) {
   if (!gridSize || gridSize <= 1) return Math.round(v);
@@ -872,9 +852,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     // Decide the settle window from the stored height at schedule time: a
     // suspect shrink waits longer so a transient short measurement is corrected
     // (its debounce reset) by the real height before it can ever bake.
-    const stored = readStoredHeightAtBp(designRef.current, blockId, breakpoint);
-    const isSuspectShrink = Number.isFinite(stored) && (stored - rounded) >= SHRINK_SUSPECT_PX;
-    const delay = isSuspectShrink ? SHRINK_DEBOUNCE_MS : AUTOHEIGHT_DEBOUNCE_MS;
+    const delay = autoHeightDebounceDelay(designRef.current, blockId, breakpoint, rounded);
     const timers = autoHeightTimers.current;
     if (timers.has(blockId)) clearTimeout(timers.get(blockId));
     timers.set(blockId, setTimeout(() => {
@@ -886,47 +864,18 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       if (!isBlockContentReady(blockId)) return;
       skipHistoryRef.current = true;
       setDesign((prev) => {
-        const abort = () => { skipHistoryRef.current = false; return prev; };
-        const kids = getRootChildren(prev);
-        const target = kids.find((x) => x.id === blockId);
-        if (!target) return abort();
-        const def = getBlockDefinition(target.type);
-        // Bake heights only for plain auto-height blocks (Text, FAQ/Accordion).
-        // Card blocks are autoHeight + cardGrow: their stored/manual box height
-        // is the author's intended size and they rely on runtime row-height
-        // equalization (getRowHeight), so baking their measured content height
-        // into stored geom would fight that system and drift manual resizes.
-        if (!def?.autoHeight || def?.cardGrow) return abort();
-        const tg = resolveBlockAtBreakpoint(target, breakpoint);
-        if (!tg || tg.hidden) return abort();
-        const delta = rounded - (tg.h || 0);
-        // Dead-band: ignore tiny deltas so we don't fight the ResizeObserver
-        // or churn autosave with micro-changes.
-        if (Math.abs(delta) < 2) return abort();
-        const targetTop = tg.y;
-        const targetBottom = tg.y + (tg.h || 0);
-        const nextKids = kids.map((x) => {
-          if (x.id === blockId) return setBlockBp(x, breakpoint, { h: rounded });
-          const g = resolveBlockAtBreakpoint(x, breakpoint);
-          if (!g || g.hidden) return x;
-          const gBottom = g.y + (g.h || 0);
-          // (2) Block entirely below the target -> shift down by delta.
-          if (targetBottom <= g.y) {
-            return setBlockBp(x, breakpoint, { y: Math.round(g.y + delta) });
-          }
-          // (3) Container background (section or box) that contains the target
-          // -> grow by delta so the box's stored height tracks the text and is
-          // persisted on save (matching the published read-time growth).
-          if (
-            (x.type === BLOCK_TYPES.SECTION || x.type === BLOCK_TYPES.BOX) &&
-            targetTop >= g.y &&
-            targetBottom <= gBottom
-          ) {
-            return setBlockBp(x, breakpoint, { h: Math.round((g.h || 0) + delta) });
-          }
-          return x;
+        // Pure bake decision (card exclusion, delta/dead-band, block-below push
+        // + section grow) lives in ./autoHeightBake so it is unit-tested without
+        // a DOM. Returns null when nothing should change.
+        const next = planAutoHeightBake({
+          design: prev,
+          blockId,
+          breakpoint,
+          measuredHeight: rounded,
+          getDefinition: getBlockDefinition,
         });
-        return setRootChildren(prev, nextKids);
+        if (!next) { skipHistoryRef.current = false; return prev; }
+        return next;
       });
     }, delay));
   }, [breakpoint, setDesign, isBlockContentReady]);
