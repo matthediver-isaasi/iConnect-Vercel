@@ -42,7 +42,6 @@ import {
   Layers,
   Wand2,
   Palette,
-  Sparkles,
 } from 'lucide-react';
 import {
   AlertDialog,
@@ -77,7 +76,6 @@ import {
   stageHeightForBreakpoint,
   symbolContentExtent,
   isFlowDesign,
-  convertDesignToFlow,
 } from '@/lib/canvasDesign';
 import CanvasPalette from './CanvasPalette';
 import CanvasStage from './CanvasStage';
@@ -828,19 +826,6 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       runAutoBuild();
     }
   }, [design, runAutoBuild]);
-
-  // ---- Upgrade a v1 (absolute) page to a v2 flow (auto-layout) document ----
-  // (Task #2581) One setDesign call so the whole conversion is a single undo
-  // step. convertDesignToFlow re-derives the flow tree from the desktop block
-  // order/positions (clustering side-by-side blocks into rows), so it is gated
-  // behind a confirmation. Switching to desktop first makes the newly derived
-  // flow layout immediately visible on the primary breakpoint.
-  const [showUpgradeFlowConfirm, setShowUpgradeFlowConfirm] = useState(false);
-  const runUpgradeToFlow = useCallback(() => {
-    setDesign((prev) => convertDesignToFlow(prev));
-    onBreakpointChange?.('desktop');
-    setSelectedIds([]);
-  }, [setDesign, onBreakpointChange]);
 
   // ---- DnD palette -> canvas ----
   const sensors = useSensors(
@@ -1913,21 +1898,14 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
           <Button
             size="sm" variant="ghost"
             onClick={handleAutoBuildClick}
-            title="Automatically build tablet & mobile layouts from the desktop layout"
+            disabled={breakpoint === 'desktop'}
+            title={breakpoint === 'desktop'
+              ? 'Switch to the tablet or mobile breakpoint to auto-build its layout from the desktop layout'
+              : 'Automatically build tablet & mobile layouts from the desktop layout'}
             data-testid="button-auto-build"
           >
             <Wand2 className="w-4 h-4 mr-1.5" /> Auto build
           </Button>
-          {!isFlow && (
-            <Button
-              size="sm" variant="ghost"
-              onClick={() => setShowUpgradeFlowConfirm(true)}
-              title="Convert this page to the new auto-layout (flow) builder"
-              data-testid="button-upgrade-flow"
-            >
-              <Sparkles className="w-4 h-4 mr-1.5" /> Upgrade to auto-layout
-            </Button>
-          )}
           <div className="flex-1" />
           <Button
             size="sm" variant="ghost"
@@ -2282,32 +2260,6 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
               data-testid="button-auto-build-confirm"
             >
               Replace layouts
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Task #2581: confirm before converting a v1 page to the flow model. */}
-      <AlertDialog open={showUpgradeFlowConfirm} onOpenChange={setShowUpgradeFlowConfirm}>
-        <AlertDialogContent data-testid="dialog-upgrade-flow-confirm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Upgrade to auto-layout?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This converts the page to the new auto-layout (flow) builder. Your
-              blocks are kept, but their layout is re-derived from the desktop
-              order and position — blocks that sit side by side become rows, and
-              spacing is recalculated automatically. Manual tablet and mobile
-              positions are replaced by responsive auto-layout. You can undo this
-              in one step.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel data-testid="button-upgrade-flow-cancel">Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => { setShowUpgradeFlowConfirm(false); runUpgradeToFlow(); }}
-              data-testid="button-upgrade-flow-confirm"
-            >
-              Upgrade
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
