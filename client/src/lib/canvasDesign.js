@@ -1553,7 +1553,15 @@ export function buildThemeCssVars(theme) {
   return lines.join('\n');
 }
 
-export function createEmptyCanvasDesign() {
+export function createEmptyCanvasDesign(version = CANVAS_DESIGN_VERSION) {
+  // Rollout aid (Task #2678): allow callers to request a v2 (auto-layout/flow)
+  // empty design so a new page can start directly in flow mode. Accepts either
+  // the numeric flow version or the string 'v2' for convenience. Any other
+  // value falls through to the existing v1 (absolute-positioning) default, so
+  // the default behaviour is unchanged.
+  if (version === CANVAS_FLOW_VERSION || version === 'v2') {
+    return createFlowDesign();
+  }
   return {
     version: CANVAS_DESIGN_VERSION,
     root: {

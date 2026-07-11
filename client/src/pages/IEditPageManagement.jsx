@@ -37,6 +37,7 @@ import PageManagerItem from "@/components/iedit/PageManagerItem";
 import { Badge } from "@/components/ui/badge";
 import CanvasPageRenderer from "@/components/canvas/CanvasPageRenderer";
 import { extractSeedSwatches } from "@/lib/canvasSeedSwatches";
+import { createEmptyCanvasDesign, CANVAS_FLOW_VERSION } from "@/lib/canvasDesign";
 
 const VIEW_MODE_KEY = "iedit-page-view-mode";
 const SORT_MAP_KEY = "iedit-page-sort-map";
@@ -183,6 +184,7 @@ export default function IEditPageManagementPage() {
     status: "draft",
     builder_type: "iedit",
     canvas_template_id: "",
+    canvas_version: "v1",
   });
 
   // Create-from-document + multi-page cleanup state.
@@ -461,7 +463,7 @@ export default function IEditPageManagementPage() {
     onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: ['iedit-pages'] });
       setShowCreateDialog(false);
-      setNewPage({ title: "", slug: "", description: "", layout_type: "public", status: "draft", builder_type: "iedit", canvas_template_id: "" });
+      setNewPage({ title: "", slug: "", description: "", layout_type: "public", status: "draft", builder_type: "iedit", canvas_template_id: "", canvas_version: "v1" });
       toast.success('Page created successfully');
       const editorPage = created.builder_type === 'canvas' ? 'CanvasPageEditor' : 'IEditPageEditor';
       navigate(buildEditorUrl(editorPage, created.id));
@@ -888,6 +890,9 @@ export default function IEditPageManagementPage() {
     // so the new page is created with canvas_design already populated.
     const payload = { ...newPage };
     delete payload.canvas_template_id;
+    // `canvas_version` is a create-dialog-only rollout aid (Task #2678) and is
+    // not an entity field — strip it before sending the create payload.
+    delete payload.canvas_version;
     if (newPage.builder_type === 'canvas' && newPage.canvas_template_id) {
       try {
         const r = await fetch(`/api/canvas-templates/${newPage.canvas_template_id}`, { credentials: 'include' });
@@ -896,6 +901,13 @@ export default function IEditPageManagementPage() {
           if (body?.template?.design) payload.canvas_design = body.template.design;
         }
       } catch {/* non-fatal — page will be created empty */}
+    } else if (newPage.builder_type === 'canvas' && newPage.canvas_version === 'v2') {
+      // Temporary rollout aid (Task #2678): start a blank Canvas page directly
+      // in v2 (auto-layout / flow) mode. Seeding canvas_design here means the
+      // editor hydrates the stored flow design instead of overwriting it with
+      // an empty v1 design on first load, and isFlowDesign() returns true so
+      // the "Upgrade to auto-layout" button is hidden.
+      payload.canvas_design = createEmptyCanvasDesign(CANVAS_FLOW_VERSION);
     }
 
     createPageMutation.mutate(payload);
@@ -1904,6 +1916,32 @@ export default function IEditPageManagementPage() {
                   </Select>
                   <p className="text-xs text-slate-500 mt-1">
                     Templates copy their layout into the new page so you can keep editing without affecting the template.
+                  </p>
+                </div>
+              )}
+
+              {/* Temporary rollout aid (Task #2678): let the author start a
+                  Canvas page directly in v2 (auto-layout / flow) mode instead of
+                  the v1 default. Only meaningful for a blank page — a template
+                  brings its own version. Remove this selector once v2 flow is
+                  confirmed working and becomes the default. */}
+              {newPage.builder_type === 'canvas' && !newPage.canvas_template_id && (
+                <div>
+                  <Label htmlFor="canvas_version">Canvas version (temporary rollout option)</Label>
+                  <Select
+                    value={newPage.canvas_version}
+                    onValueChange={(value) => setNewPage({ ...newPage, canvas_version: value })}
+                  >
+                    <SelectTrigger data-testid="select-canvas-version">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="v1">v1 — Absolute positioning (current default)</SelectItem>
+                      <SelectItem value="v2">v2 — Auto-layout / flow (rollout)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Temporary option while auto-layout is rolling out. v2 starts the page in flow mode with the &quot;Upgrade to auto-layout&quot; button already hidden.
                   </p>
                 </div>
               )}
