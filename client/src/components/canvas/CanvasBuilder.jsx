@@ -26,6 +26,7 @@ import {
   AlignVerticalDistributeCenter,
   AlignHorizontalDistributeCenter,
   Rows3,
+  Columns3,
   BoxSelect,
   Grid3x3,
   Ruler,
@@ -1599,6 +1600,51 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     if (Object.keys(updates).length > 0) applyGeometry(updates);
   }, [selectedIds, children, breakpoint, applyGeometry]);
 
+  const stackHorizontalSelected = useCallback(() => {
+    // Classic absolute-position stage only; Flow (v2) has its own auto-layout.
+    if (isFlow) return;
+    if (selectedIds.length < 2) return;
+    const blocksGeom = selectedIds
+      .map((id) => {
+        const b = children.find((c) => c.id === id);
+        if (!b) return null;
+        return { id, geom: resolveBlockAtBreakpoint(b, breakpoint), groupId: b.groupId || null };
+      })
+      .filter(Boolean);
+
+    // Partition into units: grouped blocks stack as one unit (by their combined
+    // bounding box); ungrouped blocks are each their own unit.
+    const unitMap = new Map();
+    for (const item of blocksGeom) {
+      const k = item.groupId ? `group:${item.groupId}` : `block:${item.id}`;
+      if (!unitMap.has(k)) unitMap.set(k, []);
+      unitMap.get(k).push(item);
+    }
+    const units = Array.from(unitMap.values()).map((members) => {
+      const x = Math.min(...members.map((m) => m.geom.x));
+      const right = Math.max(...members.map((m) => m.geom.x + m.geom.w));
+      return { members, x, right };
+    });
+    if (units.length < 2) return;
+
+    // Sort left-to-right by current left edge; keep the leftmost unit fixed.
+    units.sort((a, b) => a.x - b.x);
+    let runningRight = units[0].right;
+    const updates = {};
+    for (let i = 1; i < units.length; i += 1) {
+      const unit = units[i];
+      const dx = runningRight - unit.x;
+      const unitWidth = unit.right - unit.x;
+      if (dx !== 0) {
+        for (const m of unit.members) {
+          updates[m.id] = { ...m.geom, x: m.geom.x + dx };
+        }
+      }
+      runningRight += unitWidth;
+    }
+    if (Object.keys(updates).length > 0) applyGeometry(updates);
+  }, [isFlow, selectedIds, children, breakpoint, applyGeometry]);
+
   const canvasWidth = BREAKPOINT_WIDTHS[breakpoint] || BREAKPOINT_WIDTHS.desktop;
 
   // ---- Ruler guides (Task #1665) ----
@@ -1921,6 +1967,11 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
           <Button size="icon" variant="ghost" onClick={stackVerticalSelected} disabled={selectedIds.length < 2} title="Stack vertically (close gaps)" data-testid="button-stack-v">
             <Rows3 className="w-4 h-4" />
           </Button>
+          {!isFlow && (
+            <Button size="icon" variant="ghost" onClick={stackHorizontalSelected} disabled={selectedIds.length < 2} title="Stack horizontally (close gaps)" data-testid="button-stack-h">
+              <Columns3 className="w-4 h-4" />
+            </Button>
+          )}
           <div className="w-px h-6 bg-slate-200 mx-1" />
           <Button size="icon" variant="ghost" onClick={groupSelected} disabled={!canGroupSelection} title="Group (Ctrl/Cmd+G)" data-testid="button-group">
             <GroupIcon className="w-4 h-4" />
