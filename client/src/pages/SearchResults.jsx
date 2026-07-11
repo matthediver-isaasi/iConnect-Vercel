@@ -309,7 +309,10 @@ export default function SearchResults() {
                                       {result.description}
                                     </p>
                                   )}
-                                  <div className="flex items-center gap-1 mt-2 text-sm text-purple-600 font-medium">
+                                  <div
+                                    className={`flex items-center gap-1 mt-2 text-sm font-medium${typeLabelColor ? '' : ' text-purple-600'}`}
+                                    style={typeLabelColor ? { color: typeLabelColor } : undefined}
+                                  >
                                     {requiresLogin ? (
                                       <>
                                         <span>Sign in to view</span>

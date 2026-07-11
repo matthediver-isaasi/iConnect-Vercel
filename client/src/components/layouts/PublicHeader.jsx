@@ -1065,7 +1065,12 @@ export default function PublicHeader() {
                       <TypeIcon className="w-3 h-3 text-slate-600" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <span className="text-xs font-medium text-purple-600 uppercase">{getTypeLabel(result.type)}</span>
+                      <span
+                        className={`text-xs font-medium uppercase${searchTypeLabelColor ? '' : ' text-purple-600'}`}
+                        style={searchTypeLabelColor ? { color: searchTypeLabelColor } : undefined}
+                      >
+                        {getTypeLabel(result.type)}
+                      </span>
                       <p className="font-medium text-slate-900 text-sm truncate">{result.title}</p>
                     </div>
                   </button>
@@ -1083,7 +1088,8 @@ export default function PublicHeader() {
                       : `/search?q=${q}`
                   );
                 }}
-                className="w-full px-3 py-2 text-center text-sm font-medium text-purple-600 hover:bg-slate-50 transition-colors"
+                className={`w-full px-3 py-2 text-center text-sm font-medium hover:bg-slate-50 transition-colors${searchTypeLabelColor ? '' : ' text-purple-600'}`}
+                style={searchTypeLabelColor ? { color: searchTypeLabelColor } : undefined}
                 data-testid="button-mobile-view-all-results"
               >
                 View all results
