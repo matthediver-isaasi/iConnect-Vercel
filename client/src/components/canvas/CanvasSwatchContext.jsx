@@ -20,6 +20,7 @@ const CanvasSwatchContext = createContext(null);
 
 const HEX_RE = /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/;
 const MAX_SWATCHES = 48;
+const MAX_LABEL_LEN = 60;
 
 function normalizeHex(value) {
   if (typeof value !== 'string') return null;
@@ -28,15 +29,30 @@ function normalizeHex(value) {
   return trimmed.toUpperCase();
 }
 
+function normalizeLabel(value) {
+  if (typeof value !== 'string') return '';
+  return value.trim().slice(0, MAX_LABEL_LEN);
+}
+
+// Task #2698: swatches are stored as `{ hex, label }` entries. Reading accepts
+// both the current object shape AND legacy plain hex strings (label defaults to
+// ''), so existing palettes keep working with no data migration. Dedupe by hex.
 function readSwatches(config) {
   const list = Array.isArray(config?.canvas_swatches) ? config.canvas_swatches : [];
   const out = [];
   const seen = new Set();
   for (const raw of list) {
-    const hex = normalizeHex(raw);
+    let hex = null;
+    let label = '';
+    if (typeof raw === 'string') {
+      hex = normalizeHex(raw);
+    } else if (raw && typeof raw === 'object') {
+      hex = normalizeHex(raw.hex);
+      label = normalizeLabel(raw.label);
+    }
     if (!hex || seen.has(hex)) continue;
     seen.add(hex);
-    out.push(hex);
+    out.push({ hex, label });
     if (out.length >= MAX_SWATCHES) break;
   }
   return out;
@@ -128,16 +144,17 @@ export function CanvasSwatchProvider({ micrositeId = null, children }) {
     });
   }, [persist, toast]);
 
-  const addSwatch = useCallback((color) => {
+  const addSwatch = useCallback((color, label = '') => {
     const hex = normalizeHex(color);
     if (!hex) return false;
+    const lbl = normalizeLabel(label);
     setSwatches((prev) => {
-      if (prev.includes(hex)) return prev;
+      if (prev.some((s) => s.hex === hex)) return prev;
       if (prev.length >= MAX_SWATCHES) {
         toast({ title: 'Palette is full', description: `You can save up to ${MAX_SWATCHES} swatches.`, variant: 'destructive' });
         return prev;
       }
-      const next = [...prev, hex];
+      const next = [...prev, { hex, label: lbl }];
       persistAsync(next);
       return next;
     });
@@ -154,13 +171,35 @@ export function CanvasSwatchProvider({ micrositeId = null, children }) {
     });
   }, [persistAsync]);
 
-  const updateSwatch = useCallback((index, color) => {
-    const hex = normalizeHex(color);
-    if (!hex) return;
+  // Task #2698: patch a swatch's hex and/or label. `patch` may be a plain hex
+  // string (colour only, back-compat) or an object `{ hex?, label? }`. Changing
+  // the hex to one that already exists on another swatch is rejected (dedupe).
+  const updateSwatch = useCallback((index, patch) => {
     setSwatches((prev) => {
-      if (index < 0 || index >= prev.length || prev[index] === hex) return prev;
+      if (index < 0 || index >= prev.length) return prev;
+      const current = prev[index];
+      let nextHex = current.hex;
+      let nextLabel = current.label;
+      if (typeof patch === 'string') {
+        const hex = normalizeHex(patch);
+        if (!hex) return prev;
+        nextHex = hex;
+      } else if (patch && typeof patch === 'object') {
+        if (patch.hex !== undefined) {
+          const hex = normalizeHex(patch.hex);
+          if (!hex) return prev;
+          nextHex = hex;
+        }
+        if (patch.label !== undefined) {
+          nextLabel = normalizeLabel(patch.label);
+        }
+      } else {
+        return prev;
+      }
+      if (nextHex !== current.hex && prev.some((s, j) => j !== index && s.hex === nextHex)) return prev;
+      if (nextHex === current.hex && nextLabel === current.label) return prev;
       const next = prev.slice();
-      next[index] = hex;
+      next[index] = { hex: nextHex, label: nextLabel };
       persistAsync(next);
       return next;
     });
@@ -184,7 +223,7 @@ export function CanvasSwatchProvider({ micrositeId = null, children }) {
     micrositeId: micrositeId || null,
     scopeLabel: isMicrosite ? 'this microsite' : 'the main site',
     max: MAX_SWATCHES,
-    hasSwatch: (color) => { const h = normalizeHex(color); return h ? swatches.includes(h) : false; },
+    hasSwatch: (color) => { const h = normalizeHex(color); return h ? swatches.some((s) => s.hex === h) : false; },
     addSwatch,
     removeSwatch,
     updateSwatch,

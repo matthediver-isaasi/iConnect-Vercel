@@ -217,24 +217,47 @@ export async function resolveAllowedFontFamilies(supabase, tenantId) {
 export const MAX_CANVAS_SWATCHES = 48;
 
 /**
+ * Task #2698: max length of an optional per-swatch label. Labels are trimmed
+ * and truncated to this length; longer input is silently capped.
+ */
+export const MAX_CANVAS_SWATCH_LABEL_LEN = 60;
+
+/**
  * Normalise a submitted Canvas swatch list to an array of well-formed,
- * uppercased, de-duplicated hex-colour strings, capped at
- * MAX_CANVAS_SWATCHES. Anything invalid is dropped. Order is preserved
+ * de-duplicated `{ hex, label }` entries, capped at MAX_CANVAS_SWATCHES.
+ * `hex` is uppercased/validated; `label` is an optional, trimmed, length-capped
+ * string (defaults to ''). Anything invalid is dropped. Order is preserved
  * (swatch reordering is a supported action). Shared by the tenant branding
  * endpoint and the microsite endpoint so both scopes validate identically.
+ *
+ * Task #2698: backward compatible — legacy entries stored as plain hex strings
+ * are accepted and normalised to `{ hex, label: '' }`.
  */
 export function normalizeCanvasSwatches(value) {
   if (!Array.isArray(value)) return [];
   const out = [];
   const seen = new Set();
   for (const raw of value) {
-    if (typeof raw !== 'string') continue;
-    const trimmed = raw.trim();
+    let hexSrc = null;
+    let labelSrc = '';
+    if (typeof raw === 'string') {
+      hexSrc = raw;
+    } else if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      hexSrc = raw.hex;
+      labelSrc = raw.label;
+    } else {
+      continue;
+    }
+    if (typeof hexSrc !== 'string') continue;
+    const trimmed = hexSrc.trim();
     if (!/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(trimmed)) continue;
     const hex = trimmed.toUpperCase();
     if (seen.has(hex)) continue;
     seen.add(hex);
-    out.push(hex);
+    const label = typeof labelSrc === 'string'
+      ? labelSrc.trim().slice(0, MAX_CANVAS_SWATCH_LABEL_LEN)
+      : '';
+    out.push({ hex, label });
     if (out.length >= MAX_CANVAS_SWATCHES) break;
   }
   return out;
@@ -244,9 +267,9 @@ export function normalizeCanvasSwatches(value) {
  * Keep only whitelisted, non-empty string values from a submitted
  * branding_config object. Returns a plain object (possibly empty).
  *
- * Task #2561: `canvas_swatches` (an array of hex strings powering the Canvas
- * colour palette for this microsite) is preserved here too — it is the one
- * non-string key allowed through the sanitizer.
+ * Task #2561/#2698: `canvas_swatches` (an array of `{ hex, label }` entries
+ * powering the Canvas colour palette for this microsite) is preserved here too
+ * — it is the one non-string key allowed through the sanitizer.
  */
 export function sanitizeMicrositeBrandingConfig(value) {
   const src = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {};

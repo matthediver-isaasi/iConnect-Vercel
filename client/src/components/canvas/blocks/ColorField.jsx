@@ -58,20 +58,24 @@ export function ColorField({ label, value, onChange, testId, placeholder = '(uns
           className="flex flex-wrap gap-1 pt-0.5"
           data-testid={testId ? `${testId}-swatches` : 'color-swatches'}
         >
-          {swatches.map((swatch, i) => (
-            <button
-              key={`${swatch}-${i}`}
-              type="button"
-              onClick={() => onChange(swatch)}
-              title={swatch}
-              aria-label={`Apply colour ${swatch}`}
-              className={`h-5 w-5 rounded border cursor-pointer ${
-                trimmed.toUpperCase() === swatch ? 'border-slate-900 ring-1 ring-slate-900' : 'border-slate-300'
-              }`}
-              style={{ backgroundColor: swatch }}
-              data-testid={testId ? `${testId}-swatch-${i}` : `swatch-apply-${i}`}
-            />
-          ))}
+          {swatches.map((swatch, i) => {
+            const label = (swatch.label || '').trim();
+            const display = label ? `${label} (${swatch.hex})` : swatch.hex;
+            return (
+              <button
+                key={`${swatch.hex}-${i}`}
+                type="button"
+                onClick={() => onChange(swatch.hex)}
+                title={display}
+                aria-label={`Apply colour ${display}`}
+                className={`h-5 w-5 rounded border cursor-pointer ${
+                  trimmed.toUpperCase() === swatch.hex ? 'border-slate-900 ring-1 ring-slate-900' : 'border-slate-300'
+                }`}
+                style={{ backgroundColor: swatch.hex }}
+                data-testid={testId ? `${testId}-swatch-${i}` : `swatch-apply-${i}`}
+              />
+            );
+          })}
         </div>
       ) : null}
       {hint ? <p className="text-[11px] text-slate-500">{hint}</p> : null}
