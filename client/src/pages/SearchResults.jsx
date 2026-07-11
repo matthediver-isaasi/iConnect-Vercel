@@ -39,17 +39,23 @@ export default function SearchResults() {
   const [isLoading, setIsLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
 
-  // Task #2629: resolve the microsite scope. Two paths reach this page:
+  // Task #2629: resolve the microsite scope. Paths that reach this page:
   //   1. Route-based /{prefix}/search — the microsite header's scope-only
-  //      "View all results" link; the prefix comes from the route params and
-  //      the scope is implicitly "only".
-  //   2. Query-param /search?microsite=…&micrositeScope=… — the existing
-  //      Canvas Search Input path, unchanged.
+  //      "View all results" link (no micrositeScope query param), and the
+  //      Canvas Search Input block (which carries an explicit micrositeScope
+  //      query param to preserve its "Include results from outside this
+  //      microsite" toggle).
+  //   2. Query-param /search?microsite=…&micrositeScope=… — legacy Canvas
+  //      Search Input path.
+  // When both a route prefix and a micrositeScope query param are present, the
+  // query param takes precedence so the canvas block's toggle is respected;
+  // otherwise a route prefix implies scope "only".
   const routeMicrositePrefix = params.micrositePrefix || null;
   const micrositePrefix = routeMicrositePrefix || searchParams.get('microsite') || null;
+  const queryMicrositeScope = searchParams.get('micrositeScope') || null;
   const micrositeScope = routeMicrositePrefix
-    ? 'only'
-    : (searchParams.get('micrositeScope') || null);
+    ? (queryMicrositeScope || 'only')
+    : queryMicrositeScope;
 
   // Resolve branding scoped to the resolved microsite so microsite searches use
   // that microsite's identity. The server merges microsite → tenant for these

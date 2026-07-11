@@ -6242,11 +6242,15 @@ function SearchInputRender({ block, asEditor }) {
     if (!q) return;
     setOpen(false);
     const params = new URLSearchParams({ q });
-    // Carry microsite scope through to the /search results page so the toggle
-    // controls the full results, not just the live popover.
+    // On a microsite, navigate to the prefixed /{prefix}/search path so the
+    // results page mounts under the microsite's chrome (matching the header
+    // search dropdown). Carry the scope through as a query param so the
+    // "Include results from outside this microsite" toggle still controls the
+    // full results, not just the live popover.
     if (onMicrosite && micrositePrefix) {
-      params.set('microsite', micrositePrefix);
       params.set('micrositeScope', micrositeScope);
+      navigate(`/${micrositePrefix}/search?${params.toString()}`);
+      return;
     }
     navigate(`/search?${params.toString()}`);
   };
