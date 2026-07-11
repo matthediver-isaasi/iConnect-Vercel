@@ -983,14 +983,14 @@ function CanvasStageInner({
  * (CanvasPageRenderer) keeps full reflow by omitting `editorMode`.
  */
 export default function CanvasStage(props) {
-  const { blocks, breakpoint, canvasWidth, onCommitAutoHeight } = props;
+  const { blocks, breakpoint, canvasWidth, onCommitAutoHeight, onCommitAutoSize } = props;
   const resolveGeom = useCallback(
     (b) => resolveBlockAtBreakpoint(b, breakpoint, { canvasWidth }),
     [breakpoint, canvasWidth],
   );
   return (
     <TooltipProvider>
-      <AccordionReflowProvider blocks={blocks} resolveGeom={resolveGeom} editorMode onMeasure={onCommitAutoHeight}>
+      <AccordionReflowProvider blocks={blocks} resolveGeom={resolveGeom} editorMode onMeasure={onCommitAutoHeight} onMeasureSize={onCommitAutoSize}>
         <CanvasStageInner {...props} />
       </AccordionReflowProvider>
     </TooltipProvider>

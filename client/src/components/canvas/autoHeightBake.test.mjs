@@ -13,6 +13,9 @@ import {
   autoHeightDebounceDelay,
   isSuspectShrink,
   readStoredHeightAtBp,
+  readStoredWidthAtBp,
+  planAutoSizeBake,
+  autoSizeDebounceDelay,
   SHRINK_SUSPECT_PX,
   SHRINK_DEBOUNCE_MS,
   AUTOHEIGHT_DEBOUNCE_MS,
@@ -37,6 +40,7 @@ const DEFS = {
   [BLOCK_TYPES.TEXT]: { autoHeight: true },
   [BLOCK_TYPES.ACCORDION]: { autoHeight: true },
   [BLOCK_TYPES.CARD]: { autoHeight: true, cardGrow: true },
+  [BLOCK_TYPES.BUTTON]: { autoSize: true },
   [BLOCK_TYPES.SECTION]: {},
   [BLOCK_TYPES.BOX]: {},
   [BLOCK_TYPES.IMAGE]: {},
@@ -164,4 +168,96 @@ test('bake does not touch blocks above or laterally adjacent to the target', () 
   assert.equal(yOf(next, 'above'), 0); // untouched
   assert.equal(yOf(next, 'side'), 60); // not entirely below target -> untouched
   assert.equal(hOf(next, 't1'), 220);
+});
+
+// --- auto-SIZE bake (Button / CTA — Task #2662) --------------------------
+
+const wOf = (d, id, bp = 'desktop') => {
+  const b = d.root.sections[0].children.find((x) => x.id === id);
+  return resolveBlockAtBreakpoint(b, bp).w;
+};
+
+const sizeBake = (d, blockId, measuredWidth, measuredHeight, bp = 'desktop') =>
+  planAutoSizeBake({ design: d, blockId, breakpoint: bp, measuredWidth, measuredHeight, getDefinition });
+
+test('readStoredWidthAtBp returns stored w, NaN for missing/hidden', () => {
+  const d = design([
+    block('btn', BLOCK_TYPES.BUTTON, { w: 180 }),
+    block('btn2', BLOCK_TYPES.BUTTON, { w: 200, hidden: true }),
+  ]);
+  assert.equal(readStoredWidthAtBp(d, 'btn', 'desktop'), 180);
+  assert.ok(Number.isNaN(readStoredWidthAtBp(d, 'btn2', 'desktop')));
+  assert.ok(Number.isNaN(readStoredWidthAtBp(d, 'nope', 'desktop')));
+});
+
+test('autoSizeDebounceDelay: a suspect shrink in EITHER dim gets the long window', () => {
+  const d = design([block('btn', BLOCK_TYPES.BUTTON, { w: 180, h: 44 })]);
+  // Width shrink past threshold -> long window.
+  assert.equal(
+    autoSizeDebounceDelay(d, 'btn', 'desktop', { width: 180 - SHRINK_SUSPECT_PX, height: 44 }),
+    SHRINK_DEBOUNCE_MS,
+  );
+  // Height shrink past threshold -> long window (even if width grew).
+  assert.equal(
+    autoSizeDebounceDelay(d, 'btn', 'desktop', { width: 300, height: 44 - SHRINK_SUSPECT_PX }),
+    SHRINK_DEBOUNCE_MS,
+  );
+  // Both growing -> fast path.
+  assert.equal(
+    autoSizeDebounceDelay(d, 'btn', 'desktop', { width: 320, height: 60 }),
+    AUTOHEIGHT_DEBOUNCE_MS,
+  );
+});
+
+test('planAutoSizeBake: a width change resizes the block only, never neighbours', () => {
+  const d = design([
+    block('btn', BLOCK_TYPES.BUTTON, { y: 0, w: 180, h: 44 }),
+    block('below', BLOCK_TYPES.IMAGE, { y: 60, h: 100 }),
+  ]);
+  const next = sizeBake(d, 'btn', 320, 44); // width grows, height unchanged
+  assert.ok(next);
+  assert.equal(wOf(next, 'btn'), 320); // width baked
+  assert.equal(hOf(next, 'btn'), 44); // height unchanged
+  assert.equal(yOf(next, 'below'), 60); // NOT pushed by a width change
+});
+
+test('planAutoSizeBake: a height change bakes height, pushes blocks below and grows the section', () => {
+  const d = design([
+    block('sec', BLOCK_TYPES.SECTION, { x: 0, y: 0, w: 600, h: 200 }),
+    block('btn', BLOCK_TYPES.BUTTON, { x: 20, y: 40, w: 180, h: 44 }),
+    block('below', BLOCK_TYPES.IMAGE, { x: 20, y: 260, h: 100 }),
+  ]);
+  const next = sizeBake(d, 'btn', 260, 84); // +80 height delta, width grows too
+  assert.ok(next);
+  assert.equal(wOf(next, 'btn'), 260);
+  assert.equal(hOf(next, 'btn'), 84);
+  assert.equal(hOf(next, 'sec'), 200 + 40); // grew by the height delta (44 -> 84)
+  assert.equal(yOf(next, 'below'), 260 + 40); // pushed down by the height delta
+});
+
+test('planAutoSizeBake: dead-band drops tiny width AND height changes', () => {
+  const d = design([block('btn', BLOCK_TYPES.BUTTON, { y: 0, w: 180, h: 44 })]);
+  assert.equal(
+    sizeBake(d, 'btn', 180 + (AUTOHEIGHT_DEAD_BAND_PX - 1), 44 + (AUTOHEIGHT_DEAD_BAND_PX - 1)),
+    null,
+  );
+  // A width change at the dead-band boundary bakes width but not height.
+  const next = sizeBake(d, 'btn', 180 + AUTOHEIGHT_DEAD_BAND_PX, 44);
+  assert.ok(next);
+  assert.equal(wOf(next, 'btn'), 180 + AUTOHEIGHT_DEAD_BAND_PX);
+  assert.equal(hOf(next, 'btn'), 44);
+});
+
+test('planAutoSizeBake: only autoSize blocks are baked; hidden/missing/non-finite are no-ops', () => {
+  // Non-autoSize block (Text) is ignored by the size bake.
+  const dText = design([block('t1', BLOCK_TYPES.TEXT, { y: 0, w: 180, h: 44 })]);
+  assert.equal(sizeBake(dText, 't1', 320, 80), null);
+  // Hidden / missing target.
+  const dHidden = design([block('btn', BLOCK_TYPES.BUTTON, { y: 0, w: 180, h: 44, hidden: true })]);
+  assert.equal(sizeBake(dHidden, 'btn', 320, 80), null);
+  assert.equal(sizeBake(dHidden, 'gone', 320, 80), null);
+  // Non-finite / non-positive measurements on both dims -> no-op.
+  const dOk = design([block('btn', BLOCK_TYPES.BUTTON, { y: 0, w: 180, h: 44 })]);
+  assert.equal(sizeBake(dOk, 'btn', NaN, NaN), null);
+  assert.equal(sizeBake(dOk, 'btn', 0, 0), null);
 });

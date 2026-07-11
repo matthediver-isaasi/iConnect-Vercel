@@ -155,6 +155,86 @@ export function useReportCardContentHeight(blockId) {
 }
 
 /**
+ * Natural-bounds reporting for auto-SIZE blocks (Button / CTA — Task #2662).
+ *
+ * A CTA button renders with `min-width:100%; width:max-content`, so its outer
+ * `<a>` element is inflated to fill (at least) the stored block width. Measuring
+ * the `<a>` would therefore report the stored width back — the button could grow
+ * but never shrink, and the selection box would never tighten around a shorter
+ * label. Instead we measure the INNER content span (the real label + icon), then
+ * add the anchor's own horizontal/vertical padding + border so the reported
+ * bounds equal the width/height the anchor would take at `width:max-content`.
+ *
+ * The ResizeObserver watches the CONTENT span ONLY (never the min-width-inflated
+ * anchor). This is deliberate:
+ *   - a label edit changes the content span's size → we re-report (grow OR
+ *     shrink, since the span is not min-width constrained), and
+ *   - a manual box resize inflates the anchor but NOT the content span, so it
+ *     does not fire — the author's manual width/height is preserved until the
+ *     next actual content change.
+ *
+ * `measureKey` re-runs the padding/border re-report when style inputs that
+ * change the anchor's padding (variant, size overrides, breakpoint) change
+ * without changing the content span's own box.
+ *
+ * All reporting is gated on editor mode: the public renderer neither measures
+ * nor bakes button bounds.
+ *
+ * Returns { anchorRef, contentRef } to attach to the `<a>` and the inner span.
+ */
+export function useReportButtonBounds(blockId, measureKey) {
+  const reflow = useAccordionReflow();
+  const anchorRef = useRef(null);
+  const contentRef = useRef(null);
+
+  const report = useCallback(() => {
+    if (!reflow || !reflow.editorMode) return;
+    const anchor = anchorRef.current;
+    const content = contentRef.current;
+    if (!anchor || !content) return;
+    const contentRect = content.getBoundingClientRect();
+    let padX = 0;
+    let padY = 0;
+    try {
+      const cs = window.getComputedStyle(anchor);
+      const pl = parseFloat(cs.paddingLeft) || 0;
+      const pr = parseFloat(cs.paddingRight) || 0;
+      const pt = parseFloat(cs.paddingTop) || 0;
+      const pb = parseFloat(cs.paddingBottom) || 0;
+      const blw = parseFloat(cs.borderLeftWidth) || 0;
+      const brw = parseFloat(cs.borderRightWidth) || 0;
+      const btw = parseFloat(cs.borderTopWidth) || 0;
+      const bbw = parseFloat(cs.borderBottomWidth) || 0;
+      padX = pl + pr + blw + brw;
+      padY = pt + pb + btw + bbw;
+    } catch { /* getComputedStyle unavailable — content box only */ }
+    const w = contentRect.width + padX;
+    const h = contentRect.height + padY;
+    if (w > 0 || h > 0) reflow.reportSize(blockId, { w, h });
+  }, [reflow, blockId]);
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => { report(); }, []); // mount-only; observer + measureKey handle the rest
+
+  useEffect(() => {
+    if (!reflow || !reflow.editorMode) return;
+    const el = contentRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(report);
+    observer.observe(el); // CONTENT span only — see hook doc
+    return () => observer.disconnect();
+  }, [reflow, report]);
+
+  // Re-report when padding-affecting style inputs change without resizing the
+  // content span (variant / size overrides / breakpoint), so the baked bounds
+  // track the anchor's new padding.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { report(); }, [measureKey]);
+
+  return { anchorRef, contentRef };
+}
+
+/**
  * Tracks the measured (rendered) heights of auto-height blocks (accordion)
  * and computes cumulative downward offsets for blocks positioned below them.
  *
@@ -162,7 +242,7 @@ export function useReportCardContentHeight(blockId) {
  *   blocks      – the flat list of canvas blocks being rendered
  *   resolveGeom – (block) => { x, y, w, h, hidden }  (breakpoint-resolved)
  */
-export function AccordionReflowProvider({ children, blocks, resolveGeom, editorMode = false, breakpoint, onMeasure }) {
+export function AccordionReflowProvider({ children, blocks, resolveGeom, editorMode = false, breakpoint, onMeasure, onMeasureSize }) {
   const [measuredHeights, setMeasuredHeights] = useState(() => new Map());
   // Smallest height ever measured per block = its collapsed (baseline) rendered
   // height. Accordions mount fully collapsed, so the first measurement is their
@@ -190,6 +270,27 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
   // and the measurement effects don't re-bind when onMeasure changes.
   const onMeasureRef = useRef(onMeasure);
   useEffect(() => { onMeasureRef.current = onMeasure; }, [onMeasure]);
+
+  // Optional editor hook for auto-SIZE blocks (Button / CTA): forwards the
+  // block's measured natural width AND height so the editor can bake them into
+  // stored per-breakpoint geometry. Unlike reportHeight, this NEVER touches the
+  // reflow measuredHeights / rowGroups state — a button's width isn't part of
+  // the vertical reflow, and its (small) height change is committed through the
+  // same auto-size bake rather than the read-time push-down. Public render
+  // passes no onMeasureSize, so it stays inert there.
+  const onMeasureSizeRef = useRef(onMeasureSize);
+  useEffect(() => { onMeasureSizeRef.current = onMeasureSize; }, [onMeasureSize]);
+
+  const reportSize = useCallback((blockId, size) => {
+    if (!onMeasureSizeRef.current) return;
+    if (!size) return;
+    const w = Math.round(size.w);
+    const h = Math.round(size.h);
+    onMeasureSizeRef.current(blockId, {
+      w: Number.isFinite(w) ? w : NaN,
+      h: Number.isFinite(h) ? h : NaN,
+    });
+  }, []);
 
   const reportHeight = useCallback((blockId, height) => {
     const rounded = Math.round(height);
@@ -474,7 +575,7 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
   const getSectionGrowth = getContainerGrowth;
 
   return (
-    <AccordionReflowCtx.Provider value={{ editorMode, reportHeight, getOffset, getMeasuredHeight, getContentHeight, getRowHeight, getTotalGrowth, getSectionGrowth, getContainerGrowth }}>
+    <AccordionReflowCtx.Provider value={{ editorMode, reportHeight, reportSize, getOffset, getMeasuredHeight, getContentHeight, getRowHeight, getTotalGrowth, getSectionGrowth, getContainerGrowth }}>
       {children}
     </AccordionReflowCtx.Provider>
   );

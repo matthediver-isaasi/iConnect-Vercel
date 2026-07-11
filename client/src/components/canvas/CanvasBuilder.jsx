@@ -846,7 +846,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   // author-intent gate, and content-ready re-check. Extracted so its runtime
   // guards are covered by useAutoHeightBake.test.mjs. See
   // .agents/memory/canvas-autoheight-commit.md.
-  const { commitAutoHeight } = useAutoHeightBake({
+  const { commitAutoHeight, commitAutoSize } = useAutoHeightBake({
     breakpoint,
     designRef,
     setDesign,
@@ -2125,6 +2125,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
                       onMarqueeSelect={handleMarqueeSelect}
                       onPreviewBottomChange={setLivePreviewBottom}
                       onCommitAutoHeight={commitAutoHeight}
+                      onCommitAutoSize={commitAutoSize}
                       scrollContainerRef={stageWrapperRef}
                       activeGroupId={activeGroupId}
                       onEnterGroupFocus={enterGroupFocus}

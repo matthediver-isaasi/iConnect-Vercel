@@ -52,6 +52,7 @@ const { BLOCK_TYPES } = await import('../../lib/canvasDesign.js');
 // Fake registry: only the two flags the bake reads.
 const DEFS = {
   [BLOCK_TYPES.TEXT]: { autoHeight: true },
+  [BLOCK_TYPES.BUTTON]: { autoSize: true },
   [BLOCK_TYPES.IMAGE]: {},
 };
 const getDefinition = (type) => DEFS[type];
@@ -84,7 +85,7 @@ function makeHarness(initialDesign, { authorEdited = true } = {}) {
       api.setDesignCalls.push(next);
       if (next && next !== api.design) api.design = next;
     };
-    const { commitAutoHeight } = useAutoHeightBake({
+    const { commitAutoHeight, commitAutoSize } = useAutoHeightBake({
       breakpoint,
       designRef,
       setDesign,
@@ -94,6 +95,7 @@ function makeHarness(initialDesign, { authorEdited = true } = {}) {
       getDefinition,
     });
     api.commit = commitAutoHeight;
+    api.commitSize = commitAutoSize;
     return createElement('div', { ref: stageWrapperRef });
   }
   return { api, Harness };
@@ -307,4 +309,54 @@ test('Gate 4: a single genuine large shrink (no follow-up) still bakes after the
   const baked = api.setDesignCalls[0];
   const t1 = baked.root.sections[0].children.find((c) => c.id === 't1');
   assert.equal(t1.bp.desktop.h, 120, 'baked to the genuine shrunk height');
+});
+
+// --- commitAutoSize (Button / CTA — Task #2662) -------------------------
+// commitAutoSize reuses the SAME four guards as commitAutoHeight (settle,
+// author-intent, content-ready, suspect-shrink debounce) but bakes width AND
+// height. These tests confirm the shared gates apply to the size path and that
+// a settled, author-driven measurement bakes both dimensions.
+
+test('commitAutoSize: a measurement before the settle gate opens does NOT bake', async () => {
+  const { api, Harness } = makeHarness(makeDesign([
+    block('btn', BLOCK_TYPES.BUTTON, { y: 0, w: 180, h: 44 }),
+  ]));
+  await mount(Harness);
+  addBlockEl(api.wrapperRef.current, 'btn');
+  // Fonts.ready still pending -> settle gate closed.
+  api.commitSize('btn', { w: 320, h: 44 });
+  await flush(300);
+  assert.equal(api.setDesignCalls.length, 0, 'nothing may bake before settle');
+});
+
+test('commitAutoSize: a re-measure with no author edit does NOT bake', async () => {
+  const { api, Harness } = makeHarness(
+    makeDesign([block('btn', BLOCK_TYPES.BUTTON, { y: 0, w: 180, h: 44 })]),
+    { authorEdited: false },
+  );
+  await mount(Harness);
+  addBlockEl(api.wrapperRef.current, 'btn');
+  fontsCtl.openReady();
+  await flush(20); // settle gate open
+  api.commitSize('btn', { w: 320, h: 44 }); // mechanical re-measure
+  await flush(260);
+  assert.equal(api.setDesignCalls.length, 0, 'mechanical re-measure must never flip dirty');
+});
+
+test('commitAutoSize: once settled, an author-driven measurement bakes width AND height', async () => {
+  const { api, Harness } = makeHarness(makeDesign([
+    block('btn', BLOCK_TYPES.BUTTON, { y: 0, w: 180, h: 44 }),
+    block('below', BLOCK_TYPES.IMAGE, { y: 60, h: 100 }),
+  ]));
+  await mount(Harness);
+  addBlockEl(api.wrapperRef.current, 'btn');
+  fontsCtl.openReady();
+  await flush(20); // settle gate open
+  api.commitSize('btn', { w: 320, h: 44 }); // wider label, height unchanged
+  await flush(260);
+  assert.equal(api.setDesignCalls.length, 1, 'a settled, author-driven measurement bakes');
+  const baked = api.setDesignCalls[0];
+  const btn = baked.root.sections[0].children.find((c) => c.id === 'btn');
+  assert.equal(btn.bp.desktop.w, 320, 'width baked to the measured width');
+  assert.equal(btn.bp.desktop.h, 44, 'height unchanged');
 });

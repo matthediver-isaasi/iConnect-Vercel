@@ -45,6 +45,21 @@ export function readStoredHeightAtBp(design, id, breakpoint) {
   }
 }
 
+// Stored (breakpoint-resolved) width of a block, or NaN if missing/hidden.
+// The auto-SIZE bake (Button / CTA) tracks width as well as height, so the
+// suspect-shrink guard needs the stored width the same way it needs height.
+export function readStoredWidthAtBp(design, id, breakpoint) {
+  try {
+    const kids = getRootChildren(design);
+    const target = kids.find((x) => x.id === id);
+    if (!target) return NaN;
+    const g = resolveBlockAtBreakpoint(target, breakpoint);
+    return (g && !g.hidden) ? (g.w || 0) : NaN;
+  } catch {
+    return NaN;
+  }
+}
+
 // A measurement is a "suspect shrink" when it comes in at least
 // `thresholdPx` shorter than the block's stored (previously-good) height. This
 // is the corrupting case — baked as a negative delta it shrinks the block and
@@ -68,6 +83,104 @@ export function autoHeightDebounceDelay(design, blockId, breakpoint, measuredRou
 } = {}) {
   const stored = readStoredHeightAtBp(design, blockId, breakpoint);
   return isSuspectShrink(stored, measuredRounded, suspectPx) ? shrinkMs : normalMs;
+}
+
+// Debounce window for an auto-SIZE (Button / CTA) measurement: a suspect shrink
+// in EITHER width or height gets the long window so a transient too-small
+// measurement (font swap, icon/image decode, breakpoint switch) is corrected by
+// the real size before it can ever bake.
+export function autoSizeDebounceDelay(design, blockId, breakpoint, { width, height } = {}, {
+  suspectPx = SHRINK_SUSPECT_PX,
+  shrinkMs = SHRINK_DEBOUNCE_MS,
+  normalMs = AUTOHEIGHT_DEBOUNCE_MS,
+} = {}) {
+  const storedH = readStoredHeightAtBp(design, blockId, breakpoint);
+  const storedW = readStoredWidthAtBp(design, blockId, breakpoint);
+  const suspect =
+    isSuspectShrink(storedH, Math.round(height), suspectPx) ||
+    isSuspectShrink(storedW, Math.round(width), suspectPx);
+  return suspect ? shrinkMs : normalMs;
+}
+
+// Pure bake planner for AUTO-SIZE blocks (Button / CTA — `def.autoSize`). Unlike
+// planAutoHeightBake (Text / Accordion), this commits BOTH the measured rendered
+// width and height into the block's stored per-breakpoint geometry so the editor
+// selection box and resize handles wrap the real button.
+//
+// Width and height are each independently dead-banded:
+//   - a WIDTH change only resizes the block itself. A wider/narrower button does
+//     NOT move blocks below it (Task #2662 keeps downstream push scoped to
+//     height only — a label change primarily changes width).
+//   - a HEIGHT change reuses the exact auto-height reflow: push every block
+//     entirely below the target down by the height delta, and grow any Section /
+//     Box that geometrically contains it by the same delta.
+//
+// Returns the next design, or `null` when nothing should change (block
+// gone/hidden, not an autoSize block, or both deltas inside the dead-band).
+export function planAutoSizeBake({
+  design,
+  blockId,
+  breakpoint,
+  measuredWidth,
+  measuredHeight,
+  getDefinition,
+  deadBandPx = AUTOHEIGHT_DEAD_BAND_PX,
+}) {
+  if (!blockId) return null;
+
+  const kids = getRootChildren(design);
+  const target = kids.find((x) => x.id === blockId);
+  if (!target) return null;
+
+  const def = typeof getDefinition === 'function' ? getDefinition(target.type) : null;
+  // Only autoSize blocks (Button / CTA) bake width. Plain auto-height blocks go
+  // through planAutoHeightBake; cards use runtime row-height equalization.
+  if (!def?.autoSize) return null;
+
+  const tg = resolveBlockAtBreakpoint(target, breakpoint);
+  if (!tg || tg.hidden) return null;
+
+  const roundedW = Number.isFinite(measuredWidth) ? Math.round(measuredWidth) : NaN;
+  const roundedH = Number.isFinite(measuredHeight) ? Math.round(measuredHeight) : NaN;
+  const wChange =
+    Number.isFinite(roundedW) && roundedW > 0 &&
+    Math.abs(roundedW - (tg.w || 0)) >= deadBandPx;
+  const hChange =
+    Number.isFinite(roundedH) && roundedH > 0 &&
+    Math.abs(roundedH - (tg.h || 0)) >= deadBandPx;
+  if (!wChange && !hChange) return null;
+
+  const heightDelta = hChange ? roundedH - (tg.h || 0) : 0;
+  const targetTop = tg.y;
+  const targetBottom = tg.y + (tg.h || 0);
+
+  const patch = {};
+  if (wChange) patch.w = roundedW;
+  if (hChange) patch.h = roundedH;
+
+  const nextKids = kids.map((x) => {
+    if (x.id === blockId) return setBlockBp(x, breakpoint, patch);
+    // Width-only changes never move neighbours (Task #2662 out-of-scope note).
+    if (heightDelta === 0) return x;
+    const g = resolveBlockAtBreakpoint(x, breakpoint);
+    if (!g || g.hidden) return x;
+    const gBottom = g.y + (g.h || 0);
+    // Block entirely below the target -> shift down by the height delta.
+    if (targetBottom <= g.y) {
+      return setBlockBp(x, breakpoint, { y: Math.round(g.y + heightDelta) });
+    }
+    // Container (section or box) that contains the target -> grow by the delta.
+    if (
+      (x.type === BLOCK_TYPES.SECTION || x.type === BLOCK_TYPES.BOX) &&
+      targetTop >= g.y &&
+      targetBottom <= gBottom
+    ) {
+      return setBlockBp(x, breakpoint, { h: Math.round((g.h || 0) + heightDelta) });
+    }
+    return x;
+  });
+
+  return setRootChildren(design, nextKids);
 }
 
 // Pure bake planner. Given a design and a settled measurement, returns the next

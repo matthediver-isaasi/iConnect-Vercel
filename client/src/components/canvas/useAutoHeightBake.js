@@ -21,7 +21,12 @@
 // jsdom harness for automated coverage. See useAutoHeightBake.test.mjs and
 // .agents/memory/canvas-autoheight-commit.md.
 import { useRef, useCallback, useEffect } from 'react';
-import { planAutoHeightBake, autoHeightDebounceDelay } from './autoHeightBake.js';
+import {
+  planAutoHeightBake,
+  autoHeightDebounceDelay,
+  planAutoSizeBake,
+  autoSizeDebounceDelay,
+} from './autoHeightBake.js';
 
 // Gate 3 helper, pulled out so it is exercisable with a plain DOM element.
 // `element` is the block's DOM node (or null when it isn't on the stage yet);
@@ -50,6 +55,21 @@ export function shouldScheduleAutoHeightCommit({ blockId, measuredHeight, layout
   return true;
 }
 
+// Gate 1 + Gate 2 (+ basic sanity) for an auto-SIZE (Button / CTA) measurement:
+// the same settle + author-intent gates as height, but the sanity check passes
+// when EITHER dimension is a finite positive number (a label change may move
+// only width).
+export function shouldScheduleAutoSizeCommit({ blockId, measuredWidth, measuredHeight, layoutSettled, authorEdited }) {
+  if (!blockId) return false;
+  if (!layoutSettled) return false; // Gate 1 — settle (re-armed per breakpoint)
+  if (!authorEdited) return false; // Gate 2 — author intent
+  const w = Math.round(measuredWidth);
+  const h = Math.round(measuredHeight);
+  const wOk = Number.isFinite(w) && w > 0;
+  const hOk = Number.isFinite(h) && h > 0;
+  return wOk || hOk;
+}
+
 export default function useAutoHeightBake({
   breakpoint,
   designRef,
@@ -60,6 +80,11 @@ export default function useAutoHeightBake({
   getDefinition,
 }) {
   const autoHeightTimers = useRef(new Map());
+  // Separate debounce timers for auto-SIZE (Button / CTA) commits. Keyed by
+  // blockId like autoHeightTimers; a given block goes through exactly one of the
+  // two paths (its definition is either autoHeight or autoSize), so the maps
+  // never collide, but keeping them separate avoids any cross-interaction.
+  const autoSizeTimers = useRef(new Map());
   // True once web fonts and the stage's initial images have settled. Before
   // that, measured auto-height reflects fallback-font / undecoded-image metrics
   // that differ from the real render, so any height baked from them would be
@@ -127,10 +152,57 @@ export default function useAutoHeightBake({
     }, delay));
   }, [breakpoint, designRef, setDesign, skipHistoryRef, authorEditedRef, isBlockContentReady, getDefinition]);
 
-  // Cancel any pending auto-height commits on unmount.
+  // Auto-SIZE commit (Button / CTA): bakes the measured rendered width AND
+  // height into the block's stored per-breakpoint geom. Mirrors commitAutoHeight
+  // exactly — same settle / author-intent / content-ready / suspect-shrink guards
+  // — but the suspect-shrink debounce window considers both dimensions and the
+  // bake commits width too (a width change never pushes neighbours; see
+  // planAutoSizeBake).
+  const commitAutoSize = useCallback((blockId, size) => {
+    const measuredWidth = size?.w;
+    const measuredHeight = size?.h;
+    if (!shouldScheduleAutoSizeCommit({
+      blockId,
+      measuredWidth,
+      measuredHeight,
+      layoutSettled: layoutSettledRef.current,
+      authorEdited: authorEditedRef.current,
+    })) return;
+    const roundedW = Math.round(measuredWidth);
+    const roundedH = Math.round(measuredHeight);
+    const delay = autoSizeDebounceDelay(designRef.current, blockId, breakpoint, {
+      width: roundedW,
+      height: roundedH,
+    });
+    const timers = autoSizeTimers.current;
+    if (timers.has(blockId)) clearTimeout(timers.get(blockId));
+    timers.set(blockId, setTimeout(() => {
+      timers.delete(blockId);
+      // Gate 3 — content ready: drop the measurement if the block's own images
+      // are still loading or fonts are mid-swap.
+      if (!isBlockContentReady(blockId)) return;
+      skipHistoryRef.current = true;
+      setDesign((prev) => {
+        const next = planAutoSizeBake({
+          design: prev,
+          blockId,
+          breakpoint,
+          measuredWidth: roundedW,
+          measuredHeight: roundedH,
+          getDefinition,
+        });
+        if (!next) { skipHistoryRef.current = false; return prev; }
+        return next;
+      });
+    }, delay));
+  }, [breakpoint, designRef, setDesign, skipHistoryRef, authorEditedRef, isBlockContentReady, getDefinition]);
+
+  // Cancel any pending auto-height / auto-size commits on unmount.
   useEffect(() => () => {
     for (const t of autoHeightTimers.current.values()) clearTimeout(t);
     autoHeightTimers.current.clear();
+    for (const t of autoSizeTimers.current.values()) clearTimeout(t);
+    autoSizeTimers.current.clear();
   }, []);
 
   // Gate 1 — flip the settle gate once web fonts and the stage's initial images
@@ -147,6 +219,8 @@ export default function useAutoHeightBake({
     layoutSettledRef.current = false;
     for (const t of autoHeightTimers.current.values()) clearTimeout(t);
     autoHeightTimers.current.clear();
+    for (const t of autoSizeTimers.current.values()) clearTimeout(t);
+    autoSizeTimers.current.clear();
     const markSettled = () => {
       if (cancelled) return;
       // One extra frame so a ResizeObserver fired by the font swap / image
@@ -178,5 +252,5 @@ export default function useAutoHeightBake({
     return () => { cancelled = true; clearTimeout(t); };
   }, [breakpoint, stageWrapperRef]);
 
-  return { commitAutoHeight, layoutSettledRef, isBlockContentReady };
+  return { commitAutoHeight, commitAutoSize, layoutSettledRef, isBlockContentReady };
 }

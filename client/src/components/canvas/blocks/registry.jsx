@@ -109,7 +109,7 @@ import { useCanvasAnchors } from '../CanvasAnchorContext';
 import { useCanvasEditorPage } from '../CanvasEditorPageContext';
 import { useCanvasSymbols } from '../CanvasSymbolsContext';
 import { ColorField } from './ColorField';
-import { useReportReflowHeight, useReportCardContentHeight } from '../AccordionReflowContext';
+import { useReportReflowHeight, useReportCardContentHeight, useReportButtonBounds } from '../AccordionReflowContext';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import {
@@ -2430,6 +2430,14 @@ function ButtonRender({ block, asEditor, breakpoint }) {
     return `${baselinePx}px`;
   };
 
+  // Task #2662: report the button's natural (content + padding) bounds so the
+  // editor can auto-size the block's stored geometry to fit the rendered label.
+  // measureKey re-reports on any style input that changes the anchor padding
+  // without resizing the content span (variant / icon / size overrides / bp).
+  const buttonMeasureKey = `${c.label || ''}|${c.variant || ''}|${c.icon || ''}|${JSON.stringify(rawSizeOverrides || {})}|${breakpoint || ''}`;
+  const { anchorRef: btnAnchorRef, contentRef: btnContentRef } = useReportButtonBounds(block.id, buttonMeasureKey);
+  const contentSpanStyle = { display: 'inline-flex', alignItems: 'center', gap: '0.375rem' };
+
   if (isTenantVariant && tenantStyle) {
     // Baseline = tenant defaults merged with the tenant style's saved size
     // (the values that would apply if NO per-block override existed). The
@@ -2520,17 +2528,18 @@ function ButtonRender({ block, asEditor, breakpoint }) {
     return (
       <div className="w-full h-full">
         <a
+          ref={btnAnchorRef}
           href={asEditor ? undefined : (c.href || '#')}
           target={c.newTab ? '_blank' : undefined}
           rel={c.newTab ? 'noopener noreferrer' : undefined}
           aria-label={c.ariaLabel || undefined}
-          className="flex h-full items-center justify-center gap-1.5 font-medium whitespace-nowrap"
+          className="flex h-full items-center justify-center font-medium whitespace-nowrap"
           style={inlineStyle}
           onMouseEnter={() => setTenantHovered(true)}
           onMouseLeave={() => setTenantHovered(false)}
           onClick={(e) => { if (asEditor) e.preventDefault(); }}
         >
-          {tenantInner}
+          <span ref={btnContentRef} style={contentSpanStyle}>{tenantInner}</span>
         </a>
       </div>
     );
@@ -2549,7 +2558,7 @@ function ButtonRender({ block, asEditor, breakpoint }) {
       outline: 'border border-slate-300 bg-white text-slate-900 hover-elevate active-elevate-2',
       ghost: 'bg-transparent text-slate-900 hover-elevate active-elevate-2',
     };
-    const baseCls = `flex w-full h-full items-center justify-center gap-1.5 rounded-md font-medium whitespace-nowrap ${variantClass[c.variant] || variantClass.default}`;
+    const baseCls = `flex w-full h-full items-center justify-center rounded-md font-medium whitespace-nowrap ${variantClass[c.variant] || variantClass.default}`;
     const padY = subFieldValue('paddingY', '--cb-btn-py',   baseline.paddingY);
     const padX = subFieldValue('paddingX', '--cb-btn-px',   baseline.paddingX);
     const fs   = subFieldValue('fontSize', '--cb-btn-fs',   baseline.fontSize);
@@ -2564,6 +2573,7 @@ function ButtonRender({ block, asEditor, breakpoint }) {
     return (
       <div className="w-full h-full">
         <a
+          ref={btnAnchorRef}
           href={asEditor ? undefined : (c.href || '#')}
           target={c.newTab ? '_blank' : undefined}
           rel={c.newTab ? 'noopener noreferrer' : undefined}
@@ -2572,8 +2582,10 @@ function ButtonRender({ block, asEditor, breakpoint }) {
           style={inlineStyle}
           onClick={(e) => { if (asEditor) e.preventDefault(); }}
         >
-          {Icon && <Icon style={{ width: iconPx, height: iconPx }} />}
-          <span style={labelInline || undefined}>{c.label || 'Button'}</span>
+          <span ref={btnContentRef} style={contentSpanStyle}>
+            {Icon && <Icon style={{ width: iconPx, height: iconPx }} />}
+            <span style={labelInline || undefined}>{c.label || 'Button'}</span>
+          </span>
         </a>
       </div>
     );
@@ -2593,6 +2605,7 @@ function ButtonRender({ block, asEditor, breakpoint }) {
   return (
     <div className="w-full h-full">
       <a
+        ref={btnAnchorRef}
         href={asEditor ? undefined : (c.href || '#')}
         target={c.newTab ? '_blank' : undefined}
         rel={c.newTab ? 'noopener noreferrer' : undefined}
@@ -2601,7 +2614,7 @@ function ButtonRender({ block, asEditor, breakpoint }) {
         style={{ width: '100%', height: '100%' }}
         onClick={(e) => { if (asEditor) e.preventDefault(); }}
       >
-        {inner}
+        <span ref={btnContentRef} style={contentSpanStyle}>{inner}</span>
       </a>
     </div>
   );
@@ -8886,7 +8899,7 @@ const REGISTRY = {
   // its default 4px `borderRadius` from clipping) so a tenant-styled button's
   // configured corner radius — including large/pill radii — is never capped by
   // the block wrapper. The button's own `<a>` supplies the visible radius.
-  [BLOCK_TYPES.BUTTON]:       { label: 'Button / CTA',   icon: MousePointerClick, category: 'content', Editor: ButtonRender,    Renderer: ButtonRender,       Inspector: ButtonInspector, allowOverflow: true },
+  [BLOCK_TYPES.BUTTON]:       { label: 'Button / CTA',   icon: MousePointerClick, category: 'content', Editor: ButtonRender,    Renderer: ButtonRender,       Inspector: ButtonInspector, allowOverflow: true, autoSize: true },
   [BLOCK_TYPES.VIDEO]:        { label: 'Video / embed',  icon: Film,           category: 'media',    Editor: VideoRender,        Renderer: VideoRender,        Inspector: VideoInspector },
   [BLOCK_TYPES.COLUMNS]:      { label: 'Columns',        icon: Columns3,       category: 'layout',   Editor: ColumnsRender,      Renderer: ColumnsRender,      Inspector: ColumnsInspector },
   [BLOCK_TYPES.SPACER]:       { label: 'Spacer',         icon: Rows3,          category: 'layout',   Editor: SpacerRender,       Renderer: SpacerRender,       Inspector: SpacerInspector },
