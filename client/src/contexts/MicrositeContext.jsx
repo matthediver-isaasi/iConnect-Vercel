@@ -24,7 +24,7 @@ const MicrositeContext = createContext(null);
  * can seed the context synchronously; absent (default site / tenant-less host)
  * we fall back to the client-fetch path with no change.
  */
-function readInjectedMicrositeContext() {
+export function readInjectedMicrositeContext() {
   if (typeof window === 'undefined') return null;
   const g = window.__MICROSITE_CONTEXT__;
   if (g && typeof g === 'object' && g.activeMicrosite?.path_prefix && g.branding) {

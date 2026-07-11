@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { publicClient } from "@/api/publicClient";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { resolveSearchResultsBranding } from "@/lib/searchResultsBranding";
+import { readInjectedMicrositeContext } from "@/contexts/MicrositeContext";
 
 const typeIconMap = {
   event: Calendar,
@@ -61,10 +62,24 @@ export default function SearchResults() {
   // that microsite's identity. The server merges microsite → tenant for these
   // keys, and unset values simply come back absent (built-in default).
   const brandingMicrositePrefix = micrositePrefix;
+  // Seed from the SSR-injected microsite chrome (window.__MICROSITE_CONTEXT__)
+  // when it's for this route, so the microsite's search-results font and
+  // type-label colour paint on the very first frame instead of flashing the
+  // fallback. The injected global holds the branding object directly, whereas
+  // this query reads brandingData.branding.brandingConfig — so wrap it as
+  // { branding } to match getTenantBranding's response shape.
+  // initialDataUpdatedAt: 0 keeps it stale so a background refetch still runs.
+  const injected = readInjectedMicrositeContext();
+  const injectedBrandingForRoute =
+    (injected?.activeMicrosite?.path_prefix === brandingMicrositePrefix)
+      ? injected.branding
+      : undefined;
   const { data: brandingData } = useQuery({
     queryKey: ['search-results-branding', brandingMicrositePrefix],
     queryFn: () => publicClient.getTenantBranding(brandingMicrositePrefix),
-    staleTime: 5 * 60 * 1000
+    staleTime: 5 * 60 * 1000,
+    initialData: injectedBrandingForRoute ? { branding: injectedBrandingForRoute } : undefined,
+    initialDataUpdatedAt: injectedBrandingForRoute ? 0 : undefined,
   });
   const { font: searchResultsFont, typeLabelColor, typeLabelBg } =
     resolveSearchResultsBranding(brandingData?.branding?.brandingConfig);
