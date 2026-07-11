@@ -304,6 +304,40 @@ export default function CanvasPageEditorPage() {
     staleTime: 0,
   });
 
+  // Preview-as-visitor microsite path (Task #2707). A page assigned to a
+  // microsite is only served publicly at /{prefix}/{slug} (the bare /{slug}
+  // returns a 404), so resolve the microsite's path prefix from the page's
+  // microsite_id. Fetched only when the page actually belongs to a microsite.
+  const { data: previewMicrosite } = useQuery({
+    queryKey: ['canvas-preview-microsite', page?.microsite_id],
+    queryFn: async () => {
+      const resp = await fetch(
+        `/api/admin/microsites?id=${encodeURIComponent(page.microsite_id)}`,
+        { credentials: 'include' },
+      );
+      if (!resp.ok) return null;
+      const body = await resp.json().catch(() => ({}));
+      return body.microsite || null;
+    },
+    enabled: !!page?.microsite_id,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // The visitor-facing URL for this page. Microsite pages live under their
+  // prefix; main-site pages at the bare slug. While the prefix is still
+  // loading for a microsite page we return null so the button is disabled
+  // rather than opening a bare-slug URL that would 404.
+  const previewVisitorUrl = useMemo(() => {
+    if (!page?.slug) return null;
+    const slugPath = encodeURIComponent(page.slug);
+    if (page.microsite_id) {
+      const prefix = previewMicrosite?.path_prefix;
+      if (!prefix) return null;
+      return `/${encodeURIComponent(prefix)}/${slugPath}`;
+    }
+    return `/${slugPath}`;
+  }, [page?.slug, page?.microsite_id, previewMicrosite?.path_prefix]);
+
   // Destination for the back arrow (Task #2661). Prefer the explicit view
   // context passed from the management list (`returnTo`). When absent (e.g. a
   // direct link into the editor) fall back to the edited page's own
@@ -1408,9 +1442,12 @@ export default function CanvasPageEditorPage() {
           <Button
             size="sm"
             variant="outline"
-            onClick={() => window.open(`/${page.slug}`, '_blank', 'noopener')}
+            disabled={!previewVisitorUrl}
+            onClick={() => {
+              if (previewVisitorUrl) window.open(previewVisitorUrl, '_blank', 'noopener');
+            }}
             data-testid="button-preview-as-visitor"
-            title="Open as visitor"
+            title={previewVisitorUrl ? 'Open as visitor' : 'Resolving page URL…'}
           >
             <ExternalLink className="w-4 h-4 mr-2" />
             Preview as visitor
