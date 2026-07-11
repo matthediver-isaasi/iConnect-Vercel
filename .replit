@@ -67,7 +67,7 @@ isValidation = true
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "node --test api/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs"
+args = "node --test api/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs"
 
 [userenv]
 

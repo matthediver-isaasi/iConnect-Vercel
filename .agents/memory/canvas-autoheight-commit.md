@@ -75,6 +75,19 @@ exclusion, delta/dead-band, block-below push + section/box grow) lives in a pure
 module beside `CanvasBuilder.jsx` (`autoHeightBake.js`, block registry passed in
 via `getDefinition` so it imports no React). The tuning constants are exported
 from there as the single source of truth. Regression suite is a sibling
-`*.test.mjs` wired into the `ai-assistant-tests` validation step. The three
-runtime-only gates (settle/breakpoint re-arm, author-intent, content-ready)
-still live in the component — they need refs/DOM and are not in the pure module.
+`autoHeightBake.test.mjs` wired into the `ai-assistant-tests` validation step.
+
+The three **runtime-only** gates (settle + breakpoint re-arm, author-intent,
+content-ready) need refs / effects / the DOM, so they live in a dedicated hook
+`useAutoHeightBake.js` (imports ONLY React + the pure `autoHeightBake.js` — no
+block registry, no API clients; `getDefinition` is injected). `CanvasBuilder`
+just calls `const { commitAutoHeight } = useAutoHeightBake({...})` (placed AFTER
+`stageWrapperRef` is declared — passing it earlier is a TDZ crash). Because the
+hook has no heavy import graph it mounts in a tiny jsdom harness:
+`useAutoHeightBake.test.mjs` (also in `ai-assistant-tests`) uses
+`react-dom/client` + `React.act`, a controllable `document.fonts`, and calls the
+returned `commitAutoHeight` directly as the fake measurement source.
+**Do NOT try to jsdom-mount the whole `CanvasBuilder`** — its import graph pulls
+`publicClient` (instantiated at module load, needs `localStorage` then
+`import.meta.env`, undefined outside Vite) and other browser/env singletons; it
+is a brittle rabbit hole. Extract the seam and mount that instead.

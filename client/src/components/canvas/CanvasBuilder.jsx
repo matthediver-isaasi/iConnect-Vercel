@@ -81,10 +81,7 @@ import CanvasPalette from './CanvasPalette';
 import CanvasStage from './CanvasStage';
 import CanvasFlowEditorStage from './CanvasFlowEditorStage';
 import { getBlockDefinition } from './blocks/registry';
-import {
-  planAutoHeightBake,
-  autoHeightDebounceDelay,
-} from './autoHeightBake';
+import useAutoHeightBake from './useAutoHeightBake';
 import useEdgeAutoScroll from './useEdgeAutoScroll';
 import CanvasGuidesOverlay from './CanvasGuides';
 import CanvasInspector from './CanvasInspector';
@@ -385,11 +382,6 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   // is the guard that stops a hard-refresh of the editor from silently
   // rewriting a correctly-saved page (see commitAutoHeight).
   const authorEditedRef = useRef(false);
-  // True once web fonts and the stage's initial images have settled. Before
-  // that, measured auto-height reflects fallback-font / undecoded-image metrics
-  // that differ from the real render, so any height baked from them would be
-  // wrong. Gates commitAutoHeight so the first committed measurement is real.
-  const layoutSettledRef = useRef(false);
 
   // Last saved JSON snapshot lives in state so isDirty recomputes when a
   // save succeeds. We also track which initialDesign object identity we
@@ -798,145 +790,10 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   // sub-pixel micro-changes. Committing h/y never changes any block's rendered
   // height (auto-height blocks stay height:auto; pushes only move `top`), so
   // there is no measure -> commit -> re-measure loop.
-  const autoHeightTimers = useRef(new Map());
-  // Per-block guard: a measurement is only trustworthy once the block's OWN
-  // content has actually settled at the current breakpoint — its images have
-  // finished loading/decoding and no web font is mid-swap. A height measured
-  // while an image is still decoding (0-height placeholder) or a font is
-  // swapping is transiently WRONG; baking it corrupts stored geometry. Unlike
-  // the global `layoutSettledRef` (armed once per breakpoint), this is checked
-  // for the specific block at bake time, so a late image/font on a block that
-  // only just rendered or scrolled into view is caught for the whole session.
-  const isBlockContentReady = useCallback((blockId) => {
-    if (typeof document !== 'undefined' && document.fonts && document.fonts.status === 'loading') {
-      return false;
-    }
-    const wrap = stageWrapperRef.current;
-    if (!wrap) return true;
-    let el = null;
-    try {
-      const sel = (typeof CSS !== 'undefined' && CSS.escape)
-        ? `[data-block-id="${CSS.escape(String(blockId))}"]`
-        : `[data-block-id="${String(blockId)}"]`;
-      el = wrap.querySelector(sel);
-    } catch {
-      el = null;
-    }
-    if (!el) return true;
-    for (const img of el.querySelectorAll('img')) {
-      if (!img.complete) return false;
-    }
-    return true;
-  }, []);
-  // Suspect-shrink stability: a measurement that comes in much SHORTER than the
-  // block's stored (previously-good) height is the corrupting case — a transient
-  // too-small measure baked as a negative delta shrinks the block and pulls
-  // every block below it upward, collapsing the page. Such measurements get a
-  // longer settle window (SHRINK_DEBOUNCE_MS — they must be the last reported
-  // height for the whole window, which a ResizeObserver would otherwise have
-  // reset) AND must pass the content-ready gate before they may bake.
-  const commitAutoHeight = useCallback((blockId, measuredHeight) => {
-    if (!blockId || !Number.isFinite(measuredHeight)) return;
-    // Gate 1 — settle: never bake a measurement taken before web fonts and the
-    // stage's initial images have loaded. Fallback-font / undecoded-image
-    // metrics differ from the real render, so baking them would corrupt the
-    // stored geometry with wrong heights. Re-armed on every breakpoint change
-    // (see the settle effect) so a mid-switch measurement can't bake either.
-    if (!layoutSettledRef.current) return;
-    // Gate 2 — author intent: a mount-time reflow re-measure is mechanical, not
-    // an author edit. Persisting it here would flip isDirty and let the 2s
-    // autosave silently overwrite a correctly-saved page on a hard refresh with
-    // zero user interaction. Only bake once the author has actually edited
-    // (add/move/resize/edit-content), at which point re-baking auto-height so
-    // SSR/CSS stays correct is exactly what we want.
-    if (!authorEditedRef.current) return;
-    const rounded = Math.round(measuredHeight);
-    if (rounded <= 0) return;
-    // Decide the settle window from the stored height at schedule time: a
-    // suspect shrink waits longer so a transient short measurement is corrected
-    // (its debounce reset) by the real height before it can ever bake.
-    const delay = autoHeightDebounceDelay(designRef.current, blockId, breakpoint, rounded);
-    const timers = autoHeightTimers.current;
-    if (timers.has(blockId)) clearTimeout(timers.get(blockId));
-    timers.set(blockId, setTimeout(() => {
-      timers.delete(blockId);
-      // Gate 3 — content ready: drop the measurement if the block's own images
-      // are still loading or fonts are mid-swap. The ResizeObserver re-reports
-      // once they settle, so the correct height still bakes later; a transient
-      // wrong height never does.
-      if (!isBlockContentReady(blockId)) return;
-      skipHistoryRef.current = true;
-      setDesign((prev) => {
-        // Pure bake decision (card exclusion, delta/dead-band, block-below push
-        // + section grow) lives in ./autoHeightBake so it is unit-tested without
-        // a DOM. Returns null when nothing should change.
-        const next = planAutoHeightBake({
-          design: prev,
-          blockId,
-          breakpoint,
-          measuredHeight: rounded,
-          getDefinition: getBlockDefinition,
-        });
-        if (!next) { skipHistoryRef.current = false; return prev; }
-        return next;
-      });
-    }, delay));
-  }, [breakpoint, setDesign, isBlockContentReady]);
-
-  // Cancel any pending auto-height commits on unmount.
-  useEffect(() => () => {
-    for (const t of autoHeightTimers.current.values()) clearTimeout(t);
-    autoHeightTimers.current.clear();
-  }, []);
-
-  // Flip the settle gate once web fonts and the stage's initial images have
-  // loaded. Auto-height blocks (Text, FAQ/Accordion) measure text, so the
-  // font swap is the metric that matters most; images are included so late
-  // decodes don't feed a bogus height either. A hard timeout guarantees the
-  // gate opens even if fonts.ready never resolves.
-  //
-  // Re-armed on every breakpoint change (not just first mount): switching
-  // breakpoint re-lays-out every block at a new width (text rewraps, images
-  // re-fit), so measurements taken before that new layout settles are wrong.
-  // Closing the gate here and only re-opening once fonts + the new breakpoint's
-  // images have loaded stops a mid-switch measurement from baking. Pending
-  // commits from the previous breakpoint are cancelled so they can't fire
-  // against the new layout.
-  useEffect(() => {
-    let cancelled = false;
-    layoutSettledRef.current = false;
-    for (const t of autoHeightTimers.current.values()) clearTimeout(t);
-    autoHeightTimers.current.clear();
-    const markSettled = () => {
-      if (cancelled) return;
-      // One extra frame so a ResizeObserver fired by the font swap / image
-      // decode has flushed before commits are allowed through.
-      if (typeof requestAnimationFrame === 'function') {
-        requestAnimationFrame(() => requestAnimationFrame(() => {
-          if (!cancelled) layoutSettledRef.current = true;
-        }));
-      } else {
-        layoutSettledRef.current = true;
-      }
-    };
-    const waits = [];
-    if (typeof document !== 'undefined' && document.fonts && document.fonts.ready) {
-      waits.push(document.fonts.ready.catch(() => {}));
-    }
-    const wrap = stageWrapperRef.current;
-    if (wrap) {
-      for (const img of Array.from(wrap.querySelectorAll('img'))) {
-        if (img.complete) continue;
-        waits.push(new Promise((res) => {
-          img.addEventListener('load', res, { once: true });
-          img.addEventListener('error', res, { once: true });
-        }));
-      }
-    }
-    Promise.all(waits).then(markSettled);
-    const t = setTimeout(markSettled, 4000);
-    return () => { cancelled = true; clearTimeout(t); };
-  }, [breakpoint]);
+  // The runtime guards + debounced commit that bake an auto-height block's
+  // measured height into stored geometry live in the useAutoHeightBake hook
+  // (settle gate + breakpoint re-arm, author-intent gate, content-ready
+  // re-check). The hook is wired below, after stageWrapperRef is declared.
 
   // ---- Auto build tablet + mobile layouts (Task #2434) ----
   // Generates both breakpoint layouts from the desktop layout in a single
@@ -984,6 +841,20 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   );
 
   const stageWrapperRef = useRef(null);
+
+  // Auto-height bake: settle gate (fonts + images, re-armed per breakpoint),
+  // author-intent gate, and content-ready re-check. Extracted so its runtime
+  // guards are covered by useAutoHeightBake.test.mjs. See
+  // .agents/memory/canvas-autoheight-commit.md.
+  const { commitAutoHeight } = useAutoHeightBake({
+    breakpoint,
+    designRef,
+    setDesign,
+    skipHistoryRef,
+    authorEditedRef,
+    stageWrapperRef,
+    getDefinition: getBlockDefinition,
+  });
 
   // Live pointer position during a palette drag. dnd-kit's `delta` (and the
   // translated active rect derived from it) gets distorted by auto-scroll
