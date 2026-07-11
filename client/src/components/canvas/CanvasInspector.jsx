@@ -31,6 +31,23 @@ import {
 import { getBlockDefinition } from './blocks/registry';
 import { ColorField } from './blocks/ColorField';
 
+// Block types where the shared "Spacing" (padding) panel has no visible effect,
+// so it is hidden in the inspector (Task #2695). Padding is only meaningful when
+// a block's content flows inside its shared wrapper. These blocks either position
+// their children independently on the stage (Box, Section), fill 100% of their
+// box (Image, Video, Map), or expose their own dedicated spacing control
+// (Card = "Card padding", Button = "Internal spacing & text"). Renderers are
+// unchanged, so any padding already saved on existing pages still applies.
+const NO_PADDING_PANEL_BLOCK_TYPES = new Set([
+  BLOCK_TYPES.BOX,
+  BLOCK_TYPES.SECTION,
+  BLOCK_TYPES.CARD,
+  BLOCK_TYPES.IMAGE,
+  BLOCK_TYPES.VIDEO,
+  BLOCK_TYPES.MAP,
+  BLOCK_TYPES.BUTTON,
+]);
+
 function NumberField({ id, label, value, onChange, min, max, step = 1, testId, override, disabled }) {
   return (
     <div className="space-y-1">
@@ -610,6 +627,7 @@ function SingleBlockInspector({ block, breakpoint, blockIssues, onUpdate, onTogg
         </div>
       </Section>
 
+      {!NO_PADDING_PANEL_BLOCK_TYPES.has(block.type) && (
       <Section title="Spacing">
         <div className="grid grid-cols-2 gap-2">
           <NumberField
@@ -647,6 +665,7 @@ function SingleBlockInspector({ block, breakpoint, blockIssues, onUpdate, onTogg
           Apply to all sides
         </Button>
       </Section>
+      )}
 
       <Section title="Accessibility">
         <div className="space-y-2">
