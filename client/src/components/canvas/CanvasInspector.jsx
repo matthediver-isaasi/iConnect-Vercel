@@ -3,7 +3,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Settings, Eye, EyeOff, Lock, Unlock, RotateCcw, AlertTriangle, CircleAlert, Info, ArrowUp, ArrowDown, Maximize2, Link2 } from 'lucide-react';
+import { Settings, Eye, EyeOff, Lock, Unlock, RotateCcw, AlertTriangle, CircleAlert, Info, ArrowUp, ArrowDown, Maximize2, Link2, Link2Off } from 'lucide-react';
 import {
   resolveBlockAtBreakpoint,
   hasOverride,
@@ -293,6 +293,60 @@ function SingleBlockInspector({ block, breakpoint, blockIssues, onUpdate, onTogg
     onUpdate((b) => setBlockContentFullBleed(b, breakpoint, !(b.content && b.content.fullBleed)));
   };
 
+  // Ratio lock (editor-session UI only; never persisted). When engaged, editing
+  // Width recomputes Height (and vice versa) to preserve the aspect ratio
+  // captured at the moment the lock was turned on. Only available when both
+  // Width and Height are actually editable.
+  const canLockRatio = !horizontallyPinned && !def?.noResize;
+  const [ratioLocked, setRatioLocked] = useState(false);
+  const [lockedRatio, setLockedRatio] = useState(null);
+
+  // A new block was selected — drop any captured ratio so it never leaks
+  // across elements.
+  useEffect(() => {
+    setRatioLocked(false);
+    setLockedRatio(null);
+  }, [block.id]);
+
+  // If the lock becomes impossible to honour (block pinned full-width/bleed or
+  // became noResize), release it silently so no constraint is violated.
+  useEffect(() => {
+    if (ratioLocked && !canLockRatio) {
+      setRatioLocked(false);
+      setLockedRatio(null);
+    }
+  }, [ratioLocked, canLockRatio]);
+
+  const toggleRatioLock = () => {
+    if (!canLockRatio) return;
+    if (ratioLocked) {
+      setRatioLocked(false);
+      setLockedRatio(null);
+      return;
+    }
+    const { w, h } = geom;
+    // Only capture a ratio when both dimensions are valid & non-degenerate.
+    if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) {
+      setLockedRatio(w / h);
+      setRatioLocked(true);
+    }
+  };
+
+  // Width/Height edits go through here so the ratio lock (when on) can update
+  // both dimensions together. Falls back to the plain single-field path when
+  // unlocked, preserving today's independent behaviour.
+  const updateDimension = (field, value) => {
+    if (value === null || value === undefined || Number.isNaN(value)) return;
+    if (ratioLocked && Number.isFinite(lockedRatio) && lockedRatio > 0) {
+      const entered = Math.max(10, Math.round(value));
+      const w = field === 'w' ? entered : Math.max(10, Math.round(entered * lockedRatio));
+      const h = field === 'h' ? entered : Math.max(10, Math.round(entered / lockedRatio));
+      onUpdate((b) => setBlockBp(b, breakpoint, { w, h }));
+      return;
+    }
+    updateGeom(field, value);
+  };
+
   const visibilityToggleOnBp = (bp) => {
     onUpdate((b) => {
       const current = resolveBlockAtBreakpoint(b, bp).hidden;
@@ -422,17 +476,39 @@ function SingleBlockInspector({ block, breakpoint, blockIssues, onUpdate, onTogg
           <NumberField
             id="inp-w" label="Width" testId="input-w" min={10}
             value={geom.w}
-            onChange={(v) => updateGeom('w', v)}
+            onChange={(v) => updateDimension('w', v)}
             override={hasOverride(block, breakpoint, 'w')}
             disabled={horizontallyPinned || def?.noResize}
           />
           <NumberField
             id="inp-h" label="Height" testId="input-h" min={10}
             value={geom.h}
-            onChange={(v) => updateGeom('h', v)}
+            onChange={(v) => updateDimension('h', v)}
             override={hasOverride(block, breakpoint, 'h')}
             disabled={def?.noResize}
           />
+        </div>
+        <div className="flex items-center justify-between gap-2 mt-2">
+          <div className="flex items-center gap-1.5 text-xs text-slate-600">
+            {ratioLocked ? <Link2 className="w-3.5 h-3.5" /> : <Link2Off className="w-3.5 h-3.5" />}
+            <span>Lock ratio</span>
+          </div>
+          <Button
+            size="sm"
+            variant={ratioLocked ? 'default' : 'outline'}
+            onClick={toggleRatioLock}
+            disabled={!canLockRatio}
+            className="toggle-elevate"
+            data-testid="button-toggle-ratio-lock"
+            data-state={ratioLocked ? 'on' : 'off'}
+            title={!canLockRatio
+              ? 'Width and Height must both be editable to lock their ratio'
+              : ratioLocked
+                ? 'Unlock aspect ratio (edit Width and Height independently)'
+                : 'Lock aspect ratio (editing one dimension adjusts the other)'}
+          >
+            {ratioLocked ? 'On' : 'Off'}
+          </Button>
         </div>
         {breakpoint !== 'desktop' && (
           <Button
