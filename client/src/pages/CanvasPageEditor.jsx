@@ -38,7 +38,7 @@ import CanvasBuilder from "@/components/canvas/CanvasBuilder";
 import CanvasA11yPanel from "@/components/canvas/CanvasA11yPanel";
 import {
   TemplatesDialog, SymbolsDialog, VersionsDialog,
-  ThemeDialog, ShortcutsOverlay, CommandPalette, unlinkSelectedSymbol,
+  ShortcutsOverlay, CommandPalette, unlinkSelectedSymbol,
 } from "@/components/canvas/CanvasPhase7Dialogs";
 import { FileRepositoryPicker } from "@/components/ImageSelector";
 
@@ -141,7 +141,6 @@ export default function CanvasPageEditorPage() {
   const [showSymbols, setShowSymbols] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
   const [showFileRepo, setShowFileRepo] = useState(false);
-  const [showTheme, setShowTheme] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
   // Rename / change-slug dialog state (Task #979).
@@ -1431,7 +1430,7 @@ export default function CanvasPageEditorPage() {
         <Button size="sm" variant="outline" onClick={() => setShowVersions(true)} data-testid="button-open-versions" title="Version history">
           <HistoryIcon className="w-4 h-4" />
         </Button>
-        <Button size="sm" variant="outline" onClick={() => setShowTheme(true)} data-testid="button-open-theme" title="Tenant theme">
+        <Button size="sm" variant="outline" onClick={() => canvasRef.current?.openPalettePanel?.()} data-testid="button-open-theme" title="Colour palette">
           <Palette className="w-4 h-4" />
         </Button>
         <Button size="sm" variant="outline" onClick={() => setShowShortcuts(true)} data-testid="button-open-shortcuts" title="Keyboard shortcuts (?)">
@@ -2085,7 +2084,6 @@ export default function CanvasPageEditorPage() {
           toast.success('Image inserted');
         }}
       />
-      <ThemeDialog open={showTheme} onOpenChange={setShowTheme} />
       <ShortcutsOverlay open={showShortcuts} onOpenChange={setShowShortcuts} />
       <CommandPalette
         open={showPalette}
@@ -2097,7 +2095,6 @@ export default function CanvasPageEditorPage() {
           { id: 'symbols', label: 'Open symbols…', run: () => setShowSymbols(true) },
           { id: 'versions', label: 'Version history…', run: () => setShowVersions(true) },
           { id: 'media', label: 'File Repository…', run: () => setShowFileRepo(true) },
-          { id: 'theme', label: 'Edit tenant theme…', run: () => setShowTheme(true) },
           { id: 'shortcuts', label: 'Keyboard shortcuts', hint: '?', run: () => setShowShortcuts(true) },
           { id: 'unlink-symbol', label: 'Unlink selected symbol', run: () => unlinkSelectedSymbol(canvasRef) },
           { id: 'preview-visitor', label: 'Preview as visitor', run: () => page?.slug && window.open(`/${page.slug}`, '_blank', 'noopener') },

@@ -595,6 +595,10 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     isDirty: () => JSON.stringify(design) !== lastSavedSnapshot,
     getDesign: () => design,
     getA11yIssues: () => auditCanvasDesign(design),
+    // Open the colour swatch palette panel. Called by the shell's top-nav
+    // palette icon so it shares the exact same panel as the in-builder
+    // "Palette" button (same tenant/microsite scope).
+    openPalettePanel: () => setShowPalettePanel(true),
     // Phase 7 — programmatic block insertion used by templates / symbols /
     // command palette. Accepts an array of partial block objects which are
     // passed through createBlock so defaults & ids are populated. Returns

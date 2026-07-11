@@ -11,7 +11,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import {
   LayoutTemplate, Component as ComponentIcon, History as HistoryIcon,
-  Images as ImagesIcon, Palette, Keyboard, Command as CommandIcon,
+  Images as ImagesIcon, Keyboard, Command as CommandIcon,
   ExternalLink, Trash2, RotateCcw, Unlink, Plus, Eye,
   Pencil, Save as SaveIcon,
 } from 'lucide-react';
@@ -470,109 +470,6 @@ export function VersionsDialog({ open, onOpenChange, pageId, onRestored }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </Dialog>
-  );
-}
-
-// ===========================================================================
-// Theme editor
-// ===========================================================================
-
-const DEFAULT_THEME = {
-  colors: { primary: '', accent: '', background: '', foreground: '' },
-  typography: { heading: '', body: '' },
-  spacing: { sm: '', md: '', lg: '' },
-};
-
-export function ThemeDialog({ open, onOpenChange }) {
-  const queryClient = useQueryClient();
-  const { data } = useQuery({
-    queryKey: ['tenant-canvas-theme'],
-    queryFn: async () => {
-      const r = await fetch('/api/tenant-canvas-theme', { credentials: 'include' });
-      if (!r.ok) throw new Error('Failed to load theme');
-      return r.json();
-    },
-    enabled: open,
-    staleTime: 0,
-  });
-  const [theme, setTheme] = useState(DEFAULT_THEME);
-  useEffect(() => {
-    if (data?.theme) {
-      setTheme({
-        colors: { ...DEFAULT_THEME.colors, ...(data.theme.colors || {}) },
-        typography: { ...DEFAULT_THEME.typography, ...(data.theme.typography || {}) },
-        spacing: { ...DEFAULT_THEME.spacing, ...(data.theme.spacing || {}) },
-      });
-    }
-  }, [data]);
-
-  const saveMut = useMutation({
-    mutationFn: async () => {
-      const r = await fetch('/api/tenant-canvas-theme', {
-        method: 'PUT', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ theme }),
-      });
-      if (!r.ok) throw new Error('Failed to save theme');
-      return r.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tenant-canvas-theme'] });
-      toast.success('Theme saved');
-      onOpenChange(false);
-    },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const setColor = (k, v) => setTheme((t) => ({ ...t, colors: { ...t.colors, [k]: v } }));
-  const setFont = (k, v) => setTheme((t) => ({ ...t, typography: { ...t.typography, [k]: v } }));
-  const setSpace = (k, v) => setTheme((t) => ({ ...t, spacing: { ...t.spacing, [k]: v } }));
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl">
-        <DialogHeader>
-          <DialogTitle>Tenant theme</DialogTitle>
-          <DialogDescription>
-            These tokens are exposed as CSS variables on Canvas pages (e.g. <code>var(--cb-color-primary)</code>). iEdit pages are not affected.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-4 max-h-[60vh] overflow-y-auto">
-          <section className="space-y-2">
-            <h4 className="text-sm font-semibold text-slate-700">Colors</h4>
-            {Object.entries(theme.colors).map(([k, v]) => (
-              <div key={k} className="grid grid-cols-3 gap-2 items-center">
-                <Label className="text-xs capitalize">{k}</Label>
-                <Input value={v} onChange={(e) => setColor(k, e.target.value)} placeholder="e.g. #1d4ed8 or hsl(222 47% 31%)" className="col-span-2" data-testid={`input-theme-color-${k}`} />
-              </div>
-            ))}
-          </section>
-          <section className="space-y-2">
-            <h4 className="text-sm font-semibold text-slate-700">Typography</h4>
-            {Object.entries(theme.typography).map(([k, v]) => (
-              <div key={k} className="grid grid-cols-3 gap-2 items-center">
-                <Label className="text-xs capitalize">{k}</Label>
-                <Input value={v} onChange={(e) => setFont(k, e.target.value)} placeholder="e.g. Inter, system-ui, sans-serif" className="col-span-2" data-testid={`input-theme-font-${k}`} />
-              </div>
-            ))}
-          </section>
-          <section className="space-y-2">
-            <h4 className="text-sm font-semibold text-slate-700">Spacing</h4>
-            {Object.entries(theme.spacing).map(([k, v]) => (
-              <div key={k} className="grid grid-cols-3 gap-2 items-center">
-                <Label className="text-xs capitalize">{k}</Label>
-                <Input value={v} onChange={(e) => setSpace(k, e.target.value)} placeholder="e.g. 8 or 1rem" className="col-span-2" data-testid={`input-theme-space-${k}`} />
-              </div>
-            ))}
-          </section>
-        </div>
-        <DialogFooter>
-          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending} data-testid="button-save-theme">
-            <Palette className="w-4 h-4 mr-2" />Save theme
-          </Button>
-        </DialogFooter>
-      </DialogContent>
     </Dialog>
   );
 }
