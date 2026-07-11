@@ -173,6 +173,12 @@ export default function DynamicPage() {
       const page = pages[0] || null;
       if (!page) return { page: null, elements: [] };
 
+      // Default (non-prefixed) path: a page assigned to a microsite is only
+      // served under its prefix. Mirror the public endpoint's bare-slug guard
+      // (`!microsite && page.microsite_id` → 404) so the authenticated fallback
+      // does not leak microsite pages at their bare /{slug} URL.
+      if (page.microsite_id) return { page: null, elements: [] };
+
       // Canvas Builder pages have no i_edit_page_element rows — their
       // layout lives in canvas_design on the page row itself. Skip the
       // element fetch to save a round trip.
