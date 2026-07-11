@@ -66,13 +66,15 @@ export default async function handler(req, res) {
 
   if (req.method === 'GET') {
     // `microsite_id` tells the editor whether this is a microsite page (so the
-    // Search Input block can offer its microsite-scope toggle). Legacy DBs may
-    // predate that column — fall back to the base select so the editor keeps
-    // working there (the page simply reads as a non-microsite page).
+    // Search Input block can offer its microsite-scope toggle). `folder_id`
+    // lets the editor's back arrow fall back to the page's own folder when no
+    // explicit return context was passed (Task #2661). Legacy DBs may predate
+    // these columns — fall back to the base select so the editor keeps working
+    // there (the page simply reads as a non-microsite, unfiled page).
     const baseColumns = 'id, title, slug, status, layout_type, builder_type, canvas_design';
     let { data, error } = await supabase
       .from('i_edit_page')
-      .select(`${baseColumns}, microsite_id`)
+      .select(`${baseColumns}, microsite_id, folder_id`)
       .eq('id', pageId)
       .eq('tenant_id', tenantId)
       .maybeSingle();

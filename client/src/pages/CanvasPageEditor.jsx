@@ -85,6 +85,10 @@ export default function CanvasPageEditorPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [pageId, setPageId] = useState(null);
+  // Return target for the back arrow (Task #2661): the page-management list URL
+  // that encodes the microsite/folder/search the user came from. Captured from
+  // the `returnTo` query param on mount; null when arriving via a direct link.
+  const [returnTo, setReturnTo] = useState(null);
   const [initialDesign, setInitialDesign] = useState(() => createEmptyCanvasDesign());
   const [isDirty, setIsDirty] = useState(false);
   const canvasRef = useRef(null);
@@ -254,6 +258,8 @@ export default function CanvasPageEditorPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const id = params.get('pageId');
+    const rt = params.get('returnTo');
+    if (rt) setReturnTo(rt);
     if (id) {
       setPageId(id);
     } else {
@@ -280,6 +286,22 @@ export default function CanvasPageEditorPage() {
     enabled: !!pageId,
     staleTime: 0,
   });
+
+  // Destination for the back arrow (Task #2661). Prefer the explicit view
+  // context passed from the management list (`returnTo`). When absent (e.g. a
+  // direct link into the editor) fall back to the edited page's own
+  // microsite/folder so the user still lands where the page lives; and when
+  // neither is available, use the plain management list.
+  const backToPagesUrl = useMemo(() => {
+    if (returnTo) return returnTo;
+    const base = createPageUrl('IEditPageManagement');
+    if (!page) return base;
+    const params = new URLSearchParams();
+    if (page.microsite_id) params.set('site', page.microsite_id);
+    if (page.folder_id) params.set('folder', page.folder_id);
+    const qs = params.toString();
+    return base + (qs ? `?${qs}` : '');
+  }, [returnTo, page]);
 
   // Which views apply to this page, in audit order. Hybrid pages render
   // differently for anonymous visitors vs. logged-in members, so we run a
@@ -1005,7 +1027,7 @@ export default function CanvasPageEditorPage() {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => navigate(createPageUrl('IEditPageManagement'))}
+          onClick={() => navigate(backToPagesUrl)}
           data-testid="button-back"
         >
           <ArrowLeft className="w-4 h-4 mr-2" />

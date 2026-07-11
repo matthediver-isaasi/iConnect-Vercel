@@ -29,7 +29,7 @@ import {
 } from "@dnd-kit/core";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import PageFolderSidebar, { PRIMARY_SITE } from "@/components/iedit/PageFolderSidebar";
 import { adminFetch } from "@/lib/adminFetch";
@@ -157,7 +157,13 @@ export default function IEditPageManagementPage() {
       }
     }
   }, [isFeatureExcluded, isAccessReady]);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState(() => {
+    try {
+      return new URLSearchParams(window.location.search).get("q") || "";
+    } catch {
+      return "";
+    }
+  });
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [pageToDelete, setPageToDelete] = useState(null);
@@ -201,8 +207,20 @@ export default function IEditPageManagementPage() {
   // Folder / view state (Task: folders, sorting & pinning)
   // Active site context (Task #2534): null = primary tenant site, otherwise a
   // microsite id. Drives both folder-panel selection and page-list filtering.
-  const [activeSiteId, setActiveSiteId] = useState(null);
-  const [selectedFolderId, setSelectedFolderId] = useState("all"); // 'all' | 'root' | <folderId>
+  const [activeSiteId, setActiveSiteId] = useState(() => {
+    try {
+      return new URLSearchParams(window.location.search).get("site") || null;
+    } catch {
+      return null;
+    }
+  });
+  const [selectedFolderId, setSelectedFolderId] = useState(() => {
+    try {
+      return new URLSearchParams(window.location.search).get("folder") || "all";
+    } catch {
+      return "all";
+    }
+  }); // 'all' | 'root' | <folderId>
   const [viewMode, setViewMode] = useState(() => {
     try {
       return localStorage.getItem(VIEW_MODE_KEY) === "list" ? "list" : "grid";
@@ -258,7 +276,38 @@ export default function IEditPageManagementPage() {
   });
 
   const navigate = useNavigate();
+  const [, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
+
+  // Keep the URL in sync with the active view (microsite + folder + search) so
+  // the list is restorable purely from the URL — both on reload/deep-link and
+  // when returning from the editor's back arrow (Task #2661). Uses the same
+  // null / 'all' / 'root' semantics as the state itself; default values are
+  // omitted from the query string to keep the primary/unfiled URL clean.
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (activeSiteId) params.set('site', activeSiteId);
+    if (selectedFolderId && selectedFolderId !== 'all') params.set('folder', selectedFolderId);
+    if (searchQuery) params.set('q', searchQuery);
+    setSearchParams(params, { replace: true });
+  }, [activeSiteId, selectedFolderId, searchQuery, setSearchParams]);
+
+  // Encodes the current list view so the editor can send the user back to the
+  // exact microsite/folder/search they left when they click the back arrow.
+  const buildListReturnTo = () => {
+    const params = new URLSearchParams();
+    if (activeSiteId) params.set('site', activeSiteId);
+    if (selectedFolderId && selectedFolderId !== 'all') params.set('folder', selectedFolderId);
+    if (searchQuery) params.set('q', searchQuery);
+    const qs = params.toString();
+    return createPageUrl('IEditPageManagement') + (qs ? `?${qs}` : '');
+  };
+
+  // Builds the editor URL for a page, carrying the current view context so the
+  // editor's back arrow can restore it.
+  const buildEditorUrl = (editorPage, pageId) =>
+    createPageUrl(editorPage) +
+    `?pageId=${pageId}&returnTo=${encodeURIComponent(buildListReturnTo())}`;
 
   const { data: pages = [], isLoading } = useQuery({
     queryKey: ['iedit-pages'],
@@ -415,7 +464,7 @@ export default function IEditPageManagementPage() {
       setNewPage({ title: "", slug: "", description: "", layout_type: "public", status: "draft", builder_type: "iedit", canvas_template_id: "" });
       toast.success('Page created successfully');
       const editorPage = created.builder_type === 'canvas' ? 'CanvasPageEditor' : 'IEditPageEditor';
-      navigate(createPageUrl(editorPage) + `?pageId=${created.id}`);
+      navigate(buildEditorUrl(editorPage, created.id));
     },
     onError: (error) => {
       toast.error('Failed to create page: ' + error.message);
@@ -557,7 +606,7 @@ export default function IEditPageManagementPage() {
       queryClient.invalidateQueries({ queryKey: ['iedit-pages'] });
       resetDocDialog();
       toast.success('Page created');
-      if (data?.page?.id) navigate(createPageUrl('CanvasPageEditor') + `?pageId=${data.page.id}`);
+      if (data?.page?.id) navigate(buildEditorUrl('CanvasPageEditor', data.page.id));
     },
     onError: (error) => toast.error(error.message),
   });
@@ -619,7 +668,7 @@ export default function IEditPageManagementPage() {
     onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: ['iedit-pages'] });
       toast.success('Login page created — add your design, then publish it');
-      navigate(createPageUrl('CanvasPageEditor') + `?pageId=${created.id}`);
+      navigate(buildEditorUrl('CanvasPageEditor', created.id));
     },
     onError: (error) => {
       toast.error('Failed to create login page: ' + error.message);
@@ -1343,7 +1392,7 @@ export default function IEditPageManagementPage() {
                       getStatusBadge={getStatusBadge}
                       onEdit={(p) => {
                         const editorPage = p.builder_type === 'canvas' ? 'CanvasPageEditor' : 'IEditPageEditor';
-                        navigate(createPageUrl(editorPage) + `?pageId=${p.id}`);
+                        navigate(buildEditorUrl(editorPage, p.id));
                       }}
                       onOpenPublic={(p) => window.open(getPublicUrl(p.slug), '_blank')}
                       onRename={openRenameDialog}
@@ -1372,7 +1421,7 @@ export default function IEditPageManagementPage() {
                       getStatusBadge={getStatusBadge}
                       onEdit={(p) => {
                         const editorPage = p.builder_type === 'canvas' ? 'CanvasPageEditor' : 'IEditPageEditor';
-                        navigate(createPageUrl(editorPage) + `?pageId=${p.id}`);
+                        navigate(buildEditorUrl(editorPage, p.id));
                       }}
                       onOpenPublic={(p) => window.open(getPublicUrl(p.slug), '_blank')}
                       onRename={openRenameDialog}
