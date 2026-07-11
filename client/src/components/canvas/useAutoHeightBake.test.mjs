@@ -72,7 +72,7 @@ function makeHarness(initialDesign, { authorEdited = true } = {}) {
     setDesignCalls: [],
     design: initialDesign,
   };
-  function Harness({ breakpoint }) {
+  function Harness({ breakpoint, zoom = 1 }) {
     const designRef = useRef(api.design);
     designRef.current = api.design;
     const skipHistoryRef = useRef(false);
@@ -87,6 +87,7 @@ function makeHarness(initialDesign, { authorEdited = true } = {}) {
     };
     const { commitAutoHeight, commitAutoSize } = useAutoHeightBake({
       breakpoint,
+      zoom,
       designRef,
       setDesign,
       skipHistoryRef,
@@ -135,11 +136,11 @@ afterEach(async () => {
   container.remove();
 });
 
-async function mount(Harness, breakpoint = 'desktop') {
-  await act(async () => { root.render(createElement(Harness, { breakpoint })); });
+async function mount(Harness, breakpoint = 'desktop', zoom = 1) {
+  await act(async () => { root.render(createElement(Harness, { breakpoint, zoom })); });
 }
-async function rerender(Harness, breakpoint) {
-  await act(async () => { root.render(createElement(Harness, { breakpoint })); });
+async function rerender(Harness, breakpoint, zoom = 1) {
+  await act(async () => { root.render(createElement(Harness, { breakpoint, zoom })); });
 }
 
 // --- Gate 1: settle -----------------------------------------------------
@@ -222,6 +223,46 @@ test('breakpoint switch re-closes the settle gate and cancels a pending commit',
   api.commit('t1', 280);
   await flush(300);
   assert.equal(api.setDesignCalls.length, 1, 'gate reopens after the new breakpoint settles');
+});
+
+// --- Gate 1 re-arm: zoom change (Task #2699) ----------------------------
+// Editor zoom is a `transform: scale(zoom)` on the stage wrapper. A zoom change
+// briefly reflows every measured element (the browser fires ResizeObserver with
+// transform-inflated rects mid-transition). The settle-gate effect depends on
+// `zoom`, so a zoom change must re-close the gate AND cancel any pending commit,
+// exactly like a breakpoint switch, so a transient mid-zoom measurement can
+// never bake.
+
+test('zoom change re-closes the settle gate and cancels a pending commit', async () => {
+  const { api, Harness } = makeHarness(makeDesign([
+    block('t1', BLOCK_TYPES.TEXT, { y: 0, h: 100 }),
+    block('b2', BLOCK_TYPES.IMAGE, { y: 120, h: 100 }),
+  ]));
+  await mount(Harness, 'desktop', 1);
+  addBlockEl(api.wrapperRef.current, 't1');
+  fontsCtl.openReady();
+  await flush(20); // gate open at zoom 1
+  api.commit('t1', 260); // schedule a bake (200ms debounce)
+  await flush(50); // not yet fired
+  assert.equal(api.setDesignCalls.length, 0, 'commit is still pending');
+  // Give the post-zoom render a fresh, still-pending fonts.ready so the re-armed
+  // gate stays closed until we explicitly open it.
+  const zoomedFonts = installFonts();
+  // Zoom change (same breakpoint): the settle effect re-arms (gate closed) AND
+  // clears the pending timer, so the in-flight commit must never fire.
+  await rerender(Harness, 'desktop', 1.5);
+  await flush(300); // well past the original debounce
+  assert.equal(api.setDesignCalls.length, 0, 'pending commit was cancelled by the zoom change');
+  // Further commits are blocked until the re-armed gate settles again.
+  api.commit('t1', 280);
+  await flush(300);
+  assert.equal(api.setDesignCalls.length, 0, 'gate stays closed until it settles after the zoom change');
+  // Once settled, commits flow again (re-arm reopened the gate).
+  zoomedFonts.openReady();
+  await flush(20);
+  api.commit('t1', 280);
+  await flush(300);
+  assert.equal(api.setDesignCalls.length, 1, 'gate reopens after the zoom change settles');
 });
 
 // --- Gate 3: content-ready re-check --------------------------------------

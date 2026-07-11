@@ -32,6 +32,31 @@ export const SHRINK_DEBOUNCE_MS = 700;
 export const SHRINK_SUSPECT_PX = 12;
 export const AUTOHEIGHT_DEAD_BAND_PX = 2;
 
+// Zoom normalization for editor-side reflow measurements (Task #2699).
+//
+// Editor zoom is applied as `transform: scale(zoom)` on the stage wrapper, so
+// every `getBoundingClientRect()` reads dimensions AFTER the transform — a
+// length measured at 150% zoom comes back inflated 1.5×. If that inflated value
+// were baked into stored geometry, zooming in would silently grow blocks,
+// sections and cards and corrupt the saved layout. The measurement layer divides
+// each measured (transform-scaled) length by the active zoom before reporting,
+// so a baked height is IDENTICAL at any zoom. Values read from
+// `getComputedStyle` (margins, padding, borders) are resolved layout-pixel
+// values that the transform does NOT scale, so they must be added back WITHOUT
+// dividing.
+//
+// A non-finite or non-positive zoom (undefined on the public path, or a
+// transient bad value) collapses to 1 so the measurement is unchanged.
+export function normalizeZoom(zoom) {
+  return Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+}
+
+// Convert a length measured under the editor's `transform: scale(zoom)` back to
+// true stage coordinates. Public path (zoom 1) returns the value unchanged.
+export function normalizeMeasuredLength(scaledPx, zoom) {
+  return scaledPx / normalizeZoom(zoom);
+}
+
 // Stored (breakpoint-resolved) height of a block, or NaN if missing/hidden.
 export function readStoredHeightAtBp(design, id, breakpoint) {
   try {

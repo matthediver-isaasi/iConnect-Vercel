@@ -837,6 +837,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   // .agents/memory/canvas-autoheight-commit.md.
   const { commitAutoHeight, commitAutoSize } = useAutoHeightBake({
     breakpoint,
+    zoom,
     designRef,
     setDesign,
     skipHistoryRef,

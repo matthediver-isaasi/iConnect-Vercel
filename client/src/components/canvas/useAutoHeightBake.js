@@ -72,6 +72,7 @@ export function shouldScheduleAutoSizeCommit({ blockId, measuredWidth, measuredH
 
 export default function useAutoHeightBake({
   breakpoint,
+  zoom = 1,
   designRef,
   setDesign,
   skipHistoryRef,
@@ -214,6 +215,13 @@ export default function useAutoHeightBake({
   // breakpoint's images have loaded stops a mid-switch measurement from baking.
   // Pending commits from the previous breakpoint are cancelled so they can't
   // fire against the new layout.
+  //
+  // Task #2699 — the gate is ALSO re-armed on every `zoom` change. Zoom is a
+  // `transform: scale(zoom)` on the stage wrapper, so a measurement captured
+  // mid-transition (or one already scheduled at the previous zoom) could bake a
+  // mis-scaled value. Closing the gate on the zoom change and cancelling pending
+  // commits guarantees only measurements taken after the new transform has been
+  // applied — and normalized by the new zoom — are ever committed.
   useEffect(() => {
     let cancelled = false;
     layoutSettledRef.current = false;
@@ -250,7 +258,7 @@ export default function useAutoHeightBake({
     Promise.all(waits).then(markSettled);
     const t = setTimeout(markSettled, 4000);
     return () => { cancelled = true; clearTimeout(t); };
-  }, [breakpoint, stageWrapperRef]);
+  }, [breakpoint, zoom, stageWrapperRef]);
 
   return { commitAutoHeight, commitAutoSize, layoutSettledRef, isBlockContentReady };
 }

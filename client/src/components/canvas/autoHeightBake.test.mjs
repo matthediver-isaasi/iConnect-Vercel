@@ -18,6 +18,8 @@ import {
   autoSizeDebounceDelay,
   computeReanchoredBoxHeight,
   computeBoxGrowthDelta,
+  normalizeZoom,
+  normalizeMeasuredLength,
   SHRINK_SUSPECT_PX,
   SHRINK_DEBOUNCE_MS,
   AUTOHEIGHT_DEBOUNCE_MS,
@@ -474,4 +476,51 @@ test('planAutoSizeBake: only autoSize blocks are baked; hidden/missing/non-finit
   const dOk = design([block('btn', BLOCK_TYPES.BUTTON, { y: 0, w: 180, h: 44 })]);
   assert.equal(sizeBake(dOk, 'btn', NaN, NaN), null);
   assert.equal(sizeBake(dOk, 'btn', 0, 0), null);
+});
+
+// --- zoom normalization (Task #2699) ------------------------------------
+// Editor zoom is a `transform: scale(zoom)` on the stage wrapper, so every
+// getBoundingClientRect() read is inflated by `zoom`. The measurement layer
+// divides each measured length by the active zoom before reporting, so a baked
+// height is identical at any zoom. getComputedStyle values (margin/padding/
+// border) are layout-pixel and NOT scaled — the callers add those back
+// separately, so these helpers only ever touch the transform-scaled rect.
+
+test('normalizeZoom: valid positive finite zoom passes through', () => {
+  assert.equal(normalizeZoom(1), 1);
+  assert.equal(normalizeZoom(1.5), 1.5);
+  assert.equal(normalizeZoom(0.5), 0.5);
+});
+
+test('normalizeZoom: undefined / NaN / non-positive collapse to 1 (public path + bad values)', () => {
+  assert.equal(normalizeZoom(undefined), 1);
+  assert.equal(normalizeZoom(null), 1);
+  assert.equal(normalizeZoom(NaN), 1);
+  assert.equal(normalizeZoom(0), 1);
+  assert.equal(normalizeZoom(-2), 1);
+  assert.equal(normalizeZoom(Infinity), 1);
+});
+
+test('normalizeMeasuredLength: a length measured at non-1 zoom normalizes to the zoom-1 value', () => {
+  // A block that is 200px tall in true stage coordinates is measured as 300px
+  // at 150% zoom and 100px at 50% zoom; both must normalize back to 200.
+  assert.equal(normalizeMeasuredLength(300, 1.5), 200);
+  assert.equal(normalizeMeasuredLength(100, 0.5), 200);
+  // The public path (zoom 1) is a no-op — measurement stays byte-identical.
+  assert.equal(normalizeMeasuredLength(200, 1), 200);
+});
+
+test('normalizeMeasuredLength: undefined zoom (public renderer) is a no-op', () => {
+  assert.equal(normalizeMeasuredLength(200, undefined), 200);
+  assert.equal(normalizeMeasuredLength(456, undefined), 456);
+});
+
+test('normalizeMeasuredLength: composing normalized length + unscaled margin matches the zoom-1 total', () => {
+  // measureReflowHeight divides only the rect height by zoom, then adds the
+  // (unscaled) margin. Simulate a 100px content block with a 20px margin.
+  const marginBottom = 20; // layout px — NOT scaled by the transform
+  const atZoom1 = normalizeMeasuredLength(100, 1) + marginBottom;
+  const atZoom1_5 = normalizeMeasuredLength(150, 1.5) + marginBottom; // rect inflated to 150
+  assert.equal(atZoom1, 120);
+  assert.equal(atZoom1_5, 120); // identical -> zoom never leaks into the baked height
 });

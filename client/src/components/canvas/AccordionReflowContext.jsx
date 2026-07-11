@@ -10,7 +10,7 @@ import {
 } from 'react';
 import { getBlockDefinition } from './blocks/registry';
 import { BLOCK_TYPES } from '../../lib/canvasDesign';
-import { computeBoxGrowthDelta } from './autoHeightBake';
+import { computeBoxGrowthDelta, normalizeMeasuredLength } from './autoHeightBake';
 
 const AccordionReflowCtx = createContext(null);
 
@@ -28,10 +28,22 @@ export function useAccordionReflow() {
  * and drop the margin. Add the computed `margin-bottom` back so the reported
  * footprint is the margin-inclusive bounds. A zero margin adds nothing, so a
  * block with no typography bottom margin (e.g. the accordion) is unchanged.
+ *
+ * `zoom` (Task #2699) normalizes the measurement back to true stage
+ * coordinates. Editor zoom is a `transform: scale(zoom)` on the stage wrapper,
+ * and `getBoundingClientRect()` returns dimensions AFTER that transform — so a
+ * height measured at 150% zoom is inflated 1.5×. Dividing the border-box height
+ * by the active zoom yields the un-scaled height that gets baked into stored
+ * geometry, so zoom never influences the saved layout. The public renderer
+ * never zooms (zoom defaults to 1), so its measurement is byte-unchanged.
+ *
+ * The `margin-bottom` read from `getComputedStyle` is the resolved CSS value in
+ * layout pixels — it is NOT affected by the CSS transform — so it must be added
+ * back WITHOUT dividing by zoom.
  */
-function measureReflowHeight(el) {
+export function measureReflowHeight(el, zoom = 1) {
   if (!el) return 0;
-  const h = el.getBoundingClientRect().height;
+  const h = normalizeMeasuredLength(el.getBoundingClientRect().height, zoom);
   if (h <= 0) return h;
   let marginBottom = 0;
   try {
@@ -74,6 +86,13 @@ export function useReportReflowHeight(blockId, extraHeight = 0) {
   const reflow = useAccordionReflow();
   const containerRef = useRef(null);
 
+  // Active editor zoom, kept in a ref updated every render so the measurement
+  // closures below always read the CURRENT zoom without re-binding their
+  // ResizeObserver (a pure zoom change must not itself trigger a re-report /
+  // bake). Defaults to 1 on the public path, where measurements are unchanged.
+  const zoomRef = useRef(1);
+  zoomRef.current = (reflow && Number.isFinite(reflow.zoom) && reflow.zoom > 0) ? reflow.zoom : 1;
+
   // Only the editor bakes measured heights into stored geometry and snaps
   // against them, so the wrapper padding is folded in for the editor only.
   const pad = (reflow?.editorMode && Number.isFinite(extraHeight) && extraHeight > 0)
@@ -83,7 +102,7 @@ export function useReportReflowHeight(blockId, extraHeight = 0) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useLayoutEffect(() => {
     if (!reflow || !containerRef.current) return;
-    const h = measureReflowHeight(containerRef.current);
+    const h = measureReflowHeight(containerRef.current, zoomRef.current);
     if (h > 0) reflow.reportHeight(blockId, Math.round(h + pad));
   }, []); // intentionally mount-only; ResizeObserver below handles ongoing changes
 
@@ -91,7 +110,7 @@ export function useReportReflowHeight(blockId, extraHeight = 0) {
     if (!reflow || !containerRef.current) return;
     const el = containerRef.current;
     const report = () => {
-      const h = measureReflowHeight(el);
+      const h = measureReflowHeight(el, zoomRef.current);
       if (h > 0) reflow.reportHeight(blockId, Math.round(h + pad));
     };
     // Re-running on `pad` change (author edited padding in the inspector, which
@@ -131,10 +150,17 @@ export function useReportCardContentHeight(blockId) {
   const outerRef = useRef(null);
   const spacerRef = useRef(null);
 
+  // Active editor zoom (see useReportReflowHeight). Both getBoundingClientRect
+  // reads below are inflated by the stage transform, so divide each by zoom to
+  // recover the natural content height in true stage coordinates before baking.
+  const zoomRef = useRef(1);
+  zoomRef.current = (reflow && Number.isFinite(reflow.zoom) && reflow.zoom > 0) ? reflow.zoom : 1;
+
   const report = useCallback(() => {
     if (!reflow || !outerRef.current) return;
-    const outerH = outerRef.current.getBoundingClientRect().height;
-    const spacerH = spacerRef.current ? spacerRef.current.getBoundingClientRect().height : 0;
+    const z = zoomRef.current;
+    const outerH = normalizeMeasuredLength(outerRef.current.getBoundingClientRect().height, z);
+    const spacerH = spacerRef.current ? normalizeMeasuredLength(spacerRef.current.getBoundingClientRect().height, z) : 0;
     const natural = Math.round(outerH - spacerH);
     if (natural > 0) reflow.reportHeight(blockId, natural);
   }, [reflow, blockId]);
@@ -188,11 +214,19 @@ export function useReportButtonBounds(blockId, measureKey) {
   const anchorRef = useRef(null);
   const contentRef = useRef(null);
 
+  // Active editor zoom (see useReportReflowHeight). The content span's
+  // getBoundingClientRect is inflated by the stage transform, so divide it by
+  // zoom. Padding/border read from getComputedStyle are resolved layout-pixel
+  // values (NOT transform-scaled), so they are added back un-divided.
+  const zoomRef = useRef(1);
+  zoomRef.current = (reflow && Number.isFinite(reflow.zoom) && reflow.zoom > 0) ? reflow.zoom : 1;
+
   const report = useCallback(() => {
     if (!reflow || !reflow.editorMode) return;
     const anchor = anchorRef.current;
     const content = contentRef.current;
     if (!anchor || !content) return;
+    const z = zoomRef.current;
     const contentRect = content.getBoundingClientRect();
     let padX = 0;
     let padY = 0;
@@ -209,8 +243,8 @@ export function useReportButtonBounds(blockId, measureKey) {
       padX = pl + pr + blw + brw;
       padY = pt + pb + btw + bbw;
     } catch { /* getComputedStyle unavailable — content box only */ }
-    const w = contentRect.width + padX;
-    const h = contentRect.height + padY;
+    const w = normalizeMeasuredLength(contentRect.width, z) + padX;
+    const h = normalizeMeasuredLength(contentRect.height, z) + padY;
     if (w > 0 || h > 0) reflow.reportSize(blockId, { w, h });
   }, [reflow, blockId]);
 
@@ -243,7 +277,7 @@ export function useReportButtonBounds(blockId, measureKey) {
  *   blocks      – the flat list of canvas blocks being rendered
  *   resolveGeom – (block) => { x, y, w, h, hidden }  (breakpoint-resolved)
  */
-export function AccordionReflowProvider({ children, blocks, resolveGeom, editorMode = false, breakpoint, onMeasure, onMeasureSize }) {
+export function AccordionReflowProvider({ children, blocks, resolveGeom, editorMode = false, breakpoint, zoom = 1, onMeasure, onMeasureSize }) {
   const [measuredHeights, setMeasuredHeights] = useState(() => new Map());
   // Smallest height ever measured per block = its collapsed (baseline) rendered
   // height. Accordions mount fully collapsed, so the first measurement is their
@@ -579,7 +613,7 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
   const getSectionGrowth = getContainerGrowth;
 
   return (
-    <AccordionReflowCtx.Provider value={{ editorMode, reportHeight, reportSize, getOffset, getMeasuredHeight, getContentHeight, getRowHeight, getTotalGrowth, getSectionGrowth, getContainerGrowth }}>
+    <AccordionReflowCtx.Provider value={{ editorMode, zoom, reportHeight, reportSize, getOffset, getMeasuredHeight, getContentHeight, getRowHeight, getTotalGrowth, getSectionGrowth, getContainerGrowth }}>
       {children}
     </AccordionReflowCtx.Provider>
   );
