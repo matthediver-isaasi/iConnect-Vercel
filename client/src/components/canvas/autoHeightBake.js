@@ -203,13 +203,90 @@ export function planAutoSizeBake({
   return setRootChildren(design, nextKids);
 }
 
+// Re-anchor box-height formula — the SINGLE SOURCE OF TRUTH shared by the public
+// renderer (AccordionReflowContext.getContainerGrowth) and the editor bake
+// (planAutoHeightBake) so a V1 Box renders at the same height on both surfaces
+// (Task #2680). A Box is a decorative background that wraps its contained
+// auto-height content: it re-anchors its bottom beneath the DEEPEST contained
+// MEASURED bottom while preserving the authored bottom inset (the gap the author
+// left below the deepest STORED content). Because the height is driven by the
+// deepest contained bottom — not a per-block incremental delta — a box that
+// contains several auto-height blocks, that was manually resized, or whose
+// content shrinks, settles to the SAME height on both surfaces.
+//
+//   containerTop / containerHeight — the box's stored (authored) geometry.
+//   rows — the contained auto-height rows, each { storedBottom, measuredBottom }
+//          in the SAME coordinate space as the box. Cards (autoHeight+cardGrow)
+//          and absoluteFill blocks are excluded by the caller.
+//
+// Returns the box's correct height. With no contained rows the authored height
+// is returned unchanged. The authored bottom inset is clamped non-negative so
+// the box always fully contains its content.
+export function computeReanchoredBoxHeight({ containerTop, containerHeight, rows }) {
+  const height = Number.isFinite(containerHeight) ? containerHeight : 0;
+  const containerBottom = containerTop + height;
+  let deepestMeasuredBottom = null;
+  let deepestStoredBottom = containerTop;
+  for (const r of rows || []) {
+    if (
+      Number.isFinite(r?.measuredBottom) &&
+      (deepestMeasuredBottom === null || r.measuredBottom > deepestMeasuredBottom)
+    ) {
+      deepestMeasuredBottom = r.measuredBottom;
+    }
+    if (Number.isFinite(r?.storedBottom) && r.storedBottom > deepestStoredBottom) {
+      deepestStoredBottom = r.storedBottom;
+    }
+  }
+  if (deepestMeasuredBottom === null) return height; // no contained content
+  const authoredBottomInset = Math.max(0, containerBottom - deepestStoredBottom);
+  return (deepestMeasuredBottom - containerTop) + authoredBottomInset;
+}
+
+// Compute a Box's re-anchored stored height from a design's contained
+// auto-height (non-card) blocks. Pre-bake stored heights are the "stored"
+// reference (they carry the authored bottom inset); the target block's newly
+// measured height is substituted as its "measured" bottom. This mirrors the
+// public getContainerGrowth exactly, where "stored" is the saved design and
+// "measured" is the live DOM — so a baked box equals the front-end-grown box.
+function boxReanchorHeight({ kids, box, boxGeom, breakpoint, getDefinition, targetId, targetMeasuredH }) {
+  const boxBottom = boxGeom.y + (boxGeom.h || 0);
+  const rows = [];
+  for (const k of kids) {
+    if (k.id === box.id) continue;
+    const def = typeof getDefinition === 'function' ? getDefinition(k.type) : null;
+    // Only plain auto-height blocks (Text / Accordion) drive box growth. Cards
+    // (autoHeight + cardGrow) and non-auto-height blocks are excluded, mirroring
+    // the public getContainerGrowth row set and keeping the exclusions intact.
+    if (!def?.autoHeight || def?.cardGrow) continue;
+    const g = resolveBlockAtBreakpoint(k, breakpoint);
+    if (!g || g.hidden) continue;
+    const storedBottom = g.y + (g.h || 0);
+    // Contained when the block's stored span fits inside the box.
+    if (g.y >= boxGeom.y && storedBottom <= boxBottom) {
+      const measuredH = (k.id === targetId && Number.isFinite(targetMeasuredH))
+        ? targetMeasuredH
+        : (g.h || 0);
+      rows.push({ storedBottom, measuredBottom: g.y + measuredH });
+    }
+  }
+  return computeReanchoredBoxHeight({
+    containerTop: boxGeom.y,
+    containerHeight: boxGeom.h,
+    rows,
+  });
+}
+
 // Pure bake planner. Given a design and a settled measurement, returns the next
 // design with the reflow baked in, or `null` if nothing should change (block
 // gone/hidden, card block, or delta inside the dead-band). Mirrors
 // AccordionReflowContext exactly so there is zero visual change:
 //   1. set the target's own h to the measured height,
-//   2. push every block entirely below it down by the delta, and
-//   3. grow every Section / Box that geometrically contains it by the delta.
+//   2. push every block entirely below it down by the delta,
+//   3. grow every SECTION that geometrically contains it by the delta, and
+//   4. re-anchor every BOX that contains it to the deepest contained content via
+//      the shared computeReanchoredBoxHeight formula (Task #2680) — NOT a
+//      per-block delta — so the baked box equals the front-end-grown box.
 //
 // `getDefinition(type)` supplies the block registry entry (needs `autoHeight`
 // and `cardGrow`); passed in so this module never imports the React registry.
@@ -255,14 +332,35 @@ export function planAutoHeightBake({
     if (targetBottom <= g.y) {
       return setBlockBp(x, breakpoint, { y: Math.round(g.y + delta) });
     }
-    // (3) Container background (section or box) that contains the target ->
-    // grow by delta so its stored height tracks the content and is persisted.
+    // (3) Section background that contains the target -> grow by delta so its
+    // stored height tracks the content and is persisted (grow-only; unchanged).
     if (
-      (x.type === BLOCK_TYPES.SECTION || x.type === BLOCK_TYPES.BOX) &&
+      x.type === BLOCK_TYPES.SECTION &&
       targetTop >= g.y &&
       targetBottom <= gBottom
     ) {
       return setBlockBp(x, breakpoint, { h: Math.round((g.h || 0) + delta) });
+    }
+    // (4) Box background that contains the target -> re-anchor to the deepest
+    // contained content via the shared formula (Task #2680), NOT the isolated
+    // target delta. This keeps the baked box height identical to what the public
+    // renderer computes, and stops a box with several auto-height blocks (or one
+    // whose content shrinks) from drifting between builder and front-end.
+    if (
+      x.type === BLOCK_TYPES.BOX &&
+      targetTop >= g.y &&
+      targetBottom <= gBottom
+    ) {
+      const newH = Math.round(boxReanchorHeight({
+        kids,
+        box: x,
+        boxGeom: g,
+        breakpoint,
+        getDefinition,
+        targetId: blockId,
+        targetMeasuredH: rounded,
+      }));
+      return setBlockBp(x, breakpoint, { h: newH });
     }
     return x;
   });

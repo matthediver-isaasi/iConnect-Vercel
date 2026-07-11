@@ -16,6 +16,7 @@ import {
   readStoredWidthAtBp,
   planAutoSizeBake,
   autoSizeDebounceDelay,
+  computeReanchoredBoxHeight,
   SHRINK_SUSPECT_PX,
   SHRINK_DEBOUNCE_MS,
   AUTOHEIGHT_DEBOUNCE_MS,
@@ -125,6 +126,118 @@ test('atomic bake grows the containing section by the same delta', () => {
   assert.equal(hOf(next, 't1'), 250);
   assert.equal(hOf(next, 'sec'), 400 + 150); // section grew by delta
   assert.equal(yOf(next, 'b2'), 460 + 150); // block below section pushed down
+});
+
+// --- box re-anchor: single source of truth with the public renderer (#2680) --
+
+// The box height is baked via the SAME computeReanchoredBoxHeight formula the
+// public renderer uses, so the builder and the front-end agree. These tests pin
+// the shared formula and the bake's box branch.
+
+test('computeReanchoredBoxHeight: no rows returns the authored height', () => {
+  assert.equal(
+    computeReanchoredBoxHeight({ containerTop: 0, containerHeight: 200, rows: [] }),
+    200,
+  );
+});
+
+test('computeReanchoredBoxHeight: preserves the authored bottom inset when content grows', () => {
+  // Box y=0 h=200 (bottom 200). One row stored bottom 160 -> authored inset 40.
+  // Content grows to a measured bottom of 260 -> box wraps it keeping the 40 gap.
+  const h = computeReanchoredBoxHeight({
+    containerTop: 0,
+    containerHeight: 200,
+    rows: [{ storedBottom: 160, measuredBottom: 260 }],
+  });
+  assert.equal(h, 260 + 40 - 0); // (measured - top) + inset
+});
+
+test('computeReanchoredBoxHeight: tracks the DEEPEST row, not the last one', () => {
+  const h = computeReanchoredBoxHeight({
+    containerTop: 0,
+    containerHeight: 300,
+    rows: [
+      { storedBottom: 250, measuredBottom: 250 }, // deepest, unchanged
+      { storedBottom: 120, measuredBottom: 180 }, // shallower row grew
+    ],
+  });
+  // Deepest measured bottom is 250; deepest stored bottom is 250; inset = 300-250 = 50.
+  assert.equal(h, 250 + 50);
+});
+
+test('computeReanchoredBoxHeight: content deeper than the box forces growth (inset clamps to 0)', () => {
+  const h = computeReanchoredBoxHeight({
+    containerTop: 0,
+    containerHeight: 100,
+    rows: [{ storedBottom: 90, measuredBottom: 400 }],
+  });
+  // containerBottom 100 < deepestStored 90? no: inset = max(0, 100-90) = 10.
+  assert.equal(h, 400 + 10);
+});
+
+test('box bake: single contained block grows -> box grows by the same delta (parity with old delta path)', () => {
+  const d = design([
+    block('bx', BLOCK_TYPES.BOX, { x: 0, y: 0, w: 600, h: 200 }),
+    block('t1', BLOCK_TYPES.TEXT, { x: 20, y: 40, w: 560, h: 100 }), // bottom 140, inset 60
+    block('b2', BLOCK_TYPES.IMAGE, { x: 20, y: 260, h: 100 }),
+  ]);
+  const next = bake(d, 't1', 250); // +150 delta -> new bottom 290
+  assert.ok(next);
+  assert.equal(hOf(next, 't1'), 250);
+  assert.equal(hOf(next, 'bx'), 200 + 150); // box grew by delta, inset preserved
+  assert.equal(yOf(next, 'b2'), 260 + 150); // block below pushed down by delta
+});
+
+test('box bake: editing the SHALLOWER of two blocks does NOT grow the box (re-anchor, not delta)', () => {
+  const d = design([
+    block('bx', BLOCK_TYPES.BOX, { x: 0, y: 0, w: 600, h: 300 }),
+    // deep block (left column) is the deepest contained content
+    block('deep', BLOCK_TYPES.TEXT, { x: 20, y: 40, w: 270, h: 210 }), // bottom 250
+    // shallow block (right column) shares the top row band
+    block('shallow', BLOCK_TYPES.TEXT, { x: 310, y: 40, w: 270, h: 100 }), // bottom 140
+  ]);
+  // Grow the shallow block, but it stays shallower than `deep`.
+  const next = bake(d, 'shallow', 180); // +80, new bottom 220 < deep bottom 250
+  assert.ok(next);
+  assert.equal(hOf(next, 'shallow'), 180);
+  assert.equal(hOf(next, 'bx'), 300); // box UNCHANGED — deepest content unchanged
+});
+
+test('box bake: shrinking a non-deepest block leaves the box height unchanged', () => {
+  const d = design([
+    block('bx', BLOCK_TYPES.BOX, { x: 0, y: 0, w: 600, h: 300 }),
+    block('deep', BLOCK_TYPES.TEXT, { x: 20, y: 40, w: 270, h: 210 }), // bottom 250 (deepest)
+    block('shallow', BLOCK_TYPES.TEXT, { x: 310, y: 40, w: 270, h: 120 }), // bottom 160
+  ]);
+  const next = bake(d, 'shallow', 60); // shrinks well below deep
+  assert.ok(next);
+  assert.equal(hOf(next, 'shallow'), 60);
+  assert.equal(hOf(next, 'bx'), 300); // box tracks the (unchanged) deepest block
+});
+
+test('box bake: growing the deepest block re-anchors the box and preserves its inset', () => {
+  const d = design([
+    block('bx', BLOCK_TYPES.BOX, { x: 0, y: 0, w: 600, h: 300 }),
+    block('deep', BLOCK_TYPES.TEXT, { x: 20, y: 40, w: 270, h: 210 }), // bottom 250, inset 50
+    block('shallow', BLOCK_TYPES.TEXT, { x: 310, y: 40, w: 270, h: 100 }), // bottom 140
+  ]);
+  const next = bake(d, 'deep', 260); // +50, new bottom 300
+  assert.ok(next);
+  assert.equal(hOf(next, 'deep'), 260);
+  assert.equal(hOf(next, 'bx'), 300 + 50); // re-anchored to new deepest + 50 inset
+});
+
+test('box bake: a card contained in the box never drives box growth', () => {
+  const d = design([
+    block('bx', BLOCK_TYPES.BOX, { x: 0, y: 0, w: 600, h: 300 }),
+    block('t1', BLOCK_TYPES.TEXT, { x: 20, y: 40, w: 270, h: 100 }), // bottom 140, inset 160
+    block('c1', BLOCK_TYPES.CARD, { x: 310, y: 40, w: 270, h: 240 }), // deepest, but a card
+  ]);
+  const next = bake(d, 't1', 180); // +40 -> new measured bottom 40+180=220
+  assert.ok(next);
+  // Card excluded from the row set: box re-anchors to the text only.
+  // text stored bottom 140 -> authored inset 300-140=160; measured bottom 220.
+  assert.equal(hOf(next, 'bx'), 220 + 160);
 });
 
 test('cards are never baked (autoHeight + cardGrow rely on row equalization)', () => {

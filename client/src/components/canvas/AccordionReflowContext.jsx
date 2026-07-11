@@ -10,6 +10,7 @@ import {
 } from 'react';
 import { getBlockDefinition } from './blocks/registry';
 import { BLOCK_TYPES } from '../../lib/canvasDesign';
+import { computeReanchoredBoxHeight } from './autoHeightBake';
 
 const AccordionReflowCtx = createContext(null);
 
@@ -537,34 +538,33 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       if (!containerGeom || rowGroups.length === 0) return 0;
       const isBox = containerBlock?.type === BLOCK_TYPES.BOX;
       const containerBottom = containerGeom.y + containerGeom.h;
-      let total = 0;
-      let deepestMeasuredBottom = null; // box: deepest contained live bottom
-      let deepestStoredBottom = containerGeom.y; // box: deepest authored bottom
-      for (const grp of rowGroups) {
-        // Row is contained within the container if its stored span fits inside.
-        if (grp.top >= containerGeom.y && grp.bottom <= containerBottom) {
-          if (isBox) {
-            // Track the geometry of the deepest contained content (live + stored)
-            // rather than a per-row delta, so an unchanged row can neither block a
-            // shrink driven by a shrinking row nor force spurious growth.
-            const measuredBottom = grp.top + grp.renderedHeight;
-            if (deepestMeasuredBottom === null || measuredBottom > deepestMeasuredBottom) {
-              deepestMeasuredBottom = measuredBottom;
-            }
-            if (grp.bottom > deepestStoredBottom) deepestStoredBottom = grp.bottom;
-          } else {
-            total += grp.growth; // sections: grow-only (unchanged)
+      if (isBox) {
+        // Box: re-anchor to the deepest contained content via the SHARED
+        // computeReanchoredBoxHeight formula (Task #2680) so the front-end and
+        // the editor bake produce the SAME box height. Track the geometry of the
+        // deepest contained row (live + stored) rather than a per-row delta, so
+        // an unchanged row can neither block a shrink driven by a shrinking row
+        // nor force spurious growth.
+        const rows = [];
+        for (const grp of rowGroups) {
+          if (grp.top >= containerGeom.y && grp.bottom <= containerBottom) {
+            rows.push({ measuredBottom: grp.top + grp.renderedHeight, storedBottom: grp.bottom });
           }
         }
-      }
-      if (isBox) {
-        if (deepestMeasuredBottom === null) return 0; // no contained content
-        // Keep the authored bottom inset (gap below the deepest stored content)
-        // and re-anchor it beneath the deepest live content. The inset is
-        // non-negative, so the box always fully contains its content.
-        const authoredBottomInset = Math.max(0, containerBottom - deepestStoredBottom);
-        const resizedH = (deepestMeasuredBottom - containerGeom.y) + authoredBottomInset;
+        if (rows.length === 0) return 0; // no contained content
+        const resizedH = computeReanchoredBoxHeight({
+          containerTop: containerGeom.y,
+          containerHeight: containerGeom.h,
+          rows,
+        });
         return resizedH - containerGeom.h;
+      }
+      // Sections: grow-only by the sum of contained row growth (unchanged).
+      let total = 0;
+      for (const grp of rowGroups) {
+        if (grp.top >= containerGeom.y && grp.bottom <= containerBottom) {
+          total += grp.growth;
+        }
       }
       return total;
     },
