@@ -1,5 +1,5 @@
 import { useState, useRef, useMemo, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,29 +17,48 @@ import {
   Home,
   ChevronRight,
   ChevronLeft,
-  FileText
+  FileText,
+  Film,
+  File as FileIcon
 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { toast } from "sonner";
-import { showUploadErrorToast } from "@/lib/planQuotaError";
+import { showUploadErrorToast, throwUploadHttpError } from "@/lib/planQuotaError";
 
 const FILES_PER_PAGE = 12;
+
+// Accept attribute + human label + empty-state noun per picker kind. `null`
+// (or 'any') imposes no filter so every repository file surfaces.
+const KIND_CONFIG = {
+  image: { accept: 'image/*', noun: 'image', title: 'Select Image from File Repository' },
+  video: { accept: 'video/*', noun: 'video', title: 'Select Video from File Repository' },
+  document: {
+    accept: '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.rtf,.odt',
+    noun: 'document',
+    title: 'Select Document from File Repository'
+  },
+  any: { accept: undefined, noun: 'file', title: 'Select from File Repository' },
+};
+
+function kindConfig(kind) {
+  return KIND_CONFIG[kind] || KIND_CONFIG.any;
+}
 
 export default function ImageSelector({
   value,
   onChange,
   label = "Image",
   helpText = "",
-  className = ""
+  className = "",
+  // Canvas-builder mode: File Repository is the single source of truth, so we
+  // drop the Upload/URL tabs and the "Replace" button and expose only
+  // browse-from-repository (with in-place upload inside the picker) + remove.
+  repositoryOnly = false
 }) {
   const [isUploading, setIsUploading] = useState(false);
   const [activeTab, setActiveTab] = useState(value ? "preview" : "upload");
   const [urlInput, setUrlInput] = useState("");
   const [showFileBrowser, setShowFileBrowser] = useState(false);
-  const [browserFolder, setBrowserFolder] = useState(null);
-  const [browserSearch, setBrowserSearch] = useState("");
-  const [browserPage, setBrowserPage] = useState(1);
-  const [expandedFolders, setExpandedFolders] = useState({});
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -98,7 +117,7 @@ export default function ImageSelector({
 
   const handleRemove = () => {
     onChange("");
-    setActiveTab("upload");
+    setActiveTab(repositoryOnly ? "repository" : "upload");
     setUrlInput("");
   };
 
@@ -106,22 +125,12 @@ export default function ImageSelector({
     setActiveTab("upload");
   };
 
-  const handleSelectFromRepo = (fileUrl) => {
-    onChange(fileUrl);
+  const handleSelectFromRepo = (asset) => {
+    const url = typeof asset === 'string' ? asset : asset?.url;
+    if (!url) return;
+    onChange(url);
     setActiveTab("preview");
     setShowFileBrowser(false);
-    setBrowserFolder(null);
-    setBrowserSearch("");
-    setBrowserPage(1);
-    toast.success('Image selected');
-  };
-
-  const openFileBrowser = () => {
-    setBrowserFolder(null);
-    setBrowserSearch("");
-    setBrowserPage(1);
-    setExpandedFolders({});
-    setShowFileBrowser(true);
   };
 
   return (
@@ -143,25 +152,27 @@ export default function ImageSelector({
             />
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            {!repositoryOnly && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleReplace}
+                data-testid="button-replace-image"
+              >
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Replace
+              </Button>
+            )}
             <Button
               type="button"
               variant="outline"
               size="sm"
-              onClick={handleReplace}
-              data-testid="button-replace-image"
-            >
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Replace
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={openFileBrowser}
+              onClick={() => setShowFileBrowser(true)}
               data-testid="button-browse-repository"
             >
               <ImageIcon className="h-4 w-4 mr-2" />
-              Browse Files
+              Browse File Repository
             </Button>
             <Button
               type="button"
@@ -175,6 +186,17 @@ export default function ImageSelector({
             </Button>
           </div>
         </div>
+      ) : repositoryOnly ? (
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full"
+          onClick={() => setShowFileBrowser(true)}
+          data-testid="button-open-file-browser"
+        >
+          <ImageIcon className="h-4 w-4 mr-2" />
+          Browse File Repository
+        </Button>
       ) : (
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="grid w-full grid-cols-3">
@@ -228,7 +250,7 @@ export default function ImageSelector({
               type="button"
               variant="outline"
               className="w-full"
-              onClick={openFileBrowser}
+              onClick={() => setShowFileBrowser(true)}
               data-testid="button-open-file-browser"
             >
               <ImageIcon className="h-4 w-4 mr-2" />
@@ -263,41 +285,52 @@ export default function ImageSelector({
 
       {helpText && <p className="text-xs text-muted-foreground">{helpText}</p>}
 
-      <FileBrowserDialog
+      <FileRepositoryPicker
         open={showFileBrowser}
-        onClose={() => {
-          setShowFileBrowser(false);
-          setBrowserFolder(null);
-          setBrowserSearch("");
-          setBrowserPage(1);
-        }}
+        onOpenChange={setShowFileBrowser}
         onSelect={handleSelectFromRepo}
-        folder={browserFolder}
-        setFolder={setBrowserFolder}
-        search={browserSearch}
-        setSearch={setBrowserSearch}
-        page={browserPage}
-        setPage={setBrowserPage}
-        expandedFolders={expandedFolders}
-        setExpandedFolders={setExpandedFolders}
+        kind="image"
+        allowUpload={repositoryOnly}
       />
     </div>
   );
 }
 
-function FileBrowserDialog({
+// Shared, kind-aware File Repository picker. `kind` is one of image | video |
+// document | any (null/undefined === any). When `allowUpload` is set, an author
+// can upload a new file straight into the currently-selected folder without
+// leaving the picker — the File Repository is the single source of truth.
+//
+// `onSelect` receives a normalised asset shape: { url, name, mime_type,
+// file_type, alt_text } so existing callers (which read `asset.url` /
+// `asset.name` / `asset.mime_type`) keep working.
+export function FileRepositoryPicker({
   open,
-  onClose,
+  onOpenChange,
   onSelect,
-  folder,
-  setFolder,
-  search,
-  setSearch,
-  page,
-  setPage,
-  expandedFolders,
-  setExpandedFolders
+  kind = null,
+  allowUpload = false,
+  title
 }) {
+  const queryClient = useQueryClient();
+  const cfg = kindConfig(kind);
+  const [folder, setFolder] = useState(null);
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [expandedFolders, setExpandedFolders] = useState({});
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef(null);
+
+  // Reset transient browsing state each time the picker opens.
+  useEffect(() => {
+    if (open) {
+      setFolder(null);
+      setSearch("");
+      setPage(1);
+      setExpandedFolders({});
+    }
+  }, [open]);
+
   const { data: repositoryFiles = [] } = useQuery({
     queryKey: ['file-repository'],
     queryFn: async () => await base44.entities.FileRepository.list() || [],
@@ -311,6 +344,8 @@ function FileBrowserDialog({
     staleTime: 0,
     enabled: open
   });
+
+  const matchesKind = (file) => (kind && kind !== 'any' ? file.file_type === kind : true);
 
   const folderHierarchy = useMemo(() => {
     const buildTree = (parentId) => {
@@ -342,9 +377,9 @@ function FileBrowserDialog({
       const matchesSearch = !search ||
         file.file_name?.toLowerCase().includes(search.toLowerCase()) ||
         file.description?.toLowerCase().includes(search.toLowerCase());
-      return matchesFolder && matchesSearch && file.file_type === 'image';
+      return matchesFolder && matchesSearch && matchesKind(file);
     });
-  }, [repositoryFiles, folder, search]);
+  }, [repositoryFiles, folder, search, kind]);
 
   useEffect(() => { setPage(1); }, [folder, search]);
 
@@ -352,7 +387,79 @@ function FileBrowserDialog({
   const paginatedFiles = filteredFiles.slice((page - 1) * FILES_PER_PAGE, page * FILES_PER_PAGE);
 
   const getFolderFileCount = (folderId) => {
-    return repositoryFiles.filter(f => f.file_type === 'image' && f.folder_id === folderId).length;
+    return repositoryFiles.filter(f => matchesKind(f) && f.folder_id === folderId).length;
+  };
+
+  const emit = (file) => {
+    onSelect?.({
+      url: file.file_url,
+      name: file.file_name,
+      mime_type: file.mime_type,
+      file_type: file.file_type,
+      alt_text: ''
+    });
+    onOpenChange?.(false);
+  };
+
+  const handleUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const signedUrlResponse = await fetch('/api/storage/signed-upload-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          fileName: file.name,
+          fileSize: file.size,
+          mimeType: file.type,
+          type: 'upload',
+          isPrivate: false
+        })
+      });
+      if (!signedUrlResponse.ok) {
+        await throwUploadHttpError(signedUrlResponse, 'Failed to get upload URL');
+      }
+      const { signedUrl, fileUrl, path } = await signedUrlResponse.json();
+
+      await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.addEventListener('load', () => {
+          if (xhr.status >= 200 && xhr.status < 300) resolve();
+          else reject(new Error(`Upload failed with status ${xhr.status}`));
+        });
+        xhr.addEventListener('error', () => reject(new Error('Upload failed')));
+        xhr.addEventListener('abort', () => reject(new Error('Upload aborted')));
+        xhr.open('PUT', signedUrl);
+        xhr.setRequestHeader('Content-Type', file.type);
+        xhr.setRequestHeader('x-upsert', 'true');
+        xhr.send(file);
+      });
+
+      let fileType = 'other';
+      if (file.type.startsWith('image/')) fileType = 'image';
+      else if (file.type.startsWith('video/')) fileType = 'video';
+      else if (file.type.includes('pdf') || file.type.includes('document')) fileType = 'document';
+
+      const created = await base44.entities.FileRepository.create({
+        file_name: file.name,
+        file_url: fileUrl,
+        file_type: fileType,
+        mime_type: file.type,
+        file_size: file.size,
+        folder_id: folder,
+        storage_path: path
+      });
+      await queryClient.invalidateQueries({ queryKey: ['file-repository'] });
+      toast.success('File uploaded');
+      emit(created || { file_url: fileUrl, file_name: file.name, mime_type: file.type, file_type: fileType });
+    } catch (error) {
+      showUploadErrorToast(error, 'Failed to upload file');
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   const renderFolderTree = (nodes, depth = 0) => {
@@ -384,22 +491,46 @@ function FileBrowserDialog({
     ));
   };
 
+  const noun = cfg.noun;
+
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[80vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle>Select Image from File Repository</DialogTitle>
-          <div className="pt-2">
-            <div className="relative">
+          <DialogTitle>{title || cfg.title}</DialogTitle>
+          <div className="pt-2 flex items-center gap-2 flex-wrap">
+            <div className="relative flex-1 min-w-[12rem]">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
-                placeholder="Search images..."
+                placeholder={`Search ${noun}s...`}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="pl-9"
                 data-testid="input-file-browser-search"
               />
             </div>
+            {allowUpload && (
+              <>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept={cfg.accept}
+                  onChange={handleUpload}
+                  className="hidden"
+                  data-testid="input-file-repository-upload"
+                />
+                <Button
+                  type="button"
+                  size="default"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  data-testid="button-file-repository-upload"
+                >
+                  {uploading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
+                  {uploading ? 'Uploading...' : 'Upload'}
+                </Button>
+              </>
+            )}
           </div>
         </DialogHeader>
 
@@ -435,7 +566,7 @@ function FileBrowserDialog({
                 <FolderOpen className="w-3.5 h-3.5 text-muted-foreground" />
                 <span className="flex-1">Root</span>
                 <span className="text-xs text-muted-foreground">
-                  {repositoryFiles.filter(f => !f.folder_id && f.file_type === 'image').length}
+                  {repositoryFiles.filter(f => !f.folder_id && matchesKind(f)).length}
                 </span>
               </div>
               {renderFolderTree(folderHierarchy)}
@@ -445,7 +576,7 @@ function FileBrowserDialog({
           <div className="md:col-span-3 flex flex-col min-h-0">
             <div className="flex items-center justify-between mb-2 text-sm text-muted-foreground">
               <span>
-                {filteredFiles.length} image{filteredFiles.length !== 1 ? 's' : ''}
+                {filteredFiles.length} {noun}{filteredFiles.length !== 1 ? 's' : ''}
                 {search && ` matching "${search}"`}
               </span>
               {totalPages > 1 && <span>Page {page} of {totalPages}</span>}
@@ -456,10 +587,14 @@ function FileBrowserDialog({
                 <div className="text-center py-12">
                   <FileText className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
                   <p className="text-muted-foreground">
-                    {search ? "No images match your search" : "No images in this folder"}
+                    {search ? `No ${noun}s match your search` : `No ${noun}s in this folder`}
                   </p>
                   <p className="text-sm text-muted-foreground/70 mt-1">
-                    {search ? "Try a different search term" : "Upload images in the File Repository page"}
+                    {search
+                      ? "Try a different search term"
+                      : allowUpload
+                        ? `Use Upload above to add a ${noun}`
+                        : `Upload ${noun}s in the File Repository page`}
                   </p>
                 </div>
               ) : (
@@ -468,15 +603,11 @@ function FileBrowserDialog({
                     <button
                       key={file.id}
                       type="button"
-                      onClick={() => onSelect(file.file_url)}
+                      onClick={() => emit(file)}
                       className="text-left border-2 rounded-md p-2 transition-colors hover:border-primary"
                       data-testid={`file-select-${file.id}`}
                     >
-                      <img
-                        src={file.file_url}
-                        alt={file.file_name}
-                        className="w-full h-28 object-cover rounded mb-1.5"
-                      />
+                      <FilePreview file={file} />
                       <p className="text-sm font-medium truncate">{file.file_name}</p>
                       {file.description && (
                         <p className="text-xs text-muted-foreground truncate mt-0.5">{file.description}</p>
@@ -518,11 +649,31 @@ function FileBrowserDialog({
         </div>
 
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={onClose} data-testid="button-file-browser-cancel">
+          <Button type="button" variant="outline" onClick={() => onOpenChange?.(false)} data-testid="button-file-browser-cancel">
             Cancel
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// Thumbnail for image files; a typed icon tile for everything else so the
+// video/document/any pickers still read clearly.
+function FilePreview({ file }) {
+  if (file.file_type === 'image') {
+    return (
+      <img
+        src={file.file_url}
+        alt={file.file_name}
+        className="w-full h-28 object-cover rounded mb-1.5"
+      />
+    );
+  }
+  const Icon = file.file_type === 'video' ? Film : file.file_type === 'document' ? FileText : FileIcon;
+  return (
+    <div className="w-full h-28 rounded mb-1.5 bg-muted flex items-center justify-center">
+      <Icon className="w-10 h-10 text-muted-foreground" />
+    </div>
   );
 }

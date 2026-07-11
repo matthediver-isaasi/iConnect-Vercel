@@ -1,8 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { throwUploadHttpError, showUploadErrorToast } from '@/lib/planQuotaError';
-import StorageUsageBanner from '@/components/StorageUsageBanner';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
@@ -14,11 +12,10 @@ import { Badge } from '@/components/ui/badge';
 import {
   LayoutTemplate, Component as ComponentIcon, History as HistoryIcon,
   Images as ImagesIcon, Palette, Keyboard, Command as CommandIcon,
-  ExternalLink, Trash2, RotateCcw, Unlink, Plus, Search, Upload, Eye,
-  Pencil, Save as SaveIcon, FileText,
+  ExternalLink, Trash2, RotateCcw, Unlink, Plus, Eye,
+  Pencil, Save as SaveIcon,
 } from 'lucide-react';
 import CanvasPageRenderer from './CanvasPageRenderer';
-import { isDocumentAsset } from './blocks/registry';
 import {
   createBlock, BLOCK_TYPES, getRootChildren, setRootChildren,
   normalizeCanvasDesign, createEmptyCanvasDesign,
@@ -473,217 +470,6 @@ export function VersionsDialog({ open, onOpenChange, pageId, onRestored }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </Dialog>
-  );
-}
-
-// ===========================================================================
-// Media library
-// ===========================================================================
-
-// Derive a coarse "kind" (image | video | document) from the MIME type so the
-// picker can show appropriate previews and so callers (image vs video
-// block inspectors) can filter the library by what they consume. The general
-// (link-target) picker passes no `kind`, so documents surface there too.
-function mediaKind(asset) {
-  const m = String(asset?.mime_type || '').toLowerCase();
-  if (m.startsWith('video/')) return 'video';
-  if (m.startsWith('image/')) return 'image';
-  // Fall back to URL extension when mime_type is missing (URL-only assets).
-  const u = String(asset?.url || '').toLowerCase();
-  if (/\.(mp4|webm|ogv|mov)(\?|$)/.test(u)) return 'video';
-  // Document detection is shared with the block registry so link/button
-  // targets classify documents consistently with accordion link icons.
-  if (isDocumentAsset(asset)) return 'document';
-  return 'image';
-}
-
-export function MediaLibraryDialog({ open, onOpenChange, onPick, kind }) {
-  const queryClient = useQueryClient();
-  const [search, setSearch] = useState('');
-  const [url, setUrl] = useState('');
-  const [name, setName] = useState('');
-  const fileInputRef = useRef(null);
-  const [uploading, setUploading] = useState(false);
-  // Inline alt-text editing keeps tabbing out of the dialog unnecessary
-  // and is the main accessibility win the reviewer flagged.
-  const [editId, setEditId] = useState(null);
-  const [editAlt, setEditAlt] = useState('');
-  const [editName, setEditName] = useState('');
-
-  const { data, isLoading } = useQuery({
-    queryKey: ['media-library', search],
-    queryFn: async () => {
-      const params = new URLSearchParams();
-      if (search) params.set('search', search);
-      const r = await fetch(`/api/media-library?${params.toString()}`, { credentials: 'include' });
-      if (!r.ok) throw new Error('Failed to load assets');
-      return r.json();
-    },
-    enabled: open,
-    staleTime: 0,
-  });
-
-  const addMut = useMutation({
-    mutationFn: async () => {
-      const r = await fetch('/api/media-library', {
-        method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, name: name || url }),
-      });
-      if (!r.ok) throw new Error('Failed to register asset');
-      return r.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['media-library'] });
-      setUrl(''); setName('');
-      toast.success('Asset added');
-    },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const updateMut = useMutation({
-    mutationFn: async ({ id, patch }) => {
-      const r = await fetch(`/api/media-library/${id}`, {
-        method: 'PATCH', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(patch),
-      });
-      if (!r.ok) throw new Error('Failed to update asset');
-      return r.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['media-library'] });
-      setEditId(null); setEditAlt(''); setEditName('');
-      toast.success('Asset updated');
-    },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const uploadFile = async (file) => {
-    if (!file) return;
-    setUploading(true);
-    try {
-      const fd = new FormData();
-      fd.append('file', file);
-      fd.append('name', file.name);
-      const r = await fetch('/api/media-library/upload', {
-        method: 'POST', credentials: 'include', body: fd,
-      });
-      if (!r.ok) await throwUploadHttpError(r, 'Upload failed');
-      await r.json();
-      queryClient.invalidateQueries({ queryKey: ['media-library'] });
-      toast.success('File uploaded');
-    } catch (e) {
-      showUploadErrorToast(e, 'Upload failed');
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Media library</DialogTitle>
-          <DialogDescription>Search saved images, videos and documents, upload new files, or register a URL.</DialogDescription>
-        </DialogHeader>
-        <StorageUsageBanner compact className="mb-1" />
-        <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <Search className="w-4 h-4 text-slate-500" />
-            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name or alt text" data-testid="input-media-search" />
-          </div>
-          <div className="rounded-md border border-slate-200 p-3 space-y-3">
-            <div className="space-y-2">
-              <Label>{kind === 'video' ? 'Upload video' : kind === 'image' ? 'Upload image' : 'Upload image, video, or document'}</Label>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept={kind === 'video'
-                  ? 'video/mp4,video/webm,video/ogg'
-                  : kind === 'image'
-                  ? 'image/jpeg,image/png,image/gif,image/webp,image/svg+xml'
-                  : 'image/jpeg,image/png,image/gif,image/webp,image/svg+xml,video/mp4,video/webm,video/ogg,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain,text/csv,application/rtf,application/vnd.oasis.opendocument.text'}
-                onChange={(e) => uploadFile(e.target.files?.[0])}
-                className="block w-full text-sm text-slate-700 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border file:border-slate-200 file:bg-white file:text-sm hover:file:bg-slate-50"
-                data-testid="input-media-upload"
-              />
-              {uploading && <p className="text-xs text-slate-500 flex items-center gap-1"><Upload className="w-3 h-3" /> Uploading…</p>}
-            </div>
-            <div className="border-t border-slate-200 pt-3 space-y-2">
-              <Label>Or add by URL</Label>
-              <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…" data-testid="input-media-url" />
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name (optional)" data-testid="input-media-name" />
-              <div className="flex justify-end">
-                <Button size="sm" onClick={() => addMut.mutate()} disabled={!url || addMut.isPending} data-testid="button-add-media">
-                  <Plus className="w-4 h-4 mr-2" />Add asset
-                </Button>
-              </div>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[40vh] overflow-y-auto">
-            {isLoading && <p className="text-sm text-slate-500 col-span-full">Loading…</p>}
-            {(data?.assets || [])
-              .filter((a) => !kind || mediaKind(a) === kind)
-              .map((a) => {
-              const k = mediaKind(a);
-              return (
-              <div key={a.id} className="rounded-md border border-slate-200 p-2" data-testid={`media-row-${a.id}`}>
-                <button
-                  type="button"
-                  className="block w-full text-left hover-elevate active-elevate-2 rounded"
-                  onClick={() => { onPick?.(a); onOpenChange(false); }}
-                  data-testid={`button-pick-media-${a.id}`}
-                >
-                  <div className="aspect-video bg-slate-100 rounded overflow-hidden flex items-center justify-center relative">
-                    {k === 'document' ? (
-                      <FileText className="w-8 h-8 text-slate-400" />
-                    ) : a.url && k === 'video' ? (
-                      <video src={a.url} className="w-full h-full object-cover" muted playsInline preload="metadata" />
-                    ) : a.url ? (
-                      <img src={a.url} alt={a.alt_text || a.name} className="w-full h-full object-cover" />
-                    ) : (
-                      <ImagesIcon className="w-5 h-5 text-slate-400" />
-                    )}
-                    {k === 'video' && (
-                      <span className="absolute top-1 left-1 text-[10px] uppercase tracking-wide bg-black/60 text-white rounded px-1.5 py-0.5">Video</span>
-                    )}
-                    {k === 'document' && (
-                      <span className="absolute top-1 left-1 text-[10px] uppercase tracking-wide bg-black/60 text-white rounded px-1.5 py-0.5">Doc</span>
-                    )}
-                  </div>
-                </button>
-                {editId === a.id ? (
-                  <div className="mt-2 space-y-1">
-                    <Input value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="Name" className="h-7 text-xs" data-testid={`input-edit-media-name-${a.id}`} />
-                    <Input value={editAlt} onChange={(e) => setEditAlt(e.target.value)} placeholder="Alt text" className="h-7 text-xs" data-testid={`input-edit-media-alt-${a.id}`} />
-                    <div className="flex gap-1">
-                      <Button size="sm" onClick={() => updateMut.mutate({ id: a.id, patch: { name: editName, alt_text: editAlt } })} disabled={updateMut.isPending} data-testid={`button-save-media-${a.id}`}>Save</Button>
-                      <Button size="sm" variant="ghost" onClick={() => { setEditId(null); setEditAlt(''); setEditName(''); }}>Cancel</Button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="mt-1 flex items-start justify-between gap-1">
-                    <div className="min-w-0">
-                      <p className="text-xs truncate">{a.name}</p>
-                      <p className="text-[10px] text-slate-500 truncate">alt: {a.alt_text || <span className="italic">none</span>}</p>
-                    </div>
-                    <Button size="icon" variant="ghost" onClick={() => { setEditId(a.id); setEditAlt(a.alt_text || ''); setEditName(a.name || ''); }} data-testid={`button-edit-media-${a.id}`} title="Edit name and alt text">
-                      <Pencil className="w-3 h-3" />
-                    </Button>
-                  </div>
-                )}
-              </div>
-              );
-            })}
-            {!isLoading && (data?.assets || []).length === 0 && (
-              <p className="text-sm text-slate-500 col-span-full">No assets yet.</p>
-            )}
-          </div>
-        </div>
-      </DialogContent>
     </Dialog>
   );
 }

@@ -225,13 +225,14 @@ export function LinkField({ label, value, onChange, placeholder, testId }) {
   const otherPages = (pages || []).filter((p) => p.slug);
   const hasAnchorMenu = usableAnchors.length > 0 || otherPages.length > 0;
 
-  // Task #2337: open the shared media library (same event the ImageField
-  // uses) so a CTA can link straight to a PDF/Word/Excel/image asset. The
-  // editor shell listens for this event, opens MediaLibraryDialog, and
-  // routes the picked asset back through `onPick`.
+  // Task #2337: open the shared File Repository picker (same event the
+  // ImageField uses) so a CTA can link straight to a PDF/Word/Excel/image
+  // asset. The editor shell listens for this event, opens the picker, and
+  // routes the picked asset back through `onPick`. No `kind` filter is passed
+  // so every file type (documents included) is selectable.
   const openLibrary = () => {
     if (typeof window === 'undefined') return;
-    window.dispatchEvent(new CustomEvent('canvas:open-media-library', {
+    window.dispatchEvent(new CustomEvent('canvas:open-file-repository', {
       detail: {
         onPick: (asset) => {
           if (asset?.url) onChange(asset.url);
@@ -255,7 +256,7 @@ export function LinkField({ label, value, onChange, placeholder, testId }) {
           variant="outline"
           type="button"
           onClick={openLibrary}
-          title="Link to a file from the media library"
+          title="Link to a file from the File Repository"
           data-testid={testId ? `${testId}-file-picker` : 'link-file-picker'}
         >
           <FileText className="w-4 h-4" />
@@ -412,36 +413,14 @@ function ToggleField({ label, value, onChange, testId }) {
 // inspector picker gains swatch support. Imported at the top of this file.
 
 export function ImageField({ label, value, alt, onChangeSrc, onChangeAlt, testId }) {
-  // The "Media library" button asks the editor shell to open the shared
-  // MediaLibraryDialog. The shell wires up a window event listener that
-  // sets a callback so the picked asset flows back here. This keeps
-  // block inspectors decoupled from the dialog implementation.
-  const openLibrary = () => {
-    if (typeof window === 'undefined') return;
-    window.dispatchEvent(new CustomEvent('canvas:open-media-library', {
-      detail: {
-        onPick: (asset) => {
-          if (asset?.url) onChangeSrc(asset.url);
-          if (onChangeAlt && asset?.alt_text) onChangeAlt(asset.alt_text);
-        },
-      },
-    }));
-  };
+  // The File Repository is the single source of truth for canvas media, so the
+  // image field only exposes browse-from-repository (with in-place upload
+  // inside the picker) + remove, via ImageSelector's repositoryOnly mode. Alt
+  // text stays editable here as an accessibility affordance.
   return (
     <div className="space-y-2">
       <Label className="text-xs text-slate-600">{label}</Label>
-      <ImageSelector value={value} onChange={onChangeSrc} />
-      <Button
-        type="button"
-        size="sm"
-        variant="outline"
-        onClick={openLibrary}
-        className="w-full"
-        data-testid={`${testId}-open-library`}
-      >
-        <Images className="w-4 h-4 mr-2" />
-        Choose from media library
-      </Button>
+      <ImageSelector value={value} onChange={onChangeSrc} label="" repositoryOnly />
       {onChangeAlt && (
         <Input
           value={alt || ''}
@@ -2772,7 +2751,7 @@ function ButtonInspector({ block, update, breakpoint }) {
         noneLabel={labelTypoNoneLabel}
       />
       <LinkField label="Link target" value={c.href} onChange={(v) => set({ href: v })} testId="input-button-href" />
-      <MediaLibraryPickButton
+      <FileRepositoryPickButton
         testId="button-button-media-library"
         onPick={(asset) => {
           if (!asset?.url) return;
@@ -2962,10 +2941,10 @@ function VideoInspector({ block, update }) {
         className="w-full"
         onClick={() => {
           if (typeof window === 'undefined') return;
-          // Open the shared media library filtered to videos so the
-          // picker only shows mp4/webm/ogg assets; the picked URL flows
-          // back into the block's `url` content field.
-          window.dispatchEvent(new CustomEvent('canvas:open-media-library', {
+          // Open the shared File Repository picker filtered to videos so the
+          // picker only shows video assets; the picked URL flows back into
+          // the block's `url` content field.
+          window.dispatchEvent(new CustomEvent('canvas:open-file-repository', {
             detail: {
               kind: 'video',
               onPick: (asset) => { if (asset?.url) set({ provider: 'mp4', url: asset.url }); },
@@ -2975,7 +2954,7 @@ function VideoInspector({ block, update }) {
         data-testid="button-video-media-library"
       >
         <Images className="w-4 h-4 mr-2" />
-        Choose from media library (video)
+        Choose from File Repository (video)
       </Button>
       <SelectField
         label="Aspect ratio"
@@ -3275,15 +3254,15 @@ function suggestAccordionLinkIcon(asset) {
   return 'download';
 }
 
-// Button that opens the shared MediaLibraryDialog so an author can attach a
+// Button that opens the shared File Repository picker so an author can attach a
 // document/video/image to a link (accordion links, CTA buttons, etc.),
-// mirroring how ImageField wires up the 'canvas:open-media-library' window
-// event. No `kind` filter is passed so every asset type (documents included)
+// mirroring how LinkField wires up the 'canvas:open-file-repository' window
+// event. No `kind` filter is passed so every file type (documents included)
 // is selectable.
-function MediaLibraryPickButton({ onPick, testId }) {
+function FileRepositoryPickButton({ onPick, testId }) {
   const openLibrary = () => {
     if (typeof window === 'undefined') return;
-    window.dispatchEvent(new CustomEvent('canvas:open-media-library', {
+    window.dispatchEvent(new CustomEvent('canvas:open-file-repository', {
       detail: { onPick },
     }));
   };
@@ -3297,7 +3276,7 @@ function MediaLibraryPickButton({ onPick, testId }) {
       data-testid={testId}
     >
       <Images className="w-4 h-4 mr-2" />
-      Choose from media library
+      Choose from File Repository
     </Button>
   );
 }
@@ -3453,7 +3432,7 @@ function AccordionInspector({ block, update }) {
                     <>
                       <TextField label="Label" value={link.label} onChange={(v) => patchLink({ label: v })} testId={`accordion-${idx}-link-${linkIdx}-label`} />
                       <LinkField label="URL" value={link.url} onChange={(v) => patchLink({ url: v })} testId={`accordion-${idx}-link-${linkIdx}-url`} />
-                      <MediaLibraryPickButton
+                      <FileRepositoryPickButton
                         testId={`accordion-${idx}-link-${linkIdx}-media`}
                         onPick={(asset) => {
                           if (!asset?.url) return;

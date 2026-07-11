@@ -37,9 +37,10 @@ import { auditCanvasDesign, getBlockingIssues } from "@/lib/canvasA11y";
 import CanvasBuilder from "@/components/canvas/CanvasBuilder";
 import CanvasA11yPanel from "@/components/canvas/CanvasA11yPanel";
 import {
-  TemplatesDialog, SymbolsDialog, VersionsDialog, MediaLibraryDialog,
+  TemplatesDialog, SymbolsDialog, VersionsDialog,
   ThemeDialog, ShortcutsOverlay, CommandPalette, unlinkSelectedSymbol,
 } from "@/components/canvas/CanvasPhase7Dialogs";
+import { FileRepositoryPicker } from "@/components/ImageSelector";
 
 // Canvas Builder Phase 2 — Editor shell wraps the CanvasBuilder.
 // Handles loading, saving (manual + autosave), and previewing the page.
@@ -139,7 +140,7 @@ export default function CanvasPageEditorPage() {
   const [showTemplates, setShowTemplates] = useState(false);
   const [showSymbols, setShowSymbols] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
-  const [showMedia, setShowMedia] = useState(false);
+  const [showFileRepo, setShowFileRepo] = useState(false);
   const [showTheme, setShowTheme] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
@@ -149,13 +150,14 @@ export default function CanvasPageEditorPage() {
   const [renameSlug, setRenameSlug] = useState('');
   const [renameViewType, setRenameViewType] = useState('public');
   const [renameError, setRenameError] = useState('');
-  // Picker callback for the media library dialog. When a block inspector
-  // requests the library, we capture its onPick so the dialog can hand
+  // Picker callback for the File Repository picker. When a block inspector
+  // requests the picker, we capture its onPick so the picker can hand
   // the selected asset back through this single channel.
-  const [mediaPickHandler, setMediaPickHandler] = useState(null);
-  // Phase 7 — block inspectors can ask the library to be filtered down
-  // to image- or video-only assets (e.g. the video block).
-  const [mediaPickKind, setMediaPickKind] = useState(null);
+  const [fileRepoPickHandler, setFileRepoPickHandler] = useState(null);
+  // Block inspectors can ask the picker to be filtered down to image-,
+  // video-, or document-only assets (e.g. the video block), or leave it
+  // unset for any file type (link/CTA/document pickers).
+  const [fileRepoPickKind, setFileRepoPickKind] = useState(null);
   // Loaded for the command palette's "jump to page" entries. Cheap to
   // fetch alongside the editor and reused by the picker UI.
   const { data: allPages } = useQuery({
@@ -789,15 +791,15 @@ export default function CanvasPageEditorPage() {
       }
     };
     window.addEventListener('keydown', onKey);
-    const onOpenMedia = (e) => {
-      setMediaPickHandler(() => e.detail?.onPick || null);
-      setMediaPickKind(e.detail?.kind || null);
-      setShowMedia(true);
+    const onOpenFileRepo = (e) => {
+      setFileRepoPickHandler(() => e.detail?.onPick || null);
+      setFileRepoPickKind(e.detail?.kind || null);
+      setShowFileRepo(true);
     };
-    window.addEventListener('canvas:open-media-library', onOpenMedia);
+    window.addEventListener('canvas:open-file-repository', onOpenFileRepo);
     return () => {
       window.removeEventListener('keydown', onKey);
-      window.removeEventListener('canvas:open-media-library', onOpenMedia);
+      window.removeEventListener('canvas:open-file-repository', onOpenFileRepo);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1423,7 +1425,7 @@ export default function CanvasPageEditorPage() {
         <Button size="sm" variant="outline" onClick={() => setShowSymbols(true)} data-testid="button-open-symbols" title="Symbols">
           <ComponentIcon className="w-4 h-4" />
         </Button>
-        <Button size="sm" variant="outline" onClick={() => setShowMedia(true)} data-testid="button-open-media" title="Media library">
+        <Button size="sm" variant="outline" onClick={() => setShowFileRepo(true)} data-testid="button-open-media" title="File Repository">
           <ImagesIcon className="w-4 h-4" />
         </Button>
         <Button size="sm" variant="outline" onClick={() => setShowVersions(true)} data-testid="button-open-versions" title="Version history">
@@ -2056,17 +2058,19 @@ export default function CanvasPageEditorPage() {
       <VersionsDialog open={showVersions} onOpenChange={setShowVersions} pageId={pageId} onRestored={() => {
         queryClient.invalidateQueries({ queryKey: ['canvas-page', pageId] });
       }} />
-      <MediaLibraryDialog
-        open={showMedia}
-        kind={mediaPickKind}
-        onOpenChange={(o) => { setShowMedia(o); if (!o) { setMediaPickHandler(null); setMediaPickKind(null); } }}
-        onPick={(asset) => {
-          if (mediaPickHandler) {
+      <FileRepositoryPicker
+        open={showFileRepo}
+        kind={fileRepoPickKind || 'image'}
+        allowUpload
+        onOpenChange={(o) => { setShowFileRepo(o); if (!o) { setFileRepoPickHandler(null); setFileRepoPickKind(null); } }}
+        onSelect={(asset) => {
+          if (fileRepoPickHandler) {
             // Called from a block inspector — route the asset back to it
             // so the existing block updates in place.
-            mediaPickHandler(asset);
-            setMediaPickHandler(null);
-            setMediaPickKind(null);
+            fileRepoPickHandler(asset);
+            setFileRepoPickHandler(null);
+            setFileRepoPickKind(null);
+            setShowFileRepo(false);
             toast.success('Asset set');
             return;
           }
@@ -2077,6 +2081,7 @@ export default function CanvasPageEditorPage() {
             desktop: { x: 40, y: 40, w: asset.width || 320, h: asset.height || 200, hidden: false },
             content: { src: asset.url, alt: asset.alt_text || asset.name || '' },
           }]);
+          setShowFileRepo(false);
           toast.success('Image inserted');
         }}
       />
@@ -2091,7 +2096,7 @@ export default function CanvasPageEditorPage() {
           { id: 'templates', label: 'Open templates…', run: () => setShowTemplates(true) },
           { id: 'symbols', label: 'Open symbols…', run: () => setShowSymbols(true) },
           { id: 'versions', label: 'Version history…', run: () => setShowVersions(true) },
-          { id: 'media', label: 'Media library…', run: () => setShowMedia(true) },
+          { id: 'media', label: 'File Repository…', run: () => setShowFileRepo(true) },
           { id: 'theme', label: 'Edit tenant theme…', run: () => setShowTheme(true) },
           { id: 'shortcuts', label: 'Keyboard shortcuts', hint: '?', run: () => setShowShortcuts(true) },
           { id: 'unlink-symbol', label: 'Unlink selected symbol', run: () => unlinkSelectedSymbol(canvasRef) },
