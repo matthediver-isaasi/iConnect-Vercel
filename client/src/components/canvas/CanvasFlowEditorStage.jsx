@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from 'react';
+import { useDroppable } from '@dnd-kit/core';
 import { resolveFlowLayout } from '@/lib/canvasFlowLayout';
 import {
   getFlowSections,
@@ -148,10 +149,16 @@ export default function CanvasFlowEditorStage({
   selectedIds = [],
   onSelect,
   onHeightChange,
+  showGrid = true,
+  gridSize = 8,
 }) {
   // Reset + re-measure whenever the breakpoint (and thus the container width)
   // changes, so heights taken at one width never leak into another.
   const { measured, measureRef } = useFlowMeasurement(breakpoint);
+
+  // Task #2682 — register the SAME droppable id the v1 stage uses so palette
+  // drags land on the flow stage too (handleDragEnd gates on `canvas-drop-zone`).
+  const { setNodeRef, isOver } = useDroppable({ id: 'canvas-drop-zone' });
 
   const { boxes, height } = useMemo(
     () => resolveFlowLayout(design, { breakpoint, containerWidth: canvasWidth, measured }),
@@ -173,10 +180,21 @@ export default function CanvasFlowEditorStage({
     if (e.target === e.currentTarget) onSelect?.([]);
   };
 
+  // Match the v1 stage grid (CanvasStage `gridStyle`) so the flow editing
+  // surface reads as a real canvas rather than a blank white area.
+  const gridStyle = showGrid
+    ? {
+        backgroundImage: `linear-gradient(to right, rgba(148,163,184,0.18) 1px, transparent 1px),
+                      linear-gradient(to bottom, rgba(148,163,184,0.18) 1px, transparent 1px)`,
+        backgroundSize: `${gridSize}px ${gridSize}px`,
+      }
+    : {};
+
   return (
     <div
-      className="relative bg-white"
-      style={{ width: canvasWidth, height: Math.max(height, canvasHeight || 0) }}
+      ref={setNodeRef}
+      className={`relative bg-white ${isOver ? 'ring-2 ring-primary ring-inset' : ''}`}
+      style={{ width: canvasWidth, height: Math.max(height, canvasHeight || 0), ...gridStyle }}
       onPointerDown={clearSelection}
       data-testid="canvas-flow-stage"
     >

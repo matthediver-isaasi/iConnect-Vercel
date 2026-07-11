@@ -56,6 +56,8 @@ import {
 } from '@/components/ui/alert-dialog';
 import {
   createBlock,
+  createFlowNode,
+  insertFlowNode,
   getBlockDefaults,
   normalizeCanvasDesign,
   resolveBlockAtBreakpoint,
@@ -910,6 +912,30 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     if (over.id !== 'canvas-drop-zone') return;
 
     const newType = active.data?.current?.type || BLOCK_TYPES.BOX;
+
+    // Task #2682 — Flow (v2) documents auto-layout their content, so a dropped
+    // element must be inserted as a flow node INSIDE a section (not appended to
+    // root children, which are the sections themselves). x/y are irrelevant in
+    // a flow stack — the engine derives every position — so we skip the pointer
+    // -> stage coordinate math entirely. The node lands in the first section
+    // (insertFlowNode), which is the section the builder's shared edit handlers
+    // operate on, keeping the dropped block selectable and editable.
+    if (isFlow) {
+      const flowNode = createFlowNode(newType, { desktop: { hidden: false } });
+      const suggestedFlow = suggestHeadingLevel(design, newType);
+      const headingFieldFlow = headingFieldFor(newType);
+      if (suggestedFlow != null && headingFieldFlow) {
+        flowNode.content = {
+          ...flowNode.content,
+          [headingFieldFlow]:
+            headingFieldFlow === 'headingAs' ? String(suggestedFlow) : suggestedFlow,
+        };
+      }
+      setDesign((prev) => insertFlowNode(prev, flowNode));
+      setSelectedIds([flowNode.id]);
+      return;
+    }
+
     const defaults = getBlockDefaults(newType);
     const blockW = defaults.geom?.w ?? 200;
     const blockH = defaults.geom?.h ?? 120;
@@ -2104,6 +2130,8 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
                         selectedIds={selectedIds}
                         onSelect={handleSelect}
                         onHeightChange={setFlowHeight}
+                        showGrid={showGrid}
+                        gridSize={gridSize}
                       />
                     ) : (
                     <CanvasStage

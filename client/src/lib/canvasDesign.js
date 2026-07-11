@@ -1828,6 +1828,29 @@ export function getFlowSections(design) {
   return design?.root?.sections || [];
 }
 
+// Task #2682 — append a flow node as the LAST child of a section so the flow
+// engine lays it out (a dropped element must never become a sibling of the
+// sections). `sectionId` selects the target section; when it is null or does
+// not match, the node lands in the FIRST section — the same section the
+// builder's shared edit handlers (getRootChildren/replaceChildren) operate on,
+// so the node stays selectable and editable. The whole design is re-run through
+// normalizeFlowDesign so the result is a well-formed, idempotent v2 document
+// (the appended node is normalized in place) and persists through save/reopen.
+export function insertFlowNode(design, node, options = {}) {
+  if (!node || typeof node !== 'object') return design;
+  const d = normalizeFlowDesign(design);
+  const sections = d.root.sections.map((s) => ({
+    ...s,
+    children: Array.isArray(s.children) ? [...s.children] : [],
+  }));
+  if (sections.length === 0) return d;
+  const { sectionId = null } = options;
+  let idx = sectionId ? sections.findIndex((s) => s.id === sectionId) : -1;
+  if (idx < 0) idx = 0;
+  sections[idx].children.push(node);
+  return normalizeFlowDesign({ ...d, root: { ...d.root, sections } });
+}
+
 // Leaf block types whose height is content-driven (measured at render time)
 // rather than pinned. Mirrors the registry `autoHeight: true` flags — kept here
 // in the React-free data layer so the v1->v2 converter (which also runs on the
