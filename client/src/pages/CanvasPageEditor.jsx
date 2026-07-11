@@ -13,6 +13,10 @@ import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
 } from "@/components/ui/sheet";
 import {
+  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogFooter,
+  AlertDialogTitle, AlertDialogDescription,
+} from "@/components/ui/alert-dialog";
+import {
   ArrowLeft, Save, Eye,
   Monitor, Tablet, Smartphone,
   Accessibility, Loader2,
@@ -91,6 +95,19 @@ export default function CanvasPageEditorPage() {
   const [returnTo, setReturnTo] = useState(null);
   const [initialDesign, setInitialDesign] = useState(() => createEmptyCanvasDesign());
   const [isDirty, setIsDirty] = useState(false);
+  // Unsaved-changes navigation guard. `pendingNav` holds the pending leave the
+  // author tried to make while there were uncommitted edits; non-null means the
+  // leave-confirmation modal is open. Shape: `{ to }` for in-app navigation
+  // (react-router path) or `{ back: true }` for a browser Back (POP) that we
+  // intercepted and must resume against the real previous history entry.
+  const [pendingNav, setPendingNav] = useState(null);
+  // True while a browser-back sentinel entry is sitting on top of history so a
+  // Back press lands on the editor instead of leaving. Tracked with a ref so we
+  // can unwind it (and avoid back-stack pollution) exactly once.
+  const backSentinelRef = useRef(false);
+  // Set right before we intentionally navigate away, so the sentinel-cleanup
+  // effect does not also try to unwind history during that navigation.
+  const leavingRef = useRef(false);
   const canvasRef = useRef(null);
   const [breakpoint, setBreakpoint] = useState('desktop');
   // The live preview + audit iframe used to live in a fixed 420px side
@@ -351,12 +368,23 @@ export default function CanvasPageEditorPage() {
       return;
     }
     if (page && hydratedPageIdRef.current !== page.id) {
-      setInitialDesign(normalizeCanvasDesign(page.canvas_design));
-      const needsInitialPersist = !page.canvas_design || typeof page.canvas_design !== 'object';
-      setIsDirty(needsInitialPersist);
+      const normalized = normalizeCanvasDesign(page.canvas_design);
+      setInitialDesign(normalized);
       hydratedPageIdRef.current = page.id;
+      setIsDirty(false);
+      // One-time initial persist: a brand-new page has never had a design
+      // blob, so without a first write it would render as perpetually dirty
+      // (design vs the null we hydrated from). Persist the normalized default
+      // once so the page starts in a clean "Saved" state. Everything after
+      // this is manual-save only. `saveDesignMutation.mutate` is referenced
+      // inside the callback (which runs after render) so it stays out of the
+      // deps array — adding it there would trip a TDZ on the const below.
+      const needsInitialPersist = !page.canvas_design || typeof page.canvas_design !== 'object';
+      if (needsInitialPersist) {
+        saveDesignMutation.mutate({ id: page.id, canvasDesign: normalized });
+      }
     }
-  }, [page, navigate]);
+  }, [page, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const saveDesignMutation = useMutation({
     mutationFn: async ({ id, canvasDesign }) => {
@@ -453,11 +481,155 @@ export default function CanvasPageEditorPage() {
     return saveDesignMutation.mutateAsync({ id: pageId, canvasDesign: nextDesign });
   }, [pageId, saveDesignMutation]);
 
-  const handleManualSave = async () => {
-    if (!pageId || !canvasRef.current) return;
+  // Commits the current design to the page (manual save) and, when the design
+  // actually changed, records a "Saved" entry in the version log so the save
+  // can be recalled from the Versions dialog. Save is only reachable while
+  // dirty, so a save that runs here is by definition different from the last
+  // saved design. This version snapshot is attached to the manual-save path
+  // ONLY (not to saveNow/performSave) so the publish flow — which calls
+  // saveNow directly — still emits a single "Published" version and never a
+  // redundant "Saved" one. Returns true on a successful save.
+  const doManualSave = useCallback(async () => {
+    if (!pageId || !canvasRef.current) return false;
+    const changed = canvasRef.current.isDirty?.();
     const ok = await canvasRef.current.saveNow();
+    if (!ok) return false;
+    if (changed) {
+      const design = canvasRef.current.getDesign?.();
+      if (design) {
+        // The design itself is already committed by saveNow above; this only
+        // records the "Saved" version-log entry. If it fails we still return
+        // success (nothing was lost) but surface a warning so the missing
+        // version is visible rather than silently dropped.
+        try {
+          const res = await fetch(`/api/canvas-versions/${encodeURIComponent(pageId)}`, {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ design, source: 'saved', label: 'Saved' }),
+          });
+          if (res.ok) {
+            queryClient.invalidateQueries({ queryKey: ['canvas-versions', pageId] });
+          } else {
+            toast.warning('Page saved, but this version could not be recorded.');
+          }
+        } catch (e) {
+          toast.warning('Page saved, but this version could not be recorded.');
+        }
+      }
+    }
+    return true;
+  }, [pageId, queryClient]);
+
+  const handleManualSave = async () => {
+    const ok = await doManualSave();
     if (ok) toast.success('Page saved');
   };
+
+  // ── Unsaved-changes navigation guards ──────────────────────────────────
+  // The canvas editor is effectively full-screen with its own header, so the
+  // in-app exit surface is the header back button + command-palette page jumps.
+  // We guard three leave paths: tab close/refresh, browser Back, and in-app
+  // navigation. `<BrowserRouter>` is a non-data router here, so react-router's
+  // useBlocker/usePrompt are unavailable — these are implemented by hand.
+
+  // Guard 1: tab close / refresh. beforeunload can only ever trigger the
+  // browser's own generic confirmation (not our custom modal), and only while
+  // there is unsaved work. Attached only while dirty; torn down on save/unmount.
+  useEffect(() => {
+    if (!isDirty) return;
+    const onBeforeUnload = (e) => {
+      e.preventDefault();
+      e.returnValue = '';
+      return '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [isDirty]);
+
+  // Guard 2: browser Back (POP). While dirty we keep a single history sentinel
+  // on top of the stack so a Back press lands back on the editor. When the
+  // author presses Back, popstate fires (the sentinel is now consumed and we
+  // sit on the editor's own entry); we open the custom modal instead of
+  // leaving. On confirm we resume the real Back (history.back to the true
+  // previous page); on cancel we re-arm the sentinel. When the editor simply
+  // becomes clean (a normal Save) we unwind the leftover sentinel so we never
+  // pollute the back stack — but not when we are intentionally navigating away.
+  useEffect(() => {
+    if (!isDirty) return undefined;
+    window.history.pushState(null, '');
+    backSentinelRef.current = true;
+    const onPopState = () => {
+      backSentinelRef.current = false; // sentinel consumed by this Back press
+      setPendingNav({ back: true });
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => {
+      window.removeEventListener('popstate', onPopState);
+      // Became clean while staying on the page: drop the leftover sentinel.
+      if (backSentinelRef.current && !leavingRef.current) {
+        backSentinelRef.current = false;
+        window.history.back();
+      }
+    };
+  }, [isDirty]);
+
+  // Resume a pending leave once the author has decided. For an intercepted
+  // browser Back we replay the real POP (history.back) so the author lands on
+  // the true previous page, not a fixed URL. For in-app navigation we overwrite
+  // the sentinel entry (replace) when one is armed so the back stack matches an
+  // ordinary navigation from the editor.
+  const resumeLeave = useCallback((nav) => {
+    if (nav?.back) {
+      window.history.back();
+    } else if (nav?.to != null) {
+      if (backSentinelRef.current) {
+        backSentinelRef.current = false;
+        navigate(nav.to, { replace: true });
+      } else {
+        navigate(nav.to);
+      }
+    }
+  }, [navigate]);
+
+  // Guard 3: in-app navigation. Route the editor's leave affordances through
+  // this handler; when dirty it opens the modal and remembers the intended
+  // destination instead of navigating immediately.
+  const guardedNavigate = useCallback((to) => {
+    if (canvasRef.current?.isDirty?.() || isDirty) {
+      setPendingNav({ to });
+    } else {
+      navigate(to);
+    }
+  }, [isDirty, navigate]);
+
+  const handleLeaveSaveAndGo = useCallback(async () => {
+    const nav = pendingNav;
+    leavingRef.current = true;
+    const ok = await doManualSave();
+    if (!ok) {
+      leavingRef.current = false; // save failed — keep the author here
+      return;
+    }
+    setPendingNav(null);
+    resumeLeave(nav);
+  }, [doManualSave, pendingNav, resumeLeave]);
+
+  const handleLeaveWithoutSaving = useCallback(() => {
+    const nav = pendingNav;
+    leavingRef.current = true;
+    setPendingNav(null);
+    resumeLeave(nav);
+  }, [pendingNav, resumeLeave]);
+
+  // Cancelling a browser-Back interception leaves us sitting on the editor's
+  // own entry, so re-arm the sentinel to catch the next Back press.
+  const handleCancelLeave = useCallback(() => {
+    if (pendingNav?.back && !backSentinelRef.current) {
+      window.history.pushState(null, '');
+      backSentinelRef.current = true;
+    }
+    setPendingNav(null);
+  }, [pendingNav]);
 
   // Performs the actual publish flow (save + status update + version
   // snapshot). Split out from handleTogglePublish so the confirm dialog
@@ -1027,7 +1199,7 @@ export default function CanvasPageEditorPage() {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => navigate(backToPagesUrl)}
+          onClick={() => guardedNavigate(backToPagesUrl)}
           data-testid="button-back"
         >
           <ArrowLeft className="w-4 h-4 mr-2" />
@@ -1906,7 +2078,7 @@ export default function CanvasPageEditorPage() {
               id: `goto-${p.id}`,
               label: `Open page: ${p.title || p.slug}`,
               hint: 'page',
-              run: () => navigate(createPageUrl(`CanvasPageEditor?pageId=${p.id}`)),
+              run: () => guardedNavigate(createPageUrl(`CanvasPageEditor?pageId=${p.id}`)),
             })),
         ]}
       />
@@ -1996,6 +2168,44 @@ export default function CanvasPageEditorPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Unsaved-changes leave confirmation. Shown for in-app navigation and
+          the browser Back button (the tab-close/refresh path can only use the
+          browser's own native prompt). */}
+      <AlertDialog open={!!pendingNav} onOpenChange={(o) => { if (!o) handleCancelLeave(); }}>
+        <AlertDialogContent data-testid="dialog-unsaved-changes">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Leave with unsaved changes?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You have unsaved changes to this page. Save them before leaving, or
+              discard them and continue.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <Button
+              variant="outline"
+              onClick={handleCancelLeave}
+              data-testid="button-leave-cancel"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleLeaveWithoutSaving}
+              data-testid="button-leave-without-saving"
+            >
+              Leave without saving
+            </Button>
+            <Button
+              onClick={handleLeaveSaveAndGo}
+              disabled={saveDesignMutation.isPending}
+              data-testid="button-save-and-leave"
+            >
+              {saveDesignMutation.isPending ? 'Saving…' : 'Save & leave'}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

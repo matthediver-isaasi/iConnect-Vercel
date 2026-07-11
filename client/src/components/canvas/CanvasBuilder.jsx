@@ -390,7 +390,6 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     () => JSON.stringify(normalizeCanvasDesign(initialDesign)),
   );
   const hydratedFromRef = useRef(initialDesign);
-  const autosaveTimer = useRef(null);
 
   // Re-hydrate only when the editor explicitly hands us a different
   // initialDesign object (different page or full reset). Successful
@@ -436,14 +435,12 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     }
   }, [design, onSave]);
 
-  // Autosave (debounced) — only fires when dirty and onSave provided.
-  useEffect(() => {
-    if (!onSave) return;
-    if (!isDirty) return;
-    if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
-    autosaveTimer.current = setTimeout(() => { performSave(); }, 2000);
-    return () => { if (autosaveTimer.current) clearTimeout(autosaveTimer.current); };
-  }, [design, isDirty, onSave, performSave]);
+  // Editing is manual-save only: edits stay in local `design` state and are
+  // never persisted automatically. The debounced autosave that used to commit
+  // every edit to the live page has been removed — the author commits via the
+  // Save button / Cmd+S (which drives performSave through the imperative
+  // handle). Undo/redo history capture, the dirty computation, and the
+  // saveNow/isDirty/getDesign handle are all left intact.
 
   const setDesign = useCallback((updater) => {
     setDesignState((prev) => {
