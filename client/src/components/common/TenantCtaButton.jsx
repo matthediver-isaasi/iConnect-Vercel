@@ -91,6 +91,16 @@ export default function TenantCtaButton({
   }
 
   const inlineStyle = buildTenantButtonInlineStyle(style, { hovered, applySize });
+  // Growth: for full-width CTAs (callers that pass a `w-full` layout class),
+  // fill at least the container but expand to fit long labels instead of
+  // clipping — mirroring the Canvas Button render path (minWidth:100% +
+  // width:max-content). Content-sized buttons (no `w-full`) and the shared
+  // flex rows keep their natural sizing, and fixed square icon buttons
+  // (`applySize={false}`) are untouched.
+  if (applySize && /\bw-full\b/.test(className)) {
+    inlineStyle.minWidth = '100%';
+    inlineStyle.width = 'max-content';
+  }
   const hoverProps = {
     onMouseEnter: () => setHovered(true),
     onMouseLeave: () => setHovered(false),

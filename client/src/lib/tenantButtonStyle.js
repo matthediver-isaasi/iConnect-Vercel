@@ -225,7 +225,10 @@ export function composeButtonLabelStyle({ typographyCss = null, textColor = null
 
 // Build the inline style object for a tenant button style. Mirrors the tenant
 // path in the Canvas Hero CTA button: background/hover, text colour, radius,
-// border, and (optionally) padding + font size from the style's size block.
+// border, and (optionally) padding from the style's size block.
+// The label font is sourced from the style's `labelSize` (via the shared
+// composeButtonLabelStyle helper), NOT the legacy Size-tab `fontSize`, so a
+// button renders identically on Canvas pages and on content-card CTA surfaces.
 // `applySize: false` keeps the caller's own sizing (e.g. fixed square icon
 // buttons) while still applying colour/border/radius.
 export function buildTenantButtonInlineStyle(style, { hovered = false, applySize = true } = {}) {
@@ -251,8 +254,15 @@ export function buildTenantButtonInlineStyle(style, { hovered = false, applySize
     inline.paddingBottom = baseline.paddingY;
     inline.paddingLeft = baseline.paddingX;
     inline.paddingRight = baseline.paddingX;
-    inline.fontSize = baseline.fontSize;
     inline.lineHeight = 1;
+    // Label font from the style's `labelSize` (shared composeButtonLabelStyle
+    // helper) rather than the legacy Size-tab `fontSize`. Keeps this in lockstep
+    // with the Canvas Button render path + Button Style Creator preview. When
+    // `labelSize` is unset the font inherits, exactly as it does on Canvas.
+    const labelFont = composeButtonLabelStyle({ labelSize: style.labelSize });
+    if (labelFont && labelFont.fontSize) {
+      inline.fontSize = labelFont.fontSize;
+    }
   }
   return inline;
 }
