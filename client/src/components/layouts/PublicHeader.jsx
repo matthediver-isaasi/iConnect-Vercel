@@ -890,6 +890,7 @@ export default function PublicHeader() {
                     autoFocus
                     value={searchQuery}
                     onChange={(e) => handleSearch(e.target.value)}
+                    style={{ fontFamily: searchResultsFont || 'inherit' }}
                     data-testid="input-search"
                   />
                   {searchQuery && (
@@ -1036,6 +1037,7 @@ export default function PublicHeader() {
           className="pl-10 pr-10 w-full"
           value={mobileSearchQuery}
           onChange={(e) => handleMobileSearch(e.target.value)}
+          style={{ fontFamily: searchResultsFont || 'inherit' }}
           data-testid="input-mobile-search"
         />
         {mobileSearchQuery && (

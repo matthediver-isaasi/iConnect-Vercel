@@ -6272,6 +6272,7 @@ function SearchInputRender({ block, asEditor }) {
     height: size.height,
     maxHeight: '100%',
     fontSize: size.fontSize,
+    fontFamily: searchResultsFont || 'inherit',
     paddingLeft: size.padX,
     paddingRight: showIcon ? size.height : size.padX,
     color: c.textColor || '#0f172a',
