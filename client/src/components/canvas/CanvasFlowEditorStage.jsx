@@ -5,6 +5,7 @@ import {
   getFlowSections,
   isFlowContainerType,
   resolveBlockHeightCss,
+  resolveBoxShadowCss,
   AUTO_HEIGHT_LEAF_TYPES,
   BLOCK_TYPES,
 } from '@/lib/canvasDesign';
@@ -82,6 +83,7 @@ function FlowLeaf({ node, box, breakpoint, isSelected, measureRef, onSelect }) {
         borderStyle: style.borderStyle,
         borderRadius: style.borderRadius,
         opacity: style.opacity,
+        boxShadow: resolveBoxShadowCss(style),
         zIndex: style.zIndex,
         paddingTop: fixedFill ? 0 : (style.paddingTop || 0),
         paddingRight: fixedFill ? 0 : (style.paddingRight || 0),
@@ -129,6 +131,7 @@ function FlowContainer({ node, box, isSelected, onSelect }) {
         borderStyle: style.borderStyle,
         borderRadius: style.borderRadius,
         opacity: style.opacity,
+        boxShadow: resolveBoxShadowCss(style),
         boxSizing: 'border-box',
         // Containers are visual grouping only; clicks fall through to the leaf
         // blocks stacked on top of them.

@@ -289,7 +289,51 @@ const DEFAULT_STYLE = {
   paddingRight: 0,
   paddingBottom: 0,
   paddingLeft: 0,
+  // Task #2692 — drop shadow. Stored as a curated preset level key
+  // (see SHADOW_LEVELS); 'none' is the default so existing pages are
+  // byte-identical. resolveBoxShadowCss() maps the key to a CSS value and
+  // is the single source of truth applied inline on every render surface.
+  boxShadow: 'none',
 };
+
+// Task #2692 — curated drop-shadow preset levels. The KEY is what is stored
+// on block.style.boxShadow; the value is the CSS `box-shadow` string emitted
+// on every render surface. This is the ONE source of truth referenced by the
+// Inspector picker (options) AND by resolveBoxShadowCss (render) so the
+// builder and the published page can never drift. Shadows use a soft neutral
+// tint that reads well on light and (subtly) dark backgrounds.
+export const SHADOW_LEVELS = [
+  { value: 'none', label: 'None', css: 'none' },
+  { value: 'sm', label: 'Small', css: '0 1px 2px 0 rgba(15, 23, 42, 0.08)' },
+  { value: 'md', label: 'Medium', css: '0 4px 6px -1px rgba(15, 23, 42, 0.10), 0 2px 4px -2px rgba(15, 23, 42, 0.10)' },
+  { value: 'lg', label: 'Large', css: '0 10px 15px -3px rgba(15, 23, 42, 0.12), 0 4px 6px -4px rgba(15, 23, 42, 0.10)' },
+  { value: 'xl', label: 'Extra large', css: '0 20px 25px -5px rgba(15, 23, 42, 0.14), 0 8px 10px -6px rgba(15, 23, 42, 0.10)' },
+];
+
+const SHADOW_CSS_BY_LEVEL = SHADOW_LEVELS.reduce((acc, l) => {
+  acc[l.value] = l.css;
+  return acc;
+}, {});
+
+// Map a block's stored shadow level to its CSS `box-shadow` value. Unknown or
+// missing values (including legacy blocks with no boxShadow field) resolve to
+// 'none' so nothing changes appearance until an author opts in.
+export function resolveBoxShadowCss(style) {
+  const level = style && typeof style === 'object' ? style.boxShadow : null;
+  return SHADOW_CSS_BY_LEVEL[level] || 'none';
+}
+
+// Block types that expose the drop-shadow control. Restricted to the
+// container/media surfaces where a shadow makes sense (Task #2692).
+export const SHADOW_BLOCK_TYPES = new Set([
+  BLOCK_TYPES.BOX,
+  BLOCK_TYPES.SECTION,
+  BLOCK_TYPES.IMAGE,
+]);
+
+export function blockSupportsShadow(type) {
+  return SHADOW_BLOCK_TYPES.has(type);
+}
 
 const DEFAULT_A11Y = {
   role: '',

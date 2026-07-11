@@ -13,6 +13,7 @@ import {
   BREAKPOINT_WIDTHS,
   blockSupportsFullBleed,
   resolveBlockHeightCss,
+  resolveBoxShadowCss,
   isFlowDesign,
 } from "@/lib/canvasDesign";
 import { buildFlowCanvasCss } from "@/lib/canvasFlowLayout";
@@ -252,6 +253,7 @@ function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint, windowBp, pinS
         borderStyle: style.borderStyle,
         borderRadius: style.borderRadius,
         opacity: style.opacity,
+        boxShadow: resolveBoxShadowCss(style),
         zIndex: style.zIndex,
         // Task #2506: absoluteFill blocks (Hero, Hero Carousel) consume
         // block.style.padding* inside their own renderer (`absolute inset-0`

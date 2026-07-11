@@ -5,6 +5,7 @@ import {
   getSectionLandmarkTag,
   blockSupportsFullBleed,
   resolveBlockHeightCss,
+  resolveBoxShadowCss,
   forEachFlowNode,
   AUTO_HEIGHT_LEAF_TYPES,
   BLOCK_TYPES,
@@ -128,6 +129,7 @@ function FlowNode({ node, box, breakpoint, isAuto, isPriority, hydrated, registe
         borderStyle: style.borderStyle,
         borderRadius: style.borderRadius,
         opacity: style.opacity,
+        boxShadow: resolveBoxShadowCss(style),
         zIndex: style.zIndex,
         // absoluteFill leaves consume their own padding internally (see the v1
         // renderer note); skip wrapper padding for them.

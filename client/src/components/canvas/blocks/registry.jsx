@@ -90,6 +90,7 @@ import {
   normalizeCanvasDesign,
   getRootChildren,
   setBlockContentFullBleed,
+  resolveBoxShadowCss,
 } from '@/lib/canvasDesign';
 import ImageSelector from '@/components/ImageSelector';
 import { FocalPointPicker, getFocalPointStyle } from '@/components/FocalPointPicker';
@@ -7222,6 +7223,7 @@ function SymbolChildPreview({ block, breakpoint, hostWidth }) {
         borderStyle: style.borderStyle,
         borderRadius: style.borderRadius,
         opacity: style.opacity,
+        boxShadow: resolveBoxShadowCss(style),
         zIndex: style.zIndex,
         // Task #2506: absoluteFill blocks own their padding internally —
         // wrapper padding is inert but border-box expands past the host box

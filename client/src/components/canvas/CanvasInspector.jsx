@@ -16,6 +16,8 @@ import {
   BLOCK_TYPES,
   blockSupportsFullBleed,
   setBlockContentFullBleed,
+  blockSupportsShadow,
+  SHADOW_LEVELS,
 } from '@/lib/canvasDesign';
 import { useCanvasAnchors } from './CanvasAnchorContext';
 import {
@@ -551,6 +553,22 @@ function SingleBlockInspector({ block, breakpoint, blockIssues, onUpdate, onTogg
               </SelectContent>
             </Select>
           </div>
+          {blockSupportsShadow(block.type) && (
+            <div className="space-y-1">
+              <Label className="text-xs text-slate-600">Shadow</Label>
+              <Select
+                value={block.style.boxShadow || 'none'}
+                onValueChange={(v) => updateStyle({ boxShadow: v })}
+              >
+                <SelectTrigger className="h-8" data-testid="select-shadow"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {SHADOW_LEVELS.map((s) => (
+                    <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1">
               <Label className="text-xs text-slate-600">Opacity</Label>

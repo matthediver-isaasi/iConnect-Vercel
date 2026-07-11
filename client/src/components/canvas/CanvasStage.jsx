@@ -2,7 +2,7 @@ import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import useEdgeAutoScroll from './useEdgeAutoScroll';
 import { Group as GroupIcon, Ungroup as UngroupIcon } from 'lucide-react';
-import { resolveBlockAtBreakpoint, blockIsFullWidthLike, clampGeomToStage, BLOCK_TYPES } from '@/lib/canvasDesign';
+import { resolveBlockAtBreakpoint, blockIsFullWidthLike, clampGeomToStage, BLOCK_TYPES, resolveBoxShadowCss } from '@/lib/canvasDesign';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -261,6 +261,7 @@ function CanvasBlockView({
         borderStyle: style.borderStyle,
         borderRadius: style.borderRadius,
         opacity: style.opacity,
+        boxShadow: resolveBoxShadowCss(style),
         // Task #2609 — focused group members render above the focus scrim.
         zIndex: Number.isFinite(focusZIndex) ? focusZIndex : style.zIndex,
         paddingTop: skipWrapperPadding ? 0 : (style.paddingTop || 0),
