@@ -33,6 +33,7 @@ import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import TenantCtaButton from '@/components/common/TenantCtaButton';
 import { sanitizeRichText } from './sanitize';
 import { cardDescriptionToHtml } from '@/lib/cardDescriptionHtml';
+import { resolveSearchResultsBranding } from '@/lib/searchResultsBranding';
 import {
   BLOCK_TYPES,
   resolveResponsiveValue,
@@ -6189,8 +6190,8 @@ function SearchInputRender({ block, asEditor }) {
   // Search-results branding, resolved the same way the full /search page does:
   // microsite branding on a microsite route, tenant branding otherwise.
   const { branding: chromeBranding } = usePublicChromeBranding() || {};
-  const searchResultsFont = chromeBranding?.brandingConfig?.searchResultsFont || null;
-  const searchTypeLabelColor = chromeBranding?.brandingConfig?.searchResultsTypeLabelColor || null;
+  const { font: searchResultsFont, typeLabelColor: searchTypeLabelColor } =
+    resolveSearchResultsBranding(chromeBranding?.brandingConfig);
   const size = SEARCH_INPUT_SIZES[c.size] || SEARCH_INPUT_SIZES.md;
   const showIcon = c.showIcon !== false;
   const placeholder = c.placeholder || 'Search…';

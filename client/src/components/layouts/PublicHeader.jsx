@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import IEditFormElement from "@/components/iedit/elements/IEditFormElement";
+import { resolveSearchResultsBranding } from "@/lib/searchResultsBranding";
 
 // Icon mapping for commonly used Lucide icons
 const iconMap = {
@@ -57,18 +58,6 @@ const NEUTRAL_GRADIENT_STOPS = [
 ];
 const NEUTRAL_SOCIAL_ICON_COLOR = '#64748B';
 
-// Mirror SearchResults.jsx: derive a subtle tinted background from a hex label
-// colour so the header search dropdown matches the full results page.
-function hexToRgba(hex, alpha) {
-  if (typeof hex !== 'string') return null;
-  let h = hex.trim().replace(/^#/, '');
-  if (h.length === 3) h = h.split('').map((c) => c + c).join('');
-  if (!/^[0-9A-Fa-f]{6}$/.test(h)) return null;
-  const r = parseInt(h.slice(0, 2), 16);
-  const g = parseInt(h.slice(2, 4), 16);
-  const b = parseInt(h.slice(4, 6), 16);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
 const BUTTON_ACCENT_GRADIENT = 'linear-gradient(to top right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)';
 const BUTTON_ACCENT_GRADIENT_HORIZONTAL = 'linear-gradient(to right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)';
 
@@ -290,8 +279,8 @@ export default function PublicHeader() {
   // Search-results branding (mirrors the full /search page): apply the
   // configured font to result text and the configured colour to type labels
   // / the "View all" affordance. Falls back to the current look when unset.
-  const searchResultsFont = branding?.brandingConfig?.searchResultsFont || null;
-  const searchTypeLabelColor = branding?.brandingConfig?.searchResultsTypeLabelColor || null;
+  const { font: searchResultsFont, typeLabelColor: searchTypeLabelColor } =
+    resolveSearchResultsBranding(branding?.brandingConfig);
   const headerSocialIconColor = branding?.brandingConfig?.headerSocialIconColor || NEUTRAL_SOCIAL_ICON_COLOR;
   const socialIconCustomSvgs = branding?.brandingConfig?.socialIconCustomSvgs || {};
   const resolvedSocialSvgs = useResolvedSocialIcons(socialIconCustomSvgs);

@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { publicClient } from "@/api/publicClient";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { resolveSearchResultsBranding } from "@/lib/searchResultsBranding";
 
 const typeIconMap = {
   event: Calendar,
@@ -24,20 +25,6 @@ const typeColors = {
   resource: 'bg-warning/10 text-warning',
   page: 'bg-slate-100 text-slate-700'
 };
-
-// Convert a #rgb / #rrggbb hex string to an rgba() with the given alpha, used
-// to build a subtle tinted background behind a chosen type-label colour. Returns
-// null for malformed input so callers can fall back to the default look.
-function hexToRgba(hex, alpha) {
-  if (typeof hex !== 'string') return null;
-  let h = hex.trim().replace(/^#/, '');
-  if (h.length === 3) h = h.split('').map((c) => c + c).join('');
-  if (!/^[0-9A-Fa-f]{6}$/.test(h)) return null;
-  const r = parseInt(h.slice(0, 2), 16);
-  const g = parseInt(h.slice(2, 4), 16);
-  const b = parseInt(h.slice(4, 6), 16);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
 
 export default function SearchResults() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -73,10 +60,8 @@ export default function SearchResults() {
     queryFn: () => publicClient.getTenantBranding(brandingMicrositePrefix),
     staleTime: 5 * 60 * 1000
   });
-  const brandingConfig = brandingData?.branding?.brandingConfig || {};
-  const searchResultsFont = brandingConfig.searchResultsFont || null;
-  const typeLabelColor = brandingConfig.searchResultsTypeLabelColor || null;
-  const typeLabelBg = typeLabelColor ? hexToRgba(typeLabelColor, 0.12) : null;
+  const { font: searchResultsFont, typeLabelColor, typeLabelBg } =
+    resolveSearchResultsBranding(brandingData?.branding?.brandingConfig);
 
   // Fetch article display name setting
   const { data: articleDisplayName } = useQuery({
