@@ -415,7 +415,7 @@ export function VersionsDialog({ open, onOpenChange, pageId, onRestored }) {
         <DialogHeader>
           <DialogTitle>Version history</DialogTitle>
           <DialogDescription>
-            Roll back to a previous saved version. A snapshot of the current page is taken automatically before restoring.
+            Roll back to a previous saved version. A snapshot of the current page is taken automatically before restoring. Only the last 10 versions are kept — older versions are removed automatically.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2 max-h-[50vh] overflow-y-auto">
@@ -430,6 +430,9 @@ export function VersionsDialog({ open, onOpenChange, pageId, onRestored }) {
                   </span>
                   <Badge variant="outline">{v.source}</Badge>
                 </div>
+                <p className="text-xs text-slate-500 mt-1" data-testid={`text-version-author-${v.id}`}>
+                  Saved by {v.saved_by_name || 'Unknown'}
+                </p>
                 {v.label && <p className="text-xs text-slate-500 mt-1">{v.label}</p>}
               </div>
               <div className="flex items-center gap-2 shrink-0">

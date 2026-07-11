@@ -12,7 +12,43 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasFeatureAccess } from '../_lib/tenantContext.js';
 
-const MAX_KEEP = 50;
+const MAX_KEEP = 10;
+
+// Resolve a set of member ids to human-readable display names.
+// Falls back name → first/last → email; unresolved ids are simply absent.
+async function resolveSaverNames(memberIds, tenantId) {
+  const ids = [...new Set(memberIds.filter(Boolean))];
+  if (ids.length === 0) return {};
+  const { data, error } = await supabase
+    .from('member')
+    .select('id, first_name, last_name, email')
+    .eq('tenant_id', tenantId)
+    .in('id', ids);
+  if (error || !Array.isArray(data)) return {};
+  const map = {};
+  for (const m of data) {
+    const full = [m.first_name, m.last_name].filter(Boolean).join(' ').trim();
+    map[m.id] = full || m.email || null;
+  }
+  return map;
+}
+
+// Prune version history so only the MAX_KEEP most recent snapshots remain.
+// Called after every snapshot insert (manual, publish, and pre-restore).
+async function pruneVersions(pageId, tenantId) {
+  const { data: all } = await supabase
+    .from('canvas_page_version')
+    .select('id, created_at')
+    .eq('page_id', pageId)
+    .eq('tenant_id', tenantId)
+    .order('created_at', { ascending: false });
+  if (Array.isArray(all) && all.length > MAX_KEEP) {
+    const toDelete = all.slice(MAX_KEEP).map((r) => r.id);
+    if (toDelete.length > 0) {
+      await supabase.from('canvas_page_version').delete().in('id', toDelete);
+    }
+  }
+}
 
 async function loadCanvasPage(pageId, tenantId) {
   const { data, error } = await supabase
@@ -80,7 +116,13 @@ export default async function handler(req, res) {
       .order('created_at', { ascending: false })
       .limit(MAX_KEEP);
     if (error) return res.status(500).json({ error: 'Failed to load versions' });
-    return res.status(200).json({ versions: data || [] });
+    const versions = data || [];
+    const nameMap = await resolveSaverNames(versions.map((v) => v.created_by), tenantId);
+    const withNames = versions.map((v) => ({
+      ...v,
+      saved_by_name: v.created_by ? (nameMap[v.created_by] || null) : null,
+    }));
+    return res.status(200).json({ versions: withNames });
   }
 
   if (req.method === 'POST') {
@@ -108,6 +150,8 @@ export default async function handler(req, res) {
         source: 'pre-restore',
         created_by: context.memberId || null,
       });
+      // Keep history within the retention limit after the pre-restore snapshot.
+      await pruneVersions(pageId, tenantId);
 
       const { data: updated, error: uErr } = await supabase
         .from('i_edit_page')
@@ -140,18 +184,7 @@ export default async function handler(req, res) {
     if (error) return res.status(500).json({ error: 'Failed to snapshot version' });
 
     // Trim history beyond MAX_KEEP to keep the table tidy.
-    const { data: all } = await supabase
-      .from('canvas_page_version')
-      .select('id, created_at')
-      .eq('page_id', pageId)
-      .eq('tenant_id', tenantId)
-      .order('created_at', { ascending: false });
-    if (Array.isArray(all) && all.length > MAX_KEEP) {
-      const toDelete = all.slice(MAX_KEEP).map((r) => r.id);
-      if (toDelete.length > 0) {
-        await supabase.from('canvas_page_version').delete().in('id', toDelete);
-      }
-    }
+    await pruneVersions(pageId, tenantId);
 
     return res.status(201).json({ version: data });
   }
