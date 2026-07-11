@@ -6270,7 +6270,16 @@ function SearchInputRender({ block, asEditor }) {
   const inputStyle = {
     width: '100%',
     height: size.height,
-    maxHeight: '100%',
+    // In the editor the block content is rendered inside an `absolute inset-0`
+    // wrapper pinned to the block's stored box height, so `maxHeight: '100%'`
+    // can clamp the input shorter than its nominal size. When that happens the
+    // browser caps the visible corner radius to half the (short) rendered
+    // height, so the configured radius reads as a small fixed pill (~5px) no
+    // matter what value is set. Public renders the component directly (no pinned
+    // wrapper), so it already shows the full height and correct radius. Only
+    // apply the clamp on the public path to keep it byte-identical while letting
+    // the editor render at the full nominal height with the configured radius.
+    maxHeight: asEditor ? undefined : '100%',
     fontSize: size.fontSize,
     fontFamily: searchResultsFont || 'inherit',
     paddingLeft: size.padX,
