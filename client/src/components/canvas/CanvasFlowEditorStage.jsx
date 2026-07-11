@@ -3,6 +3,8 @@ import { resolveFlowLayout } from '@/lib/canvasFlowLayout';
 import {
   getFlowSections,
   isFlowContainerType,
+  resolveBlockHeightCss,
+  AUTO_HEIGHT_LEAF_TYPES,
   BLOCK_TYPES,
 } from '@/lib/canvasDesign';
 import { getBlockDefinition } from './blocks/registry';
@@ -41,12 +43,23 @@ function FlowLeaf({ node, box, breakpoint, isSelected, measureRef, onSelect }) {
   const EditorComponent = def.Editor;
   const style = node.style || {};
   const a11y = node.a11y || {};
+  // Parity with the public renderer (CanvasFlowStage `FlowNode`): a leaf is
+  // "auto-height" (content-sized and measured back into the engine) ONLY when
+  // its type is in AUTO_HEIGHT_LEAF_TYPES (Text / Accordion / Card) and it is
+  // not pinned to a fixed height. Every other leaf — including Box, Image
+  // (non-fullbleed), Button, Icon, Divider, and absoluteFill leaves (Hero /
+  // Hero Carousel) — renders at the engine-resolved height and is NOT measured.
+  // Using the same predicate here stops a Box (whose content is empty, so
+  // height:auto collapses to just its border/padding) from feeding a collapsed
+  // height back into resolveFlowLayout and pulling the blocks below it upward.
+  const isAuto =
+    AUTO_HEIGHT_LEAF_TYPES.has(node.type) &&
+    (node.flow?.heightMode || 'auto') !== 'fixed';
   // absoluteFill leaves (Hero / Hero Carousel) own their internal padding and
-  // paint via `absolute inset-0`, so they need an explicit fixed height from
-  // the engine and must NOT be measured (their height is authored, not
-  // content-derived). Every other leaf is content-driven: height:auto plus a
-  // ResizeObserver so its real rendered height flows back into the engine.
+  // paint via `absolute inset-0`, so wrapper padding is skipped for them and
+  // their content wrapper fills the box.
   const fixedFill = !!def.absoluteFill;
+  const heightOverride = resolveBlockHeightCss(node);
   const outlineClass = isSelected
     ? 'outline outline-2 outline-primary outline-offset-[-1px]'
     : '';
@@ -55,13 +68,13 @@ function FlowLeaf({ node, box, breakpoint, isSelected, measureRef, onSelect }) {
     <div
       role={a11y.role || undefined}
       aria-label={a11y.ariaLabel || undefined}
-      ref={fixedFill ? undefined : measureRef(node.id)}
+      ref={isAuto ? measureRef(node.id) : undefined}
       className={`absolute cursor-pointer ${outlineClass}`}
       style={{
         left: box.x,
         top: box.y,
         width: box.w,
-        height: fixedFill ? box.h : 'auto',
+        height: isAuto ? 'auto' : (heightOverride || box.h),
         background: style.background,
         borderColor: style.borderColor,
         borderWidth: style.borderWidth,
