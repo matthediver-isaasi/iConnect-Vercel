@@ -126,8 +126,15 @@ export default function DynamicPage() {
     return null;
   }, [articleDisplayName, urlSlug, viewSlug, editorSlug, mySlug, publicSlug, isCustomSlug, articleUrlLoading, slug]);
 
+  // The page query is only enabled once its route prerequisites are met. On a
+  // microsite route that means the microsites list has loaded AND the prefix
+  // matched a real microsite. Keep this in a named flag so we can also tell
+  // "query enabled but not yet resolved" apart from "resolved with no page".
+  const pageQueryEnabled = !!slug && !dynamicArticleRoute && !articleUrlLoading &&
+    (!isMicrositeRoute || (micrositesLoaded && !!micrositeMatch));
+
   // Fetch page and elements together using public endpoint first, fall back to authenticated
-  const { data: pageData, isLoading: pageLoading, error: pageError } = useQuery({
+  const { data: pageData, isLoading: pageLoading, isFetched: pageFetched, error: pageError } = useQuery({
     queryKey: ['iedit-dynamic-page', routeMicrositePrefix || null, slug, isCanvasPreview ? 'preview' : 'live'],
     queryFn: async () => {
       // Task #2426: microsite pages are public-only — resolve strictly via
@@ -195,14 +202,19 @@ export default function DynamicPage() {
       });
       return { page, elements };
     },
-    enabled: !!slug && !dynamicArticleRoute && !articleUrlLoading &&
-      (!isMicrositeRoute || (micrositesLoaded && !!micrositeMatch)),
+    enabled: pageQueryEnabled,
     staleTime: 0
   });
 
   const page = pageData?.page;
   const elements = pageData?.elements || [];
   const elementsLoading = pageLoading;
+
+  // "Not settled" = the query is enabled but hasn't returned yet. During the
+  // brief idle→fetching transition React Query's isLoading is still false, so
+  // without this guard the `!page` not-found branch would flash for a frame
+  // before the real page paints. Treat that window as loading instead.
+  const pageQueryPending = pageQueryEnabled && !pageFetched;
 
   // Set page title and meta description
   useEffect(() => {
@@ -397,7 +409,7 @@ export default function DynamicPage() {
   }, [page, pageLoading, isPublicPage, isHybridPage, isLoggedIn, forcePublicPreview, setForcePublicLayout, setPublicChrome, dynamicArticleRoute]);
 
   // Check for redirect mappings when page is not found (default site only)
-  const shouldCheckRedirect = !pageLoading && !page && !dynamicArticleRoute && !!slug && !isMicrositeRoute;
+  const shouldCheckRedirect = !pageLoading && !pageQueryPending && !page && !dynamicArticleRoute && !!slug && !isMicrositeRoute;
   const { data: redirectResult, isLoading: redirectLoading } = useQuery({
     queryKey: ['redirect-resolve', slug],
     queryFn: async () => {
@@ -510,7 +522,7 @@ export default function DynamicPage() {
     );
   }
 
-  if (pageLoading || elementsLoading) {
+  if (pageLoading || elementsLoading || pageQueryPending) {
     return (
       <div className="min-h-screen" data-testid="loading-dynamic-page" aria-busy="true">
         <div className="sr-only">Loading content</div>
