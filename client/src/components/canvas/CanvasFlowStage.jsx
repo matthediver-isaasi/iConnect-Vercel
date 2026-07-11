@@ -43,18 +43,31 @@ function tagForNode(node) {
   return "div";
 }
 
-// Collect every node that the engine produced a box for, in DFS order (parents
-// first so they paint behind children). Hidden nodes get no box, so they are
-// naturally excluded here.
-function collectPlacedNodes(design, boxes) {
+// Collect every node placed at ANY breakpoint, in DFS order (parents first so
+// they paint behind children). The three per-breakpoint layouts use the fixed
+// representative stage widths and no measured heights — this is exactly what the
+// static first-paint stylesheet (buildFlowCanvasCss) is built from, so the
+// rendered DOM set matches the nodes that stylesheet can position/reveal. A node
+// hidden at one breakpoint but shown at another is included once; per-breakpoint
+// visibility is handled by the stylesheet (pre-hydration) and inline
+// `display:none` (post-hydration).
+function collectUnionPlacedNodes(design) {
+  const dl = resolveFlowLayout(design, { breakpoint: "desktop", containerWidth: BREAKPOINT_WIDTHS.desktop });
+  const tl = resolveFlowLayout(design, { breakpoint: "tablet", containerWidth: BREAKPOINT_WIDTHS.tablet });
+  const ml = resolveFlowLayout(design, { breakpoint: "mobile", containerWidth: BREAKPOINT_WIDTHS.mobile });
   const out = [];
+  const seen = new Set();
   forEachFlowNode(design, (node, { depth }) => {
-    if (boxes[node.id]) out.push({ node, depth });
+    if (seen.has(node.id)) return;
+    if (dl.boxes[node.id] || tl.boxes[node.id] || ml.boxes[node.id]) {
+      seen.add(node.id);
+      out.push({ node, depth });
+    }
   });
   return out;
 }
 
-function FlowNode({ node, box, breakpoint, isAuto, isPriority, registerRef }) {
+function FlowNode({ node, box, breakpoint, isAuto, isPriority, hydrated, registerRef }) {
   const def = getBlockDefinition(node.type);
   const Renderer = def?.Renderer;
   const isContainer = isFlowContainerType(node.type);
@@ -67,7 +80,33 @@ function FlowNode({ node, box, breakpoint, isAuto, isPriority, registerRef }) {
   // Auto-height leaves size to their content (measured back into the engine);
   // everything else uses the engine-resolved height.
   const heightOverride = !isContainer ? resolveBlockHeightCss(node) : null;
-  const height = isAuto ? "auto" : (heightOverride || box.h);
+
+  // Geometry source of truth:
+  //  - Before measurement (hydrated=false): the per-page static stylesheet
+  //    (buildFlowCanvasCss) positions this node with breakpoint-correct @media
+  //    rules, so we emit NO inline geometry and let the stylesheet win. This is
+  //    the first paint crawlers / slow connections / no-JS visitors see.
+  //  - After measurement (hydrated=true): inline styles from the engine (real
+  //    container width + measured heights) take over and override the stylesheet
+  //    — the content-accurate final layout, applied in the layout phase before
+  //    the browser paints so there is no visible shift.
+  let geomStyle;
+  if (!hydrated) {
+    geomStyle = null;
+  } else if (!box) {
+    // Hidden at the current measured breakpoint. A wider breakpoint's stylesheet
+    // rule may have shown it, so force it hidden inline.
+    geomStyle = { display: "none" };
+  } else {
+    geomStyle = {
+      display: "block",
+      position: "absolute",
+      left: box.x,
+      top: box.y,
+      width: box.w,
+      height: isAuto ? "auto" : (heightOverride || box.h),
+    };
+  }
 
   return (
     <Tag
@@ -82,11 +121,7 @@ function FlowNode({ node, box, breakpoint, isAuto, isPriority, registerRef }) {
         blockSupportsFullBleed(node.type) && node.content?.fullBleed ? "true" : undefined
       }
       style={{
-        position: "absolute",
-        left: box.x,
-        top: box.y,
-        width: box.w,
-        height,
+        ...geomStyle,
         background: style.background,
         borderColor: style.borderColor,
         borderWidth: style.borderWidth,
@@ -125,6 +160,11 @@ export default function CanvasFlowStage({ design, forceBreakpoint, lcpBlockId })
   const [containerWidth, setContainerWidth] = useState(
     forceBreakpoint ? BREAKPOINT_WIDTHS[forceBreakpoint] : BREAKPOINT_WIDTHS.desktop
   );
+  // Task #2648 — until the first measurement pass runs, the per-page static
+  // stylesheet (buildFlowCanvasCss) drives geometry so the first paint is
+  // breakpoint-correct without JS. An embedded/forced-breakpoint preview pins
+  // its own width, so it starts hydrated (inline geometry from the start).
+  const [hydrated, setHydrated] = useState(!!forceBreakpoint);
 
   const breakpoint = forceBreakpoint || breakpointForWidth(containerWidth);
 
@@ -163,18 +203,25 @@ export default function CanvasFlowStage({ design, forceBreakpoint, lcpBlockId })
     [design, breakpoint, containerWidth, measured]
   );
 
-  const placed = useMemo(() => collectPlacedNodes(design, boxes), [design, boxes]);
+  // Render the union of nodes placed at any breakpoint so the static stylesheet
+  // (which carries @media rules for all three) can position/reveal each one on
+  // first paint. Depends only on `design` (fixed representative widths), so it
+  // is stable across measurement re-renders.
+  const placed = useMemo(() => collectUnionPlacedNodes(design), [design]);
 
+  // Only measure leaves actually placed at the current breakpoint (others are
+  // hidden — display:none — and would measure 0).
   const autoLeafIds = useMemo(
     () =>
       placed
         .filter(
           ({ node }) =>
+            boxes[node.id] &&
             AUTO_HEIGHT_LEAF_TYPES.has(node.type) &&
             (node.flow?.heightMode || "auto") !== "fixed"
         )
         .map(({ node }) => node.id),
-    [placed]
+    [placed, boxes]
   );
 
   // Measure content-driven leaves and feed their heights back into the engine
@@ -215,6 +262,17 @@ export default function CanvasFlowStage({ design, forceBreakpoint, lcpBlockId })
     };
   }, [autoLeafIds.join("|"), containerWidth, breakpoint, design]);
 
+  // Once mounted (after the width + height measurement effects above have run
+  // their first pass in this same layout phase), switch from the static
+  // first-paint stylesheet to engine-driven inline geometry. Because this runs
+  // in the layout phase, the swap completes before the browser paints — JS
+  // visitors see only the measured layout (no shift); crawlers / no-JS keep the
+  // stylesheet layout.
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") return;
+    setHydrated(true);
+  }, []);
+
   const forcedWidthStyle = forceBreakpoint
     ? {
         width: BREAKPOINT_WIDTHS[forceBreakpoint],
@@ -232,7 +290,9 @@ export default function CanvasFlowStage({ design, forceBreakpoint, lcpBlockId })
         position: "relative",
         width: "100%",
         margin: "0 auto",
-        minHeight: height,
+        // Pre-hydration the static stylesheet supplies a per-breakpoint
+        // min-height (@media); once measured we pin the engine-resolved height.
+        ...(hydrated ? { minHeight: height } : null),
         ...forcedWidthStyle,
       }}
       data-testid="canvas-page-stage"
@@ -250,6 +310,7 @@ export default function CanvasFlowStage({ design, forceBreakpoint, lcpBlockId })
             breakpoint={breakpoint}
             isAuto={isAuto}
             isPriority={node.id === lcpBlockId}
+            hydrated={hydrated}
             registerRef={(el) => {
               if (el) nodeRefs.current[node.id] = el;
               else delete nodeRefs.current[node.id];

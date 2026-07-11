@@ -33,9 +33,11 @@ import {
   BLOCK_TYPES,
   LAYOUT_MODES,
   BREAKPOINT_WIDTHS,
+  BREAKPOINT_MAX_PX,
   resolveBlockAtBreakpoint,
   isFlowContainerType,
   AUTO_HEIGHT_LEAF_TYPES,
+  forEachFlowNode,
 } from './canvasDesign.js';
 
 // Resolve a `flow.basis` value (px number, '<n>%' string, or null) against an
@@ -353,4 +355,159 @@ export function resolveFlowLayout(design, options = {}) {
     y += h + (sf.marginBottom || 0);
   }
   return { boxes: ctx.boxes, height: y };
+}
+
+// ===========================================================================
+// Task #2648 — static first-paint stylesheet for v2 (flow / auto-layout) pages.
+//
+// The published flow renderer (CanvasFlowStage) positions every node via inline
+// styles computed from measured content AFTER the page mounts. Before that
+// measurement loop runs — search-engine crawlers, social unfurl bots, slow /
+// throttled connections, JS-disabled visitors — the page would otherwise have
+// no positioning at all (or a single desktop-estimated layout with no
+// responsive @media rules).
+//
+// This mirrors `buildCanvasCss` (the v1 absolute-page equivalent): it emits a
+// per-page stylesheet with server-computed absolute boxes for every node at the
+// desktop breakpoint, plus tablet / mobile @media overrides, so the first paint
+// is breakpoint-correct without any JavaScript. Once CanvasFlowStage has
+// measured, its inline styles take over and override this stylesheet (so the
+// final, content-accurate layout wins with no visible shift).
+//
+// PURE + React-free (same constraints as resolveFlowLayout) so it can run in
+// the browser, on Vercel (SSR/prerender), and under `node --test`.
+// ===========================================================================
+
+function fmtPxCss(n) {
+  return `${Math.round(Number(n) || 0)}px`;
+}
+
+function escapeCssIdentCss(id) {
+  return String(id || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
+// Auto-height leaves size to their content (measured back into the engine),
+// exactly as CanvasFlowStage decides at runtime. Their static height is `auto`
+// so the pre-measurement paint never clips growing text; their position (and
+// their siblings') still uses the engine's height estimate.
+function isAutoHeightLeaf(node) {
+  return (
+    AUTO_HEIGHT_LEAF_TYPES.has(node.type) &&
+    ((node.flow && node.flow.heightMode) || 'auto') !== 'fixed'
+  );
+}
+
+// Declaration body for one node at one breakpoint. A missing box means the node
+// is hidden at that breakpoint, so it collapses to `display:none` (a later
+// breakpoint can re-reveal it).
+function flowNodeRuleBody(box, autoLeaf) {
+  if (!box) return 'display:none;';
+  return [
+    'display:block;',
+    'position:absolute;',
+    `left:${fmtPxCss(box.x)};`,
+    `top:${fmtPxCss(box.y)};`,
+    `width:${fmtPxCss(box.w)};`,
+    `height:${autoLeaf ? 'auto' : fmtPxCss(box.h)};`,
+  ].join('');
+}
+
+/**
+ * Build a static CSS stylesheet for a v2 (flow) Canvas page. Scoped under
+ * `scope` (any CSS selector, e.g. `#canvas-abc123`) so multiple Canvas pages
+ * can coexist on a document without rule collisions. Returns '' for a design
+ * with no placed nodes.
+ */
+export function buildFlowCanvasCss(design, scope) {
+  const sc = scope || '.canvas-page';
+  const stageSel = `${sc} .canvas-stage`;
+
+  const dl = resolveFlowLayout(design, {
+    breakpoint: 'desktop',
+    containerWidth: BREAKPOINT_WIDTHS.desktop,
+  });
+  const tl = resolveFlowLayout(design, {
+    breakpoint: 'tablet',
+    containerWidth: BREAKPOINT_WIDTHS.tablet,
+  });
+  const ml = resolveFlowLayout(design, {
+    breakpoint: 'mobile',
+    containerWidth: BREAKPOINT_WIDTHS.mobile,
+  });
+
+  // Union of every node that has a box at ANY breakpoint, in DFS (paint) order
+  // so parents paint their backgrounds behind their descendants — matching the
+  // node order CanvasFlowStage renders.
+  const order = [];
+  const seen = new Set();
+  forEachFlowNode(design, (node) => {
+    if (seen.has(node.id)) return;
+    if (dl.boxes[node.id] || tl.boxes[node.id] || ml.boxes[node.id]) {
+      seen.add(node.id);
+      order.push(node);
+    }
+  });
+
+  if (order.length === 0) return '';
+
+  const lines = [];
+
+  // Stage: fluid width capped at the desktop stage width (mirrors
+  // CanvasFlowStage, which stays fluid up to the desktop cap rather than
+  // stepping down per breakpoint), with a per-breakpoint min-height so the page
+  // reserves the correct vertical space before measurement (prevents CLS).
+  lines.push(
+    `${stageSel}{position:relative;width:100%;max-width:${BREAKPOINT_WIDTHS.desktop}px;margin:0 auto;min-height:${fmtPxCss(dl.height)};}`,
+  );
+
+  // Desktop base rules (unconditional).
+  for (const node of order) {
+    const sel = `${sc} [data-cb="${escapeCssIdentCss(node.id)}"]`;
+    lines.push(`${sel}{${flowNodeRuleBody(dl.boxes[node.id], isAutoHeightLeaf(node))}}`);
+  }
+
+  // Tablet overrides — emit only where the rule body differs from desktop.
+  const tabletRules = [];
+  for (const node of order) {
+    const auto = isAutoHeightLeaf(node);
+    const dBody = flowNodeRuleBody(dl.boxes[node.id], auto);
+    const tBody = flowNodeRuleBody(tl.boxes[node.id], auto);
+    if (tBody !== dBody) {
+      tabletRules.push(`${sc} [data-cb="${escapeCssIdentCss(node.id)}"]{${tBody}}`);
+    }
+  }
+  if (tabletRules.length) {
+    lines.push(`@media (max-width: ${BREAKPOINT_MAX_PX.tablet}px){`);
+    lines.push(`${stageSel}{min-height:${fmtPxCss(tl.height)};}`);
+    lines.push(tabletRules.join(''));
+    lines.push('}');
+  } else {
+    lines.push(
+      `@media (max-width: ${BREAKPOINT_MAX_PX.tablet}px){${stageSel}{min-height:${fmtPxCss(tl.height)};}}`,
+    );
+  }
+
+  // Mobile overrides — emit only where the rule body differs from tablet (the
+  // tablet @media also matches at mobile widths, so only true diffs need it).
+  const mobileRules = [];
+  for (const node of order) {
+    const auto = isAutoHeightLeaf(node);
+    const tBody = flowNodeRuleBody(tl.boxes[node.id], auto);
+    const mBody = flowNodeRuleBody(ml.boxes[node.id], auto);
+    if (mBody !== tBody) {
+      mobileRules.push(`${sc} [data-cb="${escapeCssIdentCss(node.id)}"]{${mBody}}`);
+    }
+  }
+  if (mobileRules.length) {
+    lines.push(`@media (max-width: ${BREAKPOINT_MAX_PX.mobile}px){`);
+    lines.push(`${stageSel}{min-height:${fmtPxCss(ml.height)};}`);
+    lines.push(mobileRules.join(''));
+    lines.push('}');
+  } else {
+    lines.push(
+      `@media (max-width: ${BREAKPOINT_MAX_PX.mobile}px){${stageSel}{min-height:${fmtPxCss(ml.height)};}}`,
+    );
+  }
+
+  return lines.join('\n');
 }

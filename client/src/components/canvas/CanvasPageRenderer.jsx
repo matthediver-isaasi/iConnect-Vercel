@@ -15,6 +15,7 @@ import {
   resolveBlockHeightCss,
   isFlowDesign,
 } from "@/lib/canvasDesign";
+import { buildFlowCanvasCss } from "@/lib/canvasFlowLayout";
 import { getBlockDefinition } from "./blocks/registry";
 import { AccordionReflowProvider, useAccordionReflow } from "./AccordionReflowContext";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -552,6 +553,14 @@ export default function CanvasPageRenderer({ page, symbols, forceBreakpoint }) {
     () => (hasBlocks ? buildCanvasCss(children, `#${scopeId}`) : ''),
     [children, hasBlocks, scopeId],
   );
+  // Task #2648 — static first-paint stylesheet for v2 (flow) pages: absolute
+  // boxes + tablet/mobile @media rules so the page is breakpoint-correct before
+  // CanvasFlowStage's client-side measurement loop runs. Its inline styles take
+  // over (and override this) once measured, so there is no visible shift.
+  const flowCss = useMemo(
+    () => (isFlow && flowHasNodes ? buildFlowCanvasCss(design, `#${scopeId}`) : ''),
+    [isFlow, flowHasNodes, design, scopeId],
+  );
   const lcpBlockId = useMemo(() => (hasBlocks ? findLcpBlockId(children) : null), [children, hasBlocks]);
 
   // An explicit `forceBreakpoint` prop (embedded previews) takes precedence
@@ -685,6 +694,7 @@ export default function CanvasPageRenderer({ page, symbols, forceBreakpoint }) {
           {themeCss && (
             <style dangerouslySetInnerHTML={{ __html: `#${scopeId}{${themeCss}}` }} />
           )}
+          {flowCss && <style dangerouslySetInnerHTML={{ __html: flowCss }} />}
           <CanvasFlowStage
             design={design}
             forceBreakpoint={forcedBreakpoint}
