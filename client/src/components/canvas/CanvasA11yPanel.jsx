@@ -44,7 +44,6 @@ function truncate(str, max = 160) {
 export default function CanvasA11yPanel({
   issues,
   selectedIds,
-  onJumpToBlock,
   onLocate,
   onAutoOrder,
   canAutoOrder = false,
@@ -161,12 +160,12 @@ export default function CanvasA11yPanel({
                   : (it.selector || '');
                 const canLocate = !!onLocate && canJump;
                 const showDisabledLocate = !!onLocate && !canJump;
-                const handleRowClick = canJump ? () => onJumpToBlock?.(it.blockId) : undefined;
-                const handleRowKey = canJump
+                const handleRowClick = canLocate ? () => onLocate?.(it) : undefined;
+                const handleRowKey = canLocate
                   ? (e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
-                        onJumpToBlock?.(it.blockId);
+                        onLocate?.(it);
                       }
                     }
                   : undefined;
@@ -175,11 +174,11 @@ export default function CanvasA11yPanel({
                     key={`${it.rule}-${it.blockId || selector || 'doc'}-${idx}`}
                     className={`rounded border px-2 py-1.5 text-xs ${SEV_BG[it.severity]} ${
                       isSelected ? 'ring-1 ring-primary/40' : ''
-                    } ${canJump ? 'cursor-pointer hover-elevate' : ''}`}
+                    } ${canLocate ? 'cursor-pointer hover-elevate' : ''}`}
                     data-testid={`a11y-issue-${it.rule}`}
                     data-block-id={it.blockId || ''}
-                    role={canJump ? 'button' : undefined}
-                    tabIndex={canJump ? 0 : undefined}
+                    role={canLocate ? 'button' : undefined}
+                    tabIndex={canLocate ? 0 : undefined}
                     onClick={handleRowClick}
                     onKeyDown={handleRowKey}
                   >
@@ -226,17 +225,6 @@ export default function CanvasA11yPanel({
                           )}
                         </div>
                         <div className="flex items-center gap-1 mt-1.5">
-                          {canJump && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-6 px-2 text-[11px]"
-                              onClick={(e) => { e.stopPropagation(); onJumpToBlock?.(it.blockId); }}
-                              data-testid={`a11y-issue-jump-${it.rule}`}
-                            >
-                              Jump to block
-                            </Button>
-                          )}
                           {canLocate && (
                             <Button
                               size="sm"

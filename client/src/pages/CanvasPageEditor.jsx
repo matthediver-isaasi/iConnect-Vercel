@@ -1931,10 +1931,6 @@ export default function CanvasPageEditorPage() {
                   { total: 0, error: 0, warning: 0, info: 0 },
                 );
               };
-              const onJump = (id) => {
-                try { canvasRef.current?.setSelection?.(id); } catch { /* ignore */ }
-                setShowAuditDrawer(false);
-              };
               const onLocate = (issue) => {
                 if (!issue?.blockId) return;
                 setShowAuditDrawer(false);
@@ -1953,7 +1949,6 @@ export default function CanvasPageEditorPage() {
                     <CanvasA11yPanel
                       issues={heuristicIssues}
                       selectedIds={[]}
-                      onJumpToBlock={onJump}
                       onLocate={onLocate}
                     />
                   </section>
@@ -2034,7 +2029,6 @@ export default function CanvasPageEditorPage() {
                         <CanvasA11yPanel
                           issues={issuesForView(auditViewTab)}
                           selectedIds={[]}
-                          onJumpToBlock={onJump}
                           onLocate={onLocate}
                         />
                       </div>
@@ -2051,7 +2045,6 @@ export default function CanvasPageEditorPage() {
                       <CanvasA11yPanel
                         issues={issuesForView(effectiveViews[0])}
                         selectedIds={[]}
-                        onJumpToBlock={onJump}
                         onLocate={onLocate}
                       />
                     </section>
