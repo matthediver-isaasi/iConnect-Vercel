@@ -11,9 +11,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Search, LayoutGrid, List, FileEdit } from "lucide-react";
+import { Search, LayoutGrid, List, FileEdit, ArrowLeft, FileText, Hash } from "lucide-react";
 import { DndContext } from "@dnd-kit/core";
 import { adminFetch } from "@/lib/adminFetch";
+import { getPageAnchors } from "@/lib/canvasDesign";
 import PageFolderSidebar, { PRIMARY_SITE } from "@/components/iedit/PageFolderSidebar";
 import PageManagerItem from "@/components/iedit/PageManagerItem";
 
@@ -45,6 +46,11 @@ export default function PagePickerDialog({ open, onOpenChange, onPick }) {
   // Active site context: null = primary tenant site, otherwise a microsite id.
   const [activeSiteId, setActiveSiteId] = useState(null);
   const [selectedFolderId, setSelectedFolderId] = useState("all"); // 'all' | 'root' | <folderId>
+  // Task #2731: after a page with anchors is picked, we show a second step so
+  // the admin can optionally target one of that page's sections. `pendingPage`
+  // holds the chosen page + its resolved whole-page path while that step is
+  // shown; null means we're still on the browse view.
+  const [pendingPage, setPendingPage] = useState(null);
   const [viewMode, setViewMode] = useState(() => {
     try {
       return localStorage.getItem(VIEW_MODE_KEY) === "list" ? "list" : "grid";
@@ -68,6 +74,7 @@ export default function PagePickerDialog({ open, onOpenChange, onPick }) {
       setSearchQuery("");
       setActiveSiteId(null);
       setSelectedFolderId("all");
+      setPendingPage(null);
     }
   }, [open]);
 
@@ -183,22 +190,92 @@ export default function PagePickerDialog({ open, onOpenChange, onPick }) {
     return `/${page.slug}`;
   };
 
+  // Anchors defined on the currently-pending page (the whole-page path is
+  // already resolved into `pendingPage.path`). Empty when the page has no
+  // linkable sections, in which case the anchor step is skipped entirely.
+  const pendingAnchors = useMemo(() => {
+    if (!pendingPage?.page) return [];
+    return getPageAnchors(pendingPage.page.canvas_design).filter((a) => a.anchorId);
+  }, [pendingPage]);
+
+  const finishPick = (value) => {
+    if (value) onPick?.(value);
+    setPendingPage(null);
+    onOpenChange?.(false);
+  };
+
   const handleSelectPage = (page) => {
     const path = resolvePagePath(page);
-    if (path) onPick?.(path);
-    onOpenChange?.(false);
+    if (!path) return;
+    // If the target page exposes anchors, offer a second step so the admin can
+    // optionally scroll to a specific section; otherwise return the whole page.
+    const anchors = getPageAnchors(page.canvas_design).filter((a) => a.anchorId);
+    if (anchors.length > 0) {
+      setPendingPage({ page, path });
+      return;
+    }
+    finishPick(path);
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-5xl">
         <DialogHeader>
-          <DialogTitle>Link to a page</DialogTitle>
+          <DialogTitle>
+            {pendingPage ? `Link to a section of "${pendingPage.page.title || pendingPage.page.slug}"` : "Link to a page"}
+          </DialogTitle>
           <DialogDescription>
-            Pick a page to use as this link's target.
+            {pendingPage
+              ? "Link to the whole page, or scroll to one of its sections."
+              : "Pick a page to use as this link's target."}
           </DialogDescription>
         </DialogHeader>
 
+        {pendingPage ? (
+          <div className="space-y-3">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="gap-2 self-start"
+              onClick={() => setPendingPage(null)}
+              data-testid="button-picker-anchor-back"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Back to pages
+            </Button>
+            <div className="max-h-[55vh] overflow-y-auto space-y-2">
+              <button
+                type="button"
+                onClick={() => finishPick(pendingPage.path)}
+                className="w-full flex items-center gap-3 rounded-md border border-slate-200 p-3 text-left hover-elevate active-elevate-2"
+                data-testid="button-picker-whole-page"
+              >
+                <FileText className="w-5 h-5 text-slate-500 flex-shrink-0" />
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-slate-900">Whole page</div>
+                  <div className="font-mono text-xs text-slate-500 truncate">{pendingPage.path}</div>
+                </div>
+              </button>
+              {pendingAnchors.map((a) => (
+                <button
+                  key={a.blockId || a.anchorId}
+                  type="button"
+                  onClick={() => finishPick(`${pendingPage.path}#${a.anchorId}`)}
+                  className="w-full flex items-center gap-3 rounded-md border border-slate-200 p-3 text-left hover-elevate active-elevate-2"
+                  data-testid={`button-picker-anchor-${a.anchorId}`}
+                >
+                  <Hash className="w-5 h-5 text-slate-500 flex-shrink-0" />
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-slate-900 truncate">{a.blockName}</div>
+                    <div className="font-mono text-xs text-slate-500 truncate">{pendingPage.path}#{a.anchorId}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+        <>
         {/* Toolbar: search + view toggle */}
         <div className="flex flex-wrap items-center gap-3">
           <div className="relative flex-1 min-w-[220px]">
@@ -318,6 +395,8 @@ export default function PagePickerDialog({ open, onOpenChange, onPick }) {
             </div>
           </div>
         </DndContext>
+        </>
+        )}
       </DialogContent>
     </Dialog>
   );

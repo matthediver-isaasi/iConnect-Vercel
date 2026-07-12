@@ -242,6 +242,24 @@ export function LinkField({ label, value, onChange, placeholder, testId }) {
     }));
   };
 
+  // Task #2731: pick an image or file from the File Repository directly from
+  // the shared link field, so every linkable element (button/hero/card/logo/
+  // pricing/accordion/etc.) offers the same "link to a file" affordance rather
+  // than a per-block "Choose from File Repository" button on only some
+  // inspectors. No `kind` filter is passed so any file type is selectable; the
+  // picked asset's URL is written straight to the field via the onChange
+  // contract (the same string value contract the other three options use).
+  const openFileRepository = () => {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new CustomEvent('canvas:open-file-repository', {
+      detail: {
+        onPick: (asset) => {
+          if (asset?.url) onChange(asset.url);
+        },
+      },
+    }));
+  };
+
   return (
     <Field label={label}>
       <div className="flex items-center gap-1">
@@ -261,6 +279,16 @@ export function LinkField({ label, value, onChange, placeholder, testId }) {
           data-testid={testId ? `${testId}-page-picker` : 'link-page-picker'}
         >
           <Globe className="w-4 h-4" />
+        </Button>
+        <Button
+          size="icon"
+          variant="outline"
+          type="button"
+          onClick={openFileRepository}
+          title="Link to an image or file from the File Repository"
+          data-testid={testId ? `${testId}-file-picker` : 'link-file-picker'}
+        >
+          <Images className="w-4 h-4" />
         </Button>
         {hasAnchorMenu && (
           <DropdownMenu>
@@ -2752,14 +2780,6 @@ function ButtonInspector({ block, update, breakpoint }) {
         noneLabel={labelTypoNoneLabel}
       />
       <LinkField label="Link target" value={c.href} onChange={(v) => set({ href: v })} testId="input-button-href" />
-      <FileRepositoryPickButton
-        testId="button-button-media-library"
-        onPick={(asset) => {
-          if (!asset?.url) return;
-          // Linking to a file (PDF etc.) should open/download in a new tab.
-          set({ href: asset.url, newTab: true });
-        }}
-      />
       <SelectField
         label="Variant"
         value={c.variant || 'default'}
@@ -3242,46 +3262,6 @@ export function isDocumentAsset(asset) {
   return /\.(pdf|docx?|xlsx?|pptx?|txt|csv|rtf|odt)(\?|$)/.test(u);
 }
 
-// Suggest an accordion link icon type from a media-library asset's mime type,
-// falling back to the URL extension when mime_type is missing (URL-only
-// assets). Returns one of the ACCORDION_LINK_ICON_TYPES values.
-function suggestAccordionLinkIcon(asset) {
-  const m = String(asset?.mime_type || '').toLowerCase();
-  const u = String(asset?.url || '').toLowerCase();
-  if (m.startsWith('video/') || /\.(mp4|webm|ogv|mov)(\?|$)/.test(u)) return 'video';
-  if (m.startsWith('image/') || /\.(jpe?g|png|gif|webp|svg)(\?|$)/.test(u)) return 'image';
-  if (m.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac)(\?|$)/.test(u)) return 'audio';
-  if (isDocumentAsset(asset)) return 'document';
-  return 'download';
-}
-
-// Button that opens the shared File Repository picker so an author can attach a
-// document/video/image to a link (accordion links, CTA buttons, etc.),
-// mirroring how LinkField wires up the 'canvas:open-file-repository' window
-// event. No `kind` filter is passed so every file type (documents included)
-// is selectable.
-function FileRepositoryPickButton({ onPick, testId }) {
-  const openLibrary = () => {
-    if (typeof window === 'undefined') return;
-    window.dispatchEvent(new CustomEvent('canvas:open-file-repository', {
-      detail: { onPick },
-    }));
-  };
-  return (
-    <Button
-      type="button"
-      size="sm"
-      variant="outline"
-      onClick={openLibrary}
-      className="w-full"
-      data-testid={testId}
-    >
-      <Images className="w-4 h-4 mr-2" />
-      Choose from File Repository
-    </Button>
-  );
-}
-
 function AccordionRender({ block, asEditor }) {
   const c = block.content || {};
   // Controlled open-state so we can enforce expandOne (only one item open at
@@ -3433,19 +3413,6 @@ function AccordionInspector({ block, update }) {
                     <>
                       <TextField label="Label" value={link.label} onChange={(v) => patchLink({ label: v })} testId={`accordion-${idx}-link-${linkIdx}-label`} />
                       <LinkField label="URL" value={link.url} onChange={(v) => patchLink({ url: v })} testId={`accordion-${idx}-link-${linkIdx}-url`} />
-                      <FileRepositoryPickButton
-                        testId={`accordion-${idx}-link-${linkIdx}-media`}
-                        onPick={(asset) => {
-                          if (!asset?.url) return;
-                          const patchData = { url: asset.url, iconType: suggestAccordionLinkIcon(asset) };
-                          // Only auto-fill the label when the author hasn't set
-                          // one yet (empty or still the default placeholder).
-                          if (!link.label || link.label === 'New link') {
-                            patchData.label = asset.name || asset.alt_text || asset.url;
-                          }
-                          patchLink(patchData);
-                        }}
-                      />
                       <SelectField
                         label="Icon"
                         value={link.iconType || 'external'}
