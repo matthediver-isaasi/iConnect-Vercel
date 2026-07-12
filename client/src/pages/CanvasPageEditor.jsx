@@ -169,6 +169,9 @@ export default function CanvasPageEditorPage() {
   // video-, or document-only assets (e.g. the video block), or leave it
   // unset for any file type (link/CTA/document pickers).
   const [fileRepoPickKind, setFileRepoPickKind] = useState(null);
+  // Optional custom modal title supplied by the requester (e.g. the shared link
+  // field's "Select file to link to"); falls back to the picker's per-kind title.
+  const [fileRepoPickTitle, setFileRepoPickTitle] = useState(null);
   // Loaded for the command palette's "jump to page" entries. Cheap to
   // fetch alongside the editor and reused by the picker UI.
   const { data: allPages } = useQuery({
@@ -839,6 +842,7 @@ export default function CanvasPageEditorPage() {
     const onOpenFileRepo = (e) => {
       setFileRepoPickHandler(() => e.detail?.onPick || null);
       setFileRepoPickKind(e.detail?.kind || null);
+      setFileRepoPickTitle(e.detail?.title || null);
       setShowFileRepo(true);
     };
     window.addEventListener('canvas:open-file-repository', onOpenFileRepo);
@@ -2231,8 +2235,9 @@ export default function CanvasPageEditorPage() {
       <FileRepositoryPicker
         open={showFileRepo}
         kind={fileRepoPickKind || 'image'}
+        title={fileRepoPickTitle || undefined}
         allowUpload
-        onOpenChange={(o) => { setShowFileRepo(o); if (!o) { setFileRepoPickHandler(null); setFileRepoPickKind(null); } }}
+        onOpenChange={(o) => { setShowFileRepo(o); if (!o) { setFileRepoPickHandler(null); setFileRepoPickKind(null); setFileRepoPickTitle(null); } }}
         onSelect={(asset) => {
           if (fileRepoPickHandler) {
             // Called from a block inspector — route the asset back to it

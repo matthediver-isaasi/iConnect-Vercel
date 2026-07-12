@@ -246,13 +246,17 @@ export function LinkField({ label, value, onChange, placeholder, testId }) {
   // the shared link field, so every linkable element (button/hero/card/logo/
   // pricing/accordion/etc.) offers the same "link to a file" affordance rather
   // than a per-block "Choose from File Repository" button on only some
-  // inspectors. No `kind` filter is passed so any file type is selectable; the
-  // picked asset's URL is written straight to the field via the onChange
-  // contract (the same string value contract the other three options use).
+  // inspectors. Task #2753: request the unrestricted ('any') picker with a
+  // custom "Select file to link to" title so any file type (PDF, doc, sheet,
+  // image, etc.) can be linked; the picked asset's URL is written straight to
+  // the field via the onChange contract (the same string value contract the
+  // other three options use).
   const openFileRepository = () => {
     if (typeof window === 'undefined') return;
     window.dispatchEvent(new CustomEvent('canvas:open-file-repository', {
       detail: {
+        kind: 'any',
+        title: 'Select file to link to',
         onPick: (asset) => {
           if (asset?.url) onChange(asset.url);
         },
