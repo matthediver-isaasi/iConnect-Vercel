@@ -2216,9 +2216,7 @@ function ImageInspector({ block, update }) {
       <ImageField
         label="Image"
         value={c.src}
-        alt={c.alt}
         onChangeSrc={(v) => set({ src: v })}
-        onChangeAlt={(v) => set({ alt: v })}
         testId="input-image"
       />
       <div className="pt-1 border-t border-slate-100 space-y-2">
