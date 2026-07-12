@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import {
   ShieldAlert, AlertTriangle, Info, ShieldCheck, CircleAlert,
-  ExternalLink, Crosshair,
+  ExternalLink, Crosshair, ListOrdered, Wand2,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -41,7 +41,16 @@ function truncate(str, max = 160) {
   return s.length > max ? `${s.slice(0, max)}…` : s;
 }
 
-export default function CanvasA11yPanel({ issues, selectedIds, onJumpToBlock, onLocate }) {
+export default function CanvasA11yPanel({
+  issues,
+  selectedIds,
+  onJumpToBlock,
+  onLocate,
+  onAutoOrder,
+  canAutoOrder = false,
+  showReadingOrder = false,
+  onToggleReadingOrder,
+}) {
   const summary = useMemo(() => summarizeIssues(issues), [issues]);
   const blocking = useMemo(() => getBlockingIssues(issues), [issues]);
   const grouped = useMemo(() => {
@@ -85,6 +94,48 @@ export default function CanvasA11yPanel({ issues, selectedIds, onJumpToBlock, on
         <p className="text-[11px] text-warning" data-testid="a11y-blocking-hint">
           {blocking.length} must-fix issue{blocking.length === 1 ? '' : 's'} flagged — publish will ask you to confirm.
         </p>
+      )}
+
+      {(onAutoOrder || onToggleReadingOrder) && (
+        <div className="space-y-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {onAutoOrder && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="flex-1"
+                onClick={onAutoOrder}
+                disabled={!canAutoOrder}
+                data-testid="button-auto-order"
+                title="Reorder elements so reading (tab) order follows the visual layout — no visual change"
+              >
+                <Wand2 className="w-3.5 h-3.5 mr-1.5" />
+                Auto-order
+              </Button>
+            )}
+            {onToggleReadingOrder && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className={`toggle-elevate ${showReadingOrder ? 'toggle-elevated' : ''}`}
+                aria-pressed={showReadingOrder}
+                onClick={onToggleReadingOrder}
+                data-testid="button-reading-order-overlay"
+                title="Show reading (DOM/tab) order overlay"
+              >
+                <ListOrdered className="w-3.5 h-3.5 mr-1.5" />
+                Order
+              </Button>
+            )}
+          </div>
+          {onAutoOrder && (
+            <p className="text-[10px] text-slate-500" data-testid="text-auto-order-hint">
+              {canAutoOrder
+                ? 'Reading order does not match the visual layout.'
+                : 'Reading order already matches the visual layout.'}
+            </p>
+          )}
+        </div>
       )}
 
       {issues.length === 0 ? (

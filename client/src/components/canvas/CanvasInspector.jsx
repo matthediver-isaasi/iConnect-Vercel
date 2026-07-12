@@ -152,7 +152,10 @@ const SEV_CLASS = {
   [SEVERITY.INFO]: 'text-slate-500',
 };
 
-function A11ySection({ block, issues, onReorder, readingOrderIndex, readingOrderTotal }) {
+// Reading-order position + arrows, per-element audit issues and the contrast
+// readout. Rendered inside the consolidated "Accessibility" section (no Section
+// wrapper of its own).
+function A11yChecks({ block, issues, onReorder, readingOrderIndex, readingOrderTotal }) {
   const fg = blockTextColor(block);
   const bg = blockBackgroundColor(block);
   const ratio = contrastRatio(fg, bg);
@@ -162,7 +165,7 @@ function A11ySection({ block, issues, onReorder, readingOrderIndex, readingOrder
   const passes = meetsAA(ratio, { isLargeText: isLarge });
 
   return (
-    <Section title="Accessibility checks">
+    <div className="space-y-2 pt-2 border-t border-slate-200">
       {onReorder && readingOrderIndex >= 0 && (
         <div className="flex items-center justify-between gap-2 text-xs text-slate-600 mb-1">
           <span>
@@ -239,7 +242,7 @@ function A11ySection({ block, issues, onReorder, readingOrderIndex, readingOrder
           </div>
         </div>
       )}
-    </Section>
+    </div>
   );
 }
 
@@ -413,14 +416,6 @@ function SingleBlockInspector({ block, breakpoint, blockIssues, onUpdate, onTogg
       </div>
 
       <ContentSection block={block} breakpoint={breakpoint} onUpdate={onUpdate} onUnlinkSymbol={onUnlinkSymbol} />
-
-      <A11ySection
-        block={block}
-        issues={blockIssues || []}
-        onReorder={onReorder}
-        readingOrderIndex={readingOrderIndex}
-        readingOrderTotal={readingOrderTotal}
-      />
 
       <AnchorIdSection block={block} onUpdate={onUpdate} />
 
@@ -745,35 +740,26 @@ function SingleBlockInspector({ block, breakpoint, blockIssues, onUpdate, onTogg
               Set when this block's content is in a different language than the page.
             </p>
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="space-y-1">
-              <Label className="text-xs text-slate-600">Tab index</Label>
-              <Input
-                type="number"
-                value={block.a11y.tabIndex ?? ''}
-                onChange={(e) => {
-                  const raw = e.target.value;
-                  updateA11y({ tabIndex: raw === '' ? null : Number(raw) });
-                }}
-                placeholder="default"
-                className="h-8"
-                data-testid="input-tab-index"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-slate-600">Hidden to screen readers</Label>
-              <Button
-                size="sm"
-                variant="ghost"
-                className={`w-full toggle-elevate ${block.a11y.ariaHidden ? 'toggle-elevated' : ''}`}
-                aria-pressed={!!block.a11y.ariaHidden}
-                onClick={() => updateA11y({ ariaHidden: !block.a11y.ariaHidden })}
-                data-testid="button-aria-hidden"
-              >
-                {block.a11y.ariaHidden ? 'aria-hidden: true' : 'aria-hidden: false'}
-              </Button>
-            </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-slate-600">Hidden to screen readers</Label>
+            <Button
+              size="sm"
+              variant="ghost"
+              className={`w-full toggle-elevate ${block.a11y.ariaHidden ? 'toggle-elevated' : ''}`}
+              aria-pressed={!!block.a11y.ariaHidden}
+              onClick={() => updateA11y({ ariaHidden: !block.a11y.ariaHidden })}
+              data-testid="button-aria-hidden"
+            >
+              {block.a11y.ariaHidden ? 'aria-hidden: true' : 'aria-hidden: false'}
+            </Button>
           </div>
+          <A11yChecks
+            block={block}
+            issues={blockIssues || []}
+            onReorder={onReorder}
+            readingOrderIndex={readingOrderIndex}
+            readingOrderTotal={readingOrderTotal}
+          />
         </div>
       </Section>
     </div>

@@ -17,7 +17,7 @@ import {
   getRootChildren,
   BLOCK_TYPES,
   BREAKPOINT_WIDTHS,
-} from '@/lib/canvasDesign';
+} from './canvasDesign.js';
 
 export const SEVERITY = {
   ERROR: 'error',     // blocks publish
@@ -34,6 +34,26 @@ export const DEFAULT_BLOCKING_RULES = new Set([
   'link-image-no-accessible-name',
   'aria-hidden-focusable',
 ]);
+
+// Block types that render genuinely keyboard-focusable content (a native
+// <button>, an <a>, or a form field). Decorative/structural containers
+// (boxes, sections, spacers, dividers, plain text/images) are never focusable
+// on their own now that raw tabindex has been retired.
+const INTERACTIVE_BLOCK_TYPES = new Set([
+  BLOCK_TYPES.BUTTON,
+  BLOCK_TYPES.PRICING_TABLE,
+  BLOCK_TYPES.FORM_EMBED,
+  BLOCK_TYPES.LOGIN_FORM,
+  BLOCK_TYPES.SEARCH_INPUT,
+]);
+
+export function isInteractiveBlock(block) {
+  if (!block) return false;
+  if (INTERACTIVE_BLOCK_TYPES.has(block.type)) return true;
+  // An image is only interactive when it is wrapped in a link.
+  if (block.type === BLOCK_TYPES.IMAGE && block.content?.href) return true;
+  return false;
+}
 
 // -- Colour & contrast helpers ----------------------------------------------
 
@@ -220,11 +240,6 @@ function issue(blockId, blockName, rule, severity, message) {
   return { blockId, blockName, rule, severity, message };
 }
 
-function isInteractiveBlock(block) {
-  return block.type === BLOCK_TYPES.BUTTON ||
-    (block.type === BLOCK_TYPES.IMAGE && !!block.content?.href);
-}
-
 function stripHtml(html) {
   if (!html) return '';
   return String(html).replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
@@ -285,13 +300,14 @@ function auditBlock(block, ctx) {
   }
 
   // --- ARIA misuse
-  if (a11y.ariaHidden && typeof a11y.tabIndex === 'number' && a11y.tabIndex >= 0) {
+  // Interactive block types render genuinely focusable content (a <button>,
+  // a link, a form field). Marking one aria-hidden hides it from screen
+  // readers while it can still be reached by keyboard — a trap. Raw tabindex
+  // is no longer an author-controllable lever (reading order is pure document
+  // order), so focusability is inferred from the block type instead.
+  if (a11y.ariaHidden && isInteractiveBlock(block)) {
     out.push(issue(block.id, name, 'aria-hidden-focusable', SEVERITY.ERROR,
       'Element is aria-hidden but also focusable. Screen-reader users will land on an unannounced element.'));
-  }
-  if (typeof a11y.tabIndex === 'number' && a11y.tabIndex > 0) {
-    out.push(issue(block.id, name, 'positive-tabindex', SEVERITY.WARNING,
-      'Positive tabindex values override natural reading order. Use 0 or -1.'));
   }
 
   // --- Pricing table tier CTAs / recommended exclusivity
@@ -442,41 +458,109 @@ function auditDocument(children, all) {
   }
 
   // Reading-order vs visual-order mismatch.
-  // Reading order = tab order (positive tabindex first, ascending), then
-  // DOM order for tabIndex 0/-1/unset. Visual order = sorted by (y, x).
-  const readingOrder = computeReadingOrder(children);
-  const visualOrder = [...children].sort((a, b) => {
-    const ga = resolveBlockAtBreakpoint(a, 'desktop');
-    const gb = resolveBlockAtBreakpoint(b, 'desktop');
-    return (ga.y - gb.y) || (ga.x - gb.x);
-  });
-  for (let i = 0; i < children.length; i++) {
-    if (visualOrder[i]?.id !== readingOrder[i]?.id) {
-      out.push(issue(null, null, 'reading-order-mismatch', SEVERITY.INFO,
-        'Document (tab/screen-reader) order does not match top-to-bottom visual order. Confirm this is intentional, or adjust the layer order / tabindex.'));
-      break;
-    }
+  // Reading order is now pure document order (raw tabindex has been retired),
+  // so this flags when the document order the browser tabs through / a screen
+  // reader announces differs from the top-to-bottom, left-to-right visual
+  // layout. Authors resolve it with Auto-order or the reading-order arrows.
+  if (!readingOrderMatchesVisual(children)) {
+    out.push(issue(null, null, 'reading-order-mismatch', SEVERITY.INFO,
+      'Document (tab/screen-reader) order does not match top-to-bottom visual order. Confirm this is intentional, or use Auto-order / the reading-order arrows to fix it.'));
   }
   return out;
 }
 
-// Reading order roughly emulates the browser's sequential focus order:
-// positive tabindex values come first (ascending), then DOM order for
-// tabIndex 0 / unset. Negative tabIndex elements stay in their DOM slot
-// for the screen-reader pass.
+// Visual order = the order a sighted user scans the page: top-to-bottom, then
+// left-to-right. Sorting by desktop (y, x) with a stable index tie-break. This
+// is the single source of truth reused by the audit, the heading-skip check
+// and Auto-order.
+export function sortChildrenByVisualOrder(children) {
+  return children
+    .map((block, index) => ({ block, index }))
+    .sort((a, b) => {
+      const ga = resolveBlockAtBreakpoint(a.block, 'desktop');
+      const gb = resolveBlockAtBreakpoint(b.block, 'desktop');
+      return (ga.y - gb.y) || (ga.x - gb.x) || (a.index - b.index);
+    })
+    .map((x) => x.block);
+}
+
+// Reading order is the document order the browser tabs through and a screen
+// reader announces. Raw tabindex has been retired, so it is simply the current
+// child array order.
 export function computeReadingOrder(children) {
-  const indexed = children.map((b, i) => ({
-    block: b,
-    domIndex: i,
-    tabIndex: typeof b.a11y?.tabIndex === 'number' ? b.a11y.tabIndex : null,
+  return [...children];
+}
+
+// True when document (reading) order already matches the visual order — i.e.
+// Auto-order would be a no-op.
+export function readingOrderMatchesVisual(children) {
+  const visual = sortChildrenByVisualOrder(children);
+  for (let i = 0; i < children.length; i++) {
+    if (children[i]?.id !== visual[i]?.id) return false;
+  }
+  return true;
+}
+
+// -- Auto reading order -----------------------------------------------------
+
+const DEFAULT_Z_INDEX = 1;
+
+function resolveZIndex(block) {
+  const z = block?.style?.zIndex;
+  return typeof z === 'number' && Number.isFinite(z) ? z : DEFAULT_Z_INDEX;
+}
+
+// Reorder every element so document (reading) order matches the visual layout
+// (top-to-bottom, then left-to-right) WITHOUT changing anything visible.
+//
+// Absolutely-positioned blocks paint in (z-index, then document order). If we
+// only reordered the array, two blocks that share a z-index and overlap could
+// swap which one paints on top. To prevent any visual change we capture the
+// current paint (stacking) order first, and — only when the reorder would
+// otherwise change it — pin z-index explicitly so the new document order can't
+// alter what renders on top.
+//
+// Returns a NEW array (or the same reference when already ordered) with, where
+// necessary, `style.zIndex` set to preserve stacking. Pure — never mutates the
+// input blocks.
+export function autoOrderChildren(children) {
+  if (!Array.isArray(children) || children.length <= 1) {
+    return Array.isArray(children) ? [...children] : [];
+  }
+  // Already in visual order → nothing to do (keeps Auto-order idempotent and a
+  // no-op when the page already matches).
+  if (readingOrderMatchesVisual(children)) return [...children];
+
+  // Current paint order, bottom → top: sort by (z-index, current doc index).
+  const withMeta = children.map((block, index) => ({
+    block,
+    index,
+    z: resolveZIndex(block),
   }));
-  const positives = indexed
-    .filter((x) => x.tabIndex != null && x.tabIndex > 0)
-    .sort((a, b) => (a.tabIndex - b.tabIndex) || (a.domIndex - b.domIndex));
-  const rest = indexed
-    .filter((x) => !(x.tabIndex != null && x.tabIndex > 0))
-    .sort((a, b) => a.domIndex - b.domIndex);
-  return [...positives, ...rest].map((x) => x.block);
+  const paintOrder = [...withMeta].sort((a, b) => (a.z - b.z) || (a.index - b.index));
+  const targetPaintIds = paintOrder.map((m) => m.block.id);
+
+  const reordered = sortChildrenByVisualOrder(children);
+  const newIndexById = new Map(reordered.map((b, i) => [b.id, i]));
+
+  // Does the new document order already preserve the paint order using the
+  // blocks' existing z-index values? Natural paint = sort by (z, newIndex).
+  const naturalPaintIds = [...withMeta]
+    .sort((a, b) => (a.z - b.z) || (newIndexById.get(a.block.id) - newIndexById.get(b.block.id)))
+    .map((m) => m.block.id);
+  const stackingPreserved = naturalPaintIds.every((id, i) => id === targetPaintIds[i]);
+  if (stackingPreserved) return reordered;
+
+  // Pin z-index to the current paint rank so stacking is decided purely by
+  // z-index and can't be perturbed by the new document order. Only rewrite a
+  // block when its resolved z-index actually changes, leaving the rest byte
+  // identical.
+  const zRankById = new Map(paintOrder.map((m, rank) => [m.block.id, rank + 1]));
+  return reordered.map((block) => {
+    const nextZ = zRankById.get(block.id);
+    if (resolveZIndex(block) === nextZ) return block;
+    return { ...block, style: { ...(block.style || {}), zIndex: nextZ } };
+  });
 }
 
 // -- Public entry point -----------------------------------------------------

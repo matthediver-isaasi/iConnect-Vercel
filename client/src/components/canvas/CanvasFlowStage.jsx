@@ -140,7 +140,6 @@ function FlowNode({ node, box, breakpoint, isAuto, isPriority, hydrated, registe
         boxSizing: "border-box",
         overflow: isContainer || def?.allowOverflow ? "visible" : "hidden",
       }}
-      tabIndex={typeof a11y?.tabIndex === "number" ? a11y.tabIndex : undefined}
       aria-hidden={a11y?.ariaHidden ? true : undefined}
       lang={a11y?.lang || undefined}
     >
