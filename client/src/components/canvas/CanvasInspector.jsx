@@ -18,6 +18,7 @@ import {
   setBlockContentFullBleed,
   blockSupportsShadow,
   SHADOW_LEVELS,
+  blockSupportsAriaLabelInput,
 } from '@/lib/canvasDesign';
 import { useCanvasAnchors } from './CanvasAnchorContext';
 import {
@@ -684,16 +685,18 @@ function SingleBlockInspector({ block, breakpoint, blockIssues, onUpdate, onTogg
               Sections with a landmark role render as the matching HTML5 element (header/nav/main/aside/footer/section) for SEO and screen readers.
             </p>
           </div>
-          <div className="space-y-1">
-            <Label className="text-xs text-slate-600">ARIA label</Label>
-            <Input
-              value={block.a11y.ariaLabel || ''}
-              onChange={(e) => updateA11y({ ariaLabel: e.target.value })}
-              placeholder="Descriptive label for screen readers"
-              className="h-8"
-              data-testid="input-aria-label"
-            />
-          </div>
+          {blockSupportsAriaLabelInput(block.type) && (
+            <div className="space-y-1">
+              <Label className="text-xs text-slate-600">ARIA label</Label>
+              <Input
+                value={block.a11y.ariaLabel || ''}
+                onChange={(e) => updateA11y({ ariaLabel: e.target.value })}
+                placeholder="Descriptive label for screen readers"
+                className="h-8"
+                data-testid="input-aria-label"
+              />
+            </div>
+          )}
           {block.type === BLOCK_TYPES.IMAGE && (
             <div className="space-y-1">
               <Label className="text-xs text-slate-600">Alt text</Label>

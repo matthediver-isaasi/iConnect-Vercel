@@ -210,6 +210,28 @@ export const BLOCK_TYPES = {
   GROUP: 'group',
 };
 
+// Block types whose accessible name already comes from their own content, so
+// the generic `aria-label` input in the inspector would be misleading or
+// redundant and is deliberately hidden for them:
+//  - TEXT: the visible words ARE the accessible name. An aria-label would
+//    silently REPLACE that copy, and the role-less wrapper it lands on is
+//    ignored by most screen readers anyway.
+//  - IMAGE / CARD: these carry their own dedicated Alt text input. aria-label
+//    overrides alt when both are set, so exposing both is confusing.
+// Every other block type (icon, divider, spacer, box/section, video, map, logo
+// strip, etc.) has no intrinsic readable text, so it keeps the aria-label
+// input where it genuinely adds value.
+export const BLOCK_TYPES_WITHOUT_ARIA_LABEL = new Set([
+  BLOCK_TYPES.TEXT,
+  BLOCK_TYPES.IMAGE,
+  BLOCK_TYPES.CARD,
+]);
+
+// Whether the inspector should show the generic aria-label input for a block.
+export function blockSupportsAriaLabelInput(type) {
+  return !BLOCK_TYPES_WITHOUT_ARIA_LABEL.has(type);
+}
+
 // Container block types in the flow model. A container carries a `children`
 // array and a `layoutMode`; a leaf does not. `section` already exists as a
 // visual box in v1 but becomes a flow container in v2.
