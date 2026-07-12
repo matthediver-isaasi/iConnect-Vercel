@@ -22,7 +22,7 @@ import {
   Accessibility, Loader2,
   LayoutTemplate, Component as ComponentIcon, History as HistoryIcon,
   Images as ImagesIcon, Palette, Keyboard, Command as CommandIcon, ExternalLink,
-  Unlink, FileText, Pencil, Wand2,
+  Unlink, FileText, Pencil, Wand2, RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -180,10 +180,23 @@ export default function CanvasPageEditorPage() {
   const [axeRunning, setAxeRunning] = useState(false);
   const [axeStale, setAxeStale] = useState(false);
   const [axeLastRunAt, setAxeLastRunAt] = useState(null);
+  // How many edits have landed since the last full (axe-core) audit while
+  // the drawer was open. Drives the "re-run recommended" nudge in the
+  // rendered-audit section so authors fixing several blocks in a row don't
+  // keep reading a stale result. Reset to 0 whenever a fresh audit runs or
+  // the drawer switches to a persisted past run.
+  const [editsSinceAudit, setEditsSinceAudit] = useState(0);
   // When non-null, the drawer is showing a persisted past run instead of
   // the most recent in-memory result. Used to disable "stale" warnings and
   // to surface a "return to latest" affordance.
   const [viewingRunId, setViewingRunId] = useState(null);
+  // Mirror the two pieces of state the identity-stable live-edit handler
+  // needs to read, so it can stay in a `useCallback([], ...)` without going
+  // stale.
+  const axeIssuesRef = useRef(axeIssues);
+  const viewingRunIdRef = useRef(viewingRunId);
+  useEffect(() => { axeIssuesRef.current = axeIssues; }, [axeIssues]);
+  useEffect(() => { viewingRunIdRef.current = viewingRunId; }, [viewingRunId]);
   // Track whether the design has changed since the last axe run so the user
   // knows the previous result may be stale.
   const lastAxeDesignRef = useRef(null);
@@ -279,6 +292,16 @@ export default function CanvasPageEditorPage() {
   // (and the Auto-order enabled state) recompute from the live design.
   const handleLiveDesignChange = useCallback(() => {
     setLiveDesignTick((t) => t + 1);
+    // Every edit that lands while the drawer is open makes the last full
+    // audit that much more out of date. Mark the rendered result stale the
+    // moment an edit lands (only once a full audit exists to go stale) and
+    // count edits so the drawer can nudge for a re-run. Skip while viewing
+    // a persisted past run — staleness there is meaningless. Read the
+    // latest values off refs so this callback can stay identity-stable.
+    if (viewingRunIdRef.current == null && axeIssuesRef.current !== null) {
+      setAxeStale(true);
+      setEditsSinceAudit((n) => n + 1);
+    }
   }, []);
 
   useEffect(() => {
@@ -978,6 +1001,7 @@ export default function CanvasPageEditorPage() {
 
       setAxeIssues(allIssues);
       setAxeStale(false);
+      setEditsSinceAudit(0);
       setAxeLastRunAt(Date.now());
       setViewingRunId(null);
       lastAxeDesignRef.current = canvasRef.current?.getDesign?.() || null;
@@ -1157,6 +1181,7 @@ export default function CanvasPageEditorPage() {
         issues: axeIssues,
         stale: axeStale,
         lastRunAt: axeLastRunAt,
+        editsSinceAudit,
       };
     }
     try {
@@ -1173,12 +1198,13 @@ export default function CanvasPageEditorPage() {
       if (!run) return;
       setAxeIssues(Array.isArray(run.issues) ? run.issues : []);
       setAxeStale(false);
+      setEditsSinceAudit(0);
       setAxeLastRunAt(new Date(run.created_at).getTime());
       setViewingRunId(runId);
     } catch {
       toast.error('Failed to load past audit run.');
     }
-  }, [pageId, viewingRunId, axeIssues, axeStale, axeLastRunAt]);
+  }, [pageId, viewingRunId, axeIssues, axeStale, axeLastRunAt, editsSinceAudit]);
 
   const handleReturnToLatest = useCallback(() => {
     const snap = latestInMemoryRef.current;
@@ -1188,6 +1214,7 @@ export default function CanvasPageEditorPage() {
     }
     setAxeIssues(snap.issues);
     setAxeStale(snap.stale);
+    setEditsSinceAudit(snap.editsSinceAudit || 0);
     setAxeLastRunAt(snap.lastRunAt);
     setViewingRunId(null);
     latestInMemoryRef.current = null;
@@ -1975,6 +2002,32 @@ export default function CanvasPageEditorPage() {
                       canAutoOrder={!!canvasRef.current?.canAutoOrder?.()}
                     />
                   </section>
+                  {!viewingRunId && axeStale && axeIssues && (
+                    <div
+                      className="flex items-center justify-between gap-2 flex-wrap rounded-md border border-warning/30 bg-warning/10 px-3 py-2"
+                      data-testid="audit-rerun-nudge"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <RefreshCw className="w-4 h-4 text-warning shrink-0" />
+                        <span className="text-xs text-slate-700">
+                          {editsSinceAudit > 0
+                            ? `${editsSinceAudit} edit${editsSinceAudit === 1 ? '' : 's'} since the last audit — the rendered results below may be out of date.`
+                            : 'The page has changed since the last audit — the rendered results below may be out of date.'}
+                        </span>
+                      </div>
+                      <Button
+                        size="sm"
+                        onClick={handleRunFullAudit}
+                        disabled={axeRunning}
+                        data-testid="button-rerun-nudge"
+                      >
+                        {axeRunning
+                          ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          : <RefreshCw className="w-4 h-4 mr-2" />}
+                        {axeRunning ? 'Auditing…' : 'Re-run audit'}
+                      </Button>
+                    </div>
+                  )}
                   {isDualView ? (
                     <section
                       className="space-y-2"
