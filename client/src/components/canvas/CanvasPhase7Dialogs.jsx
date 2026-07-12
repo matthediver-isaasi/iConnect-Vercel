@@ -543,11 +543,14 @@ const SHORTCUTS = [
   ['Cmd/Ctrl + Shift + Z', 'Redo'],
   ['Cmd/Ctrl + D', 'Duplicate selected'],
   ['Cmd/Ctrl + C / X / V', 'Copy / cut / paste (incl. between pages)'],
+  ['Cmd/Ctrl + G', 'Group selected'],
+  ['Cmd/Ctrl + Shift + G', 'Ungroup selected'],
   ['Cmd/Ctrl + K', 'Open command palette'],
   ['Cmd/Ctrl + S', 'Save page'],
   ['Delete / Backspace', 'Delete selected'],
   ['Arrow keys', 'Nudge selected (Shift = grid step)'],
   ['Space + drag', 'Pan the canvas'],
+  ['Escape', 'Exit group focus'],
   ['?', 'Show this shortcut overlay'],
 ];
 
