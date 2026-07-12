@@ -23,6 +23,7 @@ import {
   LayoutTemplate, Component as ComponentIcon, History as HistoryIcon,
   Images as ImagesIcon, Palette, Keyboard, Command as CommandIcon, ExternalLink,
   Unlink, FileText, Pencil, Wand2, RefreshCw,
+  X, ShieldCheck, ShieldAlert,
 } from "lucide-react";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -180,6 +181,10 @@ export default function CanvasPageEditorPage() {
   const [axeRunning, setAxeRunning] = useState(false);
   const [axeStale, setAxeStale] = useState(false);
   const [axeLastRunAt, setAxeLastRunAt] = useState(null);
+  // Views whose scan threw (produced no attributable findings). Tracked so
+  // the modal summary can distinguish "clean pass" from "scan failed with
+  // zero issues" — a technical failure must never render as a pass.
+  const [axeFailedViews, setAxeFailedViews] = useState([]);
   // How many edits have landed since the last full (axe-core) audit while
   // the drawer was open. Drives the "re-run recommended" nudge in the
   // rendered-audit section so authors fixing several blocks in a row don't
@@ -1003,6 +1008,7 @@ export default function CanvasPageEditorPage() {
       setAxeStale(false);
       setEditsSinceAudit(0);
       setAxeLastRunAt(Date.now());
+      setAxeFailedViews(errorViews);
       setViewingRunId(null);
       lastAxeDesignRef.current = canvasRef.current?.getDesign?.() || null;
 
@@ -1020,6 +1026,12 @@ export default function CanvasPageEditorPage() {
           });
           if (resp.ok) {
             queryClient.invalidateQueries({ queryKey: ['canvas-page-audits', pageId] });
+            // Also refresh the page-management meta so the "Not audited"
+            // badge on IEditPageManagement flips to the real result the
+            // next time that list is shown (it caches meta for 30s, so a
+            // soft navigation back would otherwise keep showing stale
+            // "Not audited" even though this run persisted).
+            queryClient.invalidateQueries({ queryKey: ['iedit-page-management-meta'] });
           }
         } catch { /* non-fatal */ }
       }
@@ -1113,7 +1125,10 @@ export default function CanvasPageEditorPage() {
     if (!autoAuditPendingRef.current) return;
     autoAuditPendingRef.current = false;
     setAxeRunning(true);
-    runAxeOnPreview({ silent: true });
+    // Not silent: the auto-run should announce its result the same way a
+    // manual run does (toast + the in-modal summary strip), so authors
+    // get clear confirmation the audit actually ran and what it found.
+    runAxeOnPreview();
   }, [runAxeOnPreview]);
 
   // Opening the preview modal for the first time should also trigger an
@@ -1182,6 +1197,7 @@ export default function CanvasPageEditorPage() {
         stale: axeStale,
         lastRunAt: axeLastRunAt,
         editsSinceAudit,
+        failedViews: axeFailedViews,
       };
     }
     try {
@@ -1200,11 +1216,12 @@ export default function CanvasPageEditorPage() {
       setAxeStale(false);
       setEditsSinceAudit(0);
       setAxeLastRunAt(new Date(run.created_at).getTime());
+      setAxeFailedViews(Array.isArray(run.failed_views) ? run.failed_views : []);
       setViewingRunId(runId);
     } catch {
       toast.error('Failed to load past audit run.');
     }
-  }, [pageId, viewingRunId, axeIssues, axeStale, axeLastRunAt, editsSinceAudit]);
+  }, [pageId, viewingRunId, axeIssues, axeStale, axeLastRunAt, editsSinceAudit, axeFailedViews]);
 
   const handleReturnToLatest = useCallback(() => {
     const snap = latestInMemoryRef.current;
@@ -1216,6 +1233,7 @@ export default function CanvasPageEditorPage() {
     setAxeStale(snap.stale);
     setEditsSinceAudit(snap.editsSinceAudit || 0);
     setAxeLastRunAt(snap.lastRunAt);
+    setAxeFailedViews(Array.isArray(snap.failedViews) ? snap.failedViews : []);
     setViewingRunId(null);
     latestInMemoryRef.current = null;
   }, []);
@@ -1546,6 +1564,7 @@ export default function CanvasPageEditorPage() {
           the last result remains visible on the canvas after close. */}
       <Dialog open={showAuditModal} onOpenChange={setShowAuditModal}>
         <DialogContent
+          hideCloseButton
           className="max-w-[min(96vw,1480px)] w-[96vw] p-0 gap-0 sm:rounded-md flex flex-col"
           style={{ height: 'min(92vh, 960px)' }}
           data-testid="dialog-preview-audit"
@@ -1608,9 +1627,80 @@ export default function CanvasPageEditorPage() {
                     : <Accessibility className="w-4 h-4 mr-2" />}
                   {axeRunning ? 'Auditing…' : 'Run full audit'}
                 </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowAuditModal(false)}
+                  data-testid="button-modal-close"
+                >
+                  <X className="w-4 h-4 mr-2" />
+                  Close
+                </Button>
               </div>
             </div>
           </DialogHeader>
+          {/* Audit result summary — surfaces the outcome of the auto-run
+              (and every manual re-run) inline so authors don't have to open
+              the separate report drawer to learn whether the page passed.
+              A "View full report" action opens the drawer for the details. */}
+          {(axeRunning || axeSummary) && (
+            <div
+              className="px-4 py-2 border-b border-slate-200 bg-slate-50 shrink-0 flex items-center justify-between gap-3 flex-wrap"
+              data-testid="modal-audit-summary"
+            >
+              {axeRunning ? (
+                <span className="text-xs text-slate-600 flex items-center gap-2" data-testid="text-modal-audit-running">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Auditing the rendered preview with axe-core…
+                </span>
+              ) : axeFailedViews.length > 0 ? (
+                <span className="text-xs text-warning flex items-center gap-2 font-medium" data-testid="text-modal-audit-failed">
+                  <ShieldAlert className="w-3.5 h-3.5" />
+                  {axeSummary.total === 0
+                    ? `Audit could not scan the ${axeFailedViews.join(' / ')} view — try Refresh, then run again.`
+                    : `Audit found ${axeSummary.total} issue${axeSummary.total === 1 ? '' : 's'}, but the ${axeFailedViews.join(' / ')} view failed to scan.`}
+                </span>
+              ) : axeSummary.total === 0 ? (
+                <span className="text-xs text-emerald-700 flex items-center gap-2 font-medium" data-testid="text-modal-audit-pass">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  Audit passed — no accessibility issues found.
+                </span>
+              ) : (
+                <div className="flex items-center gap-2 flex-wrap" data-testid="text-modal-audit-fail">
+                  <span className="text-xs text-slate-700 font-medium flex items-center gap-1.5">
+                    <ShieldAlert className="w-3.5 h-3.5 text-warning" />
+                    Audit found {axeSummary.total} issue{axeSummary.total === 1 ? '' : 's'}:
+                  </span>
+                  {axeSummary.error > 0 && (
+                    <Badge className="bg-destructive/10 text-destructive" data-testid="badge-modal-audit-errors">
+                      {axeSummary.error} error{axeSummary.error === 1 ? '' : 's'}
+                    </Badge>
+                  )}
+                  {axeSummary.warning > 0 && (
+                    <Badge className="bg-warning/10 text-warning" data-testid="badge-modal-audit-warnings">
+                      {axeSummary.warning} warning{axeSummary.warning === 1 ? '' : 's'}
+                    </Badge>
+                  )}
+                  {axeSummary.info > 0 && (
+                    <Badge className="bg-slate-200 text-slate-700" data-testid="badge-modal-audit-info">
+                      {axeSummary.info} info
+                    </Badge>
+                  )}
+                </div>
+              )}
+              {!axeRunning && axeSummary && axeSummary.total > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowAuditDrawer(true)}
+                  data-testid="button-modal-view-report"
+                >
+                  <FileText className="w-4 h-4 mr-2" />
+                  View full report
+                </Button>
+              )}
+            </div>
+          )}
           <div className="flex-1 min-h-0 overflow-auto flex justify-center bg-slate-200">
             {!page?.slug ? (
               <div className="p-4 text-sm text-slate-500" data-testid="text-preview-no-slug">
