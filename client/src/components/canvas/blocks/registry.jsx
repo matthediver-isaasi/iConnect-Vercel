@@ -73,7 +73,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
@@ -217,13 +216,14 @@ function TextField({ label, value, onChange, placeholder, testId, multiline }) {
 // The available-anchors list comes from CanvasAnchorContext so every link
 // field across the registry shares one source of truth.
 export function LinkField({ label, value, onChange, placeholder, testId }) {
-  const { anchors, pages } = useCanvasAnchors();
+  const { anchors } = useCanvasAnchors();
   const usableAnchors = (anchors || []).filter((a) => a.anchorId);
-  // Task #1448 / #2337: other canvas pages. Every page with a slug can be
-  // picked as a whole page (bare `/page-slug`); pages that also expose
-  // anchors additionally offer cross-page `/page-slug#anchor-id` links.
-  const otherPages = (pages || []).filter((p) => p.slug);
-  const hasAnchorMenu = usableAnchors.length > 0 || otherPages.length > 0;
+  // Task #2734: the `#` quick-picker is scoped to the CURRENT page only — it
+  // lists just this page's anchors (sections). Cross-page linking (whole page
+  // or a section on another page) goes through the globe / internal-page
+  // picker, which has a dedicated second step for choosing a section. So the
+  // anchor menu is shown only when the current page actually has anchors.
+  const hasAnchorMenu = usableAnchors.length > 0;
 
   // Task #2719: open the internal-page picker modal. The editor shell listens
   // for this event, opens a read-only page browser (folder/microsite sidebar,
@@ -297,56 +297,25 @@ export function LinkField({ label, value, onChange, placeholder, testId }) {
                 size="icon"
                 variant="outline"
                 type="button"
-                title="Link to a page or a section on this or another page"
+                title="Link to a section on this page"
                 data-testid={testId ? `${testId}-anchor-picker` : 'link-anchor-picker'}
               >
                 <Hash className="w-4 h-4" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="max-h-72 overflow-y-auto">
-              {usableAnchors.length > 0 && (
-                <>
-                  <DropdownMenuLabel>This page</DropdownMenuLabel>
-                  {usableAnchors.map((a) => (
-                    <DropdownMenuItem
-                      key={a.blockId}
-                      onSelect={() => onChange(`#${a.anchorId}`)}
-                      data-testid={`anchor-option-${a.anchorId}`}
-                    >
-                      <div className="flex flex-col">
-                        <span className="font-mono text-xs">#{a.anchorId}</span>
-                        <span className="text-[10px] text-slate-500">{a.blockName}</span>
-                      </div>
-                    </DropdownMenuItem>
-                  ))}
-                </>
-              )}
-              {otherPages.map((p, pageIdx) => (
-                <Fragment key={p.id || p.slug}>
-                  {(usableAnchors.length > 0 || pageIdx > 0) && <DropdownMenuSeparator />}
-                  <DropdownMenuLabel className="truncate">{p.title}</DropdownMenuLabel>
-                  <DropdownMenuItem
-                    onSelect={() => onChange(`/${p.slug}`)}
-                    data-testid={`page-option-${p.slug}`}
-                  >
-                    <div className="flex flex-col">
-                      <span className="font-mono text-xs">/{p.slug}</span>
-                      <span className="text-[10px] text-slate-500">Whole page</span>
-                    </div>
-                  </DropdownMenuItem>
-                  {(p.anchors || []).map((a) => (
-                    <DropdownMenuItem
-                      key={`${p.slug}-${a.blockId}`}
-                      onSelect={() => onChange(`/${p.slug}#${a.anchorId}`)}
-                      data-testid={`anchor-option-${p.slug}-${a.anchorId}`}
-                    >
-                      <div className="flex flex-col">
-                        <span className="font-mono text-xs">/{p.slug}#{a.anchorId}</span>
-                        <span className="text-[10px] text-slate-500">{a.blockName}</span>
-                      </div>
-                    </DropdownMenuItem>
-                  ))}
-                </Fragment>
+              <DropdownMenuLabel>Sections on this page</DropdownMenuLabel>
+              {usableAnchors.map((a) => (
+                <DropdownMenuItem
+                  key={a.blockId}
+                  onSelect={() => onChange(`#${a.anchorId}`)}
+                  data-testid={`anchor-option-${a.anchorId}`}
+                >
+                  <div className="flex flex-col">
+                    <span className="font-mono text-xs">#{a.anchorId}</span>
+                    <span className="text-[10px] text-slate-500">{a.blockName}</span>
+                  </div>
+                </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
