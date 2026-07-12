@@ -252,6 +252,7 @@ export default function PagePickerDialog({ open, onOpenChange, onPick }) {
                   setSelectedFolderId(folderId);
                 }}
                 countFor={countFor}
+                hideFolderActions
                 onCreateFolder={() => {}}
                 onCreateSubfolder={() => {}}
                 onRename={() => {}}

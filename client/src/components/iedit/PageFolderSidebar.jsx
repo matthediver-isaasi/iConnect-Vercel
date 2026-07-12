@@ -99,6 +99,7 @@ function FolderNode({
   onCreateSubfolder,
   onRename,
   onDelete,
+  hideFolderActions = false,
 }) {
   const hasChildren = node.children && node.children.length > 0;
   const isExpanded = expanded.has(node.id);
@@ -140,6 +141,7 @@ function FolderNode({
         label={node.name}
         count={countFor(node.id, siteId)}
         actions={
+          hideFolderActions ? null : (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -178,6 +180,7 @@ function FolderNode({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          )
         }
       />
       {isExpanded && hasChildren && (
@@ -197,6 +200,7 @@ function FolderNode({
               onCreateSubfolder={onCreateSubfolder}
               onRename={onRename}
               onDelete={onDelete}
+              hideFolderActions={hideFolderActions}
             />
           ))}
         </div>
@@ -220,6 +224,7 @@ function FolderTree({
   onCreateSubfolder,
   onRename,
   onDelete,
+  hideFolderActions = false,
 }) {
   const tree = buildFolderTree(folders);
   return tree.map((node) => (
@@ -237,6 +242,7 @@ function FolderTree({
       onCreateSubfolder={onCreateSubfolder}
       onRename={onRename}
       onDelete={onDelete}
+      hideFolderActions={hideFolderActions}
     />
   ));
 }
@@ -268,6 +274,7 @@ export default function PageFolderSidebar({
   onCreateSubfolder,
   onRename,
   onDelete,
+  hideFolderActions = false,
 }) {
   const [expanded, setExpanded] = useState(() => new Set());
   // Which microsite containers are open. Default: all collapsed.
@@ -300,16 +307,18 @@ export default function PageFolderSidebar({
         <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">
           Folders
         </span>
-        <Button
-          size="icon"
-          variant="ghost"
-          className="h-6 w-6"
-          onClick={() => onCreateFolder(null)}
-          title="New folder"
-          data-testid="button-new-folder"
-        >
-          <Plus className="w-4 h-4" />
-        </Button>
+        {!hideFolderActions && (
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-6 w-6"
+            onClick={() => onCreateFolder(null)}
+            title="New folder"
+            data-testid="button-new-folder"
+          >
+            <Plus className="w-4 h-4" />
+          </Button>
+        )}
       </div>
 
       <DroppableRow
@@ -348,6 +357,7 @@ export default function PageFolderSidebar({
         onCreateSubfolder={onCreateSubfolder}
         onRename={onRename}
         onDelete={onDelete}
+        hideFolderActions={hideFolderActions}
       />
 
       {/* ---- Microsites ---- */}
@@ -391,19 +401,21 @@ export default function PageFolderSidebar({
                   label={m.name}
                   count={countFor("all", m.id)}
                   actions={
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-6 w-6 opacity-0 group-hover:opacity-100"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onCreateFolder(m.id);
-                      }}
-                      title="New folder in this microsite"
-                      data-testid={`button-new-folder-microsite-${m.id}`}
-                    >
-                      <Plus className="w-4 h-4" />
-                    </Button>
+                    hideFolderActions ? null : (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6 opacity-0 group-hover:opacity-100"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onCreateFolder(m.id);
+                        }}
+                        title="New folder in this microsite"
+                        data-testid={`button-new-folder-microsite-${m.id}`}
+                      >
+                        <Plus className="w-4 h-4" />
+                      </Button>
+                    )
                   }
                 />
 
@@ -434,6 +446,7 @@ export default function PageFolderSidebar({
                       onCreateSubfolder={onCreateSubfolder}
                       onRename={onRename}
                       onDelete={onDelete}
+                      hideFolderActions={hideFolderActions}
                     />
                   </div>
                 )}
