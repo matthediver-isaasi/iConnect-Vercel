@@ -2389,17 +2389,23 @@ useEffect(() => {
             font-family: 'Degular Medium', 'Poppins', sans-serif;
           }
           
-          /* Apply border radius globally to common UI elements */
-          .Card, [class*="Card"], 
-          .card, [class*="card"],
-          button:not(.unstyled),
-          input:not([type="checkbox"]):not([type="radio"]),
-          textarea,
-          select,
-          [role="dialog"],
-          [role="menu"],
-          [role="listbox"],
-          .shadow, .shadow-sm, .shadow-md, .shadow-lg {
+          /* Apply border radius globally to common UI elements.
+             Canvas block content (anything inside a [data-cb] block wrapper in
+             the CanvasBuilder editor) is excluded via :not([data-cb] *) so the
+             block's own author-configured inline radius survives — the global
+             !important rule would otherwise clamp canvas inputs/buttons to
+             --border-radius. Public/SSR canvas pages render outside this scope
+             and are unaffected. */
+          .Card:not([data-cb] *), [class*="Card"]:not([data-cb] *), 
+          .card:not([data-cb] *), [class*="card"]:not([data-cb] *),
+          button:not(.unstyled):not([data-cb] *),
+          input:not([type="checkbox"]):not([type="radio"]):not([data-cb] *),
+          textarea:not([data-cb] *),
+          select:not([data-cb] *),
+          [role="dialog"]:not([data-cb] *),
+          [role="menu"]:not([data-cb] *),
+          [role="listbox"]:not([data-cb] *),
+          .shadow:not([data-cb] *), .shadow-sm:not([data-cb] *), .shadow-md:not([data-cb] *), .shadow-lg:not([data-cb] *) {
             border-radius: var(--border-radius) !important;
           }
 
