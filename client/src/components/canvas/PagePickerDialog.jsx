@@ -219,7 +219,7 @@ export default function PagePickerDialog({ open, onOpenChange, onPick }) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl">
+      <DialogContent className="w-[95vw] max-w-6xl">
         <DialogHeader>
           <DialogTitle>
             {pendingPage ? `Link to a section of "${pendingPage.page.title || pendingPage.page.slug}"` : "Link to a page"}
@@ -316,7 +316,7 @@ export default function PagePickerDialog({ open, onOpenChange, onPick }) {
             used inside the shared sidebar + item components; no drop handlers
             are wired because this surface is browse-and-select only. */}
         <DndContext>
-          <div className="flex flex-col md:flex-row gap-4 items-start max-h-[60vh]">
+          <div className="flex flex-col md:flex-row gap-4 items-start max-h-[60vh] w-full min-w-0">
             <aside className="w-full md:w-56 flex-shrink-0 rounded-lg border border-slate-200 p-2 md:max-h-[60vh] md:overflow-y-auto">
               <PageFolderSidebar
                 primaryFolders={primaryFolders}
@@ -337,7 +337,7 @@ export default function PagePickerDialog({ open, onOpenChange, onPick }) {
               />
             </aside>
 
-            <div className="flex-1 min-w-0 w-full md:max-h-[60vh] md:overflow-y-auto">
+            <div className="flex-1 min-w-0 w-full overflow-x-hidden md:max-h-[60vh] md:overflow-y-auto">
               {isLoading ? (
                 <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {Array(6)
