@@ -1696,7 +1696,7 @@ export default function CanvasPageEditorPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setShowAuditDrawer(true)}
+                  onClick={() => { setShowAuditModal(false); setShowAuditDrawer(true); }}
                   data-testid="button-modal-view-report"
                 >
                   <FileText className="w-4 h-4 mr-2" />
