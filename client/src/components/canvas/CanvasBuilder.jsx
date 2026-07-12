@@ -99,7 +99,7 @@ import {
   suggestHeadingLevel,
   headingFieldFor,
   autoOrderChildren,
-  readingOrderMatchesVisual,
+  readingOrderMatchesVisualDeep,
 } from '@/lib/canvasA11y';
 import {
   generateAutoLayout,
@@ -1005,14 +1005,15 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   // Reorder every element so document (reading) order matches the visual
   // layout, with zero visual change. Single undoable step.
   const handleAutoOrder = useCallback(() => {
-    replaceChildren((arr) => autoOrderChildren(arr));
-  }, [replaceChildren]);
+    replaceChildren((arr) => autoOrderChildren(arr, { rootIsFlow: isFlow }));
+  }, [replaceChildren, isFlow]);
 
   // True when Auto-order would actually change something (document order does
-  // not yet match the visual layout).
+  // not yet match the visual layout) — at the root OR inside any nested
+  // free-positioned container/group.
   const canAutoOrder = useMemo(
-    () => children.length > 1 && !readingOrderMatchesVisual(children),
-    [children],
+    () => children.length > 0 && !readingOrderMatchesVisualDeep(children, { rootIsFlow: isFlow }),
+    [children, isFlow],
   );
 
   // ---- Layer reorder ----

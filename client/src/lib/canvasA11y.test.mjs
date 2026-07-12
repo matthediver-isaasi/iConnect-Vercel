@@ -14,12 +14,13 @@ import assert from 'node:assert/strict';
 import {
   sortChildrenByVisualOrder,
   readingOrderMatchesVisual,
+  readingOrderMatchesVisualDeep,
   autoOrderChildren,
   computeReadingOrder,
   isInteractiveBlock,
 } from './canvasA11y.js';
 
-import { BLOCK_TYPES } from './canvasDesign.js';
+import { BLOCK_TYPES, LAYOUT_MODES } from './canvasDesign.js';
 
 // A minimal absolutely-positioned block. `type` defaults to TEXT so it is not
 // treated as full-width (which would flatten x to 0 in resolveBlockAtBreakpoint).
@@ -28,6 +29,21 @@ function mk(id, x, y, { z, type = BLOCK_TYPES.TEXT } = {}) {
     id,
     type,
     bp: { desktop: { x, y, w: 100, h: 50, hidden: false } },
+  };
+  if (z !== undefined) block.style = { zIndex: z };
+  return block;
+}
+
+// A container block (section/row/group) carrying nested `children`. `layoutMode`
+// decides whether Auto-order may reorder the children: 'free' groups are
+// reordered, 'flow' stacks are left alone (document order defines layout).
+function mkContainer(id, x, y, children, { layoutMode = LAYOUT_MODES.FREE, type = BLOCK_TYPES.GROUP, z } = {}) {
+  const block = {
+    id,
+    type,
+    layoutMode,
+    bp: { desktop: { x, y, w: 400, h: 400, hidden: false } },
+    children,
   };
   if (z !== undefined) block.style = { zIndex: z };
   return block;
@@ -154,4 +170,174 @@ test('isInteractiveBlock: buttons/forms interactive, containers are not', () => 
   assert.equal(isInteractiveBlock(img), false);
   img.content = { href: 'https://example.com' };
   assert.equal(isInteractiveBlock(img), true);
+});
+
+// -- Nested containers (Task #2724) -----------------------------------------
+
+test('autoOrderChildren: reorders children inside a free-position group', () => {
+  // The group is free-position, so its children can be reordered without moving
+  // anything visually. Its children are authored out of visual order.
+  const g1 = mk('g1', 300, 200); // visually last
+  const g2 = mk('g2', 10, 10);   // visually first
+  const group = mkContainer('grp', 10, 10, [g1, g2]);
+  const other = mk('other', 10, 500); // root sibling below the group
+  const out = autoOrderChildren([group, other]);
+  // Root order is already visual (group at y=10, other at y=500).
+  assert.deepEqual(ids(out), ['grp', 'other']);
+  const outGroup = out.find((b) => b.id === 'grp');
+  // The group's children are reordered top-to-bottom.
+  assert.deepEqual(ids(outGroup.children), ['g2', 'g1']);
+});
+
+test('autoOrderChildren: reorders BOTH the root and the nested group', () => {
+  const g1 = mk('g1', 300, 200);
+  const g2 = mk('g2', 10, 10);
+  const group = mkContainer('grp', 10, 500, [g1, g2]); // visually last at root
+  const top = mk('top', 10, 10);                        // visually first at root
+  const out = autoOrderChildren([group, top]);
+  assert.deepEqual(ids(out), ['top', 'grp']);
+  const outGroup = out.find((b) => b.id === 'grp');
+  assert.deepEqual(ids(outGroup.children), ['g2', 'g1']);
+});
+
+test('autoOrderChildren: does NOT reorder children of a flow container', () => {
+  // A flow section/row lays children out BY document order, so reordering would
+  // move them on the page. Auto-order must leave the array untouched.
+  const c1 = mk('c1', 300, 0); // authored first, but visually to the right
+  const c2 = mk('c2', 10, 0);  // authored second, visually to the left
+  const row = mkContainer('row', 10, 10, [c1, c2], {
+    layoutMode: LAYOUT_MODES.FLOW,
+    type: BLOCK_TYPES.ROW,
+  });
+  const out = autoOrderChildren([row]);
+  const outRow = out.find((b) => b.id === 'row');
+  assert.deepEqual(ids(outRow.children), ['c1', 'c2']); // unchanged
+});
+
+test('autoOrderChildren: recurses through a flow container into a nested free group', () => {
+  // Flow section (not reordered) that contains a free group (reordered).
+  const g1 = mk('g1', 300, 200);
+  const g2 = mk('g2', 10, 10);
+  const group = mkContainer('grp', 0, 0, [g1, g2]); // free
+  const lead = mk('lead', 0, 0);
+  const section = mkContainer('sec', 0, 0, [lead, group], {
+    layoutMode: LAYOUT_MODES.FLOW,
+    type: BLOCK_TYPES.SECTION,
+  });
+  const out = autoOrderChildren([section]);
+  const outSec = out.find((b) => b.id === 'sec');
+  // Flow section children keep their document order...
+  assert.deepEqual(ids(outSec.children), ['lead', 'grp']);
+  // ...but the nested free group is reordered.
+  const outGroup = outSec.children.find((b) => b.id === 'grp');
+  assert.deepEqual(ids(outGroup.children), ['g2', 'g1']);
+});
+
+test('autoOrderChildren: preserves stacking inside a nested group', () => {
+  // Two overlapping children in a free group with equal z. Document order paints
+  // `b2` on top; visual order would flip which paints on top, so z must be
+  // pinned to preserve stacking.
+  const t2 = mk('t2', 300, 300, { z: 1 }); // visually last, painted under b2
+  const b2 = mk('b2', 10, 10, { z: 1 });   // visually first, painted on top now
+  const group = mkContainer('grp', 0, 0, [t2, b2]);
+  const out = autoOrderChildren([group]);
+  const outGroup = out.find((b) => b.id === 'grp');
+  assert.deepEqual(ids(outGroup.children), ['b2', 't2']);
+  const outB2 = outGroup.children.find((x) => x.id === 'b2');
+  const outT2 = outGroup.children.find((x) => x.id === 't2');
+  assert.ok((zOf(outB2) ?? 1) > (zOf(outT2) ?? 1),
+    'the nested block that was on top must keep the higher z-index');
+});
+
+test('autoOrderChildren: rootIsFlow leaves top level alone but fixes nested groups', () => {
+  // v2 (flow) design: root array is a flow stack — do not reorder it — but a
+  // nested free group inside is still fixed.
+  const g1 = mk('g1', 300, 200);
+  const g2 = mk('g2', 10, 10);
+  const group = mkContainer('grp', 0, 0, [g1, g2]);
+  const secA = mkContainer('secA', 0, 500, [group], {
+    layoutMode: LAYOUT_MODES.FLOW, type: BLOCK_TYPES.SECTION,
+  });
+  const secB = mkContainer('secB', 0, 10, [], {
+    layoutMode: LAYOUT_MODES.FLOW, type: BLOCK_TYPES.SECTION,
+  });
+  // Root order [secA, secB] is NOT visual (secA is lower). With rootIsFlow it
+  // must stay as authored.
+  const out = autoOrderChildren([secA, secB], { rootIsFlow: true });
+  assert.deepEqual(ids(out), ['secA', 'secB']);
+  const outGroup = out.find((b) => b.id === 'secA').children.find((b) => b.id === 'grp');
+  assert.deepEqual(ids(outGroup.children), ['g2', 'g1']);
+});
+
+test('autoOrderChildren: idempotent with nesting', () => {
+  const g1 = mk('g1', 300, 200);
+  const g2 = mk('g2', 10, 10);
+  const group = mkContainer('grp', 10, 500, [g1, g2]);
+  const top = mk('top', 10, 10);
+  const once = autoOrderChildren([group, top]);
+  const twice = autoOrderChildren(once);
+  assert.deepEqual(ids(twice), ids(once));
+  const g = twice.find((b) => b.id === 'grp');
+  assert.deepEqual(ids(g.children), ['g2', 'g1']);
+});
+
+test('autoOrderChildren: no-op keeps container block references when already ordered', () => {
+  const g1 = mk('g1', 10, 10);
+  const g2 = mk('g2', 10, 100);
+  const group = mkContainer('grp', 10, 10, [g1, g2]); // already in visual order
+  const other = mk('other', 10, 500);
+  const input = [group, other];
+  const out = autoOrderChildren(input);
+  // Same ids and — crucially — the same block reference (no spurious clone).
+  assert.deepEqual(ids(out), ['grp', 'other']);
+  assert.equal(out.find((b) => b.id === 'grp'), group);
+});
+
+test('readingOrderMatchesVisualDeep: detects a nested group mismatch', () => {
+  const g1 = mk('g1', 300, 200); // out of order inside the group
+  const g2 = mk('g2', 10, 10);
+  const group = mkContainer('grp', 10, 10, [g1, g2]);
+  const other = mk('other', 10, 500);
+  // Root is already visual, but the nested group is not.
+  assert.equal(readingOrderMatchesVisual([group, other]), true);
+  assert.equal(readingOrderMatchesVisualDeep([group, other]), false);
+});
+
+test('readingOrderMatchesVisualDeep: true when root and nested are all ordered', () => {
+  const g1 = mk('g1', 10, 10);
+  const g2 = mk('g2', 10, 100);
+  const group = mkContainer('grp', 10, 10, [g1, g2]);
+  const other = mk('other', 10, 500);
+  assert.equal(readingOrderMatchesVisualDeep([group, other]), true);
+});
+
+test('readingOrderMatchesVisualDeep: detects mismatch behind a single-child container chain', () => {
+  // section(flow, ONE child) -> group(free, 2 out-of-order children). Because the
+  // intermediate container has exactly one child, a naive `> 1` recursion guard
+  // would wrongly report "already ordered" and disable Auto-order.
+  const g1 = mk('g1', 300, 200); // out of order inside the group
+  const g2 = mk('g2', 10, 10);
+  const group = mkContainer('grp', 0, 0, [g1, g2]); // free
+  const section = mkContainer('sec', 0, 0, [group], {
+    layoutMode: LAYOUT_MODES.FLOW,
+    type: BLOCK_TYPES.SECTION,
+  });
+  // Root-level (the single section) is trivially ordered, but the deep check
+  // must still see the nested free group is out of order.
+  assert.equal(readingOrderMatchesVisualDeep([section]), false);
+  // ...and Auto-order actually fixes it.
+  const out = autoOrderChildren([section]);
+  const outGroup = out.find((b) => b.id === 'sec').children.find((b) => b.id === 'grp');
+  assert.deepEqual(ids(outGroup.children), ['g2', 'g1']);
+});
+
+test('readingOrderMatchesVisualDeep: single-child chain mismatch detected with rootIsFlow', () => {
+  const g1 = mk('g1', 300, 200);
+  const g2 = mk('g2', 10, 10);
+  const group = mkContainer('grp', 0, 0, [g1, g2]);
+  const section = mkContainer('sec', 0, 0, [group], {
+    layoutMode: LAYOUT_MODES.FLOW,
+    type: BLOCK_TYPES.SECTION,
+  });
+  assert.equal(readingOrderMatchesVisualDeep([section], { rootIsFlow: true }), false);
 });

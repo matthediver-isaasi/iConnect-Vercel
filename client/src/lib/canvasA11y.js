@@ -17,6 +17,7 @@ import {
   getRootChildren,
   BLOCK_TYPES,
   BREAKPOINT_WIDTHS,
+  LAYOUT_MODES,
 } from './canvasDesign.js';
 
 export const SEVERITY = {
@@ -510,8 +511,9 @@ function resolveZIndex(block) {
   return typeof z === 'number' && Number.isFinite(z) ? z : DEFAULT_Z_INDEX;
 }
 
-// Reorder every element so document (reading) order matches the visual layout
-// (top-to-bottom, then left-to-right) WITHOUT changing anything visible.
+// Reorder ONE flat array of sibling blocks so document (reading) order matches
+// the visual layout (top-to-bottom, then left-to-right) WITHOUT changing
+// anything visible.
 //
 // Absolutely-positioned blocks paint in (z-index, then document order). If we
 // only reordered the array, two blocks that share a z-index and overlap could
@@ -520,10 +522,9 @@ function resolveZIndex(block) {
 // otherwise change it — pin z-index explicitly so the new document order can't
 // alter what renders on top.
 //
-// Returns a NEW array (or the same reference when already ordered) with, where
-// necessary, `style.zIndex` set to preserve stacking. Pure — never mutates the
-// input blocks.
-export function autoOrderChildren(children) {
+// Returns a NEW array (with, where necessary, `style.zIndex` set to preserve
+// stacking). Pure — never mutates the input blocks.
+function reorderSiblingsByVisualOrder(children) {
   if (!Array.isArray(children) || children.length <= 1) {
     return Array.isArray(children) ? [...children] : [];
   }
@@ -561,6 +562,92 @@ export function autoOrderChildren(children) {
     if (resolveZIndex(block) === nextZ) return block;
     return { ...block, style: { ...(block.style || {}), zIndex: nextZ } };
   });
+}
+
+// True when two arrays hold the same block references in the same positions.
+// Used to tell whether a recursive pass actually changed a container's children
+// so we can keep the original block (and stay pure / idempotent) when it did
+// not.
+function sameOrderAndRefs(a, b) {
+  if (a === b) return true;
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+// A container's children can be reordered only when they are free-positioned:
+// each child carries its own x/y and paints by (z-index, document order), so
+// reordering the array changes tab/reading order WITHOUT moving anything on the
+// page. Flow (auto-layout) containers place children BY document order (a
+// vertical stack, or a row of columns), so reordering them WOULD move content —
+// those levels are recursed into but never reordered. Only flow containers set
+// `layoutMode === 'flow'`; free groups use 'free' and the v1 absolute root has
+// no layoutMode at all.
+function childrenReorderable(block) {
+  return block?.layoutMode !== LAYOUT_MODES.FLOW;
+}
+
+// Recursively order a level of siblings and every nested container beneath it.
+// Depth-first: each container's children are ordered before this level is
+// (optionally) reordered, so a reorder here operates on already-fixed subtrees.
+// `reorderThisLevel` is false for flow-layout levels (see childrenReorderable).
+function autoOrderLevel(children, reorderThisLevel) {
+  if (!Array.isArray(children) || children.length === 0) {
+    return Array.isArray(children) ? [...children] : [];
+  }
+
+  const recursed = children.map((block) => {
+    if (!block || !Array.isArray(block.children) || block.children.length === 0) {
+      return block;
+    }
+    const nextKids = autoOrderLevel(block.children, childrenReorderable(block));
+    if (sameOrderAndRefs(nextKids, block.children)) return block;
+    return { ...block, children: nextKids };
+  });
+
+  if (!reorderThisLevel) return recursed;
+  return reorderSiblingsByVisualOrder(recursed);
+}
+
+// Reorder every element — the root siblings AND the children nested inside each
+// free-positioned container/group — so document (reading) order matches the
+// visual layout, with zero visual change. A single, idempotent, pure pass.
+//
+// `rootIsFlow` describes the array being passed in: for a v1 (absolute) design
+// the root siblings are free-positioned and get reordered; for a v2 (flow)
+// design the root array is a flow stack, so the top level is left alone and
+// only nested free groups are reordered.
+export function autoOrderChildren(children, { rootIsFlow = false } = {}) {
+  return autoOrderLevel(children, !rootIsFlow);
+}
+
+// Recursive companion to readingOrderMatchesVisual: true when SOME level (this
+// one, if reorderable, or any nested free container) is out of visual order and
+// Auto-order would therefore change something.
+function levelNeedsOrder(children, reorderThisLevel) {
+  if (!Array.isArray(children) || children.length === 0) return false;
+  if (reorderThisLevel && children.length > 1 && !readingOrderMatchesVisual(children)) {
+    return true;
+  }
+  // Recurse into ANY non-empty child array (not just length > 1): a mismatch can
+  // live several levels down behind single-child intermediate containers (e.g.
+  // a flow section with one child that is a free group of out-of-order blocks).
+  // The per-level reorder check above stays gated on length > 1.
+  for (const block of children) {
+    if (block && Array.isArray(block.children) && block.children.length > 0) {
+      if (levelNeedsOrder(block.children, childrenReorderable(block))) return true;
+    }
+  }
+  return false;
+}
+
+// True when document (reading) order already matches the visual order at every
+// reorderable level (root + nested free groups) — i.e. Auto-order would be a
+// no-op. Drives the toolbar's "can auto-order" enabled state.
+export function readingOrderMatchesVisualDeep(children, { rootIsFlow = false } = {}) {
+  return !levelNeedsOrder(children, !rootIsFlow);
 }
 
 // -- Public entry point -----------------------------------------------------
