@@ -10,14 +10,13 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { FileEdit, Plus, Search, LayoutGrid, List, ArrowUpDown, FileText, Sparkles, Loader2, CheckCircle2, XCircle, MinusCircle, TrendingDown, TrendingUp, Minus, Globe, AlertCircle, AlertTriangle } from "lucide-react";
+import { FileEdit, Plus, Search, LayoutGrid, List, ArrowUpDown, FileText, Loader2, CheckCircle2, XCircle, MinusCircle, TrendingDown, TrendingUp, Minus, Globe, AlertCircle, AlertTriangle } from "lucide-react";
 import {
   DndContext,
   DragOverlay,
@@ -234,7 +233,7 @@ export default function IEditPageManagementPage() {
     canvas_version: "v1",
   });
 
-  // Create-from-document + multi-page cleanup state.
+  // Create-from-document state.
   const [showDocDialog, setShowDocDialog] = useState(false);
   const [docFiles, setDocFiles] = useState([]); // File[] selected/dropped in upload mode
   const [docDragOver, setDocDragOver] = useState(false);
@@ -249,9 +248,6 @@ export default function IEditPageManagementPage() {
   // Holds the generated-but-unsaved design returned by the preview step so the
   // admin can review it before anything is persisted. null = no preview yet.
   const [docPreview, setDocPreview] = useState(null);
-  const [showCleanupDialog, setShowCleanupDialog] = useState(false);
-  const [cleanupSelected, setCleanupSelected] = useState(() => new Set());
-  const [cleanupResults, setCleanupResults] = useState(null);
 
   // Folder / view state (Task: folders, sorting & pinning)
   // Active site context (Task #2534): null = primary tenant site, otherwise a
@@ -679,27 +675,6 @@ export default function IEditPageManagementPage() {
   });
 
   const docBusy = fromDocPreviewMutation.isPending || fromDocConfirmMutation.isPending || batchRunning;
-
-  const cleanupMutation = useMutation({
-    mutationFn: async (pageIds) => {
-      const res = await fetch('/api/admin/canvas-cleanup', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pageIds }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Cleanup failed');
-      return data;
-    },
-    onSuccess: (data) => {
-      setCleanupResults(data.results || []);
-      queryClient.invalidateQueries({ queryKey: ['iedit-pages'] });
-      const cleaned = (data.results || []).filter((r) => r.status === 'cleaned').length;
-      toast.success(cleaned > 0 ? `Cleaned ${cleaned} page${cleaned === 1 ? '' : 's'}` : 'No changes needed');
-    },
-    onError: (error) => toast.error(error.message),
-  });
 
   const createLoginPageMutation = useMutation({
     mutationFn: () => {
@@ -1327,15 +1302,6 @@ export default function IEditPageManagementPage() {
               <List className="w-4 h-4" />
             </Button>
           </div>
-
-          <Button
-            variant="outline"
-            onClick={() => { setCleanupResults(null); setCleanupSelected(new Set()); setShowCleanupDialog(true); }}
-            data-testid="button-cleanup-pages"
-          >
-            <Sparkles className="w-4 h-4 mr-2" />
-            Clean up
-          </Button>
         </div>
 
         {/* Stats bar (Task #2749): tenant-wide page/audit totals + trend */}
@@ -1890,101 +1856,6 @@ export default function IEditPageManagementPage() {
                 </DialogFooter>
               </>
             )}
-          </DialogContent>
-        </Dialog>
-
-        {/* Clean Up Pages Dialog */}
-        <Dialog open={showCleanupDialog} onOpenChange={(o) => { if (!cleanupMutation.isPending) setShowCleanupDialog(o); }}>
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle>Clean up pages</DialogTitle>
-            </DialogHeader>
-            {(() => {
-              const canvasPages = pages.filter((p) => p.builder_type === 'canvas');
-              const resultsById = new Map((cleanupResults || []).map((r) => [r.pageId, r]));
-              const statusIcon = (status) => {
-                if (status === 'cleaned') return <CheckCircle2 className="w-4 h-4 text-green-600 flex-shrink-0" />;
-                if (status === 'unchanged') return <MinusCircle className="w-4 h-4 text-slate-400 flex-shrink-0" />;
-                if (status === 'skipped') return <MinusCircle className="w-4 h-4 text-slate-400 flex-shrink-0" />;
-                return <XCircle className="w-4 h-4 text-destructive flex-shrink-0" />;
-              };
-              const toggle = (id) => setCleanupSelected((prev) => {
-                const next = new Set(prev);
-                if (next.has(id)) next.delete(id); else next.add(id);
-                return next;
-              });
-              const allSelected = canvasPages.length > 0 && canvasPages.every((p) => cleanupSelected.has(p.id));
-              return (
-                <div className="space-y-3">
-                  <p className="text-sm text-slate-600">
-                    Normalizes spacing, removes sample placeholder content, and equalizes card heights.
-                    Every page is backed up first, and changes are verified to preserve your content.
-                  </p>
-                  {canvasPages.length === 0 ? (
-                    <p className="text-sm text-slate-500">There are no Canvas Builder pages to clean up.</p>
-                  ) : (
-                    <>
-                      <div className="flex items-center gap-2 pb-1 border-b border-slate-200">
-                        <Checkbox
-                          checked={allSelected}
-                          onCheckedChange={(c) => setCleanupSelected(c ? new Set(canvasPages.map((p) => p.id)) : new Set())}
-                          data-testid="checkbox-cleanup-all"
-                        />
-                        <span className="text-xs font-medium text-slate-600">Select all ({canvasPages.length})</span>
-                      </div>
-                      <div className="max-h-72 overflow-y-auto space-y-1">
-                        {canvasPages.map((p) => {
-                          const r = resultsById.get(p.id);
-                          return (
-                            <label
-                              key={p.id}
-                              className="flex items-center gap-3 rounded-md p-2 hover-elevate cursor-pointer"
-                              data-testid={`row-cleanup-${p.id}`}
-                            >
-                              <Checkbox
-                                checked={cleanupSelected.has(p.id)}
-                                onCheckedChange={() => toggle(p.id)}
-                                data-testid={`checkbox-cleanup-${p.id}`}
-                              />
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-slate-800 truncate">{p.title}</p>
-                                <p className="text-xs text-slate-500 truncate">/{p.slug}</p>
-                              </div>
-                              {r && (
-                                <div className="flex items-center gap-1.5" data-testid={`status-cleanup-${p.id}`}>
-                                  {statusIcon(r.status)}
-                                  <span className="text-xs text-slate-600">
-                                    {r.status === 'cleaned'
-                                      ? `${r.changes} change${r.changes === 1 ? '' : 's'}${r.removed ? `, ${r.removed} removed` : ''}`
-                                      : r.status === 'unchanged'
-                                      ? 'Already clean'
-                                      : r.message || r.status}
-                                  </span>
-                                </div>
-                              )}
-                            </label>
-                          );
-                        })}
-                      </div>
-                    </>
-                  )}
-                </div>
-              );
-            })()}
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setShowCleanupDialog(false)} disabled={cleanupMutation.isPending}>
-                Close
-              </Button>
-              <Button
-                onClick={() => cleanupMutation.mutate([...cleanupSelected])}
-                disabled={cleanupSelected.size === 0 || cleanupMutation.isPending}
-                data-testid="button-run-cleanup"
-              >
-                {cleanupMutation.isPending ? (
-                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Cleaning…</>
-                ) : `Clean up ${cleanupSelected.size || ''}`.trim()}
-              </Button>
-            </DialogFooter>
           </DialogContent>
         </Dialog>
 
