@@ -21,7 +21,7 @@ import {
   Monitor, Tablet, Smartphone,
   Accessibility, Loader2,
   LayoutTemplate, Component as ComponentIcon, History as HistoryIcon,
-  Images as ImagesIcon, Palette, Keyboard, Command as CommandIcon, ExternalLink,
+  Images as ImagesIcon, Palette, Keyboard, ExternalLink,
   Unlink, FileText, Pencil, Wand2, RefreshCw,
   X, ShieldCheck, ShieldAlert,
 } from "lucide-react";
@@ -39,7 +39,7 @@ import CanvasBuilder from "@/components/canvas/CanvasBuilder";
 import CanvasA11yPanel from "@/components/canvas/CanvasA11yPanel";
 import {
   TemplatesDialog, SymbolsDialog, VersionsDialog,
-  ShortcutsOverlay, CommandPalette, unlinkSelectedSymbol,
+  ShortcutsOverlay, unlinkSelectedSymbol,
 } from "@/components/canvas/CanvasPhase7Dialogs";
 import { FileRepositoryPicker } from "@/components/ImageSelector";
 import PagePickerDialog from "@/components/canvas/PagePickerDialog";
@@ -142,8 +142,8 @@ export default function CanvasPageEditorPage() {
   // Track which axe view tab the drawer is currently showing on dual-view
   // pages. Defaults to the first applicable view.
   const [auditViewTab, setAuditViewTab] = useState('member');
-  // Phase 7 dialog visibility flags. The command palette and shortcut
-  // overlay are toggled via global keyboard shortcuts (Cmd+K and ?).
+  // Phase 7 dialog visibility flags. The shortcut overlay is toggled via
+  // a global keyboard shortcut (?).
   const [showTemplates, setShowTemplates] = useState(false);
   const [showSymbols, setShowSymbols] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
@@ -154,7 +154,6 @@ export default function CanvasPageEditorPage() {
   const [showPagePicker, setShowPagePicker] = useState(false);
   const [pagePickHandler, setPagePickHandler] = useState(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
-  const [showPalette, setShowPalette] = useState(false);
   // Rename / change-slug dialog state (Task #979).
   const [showRenameDialog, setShowRenameDialog] = useState(false);
   const [renameTitle, setRenameTitle] = useState('');
@@ -172,8 +171,7 @@ export default function CanvasPageEditorPage() {
   // Optional custom modal title supplied by the requester (e.g. the shared link
   // field's "Select file to link to"); falls back to the picker's per-kind title.
   const [fileRepoPickTitle, setFileRepoPickTitle] = useState(null);
-  // Loaded for the command palette's "jump to page" entries. Cheap to
-  // fetch alongside the editor and reused by the picker UI.
+  // Loaded for the page picker UI. Cheap to fetch alongside the editor.
   const { data: allPages } = useQuery({
     queryKey: ['iedit-pages'],
     queryFn: () => base44.entities.IEditPage.list(),
@@ -611,7 +609,7 @@ export default function CanvasPageEditorPage() {
 
   // ── Unsaved-changes navigation guards ──────────────────────────────────
   // The canvas editor is effectively full-screen with its own header, so the
-  // in-app exit surface is the header back button + command-palette page jumps.
+  // in-app exit surface is the header back button.
   // We guard three leave paths: tab close/refresh, browser Back, and in-app
   // navigation. `<BrowserRouter>` is a non-data router here, so react-router's
   // useBlocker/usePrompt are unavailable — these are implemented by hand.
@@ -821,15 +819,12 @@ export default function CanvasPageEditorPage() {
     await runAxeOnPreview();
   }, [page?.slug, showAuditModal]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Cmd+K palette + ? shortcut overlay — global shortcuts at the editor
-  // shell level so they also fire when no block is selected.
+  // ? shortcut overlay — global shortcut at the editor shell level so it
+  // also fires when no block is selected.
   useEffect(() => {
     const onKey = (e) => {
       const tag = e.target?.tagName;
       const inField = tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable;
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault(); setShowPalette(true); return;
-      }
       if (!inField && e.key === '?') {
         e.preventDefault(); setShowShortcuts(true); return;
       }
@@ -1508,9 +1503,6 @@ export default function CanvasPageEditorPage() {
         </Button>
         <Button size="sm" variant="outline" onClick={() => setShowShortcuts(true)} data-testid="button-open-shortcuts" title="Keyboard shortcuts (?)">
           <Keyboard className="w-4 h-4" />
-        </Button>
-        <Button size="sm" variant="outline" onClick={() => setShowPalette(true)} data-testid="button-open-palette" title="Command palette (Cmd+K)">
-          <CommandIcon className="w-4 h-4" />
         </Button>
         {page?.slug && (
           <Button
@@ -2270,43 +2262,6 @@ export default function CanvasPageEditorPage() {
         }}
       />
       <ShortcutsOverlay open={showShortcuts} onOpenChange={setShowShortcuts} />
-      <CommandPalette
-        open={showPalette}
-        onOpenChange={setShowPalette}
-        actions={[
-          { id: 'save', label: 'Save page', hint: 'Cmd+S', run: handleManualSave },
-          { id: 'publish', label: page?.status === 'published' ? 'Unpublish page' : 'Publish page', run: handleTogglePublish },
-          { id: 'templates', label: 'Open templates…', run: () => setShowTemplates(true) },
-          { id: 'symbols', label: 'Open symbols…', run: () => setShowSymbols(true) },
-          { id: 'versions', label: 'Version history…', run: () => setShowVersions(true) },
-          { id: 'media', label: 'File Repository…', run: () => setShowFileRepo(true) },
-          { id: 'shortcuts', label: 'Keyboard shortcuts', hint: '?', run: () => setShowShortcuts(true) },
-          { id: 'unlink-symbol', label: 'Unlink selected symbol', run: () => unlinkSelectedSymbol(canvasRef) },
-          { id: 'preview-visitor', label: 'Preview as visitor', run: () => page?.slug && window.open(`/${page.slug}`, '_blank', 'noopener') },
-          { id: 'toggle-preview', label: showAuditModal ? 'Close preview' : 'Open preview & audit', run: () => setShowAuditModal((v) => !v) },
-          // Live block index — every block on this page becomes a
-          // jump target. Selecting one scrolls to it and opens its
-          // inspector via the CanvasBuilder imperative API.
-          ...(canvasRef.current?.getDesign?.()?.root?.sections?.[0]?.children || []).map((b) => ({
-            id: `jump-${b.id}`,
-            label: `Jump to ${b.name || b.type}`,
-            hint: 'block',
-            run: () => canvasRef.current?.setSelection?.(b.id),
-          })),
-          // Other canvas pages — jump to them in the editor without
-          // leaving the keyboard. We rely on the IEditPage list already
-          // hydrated for the page picker.
-          ...(allPages || [])
-            .filter((p) => p.id !== pageId && p.builder_type === 'canvas')
-            .map((p) => ({
-              id: `goto-${p.id}`,
-              label: `Open page: ${p.title || p.slug}`,
-              hint: 'page',
-              run: () => guardedNavigate(createPageUrl(`CanvasPageEditor?pageId=${p.id}`)),
-            })),
-        ]}
-      />
-
       <Dialog open={showRenameDialog} onOpenChange={(open) => {
         if (!open) setRenameError('');
         setShowRenameDialog(open);

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
@@ -11,7 +11,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import {
   LayoutTemplate, Component as ComponentIcon, History as HistoryIcon,
-  Images as ImagesIcon, Keyboard, Command as CommandIcon,
+  Images as ImagesIcon, Keyboard,
   ExternalLink, Trash2, RotateCcw, Unlink, Plus, Eye,
   Pencil, Save as SaveIcon, Lock, LockOpen,
 } from 'lucide-react';
@@ -545,7 +545,6 @@ const SHORTCUTS = [
   ['Cmd/Ctrl + C / X / V', 'Copy / cut / paste (incl. between pages)'],
   ['Cmd/Ctrl + G', 'Group selected'],
   ['Cmd/Ctrl + Shift + G', 'Ungroup selected'],
-  ['Cmd/Ctrl + K', 'Open command palette'],
   ['Cmd/Ctrl + S', 'Save page'],
   ['Delete / Backspace', 'Delete selected'],
   ['Arrow keys', 'Nudge selected (Shift = grid step)'],
@@ -574,61 +573,3 @@ export function ShortcutsOverlay({ open, onOpenChange }) {
   );
 }
 
-// ===========================================================================
-// Command palette (Cmd+K)
-// ===========================================================================
-
-export function CommandPalette({ open, onOpenChange, actions }) {
-  const [query, setQuery] = useState('');
-  const inputRef = useRef(null);
-  useEffect(() => {
-    if (open) {
-      setQuery('');
-      setTimeout(() => inputRef.current?.focus(), 50);
-    }
-  }, [open]);
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return actions;
-    return actions.filter((a) => a.label.toLowerCase().includes(q));
-  }, [actions, query]);
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2"><CommandIcon className="w-4 h-4" /> Command palette</DialogTitle>
-        </DialogHeader>
-        <Input
-          ref={inputRef}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Type a command…"
-          data-testid="input-command-query"
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && filtered.length > 0) {
-              filtered[0].run();
-              onOpenChange(false);
-            }
-          }}
-        />
-        <div className="space-y-1 max-h-[50vh] overflow-y-auto">
-          {filtered.map((a) => (
-            <button
-              key={a.id}
-              type="button"
-              className="w-full text-left px-2 py-2 rounded-md hover-elevate active-elevate-2 flex items-center justify-between"
-              onClick={() => { a.run(); onOpenChange(false); }}
-              data-testid={`command-${a.id}`}
-            >
-              <span className="text-sm text-slate-800">{a.label}</span>
-              {a.hint && <span className="text-xs text-slate-500">{a.hint}</span>}
-            </button>
-          ))}
-          {filtered.length === 0 && (
-            <p className="text-sm text-slate-500 p-2">No matching commands.</p>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}

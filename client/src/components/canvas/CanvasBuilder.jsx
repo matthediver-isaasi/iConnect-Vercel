@@ -614,13 +614,13 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     // palette icon so it shares the exact same panel as the in-builder
     // "Palette" button (same tenant/microsite scope).
     openPalettePanel: () => setShowPalettePanel(true),
-    // Phase 7 — programmatic block insertion used by templates / symbols /
-    // command palette. Accepts an array of partial block objects which are
-    // passed through createBlock so defaults & ids are populated. Returns
-    // the ids that were actually inserted.
+    // Phase 7 — programmatic block insertion used by templates / symbols.
+    // Accepts an array of partial block objects which are passed through
+    // createBlock so defaults & ids are populated. Returns the ids that
+    // were actually inserted.
     addBlocks: (blocks) => {
       const arr = Array.isArray(blocks) ? blocks : [blocks];
-      // Programmatic inserts (symbols, command palette, templates) have no
+      // Programmatic inserts (symbols, templates) have no
       // pointer to anchor to. Unless the caller passes an explicit position,
       // drop the block centered on whatever the user is currently looking at
       // (mirrors the pointer-anchored placement used for palette drag/drop),
@@ -668,9 +668,8 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     getSelectedIds: () => selectedIds,
     getSelectedBlocks: () => children.filter((b) => selectedIds.includes(b.id)),
     setDesign: (next) => setDesignState(normalizeCanvasDesign(next)),
-    // Phase 7 — used by the command palette to jump to a block. Scrolls
-    // the block into view inside the editor stage and selects it so the
-    // inspector opens automatically.
+    // Phase 7 — jump to a block. Scrolls the block into view inside the
+    // editor stage and selects it so the inspector opens automatically.
     setSelection: (ids) => {
       const arr = Array.isArray(ids) ? ids : [ids];
       setSelectedIds(arr);
