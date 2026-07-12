@@ -511,26 +511,24 @@ function resolveZIndex(block) {
   return typeof z === 'number' && Number.isFinite(z) ? z : DEFAULT_Z_INDEX;
 }
 
-// Reorder ONE flat array of sibling blocks so document (reading) order matches
-// the visual layout (top-to-bottom, then left-to-right) WITHOUT changing
-// anything visible.
-//
 // Absolutely-positioned blocks paint in (z-index, then document order). If we
-// only reordered the array, two blocks that share a z-index and overlap could
+// only reorder the array, two blocks that share a z-index and overlap could
 // swap which one paints on top. To prevent any visual change we capture the
 // current paint (stacking) order first, and — only when the reorder would
 // otherwise change it — pin z-index explicitly so the new document order can't
 // alter what renders on top.
 //
-// Returns a NEW array (with, where necessary, `style.zIndex` set to preserve
-// stacking). Pure — never mutates the input blocks.
-function reorderSiblingsByVisualOrder(children) {
-  if (!Array.isArray(children) || children.length <= 1) {
-    return Array.isArray(children) ? [...children] : [];
+// Given the ORIGINAL sibling array (whose current document order implies the
+// current paint order) and a permutation of it (`newOrder`), return `newOrder`
+// with `style.zIndex` pinned only where necessary so the visible stacking
+// (paint) order is unchanged. Shared by Auto-order and the manual reading-order
+// arrows — any reorder of free-positioned siblings can flip which of two
+// overlapping equal-z blocks paints on top, so both routes funnel through here.
+// Pure — never mutates the input blocks.
+function preserveStackingOrder(children, newOrder) {
+  if (!Array.isArray(newOrder) || newOrder.length <= 1) {
+    return Array.isArray(newOrder) ? [...newOrder] : [];
   }
-  // Already in visual order → nothing to do (keeps Auto-order idempotent and a
-  // no-op when the page already matches).
-  if (readingOrderMatchesVisual(children)) return [...children];
 
   // Current paint order, bottom → top: sort by (z-index, current doc index).
   const withMeta = children.map((block, index) => ({
@@ -541,8 +539,7 @@ function reorderSiblingsByVisualOrder(children) {
   const paintOrder = [...withMeta].sort((a, b) => (a.z - b.z) || (a.index - b.index));
   const targetPaintIds = paintOrder.map((m) => m.block.id);
 
-  const reordered = sortChildrenByVisualOrder(children);
-  const newIndexById = new Map(reordered.map((b, i) => [b.id, i]));
+  const newIndexById = new Map(newOrder.map((b, i) => [b.id, i]));
 
   // Does the new document order already preserve the paint order using the
   // blocks' existing z-index values? Natural paint = sort by (z, newIndex).
@@ -550,18 +547,28 @@ function reorderSiblingsByVisualOrder(children) {
     .sort((a, b) => (a.z - b.z) || (newIndexById.get(a.block.id) - newIndexById.get(b.block.id)))
     .map((m) => m.block.id);
   const stackingPreserved = naturalPaintIds.every((id, i) => id === targetPaintIds[i]);
-  if (stackingPreserved) return reordered;
+  if (stackingPreserved) return [...newOrder];
 
   // Pin z-index to the current paint rank so stacking is decided purely by
   // z-index and can't be perturbed by the new document order. Only rewrite a
   // block when its resolved z-index actually changes, leaving the rest byte
   // identical.
   const zRankById = new Map(paintOrder.map((m, rank) => [m.block.id, rank + 1]));
-  return reordered.map((block) => {
+  return newOrder.map((block) => {
     const nextZ = zRankById.get(block.id);
     if (resolveZIndex(block) === nextZ) return block;
     return { ...block, style: { ...(block.style || {}), zIndex: nextZ } };
   });
+}
+
+function reorderSiblingsByVisualOrder(children) {
+  if (!Array.isArray(children) || children.length <= 1) {
+    return Array.isArray(children) ? [...children] : [];
+  }
+  // Already in visual order → nothing to do (keeps Auto-order idempotent and a
+  // no-op when the page already matches).
+  if (readingOrderMatchesVisual(children)) return [...children];
+  return preserveStackingOrder(children, sortChildrenByVisualOrder(children));
 }
 
 // True when two arrays hold the same block references in the same positions.
@@ -648,6 +655,60 @@ function levelNeedsOrder(children, reorderThisLevel) {
 // no-op. Drives the toolbar's "can auto-order" enabled state.
 export function readingOrderMatchesVisualDeep(children, { rootIsFlow = false } = {}) {
   return !levelNeedsOrder(children, !rootIsFlow);
+}
+
+// -- Manual reading-order move (up/down arrows) -----------------------------
+
+// Locate the sibling list that DIRECTLY contains `id` and report the block's
+// index within that list plus the list length. Searches the root array and
+// every nested container/group so the inspector can show "N of M" and enable
+// the up/down arrows for a block that lives inside a group. Returns
+// { index: -1, total: 0 } when the id is not found anywhere.
+export function findReadingOrderPosition(children, id) {
+  if (!Array.isArray(children)) return { index: -1, total: 0 };
+  const idx = children.findIndex((b) => b?.id === id);
+  if (idx >= 0) return { index: idx, total: children.length };
+  for (const block of children) {
+    if (block && Array.isArray(block.children) && block.children.length > 0) {
+      const found = findReadingOrderPosition(block.children, id);
+      if (found.index >= 0) return found;
+    }
+  }
+  return { index: -1, total: 0 };
+}
+
+// Move the block with `id` one position earlier ('up') or later ('down') within
+// its OWN sibling list — whether that list is the root array or the children of
+// a nested container/group. Free-position siblings paint by (z-index, document
+// order), so the swap can flip which of two overlapping equal-z blocks paints on
+// top; stacking is pinned via z-index only where the swap would otherwise change
+// it, so nothing moves or changes visually. Pure — returns a NEW tree when the
+// block is found and moved, and the SAME `children` reference (a no-op) when the
+// id is not found or the move is out of bounds.
+export function moveBlockInReadingOrder(children, id, direction) {
+  if (!Array.isArray(children)) return children;
+  const idx = children.findIndex((b) => b?.id === id);
+  if (idx >= 0) {
+    const target = direction === 'up' ? idx - 1 : idx + 1;
+    if (target < 0 || target >= children.length) return children;
+    const swapped = children.slice();
+    const [item] = swapped.splice(idx, 1);
+    swapped.splice(target, 0, item);
+    return preserveStackingOrder(children, swapped);
+  }
+  // Not at this level — recurse into nested containers, stopping at the first
+  // subtree that actually changes so the rest stay reference-identical.
+  let changed = false;
+  const next = children.map((block) => {
+    if (changed || !block || !Array.isArray(block.children) || block.children.length === 0) {
+      return block;
+    }
+    const nextKids = moveBlockInReadingOrder(block.children, id, direction);
+    if (nextKids === block.children) return block;
+    changed = true;
+    return { ...block, children: nextKids };
+  });
+  return changed ? next : children;
 }
 
 // -- Public entry point -----------------------------------------------------

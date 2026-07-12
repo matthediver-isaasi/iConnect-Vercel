@@ -100,6 +100,8 @@ import {
   headingFieldFor,
   autoOrderChildren,
   readingOrderMatchesVisualDeep,
+  moveBlockInReadingOrder as moveBlockInReadingOrderTree,
+  findReadingOrderPosition,
 } from '@/lib/canvasA11y';
 import {
   generateAutoLayout,
@@ -988,18 +990,12 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     };
   }
 
-  // Move a block up or down in the children array (= DOM/reading order).
+  // Move a block up or down in DOM/reading order. Operates on the block's own
+  // sibling list — the root array OR the children of whatever nested
+  // container/group it lives in — so the arrows can nudge a single block's order
+  // inside a group without moving it visually (stacking is preserved).
   const moveBlockInReadingOrder = useCallback((id, direction) => {
-    replaceChildren((arr) => {
-      const idx = arr.findIndex((b) => b.id === id);
-      if (idx < 0) return arr;
-      const target = direction === 'up' ? idx - 1 : idx + 1;
-      if (target < 0 || target >= arr.length) return arr;
-      const next = arr.slice();
-      const [item] = next.splice(idx, 1);
-      next.splice(target, 0, item);
-      return next;
-    });
+    replaceChildren((arr) => moveBlockInReadingOrderTree(arr, id, direction));
   }, [replaceChildren]);
 
   // Reorder every element so document (reading) order matches the visual
@@ -2208,10 +2204,14 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
               onUnlinkSymbol={onUnlinkSymbol}
               readingOrderIndex={
                 selectedBlocks.length === 1
-                  ? children.findIndex((b) => b.id === selectedBlocks[0].id)
+                  ? findReadingOrderPosition(children, selectedBlocks[0].id).index
                   : -1
               }
-              readingOrderTotal={children.length}
+              readingOrderTotal={
+                selectedBlocks.length === 1
+                  ? findReadingOrderPosition(children, selectedBlocks[0].id).total
+                  : children.length
+              }
             />
             </CanvasEditorPageProvider>
             </CanvasAnchorProvider>

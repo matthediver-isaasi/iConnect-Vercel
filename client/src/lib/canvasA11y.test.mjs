@@ -18,6 +18,8 @@ import {
   autoOrderChildren,
   computeReadingOrder,
   isInteractiveBlock,
+  moveBlockInReadingOrder,
+  findReadingOrderPosition,
 } from './canvasA11y.js';
 
 import { BLOCK_TYPES, LAYOUT_MODES } from './canvasDesign.js';
@@ -340,4 +342,101 @@ test('readingOrderMatchesVisualDeep: single-child chain mismatch detected with r
     type: BLOCK_TYPES.SECTION,
   });
   assert.equal(readingOrderMatchesVisualDeep([section], { rootIsFlow: true }), false);
+});
+
+// -- Manual reading-order move / arrows (Task #2726) ------------------------
+
+test('findReadingOrderPosition: root-level block reports index within root', () => {
+  const a = mk('a', 10, 10);
+  const b = mk('b', 10, 100);
+  const c = mk('c', 10, 200);
+  assert.deepEqual(findReadingOrderPosition([a, b, c], 'b'), { index: 1, total: 3 });
+  assert.deepEqual(findReadingOrderPosition([a, b, c], 'a'), { index: 0, total: 3 });
+});
+
+test('findReadingOrderPosition: nested block reports index within its OWN group', () => {
+  const g1 = mk('g1', 10, 10);
+  const g2 = mk('g2', 10, 100);
+  const g3 = mk('g3', 10, 200);
+  const group = mkContainer('grp', 10, 10, [g1, g2, g3]);
+  const other = mk('other', 10, 500);
+  // g2 is index 1 of the group's 3 children — NOT relative to the root array.
+  assert.deepEqual(findReadingOrderPosition([group, other], 'g2'), { index: 1, total: 3 });
+  assert.deepEqual(findReadingOrderPosition([group, other], 'g3'), { index: 2, total: 3 });
+});
+
+test('findReadingOrderPosition: unknown id returns index -1', () => {
+  const a = mk('a', 10, 10);
+  assert.deepEqual(findReadingOrderPosition([a], 'nope'), { index: -1, total: 0 });
+  assert.deepEqual(findReadingOrderPosition(null, 'a'), { index: -1, total: 0 });
+});
+
+test('moveBlockInReadingOrder: moves a root block up and down', () => {
+  const a = mk('a', 10, 10);
+  const b = mk('b', 10, 100);
+  const c = mk('c', 10, 200);
+  assert.deepEqual(ids(moveBlockInReadingOrder([a, b, c], 'c', 'up')), ['a', 'c', 'b']);
+  assert.deepEqual(ids(moveBlockInReadingOrder([a, b, c], 'a', 'down')), ['b', 'a', 'c']);
+});
+
+test('moveBlockInReadingOrder: out-of-bounds move is a no-op (same reference)', () => {
+  const a = mk('a', 10, 10);
+  const b = mk('b', 10, 100);
+  const input = [a, b];
+  assert.equal(moveBlockInReadingOrder(input, 'a', 'up'), input);
+  assert.equal(moveBlockInReadingOrder(input, 'b', 'down'), input);
+});
+
+test('moveBlockInReadingOrder: unknown id is a no-op (same reference)', () => {
+  const a = mk('a', 10, 10);
+  const input = [a];
+  assert.equal(moveBlockInReadingOrder(input, 'ghost', 'up'), input);
+});
+
+test('moveBlockInReadingOrder: reorders a block INSIDE a nested group only', () => {
+  const g1 = mk('g1', 10, 10);
+  const g2 = mk('g2', 10, 100);
+  const g3 = mk('g3', 10, 200);
+  const group = mkContainer('grp', 10, 10, [g1, g2, g3]);
+  const other = mk('other', 10, 500);
+  const out = moveBlockInReadingOrder([group, other], 'g3', 'up');
+  // Root order unchanged, and the root sibling object is untouched.
+  assert.deepEqual(ids(out), ['grp', 'other']);
+  assert.equal(out.find((b) => b.id === 'other'), other);
+  // The group's children were reordered.
+  const outGroup = out.find((b) => b.id === 'grp');
+  assert.deepEqual(ids(outGroup.children), ['g1', 'g3', 'g2']);
+});
+
+test('moveBlockInReadingOrder: nested out-of-bounds move is a no-op (same reference)', () => {
+  const g1 = mk('g1', 10, 10);
+  const g2 = mk('g2', 10, 100);
+  const group = mkContainer('grp', 10, 10, [g1, g2]);
+  const input = [group];
+  // g1 is already first inside the group; moving it up does nothing.
+  assert.equal(moveBlockInReadingOrder(input, 'g1', 'up'), input);
+});
+
+test('moveBlockInReadingOrder: preserves stacking when the swap would flip paint order', () => {
+  // Two overlapping equal-z blocks. Document order [under, over]: `over` paints
+  // last (on top). Moving `over` up swaps document order to [over, under]; with
+  // equal z that would make `under` paint on top. z must be pinned to keep
+  // `over` on top — zero visual change.
+  const under = mk('under', 10, 10, { z: 1 });
+  const over = mk('over', 12, 12, { z: 1 });
+  const out = moveBlockInReadingOrder([under, over], 'over', 'up');
+  assert.deepEqual(ids(out), ['over', 'under']);
+  const outOver = out.find((b) => b.id === 'over');
+  const outUnder = out.find((b) => b.id === 'under');
+  assert.ok((zOf(outOver) ?? 1) > (zOf(outUnder) ?? 1),
+    'the block that was on top must keep the higher z-index after the move');
+});
+
+test('moveBlockInReadingOrder: is pure (never mutates input blocks)', () => {
+  const g1 = mk('g1', 10, 10);
+  const g2 = mk('g2', 10, 100);
+  const group = mkContainer('grp', 10, 10, [g1, g2]);
+  const before = JSON.stringify([group]);
+  moveBlockInReadingOrder([group], 'g2', 'up');
+  assert.equal(JSON.stringify([group]), before);
 });
