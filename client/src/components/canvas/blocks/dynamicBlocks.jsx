@@ -6262,29 +6262,19 @@ function SearchInputRender({ block, asEditor }) {
   };
 
   const borderWidth = Number.isFinite(c.borderWidth) ? c.borderWidth : 1;
-  const cornerRadius = Number.isFinite(c.cornerRadius) ? c.cornerRadius : 8;
-  // Clamp the applied radius to half the input's height so a high value always
-  // renders a clean pill (fully rounded ends) rather than an over-rounded box,
-  // regardless of the selected size. Smaller values still apply literally.
-  const appliedRadius = Math.min(cornerRadius, size.height / 2);
+  // Single source of truth for the corner radius: the block-level
+  // `style.borderRadius` (the standard "Border radius" style control), which
+  // also rounds the block wrapper in CanvasStage. `c.cornerRadius` is kept only
+  // as a read-only fallback for legacy blocks saved before this was
+  // consolidated. The browser naturally caps the visible radius to half the
+  // input's height, so a high value renders a clean pill without a manual clamp.
+  const appliedRadius = Number.isFinite(block?.style?.borderRadius)
+    ? block.style.borderRadius
+    : (Number.isFinite(c.cornerRadius) ? c.cornerRadius : 8);
   const inputStyle = {
     width: '100%',
     height: size.height,
-    // In the editor the block content is rendered inside an `absolute inset-0`
-    // wrapper pinned to the block's stored box height, and the flex/parent
-    // sizing there can squeeze the actual `<input>` shorter than its nominal
-    // `size.height`. When the input renders shorter than nominal, the browser
-    // caps its VISIBLE corner radius to half the real (short) height, so the
-    // configured radius reads as a small fixed pill (~5px) no matter what value
-    // is set. Removing `maxHeight` alone did not force the input back to full
-    // height, so in the editor we ALSO pin a `minHeight` floor at the nominal
-    // height: `min-height` overrides any residual `max-height`/flex shrink, so
-    // the input always lays out at full height and shows the configured radius.
-    // The block wrapper is `allowOverflow`, so the floored input is never
-    // clipped. Public renders the component directly (no pinned wrapper) and is
-    // left byte-identical: it keeps the `maxHeight: '100%'` clamp and no floor.
-    maxHeight: asEditor ? undefined : '100%',
-    minHeight: asEditor ? size.height : undefined,
+    maxHeight: '100%',
     fontSize: size.fontSize,
     fontFamily: searchResultsFont || 'inherit',
     paddingLeft: size.padX,
@@ -6463,14 +6453,6 @@ function SearchInputInspector({ block, update }) {
         max={8}
         onChange={(v) => set({ borderWidth: v == null ? 0 : v })}
         testId="input-search-border-width"
-      />
-      <NumberField
-        label="Corner radius (px)"
-        value={c.cornerRadius}
-        min={0}
-        max={100}
-        onChange={(v) => set({ cornerRadius: v == null ? 0 : v })}
-        testId="input-search-radius"
       />
       <ToggleField
         label="Show search icon"

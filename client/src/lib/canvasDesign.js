@@ -1390,7 +1390,7 @@ BLOCK_DEFAULTS[BLOCK_TYPES.LOGIN_FORM] = {
 BLOCK_DEFAULTS[BLOCK_TYPES.SEARCH_INPUT] = {
   name: 'Search Input',
   geom: { w: 360, h: 48 },
-  style: { background: 'transparent', borderWidth: 0 },
+  style: { background: 'transparent', borderWidth: 0, borderRadius: 8 },
   content: {
     placeholder: 'Search…',
     size: 'md', // sm | md | lg
@@ -1398,7 +1398,6 @@ BLOCK_DEFAULTS[BLOCK_TYPES.SEARCH_INPUT] = {
     textColor: '#0f172a',
     borderColor: '#cbd5e1',
     borderWidth: 1,
-    cornerRadius: 8,
     showIcon: true,
     includeOutsideMicrosite: true,
   },
