@@ -22,7 +22,7 @@ import {
   Accessibility, Loader2,
   LayoutTemplate, Component as ComponentIcon, History as HistoryIcon,
   Images as ImagesIcon, Palette, Keyboard, Command as CommandIcon, ExternalLink,
-  Unlink, FileText, Pencil,
+  Unlink, FileText, Pencil, Wand2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -122,6 +122,11 @@ export default function CanvasPageEditorPage() {
   // badge and lists every issue with enriched element info. Independent
   // of the Preview modal so authors can review findings any time.
   const [showAuditDrawer, setShowAuditDrawer] = useState(false);
+  // Bumped by the builder's live design-change signal (subscribed only while
+  // the drawer is open) so the drawer's heuristic "Design checks" section and
+  // the Auto-order enabled state recompute from the current design as the
+  // author fixes blocks on the canvas.
+  const [liveDesignTick, setLiveDesignTick] = useState(0);
   // Publish confirmation state. Non-null while the dialog is visible.
   //   { blocking: A11yIssue[], missingAudit: bool, staleAudit: bool, newStatus }
   const [publishConfirm, setPublishConfirm] = useState(null);
@@ -268,6 +273,13 @@ export default function CanvasPageEditorPage() {
 
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+
+  // Subscribed by the builder only while the audit drawer is open. Each edit
+  // bumps a tick so the drawer re-renders and its heuristic "Design checks"
+  // (and the Auto-order enabled state) recompute from the live design.
+  const handleLiveDesignChange = useCallback(() => {
+    setLiveDesignTick((t) => t + 1);
+  }, []);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -1490,6 +1502,7 @@ export default function CanvasPageEditorPage() {
             isSaving={saveDesignMutation.isPending}
             isDirty={isDirty}
             onDirtyChange={handleDirtyChange}
+            onDesignChange={showAuditDrawer ? handleLiveDesignChange : undefined}
             extraIssues={axeStale ? [] : (axeIssues || [])}
             onLocateIssue={handleLocateIssue}
             otherPages={otherPages}
@@ -1706,9 +1719,12 @@ export default function CanvasPageEditorPage() {
 
       {/* Persistent Audit report drawer. Independent of the Preview modal
           so the report stays viewable any time once an audit has run. */}
-      <Sheet open={showAuditDrawer} onOpenChange={setShowAuditDrawer}>
+      <Sheet open={showAuditDrawer} onOpenChange={setShowAuditDrawer} modal={false}>
         <SheetContent
           side="right"
+          hideOverlay
+          onOpenAutoFocus={(e) => e.preventDefault()}
+          onInteractOutside={(e) => e.preventDefault()}
           className="w-full sm:max-w-md overflow-y-auto p-0 flex flex-col"
           data-testid="sheet-audit-report"
         >
@@ -1945,6 +1961,7 @@ export default function CanvasPageEditorPage() {
                   <section
                     className="space-y-2"
                     data-testid="audit-section-heuristic"
+                    data-live-tick={liveDesignTick}
                     aria-label="Heuristic design findings"
                   >
                     <div className="text-[11px] uppercase tracking-wide text-slate-500">
@@ -1954,6 +1971,8 @@ export default function CanvasPageEditorPage() {
                       issues={heuristicIssues}
                       selectedIds={[]}
                       onLocate={onLocate}
+                      onAutoOrder={() => canvasRef.current?.autoOrder?.()}
+                      canAutoOrder={!!canvasRef.current?.canAutoOrder?.()}
                     />
                   </section>
                   {isDualView ? (

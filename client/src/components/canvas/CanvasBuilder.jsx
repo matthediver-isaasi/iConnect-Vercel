@@ -36,7 +36,6 @@ import {
   ZoomOut,
   Maximize2,
   ListOrdered,
-  Accessibility,
   Group as GroupIcon,
   Ungroup as UngroupIcon,
   Layers,
@@ -91,7 +90,6 @@ import { CanvasSwatchProvider } from './CanvasSwatchContext';
 import CanvasPalettePanel from './CanvasPalettePanel';
 import { CanvasSymbolsProvider, useCanvasSymbolsData } from './CanvasSymbolsContext';
 import CanvasLayers from './CanvasLayers';
-import CanvasA11yPanel from './CanvasA11yPanel';
 import CanvasFloatingPanel from './CanvasFloatingPanel';
 import {
   auditCanvasDesign,
@@ -301,6 +299,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   isSaving,
   isDirty: isDirtyProp,
   onDirtyChange,
+  onDesignChange,
   extraIssues = [],
   onLocateIssue,
   otherPages = [],
@@ -328,7 +327,6 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   const [showAllBoxes, setShowAllBoxes] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [showReadingOrder, setShowReadingOrder] = useState(false);
-  const [showA11yPanel, setShowA11yPanel] = useState(false);
   // Task #2561: Colour palette management dialog.
   const [showPalettePanel, setShowPalettePanel] = useState(false);
   // Floating, draggable Layers panel (open by default so nothing appears missing).
@@ -420,6 +418,11 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   );
 
   useEffect(() => { onDirtyChange?.(isDirty); }, [isDirty, onDirtyChange]);
+
+  // Live design-change signal — fires on every edit (not just the dirty
+  // transition) so a subscriber (e.g. the audit drawer) can recompute
+  // heuristic findings from the current design as the author works.
+  useEffect(() => { onDesignChange?.(design); }, [design, onDesignChange]);
 
   // Imperative save helper used by autosave + ref consumers (manual save).
   // Only advances the saved-snapshot when the save reports success; on
@@ -599,6 +602,14 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     isDirty: () => JSON.stringify(design) !== lastSavedSnapshot,
     getDesign: () => design,
     getA11yIssues: () => auditCanvasDesign(design),
+    // Reorder every element so document (reading) order follows the visual
+    // layout — driven from the audit drawer's Auto-order button.
+    autoOrder: () => replaceChildren((arr) => autoOrderChildren(arr, { rootIsFlow: isFlow })),
+    // True when Auto-order would actually change something (reading order does
+    // not yet match the visual layout). Lets the drawer mirror the enabled
+    // state / hint copy the left panel used to show.
+    canAutoOrder: () =>
+      children.length > 0 && !readingOrderMatchesVisualDeep(children, { rootIsFlow: isFlow }),
     // Open the colour swatch palette panel. Called by the shell's top-nav
     // palette icon so it shares the exact same panel as the in-builder
     // "Palette" button (same tenant/microsite scope).
@@ -678,7 +689,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
         }, 50);
       }
     },
-  }), [performSave, design, lastSavedSnapshot, replaceChildren, selectedIds, children, zoom, gridSize]);
+  }), [performSave, design, lastSavedSnapshot, replaceChildren, selectedIds, children, zoom, gridSize, isFlow]);
 
   const updateBlock = useCallback((id, updater) => {
     replaceChildren((arr) =>
@@ -997,20 +1008,6 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   const moveBlockInReadingOrder = useCallback((id, direction) => {
     replaceChildren((arr) => moveBlockInReadingOrderTree(arr, id, direction));
   }, [replaceChildren]);
-
-  // Reorder every element so document (reading) order matches the visual
-  // layout, with zero visual change. Single undoable step.
-  const handleAutoOrder = useCallback(() => {
-    replaceChildren((arr) => autoOrderChildren(arr, { rootIsFlow: isFlow }));
-  }, [replaceChildren, isFlow]);
-
-  // True when Auto-order would actually change something (document order does
-  // not yet match the visual layout) — at the root OR inside any nested
-  // free-positioned container/group.
-  const canAutoOrder = useMemo(
-    () => children.length > 0 && !readingOrderMatchesVisualDeep(children, { rootIsFlow: isFlow }),
-    [children, isFlow],
-  );
 
   // ---- Layer reorder ----
   const handleReorderLayers = useCallback((newChildren) => {
@@ -1951,30 +1948,6 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
           </Button>
           <Button
             size="sm" variant="ghost"
-            onClick={() => setShowA11yPanel((v) => !v)}
-            className={`toggle-elevate ${showA11yPanel ? 'toggle-elevated' : ''}`}
-            aria-pressed={showA11yPanel}
-            title="Show accessibility audit"
-            data-testid="button-toggle-a11y"
-          >
-            <Accessibility className="w-4 h-4 mr-1.5" />
-            A11y
-            {a11yIssues.length > 0 && (
-              <Badge
-                variant="outline"
-                className={`ml-1.5 ${
-                  a11yIssues.some((i) => i.severity === 'error')
-                    ? 'border-destructive/40 text-destructive'
-                    : ''
-                }`}
-                data-testid="badge-a11y-issue-count"
-              >
-                {a11yIssues.length}
-              </Badge>
-            )}
-          </Button>
-          <Button
-            size="sm" variant="ghost"
             onClick={() => setShowAllBoxes((v) => !v)}
             className={`toggle-elevate ${showAllBoxes ? 'toggle-elevated' : ''}`}
             aria-pressed={showAllBoxes}
@@ -2053,26 +2026,6 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
           >
             <h2 className="text-sm font-semibold text-slate-900 mb-2">Blocks</h2>
             <CanvasPalette />
-            {showA11yPanel && (
-              <div className="mt-6 pt-4 border-t border-slate-200">
-                <CanvasA11yPanel
-                  issues={a11yIssues}
-                  selectedIds={selectedIds}
-                  onJumpToBlock={(id) => {
-                    setSelectedIds([id]);
-                    const el = document.querySelector(`[data-testid="canvas-block-${id}"]`);
-                    if (el && typeof el.scrollIntoView === 'function') {
-                      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    }
-                  }}
-                  onLocate={onLocateIssue}
-                  onAutoOrder={handleAutoOrder}
-                  canAutoOrder={canAutoOrder}
-                  showReadingOrder={showReadingOrder}
-                  onToggleReadingOrder={() => setShowReadingOrder((v) => !v)}
-                />
-              </div>
-            )}
           </aside>
 
           {/* Stage */}
