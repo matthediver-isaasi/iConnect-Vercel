@@ -13,7 +13,7 @@ import {
   LayoutTemplate, Component as ComponentIcon, History as HistoryIcon,
   Images as ImagesIcon, Keyboard, Command as CommandIcon,
   ExternalLink, Trash2, RotateCcw, Unlink, Plus, Eye,
-  Pencil, Save as SaveIcon,
+  Pencil, Save as SaveIcon, Lock, LockOpen,
 } from 'lucide-react';
 import CanvasPageRenderer from './CanvasPageRenderer';
 import {
@@ -409,26 +409,70 @@ export function VersionsDialog({ open, onOpenChange, pageId, onRestored }) {
     onError: (e) => toast.error(e.message),
   });
 
+  // Lock/unlock a single version. Locked versions are protected from pruning
+  // and excluded from the rolling 10; a page can have at most `maxLocked` (3).
+  const lockMut = useMutation({
+    mutationFn: async ({ versionId, locked }) => {
+      const r = await fetch(`/api/canvas-versions/${pageId}?lock=1`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ versionId, locked }),
+      });
+      if (!r.ok) {
+        const errBody = await r.json().catch(() => ({}));
+        throw new Error(errBody.error || 'Failed to update lock state');
+      }
+      return r.json();
+    },
+    onSuccess: (_body, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['canvas-versions', pageId] });
+      toast.success(vars.locked ? 'Version locked' : 'Version unlocked');
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const maxLocked = data?.maxLocked ?? 3;
+  const lockedCount = data?.lockedCount ?? (data?.versions || []).filter((v) => v.is_locked).length;
+  const lockLimitReached = lockedCount >= maxLocked;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl">
         <DialogHeader>
           <DialogTitle>Version history</DialogTitle>
           <DialogDescription>
-            Roll back to a previous saved version. A snapshot of the current page is taken automatically before restoring. Only the last 10 versions are kept — older versions are removed automatically.
+            Roll back to a previous saved version. A snapshot of the current page is taken automatically before restoring. Only the last 10 versions are kept — older ones are removed automatically. Lock up to {maxLocked} versions to protect them from being removed; locked versions sit outside the rolling 10 and are never auto-deleted until you unlock them.
           </DialogDescription>
         </DialogHeader>
+        {!isLoading && (data?.versions || []).length > 0 && (
+          <p className="text-xs text-slate-500" data-testid="text-locked-count">
+            {lockedCount} of {maxLocked} version{maxLocked === 1 ? '' : 's'} locked
+          </p>
+        )}
         <div className="space-y-2 max-h-[50vh] overflow-y-auto">
           {isLoading && <p className="text-sm text-slate-500">Loading…</p>}
-          {(data?.versions || []).map((v) => (
+          {(data?.versions || []).map((v) => {
+            const isLocked = !!v.is_locked;
+            const lockDisabled = lockMut.isPending || (!isLocked && lockLimitReached);
+            const lockTitle = isLocked
+              ? 'Unlock this version — it will return to the rolling 10 and may be pruned'
+              : (lockLimitReached
+                ? `You can lock at most ${maxLocked} versions. Unlock one first.`
+                : 'Lock this version to protect it from being removed');
+            return (
             <div key={v.id} className="flex items-start justify-between gap-3 rounded-md border border-slate-200 p-3 hover-elevate" data-testid={`version-row-${v.id}`}>
               <div className="min-w-0">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <HistoryIcon className="w-4 h-4 text-slate-500" />
                   <span className="font-medium text-slate-900">
                     {new Date(v.created_at).toLocaleString()}
                   </span>
                   <Badge variant="outline">{v.source}</Badge>
+                  {isLocked && (
+                    <Badge variant="secondary" data-testid={`badge-locked-${v.id}`}>
+                      <Lock className="w-3 h-3 mr-1" />Locked
+                    </Badge>
+                  )}
                 </div>
                 <p className="text-xs text-slate-500 mt-1" data-testid={`text-version-author-${v.id}`}>
                   Saved by {v.saved_by_name || 'Unknown'}
@@ -436,6 +480,18 @@ export function VersionsDialog({ open, onOpenChange, pageId, onRestored }) {
                 {v.label && <p className="text-xs text-slate-500 mt-1">{v.label}</p>}
               </div>
               <div className="flex items-center gap-2 shrink-0">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => lockMut.mutate({ versionId: v.id, locked: !isLocked })}
+                  disabled={lockDisabled}
+                  title={lockTitle}
+                  data-testid={`button-toggle-lock-${v.id}`}
+                >
+                  {isLocked
+                    ? <><LockOpen className="w-4 h-4 mr-2" />Unlock</>
+                    : <><Lock className="w-4 h-4 mr-2" />Lock</>}
+                </Button>
                 <Button size="sm" variant="outline" onClick={() => openPreview(v)} disabled={previewLoading} data-testid={`button-preview-version-${v.id}`}>
                   <Eye className="w-4 h-4 mr-2" />Preview
                 </Button>
@@ -444,7 +500,8 @@ export function VersionsDialog({ open, onOpenChange, pageId, onRestored }) {
                 </Button>
               </div>
             </div>
-          ))}
+            );
+          })}
           {!isLoading && (data?.versions || []).length === 0 && (
             <p className="text-sm text-slate-500">No versions yet. Publishing the page creates a snapshot.</p>
           )}

@@ -13,6 +13,7 @@ import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasFeatureAccess } from '../_lib/tenantContext.js';
 
 const MAX_KEEP = 10;
+const MAX_LOCKED = 3;
 
 // Resolve a set of member ids to human-readable display names.
 // Falls back name → first/last → email; unresolved ids are simply absent.
@@ -33,17 +34,20 @@ async function resolveSaverNames(memberIds, tenantId) {
   return map;
 }
 
-// Prune version history so only the MAX_KEEP most recent snapshots remain.
+// Prune version history so only the MAX_KEEP most recent UNLOCKED snapshots
+// remain. Locked versions are never deleted and never counted toward the limit,
+// so they sit outside the pot of 10 rolling versions (Task #2759).
 // Called after every snapshot insert (manual, publish, and pre-restore).
 async function pruneVersions(pageId, tenantId) {
-  const { data: all } = await supabase
+  const { data: unlocked } = await supabase
     .from('canvas_page_version')
     .select('id, created_at')
     .eq('page_id', pageId)
     .eq('tenant_id', tenantId)
+    .eq('is_locked', false)
     .order('created_at', { ascending: false });
-  if (Array.isArray(all) && all.length > MAX_KEEP) {
-    const toDelete = all.slice(MAX_KEEP).map((r) => r.id);
+  if (Array.isArray(unlocked) && unlocked.length > MAX_KEEP) {
+    const toDelete = unlocked.slice(MAX_KEEP).map((r) => r.id);
     if (toDelete.length > 0) {
       await supabase.from('canvas_page_version').delete().in('id', toDelete);
     }
@@ -106,28 +110,93 @@ export default async function handler(req, res) {
       return res.status(200).json({ version: data });
     }
     const cols = full
-      ? 'id, page_id, design, label, source, created_by, created_at'
-      : 'id, page_id, label, source, created_by, created_at';
-    const { data, error } = await supabase
-      .from('canvas_page_version')
-      .select(cols)
-      .eq('page_id', pageId)
-      .eq('tenant_id', tenantId)
-      .order('created_at', { ascending: false })
-      .limit(MAX_KEEP);
-    if (error) return res.status(500).json({ error: 'Failed to load versions' });
-    const versions = data || [];
+      ? 'id, page_id, design, label, source, created_by, created_at, is_locked'
+      : 'id, page_id, label, source, created_by, created_at, is_locked';
+    // Locked versions sit OUTSIDE the pot of 10 rolling versions, so they must
+    // always be returned in addition to the (up to) 10 most-recent unlocked
+    // ones — up to 13 rows total (Task #2759). Two queries keep the caps
+    // independent; if we simply limited a combined query the locked rows could
+    // starve the unlocked rolling window (or vice versa).
+    const [{ data: lockedData, error: lockedErr }, { data: unlockedData, error: unlockedErr }] =
+      await Promise.all([
+        supabase
+          .from('canvas_page_version')
+          .select(cols)
+          .eq('page_id', pageId)
+          .eq('tenant_id', tenantId)
+          .eq('is_locked', true)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('canvas_page_version')
+          .select(cols)
+          .eq('page_id', pageId)
+          .eq('tenant_id', tenantId)
+          .eq('is_locked', false)
+          .order('created_at', { ascending: false })
+          .limit(MAX_KEEP),
+      ]);
+    if (lockedErr || unlockedErr) return res.status(500).json({ error: 'Failed to load versions' });
+    // Merge and present newest-first regardless of lock state.
+    const versions = [...(lockedData || []), ...(unlockedData || [])]
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     const nameMap = await resolveSaverNames(versions.map((v) => v.created_by), tenantId);
     const withNames = versions.map((v) => ({
       ...v,
       saved_by_name: v.created_by ? (nameMap[v.created_by] || null) : null,
     }));
-    return res.status(200).json({ versions: withNames });
+    return res.status(200).json({ versions: withNames, lockedCount: (lockedData || []).length, maxLocked: MAX_LOCKED });
   }
 
   if (req.method === 'POST') {
     const restore = req.query.restore === '1';
+    const lock = req.query.lock === '1';
     const body = req.body || {};
+
+    if (lock) {
+      // Toggle a single version's lock state (Task #2759). Enforces the
+      // max-3-locked-per-page cap server-side; the UI mirrors it but the
+      // server is the source of truth.
+      if (!body.versionId) return res.status(400).json({ error: 'versionId required' });
+      const locked = body.locked === true;
+      const { data: version, error: vErr } = await supabase
+        .from('canvas_page_version')
+        .select('id, is_locked')
+        .eq('id', body.versionId)
+        .eq('page_id', pageId)
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+      if (vErr) return res.status(500).json({ error: 'Failed to load version' });
+      if (!version) return res.status(404).json({ error: 'Version not found' });
+
+      if (locked && !version.is_locked) {
+        const { count, error: cErr } = await supabase
+          .from('canvas_page_version')
+          .select('id', { count: 'exact', head: true })
+          .eq('page_id', pageId)
+          .eq('tenant_id', tenantId)
+          .eq('is_locked', true);
+        if (cErr) return res.status(500).json({ error: 'Failed to count locked versions' });
+        if ((count || 0) >= MAX_LOCKED) {
+          return res.status(409).json({ error: `You can lock at most ${MAX_LOCKED} versions. Unlock one first.` });
+        }
+      }
+
+      const { data: updated, error: uErr } = await supabase
+        .from('canvas_page_version')
+        .update({ is_locked: locked })
+        .eq('id', body.versionId)
+        .eq('page_id', pageId)
+        .eq('tenant_id', tenantId)
+        .select('id, is_locked')
+        .single();
+      if (uErr) return res.status(500).json({ error: 'Failed to update lock state' });
+
+      // Unlocking returns the version to the pot of 10, which may push the
+      // unlocked count over the limit — prune the oldest unlocked as normal.
+      if (!locked) await pruneVersions(pageId, tenantId);
+
+      return res.status(200).json({ version: updated });
+    }
 
     if (restore) {
       if (!body.versionId) return res.status(400).json({ error: 'versionId required' });
