@@ -225,17 +225,18 @@ export function LinkField({ label, value, onChange, placeholder, testId }) {
   const otherPages = (pages || []).filter((p) => p.slug);
   const hasAnchorMenu = usableAnchors.length > 0 || otherPages.length > 0;
 
-  // Task #2337: open the shared File Repository picker (same event the
-  // ImageField uses) so a CTA can link straight to a PDF/Word/Excel/image
-  // asset. The editor shell listens for this event, opens the picker, and
-  // routes the picked asset back through `onPick`. No `kind` filter is passed
-  // so every file type (documents included) is selectable.
-  const openLibrary = () => {
+  // Task #2719: open the internal-page picker modal. The editor shell listens
+  // for this event, opens a read-only page browser (folder/microsite sidebar,
+  // grid/list toggle, search), and routes the picked page's internal path back
+  // through `onPick`. This replaces the old small File-Repository icon here
+  // (which duplicated the large "Choose from File Repository" button rendered
+  // below the field in block inspectors).
+  const openPagePicker = () => {
     if (typeof window === 'undefined') return;
-    window.dispatchEvent(new CustomEvent('canvas:open-file-repository', {
+    window.dispatchEvent(new CustomEvent('canvas:open-page-picker', {
       detail: {
-        onPick: (asset) => {
-          if (asset?.url) onChange(asset.url);
+        onPick: (path) => {
+          if (path) onChange(path);
         },
       },
     }));
@@ -255,11 +256,11 @@ export function LinkField({ label, value, onChange, placeholder, testId }) {
           size="icon"
           variant="outline"
           type="button"
-          onClick={openLibrary}
-          title="Link to a file from the File Repository"
-          data-testid={testId ? `${testId}-file-picker` : 'link-file-picker'}
+          onClick={openPagePicker}
+          title="Link to an internal page"
+          data-testid={testId ? `${testId}-page-picker` : 'link-page-picker'}
         >
-          <FileText className="w-4 h-4" />
+          <Globe className="w-4 h-4" />
         </Button>
         {hasAnchorMenu && (
           <DropdownMenu>

@@ -41,6 +41,7 @@ import {
   ShortcutsOverlay, CommandPalette, unlinkSelectedSymbol,
 } from "@/components/canvas/CanvasPhase7Dialogs";
 import { FileRepositoryPicker } from "@/components/ImageSelector";
+import PagePickerDialog from "@/components/canvas/PagePickerDialog";
 
 // Canvas Builder Phase 2 — Editor shell wraps the CanvasBuilder.
 // Handles loading, saving (manual + autosave), and previewing the page.
@@ -141,6 +142,11 @@ export default function CanvasPageEditorPage() {
   const [showSymbols, setShowSymbols] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
   const [showFileRepo, setShowFileRepo] = useState(false);
+  // Internal-page picker modal (Task #2719): opened by the shared LinkField's
+  // globe button. Captures the field's onPick so the picked page's internal
+  // path is routed back to it.
+  const [showPagePicker, setShowPagePicker] = useState(false);
+  const [pagePickHandler, setPagePickHandler] = useState(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
   // Rename / change-slug dialog state (Task #979).
@@ -796,9 +802,15 @@ export default function CanvasPageEditorPage() {
       setShowFileRepo(true);
     };
     window.addEventListener('canvas:open-file-repository', onOpenFileRepo);
+    const onOpenPagePicker = (e) => {
+      setPagePickHandler(() => e.detail?.onPick || null);
+      setShowPagePicker(true);
+    };
+    window.addEventListener('canvas:open-page-picker', onOpenPagePicker);
     return () => {
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('canvas:open-file-repository', onOpenFileRepo);
+      window.removeEventListener('canvas:open-page-picker', onOpenPagePicker);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -2082,6 +2094,15 @@ export default function CanvasPageEditorPage() {
           }]);
           setShowFileRepo(false);
           toast.success('Image inserted');
+        }}
+      />
+      <PagePickerDialog
+        open={showPagePicker}
+        onOpenChange={(o) => { setShowPagePicker(o); if (!o) setPagePickHandler(null); }}
+        onPick={(path) => {
+          if (pagePickHandler) pagePickHandler(path);
+          setPagePickHandler(null);
+          setShowPagePicker(false);
         }}
       />
       <ShortcutsOverlay open={showShortcuts} onOpenChange={setShowShortcuts} />

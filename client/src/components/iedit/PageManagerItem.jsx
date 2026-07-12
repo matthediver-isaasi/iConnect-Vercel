@@ -42,6 +42,12 @@ export default function PageManagerItem({
   publishPending,
   homePending,
   pinPending,
+  // Display-only picker mode (Task #2719): renders the card/row without any
+  // management action buttons, drag handle, or select checkbox, and makes the
+  // whole card/row clickable to choose this page. Used by the Canvas link
+  // page-picker modal.
+  selectMode = false,
+  onSelectPage,
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({ id: `page:${page.id}` });
@@ -54,6 +60,156 @@ export default function PageManagerItem({
   const isPinned = !!page.pinned_at;
   const isHome = homePageSlug === page.slug;
   const isLogin = page.slug === "login";
+
+  const layoutLabel =
+    page.layout_type === "member"
+      ? "Portal"
+      : page.layout_type === "hybrid"
+      ? "Hybrid"
+      : "Public";
+
+  // ---- Display-only picker variant (no actions; whole card selects) ----
+  if (selectMode) {
+    const handleSelect = () => onSelectPage?.(page);
+    const onKeyDown = (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        handleSelect();
+      }
+    };
+
+    if (viewMode === "list") {
+      return (
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={handleSelect}
+          onKeyDown={onKeyDown}
+          className="flex items-center gap-3 rounded-md border border-slate-200 bg-white px-3 py-2 hover-elevate active-elevate-2 cursor-pointer"
+          data-testid={`select-page-row-${page.id}`}
+        >
+          {isPinned && (
+            <Pin className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />
+          )}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span
+                className="font-medium text-slate-900 truncate"
+                data-testid={`text-page-title-${page.id}`}
+              >
+                {page.title}
+              </span>
+              {isHome && (
+                <Badge className="bg-blue-100 text-blue-700 border-blue-300">
+                  <Home className="w-3 h-3 mr-1" />
+                  Home
+                </Badge>
+              )}
+            </div>
+            <span className="font-mono text-xs text-slate-500">
+              /{page.slug}
+            </span>
+          </div>
+          <Badge className={`${getStatusBadge(page.status)} flex-shrink-0`}>
+            {page.status}
+          </Badge>
+          <Badge variant="outline" className="flex-shrink-0 hidden md:inline-flex">
+            {layoutLabel}
+          </Badge>
+          <Badge variant="outline" className="flex-shrink-0 hidden md:inline-flex">
+            {page.builder_type === "canvas" ? "Canvas" : "iEdit"}
+          </Badge>
+          {page.microsite_id && (
+            <Badge
+              variant="outline"
+              className="flex-shrink-0 hidden md:inline-flex text-cyan-700 border-cyan-300"
+              title="This page belongs to a microsite and is served under its URL prefix"
+              data-testid={`badge-microsite-${page.id}`}
+            >
+              Microsite
+            </Badge>
+          )}
+          <span className="text-xs text-slate-500 flex-shrink-0 hidden lg:inline w-28 text-right">
+            {page.updated_date
+              ? format(new Date(page.updated_date), "MMM d, yyyy")
+              : "—"}
+          </span>
+        </div>
+      );
+    }
+
+    return (
+      <Card
+        role="button"
+        tabIndex={0}
+        onClick={handleSelect}
+        onKeyDown={onKeyDown}
+        className="cursor-pointer hover-elevate active-elevate-2 border-slate-200"
+        data-testid={`select-page-card-${page.id}`}
+      >
+        <CardHeader>
+          <div className="flex items-start justify-between mb-2 gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              {isPinned && (
+                <Pin className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />
+              )}
+              <CardTitle
+                className="text-lg break-words min-w-0"
+                data-testid={`text-page-title-${page.id}`}
+              >
+                {page.title}
+              </CardTitle>
+              {isHome && (
+                <Badge className="bg-blue-100 text-blue-700 border-blue-300">
+                  <Home className="w-3 h-3 mr-1" />
+                  Home
+                </Badge>
+              )}
+            </div>
+            <Badge className={getStatusBadge(page.status)}>{page.status}</Badge>
+          </div>
+          {page.description && (
+            <p className="text-sm text-slate-600 line-clamp-2">
+              {page.description}
+            </p>
+          )}
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="text-sm">
+            <span className="text-slate-500">Slug:</span>
+            <span className="ml-2 font-mono text-slate-700">/{page.slug}</span>
+          </div>
+          <div className="text-sm">
+            <span className="text-slate-500">View:</span>
+            <Badge variant="outline" className="ml-2">
+              {layoutLabel}
+            </Badge>
+          </div>
+          <div className="text-sm">
+            <span className="text-slate-500">Builder:</span>
+            <Badge variant="outline" className="ml-2">
+              {page.builder_type === "canvas" ? "Canvas" : "iEdit"}
+            </Badge>
+            {page.microsite_id && (
+              <Badge
+                variant="outline"
+                className="ml-2 text-cyan-700 border-cyan-300"
+                title="This page belongs to a microsite and is served under its URL prefix"
+                data-testid={`badge-microsite-${page.id}`}
+              >
+                Microsite
+              </Badge>
+            )}
+          </div>
+          {page.updated_date && (
+            <div className="text-xs text-slate-500">
+              Updated {format(new Date(page.updated_date), "MMM d, yyyy")}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
 
   const dragHandle = (
     <button
