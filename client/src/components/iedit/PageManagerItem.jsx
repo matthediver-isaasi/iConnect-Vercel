@@ -16,6 +16,7 @@ import {
   Pin,
   PinOff,
   GripVertical,
+  CheckCircle2,
 } from "lucide-react";
 
 /**
@@ -26,6 +27,7 @@ import {
 export default function PageManagerItem({
   page,
   viewMode,
+  pageMeta = null,
   selected = false,
   onToggleSelect,
   homePageSlug,
@@ -211,6 +213,80 @@ export default function PageManagerItem({
     );
   }
 
+  // ---- Audit & edit insights (Task #2749) ----
+  const meta = pageMeta || null;
+  const failingAudit = !!(meta?.audited && meta.errorCount > 0);
+  const lastEditedDate = meta?.savedAt || page.updated_date || null;
+  const lastEditedLabel = lastEditedDate
+    ? format(new Date(lastEditedDate), "MMM d, yyyy")
+    : null;
+
+  const auditBadge = (() => {
+    if (!meta || !meta.audited) {
+      return (
+        <Badge
+          variant="outline"
+          className="text-slate-500"
+          data-testid={`badge-audit-${page.id}`}
+        >
+          Not audited
+        </Badge>
+      );
+    }
+    if (meta.errorCount === 0 && meta.warningCount === 0) {
+      return (
+        <Badge
+          variant="outline"
+          className="text-green-700 border-green-300 dark:text-green-400 dark:border-green-900"
+          data-testid={`badge-audit-${page.id}`}
+        >
+          <CheckCircle2 className="w-3 h-3 mr-1" />
+          No issues
+        </Badge>
+      );
+    }
+    return (
+      <span
+        className="inline-flex items-center gap-1 flex-wrap"
+        data-testid={`badge-audit-${page.id}`}
+      >
+        {meta.errorCount > 0 && (
+          <Badge
+            variant="destructive"
+            data-testid={`badge-audit-errors-${page.id}`}
+          >
+            {meta.errorCount} {meta.errorCount === 1 ? "error" : "errors"}
+          </Badge>
+        )}
+        {meta.warningCount > 0 && (
+          <Badge
+            variant="warning"
+            data-testid={`badge-audit-warnings-${page.id}`}
+          >
+            {meta.warningCount} {meta.warningCount === 1 ? "warning" : "warnings"}
+          </Badge>
+        )}
+      </span>
+    );
+  })();
+
+  const lastEditedNode = (
+    <div
+      className="text-xs text-slate-500"
+      data-testid={`text-last-edited-${page.id}`}
+    >
+      {meta?.savedByName ? (
+        <>
+          Last edited by{" "}
+          <span className="text-slate-700 font-medium">{meta.savedByName}</span>
+          {lastEditedLabel ? ` · ${lastEditedLabel}` : ""}
+        </>
+      ) : (
+        <>Last edited {lastEditedLabel || "—"}</>
+      )}
+    </div>
+  );
+
   const dragHandle = (
     <button
       type="button"
@@ -254,8 +330,12 @@ export default function PageManagerItem({
       <div
         ref={setNodeRef}
         style={style}
-        className={`flex items-center gap-3 rounded-md border bg-white px-3 py-2 hover-elevate ${
-          selected ? "border-blue-400 ring-1 ring-blue-400" : "border-slate-200"
+        className={`flex items-center gap-3 rounded-md border px-3 py-2 hover-elevate ${
+          selected
+            ? "bg-white border-blue-400 ring-1 ring-blue-400"
+            : failingAudit
+            ? "bg-red-50 border-red-300 dark:bg-red-950/30 dark:border-red-900"
+            : "bg-white border-slate-200"
         }`}
         data-testid={`row-page-${page.id}`}
       >
@@ -301,11 +381,17 @@ export default function PageManagerItem({
             Microsite
           </Badge>
         )}
-        <span className="text-xs text-slate-500 flex-shrink-0 hidden lg:inline w-28 text-right">
-          {page.updated_date
-            ? format(new Date(page.updated_date), "MMM d, yyyy")
-            : "—"}
-        </span>
+        {auditBadge && (
+          <div className="flex-shrink-0 hidden lg:flex">{auditBadge}</div>
+        )}
+        <div className="flex-shrink-0 hidden lg:flex flex-col items-end w-40 text-right">
+          <span className="text-xs text-slate-500">
+            {page.updated_date
+              ? format(new Date(page.updated_date), "MMM d, yyyy")
+              : "—"}
+          </span>
+          {lastEditedNode}
+        </div>
         <div className="flex items-center gap-1 flex-shrink-0">
           {pinButton}
           <Button
@@ -375,7 +461,11 @@ export default function PageManagerItem({
       ref={setNodeRef}
       style={style}
       className={`hover:shadow-lg transition-shadow ${
-        selected ? "border-blue-400 ring-1 ring-blue-400" : "border-slate-200"
+        selected
+          ? "border-blue-400 ring-1 ring-blue-400"
+          : failingAudit
+          ? "border-red-300 bg-red-50 dark:border-red-900 dark:bg-red-950/30"
+          : "border-slate-200"
       }`}
       data-testid={`card-page-${page.id}`}
     >
@@ -446,6 +536,15 @@ export default function PageManagerItem({
         {page.updated_date && (
           <div className="text-xs text-slate-500">
             Updated {format(new Date(page.updated_date), "MMM d, yyyy")}
+          </div>
+        )}
+
+        {lastEditedNode}
+
+        {auditBadge && (
+          <div className="text-sm flex items-center gap-2 flex-wrap">
+            <span className="text-slate-500">Accessibility:</span>
+            {auditBadge}
           </div>
         )}
 

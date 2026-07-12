@@ -17,7 +17,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { FileEdit, Plus, Search, LayoutGrid, List, ArrowUpDown, FileText, Sparkles, Loader2, CheckCircle2, XCircle, MinusCircle } from "lucide-react";
+import { FileEdit, Plus, Search, LayoutGrid, List, ArrowUpDown, FileText, Sparkles, Loader2, CheckCircle2, XCircle, MinusCircle, TrendingDown, TrendingUp, Minus, Globe, AlertCircle, AlertTriangle } from "lucide-react";
 import {
   DndContext,
   DragOverlay,
@@ -57,6 +57,53 @@ function loadSortMap() {
   } catch {
     return {};
   }
+}
+
+// Renders an up/down trend arrow comparing the current tenant-wide average
+// against the previous ~30-day period (Task #2749). Fewer issues than before
+// reads as an improvement (down arrow, green); more reads as a regression.
+function AuditTrend({ current, previous, noun, testid }) {
+  if (current == null || previous == null) return null;
+  const delta = Math.round((current - previous) * 100) / 100;
+  if (delta === 0) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 text-xs text-slate-500"
+        aria-label={`No change in average ${noun} versus the previous 30 days`}
+        data-testid={testid}
+      >
+        <Minus className="w-3.5 h-3.5" />
+        No change
+      </span>
+    );
+  }
+  const improving = delta < 0;
+  const Icon = improving ? TrendingDown : TrendingUp;
+  const magnitude = Math.abs(delta);
+  const label = improving
+    ? `Improving: ${magnitude} fewer ${noun} per page than the previous 30 days`
+    : `Worsening: ${magnitude} more ${noun} per page than the previous 30 days`;
+  return (
+    <span
+      className={`inline-flex items-center gap-1 text-xs ${
+        improving
+          ? "text-green-600 dark:text-green-400"
+          : "text-red-600 dark:text-red-400"
+      }`}
+      aria-label={label}
+      title={label}
+      data-testid={testid}
+    >
+      <Icon className="w-3.5 h-3.5" aria-hidden="true" />
+      {improving ? "−" : "+"}
+      {magnitude}
+    </span>
+  );
+}
+
+// Formats a nullable average for display: "—" when no audited pages exist.
+function fmtAvg(v) {
+  return v == null ? "—" : v.toFixed(1);
 }
 
 // Scaled, fit-to-width preview of a generated Canvas design.
@@ -353,6 +400,24 @@ export default function IEditPageManagementPage() {
     },
     staleTime: 30_000,
   });
+
+  // Per-page audit + last-edit meta and tenant-wide stats (Task #2749).
+  // One bulk request keeps the grid fast regardless of page count.
+  const { data: pageMeta } = useQuery({
+    queryKey: ['iedit-page-management-meta'],
+    queryFn: async () => {
+      const res = await adminFetch('/api/admin/page-management-meta', { credentials: 'include' });
+      if (!res.ok) return { pages: {}, stats: null };
+      const data = await res.json().catch(() => ({}));
+      return {
+        pages: data?.pages && typeof data.pages === 'object' ? data.pages : {},
+        stats: data?.stats || null,
+      };
+    },
+    staleTime: 30_000,
+  });
+  const pageMetaById = pageMeta?.pages || {};
+  const pageStats = pageMeta?.stats || null;
 
   const createFolderMutation = useMutation({
     mutationFn: ({ name, parentId, micrositeId }) =>
@@ -1273,6 +1338,98 @@ export default function IEditPageManagementPage() {
           </Button>
         </div>
 
+        {/* Stats bar (Task #2749): tenant-wide page/audit totals + trend */}
+        {pageStats && (
+          <div
+            className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6"
+            data-testid="bar-page-stats"
+          >
+            <Card className="border-slate-200">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 text-slate-500 text-sm mb-1">
+                  <FileText className="w-4 h-4" />
+                  Total pages
+                </div>
+                <div
+                  className="text-2xl font-bold text-slate-900"
+                  data-testid="stat-total-pages"
+                >
+                  {pageStats.totalPages}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-slate-200">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 text-slate-500 text-sm mb-1">
+                  <Globe className="w-4 h-4" />
+                  Microsites
+                </div>
+                <div
+                  className="text-2xl font-bold text-slate-900"
+                  data-testid="stat-microsite-count"
+                >
+                  {pageStats.micrositeCount}
+                </div>
+                <div
+                  className="text-xs text-slate-500 mt-1"
+                  data-testid="stat-pages-in-microsites"
+                >
+                  {pageStats.pagesInMicrosites}{" "}
+                  {pageStats.pagesInMicrosites === 1 ? "page" : "pages"} in
+                  microsites
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-slate-200">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 text-slate-500 text-sm mb-1">
+                  <AlertCircle className="w-4 h-4" />
+                  Avg errors / page
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span
+                    className="text-2xl font-bold text-slate-900"
+                    data-testid="stat-avg-errors"
+                  >
+                    {fmtAvg(pageStats.avgErrors)}
+                  </span>
+                  <AuditTrend
+                    current={pageStats.avgErrors}
+                    previous={pageStats.prevAvgErrors}
+                    noun="errors"
+                    testid="trend-avg-errors"
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-slate-200">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 text-slate-500 text-sm mb-1">
+                  <AlertTriangle className="w-4 h-4" />
+                  Avg warnings / page
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span
+                    className="text-2xl font-bold text-slate-900"
+                    data-testid="stat-avg-warnings"
+                  >
+                    {fmtAvg(pageStats.avgWarnings)}
+                  </span>
+                  <AuditTrend
+                    current={pageStats.avgWarnings}
+                    previous={pageStats.prevAvgWarnings}
+                    noun="warnings"
+                    testid="trend-avg-warnings"
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
         {/* Folders + pages */}
         <DndContext
           sensors={dndSensors}
@@ -1398,6 +1555,7 @@ export default function IEditPageManagementPage() {
                       key={page.id}
                       page={page}
                       viewMode="list"
+                      pageMeta={pageMetaById[page.id] || null}
                       selected={selectedPageIds.has(page.id)}
                       onToggleSelect={() => togglePageSelected(page.id)}
                       homePageSlug={homePageSlug}
@@ -1427,6 +1585,7 @@ export default function IEditPageManagementPage() {
                       key={page.id}
                       page={page}
                       viewMode="grid"
+                      pageMeta={pageMetaById[page.id] || null}
                       selected={selectedPageIds.has(page.id)}
                       onToggleSelect={() => togglePageSelected(page.id)}
                       homePageSlug={homePageSlug}
