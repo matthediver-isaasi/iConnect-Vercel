@@ -1572,12 +1572,16 @@ export default function CanvasPageEditorPage() {
             </div>
           </DialogHeader>
           <div className="flex-1 min-h-0 overflow-auto flex justify-center bg-slate-200">
-            {page?.slug ? (
+            {!page?.slug ? (
+              <div className="p-4 text-sm text-slate-500" data-testid="text-preview-no-slug">
+                Save a slug for this page before previewing.
+              </div>
+            ) : previewVisitorUrl ? (
               <iframe
                 ref={previewIframeRef}
                 key={previewNonce}
                 title="Page preview"
-                src={`/${page.slug}?_canvasPreview=${previewNonce}&_bp=${breakpoint}${previewView === 'public' ? '&_publicView=1' : ''}`}
+                src={`${previewVisitorUrl}?_canvasPreview=${previewNonce}&_bp=${breakpoint}${previewView === 'public' ? '&_publicView=1' : ''}`}
                 className="border-0 bg-white h-full"
                 style={{
                   width: breakpoint === 'mobile' ? 375 :
@@ -1588,8 +1592,8 @@ export default function CanvasPageEditorPage() {
                 data-testid="iframe-preview"
               />
             ) : (
-              <div className="p-4 text-sm text-slate-500" data-testid="text-preview-no-slug">
-                Save a slug for this page before previewing.
+              <div className="p-4 text-sm text-slate-500" data-testid="text-preview-loading-microsite">
+                Loading microsite preview…
               </div>
             )}
           </div>
