@@ -1,7 +1,7 @@
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import useEdgeAutoScroll from './useEdgeAutoScroll';
-import { Group as GroupIcon, Ungroup as UngroupIcon } from 'lucide-react';
+import { Group as GroupIcon, Ungroup as UngroupIcon, EyeOff as EyeOffIcon } from 'lucide-react';
 import { resolveBlockAtBreakpoint, blockIsFullWidthLike, clampGeomToStage, BLOCK_TYPES, resolveBoxShadowCss } from '@/lib/canvasDesign';
 import {
   ContextMenu,
@@ -916,16 +916,29 @@ function CanvasStageInner({
             )}
             {showDecorations && !effective.hidden && showReadingOrder && (
               <div
-                className="absolute pointer-events-none bg-primary text-primary-foreground rounded-md text-xs font-bold"
+                className={`absolute pointer-events-none rounded-md text-xs font-bold flex items-center gap-1 ${
+                  block.a11y?.ariaHidden
+                    ? 'bg-muted text-muted-foreground border border-border'
+                    : 'bg-primary text-primary-foreground'
+                }`}
                 style={{
                   left: effective.x + 4,
                   top: renderedTop + 4,
                   padding: '2px 6px',
                   zIndex: 9999,
                 }}
+                title={
+                  block.a11y?.ariaHidden
+                    ? 'Hidden from screen readers (aria-hidden) — this number is not announced by assistive tech.'
+                    : 'Announced by screen readers in this order.'
+                }
                 data-testid={`reading-order-${block.id}`}
+                data-aria-hidden={block.a11y?.ariaHidden ? 'true' : 'false'}
               >
-                {index + 1}
+                <span className={block.a11y?.ariaHidden ? 'line-through' : undefined}>
+                  {index + 1}
+                </span>
+                {block.a11y?.ariaHidden && <EyeOffIcon className="w-3 h-3" aria-hidden="true" />}
               </div>
             )}
           </div>
