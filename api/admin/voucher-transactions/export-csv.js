@@ -555,36 +555,45 @@ export default async function handler(req, res) {
         if (t.voucher_id) voucherIdsInReport.add(t.voucher_id);
       }
 
-      // Also include vouchers whose issue date itself falls inside the
-      // active date window, even if they have no other transactions in
-      // range — otherwise a voucher issued during the period would be
-      // silently dropped from the report.
-      if (dateFilterActive && canUseDbDateFilter && voucherHasIssuedAt) {
-        const issuedPageSize = 1000;
-        let issuedFrom = 0;
-        while (true) {
-          let issuedQuery = supabase
+      // Fold in *every* voucher for the tenant (respecting the organisation
+      // filter), not just those referenced by a transaction. A voucher that
+      // has never been used has no transaction rows, so without this it would
+      // be silently dropped from the export whenever no date filter is active.
+      // This subsumes the previous "issued in the active window" lookup: all
+      // vouchers are loaded here, and the awarded rows they produce are then
+      // date-range / exclude-expired filtered downstream exactly like used
+      // vouchers. The issued_at column may not exist yet in every environment
+      // (migration 20260515_add_voucher_issued_at); voucherSelectCols() and
+      // the 42703 fallback below degrade gracefully when it is missing.
+      {
+        const allVoucherPageSize = 1000;
+        let allVoucherFrom = 0;
+        const buildAllVoucherQuery = () => {
+          let query = supabase
             .from('voucher')
             .select(voucherSelectCols())
             .eq('tenant_id', tenantId);
-          if (fromIso) issuedQuery = issuedQuery.gte('issued_at', fromIso);
-          if (toIso) issuedQuery = issuedQuery.lte('issued_at', toIso);
-          if (orgFilterActive) issuedQuery = issuedQuery.in('organization_id', requestedOrgIds);
-          issuedQuery = issuedQuery.range(issuedFrom, issuedFrom + issuedPageSize - 1);
-          const { data: issuedVouchers, error: issuedErr } = await issuedQuery;
-          if (issuedErr) {
-            if (issuedErr.code === '42703') {
-              voucherHasIssuedAt = false;
-            }
-            console.warn('[VoucherExportCSV] Issued-in-range voucher lookup error (non-blocking):', issuedErr.message);
+          if (orgFilterActive) query = query.in('organization_id', requestedOrgIds);
+          return query
+            .order('id', { ascending: true })
+            .range(allVoucherFrom, allVoucherFrom + allVoucherPageSize - 1);
+        };
+        while (true) {
+          let { data: tenantVouchers, error: allVoucherErr } = await buildAllVoucherQuery();
+          if (allVoucherErr && allVoucherErr.code === '42703' && voucherHasIssuedAt) {
+            voucherHasIssuedAt = false;
+            ({ data: tenantVouchers, error: allVoucherErr } = await buildAllVoucherQuery());
+          }
+          if (allVoucherErr) {
+            console.warn('[VoucherExportCSV] Full tenant voucher lookup error (non-blocking):', allVoucherErr.message);
             break;
           }
-          for (const v of (issuedVouchers || [])) {
+          for (const v of (tenantVouchers || [])) {
             voucherIdsInReport.add(v.id);
             if (!voucherMap[v.id]) voucherMap[v.id] = v;
           }
-          if (!issuedVouchers || issuedVouchers.length < issuedPageSize) break;
-          issuedFrom += issuedPageSize;
+          if (!tenantVouchers || tenantVouchers.length < allVoucherPageSize) break;
+          allVoucherFrom += allVoucherPageSize;
         }
       }
 
