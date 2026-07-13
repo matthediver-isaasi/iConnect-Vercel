@@ -1164,6 +1164,29 @@ async function renderCustomPage(supabaseClient, tenant, pageSlug, baseUrl, optio
   return result;
 }
 
+// Task #2763: render a microsite's HOME page for the bare /{prefix} URL.
+// The home page is identified by microsite.home_page_id (a page that also
+// lives at /{prefix}/{slug}); resolve its slug, render it exactly like any
+// other microsite page, then override the canonical/OG URL to the bare
+// /{prefix} so crawlers/unfurlers index the landing page at its real address.
+// Returns null when the microsite has no home page or the target page is not
+// publicly served (unpublished / wrong layout) — the caller then falls through
+// to the default-site bare-slug lookup.
+async function renderMicrositeHomePage(supabaseClient, tenant, microsite, baseUrl) {
+  if (!microsite || !microsite.home_page_id) return null;
+  const { data: homePage } = await supabaseClient
+    .from('i_edit_page')
+    .select('slug')
+    .eq('id', microsite.home_page_id)
+    .maybeSingle();
+  if (!homePage?.slug) return null;
+  const pageData = await renderCustomPage(supabaseClient, tenant, homePage.slug, baseUrl, { microsite });
+  if (pageData) {
+    pageData.ogUrl = `${baseUrl}/${microsite.path_prefix}`;
+  }
+  return pageData;
+}
+
 async function renderListPage(supabaseClient, tenant, pageType, baseUrl) {
   const pages = {
     'PublicEvents': {
@@ -1383,6 +1406,26 @@ export default async function handler(req, res) {
             }
             break;
           }
+        }
+      }
+    }
+
+    // Task #2763: a single-segment path may be an ACTIVE microsite prefix, in
+    // which case it is that microsite's HOME page (served at the bare /{prefix},
+    // driven by microsite.home_page_id). Resolve this BEFORE the default-site
+    // bare-slug lookup so a crawler hitting /{prefix} gets the home page instead
+    // of a 404 / the wrong default-site page. This intentionally uses a broader
+    // segment match than the bare-slug regex below because microsite prefixes
+    // may start with a digit. Only a prefix that resolves to an active microsite
+    // with a home page takes this branch; everything else falls through
+    // unchanged, so existing /{slug} handling is preserved.
+    if (!pageData) {
+      const singleSegmentMatch = requestPath.match(/^\/([^/?#]+)\/?$/);
+      if (singleSegmentMatch) {
+        const segment = decodeURIComponent(singleSegmentMatch[1]);
+        const microsite = await resolveMicrositeByPrefix(supabase, tenant.id, segment);
+        if (microsite) {
+          pageData = await renderMicrositeHomePage(supabase, tenant, microsite, baseUrl);
         }
       }
     }

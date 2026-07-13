@@ -164,10 +164,15 @@ export default async function handler(req, res) {
 
     // Task #2426: microsite pages are served at /{prefix}/{slug}, so map
     // microsite_id -> path_prefix to emit the right URLs below.
+    // Task #2763: also advertise each active microsite's HOME page at the bare
+    // /{prefix} (parity with the pre-renderer, which serves the home page there
+    // and emits /{prefix} as its canonical URL). Fetch the microsite list when
+    // there are microsite pages OR we still need it to emit home URLs.
     const micrositePrefixById = {};
+    let activeMicrosites = null;
     if ((customPagesResult.data || []).some((p) => p.microsite_id)) {
-      const microsites = await listActiveMicrosites(supabase, tenant.id);
-      for (const m of microsites) micrositePrefixById[m.id] = m.path_prefix;
+      activeMicrosites = await listActiveMicrosites(supabase, tenant.id);
+      for (const m of activeMicrosites) micrositePrefixById[m.id] = m.path_prefix;
     }
 
     if (eventsResult.error) console.error('[Sitemap] Events query error:', JSON.stringify(eventsResult.error));
@@ -265,6 +270,24 @@ export default async function handler(req, res) {
           priority: '0.5'
         });
       }
+    }
+
+    // Task #2763: advertise each active microsite's HOME page at the bare
+    // /{prefix} (the pre-renderer serves it there and emits /{prefix} as the
+    // canonical URL). Only microsites that actually have a home page get an
+    // entry. `activeMicrosites` may already be loaded above; fetch it lazily
+    // otherwise (e.g. a microsite whose only public page is its home page).
+    if (activeMicrosites === null) {
+      activeMicrosites = await listActiveMicrosites(supabase, tenant.id);
+    }
+    for (const m of activeMicrosites) {
+      if (!m.home_page_id || !m.path_prefix) continue;
+      urls.push({
+        loc: baseUrl + `/${encodeURIComponent(m.path_prefix)}`,
+        lastmod: null,
+        changefreq: 'weekly',
+        priority: '0.6'
+      });
     }
 
     let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
