@@ -975,12 +975,12 @@ export default function EventRegistrationReport() {
     const countByMethod = {};
     for (const group of filteredGroups) {
       const gp = group.groupPayment;
-      totalRevenue += gp.totalCost || 0;
+      totalRevenue += (gp.totalCost || 0) - (gp.codeDiscount || 0);
       totalVoucher += gp.voucherAmount || 0;
       totalTrainingFund += gp.trainingFundAmount || 0;
       totalDiscount += gp.discount || 0;
       if (gp.paymentMethod === 'card' || gp.stripePaymentIntentId) {
-        totalStripePayments += gp.totalCost || 0;
+        totalStripePayments += (gp.totalCost || 0) - (gp.codeDiscount || 0);
       }
       const method = gp.paymentMethod || 'unknown';
       countByMethod[method] = (countByMethod[method] || 0) + 1;

@@ -457,14 +457,14 @@ export default async function handler(req, res) {
         const groupDiscount = groupOfferDiscount + groupCodeDiscount;
         const groupDiscountCode = (members.find(b => b.discount_code_label)?.discount_code_label) || null;
 
-        totalRevenue += groupTotalCost;
+        totalRevenue += groupTotalCost - groupCodeDiscount;
         totalVoucher += groupVoucher;
         totalTrainingFund += groupTrainingFund;
         totalDiscount += groupDiscount;
         totalAccountPayments += groupAccountAmount;
 
         if (first.payment_method === 'card' || first.stripe_payment_intent_id) {
-          totalStripePayments += groupTotalCost;
+          totalStripePayments += groupTotalCost - groupCodeDiscount;
         }
 
         const method = first.payment_method || 'unknown';
