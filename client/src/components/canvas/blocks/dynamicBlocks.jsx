@@ -37,6 +37,7 @@ import { resolveSearchResultsBranding } from '@/lib/searchResultsBranding';
 import { getSearchResultTypeIcon, getSearchResultTypeLabel, useArticleDisplayName } from '@/lib/searchResultTypes';
 import {
   BLOCK_TYPES,
+  BREAKPOINT_MAX_PX,
   resolveResponsiveValue,
   hasResponsiveOverride,
   hasAnyResponsiveValue,
@@ -3184,10 +3185,41 @@ function SponsorGridInspector({ block, update, breakpoint }) {
 // ============================================================================
 // Same sponsor data + card as the Sponsor grid, wrapped in the auto-scrolling
 // paged carousel shell modelled on the Speaker carousel.
+// Resolve the effective device breakpoint for JS-driven responsive settings
+// (sponsors per page, gap, internal padding). In the editor we honour the
+// forced device preview via `breakpoint`; on real public pages there is no
+// forced breakpoint, so we track the viewport with matchMedia against the same
+// canvas breakpoint maxes used elsewhere (avoids editor/public divergence).
+function useCarouselBreakpoint(breakpoint) {
+  const [runtimeBp, setRuntimeBp] = useState('desktop');
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return undefined;
+    const mqMobile = window.matchMedia(`(max-width: ${BREAKPOINT_MAX_PX.mobile}px)`);
+    const mqTablet = window.matchMedia(`(max-width: ${BREAKPOINT_MAX_PX.tablet}px)`);
+    const update = () => {
+      setRuntimeBp(mqMobile.matches ? 'mobile' : mqTablet.matches ? 'tablet' : 'desktop');
+    };
+    update();
+    mqMobile.addEventListener('change', update);
+    mqTablet.addEventListener('change', update);
+    return () => {
+      mqMobile.removeEventListener('change', update);
+      mqTablet.removeEventListener('change', update);
+    };
+  }, []);
+  if (breakpoint === 'mobile' || breakpoint === 'tablet' || breakpoint === 'desktop') return breakpoint;
+  return runtimeBp;
+}
+
 function SponsorCarouselRender({ block, asEditor, breakpoint }) {
   const c = block.content || {};
   const websiteNewTab = resolveNewTab({ newTab: c.websiteNewTab }, true);
   const { hasEvent, groups, allCategories, detailById, totalSponsors, isLoading, isError } = useEventSponsors(c.eventId);
+
+  // Per-device layout settings resolve against the effective breakpoint so the
+  // same values used in the forced-breakpoint editor preview also apply on the
+  // live public page as the viewport crosses the tablet/mobile thresholds.
+  const effBreakpoint = useCarouselBreakpoint(breakpoint);
 
   const [index, setIndex] = useState(0);
   const [direction, setDirection] = useState(1);
@@ -3241,10 +3273,17 @@ function SponsorCarouselRender({ block, asEditor, breakpoint }) {
   }, [filteredGroups, emptySelectedCats, hasEmptyCatContent]);
 
   const count = sponsors.length;
-  const perView = Math.max(1, Number(c.sponsorsPerView) || 1);
+  // Sponsors per page, gap and internal padding are per-device (scalar for
+  // legacy blocks, or a { desktop, tablet, mobile } object) — resolve each
+  // against the effective breakpoint, then fall back to the historic defaults.
+  const perView = Math.max(1, Math.floor(resolveResponsiveValue(c.sponsorsPerView, effBreakpoint) ?? 1));
   const pageCount = Math.max(1, Math.ceil(count / perView));
   const hasMany = pageCount > 1;
-  const gap = c.gap ?? 16;
+  const gap = Math.max(0, resolveResponsiveValue(c.gap, effBreakpoint) ?? 16);
+  const padTop = Math.max(0, resolveResponsiveValue(c.innerPaddingTop, effBreakpoint) ?? 16);
+  const padRight = Math.max(0, resolveResponsiveValue(c.innerPaddingRight, effBreakpoint) ?? 32);
+  const padBottom = Math.max(0, resolveResponsiveValue(c.innerPaddingBottom, effBreakpoint) ?? 16);
+  const padLeft = Math.max(0, resolveResponsiveValue(c.innerPaddingLeft, effBreakpoint) ?? 32);
   const transitionStyle = c.transition || 'slide';
   const transitionMs = Math.max(100, Number(c.transitionMs) || 400);
   const pauseOnHover = !!c.pauseOnHover;
@@ -3399,10 +3438,10 @@ function SponsorCarouselRender({ block, asEditor, breakpoint }) {
             className="w-full h-full flex items-stretch"
             style={{
               gap: `${gap}px`,
-              paddingTop: c.innerPaddingTop ?? 16,
-              paddingRight: c.innerPaddingRight ?? 32,
-              paddingBottom: c.innerPaddingBottom ?? 16,
-              paddingLeft: c.innerPaddingLeft ?? 32,
+              paddingTop: padTop,
+              paddingRight: padRight,
+              paddingBottom: padBottom,
+              paddingLeft: padLeft,
               justifyContent: centerAlign && pageSlice.length < perView ? 'center' : undefined,
               ...railStyle,
             }}
@@ -3457,7 +3496,7 @@ function SponsorCarouselRender({ block, asEditor, breakpoint }) {
               type="button"
               onClick={() => { goPrev(); setAutoplayPausedAt(Date.now()); }}
               className="absolute top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white/80 hover:bg-white border border-slate-200 flex items-center justify-center shadow-sm"
-              style={{ left: Math.max(8, (c.innerPaddingLeft ?? 32) - 24) }}
+              style={{ left: Math.max(8, padLeft - 24) }}
               aria-label="Previous sponsors"
               data-testid="button-sponsor-carousel-prev"
             >
@@ -3467,7 +3506,7 @@ function SponsorCarouselRender({ block, asEditor, breakpoint }) {
               type="button"
               onClick={() => { goNext(); setAutoplayPausedAt(Date.now()); }}
               className="absolute top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white/80 hover:bg-white border border-slate-200 flex items-center justify-center shadow-sm"
-              style={{ right: Math.max(8, (c.innerPaddingRight ?? 32) - 24) }}
+              style={{ right: Math.max(8, padRight - 24) }}
               aria-label="Next sponsors"
               data-testid="button-sponsor-carousel-next"
             >
@@ -3479,7 +3518,7 @@ function SponsorCarouselRender({ block, asEditor, breakpoint }) {
         {showIndicators ? (
           <div
             className="absolute left-1/2 -translate-x-1/2 flex items-center gap-1.5"
-            style={{ bottom: Math.max(4, (c.innerPaddingBottom ?? 16) - 8) }}
+            style={{ bottom: Math.max(4, padBottom - 8) }}
           >
             {Array.from({ length: pageCount }).map((_, i) => {
               const active = i === index;
@@ -3548,53 +3587,59 @@ function SponsorCarouselInspector({ block, update, breakpoint }) {
           hint="Leave all unchecked to show every sponsor for the event."
         />
       ) : null}
-      <NumberField
+      <ResponsiveNumberField
         label="Sponsors per page"
         min={1}
-        value={c.sponsorsPerView || 1}
-        onChange={(v) => set({ sponsorsPerView: Math.max(1, Math.floor(Number(v) || 1)) })}
+        value={c.sponsorsPerView}
+        breakpoint={breakpoint}
+        onChange={(v) => set({ sponsorsPerView: v })}
         testId="input-sponsor-carousel-per-view"
-        hint="How many sponsor cards to show side-by-side in one slide."
+        hint="How many sponsor cards to show side-by-side in one slide. Set separate values on tablet and mobile."
       />
-      <NumberField
+      <ResponsiveNumberField
         label="Gap (px)"
         min={0}
-        value={c.gap ?? 16}
-        onChange={(v) => set({ gap: Math.max(0, Number(v) || 0) })}
+        value={c.gap}
+        breakpoint={breakpoint}
+        onChange={(v) => set({ gap: v })}
         testId="input-sponsor-carousel-gap"
       />
 
       <div className="pt-2 mt-2 border-t border-slate-200">
         <Label className="text-xs font-semibold text-slate-700">Internal padding</Label>
-        <p className="text-xs text-slate-500 mt-0.5">Space between the block background and the carousel content, in px.</p>
+        <p className="text-xs text-slate-500 mt-0.5">Space between the block background and the carousel content, in px. Set separate values per device.</p>
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <NumberField
+        <ResponsiveNumberField
           label="Top"
           min={0}
-          value={c.innerPaddingTop ?? 16}
-          onChange={(v) => set({ innerPaddingTop: Math.max(0, Number(v) || 0) })}
+          value={c.innerPaddingTop}
+          breakpoint={breakpoint}
+          onChange={(v) => set({ innerPaddingTop: v })}
           testId="input-sponsor-carousel-inner-padding-top"
         />
-        <NumberField
+        <ResponsiveNumberField
           label="Right"
           min={0}
-          value={c.innerPaddingRight ?? 32}
-          onChange={(v) => set({ innerPaddingRight: Math.max(0, Number(v) || 0) })}
+          value={c.innerPaddingRight}
+          breakpoint={breakpoint}
+          onChange={(v) => set({ innerPaddingRight: v })}
           testId="input-sponsor-carousel-inner-padding-right"
         />
-        <NumberField
+        <ResponsiveNumberField
           label="Bottom"
           min={0}
-          value={c.innerPaddingBottom ?? 16}
-          onChange={(v) => set({ innerPaddingBottom: Math.max(0, Number(v) || 0) })}
+          value={c.innerPaddingBottom}
+          breakpoint={breakpoint}
+          onChange={(v) => set({ innerPaddingBottom: v })}
           testId="input-sponsor-carousel-inner-padding-bottom"
         />
-        <NumberField
+        <ResponsiveNumberField
           label="Left"
           min={0}
-          value={c.innerPaddingLeft ?? 32}
-          onChange={(v) => set({ innerPaddingLeft: Math.max(0, Number(v) || 0) })}
+          value={c.innerPaddingLeft}
+          breakpoint={breakpoint}
+          onChange={(v) => set({ innerPaddingLeft: v })}
           testId="input-sponsor-carousel-inner-padding-left"
         />
       </div>
