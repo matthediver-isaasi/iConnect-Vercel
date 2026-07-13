@@ -3714,6 +3714,40 @@ function FieldCard({
                   <div className="space-y-1">
                     {(field.options || []).map((option, optIndex) => (
                       <div key={optIndex} className="flex items-center gap-1">
+                        <div className="flex flex-col">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-5 w-5 text-slate-400"
+                            disabled={optIndex === 0}
+                            onClick={() => {
+                              const newOptions = [...(field.options || [])];
+                              const target = optIndex - 1;
+                              [newOptions[optIndex], newOptions[target]] = [newOptions[target], newOptions[optIndex]];
+                              updateField(originalIndex, { options: newOptions });
+                            }}
+                            data-testid={`button-move-up-option-${field.id}-${optIndex}`}
+                          >
+                            <ChevronUp className="w-3 h-3" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-5 w-5 text-slate-400"
+                            disabled={optIndex === (field.options || []).length - 1}
+                            onClick={() => {
+                              const newOptions = [...(field.options || [])];
+                              const target = optIndex + 1;
+                              [newOptions[optIndex], newOptions[target]] = [newOptions[target], newOptions[optIndex]];
+                              updateField(originalIndex, { options: newOptions });
+                            }}
+                            data-testid={`button-move-down-option-${field.id}-${optIndex}`}
+                          >
+                            <ChevronDown className="w-3 h-3" />
+                          </Button>
+                        </div>
                         <Input
                           value={option}
                           onChange={(e) => {
@@ -3723,6 +3757,7 @@ function FieldCard({
                           }}
                           className="h-7 text-sm flex-1"
                           placeholder={`Option ${optIndex + 1}`}
+                          data-testid={`input-option-${field.id}-${optIndex}`}
                         />
                         <Button
                           type="button"
@@ -3733,6 +3768,7 @@ function FieldCard({
                             const newOptions = (field.options || []).filter((_, i) => i !== optIndex);
                             updateField(originalIndex, { options: newOptions });
                           }}
+                          data-testid={`button-remove-option-${field.id}-${optIndex}`}
                         >
                           <X className="w-3 h-3" />
                         </Button>
