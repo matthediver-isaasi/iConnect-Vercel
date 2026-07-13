@@ -70,6 +70,7 @@ import {
   buildTenantTypographyResponsiveCss,
   hasResponsiveTypographyOverride,
   LinkField,
+  resolveNewTab,
   ImageField,
   SectionGradientStops,
   SECTION_BLEND_MODES,
@@ -2117,6 +2118,8 @@ function SpeakerCarouselRender({ block, asEditor, breakpoint }) {
           {ctaMode === 'link' && ctaHref ? (
             <a
               href={asEditor ? undefined : ctaHref}
+              target={!asEditor && resolveNewTab(c) ? '_blank' : undefined}
+              rel={!asEditor && resolveNewTab(c) ? 'noopener noreferrer' : undefined}
               onClick={(e) => { if (asEditor) e.preventDefault(); }}
               className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
               data-testid="link-speaker-carousel-see-all"
@@ -2211,6 +2214,8 @@ function SpeakerCarouselInspector({ block, update, breakpoint }) {
           value={c.ctaHref}
           onChange={(v) => set({ ctaHref: v })}
           testId="input-speaker-carousel-cta-href"
+          newTab={resolveNewTab(c)}
+          onNewTabChange={(v) => set({ newTab: v })}
         />
       ) : null}
       <ToggleField
@@ -2703,7 +2708,7 @@ function useEventSponsors(eventValue, categoryOrder) {
   };
 }
 
-function SponsorDetail({ sponsor }) {
+function SponsorDetail({ sponsor, websiteNewTab = true }) {
   if (!sponsor) return null;
   return (
     <div className="space-y-4">
@@ -2738,8 +2743,8 @@ function SponsorDetail({ sponsor }) {
       {sponsor.website_url ? (
         <a
           href={sponsor.website_url}
-          target="_blank"
-          rel="noopener noreferrer"
+          target={websiteNewTab ? '_blank' : undefined}
+          rel={websiteNewTab ? 'noopener noreferrer' : undefined}
           className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
           data-testid="link-sponsor-carousel-detail-website"
         >
@@ -2750,7 +2755,7 @@ function SponsorDetail({ sponsor }) {
   );
 }
 
-function SponsorCard({ sponsor, showDescription, showSponsorDetail, detail, nameStyle, descStyle, onClick }) {
+function SponsorCard({ sponsor, showDescription, showSponsorDetail, detail, nameStyle, descStyle, onClick, websiteNewTab = true }) {
   const inner = (
     <>
       <div className="aspect-[16/9] bg-white flex items-center justify-center p-4 border-b border-slate-100">
@@ -2802,8 +2807,8 @@ function SponsorCard({ sponsor, showDescription, showSponsorDetail, detail, name
     return (
       <a
         href={sponsor.website_url}
-        target="_blank"
-        rel="noopener noreferrer"
+        target={websiteNewTab ? '_blank' : undefined}
+        rel={websiteNewTab ? 'noopener noreferrer' : undefined}
         className={className}
         data-testid={`link-sponsor-${sponsor.id}`}
       >
@@ -2816,6 +2821,7 @@ function SponsorCard({ sponsor, showDescription, showSponsorDetail, detail, name
 
 function SponsorGridRender({ block, breakpoint, asEditor }) {
   const c = block.content || {};
+  const websiteNewTab = resolveNewTab({ newTab: c.websiteNewTab }, true);
   const { hasEvent, groups, allCategories, detailById, totalSponsors, isLoading, isError } = useEventSponsors(c.eventId, c.categoryOrder);
   const cols = columnsForBreakpoint(c, breakpoint);
   const gap = c.gap ?? 16;
@@ -2912,12 +2918,12 @@ function SponsorGridRender({ block, breakpoint, asEditor }) {
       <div className="w-full h-full overflow-auto" aria-label={block.a11y?.ariaLabel || 'Sponsors'} data-testid="sponsor-grid">
         {centerAlign
           ? chunkedGrid(all, cols, gap, (s) => (
-              <SponsorCard sponsor={s} showDescription={showDescription} showSponsorDetail={showSponsorDetail} detail={detailById.get(String(s.id))} nameStyle={nameStyle} descStyle={descStyle} onClick={() => setSelected(s)} />
+              <SponsorCard sponsor={s} showDescription={showDescription} showSponsorDetail={showSponsorDetail} detail={detailById.get(String(s.id))} nameStyle={nameStyle} descStyle={descStyle} onClick={() => setSelected(s)} websiteNewTab={websiteNewTab} />
             ))
           : (
             <div style={gridStyle(cols, gap)}>
               {all.map((s) => (
-                <SponsorCard key={s.id} sponsor={s} showDescription={showDescription} showSponsorDetail={showSponsorDetail} detail={detailById.get(String(s.id))} nameStyle={nameStyle} descStyle={descStyle} onClick={() => setSelected(s)} />
+                <SponsorCard key={s.id} sponsor={s} showDescription={showDescription} showSponsorDetail={showSponsorDetail} detail={detailById.get(String(s.id))} nameStyle={nameStyle} descStyle={descStyle} onClick={() => setSelected(s)} websiteNewTab={websiteNewTab} />
               ))}
             </div>
           )}
@@ -2929,7 +2935,7 @@ function SponsorGridRender({ block, breakpoint, asEditor }) {
               <DialogTitle>Sponsor</DialogTitle>
               <DialogDescription className="sr-only">Sponsor profile details</DialogDescription>
             </DialogHeader>
-            <SponsorDetail sponsor={selected} />
+            <SponsorDetail sponsor={selected} websiteNewTab={websiteNewTab} />
           </DialogContent>
         </Dialog>
       </div>
@@ -2985,8 +2991,8 @@ function SponsorGridRender({ block, breakpoint, asEditor }) {
                   <TenantCtaButton
                     as="a"
                     href={asEditor ? undefined : (c.emptyCatCtaHref || undefined)}
-                    target={c.emptyCatCtaHref ? '_blank' : undefined}
-                    rel={c.emptyCatCtaHref ? 'noopener noreferrer' : undefined}
+                    target={c.emptyCatCtaHref && resolveNewTab({ newTab: c.emptyCatCtaNewTab }, true) ? '_blank' : undefined}
+                    rel={c.emptyCatCtaHref && resolveNewTab({ newTab: c.emptyCatCtaNewTab }, true) ? 'noopener noreferrer' : undefined}
                     fallbackVariant="default"
                     data-testid={`button-sponsor-empty-cta-${cat.id}`}
                   >
@@ -2996,12 +3002,12 @@ function SponsorGridRender({ block, breakpoint, asEditor }) {
               </div>
             ) : centerAlign
               ? chunkedGrid(cat.sponsors, cols, gap, (s) => (
-                  <SponsorCard sponsor={s} showDescription={showDescription} showSponsorDetail={showSponsorDetail} detail={detailById.get(String(s.id))} nameStyle={nameStyle} descStyle={descStyle} onClick={() => setSelected(s)} />
+                  <SponsorCard sponsor={s} showDescription={showDescription} showSponsorDetail={showSponsorDetail} detail={detailById.get(String(s.id))} nameStyle={nameStyle} descStyle={descStyle} onClick={() => setSelected(s)} websiteNewTab={websiteNewTab} />
                 ))
               : (
               <div style={gridStyle(cols, gap)}>
                 {cat.sponsors.map((s) => (
-                  <SponsorCard key={s.id} sponsor={s} showDescription={showDescription} showSponsorDetail={showSponsorDetail} detail={detailById.get(String(s.id))} nameStyle={nameStyle} descStyle={descStyle} onClick={() => setSelected(s)} />
+                  <SponsorCard key={s.id} sponsor={s} showDescription={showDescription} showSponsorDetail={showSponsorDetail} detail={detailById.get(String(s.id))} nameStyle={nameStyle} descStyle={descStyle} onClick={() => setSelected(s)} websiteNewTab={websiteNewTab} />
                 ))}
               </div>
             )}
@@ -3016,7 +3022,7 @@ function SponsorGridRender({ block, breakpoint, asEditor }) {
             <DialogTitle>Sponsor</DialogTitle>
             <DialogDescription className="sr-only">Sponsor profile details</DialogDescription>
           </DialogHeader>
-          <SponsorDetail sponsor={selected} />
+          <SponsorDetail sponsor={selected} websiteNewTab={websiteNewTab} />
         </DialogContent>
       </Dialog>
     </div>
@@ -3105,6 +3111,13 @@ function SponsorGridInspector({ block, update, breakpoint }) {
         testId="toggle-sponsor-grid-center-align"
         hint="Centers rows that have fewer sponsors than the configured number of columns."
       />
+      <ToggleField
+        label="Open in new tab"
+        value={resolveNewTab({ newTab: c.websiteNewTab }, true)}
+        onChange={(v) => set({ websiteNewTab: v })}
+        testId="toggle-sponsor-grid-website-new-tab"
+        hint="Open sponsor website links in a new browser tab."
+      />
       <TextField
         label="Empty state text"
         value={c.emptyText}
@@ -3135,6 +3148,8 @@ function SponsorGridInspector({ block, update, breakpoint }) {
         value={c.emptyCatCtaHref}
         onChange={(v) => set({ emptyCatCtaHref: v })}
         testId="input-sponsor-grid-empty-cat-cta-href"
+        newTab={resolveNewTab({ newTab: c.emptyCatCtaNewTab }, true)}
+        onNewTabChange={(v) => set({ emptyCatCtaNewTab: v })}
       />
 
       <div className="pt-2 mt-2 border-t border-slate-200">
@@ -3171,6 +3186,7 @@ function SponsorGridInspector({ block, update, breakpoint }) {
 // paged carousel shell modelled on the Speaker carousel.
 function SponsorCarouselRender({ block, asEditor, breakpoint }) {
   const c = block.content || {};
+  const websiteNewTab = resolveNewTab({ newTab: c.websiteNewTab }, true);
   const { hasEvent, groups, allCategories, detailById, totalSponsors, isLoading, isError } = useEventSponsors(c.eventId);
 
   const [index, setIndex] = useState(0);
@@ -3409,8 +3425,8 @@ function SponsorCarouselRender({ block, asEditor, breakpoint }) {
                       <TenantCtaButton
                         as="a"
                         href={asEditor ? undefined : (c.emptyCatCtaHref || undefined)}
-                        target={c.emptyCatCtaHref ? '_blank' : undefined}
-                        rel={c.emptyCatCtaHref ? 'noopener noreferrer' : undefined}
+                        target={c.emptyCatCtaHref && resolveNewTab({ newTab: c.emptyCatCtaNewTab }, true) ? '_blank' : undefined}
+                        rel={c.emptyCatCtaHref && resolveNewTab({ newTab: c.emptyCatCtaNewTab }, true) ? 'noopener noreferrer' : undefined}
                         fallbackVariant="default"
                         data-testid={`button-sponsor-carousel-empty-cta-${s.catId}`}
                       >
@@ -3427,6 +3443,7 @@ function SponsorCarouselRender({ block, asEditor, breakpoint }) {
                     nameStyle={nameStyle}
                     descStyle={descStyle}
                     onClick={() => openSponsor(s)}
+                    websiteNewTab={websiteNewTab}
                   />
                 ) : null}
               </div>
@@ -3489,7 +3506,7 @@ function SponsorCarouselRender({ block, asEditor, breakpoint }) {
             <DialogTitle>Sponsor</DialogTitle>
             <DialogDescription className="sr-only">Sponsor profile details</DialogDescription>
           </DialogHeader>
-          <SponsorDetail sponsor={selected} />
+          <SponsorDetail sponsor={selected} websiteNewTab={websiteNewTab} />
         </DialogContent>
       </Dialog>
     </div>
@@ -3620,6 +3637,13 @@ function SponsorCarouselInspector({ block, update, breakpoint }) {
         onChange={(v) => set({ showIndicators: v })}
         testId="toggle-sponsor-carousel-indicators"
       />
+      <ToggleField
+        label="Open in new tab"
+        value={resolveNewTab({ newTab: c.websiteNewTab }, true)}
+        onChange={(v) => set({ websiteNewTab: v })}
+        testId="toggle-sponsor-carousel-website-new-tab"
+        hint="Open sponsor website links in a new browser tab."
+      />
       <SelectField
         label="Slide transition"
         value={c.transition || 'slide'}
@@ -3714,6 +3738,8 @@ function SponsorCarouselInspector({ block, update, breakpoint }) {
         value={c.emptyCatCtaHref}
         onChange={(v) => set({ emptyCatCtaHref: v })}
         testId="input-sponsor-carousel-empty-cat-cta-href"
+        newTab={resolveNewTab({ newTab: c.emptyCatCtaNewTab }, true)}
+        onNewTabChange={(v) => set({ emptyCatCtaNewTab: v })}
       />
     </>
   );
@@ -3725,6 +3751,7 @@ function SponsorCarouselInspector({ block, update, breakpoint }) {
 function ArticleListRender({ block, breakpoint, asEditor }) {
   const c = block.content || {};
   const cols = columnsForBreakpoint(c, breakpoint);
+  const linkNewTab = resolveNewTab(c);
   const source = c.source === 'news' ? 'news' : 'articles';
   const layout = c.layout || 'grid';
   const { data, isLoading, isError } = useQuery({
@@ -3879,6 +3906,8 @@ function ArticleListRender({ block, breakpoint, asEditor }) {
                 ) : null}
                 <a
                   href={asEditor ? undefined : `${linkBase}${encodeURIComponent(a.slug || a.id)}`}
+                  target={!asEditor && linkNewTab ? '_blank' : undefined}
+                  rel={!asEditor && linkNewTab ? 'noopener noreferrer' : undefined}
                   onClick={(ev) => { if (asEditor) ev.preventDefault(); }}
                   className="text-xs text-blue-600 hover:underline inline-flex items-center gap-1 mt-auto pt-2"
                   data-testid={`link-article-${a.id}`}
@@ -3957,6 +3986,13 @@ function ArticleListInspector({ block, update }) {
         testId="select-article-list-summary-typography"
       />
       <ToggleField label="Featured first" value={!!c.featuredFirst} onChange={(v) => set({ featuredFirst: v })} testId="toggle-article-list-featured-first" />
+      <ToggleField
+        label="Open in new tab"
+        value={resolveNewTab(c)}
+        onChange={(v) => set({ newTab: v })}
+        testId="toggle-article-list-new-tab"
+        hint="Open the article link in a new browser tab."
+      />
       <TextField label="Empty state text" value={c.emptyText} onChange={(v) => set({ emptyText: v })} testId="input-article-list-empty" />
     </>
   );
@@ -3985,6 +4021,7 @@ function resolveResourceFilterSelections(c) {
 function ResourceListRender({ block, breakpoint, asEditor }) {
   const c = block.content || {};
   const cols = columnsForBreakpoint(c, breakpoint);
+  const openLinksInNewTab = resolveNewTab(c, true);
   const layout = c.layout || 'grid';
   const effectiveCols = layout === 'list' ? 1 : cols;
 
@@ -4150,6 +4187,7 @@ function ResourceListRender({ block, breakpoint, asEditor }) {
                 resource={r}
                 isLocked={!r.is_public && !isLoggedIn}
                 buttonStyles={buttonStyles}
+                openInNewTab={openLinksInNewTab}
               />
             </li>
           ))}
@@ -4400,6 +4438,13 @@ function ResourceListInspector({ block, update }) {
       ) : null}
       <PerBreakpointColumns value={c.columns} onChange={(v) => set({ columns: v })} />
       <NumberField label="Gap (px)" min={0} value={c.gap || 16} onChange={(v) => set({ gap: Math.max(0, Number(v) || 0) })} testId="input-resource-list-gap" />
+      <ToggleField
+        label="Open in new tab"
+        value={resolveNewTab(c, true)}
+        onChange={(v) => set({ newTab: v })}
+        testId="toggle-resource-list-new-tab"
+        hint="Open resource links in a new browser tab."
+      />
       <TextField label="Empty state text" value={c.emptyText} onChange={(v) => set({ emptyText: v })} testId="input-resource-list-empty" />
     </>
   );

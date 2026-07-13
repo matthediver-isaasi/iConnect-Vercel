@@ -31,7 +31,7 @@ const iconMap = {
   Plus,
 };
 
-export default function ResourceCard({ resource, isLocked = false, isEventLocked = false, joinLocked = false, buttonStyles = [], enabledSocialIcons = ['x', 'linkedin', 'email'], isAuthenticated = true, viewCount = null, onResourceView, onEdit, onDelete }) {
+export default function ResourceCard({ resource, isLocked = false, isEventLocked = false, joinLocked = false, buttonStyles = [], enabledSocialIcons = ['x', 'linkedin', 'email'], isAuthenticated = true, viewCount = null, onResourceView, onEdit, onDelete, openInNewTab = true }) {
   const [copied, setCopied] = useState(false);
   
   // Get button style from props instead of fetching
@@ -87,7 +87,11 @@ export default function ResourceCard({ resource, isLocked = false, isEventLocked
     if (onResourceView) {
       onResourceView(resource.id);
     }
-    window.open(resource.target_url, '_blank', 'noopener,noreferrer');
+    if (openInNewTab) {
+      window.open(resource.target_url, '_blank', 'noopener,noreferrer');
+    } else {
+      window.location.href = resource.target_url;
+    }
   };
 
   const handleShare = async (platform) => {

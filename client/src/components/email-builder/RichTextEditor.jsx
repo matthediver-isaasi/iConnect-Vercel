@@ -10,6 +10,8 @@ import Underline from '@tiptap/extension-underline';
 import { useEffect, useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Bold,
@@ -251,6 +253,9 @@ const FONT_SIZES = [
 function MenuBar({ editor, breakpoint, anchorOptions }) {
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
+  // Per-link "open in new tab" choice. New links default to same tab; existing
+  // links keep whatever target they were saved with (read on open, below).
+  const [linkNewTab, setLinkNewTab] = useState(false);
   const colorInputRef = useRef(null);
   const bgColorInputRef = useRef(null);
 
@@ -258,10 +263,15 @@ function MenuBar({ editor, breakpoint, anchorOptions }) {
 
   const handleSetLink = () => {
     if (linkUrl) {
-      editor.chain().focus().extendMarkRange('link').setLink({ href: linkUrl }).run();
+      editor.chain().focus().extendMarkRange('link').setLink({
+        href: linkUrl,
+        target: linkNewTab ? '_blank' : null,
+        rel: linkNewTab ? 'noopener noreferrer' : null,
+      }).run();
     }
     setShowLinkInput(false);
     setLinkUrl('');
+    setLinkNewTab(false);
   };
 
   const currentColor = editor.getAttributes('textStyle').color || '';
@@ -398,8 +408,9 @@ function MenuBar({ editor, breakpoint, anchorOptions }) {
             if (editor.isActive('link')) {
               editor.chain().focus().unsetLink().run();
             } else {
-              const previousUrl = editor.getAttributes('link').href;
-              setLinkUrl(previousUrl || '');
+              const linkAttrs = editor.getAttributes('link');
+              setLinkUrl(linkAttrs.href || '');
+              setLinkNewTab(linkAttrs.target === '_blank');
               setShowLinkInput(true);
             }
           }}
@@ -580,6 +591,17 @@ function MenuBar({ editor, breakpoint, anchorOptions }) {
               </SelectContent>
             </Select>
           )}
+          <div className="flex items-center gap-1.5 shrink-0">
+            <Switch
+              id="rte-link-newtab"
+              checked={linkNewTab}
+              onCheckedChange={setLinkNewTab}
+              data-testid="rte-link-newtab"
+            />
+            <Label htmlFor="rte-link-newtab" className="text-xs text-muted-foreground whitespace-nowrap">
+              New tab
+            </Label>
+          </div>
           <Button
             size="icon"
             variant="default"
@@ -615,11 +637,20 @@ export default function RichTextEditor({ content, onChange, fontFamily, color, l
       FontFamily,
       FontSize,
       BackgroundColor,
+      // Task #2775: inline links now carry a per-link "open in new tab" choice.
+      // The old config forced `target=_blank` on every link. We must NOT simply
+      // drop the HTMLAttributes key: `.configure()` deep-merges over the
+      // extension's own defaults (`target: '_blank'`), and `renderHTML` always
+      // merges `this.options.HTMLAttributes` on top, so a per-mark `target:null`
+      // alone can't win. Explicitly nulling the global target/rel makes brand-new
+      // links default to same tab; existing saved links keep their `target`/`rel`
+      // (parsed from stored HTML) and per-link choices are written by
+      // handleSetLink via setLink({ target, rel }).
       Link.configure({
         openOnClick: false,
         HTMLAttributes: {
-          target: '_blank',
-          rel: 'noopener noreferrer',
+          target: null,
+          rel: null,
         },
       }),
       Underline,

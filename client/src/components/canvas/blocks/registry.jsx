@@ -215,7 +215,21 @@ function TextField({ label, value, onChange, placeholder, testId, multiline }) {
 // the page's anchors and fills in a `#anchor-id` value when one is picked.
 // The available-anchors list comes from CanvasAnchorContext so every link
 // field across the registry shares one source of truth.
-export function LinkField({ label, value, onChange, placeholder, testId }) {
+// Canonical resolver for a link's "open in new tab" choice. New link fields
+// store the boolean under `newTab`; older surfaces (accordion / mega-menu)
+// persisted `openInNewTab`, so both are honoured for backward compatibility.
+// When neither is set the link falls back to `defaultNewTab` — `false`
+// (same-tab) for brand-new links, `true` for surfaces that have always
+// opened in a new tab (logo strip, sponsor empty-category CTA).
+export function resolveNewTab(obj, defaultNewTab = false) {
+  if (obj && typeof obj === 'object') {
+    if (typeof obj.newTab === 'boolean') return obj.newTab;
+    if (typeof obj.openInNewTab === 'boolean') return obj.openInNewTab;
+  }
+  return !!defaultNewTab;
+}
+
+export function LinkField({ label, value, onChange, placeholder, testId, newTab, onNewTabChange }) {
   const { anchors } = useCanvasAnchors();
   const usableAnchors = (anchors || []).filter((a) => a.anchorId);
   // Task #2734: the `#` quick-picker is scoped to the CURRENT page only — it
@@ -325,6 +339,16 @@ export function LinkField({ label, value, onChange, placeholder, testId }) {
           </DropdownMenu>
         )}
       </div>
+      {typeof onNewTabChange === 'function' && (
+        <div className="flex items-center justify-between gap-2 pt-1">
+          <Label className="text-xs text-slate-600">Open in new tab</Label>
+          <Switch
+            checked={!!newTab}
+            onCheckedChange={onNewTabChange}
+            data-testid={testId ? `${testId}-newtab` : 'link-newtab'}
+          />
+        </div>
+      )}
     </Field>
   );
 }
@@ -1175,6 +1199,8 @@ function HeroCtaButton({ cta, asEditor, tenantStyles, stylesResolved }) {
     return (
       <a
         href={asEditor ? undefined : (cta.href || '#')}
+        target={!asEditor && resolveNewTab(cta) ? '_blank' : undefined}
+        rel={!asEditor && resolveNewTab(cta) ? 'noopener noreferrer' : undefined}
         className="inline-flex items-center justify-center gap-1.5 font-medium whitespace-nowrap leading-none"
         style={inlineStyle}
         onMouseEnter={() => setHovered(true)}
@@ -1203,6 +1229,8 @@ function HeroCtaButton({ cta, asEditor, tenantStyles, stylesResolved }) {
   return (
     <a
       href={asEditor ? undefined : (cta.href || '#')}
+      target={!asEditor && resolveNewTab(cta) ? '_blank' : undefined}
+      rel={!asEditor && resolveNewTab(cta) ? 'noopener noreferrer' : undefined}
       className={buttonClasses(fallbackVariant, fallbackSize)}
       style={hasSize ? sizeStyle : undefined}
       onClick={(e) => { if (asEditor) e.preventDefault(); }}
@@ -1577,7 +1605,14 @@ function HeroInspector({ block, update, breakpoint }) {
                 onChange={(id) => patch({ labelTypographyStyleId: id })}
                 testId={`select-hero-cta-${idx}-typography`}
               />
-              <LinkField label="Link" value={item.href} onChange={(v) => patch({ href: v })} testId={`hero-cta-${idx}-href`} />
+              <LinkField
+                label="Link"
+                value={item.href}
+                onChange={(v) => patch({ href: v })}
+                testId={`hero-cta-${idx}-href`}
+                newTab={resolveNewTab(item)}
+                onNewTabChange={(v) => patch({ newTab: v })}
+              />
               <SelectField
                 label="Variant"
                 value={item.variant || 'primary'}
@@ -2145,7 +2180,15 @@ function ImageRender({ block, asEditor, priority }) {
       </div>
     );
     if (c.href && !asEditor) {
-      return <a href={c.href} className="block w-full h-full">{iconEl}</a>;
+      const openNewTab = resolveNewTab(c);
+      return (
+        <a
+          href={c.href}
+          className="block w-full h-full"
+          target={openNewTab ? '_blank' : undefined}
+          rel={openNewTab ? 'noopener noreferrer' : undefined}
+        >{iconEl}</a>
+      );
     }
     return iconEl;
   }
@@ -2174,7 +2217,15 @@ function ImageRender({ block, asEditor, priority }) {
     </div>
   );
   if (c.href && !asEditor) {
-    return <a href={c.href} className="block w-full h-full">{img}</a>;
+    const openNewTab = resolveNewTab(c);
+    return (
+      <a
+        href={c.href}
+        className="block w-full h-full"
+        target={openNewTab ? '_blank' : undefined}
+        rel={openNewTab ? 'noopener noreferrer' : undefined}
+      >{img}</a>
+    );
   }
   return img;
 }
@@ -2272,7 +2323,14 @@ function ImageInspector({ block, update }) {
           </>
         )}
       </div>
-      <LinkField label="Link (optional)" value={c.href} onChange={(v) => set({ href: v })} testId="input-image-href" />
+      <LinkField
+        label="Link (optional)"
+        value={c.href}
+        onChange={(v) => set({ href: v })}
+        testId="input-image-href"
+        newTab={resolveNewTab(c)}
+        onNewTabChange={(v) => set({ newTab: v })}
+      />
       <ToggleField
         label="Full-bleed (span full screen width)"
         value={!!c.fullBleed}
@@ -2510,8 +2568,8 @@ function ButtonRender({ block, asEditor, breakpoint }) {
         <a
           ref={btnAnchorRef}
           href={asEditor ? undefined : (c.href || '#')}
-          target={c.newTab ? '_blank' : undefined}
-          rel={c.newTab ? 'noopener noreferrer' : undefined}
+          target={resolveNewTab(c) ? '_blank' : undefined}
+          rel={resolveNewTab(c) ? 'noopener noreferrer' : undefined}
           aria-label={c.ariaLabel || undefined}
           className="flex h-full items-center justify-center font-medium whitespace-nowrap"
           style={inlineStyle}
@@ -2555,8 +2613,8 @@ function ButtonRender({ block, asEditor, breakpoint }) {
         <a
           ref={btnAnchorRef}
           href={asEditor ? undefined : (c.href || '#')}
-          target={c.newTab ? '_blank' : undefined}
-          rel={c.newTab ? 'noopener noreferrer' : undefined}
+          target={resolveNewTab(c) ? '_blank' : undefined}
+          rel={resolveNewTab(c) ? 'noopener noreferrer' : undefined}
           aria-label={c.ariaLabel || undefined}
           className={baseCls}
           style={inlineStyle}
@@ -2587,8 +2645,8 @@ function ButtonRender({ block, asEditor, breakpoint }) {
       <a
         ref={btnAnchorRef}
         href={asEditor ? undefined : (c.href || '#')}
-        target={c.newTab ? '_blank' : undefined}
-        rel={c.newTab ? 'noopener noreferrer' : undefined}
+        target={resolveNewTab(c) ? '_blank' : undefined}
+        rel={resolveNewTab(c) ? 'noopener noreferrer' : undefined}
         aria-label={c.ariaLabel || undefined}
         className={`${buttonClasses(fallbackVariant, fallbackSize)} whitespace-nowrap`}
         style={{ width: '100%', height: '100%' }}
@@ -2750,7 +2808,14 @@ function ButtonInspector({ block, update, breakpoint }) {
         testId="select-button-typography"
         noneLabel={labelTypoNoneLabel}
       />
-      <LinkField label="Link target" value={c.href} onChange={(v) => set({ href: v })} testId="input-button-href" />
+      <LinkField
+        label="Link target"
+        value={c.href}
+        onChange={(v) => set({ href: v })}
+        testId="input-button-href"
+        newTab={resolveNewTab(c)}
+        onNewTabChange={(v) => set({ newTab: v })}
+      />
       <SelectField
         label="Variant"
         value={c.variant || 'default'}
@@ -2803,7 +2868,6 @@ function ButtonInspector({ block, update, breakpoint }) {
         baselineLabel={inspectorBaselineLabel}
         breakpoint={breakpoint}
       />
-      <ToggleField label="Open in new tab" value={c.newTab} onChange={(v) => set({ newTab: v })} testId="toggle-button-newtab" />
       <TextField label="ARIA label (optional)" value={c.ariaLabel} onChange={(v) => set({ ariaLabel: v })} testId="input-button-aria" />
     </>
   );
@@ -3307,7 +3371,7 @@ function AccordionRender({ block, asEditor }) {
                   <div className="flex flex-wrap gap-3">
                     {item.links.map((link, linkIndex) => {
                       const IconComponent = getAccordionLinkIcon(link.iconType);
-                      const newTab = link.openInNewTab !== false;
+                      const newTab = resolveNewTab(link, true);
                       const chipClass =
                         'inline-flex items-center gap-2 px-3 py-2 rounded-md bg-white border border-slate-200 text-blue-600 hover-elevate text-sm font-medium';
                       const inner = (
@@ -3383,19 +3447,20 @@ function AccordionInspector({ block, update }) {
                   renderItem={(link, linkIdx, patchLink) => (
                     <>
                       <TextField label="Label" value={link.label} onChange={(v) => patchLink({ label: v })} testId={`accordion-${idx}-link-${linkIdx}-label`} />
-                      <LinkField label="URL" value={link.url} onChange={(v) => patchLink({ url: v })} testId={`accordion-${idx}-link-${linkIdx}-url`} />
+                      <LinkField
+                        label="URL"
+                        value={link.url}
+                        onChange={(v) => patchLink({ url: v })}
+                        testId={`accordion-${idx}-link-${linkIdx}-url`}
+                        newTab={resolveNewTab(link, true)}
+                        onNewTabChange={(v) => patchLink({ newTab: v })}
+                      />
                       <SelectField
                         label="Icon"
                         value={link.iconType || 'external'}
                         onChange={(v) => patchLink({ iconType: v })}
                         options={ACCORDION_LINK_ICON_TYPES.map((t) => ({ value: t.value, label: t.label }))}
                         testId={`accordion-${idx}-link-${linkIdx}-icon`}
-                      />
-                      <ToggleField
-                        label="Open in new tab"
-                        value={link.openInNewTab !== false}
-                        onChange={(v) => patchLink({ openInNewTab: v })}
-                        testId={`accordion-${idx}-link-${linkIdx}-newtab`}
                       />
                     </>
                   )}
@@ -3869,6 +3934,8 @@ function CardRender({ block, asEditor, priority, breakpoint }) {
               <div className="mt-2 flex" style={{ justifyContent: ctaJustify }}>
                 <a
                   href={asEditor ? undefined : (c.ctaHref || '#')}
+                  target={!asEditor && resolveNewTab(c) ? '_blank' : undefined}
+                  rel={!asEditor && resolveNewTab(c) ? 'noopener noreferrer' : undefined}
                   className="inline-flex items-center justify-center gap-1.5 font-medium whitespace-nowrap"
                   style={inlineStyle}
                   onMouseEnter={() => setCtaHovered(true)}
@@ -3889,6 +3956,8 @@ function CardRender({ block, asEditor, priority, breakpoint }) {
             <div className="mt-2 flex" style={{ justifyContent: ctaJustify }}>
               <a
                 href={asEditor ? undefined : (c.ctaHref || '#')}
+                target={!asEditor && resolveNewTab(c) ? '_blank' : undefined}
+                rel={!asEditor && resolveNewTab(c) ? 'noopener noreferrer' : undefined}
                 className={buttonClasses(fallbackVariant, 'default')}
                 onClick={(e) => { if (asEditor) e.preventDefault(); }}
               >
@@ -4096,7 +4165,14 @@ function CardInspector({ block, update }) {
             onChange={(id) => set({ ctaLabelTypographyStyleId: id })}
             testId="select-card-cta-typography"
           />
-          <LinkField label="CTA link" value={c.ctaHref} onChange={(v) => set({ ctaHref: v })} testId="input-card-cta-href" />
+          <LinkField
+            label="CTA link"
+            value={c.ctaHref}
+            onChange={(v) => set({ ctaHref: v })}
+            testId="input-card-cta-href"
+            newTab={resolveNewTab(c)}
+            onNewTabChange={(v) => set({ newTab: v })}
+          />
           <SelectField
             label="CTA variant"
             value={c.ctaVariant || 'outline'}
@@ -4692,7 +4768,12 @@ function LogoStripRender({ block }) {
           </div>
         );
         return l.href ? (
-          <a key={i} href={l.href} target="_blank" rel="noopener noreferrer">{img}</a>
+          <a
+            key={i}
+            href={l.href}
+            target={resolveNewTab(l, true) ? '_blank' : undefined}
+            rel={resolveNewTab(l, true) ? 'noopener noreferrer' : undefined}
+          >{img}</a>
         ) : (
           <div key={i}>{img}</div>
         );
@@ -4725,7 +4806,14 @@ function LogoStripInspector({ block, update }) {
                 onChangeAlt={(v) => patch({ alt: v })}
                 testId={`logo-${idx}-img`}
               />
-              <LinkField label="Link" value={item.href} onChange={(v) => patch({ href: v })} testId={`logo-${idx}-href`} />
+              <LinkField
+                label="Link"
+                value={item.href}
+                onChange={(v) => patch({ href: v })}
+                testId={`logo-${idx}-href`}
+                newTab={resolveNewTab(item, true)}
+                onNewTabChange={(v) => patch({ newTab: v })}
+              />
             </>
           )}
         />
@@ -5077,7 +5165,7 @@ function MegaPanel({ item, asEditor, panelBg, panelFg, accent }) {
               <li key={li}>
                 <MegaLink
                   href={ln?.href}
-                  openInNewTab={ln?.openInNewTab}
+                  openInNewTab={resolveNewTab(ln)}
                   asEditor={asEditor}
                   className="block rounded-md p-1.5 hover-elevate"
                   testId={`mega-panel-link-${ci}-${li}`}
@@ -5111,7 +5199,7 @@ function MegaPanel({ item, asEditor, panelBg, panelFg, accent }) {
           {item?.featuredHref && (
             <MegaLink
               href={item.featuredHref}
-              openInNewTab={item.featuredOpenInNewTab}
+              openInNewTab={resolveNewTab({ newTab: item.featuredNewTab, openInNewTab: item.featuredOpenInNewTab })}
               asEditor={asEditor}
               className="inline-flex items-center gap-1 text-xs font-medium hover-elevate rounded-md px-1.5 py-1"
               style={{ color: accent }}
@@ -5238,7 +5326,7 @@ function MegaMenuRender({ block, asEditor, breakpoint }) {
                     ) : (
                       <MegaLink
                         href={item?.href}
-                        openInNewTab={item?.openInNewTab}
+                        openInNewTab={resolveNewTab(item)}
                         asEditor={asEditor}
                         className="block p-3 font-medium hover-elevate"
                         style={{ fontSize: labelFontSize }}
@@ -5277,7 +5365,7 @@ function MegaMenuRender({ block, asEditor, breakpoint }) {
               <li key={idx} className="relative">
                 <MegaLink
                   href={item?.href}
-                  openInNewTab={item?.openInNewTab}
+                  openInNewTab={resolveNewTab(item)}
                   asEditor={asEditor}
                   className="inline-flex items-center rounded-md px-3 py-2 font-medium hover-elevate"
                   style={{ fontSize: labelFontSize }}
@@ -5450,12 +5538,8 @@ function MegaMenuInspector({ block, update }) {
                     onChange={(v) => patch({ href: v })}
                     placeholder="/Home or https://…"
                     testId={`mega-item-${idx}-href`}
-                  />
-                  <ToggleField
-                    label="Open link in new tab"
-                    value={item.openInNewTab}
-                    onChange={(v) => patch({ openInNewTab: v })}
-                    testId={`mega-item-${idx}-newtab`}
+                    newTab={resolveNewTab(item)}
+                    onNewTabChange={(v) => patch({ newTab: v })}
                   />
                 </>
               )}
@@ -5497,6 +5581,8 @@ function MegaMenuInspector({ block, update }) {
                                 onChange={(v) => patchLink({ href: v })}
                                 placeholder="/page or https://…"
                                 testId={`mega-item-${idx}-col-${ci}-link-${li}-href`}
+                                newTab={resolveNewTab(ln)}
+                                onNewTabChange={(v) => patchLink({ newTab: v })}
                               />
                               <TextField
                                 label="Description"
@@ -5504,12 +5590,6 @@ function MegaMenuInspector({ block, update }) {
                                 onChange={(v) => patchLink({ description: v })}
                                 multiline
                                 testId={`mega-item-${idx}-col-${ci}-link-${li}-desc`}
-                              />
-                              <ToggleField
-                                label="Open in new tab"
-                                value={ln.openInNewTab}
-                                onChange={(v) => patchLink({ openInNewTab: v })}
-                                testId={`mega-item-${idx}-col-${ci}-link-${li}-newtab`}
                               />
                             </div>
                           )}
@@ -5548,12 +5628,8 @@ function MegaMenuInspector({ block, update }) {
                     onChange={(v) => patch({ featuredHref: v })}
                     placeholder="/page or https://…"
                     testId={`mega-item-${idx}-featured-href`}
-                  />
-                  <ToggleField
-                    label="Open featured link in new tab"
-                    value={item.featuredOpenInNewTab}
-                    onChange={(v) => patch({ featuredOpenInNewTab: v })}
-                    testId={`mega-item-${idx}-featured-newtab`}
+                    newTab={resolveNewTab({ newTab: item.featuredNewTab, openInNewTab: item.featuredOpenInNewTab })}
+                    onNewTabChange={(v) => patch({ featuredNewTab: v })}
                   />
                 </div>
               </Field>
@@ -5617,6 +5693,9 @@ function PricingTierCTA({ tier, index, asEditor, branding }) {
   const label = tier.ctaLabel;
   const ariaLabel = `${label} — ${tier.name || `Tier ${index + 1}`}`;
   const href = asEditor ? undefined : (tier.ctaHref || '#');
+  const openNewTab = !asEditor && resolveNewTab(tier);
+  const linkTarget = openNewTab ? '_blank' : undefined;
+  const linkRel = openNewTab ? 'noopener noreferrer' : undefined;
   const onClick = (e) => { if (asEditor) e.preventDefault(); };
 
   if (isTenant && tenantStyle) {
@@ -5653,6 +5732,8 @@ function PricingTierCTA({ tier, index, asEditor, branding }) {
       <a
         href={href}
         onClick={onClick}
+        target={linkTarget}
+        rel={linkRel}
         className="flex w-full items-center justify-center gap-1.5 rounded-md font-medium whitespace-nowrap"
         style={inlineStyle}
         aria-label={ariaLabel}
@@ -5679,6 +5760,8 @@ function PricingTierCTA({ tier, index, asEditor, branding }) {
     <a
       href={href}
       onClick={onClick}
+      target={linkTarget}
+      rel={linkRel}
       className={buttonClasses(variant, 'default')}
       style={{ width: '100%', justifyContent: 'center' }}
       aria-label={ariaLabel}
@@ -6163,7 +6246,14 @@ function PricingTableInspector({ block, update }) {
                   />
                 </Field>
                 <TextField label="CTA label" value={item.ctaLabel} onChange={(v) => patch({ ctaLabel: v })} testId={`pricing-tier-${idx}-cta-label`} />
-                <LinkField label="CTA link" value={item.ctaHref} onChange={(v) => patch({ ctaHref: v })} testId={`pricing-tier-${idx}-cta-href`} />
+                <LinkField
+                  label="CTA link"
+                  value={item.ctaHref}
+                  onChange={(v) => patch({ ctaHref: v })}
+                  testId={`pricing-tier-${idx}-cta-href`}
+                  newTab={resolveNewTab(item)}
+                  onNewTabChange={(v) => patch({ newTab: v })}
+                />
                 <SelectField
                   label="CTA variant"
                   value={item.ctaVariant || 'outline'}
@@ -8216,6 +8306,8 @@ function HeroCarouselRender({ block, asEditor, breakpoint }) {
                 <div style={{ marginTop: '24px' }}>
                   <a
                     href={asEditor ? undefined : slide.ctaLink}
+                    target={!asEditor && resolveNewTab(slide) ? '_blank' : undefined}
+                    rel={!asEditor && resolveNewTab(slide) ? 'noopener noreferrer' : undefined}
                     onClick={asEditor ? (e) => e.preventDefault() : undefined}
                     className="inline-block bg-white text-slate-900 font-semibold rounded-lg hover:bg-slate-100 transition-colors shadow-lg"
                     style={{ padding: '14px 28px' }}
@@ -8474,11 +8566,13 @@ function SlideDndList({ slides, onChange, breakpoint }) {
                   onChange={(v) => patchSlide(idx, { ctaText: v })}
                   testId={`hcc-slide-${idx}-cta-text`}
                 />
-                <TextField
+                <LinkField
                   label="CTA link"
                   value={slide.ctaLink || ''}
                   onChange={(v) => patchSlide(idx, { ctaLink: v })}
                   testId={`hcc-slide-${idx}-cta-link`}
+                  newTab={resolveNewTab(slide)}
+                  onNewTabChange={(v) => patchSlide(idx, { newTab: v })}
                 />
               </div>
             </SortableSlideItem>
