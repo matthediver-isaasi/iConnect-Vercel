@@ -154,7 +154,7 @@ export default async function handler(req, res) {
       if (targetEventIds.length > 0) {
         let bookingQuery = supabase
           .from('booking')
-          .select('id, event_id, member_id, attendee_email, attendee_first_name, attendee_last_name, ticket_price, total_cost, payment_method, voucher_amount, training_fund_amount, account_amount, purchase_order_number, po_to_follow, stripe_payment_intent_id, ticket_class_name, ticket_class_id, organization_id, booking_reference, booking_group_reference, xero_invoice_id, xero_invoice_number, is_guest_booking, status, created_at, third_party_consent, designation, buddy, badge, dietary_selections, allergy_selections, accessibility_selections')
+          .select('id, event_id, member_id, attendee_email, attendee_first_name, attendee_last_name, ticket_price, total_cost, payment_method, voucher_amount, training_fund_amount, account_amount, purchase_order_number, po_to_follow, stripe_payment_intent_id, ticket_class_name, ticket_class_id, organization_id, booking_reference, booking_group_reference, xero_invoice_id, xero_invoice_number, is_guest_booking, status, created_at, third_party_consent, designation, buddy, badge, dietary_selections, allergy_selections, accessibility_selections, discount_code_id, discount_code_amount')
           .in('event_id', targetEventIds)
           .eq('tenant_id', tenantId)
           .order('booking_group_reference', { ascending: true, nullsFirst: false })
@@ -210,7 +210,13 @@ export default async function handler(req, res) {
             po_to_follow: null,
             xero_invoice_id: null,
             xero_invoice_number: null,
-            is_guest_booking: !b.member_id
+            is_guest_booking: !b.member_id,
+            // Normalize discount-code fields to the common shape used by standard bookings.
+            // Complex events store the code amount in `discount_amount` and the code string in `discount_code`;
+            // their `total_paid`/`ticket_price` are already net of the code, so folding `discount_amount`
+            // into the group discount does NOT double count.
+            discount_code_amount: b.discount_amount || 0,
+            discount_code_label: b.discount_code || null
           }));
           allBookings.push(...normalizedComplexBookings);
         }
@@ -245,6 +251,23 @@ export default async function handler(req, res) {
         if (!orgsError && orgs) {
           for (const org of orgs) {
             organizations[org.id] = org.name;
+          }
+        }
+      }
+
+      // Resolve discount-code labels for standard bookings (which store discount_code_id, not the code string).
+      // Complex bookings already carry `discount_code_label` from normalization above.
+      const discountCodeIds = [...new Set(allBookings.map(b => b.discount_code_id).filter(Boolean))];
+      if (discountCodeIds.length > 0) {
+        const { data: discountCodes } = await supabase
+          .from('discount_code')
+          .select('id, code')
+          .in('id', discountCodeIds)
+          .eq('tenant_id', tenantId);
+        const codeById = new Map((discountCodes || []).map(c => [c.id, c.code]));
+        for (const b of allBookings) {
+          if (b.discount_code_id && !b.discount_code_label) {
+            b.discount_code_label = codeById.get(b.discount_code_id) || null;
           }
         }
       }
@@ -427,7 +450,12 @@ export default async function handler(req, res) {
         const groupVoucher = members.reduce((sum, b) => sum + (Number(b.voucher_amount) || 0), 0);
         const groupTrainingFund = members.reduce((sum, b) => sum + (Number(b.training_fund_amount) || 0), 0);
         const groupAccountAmount = members.reduce((sum, b) => sum + (Number(b.account_amount) || 0), 0);
-        const groupDiscount = Math.max(0, groupTicketTotal - groupTotalCost);
+        // Ticket-offer discount (BOGO, early-bird, etc.) is what's left after ticket price minus stored cost.
+        // Discount-code amounts are stored separately (not reflected in total_cost/total_paid), so add them.
+        const groupOfferDiscount = Math.max(0, groupTicketTotal - groupTotalCost);
+        const groupCodeDiscount = members.reduce((sum, b) => sum + (Number(b.discount_code_amount) || 0), 0);
+        const groupDiscount = groupOfferDiscount + groupCodeDiscount;
+        const groupDiscountCode = (members.find(b => b.discount_code_label)?.discount_code_label) || null;
 
         totalRevenue += groupTotalCost;
         totalVoucher += groupVoucher;
@@ -463,6 +491,9 @@ export default async function handler(req, res) {
             ticketTotal: groupTicketTotal,
             totalCost: groupTotalCost,
             discount: groupDiscount,
+            offerDiscount: groupOfferDiscount,
+            codeDiscount: groupCodeDiscount,
+            discountCode: groupDiscountCode,
             voucherAmount: groupVoucher,
             trainingFundAmount: groupTrainingFund,
             accountAmount: groupAccountAmount,

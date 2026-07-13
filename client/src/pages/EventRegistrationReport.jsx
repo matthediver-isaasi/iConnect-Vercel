@@ -891,6 +891,7 @@ export default function EventRegistrationReport() {
     { key: 'std:trackAccess', label: 'Track Access', get: ({ a }) => a.track_access || '' },
     { key: 'std:ticketPrice', label: 'Ticket Price', get: ({ a }) => Number(a.ticket_price || 0).toFixed(2) },
     { key: 'std:groupDiscount', label: 'Group Discount', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.discount || 0).toFixed(2) : '') },
+    { key: 'std:discountCode', label: 'Discount Code', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.discountCode || '') : '') },
     { key: 'std:groupTotal', label: 'Group Total', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.totalCost || 0).toFixed(2) : '') },
     { key: 'std:voucher', label: 'Voucher Amount', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.voucherAmount || 0).toFixed(2) : '') },
     { key: 'std:trainingFund', label: 'Training Fund', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.trainingFundAmount || 0).toFixed(2) : '') },
@@ -1680,6 +1681,7 @@ export default function EventRegistrationReport() {
                                 <td className="py-3 pr-3 text-right whitespace-nowrap">{formatCurrency(attendee.ticket_price)}</td>
                                 <td className="py-3 pr-3 text-right whitespace-nowrap">
                                   {gp.discount > 0 ? <span className="text-green-600">-{formatCurrency(gp.discount)}</span> : '-'}
+                                  {gp.discountCode && <div className="text-xs text-muted-foreground" data-testid={`text-discount-code-${attendee.id}`}>{gp.discountCode}</div>}
                                 </td>
                                 <td className="py-3 pr-3 text-right whitespace-nowrap font-medium">{formatCurrency(gp.totalCost)}</td>
                                 <td className="py-3 pr-3 text-right whitespace-nowrap">
@@ -1766,10 +1768,11 @@ export default function EventRegistrationReport() {
                             </>
                           );
 
-                          const renderPaymentCells = () => (
+                          const renderPaymentCells = (keyAttendeeId) => (
                             <>
                               <td className="py-2 pr-3 text-right whitespace-nowrap" rowSpan={groupRowCount}>
                                 {gp.discount > 0 ? <span className="text-green-600">-{formatCurrency(gp.discount)}</span> : '-'}
+                                {gp.discountCode && <div className="text-xs text-muted-foreground" data-testid={`text-discount-code-${keyAttendeeId}`}>{gp.discountCode}</div>}
                               </td>
                               <td className="py-2 pr-3 text-right whitespace-nowrap font-medium" rowSpan={groupRowCount}>
                                 {formatCurrency(gp.totalCost)}
@@ -1831,7 +1834,7 @@ export default function EventRegistrationReport() {
                                 <td className="py-2 pr-3"></td>
                                 <td className="py-2 pr-3"></td>
                                 <td className="py-2 pr-3 text-right whitespace-nowrap"></td>
-                                {renderPaymentCells()}
+                                {renderPaymentCells(headerKey)}
                                 <td className="py-2 pr-3"></td>
                                 <td className="py-2 pr-3"></td>
                                 <td className="py-2 pr-3"></td>
@@ -1892,7 +1895,7 @@ export default function EventRegistrationReport() {
                                   ) : '-'}
                                 </td>
                                 <td className="py-2 pr-3 text-right whitespace-nowrap">{formatCurrency(attendee.ticket_price)}</td>
-                                {renderGroupSpannedCells ? renderPaymentCells() : null}
+                                {renderGroupSpannedCells ? renderPaymentCells(attendee.id) : null}
                                 <td className="py-2 pr-3 whitespace-nowrap">
                                   <Badge variant={attendee.status === 'confirmed' ? 'default' : attendee.status === 'cancelled' ? 'destructive' : 'secondary'}>
                                     {attendee.status || 'unknown'}
