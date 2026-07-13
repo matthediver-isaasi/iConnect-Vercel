@@ -26,13 +26,38 @@ export default function DynamicPage() {
   const { slug, micrositePrefix: routeMicrositePrefix } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
-  const { microsites, micrositesLoaded } = useMicrosite();
+  const { microsites, micrositesLoaded, activeMicrosite } = useMicrosite();
   const isMicrositeRoute = !!routeMicrositePrefix;
   const micrositeMatch = useMemo(() => {
     if (!isMicrositeRoute || !micrositesLoaded) return null;
     const prefix = routeMicrositePrefix.toLowerCase();
     return microsites.find((m) => m.path_prefix === prefix) || null;
   }, [isMicrositeRoute, micrositesLoaded, microsites, routeMicrositePrefix]);
+
+  // Task #2764: a bare /{prefix} (single URL segment that matches an active
+  // microsite prefix) should render that microsite's HOME page — mirroring the
+  // crawler pre-renderer (api/public/prerender.js renderMicrositeHomePage) and
+  // the SSR chrome resolver (renderHtml.js resolveMicrositeChromeForRequest).
+  // MicrositeContext already keys activeMicrosite off the first path segment,
+  // seeding it synchronously from the SSR-injected global on first paint and
+  // from the fetched list on SPA navigation, so we resolve the home page slug
+  // straight off it. A microsite with no home page (home_slug null) falls
+  // through to the default-site bare-slug lookup, exactly as the pre-renderer.
+  const barePrefixHome = useMemo(() => {
+    if (isMicrositeRoute || !slug) return null;
+    if (activeMicrosite && activeMicrosite.path_prefix === slug.toLowerCase() && activeMicrosite.home_slug) {
+      return activeMicrosite;
+    }
+    return null;
+  }, [isMicrositeRoute, slug, activeMicrosite]);
+  const isMicrositeHomeRoute = !!barePrefixHome;
+
+  // Unified microsite fetch parameters covering both the two-segment page route
+  // (/{prefix}/{slug}) and the bare-prefix home route (/{prefix}).
+  const isAnyMicrositeRoute = isMicrositeRoute || isMicrositeHomeRoute;
+  const effectiveMicrosite = isMicrositeRoute ? micrositeMatch : barePrefixHome;
+  const effectivePrefix = effectiveMicrosite?.path_prefix || null;
+  const effectiveSlug = isMicrositeHomeRoute ? barePrefixHome.home_slug : slug;
   // When the Canvas Page Editor opens the live preview iframe, it appends
   // `?_canvasPreview=<nonce>`. In that mode we must bypass the publish gate
   // (and the public endpoint, which only returns published pages) so the
@@ -100,7 +125,7 @@ export default function DynamicPage() {
 
   const dynamicArticleRoute = useMemo(() => {
     // Microsite URLs never map to dynamic article routes.
-    if (isMicrositeRoute) return null;
+    if (isMicrositeRoute || isMicrositeHomeRoute) return null;
     // Only intercept dynamic routes if we have a custom slug configured
     if (!isCustomSlug || !slug || articleUrlLoading) return null;
     
@@ -135,14 +160,15 @@ export default function DynamicPage() {
 
   // Fetch page and elements together using public endpoint first, fall back to authenticated
   const { data: pageData, isLoading: pageLoading, isFetched: pageFetched, error: pageError } = useQuery({
-    queryKey: ['iedit-dynamic-page', routeMicrositePrefix || null, slug, isCanvasPreview ? 'preview' : 'live'],
+    queryKey: ['iedit-dynamic-page', effectivePrefix, effectiveSlug, isCanvasPreview ? 'preview' : 'live'],
     queryFn: async () => {
-      // Task #2426: microsite pages are public-only — resolve strictly via
-      // the public endpoint scoped to the microsite prefix (no authenticated
-      // fallback: bare-slug auth reads would leak pages across microsites).
-      if (isMicrositeRoute) {
+      // Task #2426/#2764: microsite pages (both /{prefix}/{slug} and the bare
+      // /{prefix} home page) are public-only — resolve strictly via the public
+      // endpoint scoped to the microsite prefix (no authenticated fallback:
+      // bare-slug auth reads would leak pages across microsites).
+      if (isAnyMicrositeRoute) {
         try {
-          const data = await publicClient.getPage(slug, micrositeMatch.path_prefix);
+          const data = await publicClient.getPage(effectiveSlug, effectivePrefix);
           if (data) {
             return { page: data.page, elements: data.elements, symbols: data.symbols };
           }
@@ -415,7 +441,7 @@ export default function DynamicPage() {
   }, [page, pageLoading, isPublicPage, isHybridPage, isLoggedIn, forcePublicPreview, setForcePublicLayout, setPublicChrome, dynamicArticleRoute]);
 
   // Check for redirect mappings when page is not found (default site only)
-  const shouldCheckRedirect = !pageLoading && !pageQueryPending && !page && !dynamicArticleRoute && !!slug && !isMicrositeRoute;
+  const shouldCheckRedirect = !pageLoading && !pageQueryPending && !page && !dynamicArticleRoute && !!slug && !isAnyMicrositeRoute;
   const { data: redirectResult, isLoading: redirectLoading } = useQuery({
     queryKey: ['redirect-resolve', slug],
     queryFn: async () => {
