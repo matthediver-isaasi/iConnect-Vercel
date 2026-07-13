@@ -72,3 +72,9 @@ id = "Fpuq_XA8DI46uNcZHuKuZ"
 uri = "file://deliverables/gsf-map-switchover/gsf-map-iconnect-switchover.zip"
 type = "unspecified"
 title = "Both files zipped (includes the .php version)"
+
+[[outputs]]
+id = "oifXWZnx3cfDJZsSdPajB"
+uri = "file://.local/tasks/seo-prerender-ssr-scope.md"
+type = "text"
+title = "SEO Prerender/SSR Scope (single-tenant)"
