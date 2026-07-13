@@ -335,7 +335,7 @@ export default async function handler(req, res) {
       if (canUseDbDateFilter && fromIso) query = query.gte('created_at', fromIso);
       if (canUseDbDateFilter && toIso) query = query.lte('created_at', toIso);
       if (orgFilterActive) query = query.in('organization_id', requestedOrgIds);
-      query = query.range(from, from + pageSize - 1);
+      query = query.order('id', { ascending: true }).range(from, from + pageSize - 1);
 
       const { data, error } = await query;
       if (error) {
@@ -601,29 +601,37 @@ export default async function handler(req, res) {
       const voucherIdList = Array.from(voucherIdsInReport);
       if (voucherIdList.length > 0) {
         const batchSize = 200;
+        const netPageSize = 1000;
         for (let i = 0; i < voucherIdList.length; i += batchSize) {
           const batch = voucherIdList.slice(i, i + batchSize);
-          const { data: allForVouchers, error: allErr } = await supabase
-            .from('voucher_transaction')
-            .select('voucher_id, amount, type')
-            .eq('tenant_id', tenantId)
-            .in('voucher_id', batch);
-          if (allErr) {
-            console.warn('[VoucherExportCSV] Full voucher history lookup error (non-blocking):', allErr.message);
-            continue;
-          }
-          for (const t of (allForVouchers || [])) {
-            if (!t.voucher_id) continue;
-            const amt = Math.abs(parseFloat(t.amount || 0));
-            if (isNaN(amt)) continue;
-            let signed = 0;
-            if (NEGATIVE_TYPES.has(t.type)) signed = -amt;
-            else if (POSITIVE_TYPES.has(t.type)) signed = amt;
-            else {
-              const raw = parseFloat(t.amount || 0);
-              signed = isNaN(raw) ? 0 : raw;
+          let netFrom = 0;
+          while (true) {
+            const { data: allForVouchers, error: allErr } = await supabase
+              .from('voucher_transaction')
+              .select('id, voucher_id, amount, type')
+              .eq('tenant_id', tenantId)
+              .in('voucher_id', batch)
+              .order('id', { ascending: true })
+              .range(netFrom, netFrom + netPageSize - 1);
+            if (allErr) {
+              console.warn('[VoucherExportCSV] Full voucher history lookup error (non-blocking):', allErr.message);
+              break;
             }
-            netByVoucher[t.voucher_id] = (netByVoucher[t.voucher_id] || 0) + signed;
+            for (const t of (allForVouchers || [])) {
+              if (!t.voucher_id) continue;
+              const amt = Math.abs(parseFloat(t.amount || 0));
+              if (isNaN(amt)) continue;
+              let signed = 0;
+              if (NEGATIVE_TYPES.has(t.type)) signed = -amt;
+              else if (POSITIVE_TYPES.has(t.type)) signed = amt;
+              else {
+                const raw = parseFloat(t.amount || 0);
+                signed = isNaN(raw) ? 0 : raw;
+              }
+              netByVoucher[t.voucher_id] = (netByVoucher[t.voucher_id] || 0) + signed;
+            }
+            if (!allForVouchers || allForVouchers.length < netPageSize) break;
+            netFrom += netPageSize;
           }
         }
       }
