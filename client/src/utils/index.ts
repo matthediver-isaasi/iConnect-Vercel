@@ -2,7 +2,8 @@
 
 
 export function createPageUrl(pageName: string) {
-    return '/' + pageName.replace(/ /g, '-');
+    const normalized = pageName.replace(/ /g, '-');
+    return normalized.startsWith('/') ? normalized : '/' + normalized;
 }
 
 export function getEventUrl(event: { id: string; slug?: string | null }) {
