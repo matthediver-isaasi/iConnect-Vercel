@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { getArticleUrlConfig } from '../_lib/articleUrlPaths.js';
+import { resolveMicrositeByPrefix } from '../_lib/microsites.js';
 
 function escapeHtml(str) {
   if (!str) return '';
@@ -1024,18 +1025,37 @@ async function renderCanvasDynamicBlock(supabaseClient, tenant, block) {
   return null;
 }
 
-async function renderCustomPage(supabaseClient, tenant, pageSlug, baseUrl) {
+async function renderCustomPage(supabaseClient, tenant, pageSlug, baseUrl, options = {}) {
   if (!pageSlug) return null;
 
+  const microsite = options.microsite || null;
   const escapedSlug = pageSlug.replace(/([\\%_])/g, '\\$1');
-  const { data: page } = await supabaseClient
-    .from('i_edit_page')
-    .select('id, title, slug, description, meta_title, meta_description, seo_title, seo_description, og_image_url, builder_type, canvas_design')
-    .eq('tenant_id', tenant.id)
-    .ilike('slug', escapedSlug)
-    .eq('status', 'published')
-    .in('layout_type', ['public', 'hybrid'])
-    .single();
+
+  // Microsite pages live at /{prefix}/{slug}; default-site pages at /{slug}.
+  // Scope the lookup by microsite_id so (a) a microsite request only resolves
+  // pages owned by that microsite, and (b) a bare /{slug} default-site request
+  // excludes microsite-owned pages — both preventing cross-leaks and avoiding a
+  // multi-row `.single()` error when the same slug exists on the default site
+  // and a microsite. Legacy-tolerant: databases without the microsite_id column
+  // (42703) retry the unscoped query so the default site keeps working.
+  const buildQuery = (scoped) => {
+    let q = supabaseClient
+      .from('i_edit_page')
+      .select('id, title, slug, description, meta_title, meta_description, seo_title, seo_description, og_image_url, builder_type, canvas_design')
+      .eq('tenant_id', tenant.id)
+      .ilike('slug', escapedSlug)
+      .eq('status', 'published')
+      .in('layout_type', ['public', 'hybrid']);
+    if (scoped) {
+      q = microsite ? q.eq('microsite_id', microsite.id) : q.is('microsite_id', null);
+    }
+    return q.single();
+  };
+
+  let { data: page, error } = await buildQuery(true);
+  if (error && error.code === '42703') {
+    ({ data: page } = await buildQuery(false));
+  }
 
   if (!page) return null;
 
@@ -1126,7 +1146,9 @@ async function renderCustomPage(supabaseClient, tenant, pageSlug, baseUrl) {
   const result = {
     title: `${socialTitle} | ${tenant.name}`,
     description: truncate(socialDesc),
-    ogUrl: `${baseUrl}/${page.slug}`,
+    ogUrl: microsite
+      ? `${baseUrl}/${microsite.path_prefix}/${page.slug}`
+      : `${baseUrl}/${page.slug}`,
     bodyContent: `
       <article>
         <h1>${escapeHtml(pageTitle)}</h1>
@@ -1369,6 +1391,23 @@ export default async function handler(req, res) {
       const bareSlugMatch = requestPath.match(/^\/([a-zA-Z][a-zA-Z0-9-]+)$/);
       if (bareSlugMatch) {
         pageData = await renderCustomPage(supabase, tenant, decodeURIComponent(bareSlugMatch[1]), baseUrl);
+      }
+    }
+
+    // Microsite custom pages served at /{prefix}/{slug}. Runs after every
+    // single-segment route (events, articles, list pages, bare slug) so it can
+    // never shadow them; the two-segment shape can't match those anyway. Only a
+    // prefix that resolves to an ACTIVE microsite proceeds — otherwise pageData
+    // stays null and we fall through to redirects / 404 as before.
+    if (!pageData) {
+      const micrositePathMatch = requestPath.match(/^\/([^/?#]+)\/([^/?#]+)\/?(?:[?#]|$)/);
+      if (micrositePathMatch) {
+        const prefix = decodeURIComponent(micrositePathMatch[1]);
+        const slug = decodeURIComponent(micrositePathMatch[2]);
+        const microsite = await resolveMicrositeByPrefix(supabase, tenant.id, prefix);
+        if (microsite) {
+          pageData = await renderCustomPage(supabase, tenant, slug, baseUrl, { microsite });
+        }
       }
     }
 
