@@ -87,3 +87,4 @@
 - [Canvas dynamic-list new-tab](canvas-newtab-dynamic-lists.md) — data-driven list links (sponsor/article/resource) use a block-level newTab ToggleField (not LinkField); resource list extends shared ResourceCard with a defaulted openInNewTab prop.
 - [Card-as-button needs w-full](button-card-width.md) — <button> cards shrink to content width (squashed on phones) unlike div/a cards; also verify the deployed bundle before re-debugging a "fix didn't work" report.
 - [TipTap Link per-link new-tab](tiptap-link-target-default.md) — extension default target='_blank' survives .configure() deep-merge + renderHTML always merges global HTMLAttributes; must explicitly null global target to get same-tab default.
+- [Canvas engine mobile stacking](canvas-engine-mobile-stacking.md) — engine emits desktop-only frames (2-up cards overlap on phones); card bodies strip <table>; add stacked bp frames in source order + verify arithmetically.

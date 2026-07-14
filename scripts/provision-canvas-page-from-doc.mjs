@@ -5705,6 +5705,320 @@ const PRESIDENTS_WEBINAR_SERIES = {
   }),
 };
 
+// ---------------------------------------------------------------------------
+// Autumn Meeting 2026 microsite — Registration page (Task: Autumn Meeting 2026
+// registration Canvas page). Visual language derived from the existing Autumn
+// Meeting microsite pages (autumn-meeting-2026*, verified in prod):
+//   - purple accent #6b20b3 (icons, dividers, card "Includes:" label)
+//   - light lilac colour band #F5EFFB
+//   - button variant tenant:autumn
+//   - hero image New_Autumn_meeting_image.jpg, dark-washed, centred H1
+//     (typo 7c9e9a3f headline / 8e020a66 sub), closing hero Swansea_marina.jpg
+//   - section headings typo 82ae129d, H3 5adf6d13, body c6f2ef1a,
+//     card headings d16866a7
+// ---------------------------------------------------------------------------
+const AUTUMN_MICROSITE_ID = '8bcb43c1-4068-49d2-83ef-7606165cd3e0';
+
+const AUTUMN_THEME = {
+  accent: '#6b20b3',
+  bandBg: '#F5EFFB',
+  dividerColor: '#6b20b3',
+  cardHighlight: '#F4F7FF',
+  buttonVariant: 'tenant:autumn',
+  heroOverlay: {
+    direction: 'to-right',
+    fromColor: '#000000',
+    stops: [
+      { color: '#000000', opacity: 0.55, position: 0 },
+      { color: '#000000', opacity: 0, position: 98 },
+    ],
+  },
+};
+
+const AUTUMN_TYPO = {
+  heroHeadline: '7c9e9a3f-4c60-4ee9-a8ec-4bd83325f7e5',
+  heroSub: '8e020a66-1192-4266-a566-6d02f6d78a37',
+  h2: '82ae129d-66e2-4593-8b53-4cf3d1525aed',
+  h3: '5adf6d13-1d12-4613-ac55-b4bb1345c168',
+  body: 'c6f2ef1a-0e3e-4823-9ccb-290876da2f98',
+  cardHeading: 'd16866a7-5cab-4854-8576-cb3d92081bc8',
+};
+
+const AM_HERO_IMG = `${BNMS_UPLOADS}1783946256862-0lq564x-New_Autumn_meeting_image.jpg`;
+const AM_HERO_CLOSE_IMG = `${BNMS_UPLOADS}1782635770890-4biggtg-Swansea_marina.jpg`;
+
+// Registration CTA targets: no individual/group registration link exists yet
+// anywhere in the microsite (hero buttons on sibling pages say "Registration
+// coming soon" with href '#'), so both CTAs use the '#' placeholder for the
+// user to confirm/replace.
+const AM_REG_INDIVIDUAL_HREF = '#';
+const AM_REG_GROUP_HREF = '#';
+
+// Mobile-safe fee list: card bodies are rendered through the rich-text
+// sanitizer (email-builder allowlist), which STRIPS <table> markup — so fee
+// tables are emitted as per-category paragraph rows (p/strong/br/span only,
+// all allowlisted). One row per membership category, both prices labelled
+// inline; wraps cleanly at any card width so it stays legible on phones.
+const feeRows = (rows) =>
+  rows
+    .map(
+      ([name, full, thu]) =>
+        `<p><strong>${name}</strong><br/>Full Meeting: ${full}&nbsp;&nbsp;\u00b7&nbsp;&nbsp;Thursday Only: ${thu}</p>`
+    )
+    .join('');
+
+const FEE_LABEL = (t) =>
+  `<p><span style="color: rgb(107, 32, 179); font-size: 18px;"><strong>${t}</strong></span></p>`;
+
+const AUTUMN_REGISTRATION = {
+  tenantId: BNMS_TENANT_ID,
+  slug: 'autumn-meeting-2026-registration',
+  title: 'Autumn Meeting 2026 Registration',
+  micrositeId: AUTUMN_MICROSITE_ID,
+  design: buildDesign({
+    theme: AUTUMN_THEME,
+    typo: AUTUMN_TYPO,
+    hero: {
+      headline: 'Register for the BNMS Autumn Meeting 2026',
+      subheadline:
+        'Choose the registration option that is right for you and join colleagues from across the nuclear medicine community in Swansea. 24\u201325 September 2026. Early Bird deadline: 7 September 2026.',
+      ctaLabel: 'Register as an Individual',
+      ctaHref: AM_REG_INDIVIDUAL_HREF,
+      cta2Label: 'Group Booking',
+      cta2Href: AM_REG_GROUP_HREF,
+      cta2Variant: 'tenant:ghost',
+      bgImageUrl: AM_HERO_IMG,
+    },
+    sections: [
+      {
+        type: 'cards',
+        columns: 2,
+        cards: [
+          {
+            icon: 'fa-solid fa-user',
+            heading: 'Register as an Individual',
+            body: P('Book your own place at the meeting.'),
+            cta: 'Register as an Individual',
+            ctaHref: AM_REG_INDIVIDUAL_HREF,
+            h: 300,
+          },
+          {
+            icon: 'fa-solid fa-users',
+            heading: 'Group Booking',
+            body: P('Book 5 or more delegates from the same Trust and receive a 10% discount before the Early Bird deadline.'),
+            cta: 'Group Booking',
+            ctaHref: AM_REG_GROUP_HREF,
+            h: 300,
+          },
+        ],
+      },
+      {
+        type: 'text',
+        heading: 'Registration Fees',
+        html: P('All fees include VAT, full catering and Thursday evening dinner.'),
+        h: 70,
+      },
+      {
+        type: 'cards',
+        columns: 2,
+        cards: [
+          {
+            heading: 'Individual Registration',
+            body:
+              P('<em>Full Meeting = Thursday &amp; Friday morning \u00b7 Thursday Only includes the evening dinner.</em>') +
+              FEE_LABEL('EARLY BIRD (until 7 September 2026)') +
+              feeRows([
+                ['BNMS Full Member', '\u00a3207.27', '\u00a3174.93'],
+                ['BNMS Junior/Associate Member*', '\u00a3119.80', '\u00a387.47'],
+                ['Retired/Student/Trainee/LMIC Member', '\u00a3105.11', '\u00a372.77'],
+                ['Non-Member Full (NHS band 8+)', '\u00a3276.36', '\u00a3244.02'],
+                ['Non-Member Junior (NHS band 7 or below)*', '\u00a3154.35', '\u00a3122.01'],
+              ]) +
+              '<p></p>' +
+              FEE_LABEL('LATE (from 8 September 2026)') +
+              feeRows([
+                ['BNMS Full Member', '\u00a3296.10', '\u00a3249.90'],
+                ['BNMS Junior/Associate Member*', '\u00a3171.15', '\u00a3124.95'],
+                ['Retired/Student/Trainee/LMIC Member', '\u00a3150.15', '\u00a3103.95'],
+                ['Non-Member Full (NHS band 8+)', '\u00a3394.80', '\u00a3348.60'],
+                ['Non-Member Junior (NHS band 7 or below)*', '\u00a3220.50', '\u00a3174.30'],
+              ]),
+            cta: 'Register as an Individual',
+            ctaHref: AM_REG_INDIVIDUAL_HREF,
+            h: 1010,
+          },
+          {
+            heading: 'Group Registration (5+ Delegates)',
+            body:
+              P('<em>Full Meeting = Thursday &amp; Friday morning \u00b7 Thursday Only includes the evening dinner.</em>') +
+              feeRows([
+                ['BNMS Full Member', '\u00a3186.54', '\u00a3141.75'],
+                ['BNMS Junior/Associate', '\u00a3107.82', '\u00a378.72'],
+                ['Retired/Student/Trainee/LMIC', '\u00a394.60', '\u00a365.49'],
+                ['Non-Member Full', '\u00a3248.72', '\u00a3219.62'],
+                ['Non-Member Junior', '\u00a3138.92', '\u00a3109.81'],
+              ]),
+            cta: 'Group Booking',
+            ctaHref: AM_REG_GROUP_HREF,
+            h: 1010,
+          },
+        ],
+      },
+      {
+        type: 'cards',
+        heading: "What's Included?",
+        columns: 3,
+        cards: [
+          {
+            icon: 'fa-solid fa-calendar-days',
+            heading: 'Full Meeting',
+            body: `<ul>${LI('Thursday scientific programme')}${LI('Thursday evening dinner')}${LI('Friday morning sessions')}${LI('Full catering')}</ul>`,
+            h: 400,
+          },
+          {
+            icon: 'fa-solid fa-utensils',
+            heading: 'Thursday Only',
+            body: `<ul>${LI('Thursday scientific programme')}${LI('Thursday evening dinner')}${LI('Full catering')}</ul>`,
+            h: 400,
+          },
+          {
+            icon: 'fa-solid fa-people-group',
+            heading: 'Group Bookings',
+            body: `<ul>${LI('5+ delegates from the same Trust')}${LI('10% discount')}${LI('Available before Early Bird deadline')}</ul>`,
+            h: 400,
+          },
+        ],
+      },
+      {
+        type: 'cards',
+        heading: 'Good to Know',
+        columns: 3,
+        cards: [
+          {
+            icon: 'fa-solid fa-id-card',
+            heading: 'BNMS Members',
+            body: P('BNMS members receive significantly reduced registration fees.'),
+            cta: 'Become a BNMS Member',
+            ctaHref: '/member-benefits',
+            h: 420,
+          },
+          {
+            icon: 'fa-solid fa-graduation-cap',
+            heading: 'Student Members',
+            body:
+              P('A limited number of further reduced-rate places are available for BNMS Student Members.') +
+              P('Please contact <a href="mailto:events@bnms.org.uk">events@bnms.org.uk</a> before registering.'),
+            h: 420,
+          },
+          {
+            icon: 'fa-solid fa-circle-question',
+            heading: 'Working outside Nuclear Medicine?',
+            body:
+              P('If you are not currently working in nuclear medicine but would like to attend, please contact us to discuss a discount rate.') +
+              P('Please contact <a href="mailto:events@bnms.org.uk">events@bnms.org.uk</a>'),
+            h: 420,
+          },
+        ],
+      },
+      {
+        type: 'columns',
+        heading: 'Payment Information',
+        columns: [
+          {
+            icon: 'fa-solid fa-credit-card',
+            h3: 'Paying by card',
+            html:
+              P('We encourage payment during registration wherever possible.') +
+              P('Credit and debit cards can be used via the PayPal option \u2013 no PayPal account is required.'),
+            bullets: false,
+            h: 240,
+          },
+          {
+            icon: 'fa-solid fa-file-invoice',
+            h3: 'Paying by invoice',
+            html:
+              P('Invoice payment is available before the Early Bird deadline only.') +
+              P('Please have the following when registering:') +
+              `<ul>${LI('Valid Purchase Order')}${LI('Correct billing address')}${LI('SBS payables code (where applicable)')}</ul>` +
+              P('<strong>Registrations without the required purchase order and billing details cannot be accepted.</strong>'),
+            h: 440,
+          },
+        ],
+      },
+    ],
+    closingHero: {
+      headline: 'Need Help?',
+      subheadline:
+        'For help with individual registrations, group bookings or any registration queries, please contact our team at events@bnms.org.uk',
+      ctaLabel: 'Register as an Individual',
+      ctaHref: AM_REG_INDIVIDUAL_HREF,
+      cta2Label: 'Group Booking',
+      cta2Href: AM_REG_GROUP_HREF,
+      cta2Variant: 'tenant:ghost',
+      bgImageUrl: AM_HERO_CLOSE_IMG,
+    },
+  }),
+};
+
+// The layout engine emits desktop frames only (bp.tablet / bp.mobile empty),
+// so multi-column card rows clamp on top of each other on phones (the
+// display-only clampGeomToStage pull-back stacks 2-up cards at x:0, same y).
+// Hand-built Autumn Meeting sibling pages carry explicit stacked mobile
+// frames (x:16, w:343), so mirror that: assign every block an explicit
+// tablet + mobile frame, single-column in source order (the engine emits
+// column contents grouped, so source order IS the reading order). Heights
+// stay at the desktop value — the public renderer's reflow grows text/cards
+// to content and pushes the blocks below down.
+function stackResponsive(design) {
+  const children = design.root.sections[0].children;
+  const band = children.find((b) => b.type === 'section');
+  const bandD = band ? band.bp.desktop : null;
+  for (const [bp, bpW, margin] of [
+    ['tablet', 768, 24],
+    ['mobile', 375, 16],
+  ]) {
+    let cur = 0;
+    let bandTop = null;
+    let bandBottom = null;
+    for (const b of children) {
+      if (b === band) continue;
+      const d = b.bp.desktop;
+      const inBand = !!bandD && d.y >= bandD.y && d.y < bandD.y + bandD.h;
+      if (inBand && bandTop === null) {
+        cur += 24;
+        bandTop = cur - 24 + 8;
+        cur += 24;
+      }
+      let f;
+      if (b.type === 'hero') {
+        f = { x: 0, y: cur, w: bpW, h: d.h, hidden: false };
+      } else if (d.w <= 320) {
+        // Icons / dividers keep their own width; keep horizontally centred
+        // elements centred, left-align the rest to the content margin.
+        const centred = Math.abs(d.x + d.w / 2 - 600) < 60;
+        f = {
+          x: centred ? Math.round((bpW - d.w) / 2) : margin,
+          y: cur,
+          w: d.w,
+          h: d.h,
+          hidden: false,
+        };
+      } else {
+        f = { x: margin, y: cur, w: bpW - margin * 2, h: d.h, hidden: false };
+      }
+      b.bp[bp] = f;
+      cur = f.y + f.h + 24;
+      if (inBand) bandBottom = f.y + f.h + 32;
+    }
+    if (band && bandTop !== null && bandBottom !== null) {
+      band.bp[bp] = { x: 0, y: bandTop, w: bpW, h: bandBottom - bandTop, hidden: false };
+    }
+  }
+  return design;
+}
+
+stackResponsive(AUTUMN_REGISTRATION.design);
+
 const PAGES = [
   MRT_HOME,
   MRT_COMMITTEE,
@@ -5771,13 +6085,17 @@ const PAGES = [
   BNMS_COUNCIL,
   REGIONAL_LEADS,
   PRESIDENTS_WEBINAR_SERIES,
+  AUTUMN_REGISTRATION,
 ];
 
 // ---------------------------------------------------------------------------
 // Upsert (idempotent on tenant_id + slug).
 // ---------------------------------------------------------------------------
 async function provision(page, { apply, dumpJson }) {
-  const { tenantId, slug, title, design } = page;
+  const { tenantId, slug, title, design, micrositeId } = page;
+  // Only pages that declare a micrositeId get microsite_id written; other
+  // pages are left untouched (no accidental main-site <-> microsite moves).
+  const micrositeFields = micrositeId !== undefined ? { microsite_id: micrositeId } : {};
 
   if (dumpJson) {
     console.log(JSON.stringify(design));
@@ -5820,6 +6138,7 @@ async function provision(page, { apply, dumpJson }) {
         element_ids: [],
         search_text: title,
         canvas_design: design,
+        ...micrositeFields,
       })
       .eq('id', existing.id);
     if (updErr) console.error(`[${slug}] update failed:`, updErr.message);
@@ -5849,6 +6168,7 @@ async function provision(page, { apply, dumpJson }) {
       search_text: title,
       builder_type: 'canvas',
       canvas_design: design,
+      ...micrositeFields,
     })
     .select('id')
     .single();
