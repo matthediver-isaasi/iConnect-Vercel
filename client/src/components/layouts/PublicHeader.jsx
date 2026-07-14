@@ -1658,53 +1658,6 @@ export default function PublicHeader() {
         </Link>
         )}
 
-        {/* Mobile: Floating Logo in white box with shadow */}
-        {headerIconsConfig.logo && (
-        <Link 
-          to={logoHomePath}
-          className="absolute z-50 lg:hidden"
-          style={{
-            top: logoMarginTop ? `${logoMarginTop}px` : '8px',
-            left: logoMarginLeft ? `${parseInt(logoMarginLeft) + 12}px` : '12px',
-            ...(hasLogoContainerStyles ? logoContainerStyle : { 
-              backgroundColor: 'white', 
-              borderRadius: '4px', 
-              padding: '8px',
-              boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)'
-            }),
-            transition: logoShrinkTransition
-          }}
-          data-testid="link-header-logo-mobile-floating"
-        >
-          {hasLogoUrl ? (
-            <img
-              src={headerLogoUrl}
-              alt={tenantName}
-              style={{
-                height: `${Math.min(activeLogoHeightPx, 96)}px`,
-                width: 'auto',
-                maxWidth: headerLogoWidth ? `${headerLogoWidth}px` : 'none',
-                objectFit: 'contain',
-                display: 'block',
-                transition: logoShrinkTransition
-              }}
-            />
-          ) : (
-            <span 
-              className="font-bold text-slate-900"
-              style={{
-                fontSize: '18px',
-                lineHeight: '24px',
-                display: 'block',
-                whiteSpace: 'nowrap'
-              }}
-            >
-              {tenantName}
-            </span>
-          )}
-        </Link>
-        )}
-
         {/* Top Row - Gradient Header (Desktop only) */}
         <div
           className={`relative hidden lg:flex items-center ${topBarHeight ? '' : 'py-2'}`}
@@ -1753,12 +1706,50 @@ export default function PublicHeader() {
             </div>
           </div>
 
-          {/* Mobile/tablet: white bar with hamburger (unchanged) */}
+          {/* Mobile/tablet: white bar with inline logo + hamburger. The logo
+              intentionally IGNORES the desktop size/shrink-on-scroll settings
+              (logoHeight, logoShrinkOnScroll, margins, container box) and is
+              simply constrained to fit the toolbar height. */}
           <div className="lg:hidden bg-white border-b border-slate-200">
             <div className="max-w-7xl mx-auto px-4 py-3">
-              <div className="flex justify-between items-center">
-                {/* Mobile spacer for floating logo */}
-                <div style={{ width: '120px' }}></div>
+              <div className="flex justify-between items-center gap-3">
+                {/* Mobile logo, sits inside the bar */}
+                {headerIconsConfig.logo ? (
+                  <Link
+                    to={logoHomePath}
+                    className="flex items-center min-w-0"
+                    data-testid="link-header-logo-mobile"
+                  >
+                    {hasLogoUrl ? (
+                      <img
+                        src={headerLogoUrl}
+                        alt={tenantName}
+                        style={{
+                          height: '40px',
+                          width: 'auto',
+                          maxWidth: 'calc(100vw - 120px)',
+                          objectFit: 'contain',
+                          objectPosition: 'left center',
+                          display: 'block'
+                        }}
+                      />
+                    ) : (
+                      <span
+                        className="font-bold text-slate-900 truncate"
+                        style={{
+                          fontSize: '18px',
+                          lineHeight: '40px',
+                          display: 'block',
+                          whiteSpace: 'nowrap'
+                        }}
+                      >
+                        {tenantName}
+                      </span>
+                    )}
+                  </Link>
+                ) : (
+                  <div />
+                )}
 
                 {/* Mobile Menu Button */}
                 <button 
