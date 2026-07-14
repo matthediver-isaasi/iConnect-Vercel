@@ -1184,9 +1184,16 @@ export default function IEditPageManagementPage() {
     return variants[status] || variants.draft;
   };
 
-  const getPublicUrl = (slug) => {
-    // Dynamic pages are accessed via their slug directly as a route
-    return `/${slug}`;
+  const getPublicUrl = (page) => {
+    // A page assigned to a microsite is only served publicly at
+    // /{prefix}/{slug} (the bare /{slug} returns a 404), mirroring the
+    // "Preview as visitor" button in the Canvas builder. Primary-site pages
+    // are accessed via their slug directly.
+    if (page?.microsite_id) {
+      const prefix = microsites.find((m) => m.id === page.microsite_id)?.path_prefix;
+      if (prefix) return `/${prefix}/${page.slug}`;
+    }
+    return `/${page?.slug}`;
   };
 
   if (!accessChecked) {
@@ -1530,7 +1537,7 @@ export default function IEditPageManagementPage() {
                         const editorPage = p.builder_type === 'canvas' ? 'CanvasPageEditor' : 'IEditPageEditor';
                         navigate(buildEditorUrl(editorPage, p.id));
                       }}
-                      onOpenPublic={(p) => window.open(getPublicUrl(p.slug), '_blank')}
+                      onOpenPublic={(p) => window.open(getPublicUrl(p), '_blank')}
                       onRename={openRenameDialog}
                       onDuplicate={(p) => duplicatePageMutation.mutate(p)}
                       onDelete={(p) => { setPageToDelete(p); setShowDeleteDialog(true); }}
@@ -1560,7 +1567,7 @@ export default function IEditPageManagementPage() {
                         const editorPage = p.builder_type === 'canvas' ? 'CanvasPageEditor' : 'IEditPageEditor';
                         navigate(buildEditorUrl(editorPage, p.id));
                       }}
-                      onOpenPublic={(p) => window.open(getPublicUrl(p.slug), '_blank')}
+                      onOpenPublic={(p) => window.open(getPublicUrl(p), '_blank')}
                       onRename={openRenameDialog}
                       onDuplicate={(p) => duplicatePageMutation.mutate(p)}
                       onDelete={(p) => { setPageToDelete(p); setShowDeleteDialog(true); }}
