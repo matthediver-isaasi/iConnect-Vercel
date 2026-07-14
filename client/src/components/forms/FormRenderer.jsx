@@ -816,7 +816,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
                 <SelectValue placeholder={field.placeholder || 'Select an option'} />
               </SelectTrigger>
               <SelectContent side="bottom">
-                {(field.options || []).filter(option => option !== '').map((option, index) => (
+                {(field.options || []).filter(option => typeof option !== 'string' || option.trim() !== '').map((option, index) => (
                   <SelectItem key={index} value={option}>
                     {option}
                   </SelectItem>
@@ -844,7 +844,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
       case 'radio':
         return (
           <RadioGroup value={value || ''} onValueChange={isFieldDisabled ? undefined : onChange} disabled={isFieldDisabled}>
-            {(field.options || []).map((option, index) => (
+            {(field.options || []).filter(option => typeof option !== 'string' || option.trim() !== '').map((option, index) => (
               <div key={index} className="flex items-center space-x-2">
                 <RadioGroupItem value={option} id={`${field.id}-${index}`} />
                 <Label htmlFor={`${field.id}-${index}`} className="font-normal">
@@ -885,7 +885,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
               </p>
             )}
             <div className="space-y-2 p-3 bg-slate-50 rounded-lg border">
-              {(field.options || []).map((option, index) => {
+              {(field.options || []).filter(option => typeof option !== 'string' || option.trim() !== '').map((option, index) => {
                 const isChecked = checkboxSelectedValues.includes(option);
                 const isOptionDisabled = isFieldDisabled || (checkboxIsMaxReached && !isChecked);
                 return (

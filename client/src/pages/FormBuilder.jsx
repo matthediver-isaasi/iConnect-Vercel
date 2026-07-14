@@ -5961,6 +5961,16 @@ export default function FormBuilderPage() {
     
     // Remove temporary UI-only flags before saving
     const { _ccCustomMode, _bccCustomMode, ...dataToSave } = formData;
+
+    // Strip blank/whitespace-only option rows so empty "Add Option" rows are
+    // never persisted (image_options fields keep their own structure).
+    dataToSave.fields = (dataToSave.fields || []).map((f) => {
+      if (!Array.isArray(f.options) || f.type === 'image_options') return f;
+      const cleaned = f.options.filter(
+        (opt) => typeof opt !== 'string' || opt.trim() !== ''
+      );
+      return cleaned.length === f.options.length ? f : { ...f, options: cleaned };
+    });
     
     if (formId) {
       console.log('[FormBuilder] Updating form:', formId);
