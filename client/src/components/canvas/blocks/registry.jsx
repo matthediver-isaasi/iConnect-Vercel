@@ -5066,7 +5066,12 @@ function NewsTickerInspector({ block, update }) {
 // the forced device preview via `breakpoint`; on real public pages there is no
 // breakpoint, so we track the viewport with matchMedia.
 function useMegaMenuNarrow(breakpoint) {
-  const [narrow, setNarrow] = useState(false);
+  const [narrow, setNarrow] = useState(() => {
+    // Resolve synchronously so a real phone's first paint already shows the
+    // hamburger instead of flashing the desktop bar and correcting in an effect.
+    if (typeof window === 'undefined' || !window.matchMedia) return false;
+    return !!window.matchMedia(`(max-width: ${BREAKPOINT_MAX_PX.mobile}px)`).matches;
+  });
   useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return undefined;
     // Match the canvas "mobile" breakpoint exactly so the public viewport

@@ -908,7 +908,12 @@ function EventCarouselRender({ block, asEditor, breakpoint }) {
   // the actual viewport is below the stacked breakpoint via `matchMedia`,
   // so phones reliably get the stacked layout regardless of the block's
   // stored mobile geometry.
-  const [viewportNarrow, setViewportNarrow] = useState(false);
+  const [viewportNarrow, setViewportNarrow] = useState(() => {
+    // Resolve synchronously so the first paint on a real phone is already
+    // stacked instead of correcting after an effect runs.
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+    return !!window.matchMedia(`(max-width: ${STACKED_BREAKPOINT_PX - 0.02}px)`).matches;
+  });
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
     const mql = window.matchMedia(`(max-width: ${STACKED_BREAKPOINT_PX - 0.02}px)`);
@@ -3190,8 +3195,19 @@ function SponsorGridInspector({ block, update, breakpoint }) {
 // forced device preview via `breakpoint`; on real public pages there is no
 // forced breakpoint, so we track the viewport with matchMedia against the same
 // canvas breakpoint maxes used elsewhere (avoids editor/public divergence).
+function resolveRuntimeBreakpoint() {
+  // SSR-safe: without a window (or matchMedia) fall back to desktop.
+  if (typeof window === 'undefined' || !window.matchMedia) return 'desktop';
+  if (window.matchMedia(`(max-width: ${BREAKPOINT_MAX_PX.mobile}px)`).matches) return 'mobile';
+  if (window.matchMedia(`(max-width: ${BREAKPOINT_MAX_PX.tablet}px)`).matches) return 'tablet';
+  return 'desktop';
+}
+
 function useCarouselBreakpoint(breakpoint) {
-  const [runtimeBp, setRuntimeBp] = useState('desktop');
+  // Compute the initial value synchronously so the FIRST render already uses
+  // the real device breakpoint — initialising to 'desktop' and correcting in
+  // an effect makes phones first-paint with desktop per-page/gap/padding.
+  const [runtimeBp, setRuntimeBp] = useState(resolveRuntimeBreakpoint);
   useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return undefined;
     const mqMobile = window.matchMedia(`(max-width: ${BREAKPOINT_MAX_PX.mobile}px)`);
