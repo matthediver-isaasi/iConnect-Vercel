@@ -2346,7 +2346,7 @@ function SpeakerGridCard({ speaker, content, nameStyle, titleStyle, orgStyle, on
     <button
       type="button"
       onClick={onClick}
-      className="rounded-md border border-slate-200 bg-white overflow-hidden h-full flex flex-col items-center justify-start text-center gap-3 px-4 py-5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 hover-elevate"
+      className="w-full rounded-md border border-slate-200 bg-white overflow-hidden h-full flex flex-col items-center justify-start text-center gap-3 px-4 py-5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 hover-elevate"
       data-testid={`button-speaker-grid-${speaker.id}`}
       aria-label={`View details for ${speaker.full_name || 'speaker'}`}
     >
@@ -2800,7 +2800,7 @@ function SponsorCard({ sponsor, showDescription, showSponsorDetail, detail, name
       <button
         type="button"
         onClick={onClick}
-        className={`${className} text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500`}
+        className={`${className} w-full text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500`}
         data-testid={`button-sponsor-${sponsor.id}`}
         aria-label={`View details for ${sponsor.name || 'sponsor'}`}
       >
