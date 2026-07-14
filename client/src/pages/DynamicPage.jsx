@@ -17,6 +17,7 @@ import Articles from "./Articles";
 import ArticleView from "./ArticleView";
 import ArticleEditor from "./ArticleEditor";
 import PublicArticles from "./PublicArticles";
+import FormView from "./FormView";
 import ErrorBoundary from "@/components/ErrorBoundary";
 
 export default function DynamicPage() {
@@ -401,6 +402,44 @@ export default function DynamicPage() {
     };
   }, [page, pageLoading, dynamicArticleRoute, forcePublicPreview, isPublicPage, isHybridPage, isLoggedIn, setForceBlankLayout, setForcePublicLayout, setChromeReady, setPublicChrome]);
 
+  // Check for redirect mappings when page is not found (default site only)
+  const shouldCheckRedirect = !pageLoading && !pageQueryPending && !page && !dynamicArticleRoute && !!slug && !isAnyMicrositeRoute;
+  const { data: redirectResult, isLoading: redirectLoading } = useQuery({
+    queryKey: ['redirect-resolve', slug],
+    queryFn: async () => {
+      const currentPath = '/' + slug;
+      const response = await fetch(`/api/redirects/resolve?path=${encodeURIComponent(currentPath)}`);
+      if (!response.ok) return { found: false };
+      return response.json();
+    },
+    enabled: shouldCheckRedirect,
+    staleTime: 60000
+  });
+
+  // Task #2785: form fallback — when the page lookup AND redirect lookup both
+  // miss for a top-level slug (default site only), check whether an active
+  // form matches the slug. If so we render the FormView experience at the
+  // pretty URL (/{form-slug}) instead of the not-found screen.
+  const redirectMissed = shouldCheckRedirect &&
+    redirectResult !== undefined && !redirectLoading && !redirectResult?.found;
+  const { data: fallbackForm, isLoading: formFallbackLoading, isFetched: formFallbackFetched } = useQuery({
+    queryKey: ['public-form-by-slug', slug, !!memberInfo],
+    queryFn: async () => {
+      try {
+        const form = await publicClient.getForm(slug, { authenticated: !!memberInfo });
+        return form || null;
+      } catch (e) {
+        // 404 (no form with this slug) or any other failure → no fallback.
+        return null;
+      }
+    },
+    enabled: redirectMissed,
+    retry: false,
+    staleTime: 60000
+  });
+  const formFallbackPending = redirectMissed && (!formFallbackFetched || formFallbackLoading);
+  const hasFormFallback = redirectMissed && !!fallbackForm;
+
   useEffect(() => {
     if (page?.hide_chrome) return;
 
@@ -421,7 +460,11 @@ export default function DynamicPage() {
     }
 
     if (pageLoading || !page) {
-      setForcePublicLayout(true);
+      // Task #2785: when the slug resolved to a form fallback, mirror the
+      // hybrid /FormView behaviour — public chrome for guests, portal chrome
+      // for logged-in members. (Blank-layout forms override both via
+      // forceBlankLayout, set inside FormView itself.)
+      setForcePublicLayout(hasFormFallback ? !isLoggedIn : true);
       return;
     }
 
@@ -438,21 +481,7 @@ export default function DynamicPage() {
       setForcePublicLayout(false);
       setPublicChrome('both');
     };
-  }, [page, pageLoading, isPublicPage, isHybridPage, isLoggedIn, forcePublicPreview, setForcePublicLayout, setPublicChrome, dynamicArticleRoute]);
-
-  // Check for redirect mappings when page is not found (default site only)
-  const shouldCheckRedirect = !pageLoading && !pageQueryPending && !page && !dynamicArticleRoute && !!slug && !isAnyMicrositeRoute;
-  const { data: redirectResult, isLoading: redirectLoading } = useQuery({
-    queryKey: ['redirect-resolve', slug],
-    queryFn: async () => {
-      const currentPath = '/' + slug;
-      const response = await fetch(`/api/redirects/resolve?path=${encodeURIComponent(currentPath)}`);
-      if (!response.ok) return { found: false };
-      return response.json();
-    },
-    enabled: shouldCheckRedirect,
-    staleTime: 60000
-  });
+  }, [page, pageLoading, isPublicPage, isHybridPage, isLoggedIn, forcePublicPreview, setForcePublicLayout, setPublicChrome, dynamicArticleRoute, hasFormFallback]);
 
   // Handle 404 - check redirect mappings first, then fall back to default behavior
   // We need to wait for access state to be determined:
@@ -563,11 +592,22 @@ export default function DynamicPage() {
   }
 
   if (!page) {
-    if (redirectLoading || (shouldCheckRedirect && !redirectCheckComplete)) {
+    if (redirectLoading || (shouldCheckRedirect && !redirectCheckComplete) || formFallbackPending) {
       return (
         <div className="min-h-screen" data-testid="page-checking-redirect" aria-busy="true">
           <div className="sr-only">Checking page...</div>
         </div>
+      );
+    }
+
+    // Task #2785: an active form matching the top-level slug renders the full
+    // FormView experience at the pretty URL (prefill params, drafts, contract
+    // signing and blank-layout handling all live inside FormView itself).
+    if (hasFormFallback) {
+      return (
+        <ErrorBoundary name={`DynamicFormFallback:${slug}`}>
+          <FormView slug={slug} />
+        </ErrorBoundary>
       );
     }
 

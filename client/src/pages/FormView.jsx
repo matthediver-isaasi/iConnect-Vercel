@@ -49,7 +49,11 @@ function resolveRedirectTarget(form, formValues) {
   return raw;
 }
 
-export default function FormViewPage() {
+// Task #2785: `slug` prop allows the top-level catch-all route (DynamicPage)
+// to render a form at its pretty URL (/{form-slug}) without the ?slug= query
+// param. All other query-driven behaviour (prefill, drafts, contract signing)
+// still reads from the URL search string as before.
+export default function FormViewPage({ slug: slugProp = null }) {
   const { memberInfo, organizationInfo } = useMemberAccess();
   const { setForceBlankLayout } = useLayoutContext();
 
@@ -74,7 +78,7 @@ export default function FormViewPage() {
 
   const queryClient = useQueryClient();
   const urlParams = new URLSearchParams(window.location.search);
-  const formSlug = urlParams.get('slug');
+  const formSlug = slugProp || urlParams.get('slug');
   const prefillMemberId = urlParams.get('member_id');
   const prefillOrgId = urlParams.get('organization_id');
   const prefillBookingId = urlParams.get('booking_id');

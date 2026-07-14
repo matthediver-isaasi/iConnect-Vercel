@@ -598,7 +598,7 @@ async function resolveIEditPage(tenantId, slug, microsite = null) {
   };
 }
 
-async function resolveForm(tenantId, slug) {
+async function resolveForm(tenantId, slug, { canonicalPath = null } = {}) {
   if (!supabase || !slug) return null;
   const { data } = await supabase
     .from('form')
@@ -612,7 +612,7 @@ async function resolveForm(tenantId, slug) {
     title: data.name,
     description: truncate(stripHtml(data.description), 300),
     image: null,
-    canonicalPath: `/FormView?slug=${encodeURIComponent(data.slug)}`,
+    canonicalPath: canonicalPath || `/FormView?slug=${encodeURIComponent(data.slug)}`,
   };
 }
 
@@ -835,6 +835,14 @@ export async function resolveEntityMeta(req, tenant) {
       const cmsSlug = decodeURIComponent(cmsMatch[1]);
       const meta = await resolveIEditPage(tenant.id, cmsSlug);
       if (meta) return meta;
+      // Task #2785: pretty form URLs — a bare /{slug} matching no CMS page
+      // may be an active form served by the client-side form fallback. Give
+      // it the same meta as /FormView?slug=..., canonicalised to the pretty
+      // path itself.
+      const formMeta = await resolveForm(tenant.id, cmsSlug, {
+        canonicalPath: `/${encodeURIComponent(cmsSlug)}`,
+      });
+      if (formMeta) return formMeta;
     }
   } catch (err) {
     console.error('[entityMeta] resolution failed:', err?.message);
