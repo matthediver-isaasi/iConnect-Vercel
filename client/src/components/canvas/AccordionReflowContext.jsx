@@ -9,7 +9,7 @@ import {
   useLayoutEffect,
 } from 'react';
 import { getBlockDefinition } from './blocks/registry';
-import { BLOCK_TYPES } from '../../lib/canvasDesign';
+import { BLOCK_TYPES, isAspectHeightCarousel } from '../../lib/canvasDesign';
 import { computeBoxGrowthDelta, normalizeMeasuredLength } from './autoHeightBake';
 
 const AccordionReflowCtx = createContext(null);
@@ -392,7 +392,15 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       const baseline = baselineHeightsRef.current.get(id);
       const useBaseline = !!def?.autoHeight && !def?.cardGrow && Number.isFinite(baseline);
       const referenceH = useBaseline ? Math.min(baseline, g.h) : g.h;
-      entries.push({ id, top: g.y, bottom: g.y + g.h, refBottom: g.y + referenceH, effectiveH });
+      // Aspect-height Hero Carousels (Task #2824) reflow SIGNED: their
+      // rendered height tracks the slide image's aspect ratio at the live
+      // viewport width, so blocks below must be pulled UP when the carousel
+      // renders shorter than its stored geometry as well as pushed down when
+      // taller. Only rows composed entirely of such blocks get signed growth;
+      // every other row keeps the push-down-only clamp so author-intended
+      // gaps are never collapsed (see the growth comment below).
+      const signed = isAspectHeightCarousel(block);
+      entries.push({ id, top: g.y, bottom: g.y + g.h, refBottom: g.y + referenceH, effectiveH, signed });
     }
     if (entries.length === 0) return [];
     entries.sort((a, b) => a.top - b.top);
@@ -419,9 +427,10 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
         cur.bottom = Math.max(cur.bottom, e.bottom);
         cur.refBottom = Math.max(cur.refBottom, e.refBottom);
         cur.renderedHeight = Math.max(cur.renderedHeight, e.effectiveH);
+        cur.signed = cur.signed && e.signed;
         cur.ids.push(e.id);
       } else {
-        cur = { top: e.top, bottom: e.bottom, refBottom: e.refBottom, renderedHeight: e.effectiveH, ids: [e.id] };
+        cur = { top: e.top, bottom: e.bottom, refBottom: e.refBottom, renderedHeight: e.effectiveH, signed: e.signed, ids: [e.id] };
         groups.push(cur);
       }
     }
@@ -437,8 +446,16 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
     // whitespace. Positive growth (accordion expand, a card row grown to its
     // tallest member) still pushes blocks below down. Computed after merges so
     // `refBottom` is final.
+    //
+    // EXCEPTION (Task #2824): rows composed entirely of aspect-height Hero
+    // Carousels keep the SIGNED delta. Their reference is the stored box
+    // height, and their rendered height is deterministic (viewport width ÷
+    // image aspect ratio), so a negative delta means "the carousel really is
+    // shorter than authored at this viewport" — blocks below are pulled up by
+    // that amount so no dead gap appears. Mixed rows fall back to the clamp.
     for (const grp of groups) {
-      grp.growth = Math.max(0, (grp.top + grp.renderedHeight) - grp.refBottom);
+      const delta = (grp.top + grp.renderedHeight) - grp.refBottom;
+      grp.growth = grp.signed ? delta : Math.max(0, delta);
     }
     return groups;
   }, [measuredHeights, blocks, resolveGeom]);

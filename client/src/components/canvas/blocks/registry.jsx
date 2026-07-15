@@ -110,7 +110,7 @@ import { useCanvasAnchors } from '../CanvasAnchorContext';
 import { useCanvasEditorPage } from '../CanvasEditorPageContext';
 import { useCanvasSymbols } from '../CanvasSymbolsContext';
 import { ColorField } from './ColorField';
-import { useReportReflowHeight, useReportCardContentHeight, useReportButtonBounds } from '../AccordionReflowContext';
+import { useReportReflowHeight, useReportCardContentHeight, useReportButtonBounds, useAccordionReflow } from '../AccordionReflowContext';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import {
@@ -8214,6 +8214,69 @@ function HeroCarouselRender({ block, asEditor, breakpoint }) {
   const heightType = c.height_type || 'custom';
   const customHeight = Number(c.custom_height) || 500;
   const autoMinHeight = Number(c.auto_min_height) || 400;
+  // Aspect mode ('aspect' — Task #2824): height follows the TALLEST slide
+  // image's intrinsic aspect ratio at the rendered width (tallest = largest
+  // height/width ratio, so the height never jumps between slides). Optional
+  // min/max clamps keep extreme ratios sane; 0/absent = no clamp.
+  const isAspect = heightType === 'aspect';
+  const aspectMinHeight = Number(c.aspect_min_height) > 0 ? Number(c.aspect_min_height) : 0;
+  const aspectMaxHeight = Number(c.aspect_max_height) > 0 ? Number(c.aspect_max_height) : 0;
+  // Natural dimensions of the tallest slide image, resolved by loading each
+  // slide image off-DOM. Null until at least one image has loaded.
+  const [aspectDims, setAspectDims] = useState(null);
+  const slideImageKey = slides.map((s) => s?.backgroundImage || '').join('|');
+  useEffect(() => {
+    if (!isAspect) return undefined;
+    const srcs = [...new Set(slides.map((s) => s?.backgroundImage).filter(Boolean))];
+    if (srcs.length === 0) { setAspectDims(null); return undefined; }
+    let cancelled = false;
+    const dims = [];
+    let pending = srcs.length;
+    const finish = () => {
+      if (cancelled || dims.length === 0) return;
+      // Tallest slide = largest h/w ratio.
+      let best = dims[0];
+      for (const d of dims) { if (d.h / d.w > best.h / best.w) best = d; }
+      setAspectDims((prev) => (prev && prev.w === best.w && prev.h === best.h ? prev : best));
+    };
+    srcs.forEach((src) => {
+      const img = new window.Image();
+      img.onload = () => {
+        if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+          dims.push({ w: img.naturalWidth, h: img.naturalHeight });
+        }
+        pending -= 1;
+        if (pending === 0) finish();
+      };
+      img.onerror = () => { pending -= 1; if (pending === 0) finish(); };
+      img.src = src;
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAspect, slideImageKey]);
+
+  // Public-page reflow (aspect mode only): report the rendered height so the
+  // AccordionReflowContext pushes blocks below down / pulls them up as the
+  // viewport-driven aspect height changes. NEVER reported in the editor —
+  // editorMode reflow would forward the measurement to the auto-height bake
+  // and corrupt stored geometry; the editor shows the aspect height purely
+  // via the same CSS aspect-ratio without reporting.
+  const reflow = useAccordionReflow();
+  const aspectWrapRef = useRef(null);
+  const blockIdForReflow = block.id;
+  useEffect(() => {
+    if (!isAspect || !reflow || reflow.editorMode || asEditor) return undefined;
+    const el = aspectWrapRef.current;
+    if (!el) return undefined;
+    const report = () => {
+      const h = el.getBoundingClientRect().height;
+      if (h > 0) reflow.reportHeight(blockIdForReflow, Math.round(h));
+    };
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [isAspect, reflow, asEditor, blockIdForReflow]);
   const paddingVertical = Number.isFinite(Number(c.padding_vertical)) ? Number(c.padding_vertical) : 60;
   const paddingHorizontal = Number.isFinite(Number(c.padding_horizontal)) ? Number(c.padding_horizontal) : 16;
 
@@ -8375,17 +8438,33 @@ function HeroCarouselRender({ block, asEditor, breakpoint }) {
   // For 'full' or 'custom' the block geometry will usually already match;
   // for 'auto' the min-height prevents the carousel from collapsing when
   // content is short.
+  // Aspect mode sizes the container from its rendered WIDTH via CSS
+  // aspect-ratio (tallest slide's natural w/h), so it cannot use the
+  // `absolute inset-0` fill (which pins the height to the wrapper box).
+  // It renders in-flow at 100% width instead; the block wrapper has
+  // `allowOverflow`, so the taller/shorter aspect box shows fully and the
+  // public reflow (see the reporting effect above) repositions blocks below.
+  // Until an image has loaded, the min clamp (or 400px) holds the space.
   const containerStyle =
     heightType === 'full'
       ? { height: '100vh' }
       : heightType === 'custom'
         ? { height: `${customHeight}px` }
-        : { minHeight: `${autoMinHeight}px` };
+        : isAspect
+          ? {
+              aspectRatio: aspectDims ? `${aspectDims.w} / ${aspectDims.h}` : undefined,
+              minHeight: aspectDims
+                ? (aspectMinHeight ? `${aspectMinHeight}px` : undefined)
+                : `${aspectMinHeight || 400}px`,
+              maxHeight: aspectMaxHeight ? `${aspectMaxHeight}px` : undefined,
+            }
+          : { minHeight: `${autoMinHeight}px` };
 
   return (
     <div
       data-hcc={safeBlockId}
-      className="absolute inset-0 overflow-hidden"
+      ref={isAspect ? aspectWrapRef : undefined}
+      className={isAspect ? 'relative w-full overflow-hidden' : 'absolute inset-0 overflow-hidden'}
       style={containerStyle}
       onMouseEnter={pauseOnHover ? () => setIsPaused(true) : undefined}
       onMouseLeave={pauseOnHover ? () => setIsPaused(false) : undefined}
@@ -8398,7 +8477,11 @@ function HeroCarouselRender({ block, asEditor, breakpoint }) {
             ? `height:${Math.round(customHeight * 0.6)}px;`
             : heightType === 'full'
               ? `height:100vh;`
-              : `min-height:${Math.round(autoMinHeight * 0.6)}px;`,
+              : isAspect
+                // Aspect mode: the CSS aspect-ratio already scales the height
+                // down with the narrower viewport, so no mobile height rule.
+                ? ''
+                : `min-height:${Math.round(autoMinHeight * 0.6)}px;`,
           `}`,
           !headerStyleObj ? `[data-hcc="${safeBlockId}"] .hcc-title{font-size:${mobileHeaderFS}px!important;}` : '',
           !subheadingStyleObj ? `[data-hcc="${safeBlockId}"] .hcc-subheading{font-size:${mobileSubheadingFS}px!important;}` : '',
@@ -9120,11 +9203,30 @@ function HeroCarouselInspector({ block, update, breakpoint }) {
             onChange={(v) => set({ height_type: v })}
             options={[
               { value: 'auto', label: 'Auto (min height)' },
+              { value: 'aspect', label: 'Auto (match image)' },
               { value: 'full', label: 'Full viewport' },
               { value: 'custom', label: 'Custom' },
             ]}
             testId="select-hcc-height"
           />
+          {(c.height_type === 'aspect') && (
+            <div className="grid grid-cols-2 gap-2">
+              <NumberField
+                label="Min height (px, 0 = none)"
+                value={c.aspect_min_height ?? 200}
+                min={0}
+                onChange={(v) => set({ aspect_min_height: v ?? 200 })}
+                testId="input-hcc-aspect-min-height"
+              />
+              <NumberField
+                label="Max height (px, 0 = none)"
+                value={c.aspect_max_height ?? 0}
+                min={0}
+                onChange={(v) => set({ aspect_max_height: v ?? 0 })}
+                testId="input-hcc-aspect-max-height"
+              />
+            </div>
+          )}
           {(c.height_type === 'auto') && (
             <NumberField
               label="Minimum height (px)"

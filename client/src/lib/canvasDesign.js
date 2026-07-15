@@ -1506,6 +1506,11 @@ BLOCK_DEFAULTS[BLOCK_TYPES.HERO_CAROUSEL] = {
     height_type: 'custom',
     custom_height: 500,
     auto_min_height: 400,
+    // Aspect mode ('aspect'): height follows the tallest slide image's
+    // intrinsic aspect ratio at the rendered width. Optional clamps keep
+    // extreme ratios sane; 0 = no clamp.
+    aspect_min_height: 200,
+    aspect_max_height: 0,
     padding_vertical: 60,
     padding_horizontal: 16,
     text_offset_x: 0,
@@ -2893,6 +2898,25 @@ export function validateBlock(block) {
       if (carouselSlides.length === 0) {
         errors.push('Hero Carousel has no slides.');
       }
+      // Height mode must be one of the known values when present.
+      if (c.height_type && !['auto', 'full', 'custom', 'aspect'].includes(c.height_type)) {
+        errors.push('Hero Carousel has an invalid height mode.');
+      }
+      // Aspect-mode clamps (absent/0 = no clamp) must be non-negative finite
+      // numbers, and min must not exceed max when both are set.
+      ['aspect_min_height', 'aspect_max_height'].forEach((key) => {
+        const val = c[key];
+        if (val != null && (!Number.isFinite(Number(val)) || Number(val) < 0)) {
+          errors.push(`Hero Carousel has an invalid ${key === 'aspect_min_height' ? 'minimum' : 'maximum'} aspect height clamp.`);
+        }
+      });
+      if (
+        Number(c.aspect_min_height) > 0 &&
+        Number(c.aspect_max_height) > 0 &&
+        Number(c.aspect_min_height) > Number(c.aspect_max_height)
+      ) {
+        errors.push('Hero Carousel aspect height clamp: minimum exceeds maximum.');
+      }
       // Per-slide padding overrides (absent/null = inherit block default)
       // must be non-negative numbers when present.
       carouselSlides.forEach((slide, i) => {
@@ -2949,6 +2973,18 @@ function escapeCssIdent(id) {
 
 function fmtPx(n) {
   return `${Math.round(Number(n) || 0)}px`;
+}
+
+// Hero Carousel "Auto (match image)" height mode: the block's rendered height
+// follows the tallest slide image's intrinsic aspect ratio at the rendered
+// width. Shared by the renderer (aspect-ratio sizing) and the reflow context
+// (signed grow/shrink relative to stored geometry).
+export function isAspectHeightCarousel(block) {
+  return (
+    !!block &&
+    block.type === BLOCK_TYPES.HERO_CAROUSEL &&
+    (block.content?.height_type === 'aspect')
+  );
 }
 
 // Resolve an explicit CSS height override for a block, or null to fall back to

@@ -461,14 +461,17 @@ function CanvasPageStage({ children, lcpBlockId, forcedBreakpoint, windowBp, act
     () => stageHeightForBreakpoint(children, activeBp, { buffer: 0 }),
     [children, activeBp],
   );
-  // Grow the stage only — never shrink it. `growth` is push-down-only
-  // (non-negative), so:
   // - growth > 0: minHeight overrides the CSS `height` when larger (stage grows)
   // - growth = 0: no override (CSS height is authoritative)
-  // The stage is never shrunk below its stored height, so author-intended gaps
-  // are preserved on the front-end exactly as the editor shows them.
+  // - growth < 0 (Task #2824 — only rows of aspect-height Hero Carousels can
+  //   report signed shrink): override `height` directly so the stage pulls
+  //   the page bottom up with the shrunken carousel instead of leaving a
+  //   dead gap. All other rows are push-down-only, so author-intended gaps
+  //   are still preserved exactly as the editor shows them.
   const netHeight = baseHeight + growth;
-  const stageStyle = growth > 0 ? { minHeight: netHeight } : undefined;
+  const stageStyle = growth > 0
+    ? { minHeight: netHeight }
+    : (growth < 0 ? { height: Math.max(0, netHeight) } : undefined);
 
   // Embedded previews (forceBreakpoint prop) live in the host document, not
   // a device-sized iframe, so the viewport-based @media rules in the page
