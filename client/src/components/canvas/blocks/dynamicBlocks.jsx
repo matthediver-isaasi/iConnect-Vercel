@@ -3883,7 +3883,22 @@ function ArticleListRender({ block, breakpoint, asEditor }) {
   const articleBadgeLabel = articleDisplayName
     ? (articleDisplayName.endsWith('s') ? articleDisplayName.slice(0, -1) : articleDisplayName)
     : 'Article';
-  const badgeBg = source === 'news' ? '#2563eb' : '#16a34a';
+  // Showcase card settings (Task #2808): every knob the old iEdit Showcase
+  // exposed, with the previous hardcoded values as defaults so existing pages
+  // render byte-identically when the fields are unset.
+  const defaultBadgeBg = source === 'news' ? '#2563eb' : '#16a34a';
+  const badgeBg = c.badgeBgColor || defaultBadgeBg;
+  const badgeTextColor = c.badgeTextColor || '#ffffff';
+  const defaultBadgeText = source === 'news' ? 'News' : articleBadgeLabel;
+  const badgeText = (typeof c.badgeText === 'string' && c.badgeText.trim()) ? c.badgeText : defaultBadgeText;
+  const cardHeight = Number(c.cardHeight) > 0 ? Number(c.cardHeight) : 400;
+  const imageHeightPercent = Number(c.imageHeightPercent) > 0 ? Number(c.imageHeightPercent) : 50;
+  const ctaButtonSize = Number(c.ctaButtonSize) > 0 ? Number(c.ctaButtonSize) : 48;
+  const ctaButtonMargin = Number.isFinite(Number(c.ctaButtonMargin)) && c.ctaButtonMargin !== '' && c.ctaButtonMargin != null
+    ? Number(c.ctaButtonMargin)
+    : 0;
+  const imageBorderWeight = Number(c.imageBorderWeight) > 0 ? Number(c.imageBorderWeight) : 3;
+  const cardTextAlign = c.cardTextAlign === 'center' || c.cardTextAlign === 'right' ? c.cardTextAlign : 'left';
 
   // Tenant typography styles for the card title / summary text. When set,
   // the chosen style's font (family/size/weight/line-height/etc.) overrides
@@ -3949,9 +3964,21 @@ function ArticleListRender({ block, breakpoint, asEditor }) {
                   url={`${linkBase}${encodeURIComponent(a.slug || a.id)}`}
                   newTab={linkNewTab}
                   asEditor={asEditor}
-                  showBadge
-                  badgeText={source === 'news' ? 'News' : articleBadgeLabel}
+                  showBadge={c.showBadge !== false}
+                  badgeText={badgeText}
                   badgeBgColor={badgeBg}
+                  badgeTextColor={badgeTextColor}
+                  cardHeight={cardHeight}
+                  imageHeightPercent={imageHeightPercent}
+                  showImageBorder={!!c.showImageBorder}
+                  imageBorderWeight={imageBorderWeight}
+                  imageBorderColor={c.imageBorderColor || '#2563eb'}
+                  showCTAButton={c.showCTAButton !== false}
+                  ctaButtonSize={ctaButtonSize}
+                  ctaButtonMargin={ctaButtonMargin}
+                  ctaButtonBgColor={c.ctaButtonBgColor || '#2563eb'}
+                  ctaButtonArrowColor={c.ctaButtonArrowColor || '#ffffff'}
+                  textAlign={cardTextAlign}
                   showPublishedDate
                   descriptionLineClamp={c.showSummary !== false ? 3 : 0}
                   titleStyleOverride={titleInline}
@@ -4020,6 +4047,135 @@ function ArticleListInspector({ block, update }) {
       <NumberField label="Gap (px)" min={0} value={c.gap || 16} onChange={(v) => set({ gap: Math.max(0, Number(v) || 0) })} testId="input-article-list-gap" />
       <ToggleField label="Show image" value={c.showImage !== false} onChange={(v) => set({ showImage: v })} testId="toggle-article-list-image" />
       <ToggleField label="Show summary" value={c.showSummary !== false} onChange={(v) => set({ showSummary: v })} testId="toggle-article-list-summary" />
+      {/* Showcase card settings (Task #2808) — same knobs the old iEdit
+          Showcase exposed; unset values keep the current defaults. */}
+      <NumberField
+        label="Card height (px)"
+        min={200}
+        max={800}
+        value={c.cardHeight || 400}
+        onChange={(v) => set({ cardHeight: Math.min(800, Math.max(200, Number(v) || 400)) })}
+        testId="input-article-list-card-height"
+      />
+      <NumberField
+        label="Image height (%)"
+        min={20}
+        max={80}
+        value={c.imageHeightPercent || 50}
+        onChange={(v) => set({ imageHeightPercent: Math.min(80, Math.max(20, Number(v) || 50)) })}
+        testId="input-article-list-image-height"
+      />
+      <SelectField
+        label="Text alignment"
+        value={c.cardTextAlign || 'left'}
+        onChange={(v) => set({ cardTextAlign: v })}
+        options={[
+          { value: 'left', label: 'Left' },
+          { value: 'center', label: 'Centre' },
+          { value: 'right', label: 'Right' },
+        ]}
+        testId="select-article-list-text-align"
+      />
+      <ToggleField
+        label="Show line below image"
+        value={!!c.showImageBorder}
+        onChange={(v) => set({ showImageBorder: v })}
+        testId="toggle-article-list-image-border"
+      />
+      {c.showImageBorder ? (
+        <>
+          <NumberField
+            label="Line weight (px)"
+            min={1}
+            max={20}
+            value={c.imageBorderWeight || 3}
+            onChange={(v) => set({ imageBorderWeight: Math.min(20, Math.max(1, Number(v) || 3)) })}
+            testId="input-article-list-image-border-weight"
+          />
+          <ColorField
+            label="Line colour"
+            value={c.imageBorderColor}
+            onChange={(v) => set({ imageBorderColor: v })}
+            placeholder="#2563eb"
+            fallback="#2563eb"
+            testId="input-article-list-image-border-color"
+          />
+        </>
+      ) : null}
+      <ToggleField
+        label="Show badge"
+        value={c.showBadge !== false}
+        onChange={(v) => set({ showBadge: v })}
+        testId="toggle-article-list-badge"
+      />
+      {c.showBadge !== false ? (
+        <>
+          <TextField
+            label="Badge text"
+            value={c.badgeText}
+            onChange={(v) => set({ badgeText: v })}
+            placeholder="Default: Article / News"
+            testId="input-article-list-badge-text"
+          />
+          <ColorField
+            label="Badge background"
+            value={c.badgeBgColor}
+            onChange={(v) => set({ badgeBgColor: v })}
+            placeholder="(default)"
+            testId="input-article-list-badge-bg"
+          />
+          <ColorField
+            label="Badge text colour"
+            value={c.badgeTextColor}
+            onChange={(v) => set({ badgeTextColor: v })}
+            placeholder="#ffffff"
+            fallback="#ffffff"
+            testId="input-article-list-badge-text-color"
+          />
+        </>
+      ) : null}
+      <ToggleField
+        label="Show arrow button"
+        value={c.showCTAButton !== false}
+        onChange={(v) => set({ showCTAButton: v })}
+        testId="toggle-article-list-cta"
+      />
+      {c.showCTAButton !== false ? (
+        <>
+          <NumberField
+            label="Button size (px)"
+            min={24}
+            max={80}
+            value={c.ctaButtonSize || 48}
+            onChange={(v) => set({ ctaButtonSize: Math.min(80, Math.max(24, Number(v) || 48)) })}
+            testId="input-article-list-cta-size"
+          />
+          <NumberField
+            label="Button margin (px)"
+            min={0}
+            max={50}
+            value={c.ctaButtonMargin ?? 0}
+            onChange={(v) => set({ ctaButtonMargin: Math.min(50, Math.max(0, Number(v) || 0)) })}
+            testId="input-article-list-cta-margin"
+          />
+          <ColorField
+            label="Button background"
+            value={c.ctaButtonBgColor}
+            onChange={(v) => set({ ctaButtonBgColor: v })}
+            placeholder="#2563eb"
+            fallback="#2563eb"
+            testId="input-article-list-cta-bg"
+          />
+          <ColorField
+            label="Arrow colour"
+            value={c.ctaButtonArrowColor}
+            onChange={(v) => set({ ctaButtonArrowColor: v })}
+            placeholder="#ffffff"
+            fallback="#ffffff"
+            testId="input-article-list-cta-arrow"
+          />
+        </>
+      ) : null}
       <TypographyStyleField
         label="Card title style"
         value={c.titleTypographyStyleId}
