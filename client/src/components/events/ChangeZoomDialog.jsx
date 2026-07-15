@@ -1,12 +1,27 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2 } from "lucide-react";
+import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Check, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+
+const formatStart = (iso) => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
 
 /**
  * Reusable change-zoom dialog used by both single events and complex-event
@@ -36,6 +51,10 @@ export default function ChangeZoomDialog({
   const [targetId, setTargetId] = useState("");
   const [items, setItems] = useState([]);
   const [loadingItems, setLoadingItems] = useState(false);
+  const [showPast, setShowPast] = useState(false);
+  const [search, setSearch] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [impactCount, setImpactCount] = useState(null);
   const [cancelOld, setCancelOld] = useState(true);
   const [registerNew, setRegisterNew] = useState(true);
@@ -50,6 +69,10 @@ export default function ChangeZoomDialog({
     if (!open) return;
     setType(initialType);
     setTargetId("");
+    setShowPast(false);
+    setSearch("");
+    setDateFrom("");
+    setDateTo("");
     setCancelOld(!isAttach);
     setRegisterNew(!isDetach);
     setResendEmails(!isDetach);
@@ -64,19 +87,37 @@ export default function ChangeZoomDialog({
     }
 
     if (!isDetach) {
-      loadItems(initialType);
+      loadItems(initialType, false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const loadItems = (t) => {
+  const loadItems = (t, includePast) => {
     setLoadingItems(true);
-    fetch(`/api/zoom/${t === "meeting" ? "meetings" : "webinars"}`, { credentials: "include" })
+    const qs = includePast ? "" : "?upcoming=true";
+    fetch(`/api/zoom/${t === "meeting" ? "meetings" : "webinars"}${qs}`, { credentials: "include" })
       .then(r => r.json())
       .then(d => setItems(Array.isArray(d) ? d : (d?.data || [])))
       .catch(() => setItems([]))
       .finally(() => setLoadingItems(false));
   };
+
+  const filteredItems = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const fromTs = dateFrom ? new Date(`${dateFrom}T00:00:00`).getTime() : null;
+    const toTs = dateTo ? new Date(`${dateTo}T23:59:59.999`).getTime() : null;
+    return items.filter((it) => {
+      const title = String(it.topic || it.title || it.id || "").toLowerCase();
+      if (q && !title.includes(q)) return false;
+      if (fromTs !== null || toTs !== null) {
+        const start = it.start_time ? new Date(it.start_time).getTime() : NaN;
+        if (isNaN(start)) return false;
+        if (fromTs !== null && start < fromTs) return false;
+        if (toTs !== null && start > toTs) return false;
+      }
+      return true;
+    });
+  }, [items, search, dateFrom, dateTo]);
 
   const handleAttachOrChange = async () => {
     if (!targetId) {
@@ -159,7 +200,7 @@ export default function ChangeZoomDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg" data-testid={`dialog-change-zoom-${targetLabel}`}>
+      <DialogContent className="max-w-2xl" data-testid={`dialog-change-zoom-${targetLabel}`}>
         <DialogHeader>
           <DialogTitle>{titleByMode[mode]}</DialogTitle>
           <DialogDescription>
@@ -186,7 +227,8 @@ export default function ChangeZoomDialog({
                   onValueChange={(v) => {
                     setType(v);
                     setTargetId("");
-                    loadItems(v);
+                    setSearch("");
+                    loadItems(v, showPast);
                   }}
                   className="grid grid-cols-2 gap-2"
                 >
@@ -201,19 +243,93 @@ export default function ChangeZoomDialog({
                 </RadioGroup>
               </div>
               <div>
-                <Label className="mb-2 block">Target {type}</Label>
-                <Select value={targetId} onValueChange={setTargetId}>
-                  <SelectTrigger data-testid="select-change-zoom-target">
-                    <SelectValue placeholder={loadingItems ? "Loading…" : `Select a ${type}`} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {items.map((it) => (
-                      <SelectItem key={it.id} value={it.id} data-testid={`option-zoom-${it.id}`}>
-                        {it.topic || it.title || it.id}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
+                  <Label>Target {type}</Label>
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor={`cz-${targetLabel}-show-past`} className="text-sm text-muted-foreground cursor-pointer">
+                      Show past
+                    </Label>
+                    <Switch
+                      id={`cz-${targetLabel}-show-past`}
+                      checked={showPast}
+                      onCheckedChange={(v) => {
+                        setShowPast(!!v);
+                        setTargetId("");
+                        loadItems(type, !!v);
+                      }}
+                      data-testid="switch-change-zoom-show-past"
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap mb-2">
+                  <div className="flex items-center gap-1.5">
+                    <Label htmlFor={`cz-${targetLabel}-date-from`} className="text-sm text-muted-foreground">From</Label>
+                    <Input
+                      id={`cz-${targetLabel}-date-from`}
+                      type="date"
+                      value={dateFrom}
+                      onChange={(e) => setDateFrom(e.target.value)}
+                      className="w-auto"
+                      data-testid="input-change-zoom-date-from"
+                    />
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Label htmlFor={`cz-${targetLabel}-date-to`} className="text-sm text-muted-foreground">To</Label>
+                    <Input
+                      id={`cz-${targetLabel}-date-to`}
+                      type="date"
+                      value={dateTo}
+                      onChange={(e) => setDateTo(e.target.value)}
+                      className="w-auto"
+                      data-testid="input-change-zoom-date-to"
+                    />
+                  </div>
+                  {(dateFrom || dateTo) && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => { setDateFrom(""); setDateTo(""); }}
+                      data-testid="button-change-zoom-clear-dates"
+                    >
+                      Clear dates
+                    </Button>
+                  )}
+                </div>
+                <Command shouldFilter={false} className="rounded-md border">
+                  <CommandInput
+                    placeholder={`Search ${type}s by title…`}
+                    value={search}
+                    onValueChange={setSearch}
+                    data-testid="input-change-zoom-search"
+                  />
+                  <CommandList className="max-h-56">
+                    {loadingItems ? (
+                      <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Loading…
+                      </div>
+                    ) : filteredItems.length === 0 ? (
+                      <CommandEmpty data-testid="text-change-zoom-empty">
+                        {showPast ? `No ${type}s found` : `No upcoming ${type}s found`}
+                      </CommandEmpty>
+                    ) : (
+                      filteredItems.map((it) => (
+                        <CommandItem
+                          key={it.id}
+                          value={String(it.id)}
+                          onSelect={() => setTargetId(targetId === it.id ? "" : it.id)}
+                          className="flex items-center justify-between gap-2"
+                          data-testid={`option-zoom-${it.id}`}
+                        >
+                          <span className="truncate min-w-0 flex-1">{it.topic || it.title || it.id}</span>
+                          <span className="shrink-0 text-xs text-muted-foreground">{formatStart(it.start_time)}</span>
+                          <Check className={`h-4 w-4 shrink-0 ${targetId === it.id ? "opacity-100" : "opacity-0"}`} />
+                        </CommandItem>
+                      ))
+                    )}
+                  </CommandList>
+                </Command>
               </div>
             </>
           )}
