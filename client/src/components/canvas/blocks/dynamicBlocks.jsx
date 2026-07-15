@@ -3993,6 +3993,7 @@ function ArticleListRender({ block, breakpoint, asEditor }) {
                   ctaButtonMargin={ctaButtonMargin}
                   ctaButtonBgColor={c.ctaButtonBgColor || '#2563eb'}
                   ctaButtonArrowColor={c.ctaButtonArrowColor || '#ffffff'}
+                  ctaButtonBorderRadius={c.ctaButtonBorderRadius}
                   textAlign={cardTextAlign}
                   cardBorderRadius={cardBorderRadius}
                   titleFontSize={titleFontSize}
@@ -4235,6 +4236,14 @@ function ArticleListInspector({ block, update }) {
             placeholder="#ffffff"
             fallback="#ffffff"
             testId="input-article-list-cta-arrow"
+          />
+          <NumberField
+            label="Button corner radius (px)"
+            min={0}
+            max={40}
+            value={c.ctaButtonBorderRadius ?? (c.cardBorderRadius ?? 8)}
+            onChange={(v) => set({ ctaButtonBorderRadius: Math.min(40, Math.max(0, Number(v) || 0)) })}
+            testId="input-article-list-cta-radius"
           />
         </>
       ) : null}

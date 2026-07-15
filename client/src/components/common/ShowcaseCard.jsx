@@ -54,6 +54,9 @@ export default function ShowcaseCard({
   ctaButtonMargin = 0,
   ctaButtonBgColor = '#2563eb',
   ctaButtonArrowColor = '#ffffff',
+  // Arrow button corner radius. When null/undefined it follows the card's
+  // radius (the original iEdit Showcase behaviour).
+  ctaButtonBorderRadius = null,
   textAlign = 'left',
   // Optional typography overrides (canvas tenant typography styles). When
   // provided, they replace the default inline font sizing on title/summary.
@@ -166,7 +169,7 @@ export default function ShowcaseCard({
               width: `${buttonSize}px`,
               height: `${buttonSize}px`,
               backgroundColor: ctaButtonBgColor,
-              borderRadius: `${cardBorderRadius}px`,
+              borderRadius: `${ctaButtonBorderRadius != null && ctaButtonBorderRadius !== '' && Number.isFinite(Number(ctaButtonBorderRadius)) ? Math.max(0, Number(ctaButtonBorderRadius)) : cardBorderRadius}px`,
               bottom: `${buttonMargin}px`,
               right: `${buttonMargin}px`,
             }}
