@@ -3899,6 +3899,21 @@ function ArticleListRender({ block, breakpoint, asEditor }) {
     : 0;
   const imageBorderWeight = Number(c.imageBorderWeight) > 0 ? Number(c.imageBorderWeight) : 3;
   const cardTextAlign = c.cardTextAlign === 'center' || c.cardTextAlign === 'right' ? c.cardTextAlign : 'left';
+  // Remaining iEdit Showcase knobs (Task #2810): border radius, description
+  // line clamp, title/date font sizes and a published-date toggle. Unset
+  // values keep the previous hardcoded behaviour (radius 8, clamp 3, 16/12px,
+  // date shown) so existing pages render unchanged.
+  const cardBorderRadius = Number.isFinite(Number(c.cardBorderRadius)) && c.cardBorderRadius !== '' && c.cardBorderRadius != null
+    ? Math.max(0, Number(c.cardBorderRadius))
+    : 8;
+  const titleFontSize = Number(c.titleFontSize) > 0 ? Number(c.titleFontSize) : 16;
+  const dateFontSize = Number(c.dateFontSize) > 0 ? Number(c.dateFontSize) : 12;
+  const showPublishedDate = c.showPublishedDate !== false;
+  // Description line clamp: 'none' = no limit, 1..10 = clamp, default 3.
+  // Hidden entirely (0) when the summary toggle is off, matching before.
+  let descriptionLineClamp = 3;
+  if (c.descriptionLineClamp === 'none') descriptionLineClamp = 'none';
+  else if (Number(c.descriptionLineClamp) > 0) descriptionLineClamp = Number(c.descriptionLineClamp);
 
   // Tenant typography styles for the card title / summary text. When set,
   // the chosen style's font (family/size/weight/line-height/etc.) overrides
@@ -3979,8 +3994,11 @@ function ArticleListRender({ block, breakpoint, asEditor }) {
                   ctaButtonBgColor={c.ctaButtonBgColor || '#2563eb'}
                   ctaButtonArrowColor={c.ctaButtonArrowColor || '#ffffff'}
                   textAlign={cardTextAlign}
-                  showPublishedDate
-                  descriptionLineClamp={c.showSummary !== false ? 3 : 0}
+                  cardBorderRadius={cardBorderRadius}
+                  titleFontSize={titleFontSize}
+                  dateFontSize={dateFontSize}
+                  showPublishedDate={showPublishedDate}
+                  descriptionLineClamp={c.showSummary !== false ? descriptionLineClamp : 0}
                   titleStyleOverride={titleInline}
                   summaryStyleOverride={summaryInline}
                   titleExtraProps={{ 'data-tg-r': 'article-title' }}
@@ -4047,6 +4065,50 @@ function ArticleListInspector({ block, update }) {
       <NumberField label="Gap (px)" min={0} value={c.gap || 16} onChange={(v) => set({ gap: Math.max(0, Number(v) || 0) })} testId="input-article-list-gap" />
       <ToggleField label="Show image" value={c.showImage !== false} onChange={(v) => set({ showImage: v })} testId="toggle-article-list-image" />
       <ToggleField label="Show summary" value={c.showSummary !== false} onChange={(v) => set({ showSummary: v })} testId="toggle-article-list-summary" />
+      {c.showSummary !== false ? (
+        <SelectField
+          label="Summary lines"
+          value={c.descriptionLineClamp === 'none' ? 'none' : String(Number(c.descriptionLineClamp) > 0 ? Number(c.descriptionLineClamp) : 3)}
+          onChange={(v) => set({ descriptionLineClamp: v === 'none' ? 'none' : Number(v) })}
+          options={[
+            ...[1, 2, 3, 4, 5, 6].map((n) => ({ value: String(n), label: `${n} line${n === 1 ? '' : 's'}` })),
+            { value: 'none', label: 'No limit' },
+          ]}
+          testId="select-article-list-summary-lines"
+        />
+      ) : null}
+      <ToggleField
+        label="Show published date"
+        value={c.showPublishedDate !== false}
+        onChange={(v) => set({ showPublishedDate: v })}
+        testId="toggle-article-list-published-date"
+      />
+      {c.showPublishedDate !== false ? (
+        <NumberField
+          label="Date font size (px)"
+          min={8}
+          max={24}
+          value={c.dateFontSize || 12}
+          onChange={(v) => set({ dateFontSize: Math.min(24, Math.max(8, Number(v) || 12)) })}
+          testId="input-article-list-date-font-size"
+        />
+      ) : null}
+      <NumberField
+        label="Title font size (px)"
+        min={10}
+        max={48}
+        value={c.titleFontSize || 16}
+        onChange={(v) => set({ titleFontSize: Math.min(48, Math.max(10, Number(v) || 16)) })}
+        testId="input-article-list-title-font-size"
+      />
+      <NumberField
+        label="Card corner radius (px)"
+        min={0}
+        max={40}
+        value={c.cardBorderRadius ?? 8}
+        onChange={(v) => set({ cardBorderRadius: Math.min(40, Math.max(0, Number(v) || 0)) })}
+        testId="input-article-list-border-radius"
+      />
       {/* Showcase card settings (Task #2808) — same knobs the old iEdit
           Showcase exposed; unset values keep the current defaults. */}
       <NumberField
