@@ -8158,19 +8158,31 @@ function HeroCarouselRender({ block, asEditor, breakpoint }) {
   const textOffsetX = Number(c.text_offset_x) || 0;
   const textOffsetY = Number(c.text_offset_y) || 0;
 
+  // Per-slide effective text offset: a slide may override the block-level
+  // default (absent/null = inherit). Mobile offsets derive from the slide's
+  // effective offsets exactly as the block-level derivation does (halved
+  // unless a block-level mobile_* override is set).
+  const resolveSlideTextOffset = (slide) => {
+    const ovX = slide?.text_offset_x;
+    const ovY = slide?.text_offset_y;
+    const effX = ovX != null && Number.isFinite(Number(ovX)) ? Number(ovX) : textOffsetX;
+    const effY = ovY != null && Number.isFinite(Number(ovY)) ? Number(ovY) : textOffsetY;
+    const pmx = Number(c.mobile_text_offset_x) || 0;
+    const pmy = Number(c.mobile_text_offset_y) || 0;
+    return {
+      x: effX,
+      y: effY,
+      mobileX: pmx !== 0 ? pmx : Math.round(effX * 0.5),
+      mobileY: pmy !== 0 ? pmy : Math.round(effY * 0.5),
+    };
+  };
+
   const mobileHeaderFS = Number(c.mobile_header_font_size) || Math.max(24, Math.round(headerFontSize * 0.6));
   const mobileSubheadingFS = Number(c.mobile_subheading_font_size) || Math.max(16, Math.round(subheadingFontSize * 0.75));
   const mobileContentFS = Number(c.mobile_content_font_size) || Math.max(14, Math.round(contentFontSize * 0.9));
-  const parsedMobileOffsetX = Number(c.mobile_text_offset_x) || 0;
-  const parsedMobileOffsetY = Number(c.mobile_text_offset_y) || 0;
-  const mobileOffsetX = parsedMobileOffsetX !== 0 ? parsedMobileOffsetX : Math.round(textOffsetX * 0.5);
-  const mobileOffsetY = parsedMobileOffsetY !== 0 ? parsedMobileOffsetY : Math.round(textOffsetY * 0.5);
-
   const displayHeaderFS = isMobile ? mobileHeaderFS : headerFontSize;
   const displaySubheadingFS = isMobile ? mobileSubheadingFS : subheadingFontSize;
   const displayContentFS = isMobile ? mobileContentFS : contentFontSize;
-  const effOffsetX = isMobile ? mobileOffsetX : textOffsetX;
-  const effOffsetY = isMobile ? mobileOffsetY : textOffsetY;
 
   // Build resolved inline styles; fall back to manual fields when no tenant
   // style is set or has not yet loaded (consistent with HeroRender pattern).
@@ -8265,10 +8277,6 @@ function HeroCarouselRender({ block, asEditor, breakpoint }) {
     );
   }
 
-  const textBoxStyle = {};
-  if (effOffsetX !== 0 || effOffsetY !== 0) {
-    textBoxStyle.transform = `translate(${effOffsetX}px, ${effOffsetY}px)`;
-  }
 
   // When full-bleed, the background spans 100vw but the text content should
   // re-align to the page's centered content column. `--cb-content-width` is
@@ -8318,7 +8326,10 @@ function HeroCarouselRender({ block, asEditor, breakpoint }) {
             const pad = resolveSlidePadding(slide);
             return `[data-hcc="${safeBlockId}"] .hcc-content-wrap[data-hcc-slide="${i}"]{padding:${pad.mobileV}px ${pad.mobileH}px!important;}`;
           }),
-          `[data-hcc="${safeBlockId}"] .hcc-text-box{transform:translate(${mobileOffsetX}px,${mobileOffsetY}px)!important;}`,
+          ...slides.map((slide, i) => {
+            const off = resolveSlideTextOffset(slide);
+            return `[data-hcc="${safeBlockId}"] .hcc-content-wrap[data-hcc-slide="${i}"] .hcc-text-box{transform:translate(${off.mobileX}px,${off.mobileY}px)!important;}`;
+          }),
           `}`,
         ].join('') }} />
       )}
@@ -8327,6 +8338,12 @@ function HeroCarouselRender({ block, asEditor, breakpoint }) {
         const slidePad = resolveSlidePadding(slide);
         const displayPaddingV = isMobile ? slidePad.mobileV : slidePad.v;
         const displayPaddingH = isMobile ? slidePad.mobileH : slidePad.h;
+        const slideOff = resolveSlideTextOffset(slide);
+        const effOffsetX = isMobile ? slideOff.mobileX : slideOff.x;
+        const effOffsetY = isMobile ? slideOff.mobileY : slideOff.y;
+        const textBoxStyle = (effOffsetX !== 0 || effOffsetY !== 0)
+          ? { transform: `translate(${effOffsetX}px, ${effOffsetY}px)` }
+          : undefined;
         return (
         <div key={slide.id || index} style={getSlideTransitionStyle(index)}>
           <div className="absolute inset-0">
@@ -8506,7 +8523,7 @@ function SortableSlideItem({ id, title, isExpanded, onToggle, onRemove, onDuplic
 }
 
 // DnD-sortable slide list used in HeroCarouselInspector.
-function SlideDndList({ slides, onChange, breakpoint, defaultPaddingV = 60, defaultPaddingH = 16 }) {
+function SlideDndList({ slides, onChange, breakpoint, defaultPaddingV = 60, defaultPaddingH = 16, defaultTextOffsetX = 0, defaultTextOffsetY = 0 }) {
   const [expanded, setExpanded] = useState(() => slides.map((_, i) => i === 0));
   // Tenant custom button styles for the per-slide CTA style picker — same
   // enumeration as ButtonInspector / Card CTAs, microsite-scoped.
@@ -8694,6 +8711,39 @@ function SlideDndList({ slides, onChange, breakpoint, defaultPaddingV = 60, defa
                   </div>
                 )}
               </div>
+              <div className="border-t border-slate-100 pt-2">
+                <ToggleField
+                  label="Custom text offset"
+                  value={slide.text_offset_x != null || slide.text_offset_y != null}
+                  onChange={(on) => {
+                    if (on) {
+                      patchSlide(idx, { text_offset_x: defaultTextOffsetX, text_offset_y: defaultTextOffsetY });
+                    } else {
+                      // Clearing the override deletes the slide-level fields
+                      // (undefined values drop out on JSON serialisation) so
+                      // the slide inherits the block defaults again.
+                      patchSlide(idx, { text_offset_x: undefined, text_offset_y: undefined });
+                    }
+                  }}
+                  testId={`hcc-slide-${idx}-custom-text-offset`}
+                />
+                {(slide.text_offset_x != null || slide.text_offset_y != null) && (
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    <NumberField
+                      label="Text offset X (px)"
+                      value={slide.text_offset_x ?? defaultTextOffsetX}
+                      onChange={(v) => patchSlide(idx, { text_offset_x: v ?? defaultTextOffsetX })}
+                      testId={`hcc-slide-${idx}-text-offset-x`}
+                    />
+                    <NumberField
+                      label="Text offset Y (px)"
+                      value={slide.text_offset_y ?? defaultTextOffsetY}
+                      onChange={(v) => patchSlide(idx, { text_offset_y: v ?? defaultTextOffsetY })}
+                      testId={`hcc-slide-${idx}-text-offset-y`}
+                    />
+                  </div>
+                )}
+              </div>
               <SelectField
                 label="CTA button style"
                 value={slide.ctaStyle || 'system-default'}
@@ -8812,6 +8862,8 @@ function HeroCarouselInspector({ block, update, breakpoint }) {
           breakpoint={breakpoint}
           defaultPaddingV={Number.isFinite(Number(c.padding_vertical)) ? Number(c.padding_vertical) : 60}
           defaultPaddingH={Number.isFinite(Number(c.padding_horizontal)) ? Number(c.padding_horizontal) : 16}
+          defaultTextOffsetX={Number(c.text_offset_x) || 0}
+          defaultTextOffsetY={Number(c.text_offset_y) || 0}
         />
       </Field>
 

@@ -2865,6 +2865,14 @@ export function validateBlock(block) {
             errors.push(`Hero Carousel slide ${i + 1} has an invalid ${key === 'padding_vertical' ? 'vertical' : 'horizontal'} padding override.`);
           }
         });
+        // Per-slide text offset overrides (absent/null = inherit block
+        // default) must be finite numbers when present (negatives allowed).
+        ['text_offset_x', 'text_offset_y'].forEach((key) => {
+          const val = slide?.[key];
+          if (val != null && !Number.isFinite(Number(val))) {
+            errors.push(`Hero Carousel slide ${i + 1} has an invalid text offset ${key === 'text_offset_x' ? 'X' : 'Y'} override.`);
+          }
+        });
       });
       break;
     }
