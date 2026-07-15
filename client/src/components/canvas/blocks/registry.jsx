@@ -8221,9 +8221,18 @@ function HeroCarouselRender({ block, asEditor, breakpoint }) {
   const isAspect = heightType === 'aspect';
   const aspectMinHeight = Number(c.aspect_min_height) > 0 ? Number(c.aspect_min_height) : 0;
   const aspectMaxHeight = Number(c.aspect_max_height) > 0 ? Number(c.aspect_max_height) : 0;
-  // Natural dimensions of the tallest slide image, resolved by loading each
-  // slide image off-DOM. Null until at least one image has loaded.
-  const [aspectDims, setAspectDims] = useState(null);
+  // Natural dimensions of the tallest slide image. Seeded from the ratio the
+  // editor persisted into content (aspect_ratio_w/h — Task #2826) so the very
+  // first paint reserves the correct height with zero layout shift on slow
+  // networks; the off-DOM image-load effect below only corrects it if the
+  // stored ratio has drifted from the live images. Null when nothing is
+  // stored and no image has loaded yet (min-height placeholder holds space).
+  const storedAspectW = Number(c.aspect_ratio_w);
+  const storedAspectH = Number(c.aspect_ratio_h);
+  const hasStoredAspect = storedAspectW > 0 && storedAspectH > 0;
+  const [aspectDims, setAspectDims] = useState(
+    hasStoredAspect ? { w: storedAspectW, h: storedAspectH } : null
+  );
   const slideImageKey = slides.map((s) => s?.backgroundImage || '').join('|');
   useEffect(() => {
     if (!isAspect) return undefined;
@@ -9023,6 +9032,53 @@ function SlideDndList({ slides, onChange, breakpoint, defaultPaddingV = 60, defa
 function HeroCarouselInspector({ block, update, breakpoint }) {
   const c = block.content || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+
+  // Aspect mode (Task #2826): persist the tallest slide image's natural w/h
+  // into content so the PUBLIC first paint can reserve the correct height
+  // before any image bytes arrive (no reflow on slow networks). Measured
+  // off-DOM whenever the slide image set changes while aspect mode is on;
+  // only written when it differs from what's stored. Slides can only change
+  // through this inspector, so mounting here is sufficient.
+  const isAspectMode = c.height_type === 'aspect';
+  const inspectorSlideKey = (c.slides || []).map((s) => s?.backgroundImage || '').join('|');
+  const setRef = useRef(set);
+  setRef.current = set;
+  useEffect(() => {
+    if (!isAspectMode) return undefined;
+    const srcs = [...new Set((c.slides || []).map((s) => s?.backgroundImage).filter(Boolean))];
+    if (srcs.length === 0) {
+      if (c.aspect_ratio_w != null || c.aspect_ratio_h != null) {
+        setRef.current({ aspect_ratio_w: null, aspect_ratio_h: null });
+      }
+      return undefined;
+    }
+    let cancelled = false;
+    const dims = [];
+    let pending = srcs.length;
+    const finish = () => {
+      if (cancelled || dims.length === 0) return;
+      // Tallest slide = largest h/w ratio (matches HeroCarouselRender).
+      let best = dims[0];
+      for (const d of dims) { if (d.h / d.w > best.h / best.w) best = d; }
+      if (Number(c.aspect_ratio_w) !== best.w || Number(c.aspect_ratio_h) !== best.h) {
+        setRef.current({ aspect_ratio_w: best.w, aspect_ratio_h: best.h });
+      }
+    };
+    srcs.forEach((src) => {
+      const img = new window.Image();
+      img.onload = () => {
+        if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+          dims.push({ w: img.naturalWidth, h: img.naturalHeight });
+        }
+        pending -= 1;
+        if (pending === 0) finish();
+      };
+      img.onerror = () => { pending -= 1; if (pending === 0) finish(); };
+      img.src = src;
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAspectMode, inspectorSlideKey]);
 
   const makeTypographyControls = (prefix, defaultSize) => (
     <details className="mt-1">

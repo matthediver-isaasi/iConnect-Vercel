@@ -1511,6 +1511,11 @@ BLOCK_DEFAULTS[BLOCK_TYPES.HERO_CAROUSEL] = {
     // extreme ratios sane; 0 = no clamp.
     aspect_min_height: 200,
     aspect_max_height: 0,
+    // Natural w/h of the tallest slide image, persisted by the editor so the
+    // public first paint reserves the correct aspect height before any image
+    // loads (Task #2826). null = unknown (falls back to min-height placeholder).
+    aspect_ratio_w: null,
+    aspect_ratio_h: null,
     padding_vertical: 60,
     padding_horizontal: 16,
     text_offset_x: 0,
@@ -2917,6 +2922,15 @@ export function validateBlock(block) {
       ) {
         errors.push('Hero Carousel aspect height clamp: minimum exceeds maximum.');
       }
+      // Persisted natural ratio of the tallest slide (Task #2826 —
+      // absent/null = unknown, first paint falls back to the min-height
+      // placeholder) must be positive finite numbers when present.
+      ['aspect_ratio_w', 'aspect_ratio_h'].forEach((key) => {
+        const val = c[key];
+        if (val != null && (!Number.isFinite(Number(val)) || Number(val) <= 0)) {
+          errors.push(`Hero Carousel has an invalid stored aspect ratio ${key === 'aspect_ratio_w' ? 'width' : 'height'}.`);
+        }
+      });
       // Per-slide padding overrides (absent/null = inherit block default)
       // must be non-negative numbers when present.
       carouselSlides.forEach((slide, i) => {
