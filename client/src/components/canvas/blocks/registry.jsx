@@ -9395,12 +9395,6 @@ function HeroCarouselInspector({ block, update, breakpoint }) {
             onChange={(v) => set({ showDots: v })}
             testId="toggle-hcc-show-dots"
           />
-          <ToggleField
-            label="Full-bleed (span full screen width)"
-            value={!!c.fullBleed}
-            onChange={(v) => update((b) => setBlockContentFullBleed(b, breakpoint || 'desktop', !!v))}
-            testId="toggle-hcc-full-bleed"
-          />
         </div>
       </details>
     </>
