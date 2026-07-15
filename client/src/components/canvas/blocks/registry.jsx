@@ -15,6 +15,7 @@ import {
   sortableKeyboardCoordinates,
 } from '@dnd-kit/sortable';
 import { CSS as DndCSS } from '@dnd-kit/utilities';
+import { getCachedLucideIcon, loadLucideIcon } from '@/lib/lucideCatalog';
 import { useQuery } from '@tanstack/react-query';
 import {
   Square,
@@ -135,7 +136,35 @@ export const LUCIDE_ICONS = {
 };
 
 export function getLucideIcon(name) {
-  return LUCIDE_ICONS[name] || null;
+  if (!name) return null;
+  return LUCIDE_ICONS[name] || getCachedLucideIcon(name);
+}
+
+// Renders a Lucide icon by name from the FULL catalog (curated fast path,
+// then lazy per-icon load via lucideCatalog). While the icon fetches, an
+// invisible placeholder box holds the space so the button doesn't jump; it
+// collapses to nothing only when the name is genuinely unknown.
+function LazyLucideIcon({ name, sizePx, color }) {
+  const [, force] = useState(0);
+  const [unknown, setUnknown] = useState(false);
+  const Cmp = getLucideIcon(name);
+  useEffect(() => {
+    if (Cmp || !name) return;
+    let cancelled = false;
+    loadLucideIcon(name)
+      .then((loaded) => {
+        if (cancelled) return;
+        if (loaded) force((n) => n + 1);
+        else setUnknown(true);
+      })
+      .catch(() => { if (!cancelled) setUnknown(true); });
+    return () => { cancelled = true; };
+  }, [name, Cmp]);
+  if (!Cmp) {
+    if (unknown) return null;
+    return <span style={{ width: sizePx, height: sizePx, flexShrink: 0, display: 'inline-block' }} aria-hidden="true" />;
+  }
+  return <Cmp style={{ width: sizePx, height: sizePx, color, flexShrink: 0 }} />;
 }
 
 // A button-style icon name can be either a Lucide icon name (legacy) or a
@@ -161,9 +190,7 @@ export function renderStyleIcon(name, sizePx, color) {
       />
     );
   }
-  const Cmp = getLucideIcon(name);
-  if (!Cmp) return null;
-  return <Cmp style={{ width: sizePx, height: sizePx, color, flexShrink: 0 }} />;
+  return <LazyLucideIcon name={name} sizePx={sizePx} color={color} />;
 }
 
 // Enumerate the tenant's free-form custom button styles for the canvas

@@ -17,8 +17,9 @@ import { Save, Loader2, Eye, RotateCcw, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
-import { LUCIDE_ICONS, getLucideIcon, isFaIconName, renderStyleIcon } from "@/components/canvas/blocks/registry";
+import { isFaIconName, renderStyleIcon } from "@/components/canvas/blocks/registry";
 import { FontAwesomeIconPicker } from "@/components/canvas/FontAwesomeIconPicker";
+import { LucideIconPicker } from "@/components/canvas/LucideIconPicker";
 import TypographyStyleSelector, { useTypographyStyles, getTypographyStyleCSS } from "@/components/iedit/TypographyStyleSelector";
 import { composeButtonLabelStyle } from "@/lib/tenantButtonStyle";
 
@@ -172,6 +173,7 @@ function ButtonStyleEditor({
 }) {
   const [isHovered, setIsHovered] = useState(false);
   const [faPickerOpen, setFaPickerOpen] = useState(false);
+  const [lucidePickerOpen, setLucidePickerOpen] = useState(false);
   const testIdPrefix = testIdPrefixProp || title.toLowerCase().replace(/\s+/g, '-');
 
   // Task #2591: the label typography baked into this button style. When set,
@@ -828,44 +830,59 @@ function ButtonStyleEditor({
             <div className="flex items-center gap-4 flex-wrap">
               <Label className="min-w-32">Icon:</Label>
               <div className="flex items-center gap-3 flex-1 flex-wrap">
-                <select
-                  value={isFaIconName(style.icon?.name) ? '' : (style.icon?.name || '')}
-                  onChange={(e) => updateStyle('icon.name', e.target.value)}
-                  className="border rounded px-3 py-2 text-sm flex-1"
-                  data-testid={`select-${testIdPrefix}-icon-name`}
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setLucidePickerOpen(true)}
+                  data-testid={`button-${testIdPrefix}-lucide-icon-picker`}
                 >
-                  <option value="">
-                    {isFaIconName(style.icon?.name) ? 'Font Awesome icon selected' : 'None'}
-                  </option>
-                  {Object.keys(LUCIDE_ICONS).map((name) => (
-                    <option key={name} value={name}>{name}</option>
-                  ))}
-                </select>
+                  Browse Lucide icons
+                </Button>
                 <Button
                   type="button"
                   variant="outline"
                   onClick={() => setFaPickerOpen(true)}
                   data-testid={`button-${testIdPrefix}-fa-icon-picker`}
                 >
-                  Browse icon library
+                  Browse Font Awesome
                 </Button>
                 {style.icon?.name ? (
-                  <span className="shrink-0 inline-flex" data-testid={`icon-preview-${testIdPrefix}`}>
-                    {renderStyleIcon(
-                      style.icon.name,
-                      style.icon?.size ?? DEFAULT_ICON.size,
-                      style.icon?.color || style.textColor
-                    )}
-                  </span>
+                  <>
+                    <span className="shrink-0 inline-flex" data-testid={`icon-preview-${testIdPrefix}`}>
+                      {renderStyleIcon(
+                        style.icon.name,
+                        style.icon?.size ?? DEFAULT_ICON.size,
+                        style.icon?.color || style.textColor
+                      )}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => updateStyle('icon.name', '')}
+                      data-testid={`button-${testIdPrefix}-icon-clear`}
+                    >
+                      Remove
+                    </Button>
+                  </>
                 ) : null}
               </div>
             </div>
-            {isFaIconName(style.icon?.name) ? (
-              <p className="text-xs text-slate-500">
-                Using icon library icon: <code>{style.icon.name}</code>. Pick from the
-                dropdown or choose another library icon to replace it.
+            {style.icon?.name ? (
+              <p className="text-xs text-slate-500" data-testid={`text-${testIdPrefix}-icon-current`}>
+                Current icon: <code>{style.icon.name}</code>
+                {isFaIconName(style.icon.name) ? ' (Font Awesome)' : ' (Lucide)'}. Browse
+                either library to replace it, or remove it.
               </p>
             ) : null}
+            <LucideIconPicker
+              open={lucidePickerOpen}
+              onClose={() => setLucidePickerOpen(false)}
+              currentValue={!isFaIconName(style.icon?.name) ? (style.icon?.name || '') : ''}
+              onSelect={(name) => {
+                updateStyle('icon.name', name || '');
+                setLucidePickerOpen(false);
+              }}
+            />
             <FontAwesomeIconPicker
               open={faPickerOpen}
               onClose={() => setFaPickerOpen(false)}
