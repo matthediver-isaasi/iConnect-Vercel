@@ -194,8 +194,9 @@ export default function ShowcaseCard({
   };
 
   // In the canvas editor, clicking a card must select the block instead of
-  // navigating; render a plain div so no navigation is possible at all.
-  if (asEditor) {
+  // navigating; likewise a card with no URL at all (e.g. a resource without a
+  // download/content link) must not render as a broken anchor.
+  if (asEditor || !url) {
     return (
       <div className={wrapperClassName} style={wrapperStyle} data-testid={wrapperTestId || (testId ? `card-showcase-${testId}` : undefined)}>
         {cardContent}

@@ -185,6 +185,7 @@ export const BLOCK_TYPES = {
   SPONSOR_CAROUSEL: 'sponsor-carousel',
   ARTICLE_LIST: 'article-list',
   RESOURCE_LIST: 'resource-list',
+  RESOURCE_SHOWCASE: 'resource-showcase',
   FORM_EMBED: 'form-embed',
   CAMPAIGN_EMBED: 'campaign-embed',
   MEMBER_DIRECTORY_EMBED: 'member-directory-embed',
@@ -1214,6 +1215,24 @@ export const BLOCK_DEFAULTS = {
       cardDescriptionTypographyStyleId: '',
       ctaVariant: 'outline',
       ctaAlign: 'left',
+    },
+  },
+  [BLOCK_TYPES.RESOURCE_SHOWCASE]: {
+    // Cards-only equivalent of the iEdit "Resources Showcase" element: just
+    // the Showcase card grid (no background/header/subheader text — those are
+    // added with separate blocks), with the full set of card controls shared
+    // with the article/news list block.
+    name: 'Resource showcase',
+    geom: { w: 800, h: 460 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      limit: 3,
+      resourceType: '',
+      tag: '',
+      columns: { desktop: 3, tablet: 2, mobile: 1 },
+      gap: 24,
+      sortBy: 'date-desc',
+      emptyText: 'No resources available.',
     },
   },
   [BLOCK_TYPES.FORM_EMBED]: {

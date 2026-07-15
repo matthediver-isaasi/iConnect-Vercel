@@ -3808,6 +3808,249 @@ function SponsorCarouselInspector({ block, update, breakpoint }) {
 }
 
 // ============================================================================
+// SHOWCASE CARD SETTINGS (shared by the article/news list and resource
+// showcase blocks — same knobs the old iEdit Showcase exposed)
+// ============================================================================
+// Resolve every stored Showcase-card knob into safe render values. The
+// inspector stores raw keystrokes unclamped so typing "35" doesn't get mangled
+// to the min bound the moment "3" is entered; the ranges are enforced here at
+// render time instead. Unset values keep the original hardcoded behaviour so
+// existing pages render byte-identically.
+function resolveShowcaseCardSettings(c) {
+  const clampNum = (raw, min, max, fallback) => {
+    const n = Number(raw);
+    if (raw == null || raw === '' || !Number.isFinite(n)) return fallback;
+    return Math.min(max, Math.max(min, n));
+  };
+  const hasExplicitTitleSize = c.titleFontSize != null && c.titleFontSize !== '' && Number(c.titleFontSize) > 0;
+  // Description line clamp: 'none' = no limit, 1..10 = clamp, default 3.
+  let descriptionLineClamp = 3;
+  if (c.descriptionLineClamp === 'none') descriptionLineClamp = 'none';
+  else if (Number(c.descriptionLineClamp) > 0) descriptionLineClamp = Number(c.descriptionLineClamp);
+  return {
+    cardHeight: clampNum(c.cardHeight, 200, 800, 400),
+    imageHeightPercent: clampNum(c.imageHeightPercent, 20, 80, 50),
+    ctaButtonSize: clampNum(c.ctaButtonSize, 24, 80, 48),
+    ctaButtonMargin: clampNum(c.ctaButtonMargin, 0, 50, 0),
+    imageBorderWeight: clampNum(c.imageBorderWeight, 1, 20, 3),
+    cardTextAlign: c.cardTextAlign === 'center' || c.cardTextAlign === 'right' ? c.cardTextAlign : 'left',
+    cardBorderRadius: clampNum(c.cardBorderRadius, 0, 40, 8),
+    hasExplicitTitleSize,
+    titleFontSize: clampNum(c.titleFontSize, 10, 48, 16),
+    dateFontSize: clampNum(c.dateFontSize, 8, 24, 12),
+    showPublishedDate: c.showPublishedDate !== false,
+    descriptionLineClamp,
+    // null = fall back to the card corner radius inside ShowcaseCard.
+    ctaButtonBorderRadius: c.ctaButtonBorderRadius != null && c.ctaButtonBorderRadius !== ''
+      ? clampNum(c.ctaButtonBorderRadius, 0, 40, null)
+      : null,
+  };
+}
+
+// The full set of Showcase-card inspector fields, shared verbatim between the
+// article/news list and resource showcase inspectors. `idPrefix` keeps each
+// block's data-testids distinct (and unchanged for the article block).
+function ShowcaseCardSettingsFields({ c, set, idPrefix, badgeTextPlaceholder }) {
+  return (
+    <>
+      <ToggleField label="Show image" value={c.showImage !== false} onChange={(v) => set({ showImage: v })} testId={`toggle-${idPrefix}-image`} />
+      <ToggleField label="Show summary" value={c.showSummary !== false} onChange={(v) => set({ showSummary: v })} testId={`toggle-${idPrefix}-summary`} />
+      {c.showSummary !== false ? (
+        <SelectField
+          label="Summary lines"
+          value={c.descriptionLineClamp === 'none' ? 'none' : String(Number(c.descriptionLineClamp) > 0 ? Number(c.descriptionLineClamp) : 3)}
+          onChange={(v) => set({ descriptionLineClamp: v === 'none' ? 'none' : Number(v) })}
+          options={[
+            ...[1, 2, 3, 4, 5, 6].map((n) => ({ value: String(n), label: `${n} line${n === 1 ? '' : 's'}` })),
+            { value: 'none', label: 'No limit' },
+          ]}
+          testId={`select-${idPrefix}-summary-lines`}
+        />
+      ) : null}
+      <ToggleField
+        label="Show published date"
+        value={c.showPublishedDate !== false}
+        onChange={(v) => set({ showPublishedDate: v })}
+        testId={`toggle-${idPrefix}-published-date`}
+      />
+      {c.showPublishedDate !== false ? (
+        <NumberField
+          label="Date font size (px)"
+          min={8}
+          max={24}
+          value={c.dateFontSize || 12}
+          onChange={(v) => set({ dateFontSize: v })}
+          testId={`input-${idPrefix}-date-font-size`}
+        />
+      ) : null}
+      <NumberField
+        label="Title font size (px)"
+        min={10}
+        max={48}
+        value={c.titleFontSize || 16}
+        onChange={(v) => set({ titleFontSize: v })}
+        testId={`input-${idPrefix}-title-font-size`}
+      />
+      <NumberField
+        label="Card corner radius (px)"
+        min={0}
+        max={40}
+        value={c.cardBorderRadius ?? 8}
+        onChange={(v) => set({ cardBorderRadius: v })}
+        testId={`input-${idPrefix}-border-radius`}
+      />
+      <NumberField
+        label="Card height (px)"
+        min={200}
+        max={800}
+        value={c.cardHeight || 400}
+        onChange={(v) => set({ cardHeight: v })}
+        testId={`input-${idPrefix}-card-height`}
+      />
+      <NumberField
+        label="Image height (%)"
+        min={20}
+        max={80}
+        value={c.imageHeightPercent || 50}
+        onChange={(v) => set({ imageHeightPercent: v })}
+        testId={`input-${idPrefix}-image-height`}
+      />
+      <SelectField
+        label="Text alignment"
+        value={c.cardTextAlign || 'left'}
+        onChange={(v) => set({ cardTextAlign: v })}
+        options={[
+          { value: 'left', label: 'Left' },
+          { value: 'center', label: 'Centre' },
+          { value: 'right', label: 'Right' },
+        ]}
+        testId={`select-${idPrefix}-text-align`}
+      />
+      <ToggleField
+        label="Show line below image"
+        value={!!c.showImageBorder}
+        onChange={(v) => set({ showImageBorder: v })}
+        testId={`toggle-${idPrefix}-image-border`}
+      />
+      {c.showImageBorder ? (
+        <>
+          <NumberField
+            label="Line weight (px)"
+            min={1}
+            max={20}
+            value={c.imageBorderWeight || 3}
+            onChange={(v) => set({ imageBorderWeight: v })}
+            testId={`input-${idPrefix}-image-border-weight`}
+          />
+          <ColorField
+            label="Line colour"
+            value={c.imageBorderColor}
+            onChange={(v) => set({ imageBorderColor: v })}
+            placeholder="#2563eb"
+            fallback="#2563eb"
+            testId={`input-${idPrefix}-image-border-color`}
+          />
+        </>
+      ) : null}
+      <ToggleField
+        label="Show badge"
+        value={c.showBadge !== false}
+        onChange={(v) => set({ showBadge: v })}
+        testId={`toggle-${idPrefix}-badge`}
+      />
+      {c.showBadge !== false ? (
+        <>
+          <TextField
+            label="Badge text"
+            value={c.badgeText}
+            onChange={(v) => set({ badgeText: v })}
+            placeholder={badgeTextPlaceholder}
+            testId={`input-${idPrefix}-badge-text`}
+          />
+          <ColorField
+            label="Badge background"
+            value={c.badgeBgColor}
+            onChange={(v) => set({ badgeBgColor: v })}
+            placeholder="(default)"
+            testId={`input-${idPrefix}-badge-bg`}
+          />
+          <ColorField
+            label="Badge text colour"
+            value={c.badgeTextColor}
+            onChange={(v) => set({ badgeTextColor: v })}
+            placeholder="#ffffff"
+            fallback="#ffffff"
+            testId={`input-${idPrefix}-badge-text-color`}
+          />
+        </>
+      ) : null}
+      <ToggleField
+        label="Show arrow button"
+        value={c.showCTAButton !== false}
+        onChange={(v) => set({ showCTAButton: v })}
+        testId={`toggle-${idPrefix}-cta`}
+      />
+      {c.showCTAButton !== false ? (
+        <>
+          <NumberField
+            label="Button size (px)"
+            min={24}
+            max={80}
+            value={c.ctaButtonSize || 48}
+            onChange={(v) => set({ ctaButtonSize: v })}
+            testId={`input-${idPrefix}-cta-size`}
+          />
+          <NumberField
+            label="Button margin (px)"
+            min={0}
+            max={50}
+            value={c.ctaButtonMargin ?? 0}
+            onChange={(v) => set({ ctaButtonMargin: v })}
+            testId={`input-${idPrefix}-cta-margin`}
+          />
+          <ColorField
+            label="Button background"
+            value={c.ctaButtonBgColor}
+            onChange={(v) => set({ ctaButtonBgColor: v })}
+            placeholder="#2563eb"
+            fallback="#2563eb"
+            testId={`input-${idPrefix}-cta-bg`}
+          />
+          <ColorField
+            label="Arrow colour"
+            value={c.ctaButtonArrowColor}
+            onChange={(v) => set({ ctaButtonArrowColor: v })}
+            placeholder="#ffffff"
+            fallback="#ffffff"
+            testId={`input-${idPrefix}-cta-arrow`}
+          />
+          <NumberField
+            label="Button corner radius (px)"
+            min={0}
+            max={40}
+            value={c.ctaButtonBorderRadius ?? (c.cardBorderRadius ?? 8)}
+            onChange={(v) => set({ ctaButtonBorderRadius: v })}
+            testId={`input-${idPrefix}-cta-radius`}
+          />
+        </>
+      ) : null}
+      <TypographyStyleField
+        label="Card title style"
+        value={c.titleTypographyStyleId}
+        onChange={(id) => set({ titleTypographyStyleId: id })}
+        testId={`select-${idPrefix}-title-typography`}
+      />
+      <TypographyStyleField
+        label="Card text style"
+        value={c.summaryTypographyStyleId}
+        onChange={(id) => set({ summaryTypographyStyleId: id })}
+        testId={`select-${idPrefix}-summary-typography`}
+      />
+    </>
+  );
+}
+
+// ============================================================================
 // ARTICLE / NEWS LIST
 // ============================================================================
 function ArticleListRender({ block, breakpoint, asEditor }) {
@@ -3891,34 +4134,12 @@ function ArticleListRender({ block, breakpoint, asEditor }) {
   const badgeTextColor = c.badgeTextColor || '#ffffff';
   const defaultBadgeText = source === 'news' ? 'News' : articleBadgeLabel;
   const badgeText = (typeof c.badgeText === 'string' && c.badgeText.trim()) ? c.badgeText : defaultBadgeText;
-  // Clamp a stored number into its valid range at RENDER time. The inspector
-  // stores raw keystrokes unclamped so typing "35" doesn't get mangled to the
-  // min bound the moment "3" is entered; the range is enforced here instead.
-  const clampNum = (raw, min, max, fallback) => {
-    const n = Number(raw);
-    if (raw == null || raw === '' || !Number.isFinite(n)) return fallback;
-    return Math.min(max, Math.max(min, n));
-  };
-  const cardHeight = clampNum(c.cardHeight, 200, 800, 400);
-  const imageHeightPercent = clampNum(c.imageHeightPercent, 20, 80, 50);
-  const ctaButtonSize = clampNum(c.ctaButtonSize, 24, 80, 48);
-  const ctaButtonMargin = clampNum(c.ctaButtonMargin, 0, 50, 0);
-  const imageBorderWeight = clampNum(c.imageBorderWeight, 1, 20, 3);
-  const cardTextAlign = c.cardTextAlign === 'center' || c.cardTextAlign === 'right' ? c.cardTextAlign : 'left';
-  // Remaining iEdit Showcase knobs (Task #2810): border radius, description
-  // line clamp, title/date font sizes and a published-date toggle. Unset
-  // values keep the previous hardcoded behaviour (radius 8, clamp 3, 16/12px,
-  // date shown) so existing pages render unchanged.
-  const cardBorderRadius = clampNum(c.cardBorderRadius, 0, 40, 8);
-  const hasExplicitTitleSize = c.titleFontSize != null && c.titleFontSize !== '' && Number(c.titleFontSize) > 0;
-  const titleFontSize = clampNum(c.titleFontSize, 10, 48, 16);
-  const dateFontSize = clampNum(c.dateFontSize, 8, 24, 12);
-  const showPublishedDate = c.showPublishedDate !== false;
-  // Description line clamp: 'none' = no limit, 1..10 = clamp, default 3.
-  // Hidden entirely (0) when the summary toggle is off, matching before.
-  let descriptionLineClamp = 3;
-  if (c.descriptionLineClamp === 'none') descriptionLineClamp = 'none';
-  else if (Number(c.descriptionLineClamp) > 0) descriptionLineClamp = Number(c.descriptionLineClamp);
+  const {
+    cardHeight, imageHeightPercent, ctaButtonSize, ctaButtonMargin,
+    imageBorderWeight, cardTextAlign, cardBorderRadius, hasExplicitTitleSize,
+    titleFontSize, dateFontSize, showPublishedDate, descriptionLineClamp,
+    ctaButtonBorderRadius,
+  } = resolveShowcaseCardSettings(c);
 
   // Tenant typography styles for the card title / summary text. When set,
   // the chosen style's font (family/size/weight/line-height/etc.) overrides
@@ -4001,7 +4222,7 @@ function ArticleListRender({ block, breakpoint, asEditor }) {
                   ctaButtonMargin={ctaButtonMargin}
                   ctaButtonBgColor={c.ctaButtonBgColor || '#2563eb'}
                   ctaButtonArrowColor={c.ctaButtonArrowColor || '#ffffff'}
-                  ctaButtonBorderRadius={c.ctaButtonBorderRadius != null && c.ctaButtonBorderRadius !== '' ? clampNum(c.ctaButtonBorderRadius, 0, 40, null) : null}
+                  ctaButtonBorderRadius={ctaButtonBorderRadius}
                   textAlign={cardTextAlign}
                   cardBorderRadius={cardBorderRadius}
                   titleFontSize={titleFontSize}
@@ -4072,201 +4293,9 @@ function ArticleListInspector({ block, update }) {
       <NumberField label="Limit" min={1} max={50} value={c.limit || 6} onChange={(v) => set({ limit: Math.max(1, Number(v) || 1) })} testId="input-article-list-limit" />
       <PerBreakpointColumns value={c.columns} onChange={(v) => set({ columns: v })} />
       <NumberField label="Gap (px)" min={0} value={c.gap || 16} onChange={(v) => set({ gap: Math.max(0, Number(v) || 0) })} testId="input-article-list-gap" />
-      <ToggleField label="Show image" value={c.showImage !== false} onChange={(v) => set({ showImage: v })} testId="toggle-article-list-image" />
-      <ToggleField label="Show summary" value={c.showSummary !== false} onChange={(v) => set({ showSummary: v })} testId="toggle-article-list-summary" />
-      {c.showSummary !== false ? (
-        <SelectField
-          label="Summary lines"
-          value={c.descriptionLineClamp === 'none' ? 'none' : String(Number(c.descriptionLineClamp) > 0 ? Number(c.descriptionLineClamp) : 3)}
-          onChange={(v) => set({ descriptionLineClamp: v === 'none' ? 'none' : Number(v) })}
-          options={[
-            ...[1, 2, 3, 4, 5, 6].map((n) => ({ value: String(n), label: `${n} line${n === 1 ? '' : 's'}` })),
-            { value: 'none', label: 'No limit' },
-          ]}
-          testId="select-article-list-summary-lines"
-        />
-      ) : null}
-      <ToggleField
-        label="Show published date"
-        value={c.showPublishedDate !== false}
-        onChange={(v) => set({ showPublishedDate: v })}
-        testId="toggle-article-list-published-date"
-      />
-      {c.showPublishedDate !== false ? (
-        <NumberField
-          label="Date font size (px)"
-          min={8}
-          max={24}
-          value={c.dateFontSize || 12}
-          onChange={(v) => set({ dateFontSize: v })}
-          testId="input-article-list-date-font-size"
-        />
-      ) : null}
-      <NumberField
-        label="Title font size (px)"
-        min={10}
-        max={48}
-        value={c.titleFontSize || 16}
-        onChange={(v) => set({ titleFontSize: v })}
-        testId="input-article-list-title-font-size"
-      />
-      <NumberField
-        label="Card corner radius (px)"
-        min={0}
-        max={40}
-        value={c.cardBorderRadius ?? 8}
-        onChange={(v) => set({ cardBorderRadius: v })}
-        testId="input-article-list-border-radius"
-      />
-      {/* Showcase card settings (Task #2808) — same knobs the old iEdit
-          Showcase exposed; unset values keep the current defaults. */}
-      <NumberField
-        label="Card height (px)"
-        min={200}
-        max={800}
-        value={c.cardHeight || 400}
-        onChange={(v) => set({ cardHeight: v })}
-        testId="input-article-list-card-height"
-      />
-      <NumberField
-        label="Image height (%)"
-        min={20}
-        max={80}
-        value={c.imageHeightPercent || 50}
-        onChange={(v) => set({ imageHeightPercent: v })}
-        testId="input-article-list-image-height"
-      />
-      <SelectField
-        label="Text alignment"
-        value={c.cardTextAlign || 'left'}
-        onChange={(v) => set({ cardTextAlign: v })}
-        options={[
-          { value: 'left', label: 'Left' },
-          { value: 'center', label: 'Centre' },
-          { value: 'right', label: 'Right' },
-        ]}
-        testId="select-article-list-text-align"
-      />
-      <ToggleField
-        label="Show line below image"
-        value={!!c.showImageBorder}
-        onChange={(v) => set({ showImageBorder: v })}
-        testId="toggle-article-list-image-border"
-      />
-      {c.showImageBorder ? (
-        <>
-          <NumberField
-            label="Line weight (px)"
-            min={1}
-            max={20}
-            value={c.imageBorderWeight || 3}
-            onChange={(v) => set({ imageBorderWeight: v })}
-            testId="input-article-list-image-border-weight"
-          />
-          <ColorField
-            label="Line colour"
-            value={c.imageBorderColor}
-            onChange={(v) => set({ imageBorderColor: v })}
-            placeholder="#2563eb"
-            fallback="#2563eb"
-            testId="input-article-list-image-border-color"
-          />
-        </>
-      ) : null}
-      <ToggleField
-        label="Show badge"
-        value={c.showBadge !== false}
-        onChange={(v) => set({ showBadge: v })}
-        testId="toggle-article-list-badge"
-      />
-      {c.showBadge !== false ? (
-        <>
-          <TextField
-            label="Badge text"
-            value={c.badgeText}
-            onChange={(v) => set({ badgeText: v })}
-            placeholder="Default: Article / News"
-            testId="input-article-list-badge-text"
-          />
-          <ColorField
-            label="Badge background"
-            value={c.badgeBgColor}
-            onChange={(v) => set({ badgeBgColor: v })}
-            placeholder="(default)"
-            testId="input-article-list-badge-bg"
-          />
-          <ColorField
-            label="Badge text colour"
-            value={c.badgeTextColor}
-            onChange={(v) => set({ badgeTextColor: v })}
-            placeholder="#ffffff"
-            fallback="#ffffff"
-            testId="input-article-list-badge-text-color"
-          />
-        </>
-      ) : null}
-      <ToggleField
-        label="Show arrow button"
-        value={c.showCTAButton !== false}
-        onChange={(v) => set({ showCTAButton: v })}
-        testId="toggle-article-list-cta"
-      />
-      {c.showCTAButton !== false ? (
-        <>
-          <NumberField
-            label="Button size (px)"
-            min={24}
-            max={80}
-            value={c.ctaButtonSize || 48}
-            onChange={(v) => set({ ctaButtonSize: v })}
-            testId="input-article-list-cta-size"
-          />
-          <NumberField
-            label="Button margin (px)"
-            min={0}
-            max={50}
-            value={c.ctaButtonMargin ?? 0}
-            onChange={(v) => set({ ctaButtonMargin: v })}
-            testId="input-article-list-cta-margin"
-          />
-          <ColorField
-            label="Button background"
-            value={c.ctaButtonBgColor}
-            onChange={(v) => set({ ctaButtonBgColor: v })}
-            placeholder="#2563eb"
-            fallback="#2563eb"
-            testId="input-article-list-cta-bg"
-          />
-          <ColorField
-            label="Arrow colour"
-            value={c.ctaButtonArrowColor}
-            onChange={(v) => set({ ctaButtonArrowColor: v })}
-            placeholder="#ffffff"
-            fallback="#ffffff"
-            testId="input-article-list-cta-arrow"
-          />
-          <NumberField
-            label="Button corner radius (px)"
-            min={0}
-            max={40}
-            value={c.ctaButtonBorderRadius ?? (c.cardBorderRadius ?? 8)}
-            onChange={(v) => set({ ctaButtonBorderRadius: v })}
-            testId="input-article-list-cta-radius"
-          />
-        </>
-      ) : null}
-      <TypographyStyleField
-        label="Card title style"
-        value={c.titleTypographyStyleId}
-        onChange={(id) => set({ titleTypographyStyleId: id })}
-        testId="select-article-list-title-typography"
-      />
-      <TypographyStyleField
-        label="Card text style"
-        value={c.summaryTypographyStyleId}
-        onChange={(id) => set({ summaryTypographyStyleId: id })}
-        testId="select-article-list-summary-typography"
-      />
+      {/* Showcase card settings (Tasks #2808/#2810) — shared with the
+          resource showcase block; unset values keep the current defaults. */}
+      <ShowcaseCardSettingsFields c={c} set={set} idPrefix="article-list" badgeTextPlaceholder="Default: Article / News" />
       <ToggleField label="Featured first" value={!!c.featuredFirst} onChange={(v) => set({ featuredFirst: v })} testId="toggle-article-list-featured-first" />
       <ToggleField
         label="Open in new tab"
@@ -4298,6 +4327,56 @@ function resolveResourceFilterSelections(c) {
     categories: c.category ? [String(c.category)] : [],
     subcategories: c.subcategory ? [String(c.subcategory)] : [],
   };
+}
+
+// Apply the block's configured resource filters (type, tag, categories /
+// sub-categories, audience) to the full public resource list. Shared between
+// the Resource list and Resource showcase blocks so both filter identically.
+function filterResourcesByContent(data, c, categoriesData) {
+  let list = Array.isArray(data) ? data.slice() : [];
+  if (c.resourceType) {
+    const t = String(c.resourceType).toLowerCase();
+    list = list.filter((r) => String(r.resource_type || '').toLowerCase() === t);
+  }
+  if (c.tag) {
+    const tag = String(c.tag).toLowerCase();
+    list = list.filter((r) => Array.isArray(r.tags) && r.tags.some((x) => String(x).toLowerCase() === tag));
+  }
+  const { categories: selCats, subcategories: selSubs } = resolveResourceFilterSelections(c);
+  if (selSubs.length) {
+    // Sub-category filter takes precedence: include resources matching ANY
+    // of the selected sub-categories.
+    const subSet = new Set(selSubs.map((s) => String(s).toLowerCase()));
+    list = list.filter((r) =>
+      Array.isArray(r.subcategories) && r.subcategories.some((x) => subSet.has(String(x).toLowerCase()))
+    );
+  } else if (selCats.length) {
+    const cats = Array.isArray(categoriesData) ? categoriesData : [];
+    const subNames = new Set();
+    const freeText = new Set();
+    selCats.forEach((name) => {
+      const lower = String(name).toLowerCase();
+      const matchedCategory = cats.find((cc) => String(cc.name || '').toLowerCase() === lower);
+      if (matchedCategory) {
+        // Known category: match resources belonging to any of its subcategories.
+        (Array.isArray(matchedCategory.subcategories) ? matchedCategory.subcategories : [])
+          .forEach((s) => subNames.add(String(s).toLowerCase()));
+      } else {
+        // Legacy free-text value: preserve original subcategory-or-tag matching.
+        freeText.add(lower);
+      }
+    });
+    list = list.filter((r) => {
+      const rsubs = Array.isArray(r.subcategories) ? r.subcategories.map((x) => String(x).toLowerCase()) : [];
+      const rtags = Array.isArray(r.tags) ? r.tags.map((x) => String(x).toLowerCase()) : [];
+      if (rsubs.some((x) => subNames.has(x))) return true;
+      if (freeText.size && (rsubs.some((x) => freeText.has(x)) || rtags.some((x) => freeText.has(x)))) return true;
+      return false;
+    });
+  }
+  if (c.audience === 'public-only') list = list.filter((r) => !r.is_locked);
+  else if (c.audience === 'members-only') list = list.filter((r) => r.is_locked);
+  return list;
 }
 
 function ResourceListRender({ block, breakpoint, asEditor }) {
@@ -4343,52 +4422,10 @@ function ResourceListRender({ block, breakpoint, asEditor }) {
     }
   }, []);
 
-  const items = useMemo(() => {
-    let list = Array.isArray(data) ? data.slice() : [];
-    if (c.resourceType) {
-      const t = String(c.resourceType).toLowerCase();
-      list = list.filter((r) => String(r.resource_type || '').toLowerCase() === t);
-    }
-    if (c.tag) {
-      const tag = String(c.tag).toLowerCase();
-      list = list.filter((r) => Array.isArray(r.tags) && r.tags.some((x) => String(x).toLowerCase() === tag));
-    }
-    const { categories: selCats, subcategories: selSubs } = resolveResourceFilterSelections(c);
-    if (selSubs.length) {
-      // Sub-category filter takes precedence: include resources matching ANY
-      // of the selected sub-categories.
-      const subSet = new Set(selSubs.map((s) => String(s).toLowerCase()));
-      list = list.filter((r) =>
-        Array.isArray(r.subcategories) && r.subcategories.some((x) => subSet.has(String(x).toLowerCase()))
-      );
-    } else if (selCats.length) {
-      const cats = Array.isArray(categoriesData) ? categoriesData : [];
-      const subNames = new Set();
-      const freeText = new Set();
-      selCats.forEach((name) => {
-        const lower = String(name).toLowerCase();
-        const matchedCategory = cats.find((cc) => String(cc.name || '').toLowerCase() === lower);
-        if (matchedCategory) {
-          // Known category: match resources belonging to any of its subcategories.
-          (Array.isArray(matchedCategory.subcategories) ? matchedCategory.subcategories : [])
-            .forEach((s) => subNames.add(String(s).toLowerCase()));
-        } else {
-          // Legacy free-text value: preserve original subcategory-or-tag matching.
-          freeText.add(lower);
-        }
-      });
-      list = list.filter((r) => {
-        const rsubs = Array.isArray(r.subcategories) ? r.subcategories.map((x) => String(x).toLowerCase()) : [];
-        const rtags = Array.isArray(r.tags) ? r.tags.map((x) => String(x).toLowerCase()) : [];
-        if (rsubs.some((x) => subNames.has(x))) return true;
-        if (freeText.size && (rsubs.some((x) => freeText.has(x)) || rtags.some((x) => freeText.has(x)))) return true;
-        return false;
-      });
-    }
-    if (c.audience === 'public-only') list = list.filter((r) => !r.is_locked);
-    else if (c.audience === 'members-only') list = list.filter((r) => r.is_locked);
-    return list;
-  }, [data, categoriesData, c.resourceType, c.tag, c.category, c.subcategory, c.categories, c.subcategories, c.audience]);
+  const items = useMemo(
+    () => filterResourcesByContent(data, c, categoriesData),
+    [data, categoriesData, c.resourceType, c.tag, c.category, c.subcategory, c.categories, c.subcategories, c.audience]
+  );
 
   // Viewer-facing search box narrows the already-configured `items` in real
   // time. It never widens the block's scope — it only filters what the author
@@ -4509,10 +4546,10 @@ function ResourceListRender({ block, breakpoint, asEditor }) {
   );
 }
 
-function ResourceListInspector({ block, update }) {
-  const c = block.content || {};
-  const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
-
+// Resource filter fields (type, tag, category / sub-category multi-selects
+// and audience) shared between the Resource list and Resource showcase
+// inspectors so both blocks are configured identically.
+function ResourceFilterFields({ c, set, idPrefix }) {
   const { data: categoriesData, isLoading: categoriesLoading } = useQuery({
     queryKey: ['canvas', 'admin-resource-categories'],
     queryFn: () => base44.entities.ResourceCategory.list('display_order'),
@@ -4616,16 +4653,8 @@ function ResourceListInspector({ block, update }) {
 
   return (
     <>
-      <TextField label="Heading" value={c.title} onChange={(v) => set({ title: v })} testId="input-resource-list-title" />
-      <SelectField
-        label="Heading level"
-        value={String(c.headingLevel || 2)}
-        onChange={(v) => set({ headingLevel: Number(v) })}
-        options={[2, 3, 4].map((n) => ({ value: String(n), label: `H${n}` }))}
-        testId="select-resource-list-heading-level"
-      />
-      <TextField label="Resource type" value={c.resourceType} onChange={(v) => set({ resourceType: v })} testId="input-resource-list-type" />
-      <TextField label="Filter tag" value={c.tag} onChange={(v) => set({ tag: v })} testId="input-resource-list-tag" />
+      <TextField label="Resource type" value={c.resourceType} onChange={(v) => set({ resourceType: v })} testId={`input-${idPrefix}-type`} />
+      <TextField label="Filter tag" value={c.tag} onChange={(v) => set({ tag: v })} testId={`input-${idPrefix}-tag`} />
       <MultiCheckboxField
         label="Filter categories"
         value={selectedCategories}
@@ -4647,7 +4676,7 @@ function ResourceListInspector({ block, update }) {
           const prunedSubs = selectedSubcategories.filter((s) => validSubs.has(String(s).toLowerCase()));
           set({ categories: next, subcategories: prunedSubs, category: '', subcategory: '' });
         }}
-        testId="multiselect-resource-list-categories"
+        testId={`multiselect-${idPrefix}-categories`}
         hint={categoriesLoading ? 'Loading categories…' : 'Leave all unchecked for every category. Resources matching any selected category are shown.'}
         warning={staleCategories.length
           ? `Saved categor${staleCategories.length > 1 ? 'ies' : 'y'} ${staleCategories.map((n) => `"${n}"`).join(', ')} no longer exist. Uncheck ${staleCategories.length > 1 ? 'them' : 'it'} or pick a current category, or this list may show nothing.`
@@ -4666,7 +4695,7 @@ function ResourceListInspector({ block, update }) {
           category: '',
           subcategory: '',
         })}
-        testId="multiselect-resource-list-subcategories"
+        testId={`multiselect-${idPrefix}-subcategories`}
         hint={subcategoryOptions.length === 0
           ? 'Select one or more categories to choose sub-categories.'
           : 'Resources matching any selected sub-category are shown.'}
@@ -4683,8 +4712,27 @@ function ResourceListInspector({ block, update }) {
           { value: 'public-only', label: 'Public only (no login required)' },
           { value: 'members-only', label: 'Members-only (locked)' },
         ]}
-        testId="select-resource-list-audience"
+        testId={`select-${idPrefix}-audience`}
       />
+    </>
+  );
+}
+
+function ResourceListInspector({ block, update }) {
+  const c = block.content || {};
+  const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+
+  return (
+    <>
+      <TextField label="Heading" value={c.title} onChange={(v) => set({ title: v })} testId="input-resource-list-title" />
+      <SelectField
+        label="Heading level"
+        value={String(c.headingLevel || 2)}
+        onChange={(v) => set({ headingLevel: Number(v) })}
+        options={[2, 3, 4].map((n) => ({ value: String(n), label: `H${n}` }))}
+        testId="select-resource-list-heading-level"
+      />
+      <ResourceFilterFields c={c} set={set} idPrefix="resource-list" />
       <SelectField
         label="Layout"
         value={c.layout || 'grid'}
@@ -4728,6 +4776,181 @@ function ResourceListInspector({ block, update }) {
         hint="Open resource links in a new browser tab."
       />
       <TextField label="Empty state text" value={c.emptyText} onChange={(v) => set({ emptyText: v })} testId="input-resource-list-empty" />
+    </>
+  );
+}
+
+// ============================================================================
+// RESOURCE SHOWCASE
+// ============================================================================
+// Cards-only equivalent of the iEdit "Resources Showcase" element: a grid of
+// Showcase cards for resources, with the exact same card controls as the
+// article/news list block. No background / header / subheader / description
+// text — authors add those with separate blocks, keeping the grid reusable.
+function ResourceShowcaseRender({ block, breakpoint, asEditor }) {
+  const c = block.content || {};
+  const cols = columnsForBreakpoint(c, breakpoint);
+  const linkNewTab = resolveNewTab(c, true);
+
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['canvas', 'public-resources'],
+    queryFn: () => publicClient.listResources(),
+    staleTime: 60_000,
+  });
+  const { data: categoriesData } = useQuery({
+    queryKey: ['canvas', 'public-resource-categories'],
+    queryFn: () => publicClient.listResourceCategories(),
+    staleTime: 60_000,
+  });
+
+  const items = useMemo(() => {
+    let list = filterResourcesByContent(data, c, categoriesData);
+    const dir = c.sortBy === 'date-asc' ? 1 : -1;
+    list.sort((a, b) => {
+      const da = new Date(a.published_date || a.created_at || a.created_date || 0);
+      const db = new Date(b.published_date || b.created_at || b.created_date || 0);
+      return (da - db) * dir;
+    });
+    const limit = Number(c.limit) > 0 ? Number(c.limit) : 0;
+    return limit ? list.slice(0, limit) : list;
+  }, [data, categoriesData, c.resourceType, c.tag, c.category, c.subcategory, c.categories, c.subcategories, c.audience, c.sortBy, c.limit]);
+
+  // Shared Showcase-card knobs — identical to the article/news list block.
+  const {
+    cardHeight, imageHeightPercent, ctaButtonSize, ctaButtonMargin,
+    imageBorderWeight, cardTextAlign, cardBorderRadius, hasExplicitTitleSize,
+    titleFontSize, dateFontSize, showPublishedDate, descriptionLineClamp,
+    ctaButtonBorderRadius,
+  } = resolveShowcaseCardSettings(c);
+  const badgeBg = c.badgeBgColor || '#9333ea';
+  const badgeTextColor = c.badgeTextColor || '#ffffff';
+  const badgeText = (typeof c.badgeText === 'string' && c.badgeText.trim()) ? c.badgeText : 'Resource';
+
+  // Tenant typography styles for the card title / summary text, mirroring
+  // the article/news list block exactly.
+  const { styles: tenantStyles, resolved: stylesResolved } = useTenantTypographyStylesState();
+  const titleStyleObj = resolveTenantStyle(c.titleTypographyStyleId, tenantStyles);
+  const summaryStyleObj = resolveTenantStyle(c.summaryTypographyStyleId, tenantStyles);
+  const awaitingTitle = isAwaitingTypographyStyle(c.titleTypographyStyleId, titleStyleObj, stylesResolved);
+  const awaitingSummary = isAwaitingTypographyStyle(c.summaryTypographyStyleId, summaryStyleObj, stylesResolved);
+  const isPreview = breakpoint === 'desktop' || breakpoint === 'tablet' || breakpoint === 'mobile';
+  const bpForInline = isPreview ? breakpoint : 'desktop';
+  let titleInline = titleStyleObj
+    ? buildTypographyInlineStyle(titleStyleObj, { breakpoint: bpForInline })
+    : null;
+  if (titleInline && hasExplicitTitleSize) titleInline = { ...titleInline, fontSize: `${titleFontSize}px` };
+  if (awaitingTitle) titleInline = { ...(titleInline || {}), visibility: 'hidden' };
+  let summaryInline = summaryStyleObj
+    ? buildTypographyInlineStyle(summaryStyleObj, { breakpoint: bpForInline })
+    : null;
+  if (awaitingSummary) summaryInline = { ...(summaryInline || {}), visibility: 'hidden' };
+  const safeBlockId = String(block.id || '').replace(/["\\]/g, '');
+  const responsiveCss = !isPreview
+    ? [
+        titleStyleObj && hasResponsiveTypographyOverride(titleStyleObj)
+          ? buildTenantTypographyResponsiveCss(`[data-cb="${safeBlockId}"] [data-tg-r="resource-showcase-title"]`, titleStyleObj)
+          : null,
+        summaryStyleObj && hasResponsiveTypographyOverride(summaryStyleObj)
+          ? buildTenantTypographyResponsiveCss(`[data-cb="${safeBlockId}"] [data-tg-r="resource-showcase-summary"]`, summaryStyleObj)
+          : null,
+      ].filter(Boolean).join('')
+    : '';
+
+  return (
+    <div className="w-full h-full overflow-auto" aria-label={block.a11y?.ariaLabel || 'Resources'}>
+      {responsiveCss ? <style dangerouslySetInnerHTML={{ __html: responsiveCss }} /> : null}
+      {isLoading ? (
+        <ListSkeleton count={Math.min(c.limit || 3, 6)} columns={cols} gap={c.gap} />
+      ) : isError ? (
+        <ErrorState message="Couldn't load resources right now." />
+      ) : items.length === 0 ? (
+        <EmptyState icon={Folder} text={c.emptyText || 'No resources available.'} />
+      ) : (
+        <ul className="list-none m-0 p-0" style={gridStyle(cols, c.gap ?? 24)} data-testid="resource-showcase">
+          {items.map((r) => {
+            // Same link behaviour as the iEdit Showcase: resources open their
+            // download / content URL directly (external), defaulting to a new
+            // tab; without one the card renders unlinked.
+            const url = r.download_url || r.content_url || '';
+            return (
+              <li key={r.id} className="list-none">
+                <ShowcaseCard
+                  title={r.title || r.name}
+                  imageUrl={r.image_url || r.feature_image_url}
+                  showImageArea={c.showImage !== false}
+                  imageFocalPoint={r.feature_image_focal_point || null}
+                  imageAlt={r.title || r.name}
+                  summary={c.showSummary !== false ? (r.summary || r.description) : null}
+                  publishedDate={r.published_date || r.created_at || r.created_date}
+                  url={url || undefined}
+                  external={!!url}
+                  newTab={linkNewTab}
+                  asEditor={asEditor}
+                  showBadge={c.showBadge !== false}
+                  badgeText={badgeText}
+                  badgeBgColor={badgeBg}
+                  badgeTextColor={badgeTextColor}
+                  cardHeight={cardHeight}
+                  imageHeightPercent={imageHeightPercent}
+                  showImageBorder={!!c.showImageBorder}
+                  imageBorderWeight={imageBorderWeight}
+                  imageBorderColor={c.imageBorderColor || '#2563eb'}
+                  showCTAButton={c.showCTAButton !== false}
+                  ctaButtonSize={ctaButtonSize}
+                  ctaButtonMargin={ctaButtonMargin}
+                  ctaButtonBgColor={c.ctaButtonBgColor || '#2563eb'}
+                  ctaButtonArrowColor={c.ctaButtonArrowColor || '#ffffff'}
+                  ctaButtonBorderRadius={ctaButtonBorderRadius}
+                  textAlign={cardTextAlign}
+                  cardBorderRadius={cardBorderRadius}
+                  titleFontSize={titleFontSize}
+                  dateFontSize={dateFontSize}
+                  showPublishedDate={showPublishedDate}
+                  descriptionLineClamp={c.showSummary !== false ? descriptionLineClamp : 0}
+                  titleStyleOverride={titleInline}
+                  summaryStyleOverride={summaryInline}
+                  titleExtraProps={{ 'data-tg-r': 'resource-showcase-title' }}
+                  summaryExtraProps={{ 'data-tg-r': 'resource-showcase-summary' }}
+                  testId={r.id}
+                  wrapperTestId={`link-resource-showcase-${r.id}`}
+                />
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function ResourceShowcaseInspector({ block, update }) {
+  const c = block.content || {};
+  const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+  return (
+    <>
+      <ResourceFilterFields c={c} set={set} idPrefix="resource-showcase" />
+      <SelectField
+        label="Sort"
+        value={c.sortBy || 'date-desc'}
+        onChange={(v) => set({ sortBy: v })}
+        options={[
+          { value: 'date-desc', label: 'Newest first' },
+          { value: 'date-asc', label: 'Oldest first' },
+        ]}
+        testId="select-resource-showcase-sort"
+      />
+      <NumberField label="Limit" min={1} max={50} value={c.limit || 3} onChange={(v) => set({ limit: Math.max(1, Number(v) || 1) })} testId="input-resource-showcase-limit" />
+      <PerBreakpointColumns value={c.columns} onChange={(v) => set({ columns: v })} />
+      <NumberField label="Gap (px)" min={0} value={c.gap ?? 24} onChange={(v) => set({ gap: Math.max(0, Number(v) || 0) })} testId="input-resource-showcase-gap" />
+      <ShowcaseCardSettingsFields c={c} set={set} idPrefix="resource-showcase" badgeTextPlaceholder="Default: Resource" />
+      <ToggleField
+        label="Open in new tab"
+        value={resolveNewTab(c, true)}
+        onChange={(v) => set({ newTab: v })}
+        testId="toggle-resource-showcase-new-tab"
+        hint="Open the resource link in a new browser tab."
+      />
+      <TextField label="Empty state text" value={c.emptyText} onChange={(v) => set({ emptyText: v })} testId="input-resource-showcase-empty" />
     </>
   );
 }
@@ -6883,6 +7106,14 @@ export const DYNAMIC_BLOCK_DEFINITIONS = {
     Editor: (props) => <ResourceListRender {...props} asEditor />,
     Renderer: ResourceListRender,
     Inspector: ResourceListInspector,
+  },
+  [BLOCK_TYPES.RESOURCE_SHOWCASE]: {
+    label: 'Resource showcase',
+    icon: Folder,
+    category: 'data',
+    Editor: (props) => <ResourceShowcaseRender {...props} asEditor />,
+    Renderer: ResourceShowcaseRender,
+    Inspector: ResourceShowcaseInspector,
   },
   [BLOCK_TYPES.FORM_EMBED]: {
     label: 'Form embed',
