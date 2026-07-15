@@ -167,11 +167,19 @@ function LazyLucideIcon({ name, sizePx, color }) {
   return <Cmp style={{ width: sizePx, height: sizePx, color, flexShrink: 0 }} />;
 }
 
-// A button-style icon name can be either a Lucide icon name (legacy) or a
-// Font Awesome class string picked via the FA icon picker (e.g.
-// "fa-solid fa-star"). Detect FA by the class-token prefix.
+// A button-style icon name can be either a Lucide icon name (curated
+// PascalCase or full-catalog kebab, e.g. "factory") or a Font Awesome class
+// string picked via the FA icon picker (e.g. "fa-solid fa-star"). A real FA
+// class string always has MULTIPLE tokens: a style token (fa/fas/far/fab/
+// fa-solid/...) plus an fa-<icon> token — so single-token Lucide names like
+// "factory", "fan" or "fast-forward" are never treated as FA.
+const FA_STYLE_TOKEN = /^(fa|fas|far|fab|fal|fad|fat|fass|fasr|fasl|fa-solid|fa-regular|fa-brands|fa-light|fa-duotone|fa-thin|fa-sharp)$/;
 export function isFaIconName(name) {
-  return typeof name === 'string' && /^fa[a-z0-9-]*(\s|$)/.test(name.trim());
+  if (typeof name !== 'string') return false;
+  const tokens = name.trim().split(/\s+/);
+  if (tokens.length < 2) return false;
+  return tokens.some((t) => FA_STYLE_TOKEN.test(t)) &&
+    tokens.some((t) => /^fa-[a-z0-9-]+$/.test(t) && !FA_STYLE_TOKEN.test(t));
 }
 
 // Render a button-style icon (Lucide component or Font Awesome <i>) at a

@@ -11,4 +11,6 @@ Full-catalog Lucide icons load lazily through `client/src/lib/lucideCatalog.js` 
 
 **Why:** there are several independent render surfaces (standalone Button CTA, Button block tenant fallback, Card CTA, pricing CTA, /ButtonElements previews). Any surface that resolves the name itself silently drops FA icons.
 
+**Gotcha:** FA detection cannot be "starts with fa" — full-catalog Lucide names include `factory`, `fan`, `fast-forward`, `facebook`. `isFaIconName` requires MULTIPLE tokens (a style token like `fa-solid`/`fas` plus an `fa-<icon>` token); single-token names are always Lucide.
+
 **How to apply:** adding a new surface that shows a tenant style's default icon → call `renderStyleIcon`. In pickers/selects, an FA value won't match a Lucide dropdown option — map FA state to `''` with a sentinel label. FA CSS is loaded globally (main.jsx), so `<i>` works everywhere. button_styles are stored verbatim server-side; no API change needed for new icon values.
