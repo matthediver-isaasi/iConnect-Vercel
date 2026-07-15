@@ -11,10 +11,17 @@ import { sendConfirmationEmailsFromTemplate } from '../../_lib/eventConfirmation
 async function loadZoomRecord(table, pkId, tenantId) {
   if (!pkId) return null;
   const idCol = table === 'zoom_webinar' ? 'zoom_webinar_id' : 'zoom_meeting_id';
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from(table)
     .select(`id, ${idCol}, registration_required, tenant_id, topic, start_time, duration_minutes, timezone`)
     .eq('id', pkId).maybeSingle();
+  if (error) {
+    // Surface DB errors (e.g. missing column) as a real error instead of
+    // silently returning null, which callers misreport as "not found".
+    const err = new Error(`Failed to load ${table}: ${error.message}`);
+    err.isDbError = true;
+    throw err;
+  }
   if (!data) return null;
   if (tenantId && data.tenant_id && data.tenant_id !== tenantId) return null;
   return data;

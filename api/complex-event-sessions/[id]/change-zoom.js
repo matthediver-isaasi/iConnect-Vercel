@@ -13,11 +13,18 @@ import { sendConfirmationEmailsFromTemplate } from '../../_lib/eventConfirmation
 // schedule fields. Returns null if missing or cross-tenant.
 async function loadLocalZoomRecord(table, pkId, tenantId) {
   if (!pkId) return null;
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from(table)
     .select('*')
     .eq('id', pkId)
     .maybeSingle();
+  if (error) {
+    // Surface DB errors (e.g. missing column) as a real error instead of
+    // silently returning null, which callers misreport as "not found".
+    const err = new Error(`Failed to load ${table}: ${error.message}`);
+    err.isDbError = true;
+    throw err;
+  }
   if (!data) return null;
   if (tenantId && data.tenant_id && data.tenant_id !== tenantId) return null;
   return data;

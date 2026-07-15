@@ -67,7 +67,8 @@ export default async function handler(req, res) {
         duration_minutes = 60, 
         timezone = 'Europe/London',
         host_id,
-        created_by_member_id
+        created_by_member_id,
+        registration_required = false
       } = req.body;
       
       if (!topic || !start_time) {
@@ -92,7 +93,9 @@ export default async function handler(req, res) {
           mute_upon_entry: true,
           waiting_room: true,
           audio: 'both',
-          auto_recording: 'cloud'
+          auto_recording: 'cloud',
+          approval_type: registration_required ? 0 : 2,
+          registration_type: registration_required ? 1 : undefined
         }
       };
       
@@ -138,6 +141,7 @@ export default async function handler(req, res) {
           start_url: zoomData.start_url,
           password: zoomData.password,
           status: 'scheduled',
+          registration_required,
           created_by_member_id
         })
         .select()
