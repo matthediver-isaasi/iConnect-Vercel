@@ -10,8 +10,9 @@ import {
   Calendar, MapPin, FileText, Newspaper, Heart, Users, Layers,
   CalendarDays, Folder, ArrowRight, Loader2, FormInput, Building2,
   ChevronLeft, ChevronRight, Images, User, Mic, ExternalLink, LayoutGrid,
-  Award, ChevronUp, ChevronDown, Lock, AlertTriangle, Search,
+  Award, ChevronUp, ChevronDown, Lock, AlertTriangle, Search, Briefcase,
 } from 'lucide-react';
+import IEditFeaturedJobElement, { IEditFeaturedJobElementEditor } from '@/components/iedit/elements/IEditFeaturedJobElement';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -7028,6 +7029,46 @@ function SearchInputInspector({ block, update }) {
 // ============================================================================
 // Registry export
 // ============================================================================
+// ---------------------------------------------------------------------------
+// Featured job — exact mirror of the iEdit "Featured Job" element. The block
+// renders the same IEditFeaturedJobElement component (same data source,
+// layouts, typography and responsive CSS) and reuses its editor panel as the
+// inspector, so the two builders share one implementation and cannot drift.
+// ---------------------------------------------------------------------------
+function FeaturedJobRender({ block, asEditor }) {
+  const c = block.content || {};
+  // The element scopes its responsive <style> rules with an id derived from
+  // `content.anchor` (falling back to a shared 'default'). Two blocks on one
+  // page without anchors would collide, so we scope by block id when no
+  // anchor is set. The user-set anchor still wins, exactly like iEdit.
+  const scopedAnchor = c.anchor || `fj-${String(block.id || 'block').replace(/[^a-zA-Z0-9_-]/g, '')}`;
+  const content = { ...c, anchor: scopedAnchor };
+  const body = <IEditFeaturedJobElement content={content} settings={{ fullWidth: true }} />;
+  if (asEditor) {
+    // In the builder, swallow clicks so the element's internal links (job
+    // card, View All Jobs button) don't navigate away from the editor.
+    return (
+      <div
+        onClickCapture={(e) => { e.preventDefault(); e.stopPropagation(); }}
+        data-testid="featured-job-editor-preview"
+      >
+        {body}
+      </div>
+    );
+  }
+  return body;
+}
+
+function FeaturedJobInspector({ block, update }) {
+  const c = block.content || {};
+  return (
+    <IEditFeaturedJobElementEditor
+      element={{ content: c }}
+      onChange={(el) => update((b) => ({ ...b, content: { ...(el?.content || {}) } }))}
+    />
+  );
+}
+
 export const DYNAMIC_BLOCK_DEFINITIONS = {
   [BLOCK_TYPES.EVENT_LIST]: {
     label: 'Event list',
@@ -7116,6 +7157,14 @@ export const DYNAMIC_BLOCK_DEFINITIONS = {
     Editor: (props) => <ResourceShowcaseRender {...props} asEditor />,
     Renderer: ResourceShowcaseRender,
     Inspector: ResourceShowcaseInspector,
+  },
+  [BLOCK_TYPES.FEATURED_JOB]: {
+    label: 'Featured job',
+    icon: Briefcase,
+    category: 'data',
+    Editor: (props) => <FeaturedJobRender {...props} asEditor />,
+    Renderer: FeaturedJobRender,
+    Inspector: FeaturedJobInspector,
   },
   [BLOCK_TYPES.FORM_EMBED]: {
     label: 'Form embed',

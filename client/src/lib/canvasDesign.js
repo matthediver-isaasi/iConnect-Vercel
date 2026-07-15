@@ -186,6 +186,7 @@ export const BLOCK_TYPES = {
   ARTICLE_LIST: 'article-list',
   RESOURCE_LIST: 'resource-list',
   RESOURCE_SHOWCASE: 'resource-showcase',
+  FEATURED_JOB: 'featured-job',
   FORM_EMBED: 'form-embed',
   CAMPAIGN_EMBED: 'campaign-embed',
   MEMBER_DIRECTORY_EMBED: 'member-directory-embed',
@@ -1234,6 +1235,18 @@ export const BLOCK_DEFAULTS = {
       sortBy: 'date-desc',
       emptyText: 'No resources available.',
     },
+  },
+  [BLOCK_TYPES.FEATURED_JOB]: {
+    // Exact mirror of the iEdit "Featured Job" element: the canvas block
+    // renders the same IEditFeaturedJobElement component and reuses its
+    // editor as the inspector, so content keys/defaults are identical to
+    // iEdit (header_label, main_heading, gradient_*, job_title_*, etc.).
+    // Defaults intentionally live in the component, matching iEdit where
+    // an empty content object renders the full default design.
+    name: 'Featured job',
+    geom: { w: 1100, h: 550 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {},
   },
   [BLOCK_TYPES.FORM_EMBED]: {
     name: 'Form embed',

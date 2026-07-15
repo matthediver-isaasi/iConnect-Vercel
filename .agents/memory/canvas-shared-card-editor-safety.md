@@ -30,3 +30,14 @@ data-fetch (button styles, logged-in check) the page does, render the shared
 card, and guard clicks with an `onClickCapture` stopPropagation wrapper gated
 on editor mode. Bookmark/share/etc render exactly as on the public page (public
 read-only form); never pass admin `onEdit`/`onDelete`.
+
+**Mirroring a whole iEdit element (not just a card):** the same principle
+scales up — a canvas block can wrap the FULL iEdit element component as its
+renderer AND reuse the element's exported editor panel as the inspector
+(adapt `{element, onChange}` to the canvas `{block, update}` contract:
+`onChange={(el) => update((b) => ({ ...b, content: el.content }))}`). Leave
+`BLOCK_DEFAULTS.content` empty when the element supplies all defaults by
+destructuring. Gotcha: iEdit elements that scope responsive `<style>` rules
+by `content.anchor` collide when two anchor-less blocks share a page —
+override `anchor` with a per-block-id fallback in the wrapper (side effect:
+a DOM id is always emitted, acceptable).
