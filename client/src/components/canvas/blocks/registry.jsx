@@ -9266,22 +9266,29 @@ function HeroCarouselInspector({ block, update, breakpoint }) {
             testId="select-hcc-height"
           />
           {(c.height_type === 'aspect') && (
-            <div className="grid grid-cols-2 gap-2">
-              <NumberField
-                label="Min height (px, 0 = none)"
-                value={c.aspect_min_height ?? 200}
-                min={0}
-                onChange={(v) => set({ aspect_min_height: v ?? 200 })}
-                testId="input-hcc-aspect-min-height"
-              />
-              <NumberField
-                label="Max height (px, 0 = none)"
-                value={c.aspect_max_height ?? 0}
-                min={0}
-                onChange={(v) => set({ aspect_max_height: v ?? 0 })}
-                testId="input-hcc-aspect-max-height"
-              />
-            </div>
+            <>
+              <p className="text-[11px] text-slate-500 leading-snug" data-testid="text-hcc-aspect-help">
+                The carousel height follows the tallest slide image&apos;s shape, growing and
+                shrinking with the screen width. The block&apos;s drawn height on the canvas is
+                ignored on the live page. Use Min/Max to limit the range — 0 means no limit.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <NumberField
+                  label="Min height (px, 0 = none)"
+                  value={c.aspect_min_height ?? 200}
+                  min={0}
+                  onChange={(v) => set({ aspect_min_height: v ?? 200 })}
+                  testId="input-hcc-aspect-min-height"
+                />
+                <NumberField
+                  label="Max height (px, 0 = none)"
+                  value={c.aspect_max_height ?? 0}
+                  min={0}
+                  onChange={(v) => set({ aspect_max_height: v ?? 0 })}
+                  testId="input-hcc-aspect-max-height"
+                />
+              </div>
+            </>
           )}
           {(c.height_type === 'auto') && (
             <NumberField

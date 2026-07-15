@@ -13,6 +13,7 @@ import {
   BREAKPOINT_WIDTHS,
   blockSupportsFullBleed,
   resolveBlockHeightCss,
+  resolveAspectSizingStyle,
   resolveBoxShadowCss,
   isFlowDesign,
 } from "@/lib/canvasDesign";
@@ -189,7 +190,12 @@ function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint, windowBp, pinS
     const fullWidth = !!block.fullWidth;
     const top = g.y + topOffset;
     const heightOverride = resolveBlockHeightCss(block);
-    const height = heightOverride || (isAutoHeight ? 'auto' : g.h + containerGrowth);
+    // Aspect-mode Hero Carousels (Task #2829) size themselves from width via
+    // CSS aspect-ratio, mirroring the published stylesheet.
+    const aspectStyle = resolveAspectSizingStyle(block);
+    const height = aspectStyle
+      ? 'auto'
+      : (heightOverride || (isAutoHeight ? 'auto' : g.h + containerGrowth));
     if (fullBleed) {
       // In an embedded, pinned-width preview (the doc-import modal), `100vw`
       // resolves against the host browser window, not the pinned stage, so
@@ -216,6 +222,16 @@ function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint, windowBp, pinS
       // only — stored geometry is never rewritten.
       const cg = clampGeomToStage(g, forcedBreakpoint, BREAKPOINT_WIDTHS[forcedBreakpoint]);
       forcedStyle = { position: 'absolute', left: cg.x, top, width: cg.w, height };
+    }
+    if (aspectStyle) {
+      // Pin the aspect sizing inline so the forced preview matches the
+      // published CSS: ratio-driven height with optional min/max clamps.
+      forcedStyle = {
+        ...forcedStyle,
+        ...(aspectStyle.aspectRatio ? { aspectRatio: aspectStyle.aspectRatio } : {}),
+        ...(aspectStyle.minHeight ? { minHeight: aspectStyle.minHeight } : {}),
+        ...(aspectStyle.maxHeight ? { maxHeight: aspectStyle.maxHeight } : {}),
+      };
     }
   }
 

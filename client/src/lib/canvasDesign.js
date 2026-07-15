@@ -3001,6 +3001,46 @@ export function isAspectHeightCarousel(block) {
   );
 }
 
+// Aspect-mode sizing for the block WRAPPER itself (Task #2829). The static
+// stylesheet used to pin the wrapper to the stored fixed px height and rely on
+// an inner aspect-ratio box + ResizeObserver reflow to fake auto-sizing — the
+// wrapper never actually changed height on the public page. Instead the
+// wrapper now sizes itself: `height:auto` plus CSS `aspect-ratio` from the
+// ratio persisted in content (aspect_ratio_w/h — Task #2826), with the
+// optional min/max clamps (0/absent = no clamp). Pages saved before the ratio
+// was persisted get `height:auto` with a min-height placeholder; the inner
+// runtime image-load box then drives the wrapper height once images load.
+// Returns null for every non-aspect block (byte-identical output for them).
+export function resolveAspectSizingStyle(block) {
+  if (!isAspectHeightCarousel(block)) return null;
+  const c = block.content || {};
+  const minH = Number(c.aspect_min_height) > 0 ? Number(c.aspect_min_height) : 0;
+  const maxH = Number(c.aspect_max_height) > 0 ? Number(c.aspect_max_height) : 0;
+  const w = Number(c.aspect_ratio_w);
+  const h = Number(c.aspect_ratio_h);
+  const hasRatio = w > 0 && h > 0;
+  return {
+    height: 'auto',
+    aspectRatio: hasRatio ? `${w} / ${h}` : undefined,
+    // Without a stored ratio the wrapper has no intrinsic height until the
+    // runtime image-load effect kicks in — hold space with the min clamp
+    // (or the 400px fallback, matching the renderer's placeholder).
+    minHeight: hasRatio ? (minH || undefined) : (minH || 400),
+    maxHeight: maxH || undefined,
+  };
+}
+
+// CSS-string form of resolveAspectSizingStyle for the static stylesheet.
+export function resolveAspectSizingCss(block) {
+  const s = resolveAspectSizingStyle(block);
+  if (!s) return null;
+  const parts = ['height:auto;'];
+  if (s.aspectRatio) parts.push(`aspect-ratio:${s.aspectRatio};`);
+  if (s.minHeight) parts.push(`min-height:${fmtPx(s.minHeight)};`);
+  if (s.maxHeight) parts.push(`max-height:${fmtPx(s.maxHeight)};`);
+  return parts.join('');
+}
+
 // Resolve an explicit CSS height override for a block, or null to fall back to
 // the geometry height. Currently only the Image block supports this, and only
 // when full-bleed is on (see the Image block defaults). Returns a CSS length
@@ -3016,9 +3056,12 @@ export function resolveBlockHeightCss(block) {
   return null;
 }
 
-function geomRule(geom, { fullBleed, fullWidth, heightCss } = {}) {
+function geomRule(geom, { fullBleed, fullWidth, heightCss, aspectCss } = {}) {
   if (geom.hidden) return 'display:none;';
-  const h = heightCss || fmtPx(geom.h);
+  // Aspect-mode carousels (Task #2829) replace the fixed height with
+  // height:auto + aspect-ratio + clamps so the wrapper itself tracks the
+  // viewport width; every other block keeps its fixed geometry height.
+  const heightDecl = aspectCss || `height:${heightCss || fmtPx(geom.h)};`;
   if (fullBleed) {
     return [
       'display:block;',
@@ -3027,7 +3070,7 @@ function geomRule(geom, { fullBleed, fullWidth, heightCss } = {}) {
       'transform:translateX(-50%);',
       'width:100vw;',
       `top:${fmtPx(geom.y)};`,
-      `height:${h};`,
+      heightDecl,
     ].join('');
   }
   if (fullWidth) {
@@ -3037,7 +3080,7 @@ function geomRule(geom, { fullBleed, fullWidth, heightCss } = {}) {
       'left:0;',
       'width:100%;',
       `top:${fmtPx(geom.y)};`,
-      `height:${h};`,
+      heightDecl,
     ].join('');
   }
   return [
@@ -3046,7 +3089,7 @@ function geomRule(geom, { fullBleed, fullWidth, heightCss } = {}) {
     `left:${fmtPx(geom.x)};`,
     `top:${fmtPx(geom.y)};`,
     `width:${fmtPx(geom.w)};`,
-    `height:${fmtPx(geom.h)};`,
+    aspectCss || `height:${fmtPx(geom.h)};`,
   ].join('');
 }
 
@@ -3167,8 +3210,9 @@ export function buildCanvasCss(blocks, scope) {
     const fullBleed = blockSupportsFullBleed(b.type) && !!(b.content && b.content.fullBleed);
     const fullWidth = !!b.fullWidth;
     const heightCss = resolveBlockHeightCss(b);
+    const aspectCss = resolveAspectSizingCss(b);
     const dG = resolveBlockAtBreakpoint(b, 'desktop');
-    lines.push(`${sel}{${geomRule(dG, { fullBleed, fullWidth, heightCss })}}`);
+    lines.push(`${sel}{${geomRule(dG, { fullBleed, fullWidth, heightCss, aspectCss })}}`);
   }
 
   // Task #972: per-block CSS variables for per-device text/icon sizes
@@ -3213,7 +3257,7 @@ export function buildCanvasCss(blocks, scope) {
       ? (tG.y !== dG.y || tG.h !== dG.h || !!tG.hidden !== !!dG.hidden)
       : (tG.x !== dG.x || tG.y !== dG.y || tG.w !== dG.w || tG.h !== dG.h || !!tG.hidden !== !!dG.hidden);
     if (geomDiffers) {
-      tabletRules.push(`${sel}{${geomRule(tG, { fullBleed, fullWidth, heightCss })}}`);
+      tabletRules.push(`${sel}{${geomRule(tG, { fullBleed, fullWidth, heightCss, aspectCss: resolveAspectSizingCss(b) })}}`);
     }
   }
   // Task #972: tablet var diffs — only emit keys that differ from the
@@ -3266,7 +3310,7 @@ export function buildCanvasCss(blocks, scope) {
       ? (mG.y !== tG.y || mG.h !== tG.h || !!mG.hidden !== !!tG.hidden)
       : (mG.x !== tG.x || mG.y !== tG.y || mG.w !== tG.w || mG.h !== tG.h || !!mG.hidden !== !!tG.hidden);
     if (geomDiffers) {
-      mobileRules.push(`${sel}{${geomRule(mG, { fullBleed, fullWidth, heightCss })}}`);
+      mobileRules.push(`${sel}{${geomRule(mG, { fullBleed, fullWidth, heightCss, aspectCss: resolveAspectSizingCss(b) })}}`);
     }
   }
   // Task #972: mobile var diffs — compare against tablet (which already
