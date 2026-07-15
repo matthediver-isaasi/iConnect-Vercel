@@ -45,6 +45,7 @@ import {
   hasAnyResponsiveValue,
   writeResponsiveValue,
   buildResponsiveImage,
+  setBlockContentFullBleed,
 } from '@/lib/canvasDesign';
 import { publicClient } from '@/api/publicClient';
 import { base44 } from '@/api/base44Client';
@@ -7059,13 +7060,32 @@ function FeaturedJobRender({ block, asEditor }) {
   return body;
 }
 
-function FeaturedJobInspector({ block, update }) {
+function FeaturedJobInspector({ block, update, breakpoint }) {
   const c = block.content || {};
   return (
-    <IEditFeaturedJobElementEditor
-      element={{ content: c }}
-      onChange={(el) => update((b) => ({ ...b, content: { ...(el?.content || {}) } }))}
-    />
+    <>
+      {/* Canvas-specific control: full-bleed pushes the element's gradient /
+          split backgrounds to the viewport edges while the inner content rail
+          stays centered. Routed through the shared snapshot-on-release helper
+          so it can't drift from the Position panel's Full-bleed toggle. */}
+      <ToggleField
+        label="Full-bleed (span full screen width)"
+        value={!!c.fullBleed}
+        onChange={(v) => update((b) => setBlockContentFullBleed(b, breakpoint || 'desktop', !!v))}
+        testId="toggle-featured-job-full-bleed"
+      />
+      <IEditFeaturedJobElementEditor
+        element={{ content: c }}
+        onChange={(el) =>
+          update((b) => ({
+            ...b,
+            // Preserve canvas-only keys (fullBleed) that the iEdit editor
+            // doesn't know about and would otherwise drop.
+            content: { ...(el?.content || {}), fullBleed: !!(b.content && b.content.fullBleed) },
+          }))
+        }
+      />
+    </>
   );
 }
 

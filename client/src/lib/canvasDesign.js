@@ -264,6 +264,7 @@ export const FULL_BLEED_BLOCK_TYPES = new Set([
   BLOCK_TYPES.FORM_EMBED,
   BLOCK_TYPES.SPONSOR_CAROUSEL,
   BLOCK_TYPES.IMAGE,
+  BLOCK_TYPES.FEATURED_JOB,
 ]);
 
 export function blockSupportsFullBleed(type) {
@@ -1243,10 +1244,13 @@ export const BLOCK_DEFAULTS = {
     // iEdit (header_label, main_heading, gradient_*, job_title_*, etc.).
     // Defaults intentionally live in the component, matching iEdit where
     // an empty content object renders the full default design.
+    // `fullBleed` is the one canvas-specific key: it pushes the element's
+    // background to the viewport edges while the inner content rail stays
+    // constrained, like other full-bleed blocks.
     name: 'Featured job',
     geom: { w: 1100, h: 550 },
     style: { background: 'transparent', borderWidth: 0 },
-    content: {},
+    content: { fullBleed: false },
   },
   [BLOCK_TYPES.FORM_EMBED]: {
     name: 'Form embed',
