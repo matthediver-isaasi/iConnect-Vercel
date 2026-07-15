@@ -2856,6 +2856,16 @@ export function validateBlock(block) {
       if (carouselSlides.length === 0) {
         errors.push('Hero Carousel has no slides.');
       }
+      // Per-slide padding overrides (absent/null = inherit block default)
+      // must be non-negative numbers when present.
+      carouselSlides.forEach((slide, i) => {
+        ['padding_vertical', 'padding_horizontal'].forEach((key) => {
+          const val = slide?.[key];
+          if (val != null && (!Number.isFinite(Number(val)) || Number(val) < 0)) {
+            errors.push(`Hero Carousel slide ${i + 1} has an invalid ${key === 'padding_vertical' ? 'vertical' : 'horizontal'} padding override.`);
+          }
+        });
+      });
       break;
     }
     default:

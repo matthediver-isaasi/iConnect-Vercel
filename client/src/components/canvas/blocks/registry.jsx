@@ -8137,16 +8137,30 @@ function HeroCarouselRender({ block, asEditor, breakpoint }) {
   const heightType = c.height_type || 'custom';
   const customHeight = Number(c.custom_height) || 500;
   const autoMinHeight = Number(c.auto_min_height) || 400;
-  const paddingVertical = Number(c.padding_vertical) ?? 60;
-  const paddingHorizontal = Number(c.padding_horizontal) ?? 16;
+  const paddingVertical = Number.isFinite(Number(c.padding_vertical)) ? Number(c.padding_vertical) : 60;
+  const paddingHorizontal = Number.isFinite(Number(c.padding_horizontal)) ? Number(c.padding_horizontal) : 16;
+
+  // Per-slide effective padding: a slide may override the block-level default
+  // (absent/null = inherit). Mobile values are derived from the slide's
+  // effective padding so overridden slides also scale correctly on mobile.
+  const resolveSlidePadding = (slide) => {
+    const ovV = slide?.padding_vertical;
+    const ovH = slide?.padding_horizontal;
+    const effV = ovV != null && Number.isFinite(Number(ovV)) ? Number(ovV) : paddingVertical;
+    const effH = ovH != null && Number.isFinite(Number(ovH)) ? Number(ovH) : paddingHorizontal;
+    return {
+      v: effV,
+      h: effH,
+      mobileV: Math.max(32, Math.round(effV * 0.5)),
+      mobileH: Math.max(16, effH),
+    };
+  };
   const textOffsetX = Number(c.text_offset_x) || 0;
   const textOffsetY = Number(c.text_offset_y) || 0;
 
   const mobileHeaderFS = Number(c.mobile_header_font_size) || Math.max(24, Math.round(headerFontSize * 0.6));
   const mobileSubheadingFS = Number(c.mobile_subheading_font_size) || Math.max(16, Math.round(subheadingFontSize * 0.75));
   const mobileContentFS = Number(c.mobile_content_font_size) || Math.max(14, Math.round(contentFontSize * 0.9));
-  const mobilePaddingV = Math.max(32, Math.round(paddingVertical * 0.5));
-  const mobilePaddingH = Math.max(16, paddingHorizontal);
   const parsedMobileOffsetX = Number(c.mobile_text_offset_x) || 0;
   const parsedMobileOffsetY = Number(c.mobile_text_offset_y) || 0;
   const mobileOffsetX = parsedMobileOffsetX !== 0 ? parsedMobileOffsetX : Math.round(textOffsetX * 0.5);
@@ -8155,8 +8169,6 @@ function HeroCarouselRender({ block, asEditor, breakpoint }) {
   const displayHeaderFS = isMobile ? mobileHeaderFS : headerFontSize;
   const displaySubheadingFS = isMobile ? mobileSubheadingFS : subheadingFontSize;
   const displayContentFS = isMobile ? mobileContentFS : contentFontSize;
-  const displayPaddingV = isMobile ? mobilePaddingV : paddingVertical;
-  const displayPaddingH = isMobile ? mobilePaddingH : paddingHorizontal;
   const effOffsetX = isMobile ? mobileOffsetX : textOffsetX;
   const effOffsetY = isMobile ? mobileOffsetY : textOffsetY;
 
@@ -8302,13 +8314,20 @@ function HeroCarouselRender({ block, asEditor, breakpoint }) {
           headerStyleObj && hasResponsiveTypographyOverride(headerStyleObj) ? buildTenantTypographyResponsiveCss(`[data-hcc="${safeBlockId}"] .hcc-title`, headerStyleObj) : '',
           subheadingStyleObj && hasResponsiveTypographyOverride(subheadingStyleObj) ? buildTenantTypographyResponsiveCss(`[data-hcc="${safeBlockId}"] .hcc-subheading`, subheadingStyleObj) : '',
           contentStyleObj && hasResponsiveTypographyOverride(contentStyleObj) ? buildTenantTypographyResponsiveCss(`[data-hcc="${safeBlockId}"] .hcc-body`, contentStyleObj) : '',
-          `[data-hcc="${safeBlockId}"] .hcc-content-wrap{padding:${mobilePaddingV}px ${mobilePaddingH}px!important;}`,
+          ...slides.map((slide, i) => {
+            const pad = resolveSlidePadding(slide);
+            return `[data-hcc="${safeBlockId}"] .hcc-content-wrap[data-hcc-slide="${i}"]{padding:${pad.mobileV}px ${pad.mobileH}px!important;}`;
+          }),
           `[data-hcc="${safeBlockId}"] .hcc-text-box{transform:translate(${mobileOffsetX}px,${mobileOffsetY}px)!important;}`,
           `}`,
         ].join('') }} />
       )}
 
-      {slides.map((slide, index) => (
+      {slides.map((slide, index) => {
+        const slidePad = resolveSlidePadding(slide);
+        const displayPaddingV = isMobile ? slidePad.mobileV : slidePad.v;
+        const displayPaddingH = isMobile ? slidePad.mobileH : slidePad.h;
+        return (
         <div key={slide.id || index} style={getSlideTransitionStyle(index)}>
           <div className="absolute inset-0">
             {slide.backgroundImage ? (
@@ -8339,6 +8358,7 @@ function HeroCarouselRender({ block, asEditor, breakpoint }) {
 
           <div
             className={`hcc-content-wrap relative h-full flex items-center z-10${c.fullBleed ? '' : ' max-w-7xl mx-auto'}`}
+            data-hcc-slide={index}
             style={{
               textAlign: textAlignment,
               paddingLeft: `${displayPaddingH}px`,
@@ -8378,7 +8398,8 @@ function HeroCarouselRender({ block, asEditor, breakpoint }) {
             </div>
           </div>
         </div>
-      ))}
+        );
+      })}
 
       {showArrows && slides.length > 1 && (
         <>
@@ -8485,7 +8506,7 @@ function SortableSlideItem({ id, title, isExpanded, onToggle, onRemove, onDuplic
 }
 
 // DnD-sortable slide list used in HeroCarouselInspector.
-function SlideDndList({ slides, onChange, breakpoint }) {
+function SlideDndList({ slides, onChange, breakpoint, defaultPaddingV = 60, defaultPaddingH = 16 }) {
   const [expanded, setExpanded] = useState(() => slides.map((_, i) => i === 0));
   // Tenant custom button styles for the per-slide CTA style picker — same
   // enumeration as ButtonInspector / Card CTAs, microsite-scoped.
@@ -8638,6 +8659,41 @@ function SlideDndList({ slides, onChange, breakpoint }) {
                   onNewTabChange={(v) => patchSlide(idx, { newTab: v })}
                 />
               </div>
+              <div className="border-t border-slate-100 pt-2">
+                <ToggleField
+                  label="Custom padding"
+                  value={slide.padding_vertical != null || slide.padding_horizontal != null}
+                  onChange={(on) => {
+                    if (on) {
+                      patchSlide(idx, { padding_vertical: defaultPaddingV, padding_horizontal: defaultPaddingH });
+                    } else {
+                      // Clearing the override deletes the slide-level fields
+                      // (undefined values drop out on JSON serialisation) so
+                      // the slide inherits the block defaults again.
+                      patchSlide(idx, { padding_vertical: undefined, padding_horizontal: undefined });
+                    }
+                  }}
+                  testId={`hcc-slide-${idx}-custom-padding`}
+                />
+                {(slide.padding_vertical != null || slide.padding_horizontal != null) && (
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    <NumberField
+                      label="Padding vertical (px)"
+                      value={slide.padding_vertical ?? defaultPaddingV}
+                      min={0}
+                      onChange={(v) => patchSlide(idx, { padding_vertical: v ?? defaultPaddingV })}
+                      testId={`hcc-slide-${idx}-padding-v`}
+                    />
+                    <NumberField
+                      label="Padding horizontal (px)"
+                      value={slide.padding_horizontal ?? defaultPaddingH}
+                      min={0}
+                      onChange={(v) => patchSlide(idx, { padding_horizontal: v ?? defaultPaddingH })}
+                      testId={`hcc-slide-${idx}-padding-h`}
+                    />
+                  </div>
+                )}
+              </div>
               <SelectField
                 label="CTA button style"
                 value={slide.ctaStyle || 'system-default'}
@@ -8754,6 +8810,8 @@ function HeroCarouselInspector({ block, update, breakpoint }) {
           slides={c.slides || []}
           onChange={(next) => set({ slides: next })}
           breakpoint={breakpoint}
+          defaultPaddingV={Number.isFinite(Number(c.padding_vertical)) ? Number(c.padding_vertical) : 60}
+          defaultPaddingH={Number.isFinite(Number(c.padding_horizontal)) ? Number(c.padding_horizontal) : 16}
         />
       </Field>
 
@@ -8874,13 +8932,13 @@ function HeroCarouselInspector({ block, update, breakpoint }) {
           )}
           <div className="grid grid-cols-2 gap-2">
             <NumberField
-              label="Padding vertical (px)"
+              label="Default padding vertical (px)"
               value={c.padding_vertical ?? 60}
               min={0}
               onChange={(v) => set({ padding_vertical: v ?? 60 })}
             />
             <NumberField
-              label="Padding horizontal (px)"
+              label="Default padding horizontal (px)"
               value={c.padding_horizontal ?? 16}
               min={0}
               onChange={(v) => set({ padding_horizontal: v ?? 16 })}
