@@ -138,6 +138,34 @@ export function getLucideIcon(name) {
   return LUCIDE_ICONS[name] || null;
 }
 
+// A button-style icon name can be either a Lucide icon name (legacy) or a
+// Font Awesome class string picked via the FA icon picker (e.g.
+// "fa-solid fa-star"). Detect FA by the class-token prefix.
+export function isFaIconName(name) {
+  return typeof name === 'string' && /^fa[a-z0-9-]*(\s|$)/.test(name.trim());
+}
+
+// Render a button-style icon (Lucide component or Font Awesome <i>) at a
+// pixel size and optional colour. Returns null when the name resolves to
+// neither. Shared by the tenant-button render paths and /ButtonElements.
+export function renderStyleIcon(name, sizePx, color) {
+  if (!name) return null;
+  if (isFaIconName(name)) {
+    const cls = sanitizeFaIconClass(name);
+    if (!cls) return null;
+    return (
+      <i
+        className={cls}
+        style={{ fontSize: sizePx, color, lineHeight: 1, flexShrink: 0 }}
+        aria-hidden="true"
+      />
+    );
+  }
+  const Cmp = getLucideIcon(name);
+  if (!Cmp) return null;
+  return <Cmp style={{ width: sizePx, height: sizePx, color, flexShrink: 0 }} />;
+}
+
 // Enumerate the tenant's free-form custom button styles for the canvas
 // inspector variant pickers, scoped to the page's microsite context (Task
 // #2562). A microsite page offers only styles assigned to that microsite; a
@@ -1156,14 +1184,12 @@ function HeroCtaButton({ cta, asEditor, tenantStyles, stylesResolved }) {
       iconName = styleIconCfg.name;
       iconColor = styleIconCfg.color || undefined;
     }
-    const IconCmp = iconName ? getLucideIcon(iconName) : null;
     const iconSizePx = hasCtaIconSize
       ? ctaIconSizeNum
       : (!perCtaIconName && Number.isFinite(styleIconCfg?.size) ? styleIconCfg.size : (tenantBaseline.iconSize || 18));
     const iconAfter = ctaIconPositionSet ? cta.iconPosition === 'after' : styleIconCfg?.position === 'after';
-    const iconEl = IconCmp ? (
-      <IconCmp style={{ width: iconSizePx, height: iconSizePx, color: iconColor, flexShrink: 0 }} />
-    ) : null;
+    // renderStyleIcon supports both Lucide names and FA class strings.
+    const iconEl = iconName ? renderStyleIcon(iconName, iconSizePx, iconColor) : null;
     const tenantTextColor = hovered
       ? tenantStyle.hoverTextColor || tenantStyle.textColor || '#ffffff'
       : tenantStyle.textColor || '#ffffff';
@@ -2515,10 +2541,13 @@ function ButtonRender({ block, asEditor, breakpoint }) {
     // renders when the block itself has no icon. The style icon carries its
     // own size/colour/position so it can differ from the label colour.
     const styleIconCfg = tenantStyle.icon || null;
-    const StyleIcon = !Icon && styleIconCfg?.name ? getLucideIcon(styleIconCfg.name) : null;
-    const styleIconSize = StyleIcon && Number.isFinite(styleIconCfg.size) ? styleIconCfg.size : 18;
-    const styleIconColor = StyleIcon ? (styleIconCfg.color || undefined) : undefined;
-    const styleIconAfter = StyleIcon && styleIconCfg.position === 'after';
+    const styleIconSize = Number.isFinite(styleIconCfg?.size) ? styleIconCfg.size : 18;
+    const styleIconColor = styleIconCfg?.color || undefined;
+    // renderStyleIcon supports both Lucide names and FA class strings.
+    const styleIconResolved = !Icon && styleIconCfg?.name
+      ? renderStyleIcon(styleIconCfg.name, styleIconSize, styleIconColor)
+      : null;
+    const styleIconAfter = !!styleIconResolved && styleIconCfg.position === 'after';
     // The typography style supplies the base label font; the tenant button's
     // own text color must win for the label (an inline span color otherwise
     // beats the color inherited from the <a>), and the button's optional
@@ -2537,9 +2566,7 @@ function ButtonRender({ block, asEditor, breakpoint }) {
     });
     if (awaitingLabel) tenantLabelInline = { ...(tenantLabelInline || {}), visibility: 'hidden' };
     const labelSpan = <span style={tenantLabelInline || undefined}>{c.label || 'Button'}</span>;
-    const styleIconEl = StyleIcon ? (
-      <StyleIcon style={{ width: styleIconSize, height: styleIconSize, color: styleIconColor }} />
-    ) : null;
+    const styleIconEl = styleIconResolved;
     let tenantInner;
     if (Icon) {
       tenantInner = (
@@ -2548,7 +2575,7 @@ function ButtonRender({ block, asEditor, breakpoint }) {
           {labelSpan}
         </>
       );
-    } else if (StyleIcon) {
+    } else if (styleIconEl) {
       tenantInner = styleIconAfter ? (
         <>
           {labelSpan}
@@ -5726,13 +5753,13 @@ function PricingTierCTA({ tier, index, asEditor, branding }) {
       transition: 'background-color 0.2s ease, color 0.2s ease, background 0.2s ease',
     };
     const styleIconCfg = tenantStyle.icon || null;
-    const StyleIcon = styleIconCfg?.name ? getLucideIcon(styleIconCfg.name) : null;
-    const styleIconSize = StyleIcon && Number.isFinite(styleIconCfg.size) ? styleIconCfg.size : 18;
-    const styleIconColor = StyleIcon ? (styleIconCfg.color || undefined) : undefined;
-    const styleIconAfter = StyleIcon && styleIconCfg.position === 'after';
-    const styleIconEl = StyleIcon ? (
-      <StyleIcon style={{ width: styleIconSize, height: styleIconSize, color: styleIconColor }} />
-    ) : null;
+    const styleIconSize = Number.isFinite(styleIconCfg?.size) ? styleIconCfg.size : 18;
+    const styleIconColor = styleIconCfg?.color || undefined;
+    // renderStyleIcon supports both Lucide names and FA class strings.
+    const styleIconEl = styleIconCfg?.name
+      ? renderStyleIcon(styleIconCfg.name, styleIconSize, styleIconColor)
+      : null;
+    const styleIconAfter = !!styleIconEl && styleIconCfg.position === 'after';
     return (
       <a
         href={href}

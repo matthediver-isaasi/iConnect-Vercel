@@ -17,7 +17,8 @@ import { Save, Loader2, Eye, RotateCcw, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
-import { LUCIDE_ICONS, getLucideIcon } from "@/components/canvas/blocks/registry";
+import { LUCIDE_ICONS, getLucideIcon, isFaIconName, renderStyleIcon } from "@/components/canvas/blocks/registry";
+import { FontAwesomeIconPicker } from "@/components/canvas/FontAwesomeIconPicker";
 import TypographyStyleSelector, { useTypographyStyles, getTypographyStyleCSS } from "@/components/iedit/TypographyStyleSelector";
 import { composeButtonLabelStyle } from "@/lib/tenantButtonStyle";
 
@@ -170,6 +171,7 @@ function ButtonStyleEditor({
   onMicrositesChange,
 }) {
   const [isHovered, setIsHovered] = useState(false);
+  const [faPickerOpen, setFaPickerOpen] = useState(false);
   const testIdPrefix = testIdPrefixProp || title.toLowerCase().replace(/\s+/g, '-');
 
   // Task #2591: the label typography baked into this button style. When set,
@@ -250,14 +252,14 @@ function ButtonStyleEditor({
   // is configured (`name === ''`) nothing is rendered. Icon colour falls back
   // to the button's current text colour when left blank.
   const iconCfg = style.icon || DEFAULT_ICON;
-  const IconComp = iconCfg.name ? getLucideIcon(iconCfg.name) : null;
   const iconSizePx = Number.isFinite(iconCfg.size) ? iconCfg.size : DEFAULT_ICON.size;
   const iconPosition = iconCfg.position === 'after' ? 'after' : 'before';
 
   const renderPreviewInner = (textColor, label) => {
-    const iconEl = IconComp ? (
-      <IconComp style={{ width: iconSizePx, height: iconSizePx, color: iconCfg.color || textColor }} />
-    ) : null;
+    // renderStyleIcon supports both Lucide names and Font Awesome classes.
+    const iconEl = iconCfg.name
+      ? renderStyleIcon(iconCfg.name, iconSizePx, iconCfg.color || textColor)
+      : null;
     // Typography style provides the base font; the button's own text colour and
     // optional label-size override win on top (matches the live render paths).
     const labelSpanStyle = composeButtonLabelStyle({
@@ -823,36 +825,56 @@ function ButtonStyleEditor({
               per-block icon chosen in the page builder overrides this default.
             </p>
 
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 flex-wrap">
               <Label className="min-w-32">Icon:</Label>
-              <div className="flex items-center gap-3 flex-1">
+              <div className="flex items-center gap-3 flex-1 flex-wrap">
                 <select
-                  value={style.icon?.name || ''}
+                  value={isFaIconName(style.icon?.name) ? '' : (style.icon?.name || '')}
                   onChange={(e) => updateStyle('icon.name', e.target.value)}
                   className="border rounded px-3 py-2 text-sm flex-1"
                   data-testid={`select-${testIdPrefix}-icon-name`}
                 >
-                  <option value="">None</option>
+                  <option value="">
+                    {isFaIconName(style.icon?.name) ? 'Font Awesome icon selected' : 'None'}
+                  </option>
                   {Object.keys(LUCIDE_ICONS).map((name) => (
                     <option key={name} value={name}>{name}</option>
                   ))}
                 </select>
-                {(() => {
-                  const Preview = style.icon?.name ? getLucideIcon(style.icon.name) : null;
-                  return Preview ? (
-                    <Preview
-                      className="shrink-0"
-                      style={{
-                        width: style.icon?.size ?? DEFAULT_ICON.size,
-                        height: style.icon?.size ?? DEFAULT_ICON.size,
-                        color: style.icon?.color || style.textColor
-                      }}
-                      data-testid={`icon-preview-${testIdPrefix}`}
-                    />
-                  ) : null;
-                })()}
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setFaPickerOpen(true)}
+                  data-testid={`button-${testIdPrefix}-fa-icon-picker`}
+                >
+                  Browse icon library
+                </Button>
+                {style.icon?.name ? (
+                  <span className="shrink-0 inline-flex" data-testid={`icon-preview-${testIdPrefix}`}>
+                    {renderStyleIcon(
+                      style.icon.name,
+                      style.icon?.size ?? DEFAULT_ICON.size,
+                      style.icon?.color || style.textColor
+                    )}
+                  </span>
+                ) : null}
               </div>
             </div>
+            {isFaIconName(style.icon?.name) ? (
+              <p className="text-xs text-slate-500">
+                Using icon library icon: <code>{style.icon.name}</code>. Pick from the
+                dropdown or choose another library icon to replace it.
+              </p>
+            ) : null}
+            <FontAwesomeIconPicker
+              open={faPickerOpen}
+              onClose={() => setFaPickerOpen(false)}
+              currentValue={isFaIconName(style.icon?.name) ? style.icon.name : ''}
+              onSelect={(cls) => {
+                updateStyle('icon.name', cls || '');
+                setFaPickerOpen(false);
+              }}
+            />
 
             {style.icon?.name ? (
               <>
