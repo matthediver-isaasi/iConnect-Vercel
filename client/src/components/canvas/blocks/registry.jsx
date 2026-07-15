@@ -8022,6 +8022,69 @@ const HERO_CAROUSEL_FONT_WEIGHTS = [
   { value: '800', label: 'Extra Bold' },
 ];
 
+// Slide CTA button. Default look is the original white pill ("System default"
+// in the inspector); when the slide picks a tenant button style
+// (tenant-primary / tenant-secondary / tenant:<custom-key>) it routes through
+// the shared tenant button resolver like ButtonRender / Card CTAs so brand
+// styling stays consistent. Unknown / unresolvable styles fall back to the
+// system default so old pages never break.
+function HeroCarouselCta({ slide, asEditor }) {
+  const branding = useTenantBranding()?.branding || null;
+  const [hovered, setHovered] = useState(false);
+  const variant = slide.ctaStyle || '';
+  const isTenant = isTenantButtonVariant(variant);
+  const tenantStyle = isTenant ? resolveTenantButtonStyle(variant, branding) : null;
+  const linkProps = {
+    href: asEditor ? undefined : slide.ctaLink,
+    target: !asEditor && resolveNewTab(slide) ? '_blank' : undefined,
+    rel: !asEditor && resolveNewTab(slide) ? 'noopener noreferrer' : undefined,
+    onClick: asEditor ? (e) => e.preventDefault() : undefined,
+    'data-testid': 'link-herocarousel-cta',
+  };
+  if (isTenant && tenantStyle) {
+    const baseline = { ...TENANT_BUTTON_DEFAULT_SIZE, ...(tenantStyle.size || {}) };
+    const bg = bgCssFromConfig(hovered ? tenantStyle.hover : tenantStyle.background) || {};
+    const border = tenantStyle.border || {};
+    const inlineStyle = {
+      ...bg,
+      color: hovered
+        ? tenantStyle.hoverTextColor || tenantStyle.textColor || '#ffffff'
+        : tenantStyle.textColor || '#ffffff',
+      borderRadius: `${Number.isFinite(tenantStyle.radius) ? tenantStyle.radius : 6}px`,
+      border:
+        border.width > 0
+          ? `${border.width}px ${border.style || 'solid'} ${border.color || '#000000'}`
+          : 'none',
+      paddingTop: baseline.paddingY,
+      paddingBottom: baseline.paddingY,
+      paddingLeft: baseline.paddingX,
+      paddingRight: baseline.paddingX,
+      fontSize: baseline.fontSize,
+      transition: 'background-color 0.2s ease, color 0.2s ease, background 0.2s ease',
+    };
+    return (
+      <a
+        {...linkProps}
+        className="inline-flex items-center justify-center font-medium whitespace-nowrap shadow-lg"
+        style={inlineStyle}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+      >
+        {slide.ctaText}
+      </a>
+    );
+  }
+  return (
+    <a
+      {...linkProps}
+      className="inline-block bg-white text-slate-900 font-semibold rounded-lg hover:bg-slate-100 transition-colors shadow-lg"
+      style={{ padding: '14px 28px' }}
+    >
+      {slide.ctaText}
+    </a>
+  );
+}
+
 function HeroCarouselRender({ block, asEditor, breakpoint }) {
   const c = block.content || {};
   const slides = c.slides || [];
@@ -8309,16 +8372,7 @@ function HeroCarouselRender({ block, asEditor, breakpoint }) {
               )}
               {slide.ctaText && slide.ctaLink && (
                 <div style={{ marginTop: '24px' }}>
-                  <a
-                    href={asEditor ? undefined : slide.ctaLink}
-                    target={!asEditor && resolveNewTab(slide) ? '_blank' : undefined}
-                    rel={!asEditor && resolveNewTab(slide) ? 'noopener noreferrer' : undefined}
-                    onClick={asEditor ? (e) => e.preventDefault() : undefined}
-                    className="inline-block bg-white text-slate-900 font-semibold rounded-lg hover:bg-slate-100 transition-colors shadow-lg"
-                    style={{ padding: '14px 28px' }}
-                  >
-                    {slide.ctaText}
-                  </a>
+                  <HeroCarouselCta slide={slide} asEditor={asEditor} />
                 </div>
               )}
             </div>
@@ -8433,6 +8487,9 @@ function SortableSlideItem({ id, title, isExpanded, onToggle, onRemove, onDuplic
 // DnD-sortable slide list used in HeroCarouselInspector.
 function SlideDndList({ slides, onChange, breakpoint }) {
   const [expanded, setExpanded] = useState(() => slides.map((_, i) => i === 0));
+  // Tenant custom button styles for the per-slide CTA style picker — same
+  // enumeration as ButtonInspector / Card CTAs, microsite-scoped.
+  const customStyleEntries = useCustomButtonStyleEntries();
 
   useEffect(() => {
     setExpanded((prev) => {
@@ -8490,6 +8547,7 @@ function SlideDndList({ slides, onChange, breakpoint }) {
         contentText: '',
         ctaText: '',
         ctaLink: '',
+        ctaStyle: '',
         backgroundImage: '',
         overlayColor: '#000000',
         overlayOpacity: 40,
@@ -8580,6 +8638,21 @@ function SlideDndList({ slides, onChange, breakpoint }) {
                   onNewTabChange={(v) => patchSlide(idx, { newTab: v })}
                 />
               </div>
+              <SelectField
+                label="CTA button style"
+                value={slide.ctaStyle || 'system-default'}
+                onChange={(v) => patchSlide(idx, { ctaStyle: v === 'system-default' ? '' : v })}
+                options={[
+                  { value: 'system-default', label: 'System default (white)' },
+                  { value: 'tenant-primary', label: 'Tenant primary (branded)' },
+                  { value: 'tenant-secondary', label: 'Tenant secondary (branded)' },
+                  ...customStyleEntries.map((e) => ({
+                    value: `tenant:${e.key}`,
+                    label: `Tenant: ${e.label}`,
+                  })),
+                ]}
+                testId={`hcc-slide-${idx}-cta-style`}
+              />
             </SortableSlideItem>
           ))}
         </SortableContext>

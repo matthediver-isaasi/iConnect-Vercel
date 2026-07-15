@@ -1440,6 +1440,7 @@ BLOCK_DEFAULTS[BLOCK_TYPES.HERO_CAROUSEL] = {
         contentText: '',
         ctaText: '',
         ctaLink: '',
+        ctaStyle: '',
         backgroundImage: '',
         overlayColor: '#000000',
         overlayOpacity: 40,
