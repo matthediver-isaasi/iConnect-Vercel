@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/dialog';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import TenantCtaButton from '@/components/common/TenantCtaButton';
+import ShowcaseCard from '@/components/common/ShowcaseCard';
 import { sanitizeRichText } from './sanitize';
 import { cardDescriptionToHtml } from '@/lib/cardDescriptionHtml';
 import { resolveSearchResultsBranding } from '@/lib/searchResultsBranding';
@@ -3876,6 +3877,14 @@ function ArticleListRender({ block, breakpoint, asEditor }) {
   const linkBase = source === 'news' ? '/NewsView?slug=' : '/Articles?slug=';
   const effectiveCols = layout === 'list' ? 1 : cols;
 
+  // Badge label for article cards mirrors the iEdit Showcase: the tenant's
+  // `article_display_name` setting singularised (e.g. "Articles" -> "Article").
+  const articleDisplayName = useArticleDisplayName();
+  const articleBadgeLabel = articleDisplayName
+    ? (articleDisplayName.endsWith('s') ? articleDisplayName.slice(0, -1) : articleDisplayName)
+    : 'Article';
+  const badgeBg = source === 'news' ? '#2563eb' : '#16a34a';
+
   // Tenant typography styles for the card title / summary text. When set,
   // the chosen style's font (family/size/weight/line-height/etc.) overrides
   // the hardcoded text-sm / text-xs classes; when unset, cards render
@@ -3922,62 +3931,39 @@ function ArticleListRender({ block, breakpoint, asEditor }) {
         <EmptyState icon={Newspaper} text={c.emptyText || 'No articles yet.'} />
       ) : (
         <ul className="list-none m-0 p-0" style={gridStyle(effectiveCols, c.gap)} data-testid="article-list">
-          {items.map((a) => (
-            <li
-              key={a.id}
-              className={`rounded-md border border-slate-200 bg-white overflow-hidden ${layout === 'list' ? 'flex flex-row' : 'flex flex-col'}`}
-            >
-              {c.showImage !== false && a.feature_image_url ? (
-                <div className={layout === 'list' ? 'w-32 shrink-0 bg-slate-100' : 'aspect-[16/9] bg-slate-100'}>
-                  <img src={a.feature_image_url} alt="" className="w-full h-full object-cover" loading="lazy" />
-                </div>
-              ) : null}
-              <div className="p-3 flex-1 flex flex-col gap-1">
-                <h3
-                  className={titleInline ? 'text-slate-900 m-0' : 'text-sm font-semibold text-slate-900 m-0'}
-                  style={titleInline || undefined}
-                  data-tg-r="article-title"
-                >
-                  {a.title}
-                </h3>
-                {a.published_date ? (
-                  <div className="text-xs text-slate-500">{formatDate(a.published_date)}</div>
-                ) : null}
-                {source === 'articles' && (() => {
-                  const authorText = formatAuthorNames(coAuthorsData?.authors?.[a.id]);
-                  if (!authorText) return null;
-                  return (
-                    <div
-                      className="text-xs text-slate-500 flex items-center gap-1"
-                      data-testid={`text-article-authors-${a.id}`}
-                    >
-                      <User className="w-3 h-3 flex-shrink-0" />
-                      <span>by {authorText}</span>
-                    </div>
-                  );
-                })()}
-                {c.showSummary !== false && a.summary ? (
-                  <p
-                    className={summaryInline ? 'text-slate-600 line-clamp-3 mt-1' : 'text-xs text-slate-600 line-clamp-3 mt-1'}
-                    style={summaryInline || undefined}
-                    data-tg-r="article-summary"
-                  >
-                    {a.summary}
-                  </p>
-                ) : null}
-                <a
-                  href={asEditor ? undefined : `${linkBase}${encodeURIComponent(a.slug || a.id)}`}
-                  target={!asEditor && linkNewTab ? '_blank' : undefined}
-                  rel={!asEditor && linkNewTab ? 'noopener noreferrer' : undefined}
-                  onClick={(ev) => { if (asEditor) ev.preventDefault(); }}
-                  className="text-xs text-blue-600 hover:underline inline-flex items-center gap-1 mt-auto pt-2"
-                  data-testid={`link-article-${a.id}`}
-                >
-                  Read more <ArrowRight className="w-3 h-3" />
-                </a>
-              </div>
-            </li>
-          ))}
+          {items.map((a) => {
+            const authorText = source === 'articles'
+              ? formatAuthorNames(coAuthorsData?.authors?.[a.id])
+              : '';
+            return (
+              <li key={a.id} className="list-none">
+                <ShowcaseCard
+                  title={a.title}
+                  imageUrl={a.image_url || a.feature_image_url}
+                  showImageArea={c.showImage !== false}
+                  imageFocalPoint={a.feature_image_focal_point || null}
+                  imageAlt={a.title}
+                  summary={c.showSummary !== false ? a.summary : null}
+                  publishedDate={a.published_date}
+                  authorText={authorText}
+                  url={`${linkBase}${encodeURIComponent(a.slug || a.id)}`}
+                  newTab={linkNewTab}
+                  asEditor={asEditor}
+                  showBadge
+                  badgeText={source === 'news' ? 'News' : articleBadgeLabel}
+                  badgeBgColor={badgeBg}
+                  showPublishedDate
+                  descriptionLineClamp={c.showSummary !== false ? 3 : 0}
+                  titleStyleOverride={titleInline}
+                  summaryStyleOverride={summaryInline}
+                  titleExtraProps={{ 'data-tg-r': 'article-title' }}
+                  summaryExtraProps={{ 'data-tg-r': 'article-summary' }}
+                  testId={a.id}
+                  wrapperTestId={`link-article-${a.id}`}
+                />
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

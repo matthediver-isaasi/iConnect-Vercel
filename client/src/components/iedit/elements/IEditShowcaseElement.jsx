@@ -6,13 +6,12 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Upload, Loader2, Trash2, Calendar, FileText, Sparkles, Briefcase, ArrowUpRight, ChevronDown, ChevronUp, AlignLeft, AlignCenter, AlignRight, User } from "lucide-react";
+import { Upload, Loader2, Trash2, FileText, Sparkles, Briefcase, ChevronDown, ChevronUp, AlignLeft, AlignCenter, AlignRight } from "lucide-react";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import { createPageUrl } from "@/utils";
-import { Link } from "react-router-dom";
 import TypographyStyleSelector, { applyTypographyStyle, useTypographyStyles } from "../TypographyStyleSelector";
+import ShowcaseCard from "@/components/common/ShowcaseCard";
 import ReactQuill from "react-quill";
 import DOMPurify from "dompurify";
 import "react-quill/dist/quill.snow.css";
@@ -1285,16 +1284,6 @@ export function IEditShowcaseElementRenderer({ element, settings }) {
     }
   };
 
-  const getContentTypeBadgeColor = (contentType) => {
-    switch (contentType) {
-      case 'news': return 'bg-blue-600 text-white';
-      case 'resources': return 'bg-purple-600 text-white';
-      case 'articles': return 'bg-green-600 text-white';
-      case 'jobs': return 'bg-amber-600 text-white';
-      default: return 'bg-slate-600 text-white';
-    }
-  };
-
   const sectionStyle = content.backgroundImage ? {
     backgroundImage: `url(${content.backgroundImage})`,
     backgroundSize: 'cover',
@@ -1412,134 +1401,44 @@ export function IEditShowcaseElementRenderer({ element, settings }) {
             {items.map((item) => {
               const isExternalLink = item._contentType === 'resources' && (item.download_url || item.content_url);
               const url = getItemUrl(item);
+              const authorText = item._contentType === 'articles'
+                ? formatAuthorNames(coAuthorsData?.authors?.[item.id])
+                : '';
 
-              const imageHeight = Math.round((content.cardHeight || 400) * ((content.imageHeightPercent || 50) / 100));
-              const buttonSize = content.ctaButtonSize || 48;
-              const buttonMargin = content.ctaButtonMargin ?? 0;
-
-              const cardContent = (
-                <>
-                  <div className="relative" style={{ height: `${imageHeight}px` }}>
-                    {(item.image_url || item.feature_image_url) && (
-                      <img
-                        src={item.image_url || item.feature_image_url}
-                        alt={item.title || item.name}
-                        className="w-full h-full object-cover"
-                        style={{ objectPosition: item.feature_image_focal_point ? `${item.feature_image_focal_point.x}% ${item.feature_image_focal_point.y}%` : '50% 50%' }}
-                      />
-                    )}
-                    {item._cardConfig?.showLabel !== false && (
-                      <Badge 
-                        className="absolute top-0 left-0 text-xs font-semibold rounded-none px-3 py-1"
-                        style={{
-                          backgroundColor: item._cardConfig?.labelBgColor || '#2563eb',
-                          color: item._cardConfig?.labelTextColor || '#ffffff'
-                        }}
-                      >
-                        {item._cardConfig?.labelText || getContentTypeLabel(item._contentType)}
-                      </Badge>
-                    )}
-                  </div>
-                  {content.showImageBorder && (
-                    <div 
-                      style={{
-                        height: `${content.imageBorderWeight || 3}px`,
-                        backgroundColor: content.imageBorderColor || '#2563eb'
-                      }}
-                    />
-                  )}
-                  <div className="p-4 flex-1 overflow-hidden relative" style={{ textAlign: content.card_text_align || 'left' }}>
-                    <h3 
-                      className="font-semibold text-slate-900 mb-2 line-clamp-2"
-                      style={{ fontSize: `${content.titleFontSize || 16}px` }}
-                    >
-                      {item.title || item.name}
-                    </h3>
-                    {content.descriptionLineClamp !== 0 && (item.summary || item.description) && (
-                      <p className={`text-sm text-slate-600 ${content.descriptionLineClamp === 'none' ? '' : `line-clamp-${content.descriptionLineClamp ?? 3}`}`}>
-                        {item.summary || item.description}
-                      </p>
-                    )}
-                    {content.showPublishedDate && item.published_date && (
-                      <div 
-                        className="flex items-center gap-1 mt-3 text-slate-500" 
-                        style={{ 
-                          justifyContent: content.card_text_align === 'center' ? 'center' : content.card_text_align === 'right' ? 'flex-end' : 'flex-start',
-                          fontSize: `${content.dateFontSize || 12}px`
-                        }}
-                      >
-                        <Calendar style={{ width: `${content.dateFontSize || 12}px`, height: `${content.dateFontSize || 12}px` }} />
-                        {new Date(item.published_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
-                      </div>
-                    )}
-                    {item._contentType === 'articles' && (() => {
-                      const authorText = formatAuthorNames(coAuthorsData?.authors?.[item.id]);
-                      if (!authorText) return null;
-                      return (
-                        <div
-                          className="flex items-center gap-1 mt-2 text-slate-500"
-                          style={{
-                            justifyContent: content.card_text_align === 'center' ? 'center' : content.card_text_align === 'right' ? 'flex-end' : 'flex-start',
-                            fontSize: `${content.dateFontSize || 12}px`
-                          }}
-                          data-testid={`text-article-authors-${item.id}`}
-                        >
-                          <User style={{ width: `${content.dateFontSize || 12}px`, height: `${content.dateFontSize || 12}px` }} />
-                          <span>by {authorText}</span>
-                        </div>
-                      );
-                    })()}
-                    {content.showCTAButton !== false && (
-                      <div 
-                        className="absolute flex items-center justify-center transition-transform hover:scale-110"
-                        style={{
-                          width: `${buttonSize}px`,
-                          height: `${buttonSize}px`,
-                          backgroundColor: content.ctaButtonBgColor || '#2563eb',
-                          borderRadius: `${content.cardBorderRadius ?? 8}px`,
-                          bottom: `${buttonMargin}px`,
-                          right: `${buttonMargin}px`
-                        }}
-                      >
-                        <ArrowUpRight 
-                          style={{ 
-                            width: `${buttonSize * 0.5}px`, 
-                            height: `${buttonSize * 0.5}px`,
-                            color: content.ctaButtonArrowColor || '#ffffff'
-                          }} 
-                        />
-                      </div>
-                    )}
-                  </div>
-                </>
-              );
-
-              return isExternalLink ? (
-                <a
+              return (
+                <ShowcaseCard
                   key={item.id}
-                  href={url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="bg-white shadow-xl overflow-hidden hover:shadow-2xl hover:scale-105 transition-all duration-300 block flex flex-col"
-                  style={{ 
-                    height: `${content.cardHeight || 400}px`,
-                    borderRadius: `${content.cardBorderRadius ?? 8}px`
-                  }}
-                >
-                  {cardContent}
-                </a>
-              ) : (
-                <Link
-                  key={item.id}
-                  to={url}
-                  className="bg-white shadow-xl overflow-hidden hover:shadow-2xl hover:scale-105 transition-all duration-300 block flex flex-col"
-                  style={{ 
-                    height: `${content.cardHeight || 400}px`,
-                    borderRadius: `${content.cardBorderRadius ?? 8}px`
-                  }}
-                >
-                  {cardContent}
-                </Link>
+                  title={item.title || item.name}
+                  imageUrl={item.image_url || item.feature_image_url}
+                  imageFocalPoint={item.feature_image_focal_point || null}
+                  imageAlt={item.title || item.name}
+                  summary={item.summary || item.description}
+                  publishedDate={item.published_date}
+                  authorText={authorText}
+                  url={url}
+                  external={!!isExternalLink}
+                  showBadge={item._cardConfig?.showLabel !== false}
+                  badgeText={item._cardConfig?.labelText || getContentTypeLabel(item._contentType)}
+                  badgeBgColor={item._cardConfig?.labelBgColor || '#2563eb'}
+                  badgeTextColor={item._cardConfig?.labelTextColor || '#ffffff'}
+                  cardHeight={content.cardHeight || 400}
+                  cardBorderRadius={content.cardBorderRadius ?? 8}
+                  imageHeightPercent={content.imageHeightPercent || 50}
+                  showImageBorder={!!content.showImageBorder}
+                  imageBorderWeight={content.imageBorderWeight || 3}
+                  imageBorderColor={content.imageBorderColor || '#2563eb'}
+                  titleFontSize={content.titleFontSize || 16}
+                  dateFontSize={content.dateFontSize || 12}
+                  descriptionLineClamp={content.descriptionLineClamp}
+                  showPublishedDate={!!content.showPublishedDate}
+                  showCTAButton={content.showCTAButton !== false}
+                  ctaButtonSize={content.ctaButtonSize || 48}
+                  ctaButtonMargin={content.ctaButtonMargin ?? 0}
+                  ctaButtonBgColor={content.ctaButtonBgColor || '#2563eb'}
+                  ctaButtonArrowColor={content.ctaButtonArrowColor || '#ffffff'}
+                  textAlign={content.card_text_align || 'left'}
+                  testId={item.id}
+                />
               );
             })}
           </div>
