@@ -200,7 +200,7 @@ export default function ChangeZoomDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl" data-testid={`dialog-change-zoom-${targetLabel}`}>
+      <DialogContent className="max-w-3xl" data-testid={`dialog-change-zoom-${targetLabel}`}>
         <DialogHeader>
           <DialogTitle>{titleByMode[mode]}</DialogTitle>
           <DialogDescription>
@@ -319,10 +319,10 @@ export default function ChangeZoomDialog({
                           key={it.id}
                           value={String(it.id)}
                           onSelect={() => setTargetId(targetId === it.id ? "" : it.id)}
-                          className="flex items-center justify-between gap-2"
+                          className="flex items-start justify-between gap-2"
                           data-testid={`option-zoom-${it.id}`}
                         >
-                          <span className="truncate min-w-0 flex-1">{it.topic || it.title || it.id}</span>
+                          <span className="break-words whitespace-normal min-w-0 flex-1">{it.topic || it.title || it.id}</span>
                           <span className="shrink-0 text-xs text-muted-foreground">{formatStart(it.start_time)}</span>
                           <Check className={`h-4 w-4 shrink-0 ${targetId === it.id ? "opacity-100" : "opacity-0"}`} />
                         </CommandItem>
