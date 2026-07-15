@@ -8159,21 +8159,28 @@ function HeroCarouselRender({ block, asEditor, breakpoint }) {
   const textOffsetY = Number(c.text_offset_y) || 0;
 
   // Per-slide effective text offset: a slide may override the block-level
-  // default (absent/null = inherit). Mobile offsets derive from the slide's
-  // effective offsets exactly as the block-level derivation does (halved
-  // unless a block-level mobile_* override is set).
+  // default (absent/null = inherit). Mobile offsets prefer a slide-level
+  // mobile_* override, then the block-level mobile_* override, then derive
+  // from the slide's effective offsets (halved) exactly as the block-level
+  // derivation does.
   const resolveSlideTextOffset = (slide) => {
     const ovX = slide?.text_offset_x;
     const ovY = slide?.text_offset_y;
     const effX = ovX != null && Number.isFinite(Number(ovX)) ? Number(ovX) : textOffsetX;
     const effY = ovY != null && Number.isFinite(Number(ovY)) ? Number(ovY) : textOffsetY;
+    const smx = slide?.mobile_text_offset_x;
+    const smy = slide?.mobile_text_offset_y;
     const pmx = Number(c.mobile_text_offset_x) || 0;
     const pmy = Number(c.mobile_text_offset_y) || 0;
     return {
       x: effX,
       y: effY,
-      mobileX: pmx !== 0 ? pmx : Math.round(effX * 0.5),
-      mobileY: pmy !== 0 ? pmy : Math.round(effY * 0.5),
+      mobileX: smx != null && Number.isFinite(Number(smx))
+        ? Number(smx)
+        : (pmx !== 0 ? pmx : Math.round(effX * 0.5)),
+      mobileY: smy != null && Number.isFinite(Number(smy))
+        ? Number(smy)
+        : (pmy !== 0 ? pmy : Math.round(effY * 0.5)),
     };
   };
 
@@ -8523,7 +8530,7 @@ function SortableSlideItem({ id, title, isExpanded, onToggle, onRemove, onDuplic
 }
 
 // DnD-sortable slide list used in HeroCarouselInspector.
-function SlideDndList({ slides, onChange, breakpoint, defaultPaddingV = 60, defaultPaddingH = 16, defaultTextOffsetX = 0, defaultTextOffsetY = 0 }) {
+function SlideDndList({ slides, onChange, breakpoint, defaultPaddingV = 60, defaultPaddingH = 16, defaultTextOffsetX = 0, defaultTextOffsetY = 0, defaultMobileTextOffsetX = 0, defaultMobileTextOffsetY = 0 }) {
   const [expanded, setExpanded] = useState(() => slides.map((_, i) => i === 0));
   // Tenant custom button styles for the per-slide CTA style picker — same
   // enumeration as ButtonInspector / Card CTAs, microsite-scoped.
@@ -8722,26 +8729,71 @@ function SlideDndList({ slides, onChange, breakpoint, defaultPaddingV = 60, defa
                       // Clearing the override deletes the slide-level fields
                       // (undefined values drop out on JSON serialisation) so
                       // the slide inherits the block defaults again.
-                      patchSlide(idx, { text_offset_x: undefined, text_offset_y: undefined });
+                      patchSlide(idx, {
+                        text_offset_x: undefined,
+                        text_offset_y: undefined,
+                        mobile_text_offset_x: undefined,
+                        mobile_text_offset_y: undefined,
+                      });
                     }
                   }}
                   testId={`hcc-slide-${idx}-custom-text-offset`}
                 />
                 {(slide.text_offset_x != null || slide.text_offset_y != null) && (
-                  <div className="grid grid-cols-2 gap-2 mt-2">
-                    <NumberField
-                      label="Text offset X (px)"
-                      value={slide.text_offset_x ?? defaultTextOffsetX}
-                      onChange={(v) => patchSlide(idx, { text_offset_x: v ?? defaultTextOffsetX })}
-                      testId={`hcc-slide-${idx}-text-offset-x`}
+                  <>
+                    <div className="grid grid-cols-2 gap-2 mt-2">
+                      <NumberField
+                        label="Text offset X (px)"
+                        value={slide.text_offset_x ?? defaultTextOffsetX}
+                        onChange={(v) => patchSlide(idx, { text_offset_x: v ?? defaultTextOffsetX })}
+                        testId={`hcc-slide-${idx}-text-offset-x`}
+                      />
+                      <NumberField
+                        label="Text offset Y (px)"
+                        value={slide.text_offset_y ?? defaultTextOffsetY}
+                        onChange={(v) => patchSlide(idx, { text_offset_y: v ?? defaultTextOffsetY })}
+                        testId={`hcc-slide-${idx}-text-offset-y`}
+                      />
+                    </div>
+                    <ToggleField
+                      label="Custom mobile text offset"
+                      value={slide.mobile_text_offset_x != null || slide.mobile_text_offset_y != null}
+                      onChange={(on) => {
+                        if (on) {
+                          // Seed with the slide's effective mobile offsets so
+                          // toggling on does not visually shift the slide.
+                          const effX = slide.text_offset_x != null ? Number(slide.text_offset_x) : defaultTextOffsetX;
+                          const effY = slide.text_offset_y != null ? Number(slide.text_offset_y) : defaultTextOffsetY;
+                          patchSlide(idx, {
+                            mobile_text_offset_x: defaultMobileTextOffsetX !== 0 ? defaultMobileTextOffsetX : Math.round(effX * 0.5),
+                            mobile_text_offset_y: defaultMobileTextOffsetY !== 0 ? defaultMobileTextOffsetY : Math.round(effY * 0.5),
+                          });
+                        } else {
+                          // Clearing the override deletes the slide-level
+                          // fields so mobile derives from block/effective
+                          // offsets again.
+                          patchSlide(idx, { mobile_text_offset_x: undefined, mobile_text_offset_y: undefined });
+                        }
+                      }}
+                      testId={`hcc-slide-${idx}-custom-mobile-text-offset`}
                     />
-                    <NumberField
-                      label="Text offset Y (px)"
-                      value={slide.text_offset_y ?? defaultTextOffsetY}
-                      onChange={(v) => patchSlide(idx, { text_offset_y: v ?? defaultTextOffsetY })}
-                      testId={`hcc-slide-${idx}-text-offset-y`}
-                    />
-                  </div>
+                    {(slide.mobile_text_offset_x != null || slide.mobile_text_offset_y != null) && (
+                      <div className="grid grid-cols-2 gap-2 mt-2">
+                        <NumberField
+                          label="Mobile text offset X (px)"
+                          value={slide.mobile_text_offset_x ?? 0}
+                          onChange={(v) => patchSlide(idx, { mobile_text_offset_x: v ?? 0 })}
+                          testId={`hcc-slide-${idx}-mobile-text-offset-x`}
+                        />
+                        <NumberField
+                          label="Mobile text offset Y (px)"
+                          value={slide.mobile_text_offset_y ?? 0}
+                          onChange={(v) => patchSlide(idx, { mobile_text_offset_y: v ?? 0 })}
+                          testId={`hcc-slide-${idx}-mobile-text-offset-y`}
+                        />
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
               <SelectField
@@ -8864,6 +8916,8 @@ function HeroCarouselInspector({ block, update, breakpoint }) {
           defaultPaddingH={Number.isFinite(Number(c.padding_horizontal)) ? Number(c.padding_horizontal) : 16}
           defaultTextOffsetX={Number(c.text_offset_x) || 0}
           defaultTextOffsetY={Number(c.text_offset_y) || 0}
+          defaultMobileTextOffsetX={Number(c.mobile_text_offset_x) || 0}
+          defaultMobileTextOffsetY={Number(c.mobile_text_offset_y) || 0}
         />
       </Field>
 

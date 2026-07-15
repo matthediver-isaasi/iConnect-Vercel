@@ -2873,6 +2873,15 @@ export function validateBlock(block) {
             errors.push(`Hero Carousel slide ${i + 1} has an invalid text offset ${key === 'text_offset_x' ? 'X' : 'Y'} override.`);
           }
         });
+        // Per-slide mobile text offset overrides (absent/null = inherit
+        // block mobile / halved effective offset) must be finite numbers
+        // when present (negatives allowed).
+        ['mobile_text_offset_x', 'mobile_text_offset_y'].forEach((key) => {
+          const val = slide?.[key];
+          if (val != null && !Number.isFinite(Number(val))) {
+            errors.push(`Hero Carousel slide ${i + 1} has an invalid mobile text offset ${key === 'mobile_text_offset_x' ? 'X' : 'Y'} override.`);
+          }
+        });
       });
       break;
     }
