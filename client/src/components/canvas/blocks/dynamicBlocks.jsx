@@ -3891,23 +3891,28 @@ function ArticleListRender({ block, breakpoint, asEditor }) {
   const badgeTextColor = c.badgeTextColor || '#ffffff';
   const defaultBadgeText = source === 'news' ? 'News' : articleBadgeLabel;
   const badgeText = (typeof c.badgeText === 'string' && c.badgeText.trim()) ? c.badgeText : defaultBadgeText;
-  const cardHeight = Number(c.cardHeight) > 0 ? Number(c.cardHeight) : 400;
-  const imageHeightPercent = Number(c.imageHeightPercent) > 0 ? Number(c.imageHeightPercent) : 50;
-  const ctaButtonSize = Number(c.ctaButtonSize) > 0 ? Number(c.ctaButtonSize) : 48;
-  const ctaButtonMargin = Number.isFinite(Number(c.ctaButtonMargin)) && c.ctaButtonMargin !== '' && c.ctaButtonMargin != null
-    ? Number(c.ctaButtonMargin)
-    : 0;
-  const imageBorderWeight = Number(c.imageBorderWeight) > 0 ? Number(c.imageBorderWeight) : 3;
+  // Clamp a stored number into its valid range at RENDER time. The inspector
+  // stores raw keystrokes unclamped so typing "35" doesn't get mangled to the
+  // min bound the moment "3" is entered; the range is enforced here instead.
+  const clampNum = (raw, min, max, fallback) => {
+    const n = Number(raw);
+    if (raw == null || raw === '' || !Number.isFinite(n)) return fallback;
+    return Math.min(max, Math.max(min, n));
+  };
+  const cardHeight = clampNum(c.cardHeight, 200, 800, 400);
+  const imageHeightPercent = clampNum(c.imageHeightPercent, 20, 80, 50);
+  const ctaButtonSize = clampNum(c.ctaButtonSize, 24, 80, 48);
+  const ctaButtonMargin = clampNum(c.ctaButtonMargin, 0, 50, 0);
+  const imageBorderWeight = clampNum(c.imageBorderWeight, 1, 20, 3);
   const cardTextAlign = c.cardTextAlign === 'center' || c.cardTextAlign === 'right' ? c.cardTextAlign : 'left';
   // Remaining iEdit Showcase knobs (Task #2810): border radius, description
   // line clamp, title/date font sizes and a published-date toggle. Unset
   // values keep the previous hardcoded behaviour (radius 8, clamp 3, 16/12px,
   // date shown) so existing pages render unchanged.
-  const cardBorderRadius = Number.isFinite(Number(c.cardBorderRadius)) && c.cardBorderRadius !== '' && c.cardBorderRadius != null
-    ? Math.max(0, Number(c.cardBorderRadius))
-    : 8;
-  const titleFontSize = Number(c.titleFontSize) > 0 ? Number(c.titleFontSize) : 16;
-  const dateFontSize = Number(c.dateFontSize) > 0 ? Number(c.dateFontSize) : 12;
+  const cardBorderRadius = clampNum(c.cardBorderRadius, 0, 40, 8);
+  const hasExplicitTitleSize = c.titleFontSize != null && c.titleFontSize !== '' && Number(c.titleFontSize) > 0;
+  const titleFontSize = clampNum(c.titleFontSize, 10, 48, 16);
+  const dateFontSize = clampNum(c.dateFontSize, 8, 24, 12);
   const showPublishedDate = c.showPublishedDate !== false;
   // Description line clamp: 'none' = no limit, 1..10 = clamp, default 3.
   // Hidden entirely (0) when the summary toggle is off, matching before.
@@ -3932,6 +3937,9 @@ function ArticleListRender({ block, breakpoint, asEditor }) {
   let titleInline = titleStyleObj
     ? buildTypographyInlineStyle(titleStyleObj, { breakpoint: bpForInline })
     : null;
+  // An explicitly set "Title font size (px)" always wins over the typography
+  // style's own size, so the control keeps working when a style is selected.
+  if (titleInline && hasExplicitTitleSize) titleInline = { ...titleInline, fontSize: `${titleFontSize}px` };
   if (awaitingTitle) titleInline = { ...(titleInline || {}), visibility: 'hidden' };
   let summaryInline = summaryStyleObj
     ? buildTypographyInlineStyle(summaryStyleObj, { breakpoint: bpForInline })
@@ -3993,7 +4001,7 @@ function ArticleListRender({ block, breakpoint, asEditor }) {
                   ctaButtonMargin={ctaButtonMargin}
                   ctaButtonBgColor={c.ctaButtonBgColor || '#2563eb'}
                   ctaButtonArrowColor={c.ctaButtonArrowColor || '#ffffff'}
-                  ctaButtonBorderRadius={c.ctaButtonBorderRadius}
+                  ctaButtonBorderRadius={c.ctaButtonBorderRadius != null && c.ctaButtonBorderRadius !== '' ? clampNum(c.ctaButtonBorderRadius, 0, 40, null) : null}
                   textAlign={cardTextAlign}
                   cardBorderRadius={cardBorderRadius}
                   titleFontSize={titleFontSize}
@@ -4090,7 +4098,7 @@ function ArticleListInspector({ block, update }) {
           min={8}
           max={24}
           value={c.dateFontSize || 12}
-          onChange={(v) => set({ dateFontSize: Math.min(24, Math.max(8, Number(v) || 12)) })}
+          onChange={(v) => set({ dateFontSize: v })}
           testId="input-article-list-date-font-size"
         />
       ) : null}
@@ -4099,7 +4107,7 @@ function ArticleListInspector({ block, update }) {
         min={10}
         max={48}
         value={c.titleFontSize || 16}
-        onChange={(v) => set({ titleFontSize: Math.min(48, Math.max(10, Number(v) || 16)) })}
+        onChange={(v) => set({ titleFontSize: v })}
         testId="input-article-list-title-font-size"
       />
       <NumberField
@@ -4107,7 +4115,7 @@ function ArticleListInspector({ block, update }) {
         min={0}
         max={40}
         value={c.cardBorderRadius ?? 8}
-        onChange={(v) => set({ cardBorderRadius: Math.min(40, Math.max(0, Number(v) || 0)) })}
+        onChange={(v) => set({ cardBorderRadius: v })}
         testId="input-article-list-border-radius"
       />
       {/* Showcase card settings (Task #2808) — same knobs the old iEdit
@@ -4117,7 +4125,7 @@ function ArticleListInspector({ block, update }) {
         min={200}
         max={800}
         value={c.cardHeight || 400}
-        onChange={(v) => set({ cardHeight: Math.min(800, Math.max(200, Number(v) || 400)) })}
+        onChange={(v) => set({ cardHeight: v })}
         testId="input-article-list-card-height"
       />
       <NumberField
@@ -4125,7 +4133,7 @@ function ArticleListInspector({ block, update }) {
         min={20}
         max={80}
         value={c.imageHeightPercent || 50}
-        onChange={(v) => set({ imageHeightPercent: Math.min(80, Math.max(20, Number(v) || 50)) })}
+        onChange={(v) => set({ imageHeightPercent: v })}
         testId="input-article-list-image-height"
       />
       <SelectField
@@ -4152,7 +4160,7 @@ function ArticleListInspector({ block, update }) {
             min={1}
             max={20}
             value={c.imageBorderWeight || 3}
-            onChange={(v) => set({ imageBorderWeight: Math.min(20, Math.max(1, Number(v) || 3)) })}
+            onChange={(v) => set({ imageBorderWeight: v })}
             testId="input-article-list-image-border-weight"
           />
           <ColorField
@@ -4210,7 +4218,7 @@ function ArticleListInspector({ block, update }) {
             min={24}
             max={80}
             value={c.ctaButtonSize || 48}
-            onChange={(v) => set({ ctaButtonSize: Math.min(80, Math.max(24, Number(v) || 48)) })}
+            onChange={(v) => set({ ctaButtonSize: v })}
             testId="input-article-list-cta-size"
           />
           <NumberField
@@ -4218,7 +4226,7 @@ function ArticleListInspector({ block, update }) {
             min={0}
             max={50}
             value={c.ctaButtonMargin ?? 0}
-            onChange={(v) => set({ ctaButtonMargin: Math.min(50, Math.max(0, Number(v) || 0)) })}
+            onChange={(v) => set({ ctaButtonMargin: v })}
             testId="input-article-list-cta-margin"
           />
           <ColorField
@@ -4242,7 +4250,7 @@ function ArticleListInspector({ block, update }) {
             min={0}
             max={40}
             value={c.ctaButtonBorderRadius ?? (c.cardBorderRadius ?? 8)}
-            onChange={(v) => set({ ctaButtonBorderRadius: Math.min(40, Math.max(0, Number(v) || 0)) })}
+            onChange={(v) => set({ ctaButtonBorderRadius: v })}
             testId="input-article-list-cta-radius"
           />
         </>
