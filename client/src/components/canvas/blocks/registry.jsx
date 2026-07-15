@@ -8415,7 +8415,16 @@ function HeroCarouselRender({ block, asEditor, breakpoint }) {
                 />
               )}
               {slide.ctaText && slide.ctaLink && (
-                <div style={{ marginTop: '24px' }}>
+                <div
+                  style={{
+                    marginTop: '24px',
+                    // Per-slide CTA alignment override; absent/'' inherits the
+                    // slide text alignment (the wrapper's textAlign).
+                    ...(['left', 'center', 'right'].includes(slide.ctaAlign)
+                      ? { textAlign: slide.ctaAlign }
+                      : {}),
+                  }}
+                >
                   <HeroCarouselCta slide={slide} asEditor={asEditor} />
                 </div>
               )}
@@ -8593,6 +8602,7 @@ function SlideDndList({ slides, onChange, breakpoint, defaultPaddingV = 60, defa
         ctaText: '',
         ctaLink: '',
         ctaStyle: '',
+        ctaAlign: '',
         backgroundImage: '',
         overlayColor: '#000000',
         overlayOpacity: 40,
@@ -8810,6 +8820,18 @@ function SlideDndList({ slides, onChange, breakpoint, defaultPaddingV = 60, defa
                   })),
                 ]}
                 testId={`hcc-slide-${idx}-cta-style`}
+              />
+              <SelectField
+                label="CTA alignment"
+                value={slide.ctaAlign || 'inherit'}
+                onChange={(v) => patchSlide(idx, { ctaAlign: v === 'inherit' ? '' : v })}
+                options={[
+                  { value: 'inherit', label: 'Match text alignment' },
+                  { value: 'left', label: 'Left' },
+                  { value: 'center', label: 'Center' },
+                  { value: 'right', label: 'Right' },
+                ]}
+                testId={`hcc-slide-${idx}-cta-align`}
               />
             </SortableSlideItem>
           ))}

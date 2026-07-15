@@ -1441,6 +1441,7 @@ BLOCK_DEFAULTS[BLOCK_TYPES.HERO_CAROUSEL] = {
         ctaText: '',
         ctaLink: '',
         ctaStyle: '',
+        ctaAlign: '',
         backgroundImage: '',
         overlayColor: '#000000',
         overlayOpacity: 40,
@@ -2882,6 +2883,11 @@ export function validateBlock(block) {
             errors.push(`Hero Carousel slide ${i + 1} has an invalid mobile text offset ${key === 'mobile_text_offset_x' ? 'X' : 'Y'} override.`);
           }
         });
+        // Per-slide CTA alignment override (absent/'' = inherit slide text
+        // alignment) must be one of left/center/right when present.
+        if (slide?.ctaAlign && !['left', 'center', 'right'].includes(slide.ctaAlign)) {
+          errors.push(`Hero Carousel slide ${i + 1} has an invalid CTA alignment override.`);
+        }
       });
       break;
     }
