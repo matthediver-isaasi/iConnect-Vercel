@@ -6989,8 +6989,21 @@ function SectionRender({ block, asEditor, priority }) {
     railStyle.zIndex = 2;
   }
 
+  // Image mode: do NOT apply the inner 100vw breakout. The outer block
+  // wrapper already gets the full-bleed breakout from geomRule (static
+  // stylesheet) / CanvasPageRenderer (forced-breakpoint path), and this
+  // inner div lives inside the wrapper's CONTENT box (padding removed) —
+  // so `left:50%` resolves against (100vw - padding) while the margin is
+  // a full -50vw, shifting the image/overlay layers left by half the
+  // horizontal padding and leaving a visible gap on the right edge.
+  // The layers' negative-padding insets (`layerInset` + calc widths)
+  // already extend them to cover the wrapper's full border box, so the
+  // image spans edge-to-edge in both full-bleed and full-width modes
+  // without any inner breakout. Colour/gradient sections keep the legacy
+  // inner breakout untouched (their background paints on the outer
+  // wrapper / inner div exactly as before — byte-identical output).
   let wrapperStyle = isImageBg
-    ? { ...(fullBleedStyle || {}), isolation: 'isolate' }
+    ? { isolation: 'isolate' }
     : fullBleedStyle;
   if (isGradientBg && gradientBg) {
     wrapperStyle = { ...(wrapperStyle || {}), background: gradientBg };
