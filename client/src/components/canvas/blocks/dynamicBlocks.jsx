@@ -5109,6 +5109,8 @@ function FormEmbedRender({ block, asEditor, priority }) {
               ...layerInset,
               width: `calc(100% + ${pl + pr}px)`,
               height: `calc(100% + ${pt + pb}px)`,
+              maxWidth: 'none',
+              maxHeight: 'none',
               objectFit: 'cover',
               objectPosition: 'center',
               zIndex: 0,
