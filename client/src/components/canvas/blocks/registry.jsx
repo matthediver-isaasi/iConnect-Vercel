@@ -8549,6 +8549,36 @@ function HeroCarouselRender({ block, asEditor, breakpoint }) {
             />
           </div>
 
+          {slide.foregroundImage && (
+            // Foreground image layer: sits above the background + overlay,
+            // below the text content. Constrained to the 1200px content rail
+            // (railStyle) even when the background is full-bleed, so the
+            // image stays aligned with page content while the background
+            // stretches edge-to-edge.
+            <div
+              className="hcc-foreground absolute inset-0 pointer-events-none flex items-center"
+              aria-hidden="true"
+              style={{
+                ...(railStyle || {}),
+                justifyContent:
+                  slide.foregroundAlign === 'left'
+                    ? 'flex-start'
+                    : slide.foregroundAlign === 'right'
+                      ? 'flex-end'
+                      : 'center',
+              }}
+            >
+              <img
+                src={slide.foregroundImage}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                className="max-h-full max-w-full"
+                style={{ objectFit: 'contain' }}
+              />
+            </div>
+          )}
+
           <div
             className={`hcc-content-wrap relative h-full flex items-center z-10${c.fullBleed ? '' : ' max-w-7xl mx-auto'}`}
             data-hcc-slide={index}
@@ -8781,6 +8811,8 @@ function SlideDndList({ slides, onChange, breakpoint, defaultPaddingV = 60, defa
         ctaStyle: '',
         ctaAlign: '',
         backgroundImage: '',
+        foregroundImage: '',
+        foregroundAlign: 'center',
         overlayColor: '#000000',
         overlayOpacity: 40,
         imageFit: 'cover',
@@ -8819,6 +8851,25 @@ function SlideDndList({ slides, onChange, breakpoint, defaultPaddingV = 60, defa
                 ]}
                 testId={`hcc-slide-${idx}-image-fit`}
               />
+              <ImageField
+                label="Foreground image (sits on top)"
+                value={slide.foregroundImage || ''}
+                onChangeSrc={(v) => patchSlide(idx, { foregroundImage: v })}
+                testId={`hcc-slide-${idx}-foreground-image`}
+              />
+              {slide.foregroundImage && (
+                <SelectField
+                  label="Foreground image alignment"
+                  value={slide.foregroundAlign || 'center'}
+                  onChange={(v) => patchSlide(idx, { foregroundAlign: v })}
+                  options={[
+                    { value: 'left', label: 'Left' },
+                    { value: 'center', label: 'Middle' },
+                    { value: 'right', label: 'Right' },
+                  ]}
+                  testId={`hcc-slide-${idx}-foreground-align`}
+                />
+              )}
               <div className="grid grid-cols-2 gap-2">
                 <ColorField
                   label="Overlay color"

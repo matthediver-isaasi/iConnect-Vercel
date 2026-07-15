@@ -1479,6 +1479,8 @@ BLOCK_DEFAULTS[BLOCK_TYPES.HERO_CAROUSEL] = {
         ctaStyle: '',
         ctaAlign: '',
         backgroundImage: '',
+        foregroundImage: '',
+        foregroundAlign: 'center',
         overlayColor: '#000000',
         overlayOpacity: 40,
         imageFit: 'cover',
@@ -2961,6 +2963,11 @@ export function validateBlock(block) {
         // alignment) must be one of left/center/right when present.
         if (slide?.ctaAlign && !['left', 'center', 'right'].includes(slide.ctaAlign)) {
           errors.push(`Hero Carousel slide ${i + 1} has an invalid CTA alignment override.`);
+        }
+        // Per-slide foreground image alignment (absent/'' = center) must be
+        // one of left/center/right when present.
+        if (slide?.foregroundAlign && !['left', 'center', 'right'].includes(slide.foregroundAlign)) {
+          errors.push(`Hero Carousel slide ${i + 1} has an invalid foreground image alignment.`);
         }
       });
       break;
