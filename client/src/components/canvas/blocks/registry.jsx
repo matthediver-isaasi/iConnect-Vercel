@@ -8507,9 +8507,13 @@ function SortableSlideItem({ id, title, isExpanded, onToggle, onRemove, onDuplic
         <button
           type="button"
           onClick={onToggle}
-          className="flex-1 text-left text-xs font-medium text-slate-700 truncate py-0.5 min-w-0"
+          className="flex-1 flex items-center gap-1 text-left text-xs font-medium text-slate-700 py-0.5 min-w-0"
+          aria-expanded={isExpanded}
         >
-          {title}
+          {isExpanded
+            ? <ChevronDown size={12} className="flex-shrink-0 text-slate-400" />
+            : <ChevronRight size={12} className="flex-shrink-0 text-slate-400" />}
+          <span className="truncate min-w-0">{title}</span>
         </button>
         <button
           type="button"
@@ -8548,7 +8552,9 @@ function SlideDndList({ slides, onChange, breakpoint, defaultPaddingV = 60, defa
   useEffect(() => {
     setExpanded((prev) => {
       if (prev.length === slides.length) return prev;
-      return slides.map((_, i) => (i < prev.length ? prev[i] : true));
+      // Length changed outside addSlide/duplicateSlide (e.g. undo) — keep
+      // unknown new entries collapsed so the accordion stays compact.
+      return slides.map((_, i) => (i < prev.length ? prev[i] : false));
     });
   }, [slides.length]);
 
@@ -8583,7 +8589,8 @@ function SlideDndList({ slides, onChange, breakpoint, defaultPaddingV = 60, defa
     const next = [...slides];
     next.splice(idx + 1, 0, dupe);
     setExpanded((prev) => {
-      const e = [...prev];
+      // Accordion: open only the new duplicate so the pane stays compact.
+      const e = prev.map(() => false);
       e.splice(idx + 1, 0, true);
       return e;
     });
@@ -8591,7 +8598,8 @@ function SlideDndList({ slides, onChange, breakpoint, defaultPaddingV = 60, defa
   };
 
   const addSlide = () => {
-    setExpanded((prev) => [...prev, true]);
+    // Accordion: open only the newly added slide.
+    setExpanded((prev) => [...prev.map(() => false), true]);
     onChange([
       ...slides,
       {
@@ -8621,7 +8629,7 @@ function SlideDndList({ slides, onChange, breakpoint, defaultPaddingV = 60, defa
               id={slide.id}
               title={`Slide ${idx + 1}${slide.headerText ? ` — ${slide.headerText.replace(/<[^>]*>/g, '').substring(0, 28)}` : ''}`}
               isExpanded={!!expanded[idx]}
-              onToggle={() => setExpanded((prev) => prev.map((e, i) => (i === idx ? !e : e)))}
+              onToggle={() => setExpanded((prev) => prev.map((e, i) => (i === idx ? !e : false)))}
               onRemove={() => removeSlide(idx)}
               onDuplicate={() => duplicateSlide(idx)}
             >
