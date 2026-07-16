@@ -1417,6 +1417,7 @@ export function IEditShowcaseElementRenderer({ element, settings }) {
                   authorText={authorText}
                   url={url}
                   external={!!isExternalLink}
+                  newTab={!!isExternalLink}
                   showBadge={item._cardConfig?.showLabel !== false}
                   badgeText={item._cardConfig?.labelText || getContentTypeLabel(item._contentType)}
                   badgeBgColor={item._cardConfig?.labelBgColor || '#2563eb'}

@@ -16,7 +16,7 @@
 // decisions beyond rendering the wrapper the caller asks for.
 import { Link } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
-import { Calendar, User, ArrowUpRight } from 'lucide-react';
+import { Calendar, User, ArrowUpRight, Lock } from 'lucide-react';
 
 export default function ShowcaseCard({
   // Content
@@ -32,6 +32,7 @@ export default function ShowcaseCard({
   external = false, // render <a target=_blank> instead of router <Link>
   newTab = false, // force new tab for internal links too
   asEditor = false, // render a non-navigating wrapper (canvas editor)
+  locked = false, // member-only content: CTA shows a lock icon instead of the arrow
   // Badge
   showBadge = true,
   badgeText = '',
@@ -174,13 +175,23 @@ export default function ShowcaseCard({
               right: `${buttonMargin}px`,
             }}
           >
-            <ArrowUpRight
-              style={{
-                width: `${buttonSize * 0.5}px`,
-                height: `${buttonSize * 0.5}px`,
-                color: ctaButtonArrowColor,
-              }}
-            />
+            {locked ? (
+              <Lock
+                style={{
+                  width: `${buttonSize * 0.5}px`,
+                  height: `${buttonSize * 0.5}px`,
+                  color: ctaButtonArrowColor,
+                }}
+              />
+            ) : (
+              <ArrowUpRight
+                style={{
+                  width: `${buttonSize * 0.5}px`,
+                  height: `${buttonSize * 0.5}px`,
+                  color: ctaButtonArrowColor,
+                }}
+              />
+            )}
           </div>
         )}
       </div>
@@ -204,12 +215,14 @@ export default function ShowcaseCard({
     );
   }
 
+  // `external` decides the wrapper (<a> vs router <Link>); `newTab` alone
+  // decides target=_blank, so an external link can still open in the same tab.
   if (external || newTab) {
     return (
       <a
         href={url}
-        target="_blank"
-        rel="noopener noreferrer"
+        target={newTab ? '_blank' : undefined}
+        rel={newTab ? 'noopener noreferrer' : undefined}
         className={wrapperClassName}
         style={wrapperStyle}
         data-testid={wrapperTestId || (testId ? `card-showcase-${testId}` : undefined)}

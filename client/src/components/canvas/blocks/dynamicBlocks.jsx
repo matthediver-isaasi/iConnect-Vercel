@@ -4870,10 +4870,16 @@ function ResourceShowcaseRender({ block, breakpoint, asEditor }) {
       ) : (
         <ul className="list-none m-0 p-0" style={gridStyle(cols, c.gap ?? 24)} data-testid="resource-showcase">
           {items.map((r) => {
-            // Same link behaviour as the iEdit Showcase: resources open their
-            // download / content URL directly (external), defaulting to a new
-            // tab; without one the card renders unlinked.
-            const url = r.download_url || r.content_url || '';
+            // Same link behaviour as the iEdit Resources Showcase element:
+            // public resources open their target URL directly (the public
+            // API nulls target_url for member-only resources); member-only
+            // resources show a lock CTA and route to /resources?resourceId=
+            // which triggers the login flow for guests and opens the
+            // resource for authenticated members.
+            const isLocked = r.is_public === false || r.is_locked === true;
+            const url = isLocked
+              ? `/resources?resourceId=${r.id}`
+              : (r.target_url || r.download_url || r.content_url || '');
             return (
               <li key={r.id} className="list-none">
                 <ShowcaseCard
@@ -4885,8 +4891,9 @@ function ResourceShowcaseRender({ block, breakpoint, asEditor }) {
                   summary={c.showSummary !== false ? (r.summary || r.description) : null}
                   publishedDate={r.published_date || r.created_at || r.created_date}
                   url={url || undefined}
-                  external={!!url}
-                  newTab={linkNewTab}
+                  external={!isLocked && !!url}
+                  newTab={!isLocked && linkNewTab}
+                  locked={isLocked}
                   asEditor={asEditor}
                   showBadge={c.showBadge !== false}
                   badgeText={badgeText}
