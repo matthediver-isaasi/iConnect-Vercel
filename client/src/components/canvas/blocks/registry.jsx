@@ -8307,6 +8307,23 @@ function HeroCarouselRender({ block, asEditor, breakpoint, mobileVariant }) {
   const safeBlockId = `hcc-${String(block.id || '').replace(/[^a-zA-Z0-9]/g, '')}`;
   const isPreview = !!breakpoint;
 
+  // Slide header/subheading/content are Tiptap rich text, so authors can set
+  // per-breakpoint font sizes (`data-fs-tablet` / `data-fs-mobile` spans —
+  // Task #974). Without this CSS those authored sizes are silently ignored
+  // and the text falls back to the block/tenant-style size (reported as
+  // "mobile hero headline far too small"). Same helper the Text block uses;
+  // emitted for BOTH the desktop and mobile-variant carousels, and placed
+  // AFTER the ≤767px derivation stylesheet so at equal specificity the
+  // author's explicit rich-text size wins over the derived one.
+  const slideRichTextHtml = slides
+    .map((s) => `${s?.headerText || ''}${s?.subheadingText || ''}${s?.contentText || ''}`)
+    .join('');
+  const tiptapResponsiveCss = buildTiptapFontSizeResponsiveCss(
+    block.id,
+    slideRichTextHtml,
+    isPreview ? breakpoint : null,
+  );
+
   const getSlideTransitionStyle = (slideIndex) => {
     const isActive = slideIndex === currentIndex;
     const isPrev = slideIndex === previousIndex;
@@ -8463,6 +8480,10 @@ function HeroCarouselRender({ block, asEditor, breakpoint, mobileVariant }) {
           }),
           `}`,
         ].join('') }} />
+      )}
+
+      {tiptapResponsiveCss && (
+        <style dangerouslySetInnerHTML={{ __html: tiptapResponsiveCss }} />
       )}
 
       {slides.map((slide, index) => {
