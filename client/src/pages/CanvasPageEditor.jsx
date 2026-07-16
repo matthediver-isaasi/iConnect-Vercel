@@ -43,6 +43,7 @@ import {
 } from "@/components/canvas/CanvasPhase7Dialogs";
 import { FileRepositoryPicker } from "@/components/ImageSelector";
 import PagePickerDialog from "@/components/canvas/PagePickerDialog";
+import PageSeoSocialFields from "@/components/iedit/PageSeoSocialFields";
 
 // Canvas Builder Phase 2 — Editor shell wraps the CanvasBuilder.
 // Handles loading, saving (manual + autosave), and previewing the page.
@@ -160,6 +161,9 @@ export default function CanvasPageEditorPage() {
   const [renameSlug, setRenameSlug] = useState('');
   const [renameViewType, setRenameViewType] = useState('public');
   const [renameError, setRenameError] = useState('');
+  // SEO + Social Sharing fields (Task #2844) — edited in the same settings
+  // dialog, saved through the same entity update as title/slug.
+  const [renameSeo, setRenameSeo] = useState({});
   // Picker callback for the File Repository picker. When a block inspector
   // requests the picker, we capture its onPick so the picker can hand
   // the selected asset back through this single channel.
@@ -516,6 +520,13 @@ export default function CanvasPageEditorPage() {
     setRenameTitle(page.title || '');
     setRenameSlug(page.slug || '');
     setRenameViewType(deriveViewType(page));
+    setRenameSeo({
+      meta_title: page.meta_title || '',
+      meta_description: page.meta_description || '',
+      seo_title: page.seo_title || '',
+      seo_description: page.seo_description || '',
+      og_image_url: page.og_image_url || '',
+    });
     setRenameError('');
     setShowRenameDialog(true);
   }, [page]);
@@ -545,7 +556,14 @@ export default function CanvasPageEditorPage() {
     try {
       await updatePageMetaMutation.mutateAsync({
         id: page.id,
-        data: { title, slug, layout_type: meta.layout_type, public_chrome: meta.public_chrome },
+        data: {
+          title, slug, layout_type: meta.layout_type, public_chrome: meta.public_chrome,
+          meta_title: (renameSeo.meta_title || '').trim() || null,
+          meta_description: (renameSeo.meta_description || '').trim() || null,
+          seo_title: (renameSeo.seo_title || '').trim() || null,
+          seo_description: (renameSeo.seo_description || '').trim() || null,
+          og_image_url: (renameSeo.og_image_url || '').trim() || null,
+        },
       });
       setShowRenameDialog(false);
     } catch (error) {
@@ -553,7 +571,7 @@ export default function CanvasPageEditorPage() {
       // onError already showed a toast.
       setRenameError(error?.message || 'Failed to update page');
     }
-  }, [page, renameTitle, renameSlug, renameViewType, allPages, updatePageMetaMutation, failRename]);
+  }, [page, renameTitle, renameSlug, renameViewType, renameSeo, allPages, updatePageMetaMutation, failRename]);
 
   // Returns a Promise so CanvasBuilder can only clear the dirty marker
   // after the save actually succeeded. CanvasBuilder is the source of
@@ -2266,13 +2284,13 @@ export default function CanvasPageEditorPage() {
         if (!open) setRenameError('');
         setShowRenameDialog(open);
       }}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit page settings</DialogTitle>
             <DialogDescription>
               {page?.slug === 'login'
                 ? 'This is a system page. The title and URL slug are fixed and cannot be changed.'
-                : 'Update the page title, URL slug, and view type. Saving will reload the preview.'}
+                : 'Update the page title, URL slug, view type, and SEO / social sharing settings. Saving will reload the preview.'}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -2326,6 +2344,16 @@ export default function CanvasPageEditorPage() {
                   {VIEW_TYPE_HELP[renameViewType]}
                 </p>
               </div>
+            )}
+            {page?.slug !== 'login' && (
+              <PageSeoSocialFields
+                values={{ ...renameSeo, title: renameTitle, slug: renameSlug }}
+                onChange={(patch) => setRenameSeo((prev) => ({ ...prev, ...patch }))}
+                notify={(kind, { title, description }) => {
+                  if (kind === 'error') toast.error(`${title} — ${description}`);
+                  else toast.success(`${title} ${description}`);
+                }}
+              />
             )}
             {renameError && (
               <p className="text-sm text-destructive" data-testid="text-rename-error">{renameError}</p>
