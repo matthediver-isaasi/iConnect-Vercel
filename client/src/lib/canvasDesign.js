@@ -3115,6 +3115,51 @@ export function resolveAspectSizingStyle(block) {
   };
 }
 
+// Task #2840 — reflow REFERENCE height for an aspect-mode Hero Carousel.
+//
+// The public signed reflow (AccordionReflowContext) measures a carousel's
+// rendered height and shifts blocks below by (measured − reference). Using the
+// stored geometry height as the reference is wrong for aspect carousels: the
+// editor stage renders them at their aspect-derived height (the wrapper is
+// height:auto + aspect-ratio), which can drift from the stored box height (the
+// stored h is only a snapshot). Authors align the blocks BELOW with what they
+// SEE — the aspect-derived bottom — so the reflow must measure growth from the
+// aspect-derived height at the breakpoint's stage width, not the stale stored
+// box. Otherwise the stored-vs-rendered mismatch is double-counted as a
+// constant gap (or overlap) on every viewport at that breakpoint.
+//
+// Reference width = what the editor stage rendered the block at:
+//   - fullBleed / fullWidth blocks span the stage → the breakpoint stage width
+//     (1200 / 768 / 375).
+//   - otherwise the stored width, display-clamped to the stage exactly like
+//     the editor and published CSS clamp it (clampGeomToStage).
+//
+// Returns the clamped aspect height (min/max applied), or null when the block
+// is not an aspect carousel or has no stored ratio — callers must then fall
+// back to the stored geometry height (legacy pages saved before the ratio was
+// persisted size themselves at runtime; their stored h is the best reference).
+export function resolveAspectReflowReferenceHeight(block, geom, breakpoint) {
+  if (!isAspectHeightCarousel(block)) return null;
+  const c = block.content || {};
+  const rw = Number(c.aspect_ratio_w);
+  const rh = Number(c.aspect_ratio_h);
+  if (!(rw > 0 && rh > 0)) return null;
+  const stageW = BREAKPOINT_WIDTHS[breakpoint] || BREAKPOINT_WIDTHS.desktop;
+  let refWidth;
+  if (blockIsFullWidthLike(block)) {
+    refWidth = stageW;
+  } else {
+    const g = clampGeomToStage(geom || {}, breakpoint, stageW);
+    refWidth = Number.isFinite(g?.w) && g.w > 0 ? g.w : stageW;
+  }
+  let h = (refWidth * rh) / rw;
+  const minH = Number(c.aspect_min_height) > 0 ? Number(c.aspect_min_height) : 0;
+  const maxH = Number(c.aspect_max_height) > 0 ? Number(c.aspect_max_height) : 0;
+  if (minH) h = Math.max(h, minH);
+  if (maxH) h = Math.min(h, maxH);
+  return Math.round(h);
+}
+
 // CSS-string form of resolveAspectSizingStyle for the static stylesheet.
 export function resolveAspectSizingCss(block) {
   const s = resolveAspectSizingStyle(block);

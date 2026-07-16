@@ -9,10 +9,18 @@ import {
   useLayoutEffect,
 } from 'react';
 import { getBlockDefinition } from './blocks/registry';
-import { BLOCK_TYPES, isAspectHeightCarousel } from '../../lib/canvasDesign';
+import { BLOCK_TYPES, isAspectHeightCarousel, resolveAspectReflowReferenceHeight } from '../../lib/canvasDesign';
 import { computeBoxGrowthDelta, normalizeMeasuredLength } from './autoHeightBake';
 
 const AccordionReflowCtx = createContext(null);
+
+// Task #2840: slack (px) applied when deciding whether a SIGNED
+// (aspect-carousel) row pushes a block below it — see getOffset. Covers the
+// few-px rounding drift between where an author drags a block flush with the
+// carousel's visible bottom on the editor stage and the exact aspect-derived
+// reference bottom. Small enough to never capture blocks intentionally
+// overlapping the carousel (overlays sit far above the bottom edge).
+const SIGNED_ROW_PUSH_TOLERANCE = 12;
 
 export function useAccordionReflow() {
   return useContext(AccordionReflowCtx);
@@ -400,7 +408,19 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       // every other row keeps the push-down-only clamp so author-intended
       // gaps are never collapsed (see the growth comment below).
       const signed = isAspectHeightCarousel(block);
-      entries.push({ id, top: g.y, bottom: g.y + g.h, refBottom: g.y + referenceH, effectiveH, signed });
+      // Task #2840: for aspect carousels the stored box height is only a
+      // snapshot — the editor stage renders them at the aspect-derived height
+      // (height:auto + aspect-ratio), and authors align blocks below with that
+      // VISIBLE bottom. Measure signed growth from the aspect-derived height
+      // at this breakpoint's stage width instead of the stale stored h, so the
+      // stored-vs-rendered mismatch is not double-counted as a constant gap
+      // (or overlap) below the carousel on every viewport. Legacy blocks with
+      // no persisted ratio return null and keep the stored-height reference.
+      const aspectRefH = signed
+        ? resolveAspectReflowReferenceHeight(block, g, breakpoint)
+        : null;
+      const finalReferenceH = Number.isFinite(aspectRefH) ? aspectRefH : referenceH;
+      entries.push({ id, top: g.y, bottom: g.y + g.h, refBottom: g.y + finalReferenceH, effectiveH, signed });
     }
     if (entries.length === 0) return [];
     entries.sort((a, b) => a.top - b.top);
@@ -458,7 +478,7 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       grp.growth = grp.signed ? delta : Math.max(0, delta);
     }
     return groups;
-  }, [measuredHeights, blocks, resolveGeom]);
+  }, [measuredHeights, blocks, resolveGeom, breakpoint]);
 
   /**
    * Returns the total downward offset (px) that should be applied to a block
@@ -488,7 +508,18 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       if (rowGroups.length === 0) return 0;
       let offset = 0;
       for (const grp of rowGroups) {
-        if (grp.refBottom <= storedY) offset += grp.growth;
+        // Task #2840: signed (aspect-carousel) rows allow a few px of slack.
+        // Their reference bottom is the aspect-DERIVED height at the stage
+        // width (e.g. 375 × ratio → 619px) while authors drag the blocks
+        // below flush with the VISIBLE bottom on the editor stage and can
+        // land a few px short (616 vs 619). The strict `refBottom <= storedY`
+        // test would skip exactly those flush blocks, so the carousel's
+        // viewport-driven grow/shrink would leave them behind (overlap on
+        // wide phones, gap on narrow ones). The tolerance only widens the
+        // band for signed rows; push-down-only rows keep the strict test so
+        // author-intended overlaps are never disturbed.
+        const slack = grp.signed ? SIGNED_ROW_PUSH_TOLERANCE : 0;
+        if (grp.refBottom - slack <= storedY) offset += grp.growth;
       }
       return offset;
     },

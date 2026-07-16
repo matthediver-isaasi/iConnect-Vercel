@@ -13,6 +13,7 @@ import {
   BLOCK_TYPES,
   buildCanvasCss,
   isAspectHeightCarousel,
+  resolveAspectReflowReferenceHeight,
   resolveAspectSizingCss,
   resolveAspectSizingStyle,
 } from '../../client/src/lib/canvasDesign.js';
@@ -75,6 +76,61 @@ test('resolveAspectSizingStyle mirrors the CSS form for inline (forced-breakpoin
 test('isAspectHeightCarousel gate', () => {
   assert.equal(isAspectHeightCarousel(carouselBlock()), true);
   assert.equal(isAspectHeightCarousel(carouselBlock({ height_type: 'custom' })), false);
+});
+
+// Task #2840 — the signed public reflow measures aspect-carousel growth from
+// the aspect-DERIVED height at the breakpoint stage width, not the stored
+// (possibly stale) geometry height. Real-page regression: mobile hero stored
+// h=552 but aspect 744×1228 renders 619px at the 375px stage — the old
+// stored-h reference double-counted the 67px mismatch as a constant gap
+// below the carousel on every phone width.
+test('resolveAspectReflowReferenceHeight: fullBleed mobile carousel uses stage-width aspect height, not stored h', () => {
+  const block = {
+    id: 'hcc-m',
+    type: BLOCK_TYPES.HERO_CAROUSEL_MOBILE,
+    content: { height_type: 'aspect', fullBleed: true, aspect_ratio_w: 744, aspect_ratio_h: 1228 },
+    style: {},
+    bp: { mobile: { x: 0, y: 0, w: 375, h: 552 } },
+  };
+  const ref = resolveAspectReflowReferenceHeight(block, { x: 0, y: 0, w: 375, h: 552 }, 'mobile');
+  assert.equal(ref, Math.round((375 * 1228) / 744)); // 619 — NOT the stored 552
+});
+
+test('resolveAspectReflowReferenceHeight: non-fullBleed uses the (stage-clamped) stored width', () => {
+  const block = carouselBlock({ aspect_ratio_w: 16, aspect_ratio_h: 9 });
+  // Desktop, w=1200 → 675.
+  assert.equal(resolveAspectReflowReferenceHeight(block, geom, 'desktop'), 675);
+  // Mobile with a desktop-cascaded 1200px-wide frame clamps to the 375 stage.
+  assert.equal(
+    resolveAspectReflowReferenceHeight(block, { x: 0, y: 0, w: 1200, h: 500 }, 'mobile'),
+    Math.round((375 * 9) / 16),
+  );
+});
+
+test('resolveAspectReflowReferenceHeight: min/max clamps apply to the derived height', () => {
+  const block = carouselBlock({
+    fullBleed: true,
+    aspect_ratio_w: 16,
+    aspect_ratio_h: 9,
+    aspect_max_height: 500,
+  });
+  assert.equal(resolveAspectReflowReferenceHeight(block, geom, 'desktop'), 500);
+  const minned = carouselBlock({
+    fullBleed: true,
+    aspect_ratio_w: 16,
+    aspect_ratio_h: 9,
+    aspect_min_height: 400,
+  });
+  assert.equal(resolveAspectReflowReferenceHeight(minned, { x: 0, y: 0, w: 375, h: 200 }, 'mobile'), 400);
+});
+
+test('resolveAspectReflowReferenceHeight: null for non-aspect blocks and missing ratio (legacy fallback)', () => {
+  assert.equal(resolveAspectReflowReferenceHeight(carouselBlock({ height_type: 'custom' }), geom, 'mobile'), null);
+  assert.equal(resolveAspectReflowReferenceHeight(carouselBlock(), geom, 'mobile'), null);
+  assert.equal(
+    resolveAspectReflowReferenceHeight({ id: 'x', type: BLOCK_TYPES.TEXT, content: {}, bp: { desktop: geom } }, geom, 'desktop'),
+    null,
+  );
 });
 
 test('buildCanvasCss: aspect carousel wrapper rule uses auto height, not fixed px', () => {

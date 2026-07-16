@@ -91,3 +91,4 @@
 - [Canvas responsive typography selectors](canvas-responsive-typography-selector.md) — tenant @media typography overrides must target the element with the inline style (data-tg-r marker), never the bare data-cb wrapper.
 - [Tenant button-style icons](tenant-button-style-icons.md) — icon.name holds a Lucide name OR an FA class; every surface must resolve via shared renderStyleIcon, never getLucideIcon directly.
 - [Canvas public renderer passes no breakpoint](canvas-public-breakpoint-undefined.md) — per-breakpoint knobs baked into inline styles render desktop-only publicly; emit data-cb-scoped @media CSS instead.
+- [Aspect-carousel reflow reference](canvas-aspect-carousel-reflow.md) — public signed reflow must use the aspect-derived height at the stage width, not stored geom h; signed rows get a small push-slack.
