@@ -3160,6 +3160,38 @@ export function resolveAspectReflowReferenceHeight(block, geom, breakpoint) {
   return Math.round(h);
 }
 
+// Task #2842 — bake the aspect-derived height into stored geometry.
+//
+// An aspect-mode Hero Carousel's stored per-breakpoint geometry `h` is only a
+// snapshot: the editor stage renders the wrapper at height:auto + aspect-ratio,
+// so the stored box drifts from what authors actually see (e.g. stored 552 vs
+// rendered 619). The public reflow compensates via
+// resolveAspectReflowReferenceHeight, but the stale stored box still drives
+// editor selection handles, layer-panel sizing and row-membership math.
+//
+// This helper rewrites each breakpoint's stored `h` to the aspect-derived
+// height at that breakpoint's stage width (same math as the reflow reference:
+// stage/clamped width × ratio, min/max clamps applied). Callers invoke it
+// whenever the ratio / clamps / slide images / width change so stored data
+// stays honest. It never moves blocks below — authors already align those
+// with the VISIBLE aspect bottom, so only the box height is corrected.
+//
+// Pure + immutable: returns the same block reference when nothing changes
+// (non-aspect blocks, no persisted ratio, or already-baked heights).
+export function bakeAspectCarouselGeometry(block) {
+  if (!isAspectHeightCarousel(block)) return block;
+  const c = block.content || {};
+  if (!(Number(c.aspect_ratio_w) > 0 && Number(c.aspect_ratio_h) > 0)) return block;
+  let next = block;
+  for (const bp of ['desktop', 'tablet', 'mobile']) {
+    const geom = resolveBlockAtBreakpoint(next, bp);
+    const refH = resolveAspectReflowReferenceHeight(next, geom, bp);
+    if (!Number.isFinite(refH) || refH <= 0) continue;
+    if (Math.round(geom.h) !== refH) next = setBlockBp(next, bp, { h: refH });
+  }
+  return next;
+}
+
 // CSS-string form of resolveAspectSizingStyle for the static stylesheet.
 export function resolveAspectSizingCss(block) {
   const s = resolveAspectSizingStyle(block);

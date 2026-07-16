@@ -12,10 +12,12 @@ import assert from 'node:assert/strict';
 import {
   BLOCK_TYPES,
   buildCanvasCss,
+  bakeAspectCarouselGeometry,
   isAspectHeightCarousel,
   resolveAspectReflowReferenceHeight,
   resolveAspectSizingCss,
   resolveAspectSizingStyle,
+  resolveBlockAtBreakpoint,
 } from '../../client/src/lib/canvasDesign.js';
 
 const geom = { x: 0, y: 100, w: 1200, h: 500 };
@@ -156,6 +158,56 @@ test('buildCanvasCss: non-aspect carousel keeps the fixed geometry height', () =
   assert.ok(rule, 'expected a full-bleed rule for the carousel');
   assert.ok(rule.includes('height:500px;'), 'fixed height preserved for custom mode');
   assert.ok(!rule.includes('aspect-ratio'), 'no aspect-ratio for custom mode');
+});
+
+// Task #2842 — baking the aspect-derived height into stored geometry so
+// editor selection handles / layer sizing match the visible carousel bottom.
+test('bakeAspectCarouselGeometry: rewrites drifted stored heights per breakpoint', () => {
+  const block = {
+    id: 'hcc-b',
+    type: BLOCK_TYPES.HERO_CAROUSEL,
+    content: { height_type: 'aspect', fullBleed: true, aspect_ratio_w: 744, aspect_ratio_h: 1228 },
+    style: {},
+    bp: {
+      desktop: { x: 0, y: 0, w: 1200, h: 552 },
+      mobile: { h: 552 },
+    },
+  };
+  const baked = bakeAspectCarouselGeometry(block);
+  assert.notEqual(baked, block, 'a drifted block must return a new object');
+  assert.equal(resolveBlockAtBreakpoint(baked, 'desktop').h, Math.round((1200 * 1228) / 744));
+  assert.equal(resolveBlockAtBreakpoint(baked, 'tablet').h, Math.round((768 * 1228) / 744));
+  assert.equal(resolveBlockAtBreakpoint(baked, 'mobile').h, Math.round((375 * 1228) / 744)); // 619, not 552
+});
+
+test('bakeAspectCarouselGeometry: applies min/max clamps to the baked height', () => {
+  const block = carouselBlock({
+    fullBleed: true,
+    aspect_ratio_w: 16,
+    aspect_ratio_h: 9,
+    aspect_max_height: 500,
+  });
+  const baked = bakeAspectCarouselGeometry(block);
+  assert.equal(resolveBlockAtBreakpoint(baked, 'desktop').h, 500);
+});
+
+test('bakeAspectCarouselGeometry: non-full-bleed uses the stage-clamped stored width', () => {
+  const block = carouselBlock({ aspect_ratio_w: 16, aspect_ratio_h: 9 });
+  const baked = bakeAspectCarouselGeometry(block);
+  assert.equal(resolveBlockAtBreakpoint(baked, 'desktop').h, 675); // 1200 × 9/16
+  assert.equal(resolveBlockAtBreakpoint(baked, 'mobile').h, Math.round((375 * 9) / 16));
+});
+
+test('bakeAspectCarouselGeometry: identity for non-aspect, missing-ratio, and already-baked blocks', () => {
+  const nonAspect = carouselBlock({ height_type: 'custom' });
+  assert.equal(bakeAspectCarouselGeometry(nonAspect), nonAspect);
+  const noRatio = carouselBlock();
+  assert.equal(bakeAspectCarouselGeometry(noRatio), noRatio);
+  const text = { id: 't', type: BLOCK_TYPES.TEXT, content: {}, bp: { desktop: { ...geom } } };
+  assert.equal(bakeAspectCarouselGeometry(text), text);
+  const drifted = carouselBlock({ fullBleed: true, aspect_ratio_w: 16, aspect_ratio_h: 9 });
+  const once = bakeAspectCarouselGeometry(drifted);
+  assert.equal(bakeAspectCarouselGeometry(once), once, 'second bake must be a no-op (same reference)');
 });
 
 test('buildCanvasCss: unrelated blocks are byte-identical with and without an aspect carousel present', () => {

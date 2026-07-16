@@ -75,6 +75,8 @@ import {
   stageHeightForBreakpoint,
   symbolContentExtent,
   isFlowDesign,
+  isAspectHeightCarousel,
+  bakeAspectCarouselGeometry,
 } from '@/lib/canvasDesign';
 import CanvasPalette from './CanvasPalette';
 import CanvasStage from './CanvasStage';
@@ -695,6 +697,59 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       arr.map((b) => (b.id === id ? (typeof updater === 'function' ? updater(b) : updater) : b)),
     );
   }, [replaceChildren]);
+
+  // Task #2842 — keep an aspect-mode Hero Carousel's STORED per-breakpoint
+  // height in sync with the aspect-derived height the stage actually renders
+  // (height:auto + aspect-ratio wrapper). Whenever any input that determines
+  // the visible height changes — persisted ratio (rewritten when slide images
+  // change), min/max clamps, aspect mode itself, full-width/full-bleed, or the
+  // stored width — the aspect height at each breakpoint's stage width is baked
+  // into stored geometry so selection handles, layer-panel sizing and
+  // row-membership math match the visible carousel bottom. Blocks below are
+  // NOT moved: authors already align them with the visible aspect bottom.
+  //
+  // Signature-based so it reacts only to CHANGES made in this session: the
+  // first observation seeds the signature without baking, so merely opening a
+  // legacy page with drifted stored heights never flips isDirty (mirrors the
+  // auto-height bake's author-intent gate). Baking writes only `h`, which is
+  // not part of the signature, so the effect settles after one pass.
+  const aspectBakeSigRef = useRef(null);
+  useEffect(() => {
+    if (isFlow) return; // v2 flow pages: geometry is engine-driven, nothing stored to bake
+    const sig = children
+      .filter((b) => isAspectHeightCarousel(b))
+      .map((b) => {
+        const c = b.content || {};
+        const widths = ['desktop', 'tablet', 'mobile']
+          .map((bp) => resolveBlockAtBreakpoint(b, bp).w)
+          .join(',');
+        return [
+          b.id,
+          c.aspect_ratio_w,
+          c.aspect_ratio_h,
+          c.aspect_min_height,
+          c.aspect_max_height,
+          b.fullWidth ? 1 : 0,
+          c.fullBleed ? 1 : 0,
+          widths,
+        ].join('|');
+      })
+      .join(';');
+    if (aspectBakeSigRef.current === sig) return;
+    const isFirst = aspectBakeSigRef.current === null;
+    aspectBakeSigRef.current = sig;
+    if (isFirst || sig === '') return;
+    // Only touch the design when a bake actually changes a stored height —
+    // avoids priming skipHistoryRef for a no-op update.
+    const anyDrift = children.some((b) => bakeAspectCarouselGeometry(b) !== b);
+    if (!anyDrift) return;
+    // Mechanical follow-up of the author's edit (which already pushed history
+    // and flipped isDirty): don't add a second undo step for the bake. Undoing
+    // the triggering edit changes the signature back, so the effect re-bakes
+    // the old aspect height — the stored h stays self-consistent either way.
+    skipHistoryRef.current = true;
+    replaceChildren((arr) => arr.map((b) => bakeAspectCarouselGeometry(b)));
+  }, [children, isFlow, replaceChildren]);
 
   // ---- Selection helpers ----
   const selectedBlocks = useMemo(
