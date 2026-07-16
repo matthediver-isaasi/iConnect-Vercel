@@ -1481,6 +1481,10 @@ BLOCK_DEFAULTS[BLOCK_TYPES.HERO_CAROUSEL] = {
         backgroundImage: '',
         foregroundImage: '',
         foregroundAlign: 'center',
+        // Mobile overrides (Task #2833): optional per-slide image swaps for
+        // ≤767px viewports. Empty/absent = mobile shows the desktop image.
+        mobileBackgroundImage: '',
+        mobileForegroundImage: '',
         overlayColor: '#000000',
         overlayOpacity: 40,
         imageFit: 'cover',
@@ -2940,6 +2944,15 @@ export function validateBlock(block) {
           const val = slide?.[key];
           if (val != null && (!Number.isFinite(Number(val)) || Number(val) < 0)) {
             errors.push(`Hero Carousel slide ${i + 1} has an invalid ${key === 'padding_vertical' ? 'vertical' : 'horizontal'} padding override.`);
+          }
+        });
+        // Per-slide MOBILE padding overrides (Task #2833 — absent/null =
+        // inherit today's derived mobile padding) must be non-negative
+        // numbers when present.
+        ['mobile_padding_vertical', 'mobile_padding_horizontal'].forEach((key) => {
+          const val = slide?.[key];
+          if (val != null && (!Number.isFinite(Number(val)) || Number(val) < 0)) {
+            errors.push(`Hero Carousel slide ${i + 1} has an invalid mobile ${key === 'mobile_padding_vertical' ? 'vertical' : 'horizontal'} padding override.`);
           }
         });
         // Per-slide text offset overrides (absent/null = inherit block

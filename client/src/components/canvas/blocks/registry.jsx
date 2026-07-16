@@ -8233,6 +8233,13 @@ function HeroCarouselRender({ block, asEditor, breakpoint }) {
   const [aspectDims, setAspectDims] = useState(
     hasStoredAspect ? { w: storedAspectW, h: storedAspectH } : null
   );
+  // Aspect mode intentionally sizes from the DESKTOP slide images only
+  // (Task #2833 decision): mixing mobile-override images into the tallest-
+  // slide calculation would make the container height depend on viewport,
+  // risking layout shift and editor/public drift. Both the editor preview
+  // and the public page therefore share the same desktop-image-derived
+  // ratio at every breakpoint; mobile override images render inside that
+  // box with the slide's object-fit.
   const slideImageKey = slides.map((s) => s?.backgroundImage || '').join('|');
   useEffect(() => {
     if (!isAspect) return undefined;
@@ -8290,18 +8297,22 @@ function HeroCarouselRender({ block, asEditor, breakpoint }) {
   const paddingHorizontal = Number.isFinite(Number(c.padding_horizontal)) ? Number(c.padding_horizontal) : 16;
 
   // Per-slide effective padding: a slide may override the block-level default
-  // (absent/null = inherit). Mobile values are derived from the slide's
-  // effective padding so overridden slides also scale correctly on mobile.
+  // (absent/null = inherit). Mobile values prefer an explicit slide-level
+  // mobile_padding_* override (Task #2833 — used as-is), otherwise derive
+  // from the slide's effective padding so overridden slides also scale
+  // correctly on mobile exactly as before.
   const resolveSlidePadding = (slide) => {
     const ovV = slide?.padding_vertical;
     const ovH = slide?.padding_horizontal;
     const effV = ovV != null && Number.isFinite(Number(ovV)) ? Number(ovV) : paddingVertical;
     const effH = ovH != null && Number.isFinite(Number(ovH)) ? Number(ovH) : paddingHorizontal;
+    const mv = slide?.mobile_padding_vertical;
+    const mh = slide?.mobile_padding_horizontal;
     return {
       v: effV,
       h: effH,
-      mobileV: Math.max(32, Math.round(effV * 0.5)),
-      mobileH: Math.max(16, effH),
+      mobileV: mv != null && Number.isFinite(Number(mv)) ? Number(mv) : Math.max(32, Math.round(effV * 0.5)),
+      mobileH: mh != null && Number.isFinite(Number(mh)) ? Number(mh) : Math.max(16, effH),
     };
   };
   const textOffsetX = Number(c.text_offset_x) || 0;
@@ -8506,6 +8517,14 @@ function HeroCarouselRender({ block, asEditor, breakpoint }) {
             const off = resolveSlideTextOffset(slide);
             return `[data-hcc="${safeBlockId}"] .hcc-content-wrap[data-hcc-slide="${i}"] .hcc-text-box{transform:translate(${off.mobileX}px,${off.mobileY}px)!important;}`;
           }),
+          // Mobile image swap (Task #2833): slides with a mobile-specific
+          // background/foreground image render BOTH variants; the mobile one
+          // is inline display:none and these rules flip visibility at ≤767px.
+          // Slides without mobile images have no .hcc-has-mobile /
+          // .hcc-*-mobile elements, so their output is byte-identical.
+          `[data-hcc="${safeBlockId}"] .hcc-has-mobile{display:none!important;}`,
+          `[data-hcc="${safeBlockId}"] .hcc-bg-mobile{display:block!important;}`,
+          `[data-hcc="${safeBlockId}"] .hcc-fg-mobile{display:flex!important;}`,
           `}`,
         ].join('') }} />
       )}
@@ -8520,23 +8539,45 @@ function HeroCarouselRender({ block, asEditor, breakpoint }) {
         const textBoxStyle = (effOffsetX !== 0 || effOffsetY !== 0)
           ? { transform: `translate(${effOffsetX}px, ${effOffsetY}px)` }
           : undefined;
+        // Mobile image overrides (Task #2833). In the editor's breakpoint
+        // preview (isPreview) the resolved src is swapped directly so the
+        // mobile chip shows exactly what phones will see. On the public page
+        // both variants render and the per-block ≤767px stylesheet flips
+        // visibility (no JS breakpoint detection). Absent = inherit desktop.
+        const mobileBg = slide.mobileBackgroundImage || '';
+        const mobileFg = slide.mobileForegroundImage || '';
+        const previewBg = isMobile && mobileBg ? mobileBg : slide.backgroundImage;
+        const previewFg = isMobile && mobileFg ? mobileFg : slide.foregroundImage;
+        const bgImgStyle = { objectFit: slide.imageFit === 'original' ? 'none' : (slide.imageFit || 'cover'), objectPosition: 'center' };
+        const publicHasMobileBg = !isPreview && !!mobileBg;
         return (
         <div key={slide.id || index} style={getSlideTransitionStyle(index)}>
           <div className="absolute inset-0">
-            {slide.backgroundImage ? (
+            {(isPreview ? previewBg : slide.backgroundImage) ? (
               <img
-                src={slide.backgroundImage}
+                src={isPreview ? previewBg : slide.backgroundImage}
                 alt=""
                 aria-hidden="true"
                 loading="lazy"
                 decoding="async"
-                className="absolute inset-0 w-full h-full"
-                style={{ objectFit: slide.imageFit === 'original' ? 'none' : (slide.imageFit || 'cover'), objectPosition: 'center' }}
+                className={`absolute inset-0 w-full h-full${publicHasMobileBg ? ' hcc-has-mobile' : ''}`}
+                style={bgImgStyle}
               />
             ) : (
               <div
-                className="absolute inset-0"
+                className={`absolute inset-0${publicHasMobileBg ? ' hcc-has-mobile' : ''}`}
                 style={{ background: 'linear-gradient(135deg,#1e3a5f 0%,#3b82f6 100%)' }}
+              />
+            )}
+            {publicHasMobileBg && (
+              <img
+                src={mobileBg}
+                alt=""
+                aria-hidden="true"
+                loading="lazy"
+                decoding="async"
+                className="hcc-bg-mobile absolute inset-0 w-full h-full"
+                style={{ ...bgImgStyle, display: 'none' }}
               />
             )}
             <div
@@ -8549,14 +8590,14 @@ function HeroCarouselRender({ block, asEditor, breakpoint }) {
             />
           </div>
 
-          {slide.foregroundImage && (
+          {(isPreview ? previewFg : slide.foregroundImage) && (
             // Foreground image layer: sits above the background + overlay,
             // below the text content. Constrained to the 1200px content rail
             // (railStyle) even when the background is full-bleed, so the
             // image stays aligned with page content while the background
             // stretches edge-to-edge.
             <div
-              className="hcc-foreground absolute inset-0 pointer-events-none flex items-center"
+              className={`hcc-foreground absolute inset-0 pointer-events-none flex items-center${!isPreview && mobileFg ? ' hcc-has-mobile' : ''}`}
               aria-hidden="true"
               style={{
                 ...(railStyle || {}),
@@ -8569,7 +8610,36 @@ function HeroCarouselRender({ block, asEditor, breakpoint }) {
               }}
             >
               <img
-                src={slide.foregroundImage}
+                src={isPreview ? previewFg : slide.foregroundImage}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                className="max-h-full max-w-full"
+                style={{ objectFit: 'contain' }}
+              />
+            </div>
+          )}
+          {!isPreview && mobileFg && (
+            // Mobile foreground variant (Task #2833): hidden at desktop via
+            // inline display:none; the ≤767px stylesheet flips it to flex.
+            // Rendered even when no desktop foreground is set, so a slide can
+            // have a mobile-only foreground image.
+            <div
+              className="hcc-foreground hcc-fg-mobile absolute inset-0 pointer-events-none items-center"
+              aria-hidden="true"
+              style={{
+                display: 'none',
+                ...(railStyle || {}),
+                justifyContent:
+                  slide.foregroundAlign === 'left'
+                    ? 'flex-start'
+                    : slide.foregroundAlign === 'right'
+                      ? 'flex-end'
+                      : 'center',
+              }}
+            >
+              <img
+                src={mobileFg}
                 alt=""
                 loading="lazy"
                 decoding="async"
@@ -8813,6 +8883,8 @@ function SlideDndList({ slides, onChange, breakpoint, defaultPaddingV = 60, defa
         backgroundImage: '',
         foregroundImage: '',
         foregroundAlign: 'center',
+        mobileBackgroundImage: '',
+        mobileForegroundImage: '',
         overlayColor: '#000000',
         overlayOpacity: 40,
         imageFit: 'cover',
@@ -8966,72 +9038,129 @@ function SlideDndList({ slides, onChange, breakpoint, defaultPaddingV = 60, defa
                     } else {
                       // Clearing the override deletes the slide-level fields
                       // (undefined values drop out on JSON serialisation) so
-                      // the slide inherits the block defaults again.
+                      // the slide inherits the block defaults again. Mobile
+                      // text offsets are independent (Mobile overrides
+                      // section below) and are intentionally left untouched.
                       patchSlide(idx, {
                         text_offset_x: undefined,
                         text_offset_y: undefined,
-                        mobile_text_offset_x: undefined,
-                        mobile_text_offset_y: undefined,
                       });
                     }
                   }}
                   testId={`hcc-slide-${idx}-custom-text-offset`}
                 />
                 {(slide.text_offset_x != null || slide.text_offset_y != null) && (
-                  <>
-                    <div className="grid grid-cols-2 gap-2 mt-2">
-                      <NumberField
-                        label="Text offset X (px)"
-                        value={slide.text_offset_x ?? defaultTextOffsetX}
-                        onChange={(v) => patchSlide(idx, { text_offset_x: v ?? defaultTextOffsetX })}
-                        testId={`hcc-slide-${idx}-text-offset-x`}
-                      />
-                      <NumberField
-                        label="Text offset Y (px)"
-                        value={slide.text_offset_y ?? defaultTextOffsetY}
-                        onChange={(v) => patchSlide(idx, { text_offset_y: v ?? defaultTextOffsetY })}
-                        testId={`hcc-slide-${idx}-text-offset-y`}
-                      />
-                    </div>
-                    <ToggleField
-                      label="Custom mobile text offset"
-                      value={slide.mobile_text_offset_x != null || slide.mobile_text_offset_y != null}
-                      onChange={(on) => {
-                        if (on) {
-                          // Seed with the slide's effective mobile offsets so
-                          // toggling on does not visually shift the slide.
-                          const effX = slide.text_offset_x != null ? Number(slide.text_offset_x) : defaultTextOffsetX;
-                          const effY = slide.text_offset_y != null ? Number(slide.text_offset_y) : defaultTextOffsetY;
-                          patchSlide(idx, {
-                            mobile_text_offset_x: defaultMobileTextOffsetX !== 0 ? defaultMobileTextOffsetX : Math.round(effX * 0.5),
-                            mobile_text_offset_y: defaultMobileTextOffsetY !== 0 ? defaultMobileTextOffsetY : Math.round(effY * 0.5),
-                          });
-                        } else {
-                          // Clearing the override deletes the slide-level
-                          // fields so mobile derives from block/effective
-                          // offsets again.
-                          patchSlide(idx, { mobile_text_offset_x: undefined, mobile_text_offset_y: undefined });
-                        }
-                      }}
-                      testId={`hcc-slide-${idx}-custom-mobile-text-offset`}
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    <NumberField
+                      label="Text offset X (px)"
+                      value={slide.text_offset_x ?? defaultTextOffsetX}
+                      onChange={(v) => patchSlide(idx, { text_offset_x: v ?? defaultTextOffsetX })}
+                      testId={`hcc-slide-${idx}-text-offset-x`}
                     />
-                    {(slide.mobile_text_offset_x != null || slide.mobile_text_offset_y != null) && (
-                      <div className="grid grid-cols-2 gap-2 mt-2">
-                        <NumberField
-                          label="Mobile text offset X (px)"
-                          value={slide.mobile_text_offset_x ?? 0}
-                          onChange={(v) => patchSlide(idx, { mobile_text_offset_x: v ?? 0 })}
-                          testId={`hcc-slide-${idx}-mobile-text-offset-x`}
-                        />
-                        <NumberField
-                          label="Mobile text offset Y (px)"
-                          value={slide.mobile_text_offset_y ?? 0}
-                          onChange={(v) => patchSlide(idx, { mobile_text_offset_y: v ?? 0 })}
-                          testId={`hcc-slide-${idx}-mobile-text-offset-y`}
-                        />
-                      </div>
-                    )}
-                  </>
+                    <NumberField
+                      label="Text offset Y (px)"
+                      value={slide.text_offset_y ?? defaultTextOffsetY}
+                      onChange={(v) => patchSlide(idx, { text_offset_y: v ?? defaultTextOffsetY })}
+                      testId={`hcc-slide-${idx}-text-offset-y`}
+                    />
+                  </div>
+                )}
+              </div>
+              <div className="border-t border-slate-100 pt-2">
+                <div className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide mb-1">
+                  Mobile overrides
+                </div>
+                <p className="text-[11px] text-slate-400 mb-2">
+                  Only affect phones (≤767px). Leave empty to inherit the desktop settings.
+                </p>
+                <ImageField
+                  label="Mobile background image"
+                  value={slide.mobileBackgroundImage || ''}
+                  onChangeSrc={(v) => patchSlide(idx, { mobileBackgroundImage: v || undefined })}
+                  testId={`hcc-slide-${idx}-mobile-image`}
+                />
+                <ImageField
+                  label="Mobile foreground image"
+                  value={slide.mobileForegroundImage || ''}
+                  onChangeSrc={(v) => patchSlide(idx, { mobileForegroundImage: v || undefined })}
+                  testId={`hcc-slide-${idx}-mobile-foreground-image`}
+                />
+                <ToggleField
+                  label="Custom mobile padding"
+                  value={slide.mobile_padding_vertical != null || slide.mobile_padding_horizontal != null}
+                  onChange={(on) => {
+                    if (on) {
+                      // Seed with the slide's effective derived mobile
+                      // padding so toggling on does not visually shift.
+                      const effV = slide.padding_vertical != null && Number.isFinite(Number(slide.padding_vertical)) ? Number(slide.padding_vertical) : defaultPaddingV;
+                      const effH = slide.padding_horizontal != null && Number.isFinite(Number(slide.padding_horizontal)) ? Number(slide.padding_horizontal) : defaultPaddingH;
+                      patchSlide(idx, {
+                        mobile_padding_vertical: Math.max(32, Math.round(effV * 0.5)),
+                        mobile_padding_horizontal: Math.max(16, effH),
+                      });
+                    } else {
+                      // Clearing the override deletes the slide-level fields
+                      // so mobile derives from the effective padding again.
+                      patchSlide(idx, { mobile_padding_vertical: undefined, mobile_padding_horizontal: undefined });
+                    }
+                  }}
+                  testId={`hcc-slide-${idx}-custom-mobile-padding`}
+                />
+                {(slide.mobile_padding_vertical != null || slide.mobile_padding_horizontal != null) && (
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    <NumberField
+                      label="Mobile padding vertical (px)"
+                      value={slide.mobile_padding_vertical ?? 32}
+                      min={0}
+                      onChange={(v) => patchSlide(idx, { mobile_padding_vertical: v ?? 32 })}
+                      testId={`hcc-slide-${idx}-mobile-padding-v`}
+                    />
+                    <NumberField
+                      label="Mobile padding horizontal (px)"
+                      value={slide.mobile_padding_horizontal ?? 16}
+                      min={0}
+                      onChange={(v) => patchSlide(idx, { mobile_padding_horizontal: v ?? 16 })}
+                      testId={`hcc-slide-${idx}-mobile-padding-h`}
+                    />
+                  </div>
+                )}
+                <ToggleField
+                  label="Custom mobile text offset"
+                  value={slide.mobile_text_offset_x != null || slide.mobile_text_offset_y != null}
+                  onChange={(on) => {
+                    if (on) {
+                      // Seed with the slide's effective mobile offsets so
+                      // toggling on does not visually shift the slide.
+                      const effX = slide.text_offset_x != null ? Number(slide.text_offset_x) : defaultTextOffsetX;
+                      const effY = slide.text_offset_y != null ? Number(slide.text_offset_y) : defaultTextOffsetY;
+                      patchSlide(idx, {
+                        mobile_text_offset_x: defaultMobileTextOffsetX !== 0 ? defaultMobileTextOffsetX : Math.round(effX * 0.5),
+                        mobile_text_offset_y: defaultMobileTextOffsetY !== 0 ? defaultMobileTextOffsetY : Math.round(effY * 0.5),
+                      });
+                    } else {
+                      // Clearing the override deletes the slide-level
+                      // fields so mobile derives from block/effective
+                      // offsets again.
+                      patchSlide(idx, { mobile_text_offset_x: undefined, mobile_text_offset_y: undefined });
+                    }
+                  }}
+                  testId={`hcc-slide-${idx}-custom-mobile-text-offset`}
+                />
+                {(slide.mobile_text_offset_x != null || slide.mobile_text_offset_y != null) && (
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    <NumberField
+                      label="Mobile text offset X (px)"
+                      value={slide.mobile_text_offset_x ?? 0}
+                      onChange={(v) => patchSlide(idx, { mobile_text_offset_x: v ?? 0 })}
+                      testId={`hcc-slide-${idx}-mobile-text-offset-x`}
+                    />
+                    <NumberField
+                      label="Mobile text offset Y (px)"
+                      value={slide.mobile_text_offset_y ?? 0}
+                      onChange={(v) => patchSlide(idx, { mobile_text_offset_y: v ?? 0 })}
+                      testId={`hcc-slide-${idx}-mobile-text-offset-y`}
+                    />
+                  </div>
                 )}
               </div>
               <SelectField
