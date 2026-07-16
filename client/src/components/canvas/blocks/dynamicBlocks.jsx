@@ -384,6 +384,39 @@ function gridStyle(cols, gap) {
   };
 }
 
+// Public pages render blocks WITHOUT a `breakpoint` prop (the visitor's real
+// viewport decides), so an inline grid resolved via columnsForBreakpoint
+// silently falls back to the desktop column count. On the public path the
+// list blocks therefore emit per-breakpoint @media rules (scoped to the
+// block's [data-cb] wrapper) instead of an inline grid, mirroring the
+// buildResponsiveColumnsCss pattern the pricing/testimonial blocks use.
+// In the editor preview `breakpoint` IS set, so the inline grid stays.
+function isEditorPreviewBreakpoint(breakpoint) {
+  return breakpoint === 'desktop' || breakpoint === 'tablet' || breakpoint === 'mobile';
+}
+
+function buildResponsiveListGridCss(blockId, content, gap, { testId, forceSingle = false } = {}) {
+  const safeId = String(blockId || '').replace(/["\\]/g, '');
+  if (!safeId) return '';
+  const desk = forceSingle ? 1 : columnsForBreakpoint(content, 'desktop');
+  const tab = forceSingle ? 1 : columnsForBreakpoint(content, 'tablet');
+  const mob = forceSingle ? 1 : columnsForBreakpoint(content, 'mobile');
+  const sel = testId
+    ? `[data-cb="${safeId}"] [data-testid="${testId}"]`
+    : `[data-cb="${safeId}"] [data-list-grid]`;
+  const g = Number.isFinite(Number(gap)) ? Number(gap) : 16;
+  const parts = [
+    `${sel}{display:grid;gap:${g}px;grid-template-columns:repeat(${desk},minmax(0,1fr));}`,
+  ];
+  if (tab !== desk) {
+    parts.push(`@media (max-width:${BREAKPOINT_MAX_PX.tablet}px){${sel}{grid-template-columns:repeat(${tab},minmax(0,1fr));}}`);
+  }
+  if (mob !== tab) {
+    parts.push(`@media (max-width:${BREAKPOINT_MAX_PX.mobile}px){${sel}{grid-template-columns:repeat(${mob},minmax(0,1fr));}}`);
+  }
+  return parts.join('');
+}
+
 // Renders a set of sponsor items as a row-by-row flex layout so that any
 // under-full row (including the last row of a multi-row dataset) is centered
 // independently. Each card keeps the same fixed width as in a normal `cols`-
@@ -491,8 +524,14 @@ function EventListRender({ block, breakpoint, asEditor }) {
 
   const items = useMemo(() => filterAndSortEvents(data, c), [data, c]);
 
+  const isPreview = isEditorPreviewBreakpoint(breakpoint);
+  const gridCss = !isPreview
+    ? buildResponsiveListGridCss(block.id, c, c.gap, { testId: 'event-list', forceSingle: layout === 'list' })
+    : '';
+
   return (
     <div className="w-full h-full overflow-auto" aria-label={block.a11y?.ariaLabel || c.title || 'Events'}>
+      {gridCss ? <style dangerouslySetInnerHTML={{ __html: gridCss }} /> : null}
       {c.title ? <Heading level={c.headingLevel || 2}>{c.title}</Heading> : null}
       {isLoading ? (
         <ListSkeleton count={Math.min(c.limit || 6, 6)} columns={effectiveCols} gap={c.gap} />
@@ -501,7 +540,7 @@ function EventListRender({ block, breakpoint, asEditor }) {
       ) : items.length === 0 ? (
         <EmptyState icon={Calendar} text={c.emptyText || 'No events to show.'} />
       ) : (
-        <ul className="list-none m-0 p-0" style={gridStyle(effectiveCols, c.gap)} data-testid="event-list">
+        <ul className="list-none m-0 p-0" style={isPreview ? gridStyle(effectiveCols, c.gap) : undefined} data-testid="event-list">
           {items.map((e) => (
             <li
               key={e.id}
@@ -4177,6 +4216,7 @@ function ArticleListRender({ block, breakpoint, asEditor }) {
         summaryStyleObj && hasResponsiveTypographyOverride(summaryStyleObj)
           ? buildTenantTypographyResponsiveCss(`[data-cb="${safeBlockId}"] [data-tg-r="article-summary"]`, summaryStyleObj)
           : null,
+        buildResponsiveListGridCss(block.id, c, c.gap, { testId: 'article-list', forceSingle: layout === 'list' }),
       ].filter(Boolean).join('')
     : '';
 
@@ -4191,7 +4231,7 @@ function ArticleListRender({ block, breakpoint, asEditor }) {
       ) : items.length === 0 ? (
         <EmptyState icon={Newspaper} text={c.emptyText || 'No articles yet.'} />
       ) : (
-        <ul className="list-none m-0 p-0" style={gridStyle(effectiveCols, c.gap)} data-testid="article-list">
+        <ul className="list-none m-0 p-0" style={isPreview ? gridStyle(effectiveCols, c.gap) : undefined} data-testid="article-list">
           {items.map((a) => {
             const authorText = source === 'articles'
               ? formatAuthorNames(coAuthorsData?.authors?.[a.id])
@@ -4468,8 +4508,14 @@ function ResourceListRender({ block, breakpoint, asEditor }) {
     ? searchedItems.slice(safePage * perPage, safePage * perPage + perPage)
     : (hasLimit ? searchedItems.slice(0, perPage) : searchedItems);
 
+  const isPreview = isEditorPreviewBreakpoint(breakpoint);
+  const gridCss = !isPreview
+    ? buildResponsiveListGridCss(block.id, c, c.gap, { testId: 'resource-list', forceSingle: layout === 'list' })
+    : '';
+
   return (
     <div className="w-full h-full overflow-auto" aria-label={block.a11y?.ariaLabel || c.title || 'Resources'}>
+      {gridCss ? <style dangerouslySetInnerHTML={{ __html: gridCss }} /> : null}
       {c.title ? <Heading level={c.headingLevel || 2}>{c.title}</Heading> : null}
       {isLoading ? (
         <ListSkeleton count={Math.min(c.limit || 6, 6)} columns={effectiveCols} gap={c.gap} />
@@ -4497,7 +4543,7 @@ function ResourceListRender({ block, breakpoint, asEditor }) {
           <EmptyState icon={Folder} text={c.emptyText || 'No resources available.'} />
         ) : (
         <>
-        <ul className="list-none m-0 p-0" style={gridStyle(effectiveCols, c.gap)} data-testid="resource-list">
+        <ul className="list-none m-0 p-0" style={isPreview ? gridStyle(effectiveCols, c.gap) : undefined} data-testid="resource-list">
           {visibleItems.map((r) => (
             <li
               key={r.id}
@@ -4855,6 +4901,7 @@ function ResourceShowcaseRender({ block, breakpoint, asEditor }) {
         summaryStyleObj && hasResponsiveTypographyOverride(summaryStyleObj)
           ? buildTenantTypographyResponsiveCss(`[data-cb="${safeBlockId}"] [data-tg-r="resource-showcase-summary"]`, summaryStyleObj)
           : null,
+        buildResponsiveListGridCss(block.id, c, c.gap ?? 24, { testId: 'resource-showcase' }),
       ].filter(Boolean).join('')
     : '';
 
@@ -4868,7 +4915,7 @@ function ResourceShowcaseRender({ block, breakpoint, asEditor }) {
       ) : items.length === 0 ? (
         <EmptyState icon={Folder} text={c.emptyText || 'No resources available.'} />
       ) : (
-        <ul className="list-none m-0 p-0" style={gridStyle(cols, c.gap ?? 24)} data-testid="resource-showcase">
+        <ul className="list-none m-0 p-0" style={isPreview ? gridStyle(cols, c.gap ?? 24) : undefined} data-testid="resource-showcase">
           {items.map((r) => {
             // Same link behaviour as the iEdit Resources Showcase element:
             // public resources open their target URL directly (the public

@@ -89,3 +89,4 @@
 - [TipTap Link per-link new-tab](tiptap-link-target-default.md) — extension default target='_blank' survives .configure() deep-merge + renderHTML always merges global HTMLAttributes; must explicitly null global target to get same-tab default.
 - [Canvas engine mobile stacking](canvas-engine-mobile-stacking.md) — engine emits desktop-only frames (2-up cards overlap on phones); card bodies strip <table>; add stacked bp frames in source order + verify arithmetically.
 - [Tenant button-style icons](tenant-button-style-icons.md) — icon.name holds a Lucide name OR an FA class; every surface must resolve via shared renderStyleIcon, never getLucideIcon directly.
+- [Canvas public renderer passes no breakpoint](canvas-public-breakpoint-undefined.md) — per-breakpoint knobs baked into inline styles render desktop-only publicly; emit data-cb-scoped @media CSS instead.
