@@ -841,22 +841,23 @@ function tagForTypographyStyleType(styleType) {
   return 'div';
 }
 
-// Task #974: cascade mobile -> tablet -> desktop for the four
-// per-device tenant typography properties (font-size, line-height,
-// letter-spacing, margin-bottom). When the caller doesn't specify a
-// breakpoint we fall back to the desktop value so callers that
-// pre-date the responsive contract behave byte-identically.
-function pickResponsiveTypoValue(style, baseKey, breakpoint) {
-  if (!style) return null;
-  const desk = style[baseKey];
-  if (breakpoint === 'mobile') {
-    return style[`${baseKey}_mobile`] ?? style[`${baseKey}_tablet`] ?? desk;
-  }
-  if (breakpoint === 'tablet') {
-    return style[`${baseKey}_tablet`] ?? desk;
-  }
-  return desk;
-}
+// Responsive tenant-typography helpers live in a React-free module so the
+// node --test suite covers them directly. Re-exported here so existing
+// importers (dynamicBlocks.jsx) keep working unchanged.
+import {
+  pickResponsiveTypoValue,
+  hasResponsiveTypographyOverride,
+  buildTenantTypographyResponsiveCss,
+  buildTextResponsiveTypographyCss,
+  textTypographySelector,
+  TEXT_ROOT_ATTR,
+  TEXT_ROOT_VALUE,
+} from '@/lib/canvasTypographyResponsive';
+export {
+  pickResponsiveTypoValue,
+  hasResponsiveTypographyOverride,
+  buildTenantTypographyResponsiveCss,
+};
 
 export function buildTypographyInlineStyle(style, options) {
   if (!style) return null;
@@ -886,69 +887,6 @@ export function buildTypographyInlineStyle(style, options) {
   const mb = pickResponsiveTypoValue(style, 'margin_bottom', bp);
   if (mb != null && !opts.omitMarginBottom) out.marginBottom = `${mb}px`;
   return out;
-}
-
-// True when the tenant style declares any tablet- or mobile-specific
-// override that differs from the desktop value (for the four per-device
-// properties font-size / line-height / letter-spacing / margin-bottom).
-export function hasResponsiveTypographyOverride(tenantStyle) {
-  if (!tenantStyle) return false;
-  for (const k of ['font_size', 'line_height', 'letter_spacing', 'margin_bottom']) {
-    const d = tenantStyle[k];
-    const t = tenantStyle[`${k}_tablet`];
-    const m = tenantStyle[`${k}_mobile`];
-    if (t != null && t !== d) return true;
-    if (m != null && m !== d) return true;
-  }
-  return false;
-}
-
-// Build the @media (max-width: …) blocks that override the chosen
-// typography properties at the tablet and mobile breakpoints. The
-// `selector` argument is the CSS selector the rules should target —
-// typically `[data-cb="<id>"]` (Text block wrapper) or a more specific
-// child selector (Hero headline, Card heading). Uses !important so the
-// declarations beat any inline-style desktop value emitted by the
-// renderer. Mobile rules are only emitted when the mobile value
-// differs from whatever applies at tablet (desktop or tablet override)
-// to keep the stylesheet small. Returns null when no override applies.
-export function buildTenantTypographyResponsiveCss(selector, style) {
-  if (!style || !selector) return null;
-  const PROPS = [
-    { css: 'font-size', key: 'font_size', unit: 'px' },
-    { css: 'line-height', key: 'line_height', unit: '' },
-    { css: 'letter-spacing', key: 'letter_spacing', unit: 'px' },
-    { css: 'margin-bottom', key: 'margin_bottom', unit: 'px' },
-  ];
-  const tabletDecls = [];
-  const mobileDecls = [];
-  for (const p of PROPS) {
-    const d = style[p.key];
-    const t = style[`${p.key}_tablet`];
-    const m = style[`${p.key}_mobile`];
-    const tabletWins = t != null && t !== d;
-    if (tabletWins) {
-      tabletDecls.push(`${p.css}:${t}${p.unit} !important;`);
-    }
-    const effective = tabletWins ? t : d;
-    if (m != null && m !== effective) {
-      mobileDecls.push(`${p.css}:${m}${p.unit} !important;`);
-    }
-  }
-  const parts = [];
-  if (tabletDecls.length) {
-    parts.push(`@media (max-width:${BREAKPOINT_MAX_PX.tablet}px){${selector}{${tabletDecls.join('')}}}`);
-  }
-  if (mobileDecls.length) {
-    parts.push(`@media (max-width:${BREAKPOINT_MAX_PX.mobile}px){${selector}{${mobileDecls.join('')}}}`);
-  }
-  return parts.length ? parts.join('') : null;
-}
-
-function buildTextResponsiveTypographyCss(blockId, tenantStyle) {
-  if (!tenantStyle || !blockId) return null;
-  const safeId = String(blockId).replace(/["\\]/g, '');
-  return buildTenantTypographyResponsiveCss(`[data-cb="${safeId}"]`, tenantStyle);
 }
 
 // Task #2444: per-breakpoint caps for the Hero block's internal content
@@ -1924,8 +1862,11 @@ function TextRender({ block, breakpoint }) {
       decls.push(`letter-spacing:${c.characterSpacing}px !important;`);
     }
     if (!decls.length || !block.id) return null;
-    const safeId = String(block.id).replace(/["\\]/g, '');
-    return `[data-cb="${safeId}"]{${decls.join('')}}`;
+    // Target the rendered text element itself (same selector shape and
+    // specificity as the tenant responsive CSS) — the per-block override
+    // <style> comes AFTER the tenant CSS in the DOM, so at equal
+    // specificity + !important it wins at every breakpoint.
+    return `${textTypographySelector(block.id)}{${decls.join('')}}`;
   })();
   const tiptapResponsiveCss = buildTiptapFontSizeResponsiveCss(
     block.id,
@@ -2010,6 +1951,7 @@ function TextRender({ block, breakpoint }) {
       )}
       <Tag
         ref={containerRef}
+        {...{ [TEXT_ROOT_ATTR]: TEXT_ROOT_VALUE }}
         className={`prose prose-sm max-w-none w-full [&_h1]:text-3xl [&_h1]:font-bold [&_h2]:text-2xl [&_h2]:font-bold [&_h3]:text-xl [&_h3]:font-semibold [&_h4]:text-lg [&_h4]:font-semibold [&_h5]:text-base [&_h5]:font-semibold [&_h6]:text-sm [&_h6]:font-semibold [&_h6]:uppercase [&_p:last-child]:mb-0 [&_a]:text-blue-600 [&_a]:underline ${headingSizeClass}`}
         style={outerStyle}
         dangerouslySetInnerHTML={{ __html: safeHtml }}

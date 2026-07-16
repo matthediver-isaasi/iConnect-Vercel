@@ -62,12 +62,12 @@ args = "npx tsx --test client/src/lib/roleAccessMap.test.ts client/src/component
 name = "ai-assistant-tests"
 author = "agent"
 
-[workflows.workflow.metadata]
-isValidation = true
-
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "node --test api/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs"
+args = "node --test api/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/canvasTypographyResponsive.test.mjs"
+
+[workflows.workflow.metadata]
+outputType = "console"
 
 [userenv]
 
