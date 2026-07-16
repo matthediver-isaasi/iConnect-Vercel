@@ -27,3 +27,5 @@ Palette drag→drop onto the flow stage:
   `createFlowNode(...)` (not `createBlock`, which lacks flow props) via
   `insertFlowNode`. Appending to root children would make the node a sibling of
   the sections, which the engine never lays out.
+
+**Breakpoint-hidden-by-default blocks:** neither v1 nor v2 palette drop may force `desktop: { hidden: false }` in createBlock/createFlowNode overrides — type defaults must win, or mobile-only blocks (hero-carousel-mobile) show on desktop. After drop, if `resolveBlockAtBreakpoint(node, breakpoint).hidden`, switch the editor to the mobile breakpoint.

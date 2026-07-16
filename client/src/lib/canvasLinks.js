@@ -61,6 +61,7 @@ export const LINK_FIELD_SPECS = {
   [BLOCK_TYPES.SPONSOR_GRID]: [{ field: 'emptyCatCtaHref', label: 'Sponsor empty-category link', buttonLabelContentField: 'emptyCatCtaLabel' }],
   [BLOCK_TYPES.SPONSOR_CAROUSEL]: [{ field: 'emptyCatCtaHref', label: 'Sponsor empty-category link', buttonLabelContentField: 'emptyCatCtaLabel' }],
   [BLOCK_TYPES.HERO_CAROUSEL]: [{ array: 'slides', field: 'ctaLink', label: 'Hero carousel CTA', imageSrcField: 'backgroundImage', buttonLabelField: 'ctaText' }],
+  [BLOCK_TYPES.HERO_CAROUSEL_MOBILE]: [{ array: 'slides', field: 'ctaLink', label: 'Hero carousel (mobile) CTA', imageSrcField: 'backgroundImage', buttonLabelField: 'ctaText' }],
   [BLOCK_TYPES.ACCORDION]: [
     {
       extract: (content) => {
@@ -136,6 +137,11 @@ export const HTML_FIELD_SPECS = {
   [BLOCK_TYPES.CARD_FLIP_GRID]: [{ array: 'cards', field: 'content' }],
   [BLOCK_TYPES.CUSTOM_HTML]: [{ field: 'html' }],
   [BLOCK_TYPES.HERO_CAROUSEL]: [
+    { array: 'slides', field: 'headerText' },
+    { array: 'slides', field: 'subheadingText' },
+    { array: 'slides', field: 'contentText' },
+  ],
+  [BLOCK_TYPES.HERO_CAROUSEL_MOBILE]: [
     { array: 'slides', field: 'headerText' },
     { array: 'slides', field: 'subheadingText' },
     { array: 'slides', field: 'contentText' },

@@ -75,7 +75,7 @@ export const CUSTOM_BLOCK_TYPES = new Set([
   'speaker-carousel', 'speaker-grid', 'sponsor-grid', 'sponsor-carousel',
   'article-list', 'resource-list', 'form-embed', 'campaign-embed',
   'member-directory-embed', 'dynamic-directory-embed', 'card-deck',
-  'wall-of-fame', 'gallery', 'card-flip-grid', 'hero-carousel', 'symbol',
+  'wall-of-fame', 'gallery', 'card-flip-grid', 'hero-carousel', 'hero-carousel-mobile', 'symbol',
   'login-form',
 ]);
 

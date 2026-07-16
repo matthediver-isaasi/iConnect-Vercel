@@ -59,6 +59,7 @@ import {
   Unlink,
   Search,
   GalleryHorizontal,
+  Smartphone,
   GripVertical,
   Copy,
 } from 'lucide-react';
@@ -8162,7 +8163,13 @@ function HeroCarouselCta({ slide, asEditor }) {
   );
 }
 
-function HeroCarouselRender({ block, asEditor, breakpoint }) {
+// `mobileVariant` (Task #2836): set by the Hero Carousel (Mobile) block. The
+// mobile block is authored FOR phones directly, so all authored values
+// (padding, offsets, font sizes, heights) are used as-is at every breakpoint
+// — no ≤767px derivation/downscaling stylesheet and no editor-side mobile
+// value swaps. Visibility (mobile-only) is handled by the block's per-
+// breakpoint hidden flags, not by the renderer.
+function HeroCarouselRender({ block, asEditor, breakpoint, mobileVariant }) {
   const c = block.content || {};
   const slides = c.slides || [];
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -8178,9 +8185,15 @@ function HeroCarouselRender({ block, asEditor, breakpoint }) {
   const headerStyleObj = resolveTenantStyle(c.header_typography_style_id, tenantStyles);
   const subheadingStyleObj = resolveTenantStyle(c.subheading_typography_style_id, tenantStyles);
   const contentStyleObj = resolveTenantStyle(c.content_typography_style_id, tenantStyles);
-  const bpForInline = breakpoint || 'desktop';
+  // The mobile-variant block only ever shows at phone widths, so tenant
+  // typography styles resolve their mobile values when no explicit editor
+  // breakpoint is forced (public page renders with breakpoint undefined).
+  const bpForInline = breakpoint || (mobileVariant ? 'mobile' : 'desktop');
 
-  const isMobile = breakpoint === 'mobile';
+  // Drives the desktop block's editor-preview swaps to derived mobile
+  // values. The mobile variant never swaps — authored values ARE the mobile
+  // values.
+  const isMobile = !mobileVariant && breakpoint === 'mobile';
   const autoplayInterval = c.autoplayInterval ?? 5;
   const transitionEffect = c.transitionEffect || 'fade';
   const transitionDuration = Number(c.transitionDuration) || 700;
@@ -8297,50 +8310,36 @@ function HeroCarouselRender({ block, asEditor, breakpoint }) {
   const paddingHorizontal = Number.isFinite(Number(c.padding_horizontal)) ? Number(c.padding_horizontal) : 16;
 
   // Per-slide effective padding: a slide may override the block-level default
-  // (absent/null = inherit). Mobile values prefer an explicit slide-level
-  // mobile_padding_* override (Task #2833 — used as-is), otherwise derive
-  // from the slide's effective padding so overridden slides also scale
-  // correctly on mobile exactly as before.
+  // (absent/null = inherit). Mobile values are derived from the slide's
+  // effective padding so overridden slides also scale correctly on mobile.
   const resolveSlidePadding = (slide) => {
     const ovV = slide?.padding_vertical;
     const ovH = slide?.padding_horizontal;
     const effV = ovV != null && Number.isFinite(Number(ovV)) ? Number(ovV) : paddingVertical;
     const effH = ovH != null && Number.isFinite(Number(ovH)) ? Number(ovH) : paddingHorizontal;
-    const mv = slide?.mobile_padding_vertical;
-    const mh = slide?.mobile_padding_horizontal;
     return {
       v: effV,
       h: effH,
-      mobileV: mv != null && Number.isFinite(Number(mv)) ? Number(mv) : Math.max(32, Math.round(effV * 0.5)),
-      mobileH: mh != null && Number.isFinite(Number(mh)) ? Number(mh) : Math.max(16, effH),
+      mobileV: Math.max(32, Math.round(effV * 0.5)),
+      mobileH: Math.max(16, effH),
     };
   };
   const textOffsetX = Number(c.text_offset_x) || 0;
   const textOffsetY = Number(c.text_offset_y) || 0;
 
   // Per-slide effective text offset: a slide may override the block-level
-  // default (absent/null = inherit). Mobile offsets prefer a slide-level
-  // mobile_* override, then the block-level mobile_* override, then derive
-  // from the slide's effective offsets (halved) exactly as the block-level
-  // derivation does.
+  // default (absent/null = inherit). Mobile offsets derive from the slide's
+  // effective offsets (halved).
   const resolveSlideTextOffset = (slide) => {
     const ovX = slide?.text_offset_x;
     const ovY = slide?.text_offset_y;
     const effX = ovX != null && Number.isFinite(Number(ovX)) ? Number(ovX) : textOffsetX;
     const effY = ovY != null && Number.isFinite(Number(ovY)) ? Number(ovY) : textOffsetY;
-    const smx = slide?.mobile_text_offset_x;
-    const smy = slide?.mobile_text_offset_y;
-    const pmx = Number(c.mobile_text_offset_x) || 0;
-    const pmy = Number(c.mobile_text_offset_y) || 0;
     return {
       x: effX,
       y: effY,
-      mobileX: smx != null && Number.isFinite(Number(smx))
-        ? Number(smx)
-        : (pmx !== 0 ? pmx : Math.round(effX * 0.5)),
-      mobileY: smy != null && Number.isFinite(Number(smy))
-        ? Number(smy)
-        : (pmy !== 0 ? pmy : Math.round(effY * 0.5)),
+      mobileX: Math.round(effX * 0.5),
+      mobileY: Math.round(effY * 0.5),
     };
   };
 
@@ -8489,7 +8488,10 @@ function HeroCarouselRender({ block, asEditor, breakpoint }) {
       onMouseEnter={pauseOnHover ? () => setIsPaused(true) : undefined}
       onMouseLeave={pauseOnHover ? () => setIsPaused(false) : undefined}
     >
-      {!isPreview && (
+      {!isPreview && !mobileVariant && (
+        // Desktop block only: derive scaled-down values for ≤767px viewports.
+        // The mobile-variant block is authored for phones directly, so its
+        // values apply as-is and no derivation stylesheet is emitted.
         <style dangerouslySetInnerHTML={{ __html: [
           `@media(max-width:767px){`,
           `[data-hcc="${safeBlockId}"]{`,
@@ -8517,14 +8519,6 @@ function HeroCarouselRender({ block, asEditor, breakpoint }) {
             const off = resolveSlideTextOffset(slide);
             return `[data-hcc="${safeBlockId}"] .hcc-content-wrap[data-hcc-slide="${i}"] .hcc-text-box{transform:translate(${off.mobileX}px,${off.mobileY}px)!important;}`;
           }),
-          // Mobile image swap (Task #2833): slides with a mobile-specific
-          // background/foreground image render BOTH variants; the mobile one
-          // is inline display:none and these rules flip visibility at ≤767px.
-          // Slides without mobile images have no .hcc-has-mobile /
-          // .hcc-*-mobile elements, so their output is byte-identical.
-          `[data-hcc="${safeBlockId}"] .hcc-has-mobile{display:none!important;}`,
-          `[data-hcc="${safeBlockId}"] .hcc-bg-mobile{display:block!important;}`,
-          `[data-hcc="${safeBlockId}"] .hcc-fg-mobile{display:flex!important;}`,
           `}`,
         ].join('') }} />
       )}
@@ -8539,45 +8533,24 @@ function HeroCarouselRender({ block, asEditor, breakpoint }) {
         const textBoxStyle = (effOffsetX !== 0 || effOffsetY !== 0)
           ? { transform: `translate(${effOffsetX}px, ${effOffsetY}px)` }
           : undefined;
-        // Mobile image overrides (Task #2833). In the editor's breakpoint
-        // preview (isPreview) the resolved src is swapped directly so the
-        // mobile chip shows exactly what phones will see. On the public page
-        // both variants render and the per-block ≤767px stylesheet flips
-        // visibility (no JS breakpoint detection). Absent = inherit desktop.
-        const mobileBg = slide.mobileBackgroundImage || '';
-        const mobileFg = slide.mobileForegroundImage || '';
-        const previewBg = isMobile && mobileBg ? mobileBg : slide.backgroundImage;
-        const previewFg = isMobile && mobileFg ? mobileFg : slide.foregroundImage;
         const bgImgStyle = { objectFit: slide.imageFit === 'original' ? 'none' : (slide.imageFit || 'cover'), objectPosition: 'center' };
-        const publicHasMobileBg = !isPreview && !!mobileBg;
         return (
         <div key={slide.id || index} style={getSlideTransitionStyle(index)}>
           <div className="absolute inset-0">
-            {(isPreview ? previewBg : slide.backgroundImage) ? (
+            {slide.backgroundImage ? (
               <img
-                src={isPreview ? previewBg : slide.backgroundImage}
+                src={slide.backgroundImage}
                 alt=""
                 aria-hidden="true"
                 loading="lazy"
                 decoding="async"
-                className={`absolute inset-0 w-full h-full${publicHasMobileBg ? ' hcc-has-mobile' : ''}`}
+                className="absolute inset-0 w-full h-full"
                 style={bgImgStyle}
               />
             ) : (
               <div
-                className={`absolute inset-0${publicHasMobileBg ? ' hcc-has-mobile' : ''}`}
+                className="absolute inset-0"
                 style={{ background: 'linear-gradient(135deg,#1e3a5f 0%,#3b82f6 100%)' }}
-              />
-            )}
-            {publicHasMobileBg && (
-              <img
-                src={mobileBg}
-                alt=""
-                aria-hidden="true"
-                loading="lazy"
-                decoding="async"
-                className="hcc-bg-mobile absolute inset-0 w-full h-full"
-                style={{ ...bgImgStyle, display: 'none' }}
               />
             )}
             <div
@@ -8590,14 +8563,14 @@ function HeroCarouselRender({ block, asEditor, breakpoint }) {
             />
           </div>
 
-          {(isPreview ? previewFg : slide.foregroundImage) && (
+          {slide.foregroundImage && (
             // Foreground image layer: sits above the background + overlay,
             // below the text content. Constrained to the 1200px content rail
             // (railStyle) even when the background is full-bleed, so the
             // image stays aligned with page content while the background
             // stretches edge-to-edge.
             <div
-              className={`hcc-foreground absolute inset-0 pointer-events-none flex items-center${!isPreview && mobileFg ? ' hcc-has-mobile' : ''}`}
+              className="hcc-foreground absolute inset-0 pointer-events-none flex items-center"
               aria-hidden="true"
               style={{
                 ...(railStyle || {}),
@@ -8610,36 +8583,7 @@ function HeroCarouselRender({ block, asEditor, breakpoint }) {
               }}
             >
               <img
-                src={isPreview ? previewFg : slide.foregroundImage}
-                alt=""
-                loading="lazy"
-                decoding="async"
-                className="max-h-full max-w-full"
-                style={{ objectFit: 'contain' }}
-              />
-            </div>
-          )}
-          {!isPreview && mobileFg && (
-            // Mobile foreground variant (Task #2833): hidden at desktop via
-            // inline display:none; the ≤767px stylesheet flips it to flex.
-            // Rendered even when no desktop foreground is set, so a slide can
-            // have a mobile-only foreground image.
-            <div
-              className="hcc-foreground hcc-fg-mobile absolute inset-0 pointer-events-none items-center"
-              aria-hidden="true"
-              style={{
-                display: 'none',
-                ...(railStyle || {}),
-                justifyContent:
-                  slide.foregroundAlign === 'left'
-                    ? 'flex-start'
-                    : slide.foregroundAlign === 'right'
-                      ? 'flex-end'
-                      : 'center',
-              }}
-            >
-              <img
-                src={mobileFg}
+                src={slide.foregroundImage}
                 alt=""
                 loading="lazy"
                 decoding="async"
@@ -8812,7 +8756,7 @@ function SortableSlideItem({ id, title, isExpanded, onToggle, onRemove, onDuplic
 }
 
 // DnD-sortable slide list used in HeroCarouselInspector.
-function SlideDndList({ slides, onChange, breakpoint, defaultPaddingV = 60, defaultPaddingH = 16, defaultTextOffsetX = 0, defaultTextOffsetY = 0, defaultMobileTextOffsetX = 0, defaultMobileTextOffsetY = 0 }) {
+function SlideDndList({ slides, onChange, breakpoint, defaultPaddingV = 60, defaultPaddingH = 16, defaultTextOffsetX = 0, defaultTextOffsetY = 0 }) {
   const [expanded, setExpanded] = useState(() => slides.map((_, i) => i === 0));
   // Tenant custom button styles for the per-slide CTA style picker — same
   // enumeration as ButtonInspector / Card CTAs, microsite-scoped.
@@ -8883,8 +8827,6 @@ function SlideDndList({ slides, onChange, breakpoint, defaultPaddingV = 60, defa
         backgroundImage: '',
         foregroundImage: '',
         foregroundAlign: 'center',
-        mobileBackgroundImage: '',
-        mobileForegroundImage: '',
         overlayColor: '#000000',
         overlayOpacity: 40,
         imageFit: 'cover',
@@ -9038,9 +8980,7 @@ function SlideDndList({ slides, onChange, breakpoint, defaultPaddingV = 60, defa
                     } else {
                       // Clearing the override deletes the slide-level fields
                       // (undefined values drop out on JSON serialisation) so
-                      // the slide inherits the block defaults again. Mobile
-                      // text offsets are independent (Mobile overrides
-                      // section below) and are intentionally left untouched.
+                      // the slide inherits the block defaults again.
                       patchSlide(idx, {
                         text_offset_x: undefined,
                         text_offset_y: undefined,
@@ -9062,103 +9002,6 @@ function SlideDndList({ slides, onChange, breakpoint, defaultPaddingV = 60, defa
                       value={slide.text_offset_y ?? defaultTextOffsetY}
                       onChange={(v) => patchSlide(idx, { text_offset_y: v ?? defaultTextOffsetY })}
                       testId={`hcc-slide-${idx}-text-offset-y`}
-                    />
-                  </div>
-                )}
-              </div>
-              <div className="border-t border-slate-100 pt-2">
-                <div className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide mb-1">
-                  Mobile overrides
-                </div>
-                <p className="text-[11px] text-slate-400 mb-2">
-                  Only affect phones (≤767px). Leave empty to inherit the desktop settings.
-                </p>
-                <ImageField
-                  label="Mobile background image"
-                  value={slide.mobileBackgroundImage || ''}
-                  onChangeSrc={(v) => patchSlide(idx, { mobileBackgroundImage: v || undefined })}
-                  testId={`hcc-slide-${idx}-mobile-image`}
-                />
-                <ImageField
-                  label="Mobile foreground image"
-                  value={slide.mobileForegroundImage || ''}
-                  onChangeSrc={(v) => patchSlide(idx, { mobileForegroundImage: v || undefined })}
-                  testId={`hcc-slide-${idx}-mobile-foreground-image`}
-                />
-                <ToggleField
-                  label="Custom mobile padding"
-                  value={slide.mobile_padding_vertical != null || slide.mobile_padding_horizontal != null}
-                  onChange={(on) => {
-                    if (on) {
-                      // Seed with the slide's effective derived mobile
-                      // padding so toggling on does not visually shift.
-                      const effV = slide.padding_vertical != null && Number.isFinite(Number(slide.padding_vertical)) ? Number(slide.padding_vertical) : defaultPaddingV;
-                      const effH = slide.padding_horizontal != null && Number.isFinite(Number(slide.padding_horizontal)) ? Number(slide.padding_horizontal) : defaultPaddingH;
-                      patchSlide(idx, {
-                        mobile_padding_vertical: Math.max(32, Math.round(effV * 0.5)),
-                        mobile_padding_horizontal: Math.max(16, effH),
-                      });
-                    } else {
-                      // Clearing the override deletes the slide-level fields
-                      // so mobile derives from the effective padding again.
-                      patchSlide(idx, { mobile_padding_vertical: undefined, mobile_padding_horizontal: undefined });
-                    }
-                  }}
-                  testId={`hcc-slide-${idx}-custom-mobile-padding`}
-                />
-                {(slide.mobile_padding_vertical != null || slide.mobile_padding_horizontal != null) && (
-                  <div className="grid grid-cols-2 gap-2 mt-2">
-                    <NumberField
-                      label="Mobile padding vertical (px)"
-                      value={slide.mobile_padding_vertical ?? 32}
-                      min={0}
-                      onChange={(v) => patchSlide(idx, { mobile_padding_vertical: v ?? 32 })}
-                      testId={`hcc-slide-${idx}-mobile-padding-v`}
-                    />
-                    <NumberField
-                      label="Mobile padding horizontal (px)"
-                      value={slide.mobile_padding_horizontal ?? 16}
-                      min={0}
-                      onChange={(v) => patchSlide(idx, { mobile_padding_horizontal: v ?? 16 })}
-                      testId={`hcc-slide-${idx}-mobile-padding-h`}
-                    />
-                  </div>
-                )}
-                <ToggleField
-                  label="Custom mobile text offset"
-                  value={slide.mobile_text_offset_x != null || slide.mobile_text_offset_y != null}
-                  onChange={(on) => {
-                    if (on) {
-                      // Seed with the slide's effective mobile offsets so
-                      // toggling on does not visually shift the slide.
-                      const effX = slide.text_offset_x != null ? Number(slide.text_offset_x) : defaultTextOffsetX;
-                      const effY = slide.text_offset_y != null ? Number(slide.text_offset_y) : defaultTextOffsetY;
-                      patchSlide(idx, {
-                        mobile_text_offset_x: defaultMobileTextOffsetX !== 0 ? defaultMobileTextOffsetX : Math.round(effX * 0.5),
-                        mobile_text_offset_y: defaultMobileTextOffsetY !== 0 ? defaultMobileTextOffsetY : Math.round(effY * 0.5),
-                      });
-                    } else {
-                      // Clearing the override deletes the slide-level
-                      // fields so mobile derives from block/effective
-                      // offsets again.
-                      patchSlide(idx, { mobile_text_offset_x: undefined, mobile_text_offset_y: undefined });
-                    }
-                  }}
-                  testId={`hcc-slide-${idx}-custom-mobile-text-offset`}
-                />
-                {(slide.mobile_text_offset_x != null || slide.mobile_text_offset_y != null) && (
-                  <div className="grid grid-cols-2 gap-2 mt-2">
-                    <NumberField
-                      label="Mobile text offset X (px)"
-                      value={slide.mobile_text_offset_x ?? 0}
-                      onChange={(v) => patchSlide(idx, { mobile_text_offset_x: v ?? 0 })}
-                      testId={`hcc-slide-${idx}-mobile-text-offset-x`}
-                    />
-                    <NumberField
-                      label="Mobile text offset Y (px)"
-                      value={slide.mobile_text_offset_y ?? 0}
-                      onChange={(v) => patchSlide(idx, { mobile_text_offset_y: v ?? 0 })}
-                      testId={`hcc-slide-${idx}-mobile-text-offset-y`}
                     />
                   </div>
                 )}
@@ -9209,7 +9052,7 @@ function SlideDndList({ slides, onChange, breakpoint, defaultPaddingV = 60, defa
   );
 }
 
-function HeroCarouselInspector({ block, update, breakpoint }) {
+function HeroCarouselInspector({ block, update, breakpoint, mobileVariant }) {
   const c = block.content || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
 
@@ -9281,17 +9124,19 @@ function HeroCarouselInspector({ block, update, breakpoint }) {
         </Field>
         <div className="grid grid-cols-2 gap-2">
           <NumberField
-            label="Desktop size (px)"
+            label={mobileVariant ? 'Size (px)' : 'Desktop size (px)'}
             value={Number(c[`${prefix}_font_size`]) || defaultSize}
             min={10} max={120}
             onChange={(v) => set({ [`${prefix}_font_size`]: v ?? defaultSize })}
           />
-          <NumberField
-            label="Mobile size (px)"
-            value={c[`mobile_${prefix}_font_size`] || null}
-            min={10} max={120}
-            onChange={(v) => set({ [`mobile_${prefix}_font_size`]: v })}
-          />
+          {!mobileVariant && (
+            <NumberField
+              label="Mobile size (px)"
+              value={c[`mobile_${prefix}_font_size`] || null}
+              min={10} max={120}
+              onChange={(v) => set({ [`mobile_${prefix}_font_size`]: v })}
+            />
+          )}
         </div>
         <div className="grid grid-cols-2 gap-2">
           <Field label="Font weight">
@@ -9333,6 +9178,18 @@ function HeroCarouselInspector({ block, update, breakpoint }) {
 
   return (
     <>
+      {mobileVariant ? (
+        <p className="text-[11px] text-slate-500 leading-snug mb-2" data-testid="text-hcc-mobile-pairing-hint">
+          This block only shows on phones. Pair it with a regular Hero Carousel
+          (hidden on mobile) to give desktop and phone visitors different hero
+          content.
+        </p>
+      ) : (
+        <p className="text-[11px] text-slate-500 leading-snug mb-2" data-testid="text-hcc-desktop-pairing-hint">
+          Need a different hero on phones? Add a Hero Carousel (Mobile) block
+          and hide this one on the mobile breakpoint.
+        </p>
+      )}
       <Field label="Slides (drag to reorder)">
         <SlideDndList
           slides={c.slides || []}
@@ -9342,8 +9199,6 @@ function HeroCarouselInspector({ block, update, breakpoint }) {
           defaultPaddingH={Number.isFinite(Number(c.padding_horizontal)) ? Number(c.padding_horizontal) : 16}
           defaultTextOffsetX={Number(c.text_offset_x) || 0}
           defaultTextOffsetY={Number(c.text_offset_y) || 0}
-          defaultMobileTextOffsetX={Number(c.mobile_text_offset_x) || 0}
-          defaultMobileTextOffsetY={Number(c.mobile_text_offset_y) || 0}
         />
       </Field>
 
@@ -9516,20 +9371,6 @@ function HeroCarouselInspector({ block, update, breakpoint }) {
               testId="input-hcc-offset-y"
             />
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <NumberField
-              label="Mobile text X (px)"
-              value={c.mobile_text_offset_x ?? 0}
-              onChange={(v) => set({ mobile_text_offset_x: v ?? 0 })}
-              testId="input-hcc-mobile-offset-x"
-            />
-            <NumberField
-              label="Mobile text Y (px)"
-              value={c.mobile_text_offset_y ?? 0}
-              onChange={(v) => set({ mobile_text_offset_y: v ?? 0 })}
-              testId="input-hcc-mobile-offset-y"
-            />
-          </div>
         </div>
       </details>
 
@@ -9589,6 +9430,22 @@ function HeroCarouselInspector({ block, update, breakpoint }) {
 }
 
 // ---------------------------------------------------------------------------
+// Hero Carousel (Mobile) — Task #2836. Thin wrappers over the shared Hero
+// Carousel renderer/inspector with `mobileVariant` set: authored values are
+// used as-is (no ≤767px derivation), the inspector drops desktop-only mobile
+// controls, and per-breakpoint hidden flags (from BLOCK_DEFAULTS) keep the
+// block phone-only.
+// ---------------------------------------------------------------------------
+
+function HeroCarouselMobileRender(props) {
+  return <HeroCarouselRender {...props} mobileVariant />;
+}
+
+function HeroCarouselMobileInspector(props) {
+  return <HeroCarouselInspector {...props} mobileVariant />;
+}
+
+// ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
 
@@ -9622,6 +9479,7 @@ const REGISTRY = {
   [BLOCK_TYPES.COUNTDOWN]:        { label: 'Countdown',       icon: Clock,             category: 'content',  Editor: CountdownRender,       Renderer: CountdownRender,       Inspector: CountdownInspector },
   [BLOCK_TYPES.CARD_FLIP_GRID]:   { label: 'Card Flip Grid',  icon: Grid2x2,           category: 'content',  Editor: CardFlipGridRender,    Renderer: CardFlipGridRender,    Inspector: CardFlipGridInspector },
   [BLOCK_TYPES.HERO_CAROUSEL]:    { label: 'Hero Carousel',   icon: GalleryHorizontal, category: 'content',  Editor: HeroCarouselRender,    Renderer: HeroCarouselRender,    Inspector: HeroCarouselInspector, absoluteFill: true, allowOverflow: true },
+  [BLOCK_TYPES.HERO_CAROUSEL_MOBILE]: { label: 'Hero Carousel (Mobile)', icon: Smartphone, category: 'content', Editor: HeroCarouselMobileRender, Renderer: HeroCarouselMobileRender, Inspector: HeroCarouselMobileInspector, absoluteFill: true, allowOverflow: true },
   [BLOCK_TYPES.BOX]:          { label: 'Box',            icon: Square,         category: 'layout',   Editor: BoxRender,          Renderer: BoxRender,          Inspector: BoxInspector, paletteHidden: false },
   [BLOCK_TYPES.SYMBOL]:       { label: 'Symbol',         icon: ComponentIcon,  category: 'advanced', Editor: SymbolRender,       Renderer: SymbolRender,       Inspector: SymbolInspector, paletteHidden: true, allowOverflow: true },
   ...DYNAMIC_BLOCK_DEFINITIONS,

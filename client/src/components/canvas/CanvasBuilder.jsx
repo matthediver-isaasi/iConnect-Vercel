@@ -922,7 +922,10 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     // (insertFlowNode), which is the section the builder's shared edit handlers
     // operate on, keeping the dropped block selectable and editable.
     if (isFlow) {
-      const flowNode = createFlowNode(newType, { desktop: { hidden: false } });
+      // Task #2836 — no forced `desktop: { hidden: false }` here: type defaults
+      // win, so breakpoint-hidden-by-default blocks (hero-carousel-mobile)
+      // stay hidden on desktop/tablet when dropped into a flow document.
+      const flowNode = createFlowNode(newType, {});
       const suggestedFlow = suggestHeadingLevel(design, newType);
       const headingFieldFlow = headingFieldFor(newType);
       if (suggestedFlow != null && headingFieldFlow) {
@@ -933,6 +936,12 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
         };
       }
       setDesign((prev) => insertFlowNode(prev, flowNode));
+      // If the new block type is hidden at the current breakpoint (e.g. Hero
+      // Carousel (Mobile) dropped while editing desktop), jump to the mobile
+      // breakpoint so the block is immediately visible and editable.
+      if (resolveBlockAtBreakpoint(flowNode, breakpoint).hidden) {
+        onBreakpointChange?.('mobile');
+      }
       setSelectedIds([flowNode.id]);
       return;
     }
@@ -960,8 +969,11 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       y = Math.max(0, Math.round(localY / gridSize) * gridSize);
     }
 
+    // Only pin position here — visibility comes from the block type's own
+    // defaults (e.g. Hero Carousel (Mobile) is hidden on desktop/tablet), so
+    // don't force hidden:false which would override those defaults.
     const newBlock = createBlock(newType, {
-      desktop: { x, y, hidden: false },
+      desktop: { x, y },
     });
     // Intelligent heading-level default: avoid duplicate H1s and keep
     // sibling Text/Hero/Card blocks from skipping levels.
@@ -975,6 +987,12 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     }
     replaceChildren((arr) => [...arr, newBlock]);
     setSelectedIds([newBlock.id]);
+    // If the new block type is hidden at the current breakpoint (e.g. Hero
+    // Carousel (Mobile) dropped while editing desktop), jump to the mobile
+    // breakpoint so the block is immediately visible and editable.
+    if (resolveBlockAtBreakpoint(newBlock, breakpoint).hidden) {
+      onBreakpointChange?.('mobile');
+    }
   };
 
   // Compute the center of the user's currently-visible stage area in

@@ -196,6 +196,10 @@ export const BLOCK_TYPES = {
   GALLERY: 'gallery',
   CARD_FLIP_GRID: 'card-flip-grid',
   HERO_CAROUSEL: 'hero-carousel',
+  // Task #2836 — phone-specific companion to HERO_CAROUSEL. Same content
+  // model and renderer (mobile variant), but defaults to hidden on
+  // desktop/tablet and visible on mobile, with mobile-tuned defaults.
+  HERO_CAROUSEL_MOBILE: 'hero-carousel-mobile',
   // Reusable section symbols (Phase 7). A symbol block stores a `symbolId`
   // and is rendered by inlining the referenced canvas_symbol design.
   SYMBOL: 'symbol',
@@ -256,6 +260,7 @@ export const FULL_BLEED_BLOCK_TYPES = new Set([
   BLOCK_TYPES.SECTION,
   BLOCK_TYPES.HERO,
   BLOCK_TYPES.HERO_CAROUSEL,
+  BLOCK_TYPES.HERO_CAROUSEL_MOBILE,
   BLOCK_TYPES.NEWS_TICKER,
   BLOCK_TYPES.MEGA_MENU,
   BLOCK_TYPES.WALL_OF_FAME,
@@ -1481,10 +1486,6 @@ BLOCK_DEFAULTS[BLOCK_TYPES.HERO_CAROUSEL] = {
         backgroundImage: '',
         foregroundImage: '',
         foregroundAlign: 'center',
-        // Mobile overrides (Task #2833): optional per-slide image swaps for
-        // ≤767px viewports. Empty/absent = mobile shows the desktop image.
-        mobileBackgroundImage: '',
-        mobileForegroundImage: '',
         overlayColor: '#000000',
         overlayOpacity: 40,
         imageFit: 'cover',
@@ -1526,8 +1527,80 @@ BLOCK_DEFAULTS[BLOCK_TYPES.HERO_CAROUSEL] = {
     padding_horizontal: 16,
     text_offset_x: 0,
     text_offset_y: 0,
-    mobile_text_offset_x: 0,
-    mobile_text_offset_y: 0,
+    autoplayInterval: 5,
+    transitionEffect: 'fade',
+    transitionDuration: 700,
+    pauseOnHover: true,
+    showArrows: true,
+    showDots: true,
+    fullBleed: false,
+  },
+};
+
+// Task #2836 — phone-specific companion block. Identical content model to
+// HERO_CAROUSEL (shared renderer/inspector in mobile-variant mode, shared
+// validateBlock case) but with mobile-tuned typography/spacing defaults and
+// per-breakpoint visibility defaults (`bp`): hidden on desktop + tablet,
+// explicitly visible on mobile (the explicit mobile `hidden:false` is
+// required because resolveBlockAtBreakpoint cascades tablet -> mobile).
+BLOCK_DEFAULTS[BLOCK_TYPES.HERO_CAROUSEL_MOBILE] = {
+  name: 'Hero Carousel (Mobile)',
+  geom: { w: 375, h: 420 },
+  style: { background: 'var(--cb-color-primary, #0f172a)', borderWidth: 0, borderRadius: 0 },
+  bp: {
+    desktop: { hidden: true },
+    tablet: { hidden: true },
+    mobile: { hidden: false },
+  },
+  content: {
+    slides: [
+      {
+        id: 'slide-default-1',
+        headerText: '<p>Your Heading Here</p>',
+        subheadingText: '',
+        contentText: '',
+        ctaText: '',
+        ctaLink: '',
+        ctaStyle: '',
+        ctaAlign: '',
+        backgroundImage: '',
+        foregroundImage: '',
+        foregroundAlign: 'center',
+        overlayColor: '#000000',
+        overlayOpacity: 40,
+        imageFit: 'cover',
+      },
+    ],
+    header_font_family: 'Poppins',
+    header_font_size: 28,
+    header_color: 'var(--cb-color-on-primary, #ffffff)',
+    header_font_weight: 700,
+    header_letter_spacing: 0,
+    header_line_height: 1.2,
+    subheading_font_family: 'Poppins',
+    subheading_font_size: 18,
+    subheading_color: 'var(--cb-color-on-primary, #ffffff)',
+    subheading_font_weight: 400,
+    subheading_letter_spacing: 0,
+    subheading_line_height: 1.5,
+    content_font_family: 'Poppins',
+    content_font_size: 14,
+    content_color: 'var(--cb-color-on-primary, #ffffff)',
+    content_font_weight: 400,
+    content_letter_spacing: 0,
+    content_line_height: 1.6,
+    text_alignment: 'center',
+    height_type: 'custom',
+    custom_height: 420,
+    auto_min_height: 320,
+    aspect_min_height: 200,
+    aspect_max_height: 0,
+    aspect_ratio_w: null,
+    aspect_ratio_h: null,
+    padding_vertical: 32,
+    padding_horizontal: 16,
+    text_offset_x: 0,
+    text_offset_y: 0,
     autoplayInterval: 5,
     transitionEffect: 'fade',
     transitionDuration: 700,
@@ -2160,6 +2233,10 @@ export function createBlock(type = BLOCK_TYPES.BOX, overrides = {}) {
     w: defaults.geom?.w ?? 200,
     h: defaults.geom?.h ?? 120,
     hidden: false,
+    // Task #2836 — a block type may declare per-breakpoint visibility
+    // defaults (e.g. Hero Carousel (Mobile) is hidden on desktop/tablet).
+    // Caller overrides still win.
+    ...(defaults.bp?.desktop || {}),
     ...(overrides.desktop || {}),
   };
   return {
@@ -2181,8 +2258,8 @@ export function createBlock(type = BLOCK_TYPES.BOX, overrides = {}) {
     content: deepClone(buildBlockContent(type, defaults.content, overrides.content)),
     bp: {
       desktop,
-      tablet: overrides.tablet || {},
-      mobile: overrides.mobile || {},
+      tablet: { ...(defaults.bp?.tablet || {}), ...(overrides.tablet || {}) },
+      mobile: { ...(defaults.bp?.mobile || {}), ...(overrides.mobile || {}) },
     },
   };
 }
@@ -2904,21 +2981,27 @@ export function validateBlock(block) {
       });
       break;
     }
-    case BLOCK_TYPES.HERO_CAROUSEL: {
+    case BLOCK_TYPES.HERO_CAROUSEL:
+    case BLOCK_TYPES.HERO_CAROUSEL_MOBILE: {
+      // Task #2836 — the mobile companion block shares the exact same
+      // content model, so it shares this validation case.
+      const carouselLabel = block.type === BLOCK_TYPES.HERO_CAROUSEL_MOBILE
+        ? 'Hero Carousel (Mobile)'
+        : 'Hero Carousel';
       const carouselSlides = Array.isArray(c.slides) ? c.slides : [];
       if (carouselSlides.length === 0) {
-        errors.push('Hero Carousel has no slides.');
+        errors.push(`${carouselLabel} has no slides.`);
       }
       // Height mode must be one of the known values when present.
       if (c.height_type && !['auto', 'full', 'custom', 'aspect'].includes(c.height_type)) {
-        errors.push('Hero Carousel has an invalid height mode.');
+        errors.push(`${carouselLabel} has an invalid height mode.`);
       }
       // Aspect-mode clamps (absent/0 = no clamp) must be non-negative finite
       // numbers, and min must not exceed max when both are set.
       ['aspect_min_height', 'aspect_max_height'].forEach((key) => {
         const val = c[key];
         if (val != null && (!Number.isFinite(Number(val)) || Number(val) < 0)) {
-          errors.push(`Hero Carousel has an invalid ${key === 'aspect_min_height' ? 'minimum' : 'maximum'} aspect height clamp.`);
+          errors.push(`${carouselLabel} has an invalid ${key === 'aspect_min_height' ? 'minimum' : 'maximum'} aspect height clamp.`);
         }
       });
       if (
@@ -2926,7 +3009,7 @@ export function validateBlock(block) {
         Number(c.aspect_max_height) > 0 &&
         Number(c.aspect_min_height) > Number(c.aspect_max_height)
       ) {
-        errors.push('Hero Carousel aspect height clamp: minimum exceeds maximum.');
+        errors.push(`${carouselLabel} aspect height clamp: minimum exceeds maximum.`);
       }
       // Persisted natural ratio of the tallest slide (Task #2826 —
       // absent/null = unknown, first paint falls back to the min-height
@@ -2934,7 +3017,7 @@ export function validateBlock(block) {
       ['aspect_ratio_w', 'aspect_ratio_h'].forEach((key) => {
         const val = c[key];
         if (val != null && (!Number.isFinite(Number(val)) || Number(val) <= 0)) {
-          errors.push(`Hero Carousel has an invalid stored aspect ratio ${key === 'aspect_ratio_w' ? 'width' : 'height'}.`);
+          errors.push(`${carouselLabel} has an invalid stored aspect ratio ${key === 'aspect_ratio_w' ? 'width' : 'height'}.`);
         }
       });
       // Per-slide padding overrides (absent/null = inherit block default)
@@ -2943,16 +3026,7 @@ export function validateBlock(block) {
         ['padding_vertical', 'padding_horizontal'].forEach((key) => {
           const val = slide?.[key];
           if (val != null && (!Number.isFinite(Number(val)) || Number(val) < 0)) {
-            errors.push(`Hero Carousel slide ${i + 1} has an invalid ${key === 'padding_vertical' ? 'vertical' : 'horizontal'} padding override.`);
-          }
-        });
-        // Per-slide MOBILE padding overrides (Task #2833 — absent/null =
-        // inherit today's derived mobile padding) must be non-negative
-        // numbers when present.
-        ['mobile_padding_vertical', 'mobile_padding_horizontal'].forEach((key) => {
-          const val = slide?.[key];
-          if (val != null && (!Number.isFinite(Number(val)) || Number(val) < 0)) {
-            errors.push(`Hero Carousel slide ${i + 1} has an invalid mobile ${key === 'mobile_padding_vertical' ? 'vertical' : 'horizontal'} padding override.`);
+            errors.push(`${carouselLabel} slide ${i + 1} has an invalid ${key === 'padding_vertical' ? 'vertical' : 'horizontal'} padding override.`);
           }
         });
         // Per-slide text offset overrides (absent/null = inherit block
@@ -2960,27 +3034,18 @@ export function validateBlock(block) {
         ['text_offset_x', 'text_offset_y'].forEach((key) => {
           const val = slide?.[key];
           if (val != null && !Number.isFinite(Number(val))) {
-            errors.push(`Hero Carousel slide ${i + 1} has an invalid text offset ${key === 'text_offset_x' ? 'X' : 'Y'} override.`);
-          }
-        });
-        // Per-slide mobile text offset overrides (absent/null = inherit
-        // block mobile / halved effective offset) must be finite numbers
-        // when present (negatives allowed).
-        ['mobile_text_offset_x', 'mobile_text_offset_y'].forEach((key) => {
-          const val = slide?.[key];
-          if (val != null && !Number.isFinite(Number(val))) {
-            errors.push(`Hero Carousel slide ${i + 1} has an invalid mobile text offset ${key === 'mobile_text_offset_x' ? 'X' : 'Y'} override.`);
+            errors.push(`${carouselLabel} slide ${i + 1} has an invalid text offset ${key === 'text_offset_x' ? 'X' : 'Y'} override.`);
           }
         });
         // Per-slide CTA alignment override (absent/'' = inherit slide text
         // alignment) must be one of left/center/right when present.
         if (slide?.ctaAlign && !['left', 'center', 'right'].includes(slide.ctaAlign)) {
-          errors.push(`Hero Carousel slide ${i + 1} has an invalid CTA alignment override.`);
+          errors.push(`${carouselLabel} slide ${i + 1} has an invalid CTA alignment override.`);
         }
         // Per-slide foreground image alignment (absent/'' = center) must be
         // one of left/center/right when present.
         if (slide?.foregroundAlign && !['left', 'center', 'right'].includes(slide.foregroundAlign)) {
-          errors.push(`Hero Carousel slide ${i + 1} has an invalid foreground image alignment.`);
+          errors.push(`${carouselLabel} slide ${i + 1} has an invalid foreground image alignment.`);
         }
       });
       break;
@@ -3016,7 +3081,7 @@ function fmtPx(n) {
 export function isAspectHeightCarousel(block) {
   return (
     !!block &&
-    block.type === BLOCK_TYPES.HERO_CAROUSEL &&
+    (block.type === BLOCK_TYPES.HERO_CAROUSEL || block.type === BLOCK_TYPES.HERO_CAROUSEL_MOBILE) &&
     (block.content?.height_type === 'aspect')
   );
 }
