@@ -10,7 +10,7 @@ import {
 } from 'react';
 import { getBlockDefinition } from './blocks/registry';
 import { BLOCK_TYPES, isAspectHeightCarousel, resolveAspectReflowReferenceHeight } from '../../lib/canvasDesign';
-import { computeBoxGrowthDelta, normalizeMeasuredLength } from './autoHeightBake';
+import { computeBoxGrowthDelta, normalizeMeasuredLength, updateReflowBaseline } from './autoHeightBake';
 
 const AccordionReflowCtx = createContext(null);
 
@@ -306,6 +306,42 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
     baselineHeightsRef.current = new Map();
   }, [breakpoint]);
 
+  // Font-load baseline guard (task: phantom gap on hard refresh). On a hard
+  // refresh the mount useLayoutEffect measures text in a FALLBACK font (web
+  // fonts still loading); if the fallback renders shorter, min-only baseline
+  // capture would lock that transient height in forever and the real font's
+  // taller render would read as positive growth, pushing every block below
+  // down — a phantom gap the builder / SPA navigation never shows. Until web
+  // fonts settle, reports are treated as PROVISIONAL (baseline tracks the
+  // LATEST measurement — see updateReflowBaseline); min-only semantics start
+  // only once fonts are ready. Settling waits for `document.fonts.ready` plus
+  // a double rAF so the font-swap ResizeObserver re-report has flushed first
+  // (same contract as the editor's settle gate in useAutoHeightBake), with a
+  // hard timeout so the gate always opens even if fonts.ready never resolves.
+  // Pages using only system fonts settle within a couple of frames, so their
+  // behaviour is effectively unchanged.
+  const fontsSettledRef = useRef(false);
+  useEffect(() => {
+    let cancelled = false;
+    const markSettled = () => {
+      if (cancelled) return;
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          if (!cancelled) fontsSettledRef.current = true;
+        }));
+      } else {
+        fontsSettledRef.current = true;
+      }
+    };
+    if (typeof document !== 'undefined' && document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(markSettled).catch(markSettled);
+    } else {
+      markSettled();
+    }
+    const t = setTimeout(markSettled, 4000);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, []);
+
   // Optional editor hook: whenever an auto-height block reports a rendered
   // height we forward it so the editor can commit that height into the block's
   // stored geometry (published render passes no onMeasure, so it stays a pure
@@ -337,10 +373,9 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
 
   const reportHeight = useCallback((blockId, height) => {
     const rounded = Math.round(height);
-    const prevBaseline = baselineHeightsRef.current.get(blockId);
-    if (prevBaseline === undefined || rounded < prevBaseline) {
-      baselineHeightsRef.current.set(blockId, rounded);
-    }
+    // Provisional (overwrite) before fonts settle, min-only after — see
+    // updateReflowBaseline for the phantom-gap rationale.
+    updateReflowBaseline(baselineHeightsRef.current, blockId, rounded, fontsSettledRef.current);
     setMeasuredHeights((prev) => {
       if (prev.get(blockId) === rounded) return prev;
       const next = new Map(prev);

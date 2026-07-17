@@ -228,6 +228,42 @@ export function planAutoSizeBake({
   return setRootChildren(design, nextKids);
 }
 
+// Collapsed-baseline capture for the PUBLIC read-time reflow
+// (AccordionReflowContext.reportHeight). The baseline of an auto-height block
+// is the smallest height it has ever rendered at — its collapsed state — and
+// push-down growth is measured from it. On a hard refresh, however, the first
+// measurement fires in a mount useLayoutEffect BEFORE custom web fonts have
+// loaded, so the text is measured in a fallback font. If the fallback renders
+// SHORTER, min-only semantics would lock that transient height in as the
+// baseline forever; when the real font swaps in taller, growth = measured −
+// baseline > 0 and every block below gets pushed down — a phantom gap that
+// never self-corrects (SPA navigation has the font cached, so it never shows
+// the gap). The editor already refuses pre-font measurements
+// (useAutoHeightBake Gate 1); this is the public-path equivalent.
+//
+// While fonts are still loading (`fontsSettled === false`) every report is
+// PROVISIONAL: it OVERWRITES the baseline instead of min-ing into it, so the
+// baseline simply tracks the latest rendered height and a fallback-font
+// measurement can never survive the font swap. Once fonts settle the normal
+// min-only semantics take over, preserving the accordion contract (expand
+// after settle raises measured but not baseline -> push-down; collapse lowers
+// the baseline again).
+//
+// IMPORTANT: the caller must keep reports provisional until AFTER the
+// font-swap ResizeObserver tick has flushed (fonts.ready + a double rAF, same
+// as the editor's settle gate) — flipping to settled between the fallback
+// measurement and the swap's re-report would lock the short baseline anyway.
+export function updateReflowBaseline(baselines, blockId, roundedHeight, fontsSettled) {
+  if (!fontsSettled) {
+    baselines.set(blockId, roundedHeight);
+    return;
+  }
+  const prev = baselines.get(blockId);
+  if (prev === undefined || roundedHeight < prev) {
+    baselines.set(blockId, roundedHeight);
+  }
+}
+
 // Re-anchor box-height formula — the SINGLE SOURCE OF TRUTH shared by the public
 // renderer (AccordionReflowContext.getContainerGrowth) and the editor bake
 // (planAutoHeightBake) so a V1 Box renders at the same height on both surfaces

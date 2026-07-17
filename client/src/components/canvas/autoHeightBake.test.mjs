@@ -524,3 +524,79 @@ test('normalizeMeasuredLength: composing normalized length + unscaled margin mat
   assert.equal(atZoom1, 120);
   assert.equal(atZoom1_5, 120); // identical -> zoom never leaks into the baked height
 });
+
+// --- font-load baseline guard (phantom gap on hard refresh) ---------------
+// On a hard refresh the first public-path measurement fires before web fonts
+// load, in a fallback font. updateReflowBaseline keeps such measurements
+// PROVISIONAL (overwrite, not min) until fonts settle, so a short fallback
+// height can never lock in as the collapsed baseline and produce a permanent
+// push-down gap when the real (taller) font swaps in.
+
+import { updateReflowBaseline } from './autoHeightBake.js';
+
+// Mirror of the rowGroups growth computation for a single plain auto-height
+// block: reference = min(baseline, stored h); growth = max(0, measured - ref).
+const growthFor = (baselines, id, storedH, measured) => {
+  const baseline = baselines.get(id);
+  const ref = Number.isFinite(baseline) ? Math.min(baseline, storedH) : storedH;
+  return Math.max(0, measured - ref);
+};
+
+test('font guard: short fallback then taller real font produces ZERO growth', () => {
+  const baselines = new Map();
+  // Mount measurement in the fallback font: shorter than the real render.
+  updateReflowBaseline(baselines, 't1', 180, false); // fonts NOT settled
+  // Real font swaps in taller; ResizeObserver re-reports, still pre-settle.
+  updateReflowBaseline(baselines, 't1', 240, false);
+  // Fonts settle AFTER the swap tick flushed (double-rAF contract).
+  assert.equal(baselines.get('t1'), 240); // baseline tracked the LATEST height
+  // Stored h authored at the real-font height -> no phantom push-down.
+  assert.equal(growthFor(baselines, 't1', 240, 240), 0);
+});
+
+test('font guard: legacy min-only semantics WOULD have produced the phantom gap', () => {
+  // Documents the bug being fixed: if the pre-font measurement were min-ed in
+  // (settled=true from the start), the short fallback height survives the swap
+  // and the real font reads as positive growth.
+  const baselines = new Map();
+  updateReflowBaseline(baselines, 't1', 180, true);
+  updateReflowBaseline(baselines, 't1', 240, true);
+  assert.equal(baselines.get('t1'), 180); // short baseline locked in
+  assert.equal(growthFor(baselines, 't1', 240, 240), 60); // the phantom gap
+});
+
+test('font guard: accordion expand AFTER fonts settle still pushes down', () => {
+  const baselines = new Map();
+  // Collapsed measurement pre-settle, unchanged post-swap.
+  updateReflowBaseline(baselines, 'acc', 80, false);
+  // Fonts settle; user expands the accordion -> taller report, min-only now.
+  updateReflowBaseline(baselines, 'acc', 300, true);
+  assert.equal(baselines.get('acc'), 80); // collapsed baseline preserved
+  // Stored box taller than collapsed state (h=200): growth measured from the
+  // collapsed baseline, so expansion still pushes blocks below down.
+  assert.equal(growthFor(baselines, 'acc', 200, 300), 220);
+  // Collapse back -> measured returns to the baseline -> zero growth.
+  updateReflowBaseline(baselines, 'acc', 80, true);
+  assert.equal(growthFor(baselines, 'acc', 200, 80), 0);
+});
+
+test('font guard: collapse after settle can still LOWER the baseline (min semantics intact)', () => {
+  const baselines = new Map();
+  // Edge case: user expanded the accordion before fonts settled, so the
+  // provisional baseline is the expanded height. The first post-settle
+  // collapse must min the baseline back down.
+  updateReflowBaseline(baselines, 'acc', 300, false);
+  updateReflowBaseline(baselines, 'acc', 80, true);
+  assert.equal(baselines.get('acc'), 80);
+});
+
+test('font guard: breakpoint-change reset still works (fresh map re-seeds from post-settle reports)', () => {
+  let baselines = new Map();
+  updateReflowBaseline(baselines, 't1', 240, true);
+  // Breakpoint switch: provider replaces the map wholesale.
+  baselines = new Map();
+  assert.equal(baselines.get('t1'), undefined);
+  // ResizeObserver re-reports at the new width (fonts long settled).
+  updateReflowBaseline(baselines, 't1', 320, true);
+  assert.equal(baselines.get('t1'), 320);
+});
