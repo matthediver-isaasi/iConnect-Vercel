@@ -51,6 +51,7 @@ import { publicClient } from '@/api/publicClient';
 import { base44 } from '@/api/base44Client';
 import { useNavigate } from 'react-router-dom';
 import { useTenantBranding } from '@/contexts/TenantBrandingContext';
+import { useArticleUrl } from '@/contexts/ArticleUrlContext';
 import { useMicrosite, usePublicChromeBranding } from '@/contexts/MicrositeContext';
 import { useCanvasEditorPage } from '../CanvasEditorPageContext';
 import {
@@ -4158,7 +4159,25 @@ function ArticleListRender({ block, breakpoint, asEditor }) {
     return names.reduce((acc, n, idx) => acc + (idx === 0 ? n : (idx === 1 ? ' & ' : ', ') + n), '');
   };
 
-  const linkBase = source === 'news' ? '/NewsView?slug=' : '/Articles?slug=';
+  // Article cards must use the same folder-based view URLs as the rest of the
+  // app (/{articles|blogs|...}/{authorHandle}/{slug}). The legacy
+  // '/Articles?slug=...' format routes to the LISTING page (the /Articles
+  // route renders Articles/PublicArticles, which never reads ?slug), so the
+  // click appeared to change the URL but painted the blog list instead of the
+  // article. News keeps '/NewsView?slug=' — that route reads the slug param.
+  const { getArticleViewUrlFromArticle } = useArticleUrl();
+  const authorHandles = useMemo(() => {
+    const handles = {};
+    Object.entries(data?.authors || {}).forEach(([id, info]) => {
+      if (info?.handle) handles[id] = info.handle;
+    });
+    return handles;
+  }, [data?.authors]);
+  const cardUrlFor = (a) => {
+    if (source === 'news') return `/NewsView?slug=${encodeURIComponent(a.slug || a.id)}`;
+    if (!a.slug) return `/Articles?slug=${encodeURIComponent(a.id)}`;
+    return getArticleViewUrlFromArticle(a, authorHandles);
+  };
   const effectiveCols = layout === 'list' ? 1 : cols;
 
   // Badge label for article cards mirrors the iEdit Showcase: the tenant's
@@ -4247,7 +4266,7 @@ function ArticleListRender({ block, breakpoint, asEditor }) {
                   summary={c.showSummary !== false ? a.summary : null}
                   publishedDate={a.published_date}
                   authorText={authorText}
-                  url={`${linkBase}${encodeURIComponent(a.slug || a.id)}`}
+                  url={cardUrlFor(a)}
                   newTab={linkNewTab}
                   asEditor={asEditor}
                   showBadge={c.showBadge !== false}
