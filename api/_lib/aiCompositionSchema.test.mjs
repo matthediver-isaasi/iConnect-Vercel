@@ -406,6 +406,44 @@ test('repairComposition renames each known style alias', () => {
   assert.deepEqual(validateComposition(repaired).errors, []);
 });
 
+test('repairComposition coerces bare numbers and unitless numeric strings on size props', () => {
+  const doc = clone(SECTION_EXAMPLE);
+  doc.sections[0].elements[0].style = {
+    fontSize: 32,
+    gap: '24',
+    paddingTop: 8.5,
+    lineHeight: 1.5, // unitless is meaningful CSS — must stay untouched
+  };
+  const { doc: repaired } = repairComposition(doc);
+  const style = repaired.sections[0].elements[0].style;
+  assert.deepEqual(style.fontSize, { value: 32, unit: 'px' });
+  assert.deepEqual(style.gap, { value: 24, unit: 'px' });
+  assert.deepEqual(style.paddingTop, { value: 8.5, unit: 'px' });
+  assert.equal(style.lineHeight, 1.5);
+  assert.deepEqual(validateComposition(repaired).errors, []);
+});
+
+test('repairComposition coerces { value: "N<unit>" } for every allowed unit', () => {
+  for (const unit of ['px', '%', 'em', 'rem', 'vw', 'vh']) {
+    const doc = clone(SECTION_EXAMPLE);
+    doc.sections[0].elements[0].style = { fontSize: { value: `12${unit}` } };
+    const { doc: repaired } = repairComposition(doc);
+    assert.deepEqual(repaired.sections[0].elements[0].style.fontSize,
+      { value: 12, unit }, `unit ${unit}`);
+    assert.deepEqual(validateComposition(repaired).errors, []);
+  }
+});
+
+test('repairComposition leaves canonical unit-suffixed size strings untouched (no repair noise)', () => {
+  const doc = clone(SECTION_EXAMPLE);
+  doc.sections[0].elements[0].style = { fontSize: '56px', gap: '1.5rem' };
+  const { doc: repaired, repairs } = repairComposition(doc);
+  assert.equal(repaired.sections[0].elements[0].style.fontSize, '56px');
+  assert.equal(repaired.sections[0].elements[0].style.gap, '1.5rem');
+  assert.deepEqual(repairs, []);
+  assert.deepEqual(validateComposition(repaired).errors, []);
+});
+
 test('repairComposition routes background gradients to backgroundImage', () => {
   const doc = clone(SECTION_EXAMPLE);
   doc.sections[0].elements[0].style = { background: 'linear-gradient(180deg, #fff, #000)' };
@@ -455,6 +493,14 @@ test('repairComposition leaves genuinely invalid styles for the validator to rej
   const { doc: r1, repairs: rep1 } = repairComposition(doc);
   assert.deepEqual(rep1, []);
   assert.equal(validateComposition(r1).ok, false);
+
+  // background with a non-colour value is NOT renamed — stays invalid.
+  const doc6 = clone(SECTION_EXAMPLE);
+  doc6.sections[0].elements[0].style = { background: 'not-a-color 50% / cover' };
+  const { doc: r6, repairs: rep6 } = repairComposition(doc6);
+  assert.equal(r6.sections[0].elements[0].style.background, 'not-a-color 50% / cover');
+  assert.deepEqual(rep6, []);
+  assert.equal(validateComposition(r6).ok, false);
 
   // Unsafe value survives no alias-rename (background with url()).
   const doc2 = clone(SECTION_EXAMPLE);

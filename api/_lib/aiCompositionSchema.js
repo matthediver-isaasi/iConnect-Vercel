@@ -814,6 +814,34 @@ const STYLE_PROPERTY_ALIASES = {
 const CSS_LENGTH_STRING_RE = /^(-?\d+(?:\.\d+)?)(px|%|em|rem|vw|vh)$/;
 const BOX_SIDE_KEYS = ['top', 'right', 'bottom', 'left'];
 
+// Size-typed properties where a bare number / unitless numeric string is
+// unambiguously a px length. Deliberately EXCLUDES lineHeight, opacity,
+// fontWeight and aspectRatio, where a bare number is meaningful CSS.
+const SIZE_TYPED_PROPS = new Set([
+  'fontSize', 'letterSpacing', 'borderRadius', 'gap',
+  'padding', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
+  'margin', 'marginTop', 'marginRight', 'marginBottom', 'marginLeft',
+]);
+
+// Plain colour values acceptable for the `background` → `backgroundColor`
+// alias rename. Anything else (keywords, images, arbitrary strings) is left
+// untouched so the validator still rejects `background` as unknown.
+const NAMED_CSS_COLORS = new Set([
+  'transparent', 'currentcolor', 'white', 'black', 'gray', 'grey', 'silver',
+  'red', 'maroon', 'orange', 'yellow', 'olive', 'green', 'lime', 'teal',
+  'aqua', 'cyan', 'blue', 'navy', 'purple', 'fuchsia', 'magenta', 'pink',
+  'brown', 'beige', 'ivory', 'gold', 'coral', 'salmon', 'khaki', 'indigo',
+  'violet', 'plum', 'orchid', 'tan', 'azure', 'lavender', 'crimson',
+  'chocolate', 'tomato', 'turquoise', 'skyblue', 'whitesmoke', 'gainsboro',
+  'slategray', 'lightgray', 'lightgrey', 'darkgray', 'darkgrey', 'dimgray', 'dimgrey',
+]);
+const COLOR_VALUE_RE = /^(#[0-9a-f]{3}|#[0-9a-f]{4}|#[0-9a-f]{6}|#[0-9a-f]{8}|rgba?\([\d\s.,%/]+\)|hsla?\([\d\s.,%a-z/]+\))$/i;
+
+function isPlainColorValue(str) {
+  const s = str.trim();
+  return COLOR_VALUE_RE.test(s) || NAMED_CSS_COLORS.has(s.toLowerCase());
+}
+
 /** True when `value` already satisfies the validator's `{ value, unit }` shape. */
 function isValidValueUnit(value) {
   return isPlainObject(value)
@@ -841,6 +869,19 @@ function coerceLengthString(part) {
  * (already valid, or not unambiguously repairable).
  */
 function coerceStyleValue(key, value) {
+  // Bare numbers / unitless numeric strings on size-typed properties are
+  // unambiguously px lengths → normalise to { value, unit }. Unit-suffixed
+  // strings ("12px") are left alone: they are the canonical form used by the
+  // shipped examples, accepted by the validator, and coercing them would
+  // record a repair on every already-valid document.
+  if (SIZE_TYPED_PROPS.has(key)) {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return { value, unit: 'px' };
+    }
+    if (typeof value === 'string' && /^-?\d+(\.\d+)?$/.test(value.trim())) {
+      return { value: Number(value.trim()), unit: 'px' };
+    }
+  }
   // Plain strings, numbers, valid { value, unit } objects: already accepted.
   if (!isPlainObject(value) || isValidValueUnit(value)) return undefined;
 
@@ -915,9 +956,11 @@ function repairElementStyles(section, sectionIndex, repairs) {
         note(`renamed "${alias}" to "${target}"`);
       }
     }
-    // `background` splits by value: gradient → backgroundImage, colour → backgroundColor.
+    // `background` splits by value: gradient → backgroundImage, plain colour
+    // → backgroundColor. Anything else stays for the validator to reject.
     if ('background' in style && typeof style.background === 'string'
-      && !UNSAFE_CSS_VALUE_RE.test(style.background)) {
+      && !UNSAFE_CSS_VALUE_RE.test(style.background)
+      && (GRADIENT_ONLY_RE.test(style.background.trim()) || isPlainColorValue(style.background))) {
       const target = GRADIENT_ONLY_RE.test(style.background.trim())
         ? 'backgroundImage' : 'backgroundColor';
       if (target in style) {
