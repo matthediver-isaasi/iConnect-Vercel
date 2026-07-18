@@ -1,0 +1,24 @@
+2026-07-18 10:11:16.819 [info] [TenantResolver] resolveTenantFromRequest called
+2026-07-18 10:11:16.820 [info] [TenantResolver] Params - tenant: bnms domain: undefined
+2026-07-18 10:11:16.820 [info] [TenantResolver] Trying tenant param lookup: bnms
+2026-07-18 10:11:16.934 [info] [TenantResolver] Found by slug param: bnms
+2026-07-18 10:11:16.934 [info] [Session] getSession: Looking up session: 6eef9ad4 (cookie)
+2026-07-18 10:11:17.047 [info] [Session] getSession: Session found, userType: member
+2026-07-18 10:11:17.047 [info] [TenantContext] About to call getSessionTenantUser
+2026-07-18 10:11:17.048 [info] [Session] getSession: Looking up session: 6eef9ad4 (cookie)
+2026-07-18 10:11:17.155 [info] [Session] getSession: Session found, userType: member
+2026-07-18 10:11:17.155 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"6eef9ad4","userType":"member","memberId":"f42f03b5-5ed7-441b-aac5-972038427e59","identityId":"dc156a30-ae8d-4aee-b965-b54fe4b17105","tenantId":"ff2df806-b321-4254-b651-3af11fccf1db"}
+2026-07-18 10:11:17.155 [info] [Session] Found member session with identityId, attempting promotion
+2026-07-18 10:11:17.387 [info] [Session] No tenant_user record found for identity promotion
+2026-07-18 10:11:17.387 [info] [Session] Member session promotion failed
+2026-07-18 10:11:17.387 [info] [TenantContext] getSessionTenantUser returned: null
+2026-07-18 10:11:17.387 [info] [TenantContext] Checking for member session...
+2026-07-18 10:11:17.387 [info] [Session] getSession: Looking up session: 6eef9ad4 (cookie)
+2026-07-18 10:11:17.503 [info] [Session] getSession: Session found, userType: member
+2026-07-18 10:11:17.503 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"6eef9ad4","userType":"member","memberId":"f42f03b5-5ed7-441b-aac5-972038427e59"}
+2026-07-18 10:11:17.621 [info] [TenantContext] Member found: {
+  memberId: 'f42f03b5-5ed7-441b-aac5-972038427e59',
+  organizationId: 'd2bbe3f3-64ff-47e7-bec2-a66b8a69f0f5'
+}
+2026-07-18 10:11:17.621 [info] [TenantContext] Tenant from member: ff2df806-b321-4254-b651-3af11fccf1db
+2026-07-18 10:12:16.818 [error] Vercel Runtime Timeout Error: Task timed out after 60 seconds
