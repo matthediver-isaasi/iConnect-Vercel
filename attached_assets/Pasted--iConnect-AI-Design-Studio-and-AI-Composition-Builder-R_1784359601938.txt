@@ -1,0 +1,1805 @@
+# iConnect AI Design Studio and AI Composition Builder
+
+## Revised implementation scope
+
+## 1. Project objective
+
+Extend the existing iConnect Canvas Builder with an AI-assisted design system that allows customers to create visually compelling web pages, page sections, infographics and illustrations from natural-language prompts.
+
+The feature should address the principal barriers organisations face when creating website content:
+
+* Limited design and layout creativity
+* Limited illustration and infographic capability
+* Difficulty writing effective website copy
+* Difficulty translating an idea into a polished responsive page
+* Inconsistent application of organisational branding
+* Lack of confidence when modifying complex page layouts
+
+The AI should act as a designer, illustrator and copywriter operating inside the existing Canvas Builder.
+
+The customer should describe what they need, review the generated result and continue directing changes through natural-language prompts.
+
+Customers should not need to understand:
+
+* HTML
+* CSS
+* Responsive design
+* Visual hierarchy
+* Illustration
+* Graphic design
+* Complex Canvas positioning
+
+The finished content must remain part of the existing Canvas Builder page, draft, approval and publishing workflow.
+
+---
+
+# 2. Core architectural principle
+
+Whole-page generation and individual AI section generation must use the same underlying architecture.
+
+Do not build separate technical systems for:
+
+* AI page creation
+* AI section creation
+* AI infographics
+* AI heroes
+* AI illustrations
+* AI page redesign
+
+Introduce a single first-class Canvas Builder element:
+
+## AI Composition
+
+An AI Composition is a self-contained, responsive design area that can represent either:
+
+1. A single AI-generated page section, or
+2. A multi-section composition representing most or all of a page body.
+
+The scope of the AI Composition is determined by:
+
+* Where it is inserted
+* The available space
+* Whether the Canvas page is blank
+* The user’s prompt
+* The creation mode selected
+* The content before and after it
+* The organisation’s branding
+* Existing page purpose and context
+
+### Example: blank Canvas page
+
+A user adds an AI Composition to a blank page and prompts:
+
+> Create a complete landing page for our annual conference, including a hero, event benefits, keynote speakers, programme overview, venue information, an abstract-submission infographic and registration calls to action.
+
+The result may be:
+
+```text
+Canvas page
+└── AI Composition
+    ├── Hero section
+    ├── Event introduction
+    ├── Benefits section
+    ├── Speaker section
+    ├── Programme overview
+    ├── Abstract process infographic
+    ├── Venue section
+    └── Registration call to action
+```
+
+The existing iConnect site navigation, footer, consent controls and other protected site infrastructure remain outside the AI Composition.
+
+### Example: existing Canvas page
+
+A user inserts an AI Composition between two existing Canvas elements and prompts:
+
+> Create an engaging infographic explaining the membership application process. Match the design and tone of the rest of this page.
+
+The result may be:
+
+```text
+Canvas page
+├── Manual hero
+├── Manual membership introduction
+├── AI Composition
+│   └── Membership application infographic
+├── Existing membership form
+└── Manual contact information
+```
+
+This mixed-content approach must be supported from the outset.
+
+---
+
+# 3. Product principle
+
+The governing principle is:
+
+> Customers direct the design; AI performs the design work.
+
+Users should be able to explain:
+
+* What they need
+* What they want changed
+* What content must be included
+* What destination a button should use
+* What style or feeling they want
+* Which part of the composition they are referring to
+
+The AI should remain responsible for:
+
+* Composition
+* Layout
+* Alignment
+* Spacing
+* Responsive behaviour
+* Typography hierarchy
+* Illustration style
+* Visual balance
+* Decorative treatment
+* Infographic design
+
+The first release should not attempt to provide a complete Figma-style manual layer editor.
+
+---
+
+# 4. AI Composition behaviour in Canvas Builder
+
+At the parent Canvas level, users must be able to:
+
+* Add an AI Composition
+* Add a complete AI page composition
+* Add an AI-generated section
+* Position the composition within the page
+* Set its width
+* Set a minimum height
+* Allow automatic height
+* Move it relative to other Canvas elements
+* Duplicate it
+* Hide it
+* Delete it
+* Preview it
+* Ask AI to change it
+* Create an alternative
+* View its versions
+* Restore a previous version
+* Convert supported content where appropriate
+* Insert standard Canvas elements before or after it
+
+The AI Composition must participate in normal page flow.
+
+It must not require the user to predict an exact fixed height before generation.
+
+## Required outer layout behaviour
+
+Support:
+
+* Full available width
+* Configurable width
+* Minimum height
+* Automatic content height
+* Breakpoint-specific height
+* Safe expansion
+* Safe contraction
+* Parent Canvas reflow
+* No overlap with following Canvas elements
+* Standard Canvas spacing before and after the composition
+
+If the AI Composition becomes taller, subsequent Canvas elements must move down.
+
+If it becomes shorter, the page should close the unused space safely.
+
+---
+
+# 5. AI Composition internal structure
+
+An AI Composition must be stored as a structured design document.
+
+It must not be stored only as:
+
+* A screenshot
+* A flattened image
+* Opaque generated HTML
+* An iframe
+* Unstructured CSS
+* Conversation history
+
+The structured composition document must remain the source of truth.
+
+## Multi-section structure
+
+An AI Composition must support one or more internal section groups.
+
+Conceptually:
+
+```json
+{
+  "id": "ai_composition_uuid",
+  "name": "Annual conference landing page",
+  "compositionType": "multi_section_page",
+  "status": "draft",
+  "originalPrompt": "Create a complete annual conference page...",
+  "sections": [
+    {
+      "id": "section_hero",
+      "name": "Hero",
+      "type": "ai_section",
+      "elements": []
+    },
+    {
+      "id": "section_benefits",
+      "name": "Benefits",
+      "type": "ai_section",
+      "elements": []
+    },
+    {
+      "id": "section_process",
+      "name": "Abstract submission process",
+      "type": "ai_section",
+      "elements": []
+    }
+  ],
+  "layouts": {
+    "desktop": {},
+    "tablet": {},
+    "mobile": {}
+  },
+  "protectedValues": [],
+  "generatedAssets": [],
+  "conversation": [],
+  "generationMetadata": {},
+  "accessibility": {},
+  "currentVersionId": "version_uuid"
+}
+```
+
+## Selection hierarchy
+
+Users must be able to target:
+
+* The complete AI Composition
+* An individual internal section
+* A meaningful group within a section
+* A particular content element
+
+This should allow requests such as:
+
+* “Give the whole page a more editorial style.”
+* “Redesign only the speaker section.”
+* “Add a sponsorship section between the programme and venue sections.”
+* “Make this statistic the main focus.”
+* “Replace this image.”
+* “Change this button link.”
+* “Make the mobile version of this section less crowded.”
+
+---
+
+# 6. Supported internal element types
+
+The initial structured schema should support:
+
+* Section
+* Container
+* Group
+* Nested group
+* Heading
+* Paragraph
+* Label
+* Caption
+* Image
+* Generated illustration
+* Icon
+* Button
+* Text link
+* Shape
+* Line
+* Connector
+* Background
+* Overlay
+* Card
+* Statistic
+* Timeline item
+* Process step
+* Repeating item
+* Comparison item
+* Simple chart
+* Structured infographic
+* SVG decorative element
+* Approved iConnect action
+* Placeholder for an approved standard Canvas component
+
+The schema must be extensible so additional element types can be introduced without invalidating existing content.
+
+---
+
+# 7. Creative layout capability
+
+The AI must not be restricted to assembling only the current Canvas Builder component library.
+
+It should be able to create:
+
+* Asymmetric layouts
+* Layered compositions
+* Overlapping elements
+* Irregular grids
+* Large typographic treatments
+* Curved visual journeys
+* Timelines
+* Process diagrams
+* Statistics panels
+* Comparison graphics
+* Illustrated calls to action
+* Membership-benefit graphics
+* Sponsorship package displays
+* Event journeys
+* Decorative shapes and paths
+* Branded infographic sections
+* Magazine-style layouts
+* Mixed image and typography compositions
+* Visual section transitions
+* Complex desktop compositions
+* Simplified mobile reinterpretations
+
+## Layout properties
+
+The internal design schema should support:
+
+* Absolute positioning
+* Relative positioning
+* Flexbox-style layout
+* Grid-style layout
+* Width and height
+* Minimum and maximum dimensions
+* Z-index and layer order
+* Rotation
+* Opacity
+* Border
+* Border radius
+* Shadow
+* Gradient
+* Padding
+* Margin
+* Alignment
+* Distribution
+* Overflow
+* Clipping
+* Approved clip paths
+* Responsive visibility
+* Breakpoint-specific position
+* Breakpoint-specific dimensions
+* Decorative SVG paths
+* Image focal points
+* Image crop
+* Object-fit behaviour
+* Semantic reading order separate from visual position
+
+Do not unnecessarily constrain the schema to existing Canvas layout primitives.
+
+---
+
+# 8. Existing Canvas Builder integration
+
+Existing Canvas elements must continue to operate normally before, after and alongside AI Compositions.
+
+A page may contain any mixture of:
+
+* Manual Canvas elements
+* Standard data-driven components
+* Single-section AI Compositions
+* Multi-section AI Compositions
+* Existing forms
+* Event components
+* Membership components
+* Document listings
+* News feeds
+* Payment actions
+* Registration components
+
+Example:
+
+```text
+Canvas page
+├── AI hero section
+├── Manual introduction
+├── AI benefits infographic
+├── Standard event listing
+├── AI speaker composition
+├── Standard registration component
+└── AI closing call to action
+```
+
+## Functional components
+
+The AI may recommend or position standard iConnect functionality but must not recreate its underlying behaviour.
+
+Application functionality should remain within approved iConnect components, including:
+
+* Forms
+* Event registration
+* Membership applications
+* Member login
+* Payment actions
+* Membership products
+* News listings
+* Document downloads
+* Directories
+* Data-driven records
+
+The AI is responsible for presentation and visual storytelling.
+
+iConnect remains responsible for trusted functionality and data.
+
+---
+
+# 9. Creation entry points
+
+Add the following Canvas Builder actions:
+
+* Create page with AI
+* Add AI Composition
+* Add AI section
+* Add AI infographic
+* Add AI hero
+* Continue this page with AI
+* Transform selected content with AI
+* Improve selected area with AI
+
+All actions should use the same underlying AI Composition service.
+
+## Blank-page behaviour
+
+Where the page is blank, selecting **Create page with AI** or adding an AI Composition should default to a multi-section page composition.
+
+The user may still request a single section.
+
+## Existing-page behaviour
+
+Where the page already contains content, adding an AI Composition should default to a section appropriate to:
+
+* Its insertion point
+* Surrounding content
+* Available width
+* Page purpose
+* Existing visual treatment
+
+The user may explicitly request a complete-page composition where appropriate.
+
+---
+
+# 10. AI creation panel
+
+Allow the user to provide:
+
+* Natural-language brief
+* Page or section purpose
+* Target audience
+* Desired action
+* Optional content to include
+* Optional existing page content
+* Optional uploaded documents
+* Optional existing media-library assets
+* Optional page records
+* Optional event records
+* Optional form records
+* Optional membership records
+* Preferred visual direction
+* Creativity level
+* Whether image generation is allowed
+* Whether AI-written copy is allowed
+* Whether existing surrounding content should be preserved
+
+Do not force the user to complete every field.
+
+The natural-language brief should be sufficient for most generations.
+
+## Creation modes
+
+Offer:
+
+* Complete page
+* Page section
+* Hero section
+* Infographic
+* Visual explainer
+* Timeline
+* Statistics panel
+* Call to action
+* Continue existing page
+* Let AI decide
+
+These are scope indicators, not fixed design templates.
+
+## Suggested visual directions
+
+Offer optional directions such as:
+
+* Editorial
+* Illustrated
+* Professional
+* Premium
+* Bold
+* Minimal
+* Community-focused
+* Data-led
+* Experimental
+* Let AI decide
+
+---
+
+# 11. Brand consistency
+
+The AI should receive the organisation’s approved:
+
+* Logos
+* Logo variants
+* Fonts
+* Typography hierarchy
+* Brand colours
+* Supporting colours
+* Button styles
+* Corner-radius conventions
+* Icon treatments
+* Photography preferences
+* Illustration preferences
+* Tone-of-voice guidance
+* Existing approved page examples
+
+The organisation’s brand should guide the AI without turning every result into the same template.
+
+## Brand controls
+
+Distinguish between:
+
+### Fixed brand rules
+
+* Approved fonts
+* Required logo rules
+* Core colour restrictions
+* Button conventions
+* Minimum contrast
+* Protected navigation
+* Protected footer
+* Legal requirements
+
+### Creative interpretation
+
+* Layout
+* Scale
+* Overlap
+* Shape
+* Hierarchy
+* Illustration
+* Background treatment
+* Negative space
+* Section transitions
+* Typography composition
+
+## Creativity settings
+
+Support:
+
+### Strict
+
+Closely follows established organisation styling and approved page examples.
+
+### Brand-led
+
+Uses the organisation’s brand but allows more varied layout, illustration and composition.
+
+### Experimental
+
+Permits more adventurous design while retaining required fonts, logo rules, core colours and accessibility requirements.
+
+Support organisation-level defaults and per-generation overrides.
+
+---
+
+# 12. Existing-page context
+
+When an AI Composition is inserted into an existing page, provide the AI with a concise structured representation of the page context.
+
+This should include:
+
+* Page title
+* Page purpose
+* Existing page summary
+* Previous Canvas element
+* Following Canvas element
+* Nearby headings
+* Nearby copy
+* Background colours
+* Existing typography treatment
+* Nearby imagery
+* Current calls to action
+* Available width
+* Intended insertion point
+* Existing organisation branding
+* Existing relevant links
+* Existing page data sources
+
+Example:
+
+```json
+{
+  "pagePurpose": "Membership recruitment",
+  "precedingContent": {
+    "type": "manual_content",
+    "heading": "Advance your career with membership",
+    "summary": "Introduction to the principal membership benefits",
+    "background": "brand-surface-light"
+  },
+  "followingContent": {
+    "type": "membership_application_form",
+    "heading": "Apply for membership"
+  },
+  "availableWidth": 1200,
+  "requestedPosition": "between_introduction_and_form"
+}
+```
+
+The AI should use this information to create a section that complements the page rather than producing an unrelated standalone design.
+
+---
+
+# 13. AI generation workflow
+
+Implement generation as a multi-stage server-side workflow.
+
+## Stage 1: context assembly
+
+Gather only relevant information from the current organisation:
+
+* Brand settings
+* Approved media
+* Existing page context
+* Relevant pages
+* Relevant events
+* Relevant forms
+* Membership information
+* User-supplied content
+* Uploaded reference documents
+* Available internal destinations
+* Canvas dimensions
+* User permissions
+* Requested composition scope
+
+Maintain strict tenant isolation.
+
+## Stage 2: creative plan
+
+Ask the model to produce an internal plan containing:
+
+* Intended audience
+* Primary action
+* Content narrative
+* Visual concept
+* Number of proposed sections
+* Section order
+* Required imagery
+* Proposed infographic or illustration
+* Required functional components
+* Information requiring verification
+* Desktop approach
+* Tablet approach
+* Mobile approach
+
+This plan may be retained for audit and later editing.
+
+Do not expose private model reasoning.
+
+## Stage 3: factual-content resolution
+
+Before writing final copy, identify required factual content such as:
+
+* Dates
+* Prices
+* Names
+* Statistics
+* Membership entitlements
+* Event locations
+* Registration details
+* Sponsor information
+* Form destinations
+
+Retrieve these values from approved iConnect records or require user confirmation.
+
+Do not allow the AI to invent them.
+
+## Stage 4: content generation
+
+Generate:
+
+* Headings
+* Supporting copy
+* Button labels
+* Captions
+* Explanatory text
+* Infographic labels
+* Accessibility summaries
+* Alt-text suggestions
+* SEO-supporting content where applicable
+
+Distinguish between:
+
+* User-provided content
+* Retrieved iConnect content
+* AI-written promotional copy
+* Potential factual claims requiring review
+
+## Stage 5: design-document generation
+
+Return a structured AI Composition document conforming to a strict schema.
+
+Reject responses that do not validate.
+
+Do not save invalid output as the active composition.
+
+## Stage 6: image and illustration generation
+
+Generate supporting assets where appropriate.
+
+Store generated assets in the organisation’s existing media library.
+
+Reference them by media asset ID.
+
+## Stage 7: rendering and validation
+
+Render the AI Composition at:
+
+* Desktop
+* Tablet
+* Mobile
+
+Run:
+
+* Schema validation
+* Security validation
+* Missing-asset checks
+* Broken-link checks
+* Overflow checks
+* Contrast checks
+* Heading-order checks
+* Alt-text checks
+* Keyboard-interaction checks
+* Responsive-layout checks
+* Parent Canvas flow checks
+
+## Stage 8: visual review
+
+Where supported, provide rendered previews to a vision-capable model for review.
+
+Check for:
+
+* Text collisions
+* Poor spacing
+* Weak hierarchy
+* Awkward image crops
+* Excessive density
+* Repetitive design
+* Unbalanced layouts
+* Mobile failures
+* Weak calls to action
+* Contrast problems
+* Inconsistent section transitions
+
+Allow a limited number of automated correction cycles.
+
+## Stage 9: user preview
+
+Present the proposed result.
+
+Allow the user to:
+
+* Insert
+* Apply
+* Request changes
+* Create alternative
+* Discard
+* Preview desktop
+* Preview tablet
+* Preview mobile
+* Review warnings
+* Review factual claims
+* Review generated assets
+
+---
+
+# 14. Prompt-led editing
+
+The primary editing method must remain conversational.
+
+## Whole-composition editing
+
+Examples:
+
+* “Make this whole page feel more premium.”
+* “Use less text and more illustration.”
+* “Give the page a stronger editorial style.”
+* “Reduce the overall page length.”
+* “Keep all content and links but create a completely different layout.”
+* “Improve the mobile version.”
+* “Use more of our existing photography.”
+
+## Section-level editing
+
+Examples:
+
+* “Redesign only the speaker section.”
+* “Make the sponsorship section more visual.”
+* “Move the venue section above the programme.”
+* “Add a new section between these two sections.”
+* “Remove this section.”
+* “Turn this section into a timeline.”
+
+## Element-level editing
+
+Examples:
+
+* “Make this heading less formal.”
+* “Replace this image.”
+* “Link this button to the application form.”
+* “Make this statistic larger.”
+* “Shorten this paragraph.”
+* “Use an illustration instead of this photograph.”
+
+The selected section, group or element ID must be passed to the AI.
+
+The AI must not have to infer which element “this” refers to.
+
+---
+
+# 15. Patch-based changes
+
+Minor changes must be applied as structured patches against the current composition.
+
+Example:
+
+```json
+[
+  {
+    "operation": "update_content",
+    "elementId": "heading_01",
+    "changes": {
+      "text": "Join the conversation shaping our profession"
+    }
+  },
+  {
+    "operation": "update_action",
+    "elementId": "button_01",
+    "changes": {
+      "actionType": "event_registration",
+      "eventId": "event_uuid"
+    }
+  }
+]
+```
+
+Do not regenerate a full page or full section for a simple wording, link or image change.
+
+## Supported change scopes
+
+### Content-only
+
+Preserve layout except where minor adjustment is needed for text length.
+
+### Asset change
+
+Replace or edit an image while preserving surrounding composition.
+
+### Layout change
+
+Change position or structure while preserving content and bindings.
+
+### Section redesign
+
+Replace the visual composition of one section while preserving protected values.
+
+### Complete creative redesign
+
+Create a substantially different complete composition while preserving protected values.
+
+Major redesigns should default to creating an alternative rather than replacing the current version immediately.
+
+---
+
+# 16. Exact links and functional destinations
+
+Do not allow the AI to invent internal URLs.
+
+Store internal destinations by record ID.
+
+Supported actions should include:
+
+* Internal page
+* External URL
+* Event registration
+* Membership application
+* Form
+* Document download
+* Email address
+* Telephone number
+* Page anchor
+* Approved custom iConnect action
+
+## Hybrid destination workflow
+
+Example:
+
+1. User selects a button.
+2. User prompts: “Link this to conference registration.”
+3. iConnect searches valid destinations.
+4. If multiple matches exist, present them.
+5. User selects the exact destination.
+6. The composition is updated.
+7. The AI may adjust the button presentation if necessary.
+
+---
+
+# 17. Protected values
+
+Maintain protected fields and references for:
+
+* User-confirmed internal links
+* Form references
+* Event references
+* Dates retrieved from records
+* Prices retrieved from records
+* Confirmed statistics
+* Names retrieved from records
+* Sponsor logos
+* Approved legal wording
+* Approved accessibility text
+* Data-source bindings
+* Payment actions
+* Registration actions
+
+A creative redesign may change presentation but must not change protected values unless the user explicitly instructs it to do so.
+
+Display a warning where an instruction would change confirmed factual information.
+
+---
+
+# 18. Responsive behaviour
+
+Every AI Composition and internal section must support:
+
+* Desktop
+* Tablet
+* Mobile
+
+The AI must create responsive reinterpretations rather than simply scaling down the desktop composition.
+
+Examples:
+
+* Horizontal timelines become vertical.
+* Overlapping cards become stacked.
+* Decorative imagery may be removed.
+* Text may be shortened where approved.
+* Buttons may become full-width.
+* Statistics may become sequential.
+* Complex illustrations may be simplified.
+* Image focal points may change.
+* Section order may change where semantically appropriate.
+
+Prompting must support:
+
+* Update all breakpoints
+* Desktop only
+* Tablet only
+* Mobile only
+
+A breakpoint-specific change must not unintentionally overwrite other breakpoints.
+
+---
+
+# 19. Images and illustrations
+
+## Media-library integration
+
+Generated imagery must be stored in the organisation’s existing media library.
+
+Users should be able to request:
+
+* Generate new image
+* Generate new illustration
+* Edit current generated image
+* Replace with uploaded image
+* Replace with existing media-library asset
+* Recommend existing asset
+* Change crop
+* Change focal point
+* Simplify for mobile
+* Create alternative
+
+## Generated asset metadata
+
+Store:
+
+* Organisation ID
+* User ID
+* Generation prompt
+* Creation date
+* Model/provider
+* Aspect ratio
+* Intended placement
+* Alt text
+* Component references
+* Usage status
+* Parent asset where edited
+* Generation cost where available
+
+## Image-generation brief
+
+Include:
+
+* Required dimensions
+* Aspect ratio
+* Intended placement
+* Brand palette
+* Visual style
+* Subject
+* Elements to avoid
+* Text-overlay requirements
+* Focal point
+* Mobile crop
+* Accessibility description
+
+Do not place essential page text only inside generated images.
+
+---
+
+# 20. Infographics
+
+Distinguish between two types.
+
+## Conceptual infographics
+
+May use generated illustration and decorative visual storytelling.
+
+Examples:
+
+* Membership journey
+* Application process
+* Organisational mission
+* Strategic priorities
+* Event experience
+* Campaign journey
+
+## Factual infographics
+
+The AI may design the composition, but factual values and labels must remain structured.
+
+Render actual values using:
+
+* HTML text
+* Approved SVG
+* Structured chart elements
+* Data-bound values
+
+Do not rely on generated raster imagery for factual text, dates, values or statistics.
+
+---
+
+# 21. Rendering and CSS isolation
+
+AI Compositions should render within the normal page DOM so content remains:
+
+* Searchable
+* Accessible
+* Responsive
+* Indexable
+* Selectable
+* Editable through AI
+* Translatable in future
+
+Avoid using an iframe as the standard renderer.
+
+Avoid flattening complete compositions into image files.
+
+## CSS isolation
+
+All AI Composition styling must be scoped to the component instance.
+
+Generated styles must not:
+
+* Modify global page styles
+* Modify navigation
+* Modify footer
+* Override other Canvas elements
+* Affect admin interfaces
+* Access elements outside the composition
+* Load external stylesheets
+
+Use:
+
+* Unique component wrappers
+* Validated style properties
+* CSS property allowlists
+* Sanitised values
+* Scoped selectors
+
+## JavaScript
+
+Arbitrary generated JavaScript is prohibited in the first release.
+
+Approved interactions must use existing iConnect actions or a controlled interaction library.
+
+---
+
+# 22. Accessibility
+
+Accessibility is a release requirement.
+
+AI Compositions must support:
+
+* Semantic headings
+* Logical DOM reading order
+* Keyboard-operable controls
+* Descriptive link and button labels
+* Alt text
+* Colour contrast
+* Responsive font sizing
+* Reduced-motion preferences
+* Visible focus states
+* Real HTML text
+* Accessible chart summaries
+* Accessible infographic summaries
+* Semantic content order independent of visual placement
+
+Run automated accessibility checks before approval or publishing.
+
+Critical accessibility failures must block approval.
+
+---
+
+# 23. Security
+
+All AI calls must be made server-side.
+
+Do not expose provider API keys in the browser.
+
+Implement:
+
+* Tenant isolation
+* User permission checks
+* Prompt-size limits
+* Output-size limits
+* Request throttling
+* Input sanitisation
+* Strict output schema validation
+* HTML sanitisation where needed
+* CSS allowlists
+* URL validation
+* Asset ownership checks
+* Prompt-injection protection
+* Audit logging
+* Safe failure behaviour
+* Provider timeout handling
+
+The AI must not be able to:
+
+* Access another organisation’s content
+* Execute database queries
+* Generate executable JavaScript
+* Insert external scripts
+* Bypass permissions
+* Publish pages
+* Modify protected navigation
+* Modify legal controls
+* Create payment logic
+* Create authentication logic
+* Create uncontrolled forms
+
+---
+
+# 24. Version history
+
+Every successful AI operation must create an immutable version.
+
+Support:
+
+* View current version
+* View previous versions
+* Restore previous version
+* Duplicate version
+* Compare current and proposed version
+* Keep both alternatives
+* Discard proposed version
+* Undo most recent accepted change
+
+A version must include:
+
+* Complete structured composition
+* Internal sections
+* Asset references
+* Protected values
+* Breakpoint layouts
+* Accessibility result
+* Validation result
+* Generation metadata
+* Parent version ID
+* Change summary
+
+Never overwrite the only valid version.
+
+---
+
+# 25. Component conversation history
+
+Each AI Composition must retain its own design conversation.
+
+Store:
+
+* User instruction
+* Selected scope
+* Selected section or element
+* AI interpretation
+* Proposed changes
+* Accepted or rejected status
+* Version created
+* Timestamp
+* User
+* Model/provider metadata
+
+The conversation provides context.
+
+The structured composition document remains the authoritative source.
+
+---
+
+# 26. Permissions
+
+Reuse existing Canvas Builder and organisation permissions where possible.
+
+At minimum, distinguish users who can:
+
+* Generate AI Compositions
+* Request AI changes
+* Approve generated content
+* Publish pages
+* Configure brand guidance
+* View AI usage
+* Configure AI allowances
+* Generate images
+* Approve factual claims
+
+Publishing permission must remain separate from generation permission.
+
+---
+
+# 27. Usage limits and cost reporting
+
+Implement organisation-level controls for:
+
+* Enable or disable AI Design Studio
+* Monthly generation allowance
+* Monthly image allowance
+* Maximum page generations
+* Maximum section generations
+* Maximum alternatives
+* Maximum automatic visual-review cycles
+* Maximum prompt length
+* Maximum generated assets
+* Per-user rate limits
+* Warning threshold
+* Optional hard spending limit
+
+Record usage by:
+
+* Organisation
+* User
+* Page
+* AI Composition
+* Section
+* Operation type
+* Model/provider
+* Text input/output
+* Image generation
+* Image editing
+* Visual review
+* Date
+* Estimated or actual cost
+
+Distinguish:
+
+* Full composition creation
+* Section creation
+* Content update
+* Layout revision
+* Section redesign
+* Complete redesign
+* Visual review
+* Image generation
+* Image editing
+
+Prevent accidental duplicate submissions.
+
+---
+
+# 28. Admin configuration
+
+Add an AI Design Studio configuration area.
+
+Organisation-level settings should include:
+
+* Enable AI Design Studio
+* Default creativity level
+* Permitted creativity levels
+* Allow image generation
+* Allow generated illustration
+* Allow AI-written copy
+* Require factual-claim approval
+* Usage allowances
+* Approved fonts
+* Approved colours
+* Logo variants
+* Tone-of-voice guidance
+* Illustration guidance
+* Photography guidance
+* Disallowed treatments
+* Preferred existing pages
+* Approved button styles
+* Experimental-layout permission
+
+Reuse existing organisation branding where possible.
+
+Do not duplicate configuration unnecessarily.
+
+---
+
+# 29. Initial technical discovery
+
+Before implementation, inspect and document:
+
+* Existing Canvas data model
+* Exact positioning model
+* Existing responsive behaviour
+* Page flow behaviour
+* Canvas element selection
+* Draft storage
+* Publishing workflow
+* Page versioning
+* Page renderer
+* Organisation branding
+* Font handling
+* Colour variables
+* Link handling
+* Form and event references
+* Media-library architecture
+* Permission enforcement
+* Existing OpenAI integrations
+* Existing image-generation services
+* Existing queues or background jobs
+* AI usage reporting
+* Cost tracking
+* Rollback behaviour
+
+Do not create parallel systems where reusable services already exist.
+
+---
+
+# 30. Error handling
+
+The current valid composition and page must remain unchanged when:
+
+* AI request fails
+* Provider times out
+* Output fails schema validation
+* Image generation fails
+* Asset is missing
+* Link cannot be resolved
+* Responsive layout fails validation
+* Composition cannot render
+* Security validation fails
+* Critical accessibility validation fails
+* Parent Canvas flow cannot be calculated
+
+Show clear status and retry options.
+
+Do not make partially generated output current.
+
+Retain completed workflow stages where possible so one failed image does not require repeating the entire generation.
+
+---
+
+# 31. User-interface states
+
+Support:
+
+* Empty
+* Planning
+* Resolving content
+* Generating copy
+* Generating design
+* Generating images
+* Rendering
+* Reviewing
+* Ready for review
+* Change proposed
+* Validation warning
+* Generation failed
+* Approved
+* Inserted
+* Published through parent page
+
+Use meaningful progress states rather than an indefinite spinner.
+
+Do not display private model reasoning.
+
+---
+
+# 32. Delivery phases
+
+## Phase 0: architecture and discovery
+
+Deliver:
+
+* Existing Canvas Builder architecture review
+* Proposed AI Composition schema
+* Internal section schema
+* Renderer approach
+* Parent page-flow approach
+* Responsive approach
+* Security assessment
+* OpenAI service reuse plan
+* Media-library integration plan
+* Versioning plan
+* Usage-control plan
+* Identified risks
+
+Do not begin major implementation until the schema and renderer approach are documented.
+
+## Phase 1: AI Composition foundation
+
+Deliver:
+
+* AI Composition Canvas element
+* Single-section and multi-section support
+* Structured document schema
+* Internal section groups
+* Parent Canvas auto-height and reflow
+* Desktop, tablet and mobile layouts
+* Brand context assembly
+* Prompt-to-composition generation
+* Basic text, image, button, shape, group and statistic elements
+* Validation
+* Draft insertion
+* Version history
+* No arbitrary JavaScript
+
+Phase 1 must support both:
+
+* A whole-page composition on a blank page
+* A complementary section within an existing page
+
+## Phase 2: prompt-led editing
+
+Deliver:
+
+* Whole-composition prompts
+* Section selection
+* Internal element selection
+* Scoped prompts
+* Patch-based updates
+* Protected values
+* Link resolution
+* Before-and-after preview
+* Accept, reject and refine
+* Conversation history
+* Alternative versions
+* Section insertion, removal and reordering
+
+## Phase 3: images and infographics
+
+Deliver:
+
+* Image-generation integration
+* Media-library storage
+* Image replacement
+* Image editing
+* Generated illustrations
+* Conceptual infographics
+* Data-safe factual infographics
+* Alt-text workflow
+* Asset usage tracking
+
+## Phase 4: quality and governance
+
+Deliver:
+
+* Accessibility validation
+* Responsive validation
+* Parent Canvas flow validation
+* Visual review
+* Admin configuration
+* Usage limits
+* Cost reporting
+* Audit history
+* Failure recovery
+
+## Phase 5: enhanced page-generation workflow
+
+This phase does not introduce a separate page-generation architecture.
+
+It adds an improved workflow on top of AI Compositions:
+
+* Dedicated Create Page with AI entry point
+* Advanced page brief
+* Automatic page narrative
+* Automatic section planning
+* Automatic recommendation of standard iConnect components
+* Page-level SEO generation
+* Page-wide visual review
+* Page-wide conversational changes
+* More advanced mixed manual, functional and AI layouts
+
+---
+
+# 33. Non-goals for the first release
+
+Do not initially include:
+
+* Arbitrary JavaScript
+* User-supplied scripts
+* AI-generated authentication
+* AI-generated payment functionality
+* AI-generated database queries
+* Automatic publishing
+* Complete manual layer editing
+* Full animation authoring
+* Unrestricted external embeds
+* Replacement of navigation
+* Replacement of legal or consent controls
+* AI forms outside the existing form system
+* Separate iframe-based page builder
+* Flattening complete compositions into images
+
+---
+
+# 34. Proof-of-concept use cases
+
+Test at minimum:
+
+## Whole-page cases
+
+1. Annual conference landing page
+2. Membership recruitment page
+3. Sponsorship campaign page
+
+## Section cases
+
+4. Membership benefits infographic
+5. Application-process timeline
+6. Annual-report statistics panel
+7. Event campaign hero
+8. Research or policy explainer
+9. Closing call-to-action section
+
+## Mixed page case
+
+10. Existing manual page enhanced with:
+
+* AI infographic
+* Standard form
+* AI call to action
+
+---
+
+# 35. Acceptance criteria
+
+## Blank-page whole composition
+
+* A user can create a blank Canvas page.
+* A user can add an AI Composition.
+* A whole-page prompt creates a multi-section composition.
+* The composition automatically sizes the page body.
+* Internal sections can be selected independently.
+* The user can add, remove, reorder or redesign sections through prompts.
+* Navigation and footer remain protected outside the composition.
+* The page remains in the normal draft workflow.
+
+## Existing-page AI section
+
+* A user can insert an AI Composition between existing Canvas elements.
+* The AI receives relevant surrounding-page context.
+* The generated section complements the existing page.
+* The composition auto-height pushes later content down safely.
+* Existing manual elements remain unchanged.
+* The AI section can be modified independently.
+
+## Mixed content
+
+* A page can contain manual elements, AI Compositions and standard functional components.
+* AI changes do not damage standard components.
+* Standard forms, event components and membership components remain authoritative.
+* AI may visually support but not recreate protected functionality.
+
+## Creativity
+
+* The system can create layouts beyond the existing component library.
+* It supports layering, irregular composition, infographic structures and generated illustration.
+* Different directions produce meaningfully different designs.
+* Whole pages do not appear as a repetitive stack of fixed templates.
+
+## Prompted editing
+
+* Users can target the complete composition, a section or an internal element.
+* Prompts reliably affect the selected scope.
+* Minor changes use patches.
+* Major changes may create alternatives.
+* Protected values remain intact.
+* Users can accept, reject or refine changes.
+
+## Responsive behaviour
+
+* Desktop, tablet and mobile layouts are separately represented.
+* Mobile is not merely scaled desktop.
+* Breakpoint-specific prompts are supported.
+* Parent Canvas flow remains correct at every breakpoint.
+
+## Links
+
+* Internal destinations use record IDs.
+* AI does not invent internal URLs.
+* Ambiguous destinations present valid choices.
+* Broken destinations are identified.
+
+## Images
+
+* Generated images are stored in the media library.
+* Existing images can be used.
+* Images can be replaced through prompting.
+* Alt text is available or flagged.
+* Essential text is not embedded only in images.
+
+## Accessibility
+
+* Semantic reading order exists.
+* Links and buttons are keyboard accessible.
+* Contrast failures are detected.
+* Missing alt text is detected.
+* Critical failures block approval.
+
+## Versioning and safety
+
+* Every accepted AI operation creates a version.
+* Previous versions can be restored.
+* Failed generations do not replace valid content.
+* AI output is never automatically published.
+* All operations are auditable.
+
+## Security
+
+* API keys remain server-side.
+* Output is schema validated.
+* Unsafe markup is rejected.
+* Scripts and external-resource injection are blocked.
+* Tenant boundaries are enforced.
+* Existing permissions are enforced.
+
+## Usage controls
+
+* AI usage is recorded.
+* Organisation allowances are configurable.
+* Image usage is separated from text and layout usage.
+* Accidental duplicate submissions are prevented.
+
+---
+
+# 36. Testing requirements
+
+Implement automated tests for:
+
+* Schema validation
+* Single-section rendering
+* Multi-section rendering
+* Parent Canvas auto-height
+* Parent Canvas reflow
+* CSS isolation
+* Unsafe markup rejection
+* Tenant isolation
+* Permission enforcement
+* Version creation
+* Version restoration
+* Protected-value preservation
+* Patch application
+* Section insertion
+* Section removal
+* Section reordering
+* Missing-asset behaviour
+* Broken-link behaviour
+* Responsive rendering
+* Accessibility validation
+* Usage-limit enforcement
+* Provider failure handling
+
+Add browser-level tests covering:
+
+* Whole-page generation on blank Canvas
+* Section generation within an existing page
+* Mixed AI and manual elements
+* Mixed AI and standard functional elements
+* Selecting an internal section
+* Selecting an internal element
+* Changing text by prompt
+* Replacing an image
+* Updating a button destination
+* Adding a new section
+* Reordering sections
+* Creating an alternative composition
+* Rejecting a proposed change
+* Restoring a previous version
+* Publishing through the normal Canvas workflow
+
+---
+
+# 37. Required Replit implementation output
+
+For each phase, Replit should provide:
+
+* Existing implementation reviewed
+* Architecture decisions
+* Database changes
+* API and service changes
+* New UI components
+* Reused services
+* Security considerations
+* Migration requirements
+* Tests added
+* Manual test instructions
+* Preview instructions
+* Known limitations
+* Recommended next phase
+
+Avoid unrelated changes to the Canvas Builder.
+
+The implementation must remain backwards compatible with existing Canvas pages and elements.
+
+---
+
+# 38. Working product name
+
+Use:
+
+## iConnect AI Design Studio
+
+Suggested Canvas Builder actions:
+
+* Create page with AI
+* Add AI section
+* Add AI Composition
+* Ask AI to change
+* Create alternative
+* Continue page with AI
+
+Product proposition:
+
+> Describe what you need and iConnect will design, illustrate and write it for you using your organisation’s branding, while keeping everything within your existing website workflow.
+
+The system should feel like access to a designer, illustrator and copywriter rather than a template generator or HTML assistant.
+
+---
+
+# 39. Critical instruction to Replit
+
+Begin with Phase 0.
+
+The first implementation decision must be the structured AI Composition and internal section schema.
+
+The schema must preserve:
+
+* Creative layout freedom
+* Multi-section whole-page generation
+* Single-section generation
+* Responsive design
+* Prompt-led editing
+* Protected values
+* Parent Canvas flow
+* Accessibility
+* Version history
+
+Do not begin by generating unrestricted HTML and attempting to make it editable afterwards.
+
+Do not build whole-page generation as a separate system from AI section generation.
+
+Both must use the same AI Composition architecture.
