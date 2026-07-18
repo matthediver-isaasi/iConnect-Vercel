@@ -13,6 +13,8 @@ import {
   Award, ChevronUp, ChevronDown, Lock, AlertTriangle, Search, Briefcase,
 } from 'lucide-react';
 import IEditFeaturedJobElement, { IEditFeaturedJobElementEditor } from '@/components/iedit/elements/IEditFeaturedJobElement';
+import { Sparkles } from 'lucide-react';
+import { AiCompositionRender, AiCompositionInspector } from './AiCompositionBlock';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -7163,6 +7165,14 @@ function FeaturedJobInspector({ block, update, breakpoint }) {
 }
 
 export const DYNAMIC_BLOCK_DEFINITIONS = {
+  [BLOCK_TYPES.AI_COMPOSITION]: {
+    label: 'AI Composition',
+    icon: Sparkles,
+    category: 'data',
+    Editor: (props) => <AiCompositionRender {...props} asEditor />,
+    Renderer: AiCompositionRender,
+    Inspector: AiCompositionInspector,
+  },
   [BLOCK_TYPES.EVENT_LIST]: {
     label: 'Event list',
     icon: CalendarDays,

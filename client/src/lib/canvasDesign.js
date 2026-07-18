@@ -207,6 +207,10 @@ export const BLOCK_TYPES = {
   LOGIN_FORM: 'login-form',
   // Styled public-search field that reuses /api/public/search.
   SEARCH_INPUT: 'search-input',
+  // Task #2849 — AI Design Studio Phase 1: an element whose content is a
+  // server-generated, schema-validated AI Composition document rendered
+  // in-DOM with instance-scoped allowlisted CSS (no generated JS).
+  AI_COMPOSITION: 'ai-composition',
   // Task #2558 — flow (auto-layout) layout containers. `row` lays its children
   // out horizontally as columns (the real Row/Columns primitive that replaces
   // expressing side-by-side layouts with X coordinates); `group` is a
@@ -1466,6 +1470,18 @@ BLOCK_DEFAULTS[BLOCK_TYPES.SEARCH_INPUT] = {
   },
 };
 
+// AI Composition block (Task #2849): renders a server-generated, strictly
+// schema-validated AI Composition document. `compositionId` is empty until
+// the author generates a draft in the inspector and inserts it. The block is
+// auto-height (see AUTO_HEIGHT_LEAF_TYPES) so the composition's rendered
+// content drives its footprint in the parent canvas flow.
+BLOCK_DEFAULTS[BLOCK_TYPES.AI_COMPOSITION] = {
+  name: 'AI Composition',
+  geom: { w: 800, h: 320 },
+  style: { background: 'transparent', borderWidth: 0 },
+  content: { compositionId: '' },
+};
+
 // Hero Carousel block: slide-based hero with per-slide backgrounds, overlays,
 // rich-text headings, CTA buttons, and configurable carousel playback.
 BLOCK_DEFAULTS[BLOCK_TYPES.HERO_CAROUSEL] = {
@@ -2051,6 +2067,9 @@ export const AUTO_HEIGHT_LEAF_TYPES = new Set([
   BLOCK_TYPES.TEXT,
   BLOCK_TYPES.ACCORDION,
   BLOCK_TYPES.CARD,
+  // AI Compositions size to their generated content (Task #2849): the block
+  // reports its rendered height so the parent canvas reflows around it.
+  BLOCK_TYPES.AI_COMPOSITION,
 ]);
 
 // ===========================================================================
@@ -2842,6 +2861,12 @@ export function validateBlock(block) {
       break;
     case BLOCK_TYPES.CAMPAIGN_EMBED:
       if (!c.campaignSlug) errors.push('Campaign embed requires a campaign.');
+      break;
+    case BLOCK_TYPES.AI_COMPOSITION:
+      // An empty compositionId is a legitimate authoring state (the element
+      // is added first, then a draft is generated and inserted from the
+      // inspector) — flag it so authors don't publish an empty placeholder.
+      if (!c.compositionId) errors.push('AI Composition has no generated design yet.');
       break;
     case BLOCK_TYPES.DYNAMIC_DIRECTORY_EMBED:
       if (!c.directorySlug) errors.push('Dynamic directory embed requires a directory.');
