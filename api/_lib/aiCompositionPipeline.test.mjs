@@ -279,9 +279,42 @@ test('runDocumentAttempt: single attempt returns ok/errors without throwing on v
   assert.equal(good.ok, true);
   assert.ok(good.doc?.sections?.length);
 
-  // Exhausted error keeps the same shape callers already handle.
+  // Exhausted error keeps the same shape callers already handle, with an
+  // honest user-facing message.
   const err = documentExhaustedError(['e1']);
   assert.equal(err.httpStatus, 502);
   assert.equal(err.stage, 'document');
   assert.deepEqual(err.validationErrors, ['e1']);
+  assert.ok(err.message.includes("couldn't fix automatically"));
+});
+
+test('runDocumentAttempt: auto-repairs mechanical readingOrder/frame slips and records them', async () => {
+  const { runDocumentAttempt } = await import('./aiCompositionPipeline.js');
+
+  // Model output with the two mechanical slip classes from the failed job:
+  // one readingOrder omission and one missing desktop frame.
+  const broken = JSON.parse(JSON.stringify(SECTION_EXAMPLE));
+  const dropped = broken.sections[0].readingOrder.pop();
+  const frameId = Object.keys(broken.layouts.desktop)[0];
+  delete broken.layouts.desktop[frameId];
+
+  const result = await runDocumentAttempt({
+    callLlm: async () => JSON.stringify(broken),
+    plan: validPlan, copy: validCopy, brand, compositionType: 'section', brief,
+  });
+  assert.equal(result.ok, true, 'mechanical slips are self-healed instead of failing the attempt');
+  assert.ok(result.doc.sections[0].readingOrder.includes(dropped));
+  assert.ok(result.doc.layouts.desktop[frameId]);
+  assert.equal(result.repairs.length, 2);
+  assert.deepEqual(result.doc.generationMetadata.repairs, result.repairs);
+
+  // Genuinely broken output (unknown element ref) still fails.
+  const unsafe = JSON.parse(JSON.stringify(SECTION_EXAMPLE));
+  unsafe.sections[0].readingOrder.push('ghost_element');
+  const bad2 = await runDocumentAttempt({
+    callLlm: async () => JSON.stringify(unsafe),
+    plan: validPlan, copy: validCopy, brand, compositionType: 'section', brief,
+  });
+  assert.equal(bad2.ok, false);
+  assert.ok(bad2.errors.some((e) => e.includes('unknown element')));
 });

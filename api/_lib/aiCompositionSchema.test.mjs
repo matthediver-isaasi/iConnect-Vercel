@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import {
   validateComposition,
   validatePatch,
+  repairComposition,
   ELEMENT_TYPES,
   CSS_PROPERTY_ALLOWLIST,
 } from './aiCompositionSchema.js';
@@ -173,6 +174,118 @@ test('image elements require an asset reference', () => {
   const result = validateComposition(doc);
   assert.equal(result.ok, false);
   assert.ok(result.errors.some((e) => e.includes('requires an asset reference')));
+});
+
+// ---------------------------------------------------------------------------
+// repairComposition — mechanical self-healing (readingOrder + desktop frames)
+// ---------------------------------------------------------------------------
+
+test('repairComposition appends missing readingOrder entries in document order without touching existing ones', () => {
+  const doc = clone(WHOLE_PAGE_EXAMPLE);
+  const original = clone(doc);
+  const removed = doc.sections[0].readingOrder.splice(1, 2); // drop 2 of 4
+  const remaining = [...doc.sections[0].readingOrder];
+
+  const { doc: repaired, repairs } = repairComposition(doc);
+  assert.equal(repairs.length, 2);
+  // Existing entries preserved in place; missing ids appended in document order.
+  assert.deepEqual(repaired.sections[0].readingOrder.slice(0, remaining.length), remaining);
+  assert.deepEqual([...repaired.sections[0].readingOrder].sort(), [...original.sections[0].readingOrder].sort());
+  for (const id of removed) {
+    assert.ok(repaired.sections[0].readingOrder.includes(id));
+  }
+  assert.deepEqual(validateComposition(repaired).errors, []);
+  // Input never mutated.
+  doc.sections[0].readingOrder = original.sections[0].readingOrder;
+  assert.deepEqual(doc, original);
+});
+
+test('repairComposition creates a wholly absent readingOrder from document order', () => {
+  const doc = clone(SECTION_EXAMPLE);
+  delete doc.sections[0].readingOrder;
+  const { doc: repaired, repairs } = repairComposition(doc);
+  assert.equal(repairs.length, 1);
+  assert.deepEqual(
+    repaired.sections[0].readingOrder,
+    repaired.sections[0].elements.map((e) => e.id)
+  );
+  assert.deepEqual(validateComposition(repaired).errors, []);
+});
+
+test('repairComposition synthesizes a small number of missing desktop frames (inherit > stack > flow)', () => {
+  // Inherit from mobile when a mobile frame exists.
+  const doc = clone(WHOLE_PAGE_EXAMPLE);
+  const mobileFrame = clone(doc.layouts.mobile.hero_cta);
+  delete doc.layouts.desktop.hero_cta;
+  const { doc: repaired, repairs } = repairComposition(doc);
+  assert.equal(repairs.length, 1);
+  assert.ok(repairs[0].includes('mobile'));
+  assert.deepEqual(repaired.layouts.desktop.hero_cta, mobileFrame);
+  assert.deepEqual(validateComposition(repaired).errors, []);
+
+  // No tablet/mobile frame + absolute section → stacked below last framed element.
+  const doc2 = clone(WHOLE_PAGE_EXAMPLE);
+  delete doc2.layouts.desktop.hero_sub;
+  delete doc2.layouts.mobile.hero_sub;
+  const { doc: repaired2, repairs: repairs2 } = repairComposition(doc2);
+  assert.equal(repairs2.length, 1);
+  const frame = repaired2.layouts.desktop.hero_sub;
+  assert.equal(frame.mode, 'absolute');
+  assert.ok(frame.y >= 560, 'stacked below the section bottom'); // hero_bg bottom = 560
+  assert.deepEqual(validateComposition(repaired2).errors, []);
+
+  // Flow-based section → flow frame.
+  const doc3 = clone(WHOLE_PAGE_EXAMPLE);
+  delete doc3.layouts.desktop.register_copy;
+  const { doc: repaired3 } = repairComposition(doc3);
+  assert.deepEqual(repaired3.layouts.desktop.register_copy, { mode: 'flow' });
+  assert.deepEqual(validateComposition(repaired3).errors, []);
+});
+
+test('repairComposition never overwrites existing frames or changes content/protected values', () => {
+  const doc = clone(WHOLE_PAGE_EXAMPLE);
+  delete doc.sections[0].readingOrder;
+  delete doc.layouts.desktop.hero_cta;
+  const { doc: repaired } = repairComposition(doc);
+  // Content, protected values and untouched frames are byte-identical.
+  assert.deepEqual(repaired.sections.map((s) => s.elements), doc.sections.map((s) => s.elements));
+  assert.deepEqual(repaired.protectedValues, doc.protectedValues);
+  assert.deepEqual(repaired.layouts.desktop.hero_bg, doc.layouts.desktop.hero_bg);
+  assert.deepEqual(repaired.layouts.mobile, doc.layouts.mobile);
+});
+
+test('repairComposition refuses to repair a section missing most of its frames', () => {
+  const doc = clone(SECTION_EXAMPLE);
+  const ids = Object.keys(doc.layouts.desktop);
+  // Remove most frames — beyond the per-section cap.
+  for (const id of ids.slice(1)) delete doc.layouts.desktop[id];
+  delete doc.layouts.mobile;
+  const { doc: repaired, repairs } = repairComposition(doc);
+  assert.deepEqual(repairs, []);
+  assert.equal(repaired, doc, 'no-repair returns the original doc');
+  assert.equal(validateComposition(repaired).ok, false);
+});
+
+test('repairComposition leaves genuinely invalid documents failing (unknown refs, duplicates)', () => {
+  // Unknown readingOrder ref is never removed.
+  const doc = clone(SECTION_EXAMPLE);
+  doc.sections[0].readingOrder.push('ghost_element');
+  const { doc: repaired } = repairComposition(doc);
+  assert.ok(repaired.sections[0].readingOrder.includes('ghost_element'));
+  assert.equal(validateComposition(repaired).ok, false);
+
+  // Frame referencing an unknown element is untouched.
+  const doc2 = clone(SECTION_EXAMPLE);
+  doc2.layouts.desktop.ghost_element = { mode: 'flow' };
+  const { doc: repaired2 } = repairComposition(doc2);
+  assert.equal(validateComposition(repaired2).ok, false);
+});
+
+test('repairComposition is a no-op on already-valid documents', () => {
+  const doc = clone(WHOLE_PAGE_EXAMPLE);
+  const { doc: repaired, repairs } = repairComposition(doc);
+  assert.deepEqual(repairs, []);
+  assert.equal(repaired, doc);
 });
 
 test('validatePatch accepts well-formed patches', () => {

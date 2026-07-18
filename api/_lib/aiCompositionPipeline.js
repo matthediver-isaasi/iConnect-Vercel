@@ -14,6 +14,7 @@
 
 import {
   validateComposition,
+  repairComposition,
   AI_COMPOSITION_SCHEMA_VERSION,
   ELEMENT_TYPES,
   CSS_PROPERTY_ALLOWLIST,
@@ -293,7 +294,7 @@ Frame: { "mode": "flow"|"flex"|"grid"|"absolute", "x","y","w","h","minH","z" num
 HARD RULES (a document breaking these is rejected):
 - ${compositionType === 'section' ? 'Exactly one section.' : 'One section per plan section.'}
 - Every section's readingOrder lists every top-level element id exactly once. All element ids unique.
-- layouts.desktop MUST contain a frame for EVERY element (including children). tablet/mobile only override what differs — give genuinely different layouts per breakpoint (e.g. multi-column desktop → stacked mobile).
+- layouts.desktop MUST contain a frame for EVERY element (including children). tablet/mobile only override what differs — give genuinely different layouts per breakpoint (e.g. multi-column desktop → stacked mobile). Double-check before answering: every element id appears in its section's readingOrder AND in layouts.desktop.
 - style keys ONLY from: ${[...CSS_PROPERTY_ALLOWLIST].join(', ')}.
 - backgroundImage may ONLY be a linear/radial/conic gradient. Never url(...). No !important, no var(), no javascript.
 - Do NOT include links (omit the "link" field entirely).
@@ -422,15 +423,24 @@ export async function runDocumentAttempt({ callLlm, plan, copy, brand, compositi
     if (!doc.generationMetadata || typeof doc.generationMetadata !== 'object') doc.generationMetadata = {};
     if (!doc.accessibility || typeof doc.accessibility !== 'object') doc.accessibility = {};
   }
+  // Mechanical repair pass (readingOrder omissions, a small number of
+  // missing desktop frames) — deterministic, content-preserving, capped.
+  // Repairs are recorded in generationMetadata so quality stays observable.
+  const { doc: repairedDoc, repairs } = repairComposition(doc);
+  if (repairs.length) {
+    doc = repairedDoc;
+    if (!doc.generationMetadata || typeof doc.generationMetadata !== 'object') doc.generationMetadata = {};
+    doc.generationMetadata.repairs = repairs;
+  }
   const result = validateComposition(doc);
-  if (result.ok) return { ok: true, doc };
+  if (result.ok) return { ok: true, doc, repairs };
   return { ok: false, errors: result.errors };
 }
 
 /** The error thrown when every document attempt failed validation. */
 export function documentExhaustedError(lastErrors = []) {
   return Object.assign(
-    new Error('The design could not be generated safely. Nothing was changed — please try again.'),
+    new Error("The AI's draft had layout problems we couldn't fix automatically. Nothing was changed — try again or simplify the brief."),
     { httpStatus: 502, stage: 'document', validationErrors: lastErrors.slice(0, 20) },
   );
 }

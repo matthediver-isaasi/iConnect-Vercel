@@ -574,6 +574,121 @@ export function validateComposition(doc) {
   return { ok: errors.length === 0, errors };
 }
 
+// ---------------------------------------------------------------------------
+// Mechanical repair pass (generation self-healing)
+// ---------------------------------------------------------------------------
+
+/** Collect every element id in a section, including nested children. */
+function collectSectionElementIds(section, out = []) {
+  if (!isPlainObject(section) || !Array.isArray(section.elements)) return out;
+  const walk = (el) => {
+    if (!isPlainObject(el)) return;
+    if (isNonEmptyString(el.id)) out.push(el.id);
+    if (Array.isArray(el.children)) el.children.forEach(walk);
+  };
+  section.elements.forEach(walk);
+  return out;
+}
+
+/** Max synthesized frames per section: small fractions only — a section
+ * missing most of its frames is genuinely broken and must still fail. */
+const FRAME_REPAIR_CAP = (elementCount) => Math.max(2, Math.ceil(elementCount * 0.25));
+
+/**
+ * Deterministically repair the two purely MECHANICAL validation failure
+ * classes the document LLM commonly slips on (Task: auto-repair):
+ *
+ * 1. `readingOrder is missing element "<id>"` — top-level element ids the
+ *    model created but forgot to list. Missing ids are APPENDED in document
+ *    order; existing entries are never dropped or reordered. A wholly absent
+ *    readingOrder is created from document order.
+ * 2. `layouts.desktop: missing frame for element "<id>"` — synthesized
+ *    safely: inherited from a tablet/mobile frame when the model supplied
+ *    one, else stacked below the section's last absolutely-framed element,
+ *    else `{ mode: 'flow' }`. Capped per section (FRAME_REPAIR_CAP) so a
+ *    document missing most of its frames still fails validation.
+ *
+ * Pure and content-preserving: never mutates the input, never touches
+ * element content, protected values, or EXISTING frames, and never removes
+ * anything — genuinely invalid output (unknown refs, duplicates, unsafe
+ * markup) still fails `validateComposition` afterwards.
+ *
+ * @returns {{ doc: object, repairs: string[] }} repaired copy + audit trail
+ *          (returns the ORIGINAL doc untouched when no repairs apply).
+ */
+export function repairComposition(doc) {
+  const repairs = [];
+  if (!isPlainObject(doc) || !Array.isArray(doc.sections)) return { doc, repairs };
+  const out = JSON.parse(JSON.stringify(doc));
+
+  // --- 1. readingOrder ---
+  out.sections.forEach((section, i) => {
+    if (!isPlainObject(section) || !Array.isArray(section.elements)) return;
+    const topIds = section.elements
+      .filter(isPlainObject)
+      .map((e) => e.id)
+      .filter((id) => isNonEmptyString(id));
+    if (section.readingOrder === undefined) {
+      section.readingOrder = [...topIds];
+      repairs.push(`sections[${i}]: created readingOrder from document order`);
+      return;
+    }
+    if (!Array.isArray(section.readingOrder)) return; // wrong type → let validation reject
+    const have = new Set(section.readingOrder);
+    for (const id of topIds) {
+      if (!have.has(id)) {
+        section.readingOrder.push(id);
+        have.add(id);
+        repairs.push(`sections[${i}]: appended missing element "${id}" to readingOrder`);
+      }
+    }
+  });
+
+  // --- 2. missing desktop frames ---
+  const desktop = isPlainObject(out.layouts) && isPlainObject(out.layouts.desktop)
+    ? out.layouts.desktop
+    : null; // no desktop layout at all → everything missing → let validation fail
+  if (desktop) {
+    const tablet = isPlainObject(out.layouts.tablet) ? out.layouts.tablet : null;
+    const mobile = isPlainObject(out.layouts.mobile) ? out.layouts.mobile : null;
+    out.sections.forEach((section) => {
+      const ids = collectSectionElementIds(section);
+      if (!ids.length) return;
+      const missing = ids.filter((id) => !(id in desktop));
+      if (!missing.length || missing.length > FRAME_REPAIR_CAP(ids.length)) return;
+      // Stacking baseline: below the section's lowest absolutely-framed element.
+      let maxBottom = 0;
+      let sawAbsolute = false;
+      for (const id of ids) {
+        const f = desktop[id];
+        if (isPlainObject(f) && f.mode === 'absolute' && typeof f.y === 'number') {
+          sawAbsolute = true;
+          maxBottom = Math.max(maxBottom, f.y + (typeof f.h === 'number' ? f.h : 120));
+        }
+      }
+      for (const id of missing) {
+        const inheritFrom = (tablet && isPlainObject(tablet[id])) ? 'tablet'
+          : (mobile && isPlainObject(mobile[id])) ? 'mobile'
+            : null;
+        if (inheritFrom) {
+          desktop[id] = JSON.parse(JSON.stringify(out.layouts[inheritFrom][id]));
+          repairs.push(`layouts.desktop: synthesized frame for "${id}" from ${inheritFrom} frame`);
+        } else if (sawAbsolute) {
+          maxBottom += 24;
+          desktop[id] = { mode: 'absolute', x: 0, y: maxBottom, w: 1200, h: 120, z: 0 };
+          maxBottom += 120;
+          repairs.push(`layouts.desktop: synthesized stacked frame for "${id}"`);
+        } else {
+          desktop[id] = { mode: 'flow' };
+          repairs.push(`layouts.desktop: synthesized flow frame for "${id}"`);
+        }
+      }
+    });
+  }
+
+  return repairs.length ? { doc: out, repairs } : { doc, repairs };
+}
+
 /**
  * Validate a patch (array of named operations — Decision D2).
  * Structural validation only; the patched document must separately pass
