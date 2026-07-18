@@ -1,0 +1,85 @@
+Confirm that the actual reference screenshots are supplied to the AI Composition generator, not only to the separate Design DNA analysis request.
+
+The final page-generation request must include:
+
+* The user’s brief
+* Target organisation brand profile
+* Existing Canvas page context
+* Selected reference-influence level
+* The complete structured Design DNA object
+* Selected actual reference screenshots
+* Screenshot labels explaining what each image demonstrates
+* Protected content, facts and links
+* The AI Composition output schema
+
+Do not reduce the Design DNA to the short human-readable summary shown in the interface.
+
+Pass the complete structured object, including:
+
+* Design tokens
+* Typography signatures
+* Card recipes
+* Button recipes
+* Graphic language
+* Illustration treatment
+* Image framing
+* Layout patterns
+* Responsive transformations
+* Distinctive patterns
+* Patterns to avoid
+* Confidence and limitations
+
+Include approximately four high-value desktop screenshots or crops and two mobile screenshots or crops in the generation request.
+
+The screenshots should be included as actual OpenAI image inputs using stored asset URLs, uploaded files or another supported image-input mechanism. Do not merely include their database IDs or filenames in the text prompt.
+
+Add generation diagnostics recording:
+
+* `referenceAnalysisId`
+* `designDnaSchemaVersion`
+* `designDnaIncluded`
+* `referenceInfluenceLevel`
+* `referenceScreenshotCount`
+* `referenceScreenshotLabels`
+* `referenceScreenshotViewports`
+* `referenceScreenshotAssetIds`
+* `referenceImagesIncludedInOpenAIRequest`
+* `openAIModel`
+* `compositionSchemaVersion`
+
+Do not log signed URLs, base64 image data or API credentials.
+
+Add an admin/debug display for each Composition generation showing:
+
+* Reference analysis used
+* Design DNA version
+* Number of screenshots passed to OpenAI
+* Screenshot thumbnails
+* Screenshot labels
+* Influence level
+* Whether image inputs were accepted into the final request
+
+The debug display should make it possible to distinguish:
+
+1. Screenshots captured by Browserless
+2. Screenshots used to create Design DNA
+3. Screenshots supplied to the final page generator
+
+These are separate stages and must not be treated as equivalent.
+
+The final generation instruction should state:
+
+“Use the supplied screenshots as direct visual evidence of the reference design system. Use the structured Design DNA for measured values and component recipes. Preserve the target organisation’s branding and create an original composition. Do not rely only on the written Design DNA summary.”
+
+Also verify that reported styles match the rendered reference page. Specifically confirm:
+
+* Actual loaded font family
+* Page and section heading sizes
+* Card radius
+* Card background
+* Border and shadow
+* Button colour and radius
+* Illustration versus photography treatment
+* Mobile card behaviour
+
+Where the computed extraction conflicts with the screenshots, retain both pieces of evidence and tell the generator that screenshots are authoritative for visual relationships while computed styles are authoritative for measured CSS values.
