@@ -281,6 +281,87 @@ test('repairComposition leaves genuinely invalid documents failing (unknown refs
   assert.equal(validateComposition(repaired2).ok, false);
 });
 
+// --- invalid nesting repairs (Task: repair invalid nesting in AI drafts) ---
+
+/** Rebuild the whole-page hero section into the failed-job shape: a
+ * `background` element wrapping the section's real content as children,
+ * leaf elements carrying empty children arrays, and readingOrder pointing
+ * at the nested ids. */
+function nestHeroSection(doc) {
+  const hero = doc.sections[0];
+  const [bg, ...rest] = hero.elements;
+  bg.children = rest;
+  rest[0].children = []; // heading with a stray empty children key
+  hero.elements = [bg];
+  hero.readingOrder = ['hero_bg', 'hero_heading', 'hero_sub', 'hero_cta'];
+  return doc;
+}
+
+test('repairComposition hoists children out of a background element and validates', () => {
+  const doc = nestHeroSection(clone(WHOLE_PAGE_EXAMPLE));
+  const original = clone(doc);
+  // Sanity: this shape fails validation before repair, with the failed job's errors.
+  const before = validateComposition(clone(doc));
+  assert.equal(before.ok, false);
+  assert.ok(before.errors.some((e) => e.includes('cannot have children')));
+
+  const { doc: repaired, repairs } = repairComposition(doc);
+  assert.ok(repairs.some((r) => r.includes('hoisted 3 children out of non-container "hero_bg"')));
+  assert.ok(repairs.some((r) => r.includes('removed empty children from non-container "hero_heading"')));
+  // Hoisted elements keep ids/content and land after the ex-parent in order.
+  assert.deepEqual(
+    repaired.sections[0].elements.map((e) => e.id),
+    ['hero_bg', 'hero_heading', 'hero_sub', 'hero_cta']
+  );
+  assert.equal(repaired.sections[0].elements[0].children, undefined);
+  assert.equal(repaired.sections[0].elements[1].children, undefined);
+  assert.deepEqual(repaired.sections[0].elements[1].content, { text: 'Shaping the profession together' });
+  // readingOrder refs that were "unknown" now resolve; frames untouched.
+  assert.deepEqual(validateComposition(repaired).errors, []);
+  assert.deepEqual(repaired.layouts, WHOLE_PAGE_EXAMPLE.layouts);
+  // Input never mutated.
+  assert.deepEqual(doc, original);
+});
+
+test('repairComposition strips empty children keys from leaf types without hoisting', () => {
+  const doc = clone(SECTION_EXAMPLE);
+  doc.sections[0].elements[1].children = [];
+  const { doc: repaired, repairs } = repairComposition(doc);
+  assert.equal(repairs.length, 1);
+  assert.ok(repairs[0].includes('removed empty children'));
+  assert.equal(repaired.sections[0].elements[1].children, undefined);
+  assert.deepEqual(validateComposition(repaired).errors, []);
+});
+
+test('repairComposition fixes nesting inside legitimate containers (depth-first)', () => {
+  const doc = clone(WHOLE_PAGE_EXAMPLE);
+  // Nest a paragraph under a statistic INSIDE a card (a real container).
+  const card = doc.sections[1].elements[1].children[0];
+  const [stat, para] = card.children;
+  stat.children = [para];
+  card.children = [stat];
+  const { doc: repaired, repairs } = repairComposition(doc);
+  assert.ok(repairs.some((r) => r.includes('hoisted 1 children out of non-container "benefit_1_stat"')));
+  assert.deepEqual(
+    repaired.sections[1].elements[1].children[0].children.map((e) => e.id),
+    ['benefit_1_stat', 'benefit_1_copy']
+  );
+  assert.deepEqual(validateComposition(repaired).errors, []);
+});
+
+test('repairComposition refuses to hoist beyond the per-section cap', () => {
+  const doc = clone(WHOLE_PAGE_EXAMPLE);
+  const hero = doc.sections[0];
+  // 4 non-container parents each carrying a child → over the cap of 3.
+  hero.elements = hero.elements.map((el, i) => ({
+    ...el,
+    children: [{ id: `nested_${i}`, type: 'paragraph', content: { text: 'x' } }],
+  }));
+  const { doc: repaired, repairs } = repairComposition(doc);
+  assert.ok(!repairs.some((r) => r.includes('hoisted')), 'no hoists over the cap');
+  assert.equal(validateComposition(repaired).ok, false);
+});
+
 test('repairComposition is a no-op on already-valid documents', () => {
   const doc = clone(WHOLE_PAGE_EXAMPLE);
   const { doc: repaired, repairs } = repairComposition(doc);

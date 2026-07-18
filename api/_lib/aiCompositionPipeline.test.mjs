@@ -318,3 +318,50 @@ test('runDocumentAttempt: auto-repairs mechanical readingOrder/frame slips and r
   assert.equal(bad2.ok, false);
   assert.ok(bad2.errors.some((e) => e.includes('unknown element')));
 });
+
+test('runDocumentAttempt: repairs invalid nesting (background wrapping content) in one attempt', async () => {
+  const { runDocumentAttempt } = await import('./aiCompositionPipeline.js');
+  const { WHOLE_PAGE_EXAMPLE } = await import('./aiCompositionExamples.mjs');
+
+  // Failed-job shape: the hero background wraps the section's real content
+  // as children, a leaf carries an empty children key, and readingOrder
+  // references the nested ids.
+  const nested = JSON.parse(JSON.stringify(WHOLE_PAGE_EXAMPLE));
+  const hero = nested.sections[0];
+  const [bg, ...rest] = hero.elements;
+  bg.children = rest;
+  rest[0].children = [];
+  hero.elements = [bg];
+
+  const result = await runDocumentAttempt({
+    callLlm: async () => JSON.stringify(nested),
+    plan: validPlan, copy: validCopy, brand, compositionType: 'multi_section_page', brief,
+  });
+  assert.equal(result.ok, true, 'nested draft is repaired instead of failing the attempt');
+  assert.deepEqual(
+    result.doc.sections[0].elements.map((e) => e.id),
+    ['hero_bg', 'hero_heading', 'hero_sub', 'hero_cta']
+  );
+  assert.ok(result.repairs.some((r) => r.includes('hoisted')));
+  assert.deepEqual(result.doc.generationMetadata.repairs, result.repairs);
+});
+
+test('runDocumentAttempt: nesting errors add a targeted corrective line to retry feedback', async () => {
+  const { runDocumentAttempt } = await import('./aiCompositionPipeline.js');
+  let prompt = '';
+  await runDocumentAttempt({
+    callLlm: async ({ user }) => { prompt = user; return JSON.stringify(SECTION_EXAMPLE); },
+    plan: validPlan, copy: validCopy, brand, compositionType: 'section', brief,
+    attempt: 1,
+    lastErrors: ['sections[0].elements[0]: element type "background" cannot have children'],
+  });
+  assert.ok(prompt.includes('do NOT nest elements inside background'));
+  // Non-nesting errors do not get the extra line.
+  let prompt2 = '';
+  await runDocumentAttempt({
+    callLlm: async ({ user }) => { prompt2 = user; return JSON.stringify(SECTION_EXAMPLE); },
+    plan: validPlan, copy: validCopy, brand, compositionType: 'section', brief,
+    attempt: 1, lastErrors: ['some other error'],
+  });
+  assert.ok(!prompt2.includes('do NOT nest elements'));
+});

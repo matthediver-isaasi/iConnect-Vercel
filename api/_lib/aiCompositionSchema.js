@@ -594,6 +594,59 @@ function collectSectionElementIds(section, out = []) {
  * missing most of its frames is genuinely broken and must still fail. */
 const FRAME_REPAIR_CAP = (elementCount) => Math.max(2, Math.ceil(elementCount * 0.25));
 
+/** Max non-container parents whose children we hoist per section. More than
+ * this means the model produced a wholly different structure — fail it. */
+const NEST_HOIST_CAP = 3;
+
+/**
+ * Repair pass 0 — invalid nesting. Two mechanical slips (seen verbatim in
+ * failed production jobs, e.g. a `background` element wrapping the whole
+ * section's content):
+ *
+ *   a. Non-container elements carrying an EMPTY `children: []` — the key is
+ *      stripped (nothing is lost).
+ *   b. Non-container elements carrying REAL children — the children are
+ *      hoisted out, spliced immediately after the ex-parent in the same
+ *      list, in document order, ids/content/frames untouched. The ex-parent
+ *      stays as a childless element. Capped at NEST_HOIST_CAP parents per
+ *      section; beyond that NO hoisting happens in the section so it still
+ *      fails validation (empty-children stripping — harmless — still runs).
+ *
+ * Depth-first, so nested slips inside legitimate containers are fixed too.
+ */
+function repairSectionNesting(section, sectionIndex, repairs) {
+  if (!isPlainObject(section) || !Array.isArray(section.elements)) return;
+  // First count how many parents would need hoisting — over the cap, do nothing.
+  let hoistParents = 0;
+  const count = (el) => {
+    if (!isPlainObject(el) || !Array.isArray(el.children)) return;
+    el.children.forEach(count);
+    if (!CONTAINER_TYPES.has(el.type) && el.children.length > 0) hoistParents += 1;
+  };
+  section.elements.forEach(count);
+  const hoistAllowed = hoistParents <= NEST_HOIST_CAP;
+
+  const label = (el) => (isNonEmptyString(el.id) ? `"${el.id}"` : `type "${el.type}"`);
+  const walkList = (list) => {
+    for (let i = 0; i < list.length; i += 1) {
+      const el = list[i];
+      if (!isPlainObject(el) || !Array.isArray(el.children)) continue;
+      walkList(el.children); // depth-first: fix grandchildren before hoisting
+      if (CONTAINER_TYPES.has(el.type)) continue;
+      if (el.children.length === 0) {
+        delete el.children;
+        repairs.push(`sections[${sectionIndex}]: removed empty children from non-container ${label(el)}`);
+      } else if (hoistAllowed) {
+        const kids = el.children;
+        delete el.children;
+        list.splice(i + 1, 0, ...kids);
+        repairs.push(`sections[${sectionIndex}]: hoisted ${kids.length} children out of non-container ${label(el)}`);
+      }
+    }
+  };
+  walkList(section.elements);
+}
+
 /**
  * Deterministically repair the two purely MECHANICAL validation failure
  * classes the document LLM commonly slips on (Task: auto-repair):
@@ -620,6 +673,11 @@ export function repairComposition(doc) {
   const repairs = [];
   if (!isPlainObject(doc) || !Array.isArray(doc.sections)) return { doc, repairs };
   const out = JSON.parse(JSON.stringify(doc));
+
+  // --- 0. invalid nesting (strip empty children / hoist real children) ---
+  // Runs FIRST so the readingOrder pass below sees hoisted ids at top level
+  // and previously "unknown" readingOrder refs now resolve.
+  out.sections.forEach((section, i) => repairSectionNesting(section, i, repairs));
 
   // --- 1. readingOrder ---
   out.sections.forEach((section, i) => {

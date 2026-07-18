@@ -306,7 +306,8 @@ Frame: { "mode": "flow"|"flex"|"grid"|"absolute", "x","y","w","h","minH","z" num
 
 HARD RULES (a document breaking these is rejected):
 - ${compositionType === 'section' ? 'Exactly one section.' : 'One section per plan section.'}
-- Every section's readingOrder lists every top-level element id exactly once. All element ids unique.
+- Every section's readingOrder lists every top-level element id exactly once. All element ids unique. readingOrder may ONLY reference top-level element ids, never nested children.
+- ONLY these element types may have "children": container, group, card, overlay, structured_infographic. Every other type (background, heading, paragraph, button, image, shape, statistic, label, caption, etc.) must NEVER carry a "children" key — place such elements as flat siblings in the section's elements array. A background is a sibling behind other elements, not a wrapper around them.
 - layouts.desktop MUST contain a frame for EVERY element (including children). tablet/mobile only override what differs — give genuinely different layouts per breakpoint (e.g. multi-column desktop → stacked mobile). Double-check before answering: every element id appears in its section's readingOrder AND in layouts.desktop.
 - style keys ONLY from: ${[...CSS_PROPERTY_ALLOWLIST].join(', ')}.
 - backgroundImage may ONLY be a linear/radial/conic gradient. Never url(...). No !important, no var(), no javascript.
@@ -413,9 +414,12 @@ export async function runDocumentStage({ callLlm, plan, copy, brand, composition
  */
 export async function runDocumentAttempt({ callLlm, plan, copy, brand, compositionType, brief, styleReference = null, attempt = 0, lastErrors = [] }) {
   const { system, user, images } = buildDocumentPrompt({ plan, copy, brand, compositionType, brief, styleReference });
+  const nestingCorrection = lastErrors.some((e) => typeof e === 'string' && e.includes('cannot have children'))
+    ? '\nIMPORTANT: do NOT nest elements inside background, heading, paragraph, button or any other non-container type. Only container, group, card, overlay and structured_infographic may have children. Make every other element a flat top-level sibling in its section.'
+    : '';
   const feedback = attempt === 0 || !lastErrors.length
     ? ''
-    : `\n\nYour previous attempt failed validation with these errors — fix ALL of them:\n${lastErrors.slice(0, 20).map((e) => `- ${e}`).join('\n')}`;
+    : `\n\nYour previous attempt failed validation with these errors — fix ALL of them:\n${lastErrors.slice(0, 20).map((e) => `- ${e}`).join('\n')}${nestingCorrection}`;
   const raw = await callLlm({ system, user: user + feedback, maxTokens: 8000, images });
   let doc;
   try {
