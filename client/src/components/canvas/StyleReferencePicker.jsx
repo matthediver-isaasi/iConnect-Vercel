@@ -1,22 +1,25 @@
-// Style Reference picker for AI generation (Task #2873).
+// Style Reference picker for AI generation (Task #2873, upgraded to the
+// structured Design DNA v2 pipeline in Task #2879).
 //
 // Lets an admin attach a visual style reference to an AI Composition / AI
-// page generation: one of their own published pages (captured server-side
-// via browserless), an external public URL (same capture path), or uploaded
-// screenshots. After capture/upload the screenshots are analysed into a
-// structured "Design DNA" profile, shown for review. The influence level
+// page generation: one of their own published pages, an external public URL
+// (both captured server-side across desktop/tablet/mobile viewports with a
+// computed-style extractor), or uploaded screenshots. The capture is
+// analysed into a structured "Design DNA" profile shown for review before
+// use, with a refresh option for cached analyses. The influence level
 // (Light / Strong / Very Strong) weights how much the reference shapes the
 // output — tenant branding and content always win.
 //
 // Value shape (null = no reference; generation stays exactly as before):
-//   { sourceType: 'page'|'url'|'upload', sourceUrl?, screenshots: [{viewport,url}],
-//     designDna?, influence }
+//   { sourceType: 'page'|'url'|'upload', sourceUrl?, analysisId?,
+//     screenshots: [{viewport,label,url}], designDna?, influence }
 
 import { useEffect, useState } from 'react';
-import { Loader2, Palette, Trash2, Upload } from 'lucide-react';
+import { ChevronDown, ChevronRight, Loader2, Palette, RefreshCw, Trash2, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -35,18 +38,117 @@ async function srFetch(path, options = {}) {
     ...options,
   });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`);
+  if (!res.ok) {
+    const err = new Error(body.error || `Request failed (${res.status})`);
+    err.details = body.details;
+    throw err;
+  }
   return body;
 }
 
-function DnaSummary({ designDna }) {
-  if (!designDna) return null;
+const post = (body) => srFetch('/api/ai-compositions/style-reference', {
+  method: 'POST',
+  body: JSON.stringify(body),
+});
+
+const isV2 = (dna) => !!dna && dna.schemaVersion === '2.0';
+
+function Swatch({ colour }) {
+  return (
+    <span
+      className="inline-block h-4 w-4 rounded-sm border border-border align-middle"
+      style={{ backgroundColor: colour }}
+      title={colour}
+    />
+  );
+}
+
+function DnaSummaryV2({ designDna }) {
+  const [showDetail, setShowDetail] = useState(false);
+  if (!isV2(designDna)) return null;
+  const { summary, designTokens, componentRecipes, responsiveSystem, confidence } = designDna;
+  const colours = (designTokens?.colours || []).slice(0, 8);
+  const typo = (designTokens?.typography || []).slice(0, 5);
+  return (
+    <div className="space-y-2 rounded-md border border-border bg-muted/40 p-2 text-xs" data-testid="text-styleref-dna">
+      <p className="text-foreground">{summary?.designCharacter}</p>
+      {(summary?.mostDistinctiveTraits || []).length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {summary.mostDistinctiveTraits.slice(0, 6).map((t) => (
+            <Badge key={t} variant="secondary" className="text-[10px]">{t}</Badge>
+          ))}
+        </div>
+      )}
+      {colours.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1">
+          <span className="text-muted-foreground">Palette:</span>
+          {colours.map((c) => <Swatch key={`${c.colour}-${c.role}`} colour={c.colour} />)}
+        </div>
+      )}
+      {typeof confidence?.overall === 'number' && (
+        <p className="text-muted-foreground" data-testid="text-styleref-confidence">
+          Analysis confidence: {Math.round(confidence.overall * 100)}%
+        </p>
+      )}
+      <button
+        type="button"
+        className="flex items-center gap-1 text-muted-foreground hover:text-foreground"
+        onClick={() => setShowDetail((v) => !v)}
+        data-testid="button-styleref-dna-detail"
+      >
+        {showDetail ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+        {showDetail ? 'Hide details' : 'Show details'}
+      </button>
+      {showDetail && (
+        <div className="space-y-2 border-t border-border pt-2">
+          {typo.length > 0 && (
+            <div>
+              <p className="font-medium text-foreground">Typography</p>
+              {typo.map((t, i) => (
+                <p key={i} className="text-muted-foreground">
+                  {t.role}: {t.fontFamily || '—'} {t.fontSizePx ? `${t.fontSizePx}px` : ''} {t.fontWeight ? `w${t.fontWeight}` : ''}
+                </p>
+              ))}
+            </div>
+          )}
+          {(componentRecipes || []).length > 0 && (
+            <div>
+              <p className="font-medium text-foreground">Recognised components</p>
+              {componentRecipes.slice(0, 4).map((r) => (
+                <p key={r.name} className="text-muted-foreground">
+                  {r.name.replace(/_/g, ' ')} ×{r.occurrences}{r.surface ? ` — ${r.surface}` : ''}
+                </p>
+              ))}
+            </div>
+          )}
+          {responsiveSystem?.mobile && (
+            <div>
+              <p className="font-medium text-foreground">On mobile</p>
+              <p className="text-muted-foreground">{responsiveSystem.mobile}</p>
+            </div>
+          )}
+          {(confidence?.limitations || []).length > 0 && (
+            <div>
+              <p className="font-medium text-foreground">Limitations</p>
+              {confidence.limitations.slice(0, 3).map((l) => (
+                <p key={l} className="text-muted-foreground">{l}</p>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Legacy v1 free-text profile display (older saved references).
+function DnaSummaryV1({ designDna }) {
   const rows = [
-    ['Composition', designDna.composition],
-    ['Layout rhythm', designDna.layoutRhythm],
-    ['Typography', designDna.typography],
-    ['Imagery', designDna.imageryStyle],
-    ['Spacing', designDna.spacingSystem],
+    ['Composition', designDna?.composition],
+    ['Layout rhythm', designDna?.layoutRhythm],
+    ['Typography', designDna?.typography],
+    ['Imagery', designDna?.imageryStyle],
+    ['Spacing', designDna?.spacingSystem],
   ].filter(([, v]) => v);
   if (!rows.length) return null;
   return (
@@ -70,8 +172,9 @@ export default function StyleReferencePicker({ value, onChange, idPrefix = 'styl
   const [busy, setBusy] = useState(false);
   const [busyLabel, setBusyLabel] = useState('');
   const [error, setError] = useState('');
-  // Non-blocking: DNA analysis can fail while the screenshots still work.
+  const [errorDetails, setErrorDetails] = useState([]);
   const [analyzeWarning, setAnalyzeWarning] = useState('');
+  const [wasCached, setWasCached] = useState(false);
 
   // Debounced published-page search (reuses the destinations picker endpoint).
   useEffect(() => {
@@ -89,54 +192,64 @@ export default function StyleReferencePicker({ value, onChange, idPrefix = 'styl
     return () => clearTimeout(t);
   }, [pageQuery, sourceType, open]);
 
-  const analyze = async (screenshots) => {
-    setBusyLabel('Analysing the design…');
-    setAnalyzeWarning('');
-    try {
-      const { designDna } = await srFetch('/api/ai-compositions/style-reference', {
-        method: 'POST',
-        body: JSON.stringify({ action: 'analyze', screenshots }),
-      });
-      return designDna;
-    } catch (err) {
-      // Analysis is best-effort: the screenshots alone still guide generation,
-      // but tell the user the style profile could not be extracted.
-      setAnalyzeWarning(`The design could not be analysed (${err.message}) — the screenshots will still guide the AI.`);
-      return undefined;
-    }
+  const applyAnalysis = (analysis, srcType) => {
+    const crops = (analysis.generationCrops || []).length
+      ? analysis.generationCrops
+      : (analysis.screenshots || []).slice(0, MAX_SCREENSHOTS);
+    onChange({
+      sourceType: srcType,
+      ...(analysis.sourceUrl ? { sourceUrl: analysis.sourceUrl } : {}),
+      analysisId: analysis.id,
+      screenshots: crops.map((s) => ({ viewport: s.viewport, label: s.label, url: s.url })),
+      ...(analysis.designDna ? { designDna: analysis.designDna } : {}),
+      influence: value?.influence || 'strong',
+    });
   };
 
-  const capture = async () => {
+  // Staged capture: start → capture each viewport → analyze.
+  const capture = async ({ refresh = false } = {}) => {
     setError('');
+    setErrorDetails([]);
+    setAnalyzeWarning('');
+    setWasCached(false);
     setBusy(true);
-    setBusyLabel('Capturing screenshots…');
     try {
-      const body = sourceType === 'page'
-        ? { action: 'capture', sourceType: 'page', pageId }
-        : { action: 'capture', sourceType: 'url', url: extUrl.trim() };
-      const { screenshots, sourceUrl } = await srFetch('/api/ai-compositions/style-reference', {
-        method: 'POST',
-        body: JSON.stringify(body),
-      });
-      const designDna = await analyze(screenshots);
-      onChange({
-        sourceType,
-        sourceUrl,
-        screenshots,
-        ...(designDna ? { designDna } : {}),
-        influence: value?.influence || 'strong',
-      });
+      setBusyLabel('Checking the reference…');
+      const startBody = sourceType === 'page'
+        ? { action: 'start', sourceType: 'page', pageId, refresh }
+        : { action: 'start', sourceType: 'url', url: (value?.sourceUrl || extUrl).trim(), refresh };
+      const started = await post(startBody);
+      if (started.cached && started.analysis) {
+        setWasCached(true);
+        applyAnalysis(started.analysis, sourceType);
+        return;
+      }
+      const { analysisId, viewports } = started;
+      const labels = { desktop: 'desktop', tablet: 'tablet', mobile: 'mobile' };
+      for (const vp of viewports || []) {
+        setBusyLabel(`Capturing the ${labels[vp] || vp} view…`);
+        const result = await post({ action: 'capture', analysisId, viewport: vp });
+        if (result.ok === false && result.warning) {
+          setAnalyzeWarning(`The ${vp} view could not be captured — continuing without it.`);
+        }
+      }
+      setBusyLabel('Analysing the design…');
+      const { analysis } = await post({ action: 'analyze', analysisId });
+      applyAnalysis(analysis, sourceType);
     } catch (err) {
       setError(err.message);
+      if (Array.isArray(err.details)) setErrorDetails(err.details);
     } finally {
       setBusy(false);
       setBusyLabel('');
     }
   };
 
+  const refreshAnalysis = () => capture({ refresh: true });
+
   const uploadFiles = async (files) => {
     setError('');
-    // Raster only (matches the server-side allowlist — no SVG).
+    setErrorDetails([]);
     const list = Array.from(files || [])
       .filter((f) => /^image\/(jpeg|jpg|png|gif|webp)$/i.test(f.type))
       .slice(0, MAX_SCREENSHOTS);
@@ -149,13 +262,25 @@ export default function StyleReferencePicker({ value, onChange, idPrefix = 'styl
         const result = await uploadFileWithProgress(file, null, { type: 'style-reference', isPrivate: false });
         uploaded.push({ viewport: 'desktop', url: result.file_url });
       }
-      const designDna = await analyze(uploaded);
-      onChange({
-        sourceType: 'upload',
-        screenshots: uploaded,
-        ...(designDna ? { designDna } : {}),
-        influence: value?.influence || 'strong',
-      });
+      setBusyLabel('Analysing the design…');
+      let analysis = null;
+      try {
+        ({ analysis } = await post({ action: 'analyze', screenshots: uploaded }));
+      } catch (err) {
+        // Analysis is best-effort on uploads: screenshots alone still guide
+        // generation, but tell the user the style profile was rejected.
+        setAnalyzeWarning(`${err.message} The screenshots will still guide the AI.`);
+        if (Array.isArray(err.details)) setErrorDetails(err.details);
+      }
+      if (analysis) {
+        applyAnalysis(analysis, 'upload');
+      } else {
+        onChange({
+          sourceType: 'upload',
+          screenshots: uploaded,
+          influence: value?.influence || 'strong',
+        });
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -170,7 +295,9 @@ export default function StyleReferencePicker({ value, onChange, idPrefix = 'styl
     setPageQuery('');
     setExtUrl('');
     setError('');
+    setErrorDetails([]);
     setAnalyzeWarning('');
+    setWasCached(false);
   };
 
   if (!open) {
@@ -232,7 +359,7 @@ export default function StyleReferencePicker({ value, onChange, idPrefix = 'styl
                   ))}
                 </div>
               )}
-              <Button size="sm" onClick={capture} disabled={busy || !pageId} data-testid={`button-${idPrefix}-capture-page`}>
+              <Button size="sm" onClick={() => capture()} disabled={busy || !pageId} data-testid={`button-${idPrefix}-capture-page`}>
                 {busy ? (<><Loader2 className="mr-1 h-4 w-4 animate-spin" /> {busyLabel}</>) : 'Use this page'}
               </Button>
             </div>
@@ -247,7 +374,7 @@ export default function StyleReferencePicker({ value, onChange, idPrefix = 'styl
                 disabled={busy}
                 data-testid={`input-${idPrefix}-url`}
               />
-              <Button size="sm" onClick={capture} disabled={busy || !extUrl.trim()} data-testid={`button-${idPrefix}-capture-url`}>
+              <Button size="sm" onClick={() => capture()} disabled={busy || !extUrl.trim()} data-testid={`button-${idPrefix}-capture-url`}>
                 {busy ? (<><Loader2 className="mr-1 h-4 w-4 animate-spin" /> {busyLabel}</>) : 'Capture this site'}
               </Button>
             </div>
@@ -281,16 +408,34 @@ export default function StyleReferencePicker({ value, onChange, idPrefix = 'styl
               <img
                 key={s.url}
                 src={s.url}
-                alt={`Reference (${s.viewport})`}
+                alt={`Reference (${s.label || s.viewport})`}
                 className="h-14 w-auto rounded-sm border border-border object-cover object-top"
-                data-testid={`img-${idPrefix}-shot-${s.viewport}`}
+                data-testid={`img-${idPrefix}-shot-${s.label || s.viewport}`}
               />
             ))}
           </div>
           {value.sourceUrl && (
-            <p className="truncate text-xs text-muted-foreground" data-testid={`text-${idPrefix}-source`}>{value.sourceUrl}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground" data-testid={`text-${idPrefix}-source`}>{value.sourceUrl}</p>
+              {wasCached && <Badge variant="secondary" className="text-[10px]">Saved analysis</Badge>}
+              {value.analysisId && (value.sourceType === 'url' || value.sourceType === 'page') && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={refreshAnalysis}
+                  disabled={busy || disabled}
+                  data-testid={`button-${idPrefix}-refresh`}
+                >
+                  {busy
+                    ? (<><Loader2 className="mr-1 h-3 w-3 animate-spin" /> {busyLabel}</>)
+                    : (<><RefreshCw className="mr-1 h-3 w-3" /> Re-analyse</>)}
+                </Button>
+              )}
+            </div>
           )}
-          <DnaSummary designDna={value.designDna} />
+          {isV2(value.designDna)
+            ? <DnaSummaryV2 designDna={value.designDna} />
+            : <DnaSummaryV1 designDna={value.designDna} />}
           <div className="space-y-1">
             <Label className="text-xs">Influence</Label>
             <Select
@@ -318,7 +463,16 @@ export default function StyleReferencePicker({ value, onChange, idPrefix = 'styl
       {analyzeWarning && (
         <p className="text-xs text-warning" data-testid={`text-${idPrefix}-analyze-warning`}>{analyzeWarning}</p>
       )}
-      {error && <p className="text-xs text-destructive" data-testid={`text-${idPrefix}-error`}>{error}</p>}
+      {error && (
+        <div className="space-y-1">
+          <p className="text-xs text-destructive" data-testid={`text-${idPrefix}-error`}>{error}</p>
+          {errorDetails.length > 0 && (
+            <ul className="list-disc pl-4 text-[11px] text-muted-foreground">
+              {errorDetails.slice(0, 4).map((d) => <li key={d}>{d}</li>)}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -17,6 +17,7 @@
 
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
+import { isDesignDnaV2, normalizeDesignDnaV2, buildDesignDnaGeneratorBlock } from './designDna.js';
 
 export const STYLE_REFERENCE_SOURCE_TYPES = ['page', 'url', 'upload'];
 export const INFLUENCE_LEVELS = ['light', 'strong', 'very_strong'];
@@ -162,6 +163,28 @@ export async function assertPublicUrlTarget(rawUrl) {
   }
 }
 
+/**
+ * Normalise a reference URL for cache lookups (Task #2879 §15): lowercase
+ * scheme+host, drop fragment, default ports and common tracking params,
+ * collapse trailing slash. Returns null for unusable input.
+ */
+export function normalizeReferenceUrlForCache(rawUrl) {
+  let u;
+  try { u = new URL(String(rawUrl || '').trim()); } catch { return null; }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+  u.hash = '';
+  const params = new URLSearchParams();
+  for (const [k, v] of u.searchParams.entries()) {
+    if (/^(utm_|fbclid|gclid|mc_cid|mc_eid|ref$)/i.test(k)) continue;
+    params.append(k, v);
+  }
+  params.sort();
+  const qs = params.toString();
+  let pathname = u.pathname.replace(/\/+$/, '');
+  if (!pathname) pathname = '/';
+  return `${u.protocol}//${u.hostname.toLowerCase()}${u.port && u.port !== (u.protocol === 'https:' ? '443' : '80') ? `:${u.port}` : ''}${pathname}${qs ? `?${qs}` : ''}`;
+}
+
 // ---------------------------------------------------------------------------
 // Design DNA
 // ---------------------------------------------------------------------------
@@ -204,19 +227,30 @@ export function normalizeStyleReference(raw, { allowedScreenshotPrefix } = {}) {
     if (!url) continue;
     if (allowedScreenshotPrefix && !url.startsWith(allowedScreenshotPrefix)) continue;
     if (screenshots.some((x) => x.url === url)) continue;
-    screenshots.push({
+    const shot = {
       viewport: VIEWPORT_NAMES.includes(s.viewport) ? s.viewport : 'desktop',
       url,
-    });
+    };
+    // v2 captures carry a region label (e.g. desktop_card_cluster_1) used
+    // both to label prompt images and to pick high-value generation crops.
+    const label = cleanText(s.label, 60);
+    if (label) shot.label = label;
+    screenshots.push(shot);
     if (screenshots.length >= MAX_REFERENCE_SCREENSHOTS) break;
   }
   if (screenshots.length === 0) return null;
 
-  const designDna = normalizeDesignDna(raw.designDna);
+  // Accept either a v2 structured Design DNA (Task #2879) or the legacy v1
+  // free-text profile — v2 is passed through the strict normaliser.
+  const designDna = isDesignDnaV2(raw.designDna)
+    ? normalizeDesignDnaV2(raw.designDna)
+    : normalizeDesignDna(raw.designDna);
   const influence = INFLUENCE_LEVELS.includes(raw.influence) ? raw.influence : DEFAULT_INFLUENCE;
 
   const out = { sourceType, screenshots, influence };
   if (designDna) out.designDna = designDna;
+  const analysisId = cleanText(raw.analysisId, 60);
+  if (analysisId && /^[0-9a-f-]{36}$/i.test(analysisId)) out.analysisId = analysisId;
   if (sourceType === 'url' || sourceType === 'page') {
     const src = cleanText(raw.sourceUrl, 500);
     if (src) out.sourceUrl = src;
@@ -252,6 +286,14 @@ const INFLUENCE_INSTRUCTIONS = {
  */
 export function buildStyleReferenceSummary(styleReference) {
   if (!styleReference || typeof styleReference !== 'object') return '';
+  // v2 structured Design DNA: hand the generator the FULL structured
+  // profile (spec §13 — never flattened back to a paragraph).
+  if (isDesignDnaV2(styleReference.designDna)) {
+    return buildDesignDnaGeneratorBlock(
+      styleReference.designDna,
+      INFLUENCE_LEVELS.includes(styleReference.influence) ? styleReference.influence : DEFAULT_INFLUENCE,
+    );
+  }
   const lines = [];
   const dna = styleReference.designDna || {};
   for (const field of DESIGN_DNA_FIELDS) {
@@ -276,6 +318,8 @@ export function styleReferenceImageUrls(styleReference) {
   if (!styleReference || !Array.isArray(styleReference.screenshots)) return [];
   return styleReference.screenshots.map((s) => s.url).filter(Boolean);
 }
+
+export { isDesignDnaV2 } from './designDna.js';
 
 // ---------------------------------------------------------------------------
 // Design DNA analysis prompt (vision call in the style-reference endpoint)
