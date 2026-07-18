@@ -25,8 +25,9 @@ import {
   buildStyleReferenceSummary,
   styleReferenceImageInputs,
 } from './styleReference.js';
+import { sanitizePlanContract, runQualityGates } from './aiCompositionQualityGates.js';
 
-export const GENERATION_STAGES = ['context', 'plan', 'copy', 'document', 'assets'];
+export const GENERATION_STAGES = ['context', 'plan', 'copy', 'document', 'assets', 'review'];
 
 export const CREATIVITY_LEVELS = ['strict', 'brand_led', 'expressive'];
 
@@ -40,6 +41,7 @@ export const STAGE_LABELS = {
   copy: 'Writing the copy',
   document: 'Generating the design',
   assets: 'Creating the imagery',
+  review: 'Reviewing the result',
 };
 
 // Phase 1 supported element palette (task scope): a subset of the full schema
@@ -167,11 +169,15 @@ export function sanitizePlan(plan, { records = [] } = {}) {
     })
     .filter(Boolean);
   if (sections.length === 0) return null;
+  // Creative-plan contract (Task #2894): the plan's declared visual
+  // requirements, enforced against the final document by the quality gates.
+  const contract = sanitizePlanContract(plan.contract);
   return {
     name: cleanText(plan.name, 160) || 'AI page plan',
     audience: cleanText(plan.audience, 300),
     narrative: cleanText(plan.narrative, 1200),
     sections,
+    ...(contract ? { contract } : {}),
   };
 }
 
@@ -239,8 +245,9 @@ function recordsSummary(records) {
 export function buildPlanPrompt({ brief, options, brand, pageContext, compositionType }) {
   const system = `You are a senior web designer planning a ${compositionType === 'section' ? 'single page section' : 'multi-section landing page'} for a membership organisation's website.
 Respond ONLY with a JSON object:
-{ "name": string, "audience": string, "narrative": string, "sections": [ { "id": string, "name": string, "purpose": string, "elements": [string], "components": [ { "componentKey": string, "recordId": string (optional), "reason": string } ] (optional) } ] }
+{ "name": string, "audience": string, "narrative": string, "sections": [ { "id": string, "name": string, "purpose": string, "elements": [string], "components": [ { "componentKey": string, "recordId": string (optional), "reason": string } ] (optional) } ], "contract": { "intendedComposition": string, "focalPoint": string, "desktopStructure": string, "mobileTransformation": string, "referenceApplication": string, "requiresIllustration": boolean, "requiresCardRecipe": boolean, "requiresResponsiveRecomposition": boolean, "requiredAssets": [string], "componentFamilies": [string] } }
 Rules:
+- "contract" is your binding creative commitment — the final design is checked against it. State the intended composition, the focal point, the desktop structure, how the design transforms on mobile (never a shrunk copy of desktop), and how the reference design language is applied (or "n/a" when there is no reference). "requiredAssets" lists the visual assets the design needs; "componentFamilies" lists the component recipes (e.g. "card grid", "stat band") you commit to using. Set the three boolean requirements honestly — they are enforced.
 - ${compositionType === 'section' ? 'Exactly ONE section.' : '3 to 6 sections telling one coherent story.'}
 - Element hints must come from: ${PHASE1_ELEMENT_TYPES.join(', ')}.
 - Where standard iConnect functionality genuinely serves the page goal, RECOMMEND it via a section "components" entry rather than designing a lookalike. componentKey must be one of: ${FUNCTIONAL_COMPONENT_KEYS.map((k) => `${k} (${FUNCTIONAL_COMPONENT_DESCRIPTIONS[k]})`).join('; ')}. recordId may ONLY be an id from AVAILABLE RECORDS. Recommend components sparingly — only when they clearly help.
@@ -393,11 +400,11 @@ export async function runCopyStage({ callLlm, brief, plan, brand, generateSeo = 
  * back; still invalid ⇒ throw WITHOUT any side effects (the caller leaves the
  * page and any existing composition untouched).
  */
-export async function runDocumentStage({ callLlm, plan, copy, brand, compositionType, brief, styleReference = null, maxRetries = MAX_DOCUMENT_RETRIES }) {
+export async function runDocumentStage({ callLlm, plan, copy, brand, compositionType, brief, styleReference = null, options = {}, maxRetries = MAX_DOCUMENT_RETRIES }) {
   let lastErrors = [];
   for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
     const result = await runDocumentAttempt({
-      callLlm, plan, copy, brand, compositionType, brief, styleReference,
+      callLlm, plan, copy, brand, compositionType, brief, styleReference, options,
       attempt, lastErrors,
     });
     if (result.ok) return { doc: result.doc, attempts: attempt + 1 };
@@ -415,7 +422,7 @@ export async function runDocumentStage({ callLlm, plan, copy, brand, composition
  * Returns { ok: true, doc } or { ok: false, errors } — never throws for a
  * validation failure. Provider failures still throw (same as before).
  */
-export async function runDocumentAttempt({ callLlm, plan, copy, brand, compositionType, brief, styleReference = null, attempt = 0, lastErrors = [] }) {
+export async function runDocumentAttempt({ callLlm, plan, copy, brand, compositionType, brief, styleReference = null, options = {}, attempt = 0, lastErrors = [] }) {
   const { system, user, images } = buildDocumentPrompt({ plan, copy, brand, compositionType, brief, styleReference });
   const nestingCorrection = lastErrors.some((e) => typeof e === 'string' && e.includes('cannot have children'))
     ? '\nIMPORTANT: do NOT nest elements inside background, heading, paragraph, button or any other non-container type. Only container, group, card, overlay and structured_infographic may have children. Make every other element a flat top-level sibling in its section.'
@@ -457,8 +464,18 @@ export async function runDocumentAttempt({ callLlm, plan, copy, brand, compositi
     doc.generationMetadata.repairs = repairs;
   }
   const result = validateComposition(doc);
-  if (result.ok) return { ok: true, doc, repairs, imagesAttached };
-  return { ok: false, errors: result.errors, imagesAttached };
+  if (!result.ok) return { ok: false, errors: result.errors, imagesAttached };
+  // Quality gates (Task #2894): a schema-valid document can still be
+  // visually broken or semantically empty. Gate failures feed the SAME
+  // bounded retry loop as schema errors; the report is recorded on the
+  // document so generation diagnostics stay observable.
+  const gates = runQualityGates({
+    doc, plan, brief,
+    options: { styleReference, purpose: options.purpose, direction: options.direction, contentNotes: options.contentNotes },
+  });
+  doc.generationMetadata.qualityGates = gates.report;
+  if (!gates.ok) return { ok: false, errors: gates.failures, imagesAttached };
+  return { ok: true, doc, repairs, imagesAttached };
 }
 
 /** The error thrown when every document attempt failed validation. */

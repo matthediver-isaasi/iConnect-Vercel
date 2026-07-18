@@ -101,7 +101,7 @@ export function AiCompositionRender({ block, asEditor }) {
   );
 }
 
-const STAGE_SEQUENCE = ['context', 'plan', 'copy', 'document', 'assets'];
+const STAGE_SEQUENCE = ['context', 'plan', 'copy', 'document', 'assets', 'review'];
 
 export function useGenerationLoop({ onComplete, onSeo }) {
   const [running, setRunning] = useState(false);
@@ -150,7 +150,7 @@ export function useGenerationLoop({ onComplete, onSeo }) {
       setProgress(1);
       setLabel('Done');
       if (resp.seo && onSeo) onSeo(resp.seo);
-      onComplete(resp.compositionId);
+      onComplete(resp.compositionId, resp.screenshotReview || null);
     } else {
       setError(resp.error || 'Generation failed. Nothing was changed — please try again.');
     }
@@ -390,9 +390,15 @@ export function AiCompositionInspector({ block, update, pageId }) {
   const [adv, setAdv] = useState(EMPTY_ADVANCED_BRIEF);
   // Style reference (Task #2873): null = no reference, generation unchanged.
   const [styleReference, setStyleReference] = useState(null);
+  // Screenshot review verdict for the current draft (Task #2894).
+  const [reviewVerdict, setReviewVerdict] = useState(null);
 
   const gen = useGenerationLoop({
-    onComplete: (compositionId) => {
+    onComplete: (compositionId, screenshotReview) => {
+      // Screenshot quality review (Task #2894): a failing verdict blocks
+      // Insert (the draft stays reviewable/regeneratable); skipped or pass
+      // blocks nothing.
+      setReviewVerdict(screenshotReview || null);
       // Regenerating the inserted composition adds a version to it — it must
       // NOT re-enter draft mode (draft mode exposes Discard, which deletes).
       setDraftId(resolveDraftAfterGeneration(insertedId, compositionId));
@@ -532,9 +538,14 @@ export function AiCompositionInspector({ block, update, pageId }) {
 
       {activeId && <BreakpointPreview compositionId={activeId} />}
 
+      {draftId && reviewVerdict?.status === 'fail' && (
+        <p className="text-xs text-destructive" data-testid="text-aic-review-failed">
+          Quality check failed at {(reviewVerdict.failedBreakpoints || []).join(', ') || 'some'} width{(reviewVerdict.failedBreakpoints || []).length === 1 ? '' : 's'} — please regenerate before inserting.
+        </p>
+      )}
       {draftId && (
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" onClick={insert} data-testid="button-aic-insert">
+          <Button size="sm" onClick={insert} disabled={reviewVerdict?.status === 'fail'} data-testid="button-aic-insert">
             <Check className="mr-1 h-4 w-4" /> Insert
           </Button>
           <Button size="sm" variant="outline" onClick={generate} disabled={gen.running} data-testid="button-aic-regenerate">

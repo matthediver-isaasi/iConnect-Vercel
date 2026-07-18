@@ -48,6 +48,7 @@ import { checkAiUsageAllowance, recordAiUsageEvent } from '../_lib/aiUsage.js';
 import { runCompositionValidation } from '../_lib/aiCompositionValidation.js';
 import { styleReferenceImageInputs, isDesignDnaV2 } from '../_lib/styleReference.js';
 import { AI_COMPOSITION_SCHEMA_VERSION } from '../_lib/aiCompositionSchema.js';
+import { runScreenshotReview } from '../_lib/aiCompositionScreenshotGate.js';
 
 /**
  * Reference-evidence diagnostics stored on the version (Task #2890).
@@ -114,6 +115,29 @@ function getOpenAIClient() {
   const baseURL = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
   if (!apiKey) return null;
   return new OpenAI({ apiKey, ...(baseURL && { baseURL }) });
+}
+
+// Vision caller for the screenshot quality review stage (Task #2894) —
+// same shape as review.js's makeCallVision.
+function makeCallVision(client) {
+  return async ({ system, user, images }) => {
+    const content = [{ type: 'text', text: user }];
+    for (const img of images || []) {
+      content.push({ type: 'text', text: `Screenshot (${img.breakpoint}):` });
+      content.push({ type: 'image_url', image_url: { url: img.dataUrl, detail: 'low' } });
+    }
+    const completion = await client.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content },
+      ],
+      response_format: { type: 'json_object' },
+      temperature: 0.2,
+      max_completion_tokens: 2000,
+    });
+    return completion.choices?.[0]?.message?.content || '';
+  };
 }
 
 function makeCallLlm(client) {
@@ -486,6 +510,7 @@ export default async function handler(req, res) {
         compositionType: state.compositionType,
         brief,
         styleReference: options.styleReference || null,
+        options,
         attempt: attemptIndex,
         lastErrors: state.documentErrors || [],
       });
@@ -703,14 +728,9 @@ export default async function handler(req, res) {
         .eq('id', compositionId)
         .eq('tenant_id', tenantId);
 
-      await updateJob(job.id, tenantId, {
-        status: 'complete',
-        composition_id: compositionId,
-        // Drop the heavy doc from persisted state once the version exists.
-        state: { versionId: version.id },
-      });
-
-      // Usage/audit event (Phase 4): one per completed generation run.
+      // Usage/audit event (Phase 4): one per completed generation run —
+      // recorded here (the version now exists); the review stage never
+      // meters again.
       await recordAiUsageEvent(supabase, {
         tenantId,
         memberId: context.memberId || null,
@@ -726,16 +746,75 @@ export default async function handler(req, res) {
         dedupeHash: job.options?.dedupeHash || null,
       });
 
-      return res.status(200).json({
-        jobId: job.id,
-        stage: 'assets',
-        status: 'complete',
+      // Hand off to the screenshot quality review stage (Task #2894). The
+      // heavy doc is dropped; only the completion payload rides along.
+      const completion = {
         compositionId,
         versionId: version.id,
         assetResults: assetResults.map((r) => ({ elementId: r.elementId, ok: r.ok, error: r.error || undefined })),
         imageFlags: altFlags,
         seo: seoSuggestion,
         validation: { ok: validation.ok, critical: validation.critical.length, warnings: validation.warnings.length },
+      };
+      await updateJob(job.id, tenantId, {
+        stage: 'review',
+        composition_id: compositionId,
+        state: { versionId: version.id, completion, brand: state.brand },
+      });
+      return res.status(200).json({ jobId: job.id, stage: 'review', status: 'running', label: STAGE_LABELS.review });
+    }
+
+    if (stage === 'review') {
+      // Screenshot quality review (Task #2894): render the saved version at
+      // each breakpoint via browserless, judge with the vision model, store
+      // the verdict on validation_result.gates.screenshotReview. A failing
+      // review NEVER fails the run — it blocks Insert client-side. When the
+      // tooling is unconfigured the gate records `skipped` and blocks nothing.
+      const versionId = state.versionId;
+      const completion = state.completion || {};
+      let reviewResult = { status: 'skipped', reason: 'version unavailable', checkedAt: new Date().toISOString() };
+      if (versionId) {
+        const { data: versionRow } = await supabase
+          .from('ai_composition_version')
+          .select('id, document, validation_result')
+          .eq('id', versionId)
+          .eq('tenant_id', tenantId)
+          .maybeSingle();
+        if (versionRow?.document) {
+          reviewResult = await runScreenshotReview({
+            doc: versionRow.document,
+            brand: state.brand || null,
+            callVision: client ? makeCallVision(client) : null,
+          });
+          await supabase
+            .from('ai_composition_version')
+            .update({
+              validation_result: {
+                ...(versionRow.validation_result || {}),
+                gates: {
+                  ...(versionRow.validation_result?.gates || {}),
+                  screenshotReview: reviewResult,
+                },
+              },
+            })
+            .eq('id', versionId)
+            .eq('tenant_id', tenantId);
+        }
+      }
+      await updateJob(job.id, tenantId, {
+        status: 'complete',
+        state: { versionId },
+      });
+      return res.status(200).json({
+        jobId: job.id,
+        stage: 'review',
+        status: 'complete',
+        ...completion,
+        screenshotReview: {
+          status: reviewResult.status,
+          failedBreakpoints: reviewResult.failedBreakpoints || [],
+          reason: reviewResult.reason || undefined,
+        },
         usageWarning: job.options?.usageWarning || undefined,
       });
     }
