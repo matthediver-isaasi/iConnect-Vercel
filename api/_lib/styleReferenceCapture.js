@@ -44,6 +44,11 @@ export const FULL_PAGE_CAP_PX = 8000;          // full-page shot height cap
 // crops once the budget is spent (the full-page shot always ships).
 export const FUNCTION_PAYLOAD_BUDGET_B64 = 3_800_000;
 export const MAX_WALK_ELEMENTS = 3500;         // evidence walk cap (was 6000)
+// Per-image base64 cap for the runner: keeps every shot's DECODED size under
+// MAX_SCREENSHOT_BYTES (base64 inflates ~4/3) so the server never has to drop
+// a returned image as oversized. The runner retakes bigger shots at lower
+// quality / shorter clip.
+export const MAX_SHOT_B64 = 5_200_000;
 
 // The in-page capture/extraction program. Runs on browserless (Puppeteer).
 // Returns { data: { finalUrl, metrics, screenshots: [{label, b64, width,
@@ -53,6 +58,7 @@ export default async function ({ page, context }) {
   const {
     url, viewport, navigationTimeout, postLoadDelay,
     maxPageHeight, maxCrops, payloadBudget, maxWalkElements, fullPageCap,
+    maxShotB64,
   } = context;
 
   await page.setViewport({
@@ -432,20 +438,69 @@ export default async function ({ page, context }) {
   // The full-page shot always ships (and is height-capped) so a capture can
   // never come back empty just because the page is image-heavy.
   const screenshots = [];
+  const shootErrors = [];
   const vpName = viewport.name;
   const budget = payloadBudget || 3800000;
+  // Per-image base64 cap: images above this decode past the server-side
+  // per-image byte cap and would be silently dropped there — retake smaller
+  // in the runner instead.
+  const shotCap = maxShotB64 || 5200000;
   let usedB64 = 0;
+  const take = (clip, quality) => page.screenshot({
+    type: 'jpeg', quality, encoding: 'base64',
+    // Clips below the fold need captureBeyondViewport on some Chrome/
+    // Puppeteer combos, or the screenshot call throws.
+    ...(clip ? { clip, captureBeyondViewport: true } : { fullPage: true }),
+  });
   const shoot = async (label, clip, quality) => {
+    let q = quality || 72;
+    let b64;
     try {
-      const b64 = await page.screenshot({
-        type: 'jpeg', quality: quality || 72, encoding: 'base64',
-        ...(clip ? { clip } : { fullPage: true }),
-      });
-      if (screenshots.length > 0 && usedB64 + b64.length > budget) return false;
-      usedB64 += b64.length;
-      screenshots.push({ label, b64, width: clip ? Math.round(clip.width) : viewport.width, height: clip ? Math.round(clip.height) : null });
-      return true;
-    } catch { return false; }
+      b64 = await take(clip, q);
+    } catch (err) {
+      // Tall clip / fullPage can fail — retry once as a viewport-height shot
+      // anchored at the clip's top so the capture never comes back empty.
+      const safeClip = {
+        x: 0,
+        y: (clip && clip.y) || 0,
+        width: viewport.width,
+        height: Math.min((clip && clip.height) || viewport.height, viewport.height),
+      };
+      try {
+        b64 = await take(safeClip, q);
+        clip = safeClip;
+      } catch (err2) {
+        shootErrors.push(label + ': ' + String((err2 && err2.message) || err2).slice(0, 200));
+        return false;
+      }
+    }
+    if (b64.length > shotCap) {
+      // Oversized: retake at low quality; if still too big, shorten the clip.
+      try {
+        b64 = await take(clip, 45);
+        if (b64.length > shotCap) {
+          const shortClip = {
+            x: 0,
+            y: (clip && clip.y) || 0,
+            width: viewport.width,
+            height: Math.min((clip && clip.height) || 999999, viewport.height * 3),
+          };
+          b64 = await take(shortClip, 45);
+          clip = shortClip;
+        }
+      } catch (err) {
+        shootErrors.push(label + ' oversize retake: ' + String((err && err.message) || err).slice(0, 200));
+        return false;
+      }
+      if (b64.length > shotCap) {
+        shootErrors.push(label + ': oversized after retake (' + b64.length + ' b64 chars)');
+        return false;
+      }
+    }
+    if (screenshots.length > 0 && usedB64 + b64.length > budget) return false;
+    usedB64 += b64.length;
+    screenshots.push({ label, b64, width: clip ? Math.round(clip.width) : viewport.width, height: clip ? Math.round(clip.height) : null });
+    return true;
   };
 
   // Page height measured directly so a failed metrics pass never forces an
@@ -507,7 +562,7 @@ export default async function ({ page, context }) {
   }
 
   return {
-    data: { finalUrl, metrics, screenshots, viewport: vpName },
+    data: { finalUrl, metrics, screenshots, viewport: vpName, shootErrors: shootErrors.slice(0, 5) },
     type: 'application/json',
   };
 }
@@ -545,6 +600,7 @@ export async function captureViewportBundle(url, viewportName, { postLoadDelayMs
           payloadBudget: FUNCTION_PAYLOAD_BUDGET_B64,
           maxWalkElements: MAX_WALK_ELEMENTS,
           fullPageCap: FULL_PAGE_CAP_PX,
+          maxShotB64: MAX_SHOT_B64,
         },
       }),
     });
@@ -584,16 +640,25 @@ export async function captureViewportBundle(url, viewportName, { postLoadDelayMs
     );
   }
   const screenshots = [];
+  const dropped = [];
   for (const s of Array.isArray(data?.screenshots) ? data.screenshots : []) {
-    if (!s?.b64 || !s?.label) continue;
+    if (!s?.b64 || !s?.label) { dropped.push(`${s?.label || '?'}: missing b64`); continue; }
     const buffer = Buffer.from(s.b64, 'base64');
-    if (!buffer.length || buffer.length > MAX_SCREENSHOT_BYTES) continue;
+    if (!buffer.length || buffer.length > MAX_SCREENSHOT_BYTES) {
+      dropped.push(`${s.label}: ${buffer.length} bytes (cap ${MAX_SCREENSHOT_BYTES})`);
+      continue;
+    }
     screenshots.push({ label: String(s.label).slice(0, 60), buffer, width: s.width || null, height: s.height || null });
   }
   if (screenshots.length === 0) {
+    const returned = Array.isArray(data?.screenshots) ? data.screenshots.length : 0;
+    const runnerErrors = Array.isArray(data?.shootErrors) && data.shootErrors.length
+      ? `; shoot errors: ${data.shootErrors.slice(0, 3).map((e) => String(e).slice(0, 200)).join(' | ')}`
+      : '';
+    const droppedNote = dropped.length ? `; dropped: ${dropped.slice(0, 3).join(' | ')}` : '';
     throw makeCaptureError(
       'No usable screenshots could be captured from the reference page.',
-      `runner returned ${Array.isArray(data?.screenshots) ? data.screenshots.length : 0} screenshots, none usable`,
+      `runner returned ${returned} screenshots, none usable${droppedNote}${runnerErrors}`,
     );
   }
   return {
@@ -609,7 +674,7 @@ export async function captureViewportBundle(url, viewportName, { postLoadDelayMs
 // so the endpoint's redirect revalidation keeps working in fallback mode.
 const FALLBACK_RUNNER_CODE = `
 export default async function ({ page, context }) {
-  const { url, viewport, navigationTimeout, fullPageCap } = context;
+  const { url, viewport, navigationTimeout, fullPageCap, maxShotB64 } = context;
   await page.setViewport({
     width: viewport.width,
     height: viewport.height,
@@ -637,20 +702,38 @@ export default async function ({ page, context }) {
   const clip = pageH > fullPageCap
     ? { x: 0, y: 0, width: viewport.width, height: fullPageCap }
     : null;
+  const shotCap = maxShotB64 || 5200000;
+  const take = (c, quality) => page.screenshot({
+    type: 'jpeg', quality, encoding: 'base64',
+    ...(c ? { clip: c, captureBeyondViewport: true } : { fullPage: true }),
+  });
   let b64;
+  let shootError = '';
   try {
-    b64 = await page.screenshot({
-      type: 'jpeg', quality: 60, encoding: 'base64',
-      ...(clip ? { clip } : { fullPage: true }),
-    });
+    b64 = await take(clip, 60);
   } catch (err) {
-    return { data: { error: 'screenshot_failed', message: String(err && err.message || err).slice(0, 500) }, type: 'application/json' };
+    // Tall clip / fullPage failed — one last try at just the viewport.
+    shootError = String(err && err.message || err).slice(0, 200);
+    try {
+      b64 = await take({ x: 0, y: 0, width: viewport.width, height: viewport.height }, 60);
+    } catch (err2) {
+      return { data: { error: 'screenshot_failed', message: (shootError + ' | viewport retry: ' + String(err2 && err2.message || err2)).slice(0, 500) }, type: 'application/json' };
+    }
+  }
+  if (b64.length > shotCap) {
+    // Oversized: retake shorter + lower quality so the server can use it.
+    try {
+      b64 = await take({ x: 0, y: 0, width: viewport.width, height: Math.min(pageH, Math.floor(fullPageCap / 2)) }, 45);
+    } catch (err) {
+      shootError = (shootError ? shootError + ' | ' : '') + ('oversize retake: ' + String(err && err.message || err)).slice(0, 200);
+    }
   }
   return {
     data: {
       finalUrl,
       metrics: null,
       screenshots: [{ label: viewport.name + '_full_page', b64, width: viewport.width, height: null }],
+      shootErrors: shootError ? [shootError] : [],
     },
     type: 'application/json',
   };
@@ -683,6 +766,7 @@ async function captureFallbackScreenshot(url, viewportName) {
           viewport,
           navigationTimeout: timeoutMs,
           fullPageCap: FULL_PAGE_CAP_PX,
+          maxShotB64: MAX_SHOT_B64,
         },
       }),
     });
@@ -717,9 +801,13 @@ async function captureFallbackScreenshot(url, viewportName) {
   const shot = Array.isArray(data?.screenshots) ? data.screenshots[0] : null;
   const buffer = shot?.b64 ? Buffer.from(shot.b64, 'base64') : null;
   if (!buffer || !buffer.length || buffer.length > MAX_SCREENSHOT_BYTES) {
+    const size = buffer ? `${buffer.length} bytes (cap ${MAX_SCREENSHOT_BYTES})` : 'no image data';
+    const runnerErrors = Array.isArray(data?.shootErrors) && data.shootErrors.length
+      ? `; shoot errors: ${data.shootErrors.slice(0, 2).map((e) => String(e).slice(0, 200)).join(' | ')}`
+      : '';
     throw makeCaptureError(
       'No usable screenshots could be captured from the reference page.',
-      'fallback: empty or oversized screenshot',
+      `fallback: empty or oversized screenshot — ${size}${runnerErrors}`,
     );
   }
   return {
@@ -740,7 +828,7 @@ function makeCaptureError(message, detail) {
 /**
  * Reliability wrapper (Task #2882): try the full /function capture, retry
  * once with a shorter settle delay, then fall back to a plain full-page
- * /screenshot capture (no metrics, no crops) so a flaky rich capture never
+ * minimal-runner capture (no metrics, no crops) so a flaky rich capture never
  * hard-fails the whole flow. Returns:
  *   { bundle, usedFallback, attempts: [{ mode, attempt?, error, detail? }] }
  * Throws only when every route failed — the error carries a combined

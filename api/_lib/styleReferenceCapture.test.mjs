@@ -1,5 +1,5 @@
 // Tests for the style-reference capture reliability layer (Task #2882):
-// error detail passthrough, retry, and the /screenshot fallback in
+// error detail passthrough, retry, and the minimal /function fallback in
 // captureViewportWithFallback. Browserless is mocked via global fetch.
 
 import { test, beforeEach, afterEach } from 'node:test';
@@ -206,12 +206,90 @@ test('captureViewportWithFallback: total failure throws combined detail', async 
   );
 });
 
-test('runner context includes payload budget, walk cap and full-page cap', async () => {
+test('runner context includes payload budget, walk cap, full-page cap and per-shot cap', async () => {
   mockFetch(() => jsonResponse(goodFunctionBody()));
   await captureViewportBundle('https://example.org/', 'desktop');
   const body = JSON.parse(calls[0].options.body);
   assert.ok(body.context.payloadBudget > 0);
   assert.ok(body.context.maxWalkElements > 0);
   assert.ok(body.context.fullPageCap > 0);
+  assert.ok(body.context.maxShotB64 > 0);
   assert.ok(body.code.includes('usedB64'));
+  assert.ok(body.code.includes('captureBeyondViewport'));
+  assert.ok(body.code.includes('shootErrors'));
+});
+
+test('captureViewportBundle: zero screenshots surfaces runner shoot errors in detail', async () => {
+  mockFetch(() => jsonResponse({
+    finalUrl: 'https://example.org/',
+    metrics: null,
+    screenshots: [],
+    shootErrors: ['desktop_full_page: Protocol error (Page.captureScreenshot): boom'],
+  }));
+  await assert.rejects(
+    captureViewportBundle('https://example.org/', 'desktop'),
+    (err) => {
+      assert.equal(err.message, 'No usable screenshots could be captured from the reference page.');
+      assert.match(err.detail, /shoot errors/);
+      assert.match(err.detail, /captureScreenshot.*boom/);
+      return true;
+    },
+  );
+});
+
+test('captureViewportBundle: oversized image dropped with size in detail', async () => {
+  const hugeB64 = Buffer.alloc(5 * 1024 * 1024).toString('base64'); // > 4MB decoded
+  mockFetch(() => jsonResponse({
+    finalUrl: 'https://example.org/',
+    metrics: null,
+    screenshots: [{ label: 'desktop_full_page', b64: hugeB64, width: 1440, height: null }],
+  }));
+  await assert.rejects(
+    captureViewportBundle('https://example.org/', 'desktop'),
+    (err) => {
+      assert.match(err.detail, /dropped: desktop_full_page: \d+ bytes \(cap \d+\)/);
+      return true;
+    },
+  );
+});
+
+test('fallback: oversized screenshot detail includes size and shoot errors', async () => {
+  const hugeB64 = Buffer.alloc(5 * 1024 * 1024).toString('base64');
+  mockFetch((endpoint) => {
+    if (endpoint === 'function') return jsonResponse({ message: 'boom' }, 500);
+    return jsonResponse({
+      finalUrl: 'https://example.org/',
+      metrics: null,
+      screenshots: [{ label: 'desktop_full_page', b64: hugeB64, width: 1440, height: null }],
+      shootErrors: ['oversize retake: timeout'],
+    });
+  });
+  await assert.rejects(
+    captureViewportWithFallback('https://example.org/', 'desktop'),
+    (err) => {
+      const fb = err.attempts[2];
+      assert.equal(fb.mode, 'fallback');
+      assert.match(err.detail, /fallback: empty or oversized screenshot — \d+ bytes/);
+      assert.match(err.detail, /oversize retake: timeout/);
+      return true;
+    },
+  );
+});
+
+test('fallback runner context includes per-shot cap; code has clip-retry + oversize retake', async () => {
+  mockFetch((endpoint) => {
+    if (endpoint === 'function') return jsonResponse({ message: 'boom' }, 500);
+    return jsonResponse({
+      finalUrl: 'https://example.org/',
+      metrics: null,
+      screenshots: [{ label: 'desktop_full_page', b64: TINY_JPEG_B64, width: 1440, height: null }],
+    });
+  });
+  await captureViewportWithFallback('https://example.org/', 'desktop');
+  const fb = calls.find((c) => c.endpoint === 'fallback');
+  const body = JSON.parse(fb.options.body);
+  assert.ok(body.context.maxShotB64 > 0);
+  assert.ok(body.code.includes('captureBeyondViewport'));
+  assert.ok(body.code.includes('viewport retry'));
+  assert.ok(body.code.includes('oversize retake'));
 });
