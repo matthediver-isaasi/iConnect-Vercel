@@ -1,4 +1,4 @@
-// AI Composition in-DOM renderer (Task #2849).
+// AI Composition in-DOM renderer (Task #2849; Phase 2 links + selection #2850).
 //
 // Renders a validated AI Composition document as real DOM. All generated
 // styling is instance-scoped via buildAicCss (every selector prefixed with
@@ -7,6 +7,15 @@
 // allowlisted CSS. DOM order follows each section's readingOrder; headings
 // render as real h1–h6.
 //
+// Phase 2:
+//   - Buttons/elements carrying a link ref render as real <a> tags when the
+//     ref resolves to a route (aicLinkHref — record IDs, never AI-invented
+//     URLs). Unresolvable refs stay non-navigating.
+//   - `selectable` turns the renderer into a click-to-select surface for the
+//     editor's Edit-with-AI panel: clicks select the nearest element (or the
+//     section background) instead of navigating, and the current selection
+//     is outlined.
+//
 // `forceBreakpoint` ('tablet'|'mobile') applies the breakpoint attribute
 // variants for editor preview, where the viewport itself does not change.
 
@@ -14,59 +23,99 @@ import { useMemo } from 'react';
 import {
   buildAicCss,
   orderedElements,
-  sanitizeAicStyle,
   sanitizeAicHtml,
   headingTag,
+  aicLinkHref,
+  aicLinkTarget,
 } from '@/lib/aiCompositionRender';
 
 function elClass(el) {
   return `aic-e-${String(el.id || '').replace(/[^a-zA-Z0-9_-]/g, '')}`;
 }
 
-function AicElement({ el }) {
+const SELECTED_STYLE = {
+  outline: '2px solid hsl(210 90% 55%)',
+  outlineOffset: '1px',
+};
+
+function selProps(el, ctx) {
+  if (!ctx.selectable) return {};
+  return {
+    onClick: (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      ctx.onSelect?.({ type: 'element', elementId: el.id, elementType: el.type });
+    },
+    style: ctx.selectedId === el.id ? SELECTED_STYLE : undefined,
+    'data-aic-selectable': el.id,
+  };
+}
+
+function AicElement({ el, ctx }) {
   if (!el || !el.id) return null;
   const cls = elClass(el);
   const text = el.content?.text ?? '';
   const html = typeof el.content?.html === 'string' ? sanitizeAicHtml(el.content.html) : null;
+  const sel = selProps(el, ctx);
 
   switch (el.type) {
     case 'heading': {
       const Tag = headingTag(el);
-      return <Tag className={cls} data-testid={`text-aic-${el.id}`}>{text}</Tag>;
+      return <Tag className={cls} data-testid={`text-aic-${el.id}`} {...sel}>{text}</Tag>;
     }
     case 'paragraph':
       return html !== null
-        ? <div className={cls} data-testid={`text-aic-${el.id}`} dangerouslySetInnerHTML={{ __html: html }} />
-        : <p className={cls} data-testid={`text-aic-${el.id}`}>{text}</p>;
+        ? <div className={cls} data-testid={`text-aic-${el.id}`} {...sel} dangerouslySetInnerHTML={{ __html: html }} />
+        : <p className={cls} data-testid={`text-aic-${el.id}`} {...sel}>{text}</p>;
     case 'button':
-      // Phase 1: no links in generated documents — render a non-navigating
-      // visual button (Phase 2 wires LinkField-resolved targets).
+    case 'text_link': {
+      const label = text || el.content?.label || '';
+      const href = ctx.selectable ? null : aicLinkHref(el.link);
+      if (href) {
+        const target = aicLinkTarget(el.link);
+        return (
+          <a
+            className={cls}
+            href={href}
+            {...(target ? { target, rel: 'noopener noreferrer' } : {})}
+            data-testid={`button-aic-${el.id}`}
+          >
+            {label}
+          </a>
+        );
+      }
       return (
-        <span role="presentation" className={cls} data-testid={`button-aic-${el.id}`}>
-          {text || el.content?.label || ''}
+        <span
+          role={ctx.selectable ? 'button' : 'presentation'}
+          className={cls}
+          data-testid={`button-aic-${el.id}`}
+          {...sel}
+        >
+          {label}
         </span>
       );
+    }
     case 'statistic':
       return (
-        <div className={cls} data-testid={`stat-aic-${el.id}`}>
+        <div className={cls} data-testid={`stat-aic-${el.id}`} {...sel}>
           <span className="aic-stat-value">{el.data?.value ?? ''}</span>
           <span className="aic-stat-label">{el.data?.label ?? ''}</span>
         </div>
       );
     case 'shape':
     case 'background':
-      return <div className={cls} aria-hidden="true" />;
+      return <div className={cls} aria-hidden="true" {...sel} />;
     case 'image': {
       const src = el.asset?.url || '';
-      if (!src) return <div className={cls} aria-hidden="true" />;
-      return <img className={cls} src={src} alt={el.asset?.altText || ''} loading="lazy" />;
+      if (!src) return <div className={cls} aria-hidden="true" {...sel} />;
+      return <img className={cls} src={src} alt={el.asset?.altText || ''} loading="lazy" {...sel} />;
     }
     case 'container':
     case 'group':
     case 'card':
       return (
-        <div className={cls}>
-          {(el.children || []).map((child) => <AicElement key={child.id} el={child} />)}
+        <div className={cls} {...sel}>
+          {(el.children || []).map((child) => <AicElement key={child.id} el={child} ctx={ctx} />)}
         </div>
       );
     default:
@@ -75,11 +124,20 @@ function AicElement({ el }) {
   }
 }
 
-export default function AiCompositionRenderer({ document: doc, instanceId, forceBreakpoint = null, className = '' }) {
+export default function AiCompositionRenderer({
+  document: doc,
+  instanceId,
+  forceBreakpoint = null,
+  className = '',
+  selectable = false,
+  selectedId = null,
+  onSelect = null,
+}) {
   const css = useMemo(
     () => (doc ? buildAicCss(doc, instanceId) : ''),
     [doc, instanceId],
   );
+  const ctx = { selectable, selectedId, onSelect };
   if (!doc || !Array.isArray(doc.sections)) return null;
   return (
     <div
@@ -89,8 +147,21 @@ export default function AiCompositionRenderer({ document: doc, instanceId, force
     >
       <style dangerouslySetInnerHTML={{ __html: css }} />
       {doc.sections.map((section) => (
-        <div key={section.id} className={`aic-s-${String(section.id || '').replace(/[^a-zA-Z0-9_-]/g, '')}`}>
-          {orderedElements(section).map((el) => <AicElement key={el.id} el={el} />)}
+        <div
+          key={section.id}
+          className={`aic-s-${String(section.id || '').replace(/[^a-zA-Z0-9_-]/g, '')}`}
+          {...(selectable
+            ? {
+              onClick: (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onSelect?.({ type: 'section', sectionId: section.id });
+              },
+              style: selectedId === section.id ? SELECTED_STYLE : undefined,
+            }
+            : {})}
+        >
+          {orderedElements(section).map((el) => <AicElement key={el.id} el={el} ctx={ctx} />)}
         </div>
       ))}
     </div>

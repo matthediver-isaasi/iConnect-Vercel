@@ -23,6 +23,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import AiCompositionRenderer from '../AiCompositionRenderer';
+import AiCompositionEditPanel from './AiCompositionEditPanel';
 import { resolveDraftAfterGeneration, isDiscardableDraft } from '@/lib/aiCompositionRender';
 import { useReportReflowHeight } from '../AccordionReflowContext';
 import { getTenantSlugFromLocation } from '@/api/publicClient';
@@ -390,6 +391,7 @@ export function AiCompositionInspector({ block, update, pageId }) {
       )}
 
       {insertedId && !draftId && <VersionHistory compositionId={insertedId} />}
+      {insertedId && !draftId && <AiCompositionEditPanel compositionId={insertedId} />}
     </div>
   );
 }

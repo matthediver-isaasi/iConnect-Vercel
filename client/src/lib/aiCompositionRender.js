@@ -254,3 +254,40 @@ export function resolveDraftAfterGeneration(insertedId, completedId) {
 export function isDiscardableDraft(draftId, insertedId) {
   return Boolean(draftId) && draftId !== insertedId;
 }
+
+/**
+ * Resolve an AI Composition link ref (spec §16 — record IDs, never raw URLs)
+ * into a navigable href, or null when no client-side route exists for it.
+ * Pure so it is testable in node.
+ */
+export function aicLinkHref(link) {
+  if (!link || typeof link !== 'object') return null;
+  const ident = (v) => (typeof v === 'string' && /^[a-zA-Z0-9_-]+$/.test(v) ? v : null);
+  switch (link.kind) {
+    case 'external':
+      return /^https?:\/\//i.test(link.url || '') ? link.url : null;
+    case 'email':
+      return link.address ? `mailto:${link.address}` : null;
+    case 'tel':
+      return link.number ? `tel:${link.number}` : null;
+    case 'anchor':
+      return ident(link.anchorId) ? `#${link.anchorId}` : null;
+    case 'page':
+      return ident(link.slug) ? `/${link.slug}` : null;
+    case 'event_registration':
+      return ident(link.eventId) ? `/EventDetails?id=${link.eventId}` : null;
+    case 'form':
+      return ident(link.slug) ? `/FormView?slug=${link.slug}` : null;
+    case 'membership_application':
+      return ident(link.tierId)
+        ? `/MembershipApplication?tier=${link.tierId}`
+        : '/MembershipApplication';
+    default:
+      return null;
+  }
+}
+
+/** External links open in a new tab; everything else navigates in place. */
+export function aicLinkTarget(link) {
+  return link?.kind === 'external' ? '_blank' : undefined;
+}

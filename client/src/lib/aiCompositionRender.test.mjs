@@ -22,6 +22,8 @@ import {
   headingTag,
   resolveDraftAfterGeneration,
   isDiscardableDraft,
+  aicLinkHref,
+  aicLinkTarget,
 } from './aiCompositionRender.js';
 
 test('sanitizeAicStyle drops unsafe and non-allowlisted values', () => {
@@ -162,4 +164,46 @@ test('isDiscardableDraft: the inserted composition is NEVER discardable', () => 
 test('isDiscardableDraft: empty draft is not discardable', () => {
   assert.equal(isDiscardableDraft('', 'comp-1'), false);
   assert.equal(isDiscardableDraft('', ''), false);
+});
+
+// ---------------------------------------------------------------------------
+// aicLinkHref / aicLinkTarget (Phase 2 — record-ID links, never invented URLs)
+// ---------------------------------------------------------------------------
+
+test('aicLinkHref: external http(s) passes, anything else rejected', () => {
+  assert.equal(aicLinkHref({ kind: 'external', url: 'https://example.com/x' }), 'https://example.com/x');
+  assert.equal(aicLinkHref({ kind: 'external', url: 'javascript:alert(1)' }), null);
+  assert.equal(aicLinkHref({ kind: 'external' }), null);
+});
+
+test('aicLinkHref: email/tel/anchor', () => {
+  assert.equal(aicLinkHref({ kind: 'email', address: 'a@b.co' }), 'mailto:a@b.co');
+  assert.equal(aicLinkHref({ kind: 'tel', number: '+441onetwo' }), 'tel:+441onetwo');
+  assert.equal(aicLinkHref({ kind: 'anchor', anchorId: 'pricing' }), '#pricing');
+  assert.equal(aicLinkHref({ kind: 'anchor', anchorId: 'bad id' }), null);
+});
+
+test('aicLinkHref: internal kinds resolve only from safe identifiers', () => {
+  assert.equal(aicLinkHref({ kind: 'page', pageId: 'x', slug: 'about-us' }), '/about-us');
+  assert.equal(aicLinkHref({ kind: 'page', pageId: 'x' }), null);
+  assert.equal(aicLinkHref({ kind: 'page', slug: '../etc' }), null);
+  assert.equal(
+    aicLinkHref({ kind: 'event_registration', eventId: 'abc-123' }),
+    '/EventDetails?id=abc-123',
+  );
+  assert.equal(aicLinkHref({ kind: 'form', formId: 'f', slug: 'contact' }), '/FormView?slug=contact');
+  assert.equal(aicLinkHref({ kind: 'form', formId: 'f' }), null);
+  assert.equal(
+    aicLinkHref({ kind: 'membership_application', tierId: 'tier-1' }),
+    '/MembershipApplication?tier=tier-1',
+  );
+  assert.equal(aicLinkHref({ kind: 'membership_application' }), '/MembershipApplication');
+  assert.equal(aicLinkHref({ kind: 'document', fileId: 'f1' }), null);
+  assert.equal(aicLinkHref(null), null);
+  assert.equal(aicLinkHref({ kind: 'nope' }), null);
+});
+
+test('aicLinkTarget: only external opens a new tab', () => {
+  assert.equal(aicLinkTarget({ kind: 'external', url: 'https://x.y' }), '_blank');
+  assert.equal(aicLinkTarget({ kind: 'page', slug: 'a' }), undefined);
 });
