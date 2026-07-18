@@ -2632,6 +2632,17 @@ useEffect(() => {
                       })}
                     </SidebarMenu>
                   </SidebarGroupContent>
+                  {/* Deployed build version (admins only). Vercel exposes the
+                      commit SHA to Vite builds as VITE_VERCEL_GIT_COMMIT_SHA
+                      when "Automatically expose System Environment Variables"
+                      is enabled; VITE_GIT_COMMIT_SHA is a manual override.
+                      Locally neither is set, so it reads "build: dev". */}
+                  <p
+                    className="px-3 pt-2 pb-1 text-[10px] text-slate-400 group-data-[collapsible=icon]:hidden"
+                    data-testid="text-build-version"
+                  >
+                    build: {String(import.meta.env.VITE_VERCEL_GIT_COMMIT_SHA || import.meta.env.VITE_GIT_COMMIT_SHA || 'dev').slice(0, 7)}
+                  </p>
                 </SidebarGroup>
               )}
               </>
