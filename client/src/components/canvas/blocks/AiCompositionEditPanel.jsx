@@ -165,6 +165,7 @@ export default function AiCompositionEditPanel({ compositionId }) {
   const [imageRequest, setImageRequest] = useState(null); // { elementId, brief, summary }
   const [imageNotice, setImageNotice] = useState(null);
   const [confirmProtected, setConfirmProtected] = useState(false);
+  const [validationNotice, setValidationNotice] = useState(null); // { blocked, summary, critical, warnings }
   const [showHistory, setShowHistory] = useState(false);
 
   const { data: current } = useQuery({
@@ -226,6 +227,7 @@ export default function AiCompositionEditPanel({ compositionId }) {
     if (!proposal || busy) return;
     setBusy(true);
     setError(null);
+    setValidationNotice(null);
     try {
       const resp = await aicFetch('/api/ai-compositions/edit', {
         method: 'POST',
@@ -241,8 +243,25 @@ export default function AiCompositionEditPanel({ compositionId }) {
       if (resp.isAlternative) {
         setError(null);
       }
+      if (resp.validation && !resp.validation.ok) {
+        setValidationNotice({
+          blocked: false,
+          summary: resp.validation.summary,
+          critical: resp.validation.critical || [],
+          warnings: resp.validation.warnings || [],
+        });
+      }
     } catch (err) {
-      setError(err.message || 'The change could not be applied.');
+      if (err.body?.code === 'AI_VALIDATION_CRITICAL') {
+        setValidationNotice({
+          blocked: true,
+          summary: err.message,
+          critical: err.body.validation?.critical || [],
+          warnings: err.body.validation?.warnings || [],
+        });
+      } else {
+        setError(err.message || 'The change could not be applied.');
+      }
     } finally {
       setBusy(false);
     }
@@ -413,6 +432,34 @@ export default function AiCompositionEditPanel({ compositionId }) {
       </div>
 
       {error && <p className="text-xs text-destructive" data-testid="text-aic-edit-error">{error}</p>}
+      {validationNotice && (
+        <div
+          className={`space-y-1 rounded-md border p-2 ${validationNotice.blocked ? 'border-destructive bg-destructive/10' : 'border-warning bg-warning/10'}`}
+          data-testid="text-aic-validation-notice"
+        >
+          <div className={`flex items-center gap-1 text-xs font-medium ${validationNotice.blocked ? 'text-destructive' : 'text-warning'}`}>
+            <AlertTriangle className="h-3 w-3" />
+            {validationNotice.blocked
+              ? 'Change blocked — it would introduce accessibility problems'
+              : 'Applied with warnings'}
+          </div>
+          {validationNotice.summary && <p className="text-xs">{validationNotice.summary}</p>}
+          {[...(validationNotice.critical || []), ...(validationNotice.warnings || [])].slice(0, 6).map((issue, i) => (
+            <p key={i} className="text-xs text-muted-foreground" data-testid={`text-aic-validation-issue-${i}`}>
+              {issue.message || issue.check}
+              {issue.breakpoint ? ` (${issue.breakpoint})` : ''}
+            </p>
+          ))}
+          <button
+            type="button"
+            className="text-xs underline"
+            onClick={() => setValidationNotice(null)}
+            data-testid="button-aic-validation-dismiss"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       {imageNotice && <p className="text-xs text-muted-foreground" data-testid="text-aic-image-notice">{imageNotice}</p>}
 
       {isImageTarget && (

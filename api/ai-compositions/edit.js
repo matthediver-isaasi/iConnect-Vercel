@@ -21,7 +21,8 @@
 
 import OpenAI from 'openai';
 import { supabase } from '../_lib/database.js';
-import { getTenantContext, hasFeatureAccess } from '../_lib/tenantContext.js';
+import { getTenantContext } from '../_lib/tenantContext.js';
+import { canUseAiFeature, AI_FEATURE_GENERATE, AI_FEATURE_APPROVE } from '../_lib/aiStudioAccess.js';
 import {
   runEditProposal,
   buildDestinationLinkOp,
@@ -36,6 +37,9 @@ import {
   checkBreakpointIsolation,
   collectLinkRefs,
 } from '../_lib/aiCompositionPatch.js';
+import { loadStudioSettings } from '../_lib/aiDesignStudioSettings.js';
+import { checkAiUsageAllowance, recordAiUsageEvent } from '../_lib/aiUsage.js';
+import { runCompositionValidation, summarizeValidation } from '../_lib/aiCompositionValidation.js';
 
 function getOpenAIClient() {
   const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
@@ -173,11 +177,16 @@ export default async function handler(req, res) {
   catch { return res.status(500).json({ error: 'Failed to resolve tenant context' }); }
   if (!context?.tenantId) return res.status(403).json({ error: 'Tenant context required' });
   if (!context.isAuthenticated) return res.status(401).json({ error: 'Authentication required' });
-  let canEdit = !!context.tenantUserId;
-  if (!canEdit && context.roleId) {
-    canEdit = await hasFeatureAccess(context.roleId, 'site-builder.page-editor');
+  // Permission split (spec §29): accepting/undoing changes requires the
+  // approve key; proposing/rejecting requires the generate key. Both sit on
+  // top of the baseline page-editor permission (404 to avoid leaking).
+  const requestedAction = req.method === 'POST' ? (req.body?.action || '') : '';
+  const neededFeature = (requestedAction === 'accept' || requestedAction === 'undo')
+    ? AI_FEATURE_APPROVE
+    : AI_FEATURE_GENERATE;
+  if (!(await canUseAiFeature(context, neededFeature))) {
+    return res.status(404).json({ error: 'Not found' });
   }
-  if (!canEdit) return res.status(404).json({ error: 'Not found' });
   const tenantId = context.tenantId;
 
   // ---- GET: conversation history -----------------------------------------
@@ -218,6 +227,28 @@ export default async function handler(req, res) {
 
       const instruction = normalizeInstruction(body.instruction);
       if (!instruction) return res.status(400).json({ error: 'An instruction is required' });
+
+      // Governance gate (Phase 4): allowances, rate limit, duplicate guard.
+      const studioSettings = await loadStudioSettings(supabase, tenantId);
+      const allowance = await checkAiUsageAllowance(supabase, {
+        tenantId,
+        memberId: context.memberId || null,
+        settings: studioSettings,
+        operation: 'edit',
+        prompt: instruction,
+      });
+      if (!allowance.ok) {
+        await recordAiUsageEvent(supabase, {
+          tenantId,
+          memberId: context.memberId || null,
+          compositionId: body.compositionId || null,
+          operation: 'edit',
+          units: { promptChars: instruction.length },
+          status: 'blocked',
+          dedupeHash: allowance.dedupeHash,
+        });
+        return res.status(allowance.status).json(allowance.body);
+      }
       const target = resolveTarget(doc, body.target || {});
       if (target.error) return res.status(409).json({ error: target.error });
       const breakpoint = normalizeBreakpointScope(body.breakpoint);
@@ -245,7 +276,13 @@ export default async function handler(req, res) {
       } else {
         const client = getOpenAIClient();
         if (!client) return res.status(503).json({ error: 'AI editing is not configured on this server.' });
-        const brand = await buildBrandContext(tenantId);
+        let brand = await buildBrandContext(tenantId);
+        // Governance (spec §28): when AI copywriting is disallowed, the
+        // model may restructure but never invent new wording.
+        if (studioSettings.allowAiCopy === false) {
+          const copyRule = 'STRICT COPY POLICY: never write new marketing copy, claims or slogans — reuse only the existing wording in the document; trimming and re-ordering is allowed.';
+          brand = { ...(brand || {}), tone: [brand?.tone, copyRule].filter(Boolean).join(' ') };
+        }
         result = await runEditProposal({
           callLlm: makeCallLlm(client), doc, instruction, target, breakpoint, brand,
         });
@@ -348,14 +385,17 @@ export default async function handler(req, res) {
       // Re-derive the accepted document from the STORED proposal against the
       // CURRENT document (never trust a client-sent document), with all
       // accept-time invariants — staleness and FRESH protected-value diffs —
-      // recomputed in assessAccept.
+      // recomputed in assessAccept. When the tenant has switched OFF
+      // requireFactualApproval, protected-value changes no longer need the
+      // explicit confirm step (spec §28).
+      const acceptSettings = await loadStudioSettings(supabase, tenantId);
       const gate = assessAccept({
         kind: row.kind,
         proposal: row.proposal,
         baseVersionId: row.base_version_id,
         currentVersionId: comp.current_version_id,
         currentDoc: doc,
-        confirmProtected: !!body.confirmProtected,
+        confirmProtected: !!body.confirmProtected || acceptSettings.requireFactualApproval === false,
       });
       if (!gate.ok) {
         return res.status(gate.status).json({
@@ -366,6 +406,27 @@ export default async function handler(req, res) {
         });
       }
       const nextDoc = gate.doc;
+
+      // Phase 4 approval gate: render-time validation over all breakpoints.
+      // Critical accessibility failures block approval — unless they already
+      // existed before this change (the edit must never be blocked by
+      // pre-existing debt it didn't touch, or nothing could ever be fixed).
+      const brokenLinksNow = await findBrokenLinks(nextDoc, tenantId);
+      const validation = runCompositionValidation(nextDoc, { brokenLinks: brokenLinksNow });
+      if (!validation.ok) {
+        const before = runCompositionValidation(doc);
+        const beforeKeys = new Set(before.critical.map((i) => `${i.check}:${i.elementId || i.sectionId || ''}`));
+        const newCritical = validation.critical.filter(
+          (i) => !beforeKeys.has(`${i.check}:${i.elementId || i.sectionId || ''}`),
+        );
+        if (newCritical.length > 0) {
+          return res.status(422).json({
+            error: 'This change introduces critical accessibility issues and cannot be approved.',
+            code: 'AI_VALIDATION_CRITICAL',
+            validation: { critical: newCritical.slice(0, 10), warnings: validation.warnings.slice(0, 10) },
+          });
+        }
+      }
 
       const isAlternative = row.kind === 'composition_redesign';
       const { data: inserted, error: insErr } = await supabase
@@ -378,7 +439,7 @@ export default async function handler(req, res) {
           change_summary: row.summary || row.instruction.slice(0, 200),
           operation_type: isAlternative ? 'redesign' : 'edit',
           is_alternative: isAlternative,
-          validation_result: { ok: true },
+          validation_result: validation,
           generation_metadata: { conversationId: row.id, kind: row.kind, breakpoint: row.breakpoint },
           created_by: context.memberId || null,
         })
@@ -401,11 +462,27 @@ export default async function handler(req, res) {
         .eq('id', row.id)
         .eq('tenant_id', tenantId);
 
+      // Usage/audit event (Phase 4): accepted change.
+      await recordAiUsageEvent(supabase, {
+        tenantId,
+        memberId: context.memberId || null,
+        compositionId: comp.id,
+        operation: isAlternative ? 'redesign' : 'edit',
+        model: 'gpt-4o-mini',
+        units: { textCalls: 1, promptChars: (row.instruction || '').length },
+      });
+
       return res.status(200).json({
         status: 'accepted',
         versionId: inserted.id,
         isAlternative,
         currentVersionId: isAlternative ? version.id : inserted.id,
+        validation: {
+          ok: validation.ok,
+          summary: summarizeValidation(validation),
+          critical: validation.critical.slice(0, 10),
+          warnings: validation.warnings.slice(0, 10),
+        },
       });
     }
 

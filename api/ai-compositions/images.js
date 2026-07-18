@@ -15,7 +15,8 @@
 
 import OpenAI from 'openai';
 import { supabase } from '../_lib/database.js';
-import { getTenantContext, hasFeatureAccess } from '../_lib/tenantContext.js';
+import { getTenantContext } from '../_lib/tenantContext.js';
+import { canUseAiFeature, AI_FEATURE_GENERATE, illustrationBlocked } from '../_lib/aiStudioAccess.js';
 import { applyPatch } from '../_lib/aiCompositionPatch.js';
 import { validateComposition } from '../_lib/aiCompositionSchema.js';
 import {
@@ -31,6 +32,8 @@ import {
   markGeneratedAssetUsage,
   findGeneratedAssetByFile,
 } from '../_lib/aiCompositionAssetStore.js';
+import { loadStudioSettings } from '../_lib/aiDesignStudioSettings.js';
+import { checkAiUsageAllowance, recordAiUsageEvent } from '../_lib/aiUsage.js';
 
 function getOpenAIClient() {
   const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
@@ -131,11 +134,11 @@ export default async function handler(req, res) {
   catch { return res.status(500).json({ error: 'Failed to resolve tenant context' }); }
   if (!context?.tenantId) return res.status(403).json({ error: 'Tenant context required' });
   if (!context.isAuthenticated) return res.status(401).json({ error: 'Authentication required' });
-  let canEdit = !!context.tenantUserId;
-  if (!canEdit && context.roleId) {
-    canEdit = await hasFeatureAccess(context.roleId, 'site-builder.page-editor');
+  // Permission split (spec §29): imagery generation sits under ai-generate
+  // on top of the baseline page-editor permission (404 to avoid leaking).
+  if (!(await canUseAiFeature(context, AI_FEATURE_GENERATE))) {
+    return res.status(404).json({ error: 'Not found' });
   }
-  if (!canEdit) return res.status(404).json({ error: 'Not found' });
   const tenantId = context.tenantId;
   const memberId = context.memberId || null;
 
@@ -206,6 +209,35 @@ export default async function handler(req, res) {
       const client = getOpenAIClient();
       if (!client) return res.status(503).json({ error: 'Image generation is not configured on this server.' });
 
+      // Governance gate (Phase 4): image allowances + rate limit.
+      const studioSettings = await loadStudioSettings(supabase, tenantId);
+      if (studioSettings.allowImageGeneration === false) {
+        return res.status(403).json({ error: 'AI image generation is disabled for this organisation.', code: 'AI_IMAGES_DISABLED' });
+      }
+      if (illustrationBlocked(studioSettings, el.type)) {
+        return res.status(403).json({ error: 'AI illustration is disabled for this organisation.', code: 'AI_ILLUSTRATION_DISABLED' });
+      }
+      const allowance = await checkAiUsageAllowance(supabase, {
+        tenantId,
+        memberId,
+        settings: studioSettings,
+        operation: 'image_generation',
+        prompt: JSON.stringify(body.brief || el.imageBrief || {}),
+        imageCount: 1,
+      });
+      if (!allowance.ok) {
+        await recordAiUsageEvent(supabase, {
+          tenantId,
+          memberId,
+          compositionId: comp.id,
+          operation: 'image_generation',
+          units: { images: 1 },
+          status: 'blocked',
+          dedupeHash: allowance.dedupeHash,
+        });
+        return res.status(allowance.status).json(allowance.body);
+      }
+
       // Brief: explicit from the client, else the element's stored brief,
       // else the previous generated asset's brief.
       let brief = (body.brief && typeof body.brief === 'object') ? body.brief : el.imageBrief;
@@ -271,6 +303,18 @@ export default async function handler(req, res) {
       const versionId = await saveVersion({
         comp, version, tenantId, memberId, doc: applied.doc, summary,
       });
+
+      // Usage/audit event (Phase 4).
+      await recordAiUsageEvent(supabase, {
+        tenantId,
+        memberId,
+        compositionId: comp.id,
+        operation: 'image_generation',
+        model: 'gpt-image-1',
+        units: { images: 1 },
+        dedupeHash: allowance.dedupeHash,
+      });
+
       return res.status(200).json({
         status: 'applied',
         versionId,
@@ -278,6 +322,7 @@ export default async function handler(req, res) {
         fileRepositoryId: stored.fileRepositoryId,
         url: stored.url,
         altTextMissing: !isMobile && !altText,
+        usageWarning: allowance.warning || undefined,
       });
     }
 

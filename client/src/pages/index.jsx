@@ -359,6 +359,7 @@ import AdminDashboard from "./admin/AdminDashboard";
 import AdminSettings from "./admin/AdminSettings";
 import OnboardingWizard from "./admin/OnboardingWizard";
 import PlanUsage from "./admin/PlanUsage";
+import AiDesignStudio from "./admin/AiDesignStudio";
 import AdminBranding from "./admin/AdminBranding";
 import MicrositeManagement from "./MicrositeManagement";
 import AdminLmicCountries from "./admin/AdminLmicCountries";
@@ -1241,6 +1242,7 @@ function AdminRoutes() {
             <Route path="/admin/zoho-crm-sync" element={<AdminZohoCrmSync />} />
             <Route path="/admin/onboarding" element={<OnboardingWizard />} />
             <Route path="/admin/plan-usage" element={<PlanUsage />} />
+            <Route path="/admin/ai-design-studio" element={<AiDesignStudio />} />
             <Route path="/admin" element={<AdminDashboard />} />
         </Routes>
     );
@@ -1290,6 +1292,7 @@ function SaasRoutes() {
             <Route path="/signup-verify" element={<SignupVerify />} />
             <Route path="/admin/onboarding" element={<OnboardingWizard />} />
             <Route path="/admin/plan-usage" element={<PlanUsage />} />
+            <Route path="/admin/ai-design-studio" element={<AiDesignStudio />} />
             <Route path="*" element={<SaasLanding />} />
         </Routes>
     );

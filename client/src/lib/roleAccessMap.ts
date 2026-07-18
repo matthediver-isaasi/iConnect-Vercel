@@ -488,6 +488,14 @@ export const ROLE_ACCESS_MAP: Module[] = [
         label: "Page Editor"
       },
       {
+        id: "site-builder.ai-generate",
+        label: "AI Design Studio — Generate"
+      },
+      {
+        id: "site-builder.ai-approve",
+        label: "AI Design Studio — Approve Changes"
+      },
+      {
         id: "site-builder.templates",
         label: "Element Templates"
       },
@@ -714,6 +722,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
       {
         id: "admin.accessibility-audits",
         label: "Accessibility Audits"
+      },
+      {
+        id: "admin.ai-design-studio",
+        label: "AI Design Studio"
       }
     ]
   },
@@ -1123,6 +1135,8 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_admin_AIReports": "admin.ai-reports",
   "page_AccessibilityAudits": "admin.accessibility-audits",
   "page_admin_AccessibilityAudits": "admin.accessibility-audits",
+  "page_AiDesignStudio": "admin.ai-design-studio",
+  "page_admin_AiDesignStudio": "admin.ai-design-studio",
   "page_EventCheckIn": "events.event-checkin",
   "page_EventCheckInDashboard": "events.event-checkin",
   "page_admin_EventCheckInDashboard": "events.event-checkin",

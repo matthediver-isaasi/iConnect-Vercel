@@ -13,7 +13,8 @@
 
 import OpenAI from 'openai';
 import { supabase } from '../_lib/database.js';
-import { getTenantContext, hasFeatureAccess } from '../_lib/tenantContext.js';
+import { getTenantContext } from '../_lib/tenantContext.js';
+import { canUseAiFeature, AI_FEATURE_GENERATE, filterBriefsByPolicy } from '../_lib/aiStudioAccess.js';
 import { buildTenantBrandingPayload } from '../_lib/tenantBranding.js';
 import {
   GENERATION_STAGES,
@@ -28,11 +29,15 @@ import {
 } from '../_lib/aiCompositionPipeline.js';
 import {
   collectImageBriefs,
+  walkElements,
   collectAltTextFlags,
   resolveCompositionAssets,
   ASPECT_SIZES,
 } from '../_lib/aiCompositionImages.js';
 import { storeGeneratedAsset } from '../_lib/aiCompositionAssetStore.js';
+import { loadStudioSettings, buildGuidanceSummary } from '../_lib/aiDesignStudioSettings.js';
+import { checkAiUsageAllowance, recordAiUsageEvent } from '../_lib/aiUsage.js';
+import { runCompositionValidation } from '../_lib/aiCompositionValidation.js';
 
 /** Provider image call — gpt-image-1 via the shared OpenAI client. */
 function makeGenerateImage(client) {
@@ -156,12 +161,11 @@ export default async function handler(req, res) {
   if (!context?.tenantId) return res.status(403).json({ error: 'Tenant context required' });
   if (!context.isAuthenticated) return res.status(401).json({ error: 'Authentication required' });
 
-  // Editors only. 404 (not 403) so page/composition existence is not leaked.
-  let canEdit = !!context.tenantUserId;
-  if (!canEdit && context.roleId) {
-    canEdit = await hasFeatureAccess(context.roleId, 'site-builder.page-editor');
+  // Permission split (spec §29): generation requires the ai-generate key on
+  // top of page-editor. 404 (not 403) so page existence is not leaked.
+  if (!(await canUseAiFeature(context, AI_FEATURE_GENERATE))) {
+    return res.status(404).json({ error: 'Not found' });
   }
-  if (!canEdit) return res.status(404).json({ error: 'Not found' });
 
   const tenantId = context.tenantId;
   const body = req.body || {};
@@ -192,6 +196,31 @@ export default async function handler(req, res) {
     const brief = normalizeBrief(body.brief);
     if (!brief) return res.status(400).json({ error: 'A brief is required' });
     const options = normalizeOptions(body);
+
+    // ---- Governance gate (Phase 4, spec §27/§28) --------------------------
+    const studioSettings = await loadStudioSettings(supabase, tenantId);
+    const allowance = await checkAiUsageAllowance(supabase, {
+      tenantId,
+      memberId: context.memberId || null,
+      settings: studioSettings,
+      operation: 'generation',
+      prompt: brief,
+      creativity: options.creativity,
+    });
+    if (!allowance.ok) {
+      await recordAiUsageEvent(supabase, {
+        tenantId,
+        memberId: context.memberId || null,
+        pageId: body.pageId || null,
+        operation: 'generation',
+        units: { promptChars: brief.length },
+        status: 'blocked',
+        dedupeHash: allowance.dedupeHash,
+      });
+      return res.status(allowance.status).json(allowance.body);
+    }
+    options.usageWarning = allowance.warning || null;
+    options.dedupeHash = allowance.dedupeHash;
     // Regeneration targets an existing composition — verify ownership.
     let compositionId = null;
     if (body.compositionId) {
@@ -256,10 +285,15 @@ export default async function handler(req, res) {
 
   try {
     if (stage === 'context') {
-      const [brand, pageContext] = await Promise.all([
+      const [brand, pageContext, ctxSettings] = await Promise.all([
         buildBrandContext(tenantId),
         buildPageContext(job.page_id, tenantId),
+        loadStudioSettings(supabase, tenantId),
       ]);
+      // Admin-configured brand guidance rides along with the brand context so
+      // every downstream prompt stage sees it (spec §28).
+      const guidance = buildGuidanceSummary(ctxSettings);
+      if (brand && guidance) brand.guidance = guidance;
       const compositionType = resolveCompositionType(options.mode, pageContext);
       await updateJob(job.id, tenantId, {
         stage: 'plan',
@@ -328,9 +362,19 @@ export default async function handler(req, res) {
       // failed image flags that one element and the run continues (spec §30).
       let doc = baseDoc;
       let assetResults = [];
-      if (collectImageBriefs(baseDoc).length > 0) {
+      const assetSettings = await loadStudioSettings(supabase, tenantId);
+      // Governance (spec §28): when illustration is disallowed, strip
+      // generated_illustration briefs so the assets stage never draws them.
+      if (assetSettings.allowGeneratedIllustration === false) {
+        doc = JSON.parse(JSON.stringify(baseDoc));
+        walkElements(doc, (el) => {
+          if (el.type === 'generated_illustration' && el.imageBrief) delete el.imageBrief;
+        });
+      }
+      const pendingBriefs = filterBriefsByPolicy(collectImageBriefs(doc), assetSettings);
+      if (pendingBriefs.length > 0 && assetSettings.allowImageGeneration !== false) {
         const resolved = await resolveCompositionAssets({
-          doc: baseDoc,
+          doc,
           brand: state.brand,
           generateImage: makeGenerateImage(client),
           storeAsset: (args) => storeGeneratedAsset({
@@ -355,6 +399,11 @@ export default async function handler(req, res) {
       doc.generatedAssets = assetResults
         .filter((r) => r.ok)
         .map((r) => ({ elementId: r.elementId, fileRepositoryId: r.fileRepositoryId }));
+
+      // Render-time validation (Phase 4): all breakpoints, stored on the
+      // version. Critical a11y failures never discard the run — they gate
+      // approval/insertion downstream instead.
+      const validation = runCompositionValidation(doc);
 
       // Persist: composition row (create or reuse) + immutable version.
       let compositionId = job.composition_id;
@@ -389,7 +438,7 @@ export default async function handler(req, res) {
           document: doc,
           change_summary: job.composition_id ? 'Regenerated from brief' : 'Initial generation',
           operation_type: 'generation',
-          validation_result: { ok: true, attempts },
+          validation_result: { ...validation, attempts },
           generation_metadata: {
             model: 'gpt-4o-mini',
             imageModel: assetResults.length ? 'gpt-image-1' : undefined,
@@ -423,6 +472,23 @@ export default async function handler(req, res) {
         // Drop the heavy doc from persisted state once the version exists.
         state: { versionId: version.id },
       });
+
+      // Usage/audit event (Phase 4): one per completed generation run.
+      await recordAiUsageEvent(supabase, {
+        tenantId,
+        memberId: context.memberId || null,
+        pageId: job.page_id || null,
+        compositionId,
+        operation: 'generation',
+        model: 'gpt-4o-mini',
+        units: {
+          textCalls: 2 + attempts, // plan + copy + document attempt(s)
+          images: assetResults.filter((r) => r.ok).length,
+          promptChars: (brief || '').length,
+        },
+        dedupeHash: job.options?.dedupeHash || null,
+      });
+
       return res.status(200).json({
         jobId: job.id,
         stage: 'assets',
@@ -431,6 +497,8 @@ export default async function handler(req, res) {
         versionId: version.id,
         assetResults: assetResults.map((r) => ({ elementId: r.elementId, ok: r.ok, error: r.error || undefined })),
         imageFlags: altFlags,
+        validation: { ok: validation.ok, critical: validation.critical.length, warnings: validation.warnings.length },
+        usageWarning: job.options?.usageWarning || undefined,
       });
     }
 
