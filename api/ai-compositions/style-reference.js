@@ -44,7 +44,7 @@ import {
 import {
   CAPTURE_VERSION,
   CAPTURE_VIEWPORTS,
-  captureViewportBundle,
+  captureViewportWithFallback,
   isBrowserlessConfigured,
 } from '../_lib/styleReferenceCapture.js';
 import {
@@ -252,20 +252,38 @@ async function handleCaptureViewport(body, context, res) {
   if (!VIEWPORT_ORDER.includes(viewport)) return res.status(400).json({ error: 'Unknown viewport.' });
 
   let bundle;
+  let usedFallback = false;
+  let captureAttempts = [];
   const startedAt = Date.now();
   try {
-    bundle = await captureViewportBundle(row.source_url, viewport);
+    // Retry once, then fall back to a plain full-page screenshot (Task #2882)
+    // so one flaky rich capture doesn't fail the whole flow.
+    const result = await captureViewportWithFallback(row.source_url, viewport);
+    bundle = result.bundle;
+    usedFallback = result.usedFallback;
+    captureAttempts = result.attempts || [];
   } catch (err) {
+    console.error('[style-reference] capture failed:', viewport, err.message, err.detail || '');
+    const attemptLog = (err.attempts || []).map((a) => ({
+      mode: a.mode, attempt: a.attempt || null,
+      error: String(a.error || '').slice(0, 200),
+      detail: a.detail ? String(a.detail).slice(0, 200) : null,
+    }));
     // Desktop failing is fatal; tablet/mobile failures degrade gracefully.
     if (viewport === 'desktop') {
       await supabase
         .from('ai_style_reference_analysis')
-        .update({ status: 'failed', error: err.message, updated_at: new Date().toISOString() })
+        .update({
+          status: 'failed',
+          error: err.message,
+          debug: { ...(row.debug || {}), viewports: [...(row.debug?.viewports || []), { viewport, ok: false, attempts: attemptLog }] },
+          updated_at: new Date().toISOString(),
+        })
         .eq('id', row.id);
-      return res.status(502).json({ error: err.message });
+      return res.status(502).json({ error: err.message, ...(err.detail ? { details: [err.detail] } : {}) });
     }
     const debug = { ...(row.debug || {}) };
-    debug.viewports = [...(debug.viewports || []), { viewport, ok: false, error: String(err.message).slice(0, 200) }];
+    debug.viewports = [...(debug.viewports || []), { viewport, ok: false, error: String(err.message).slice(0, 200), attempts: attemptLog }];
     await supabase
       .from('ai_style_reference_analysis')
       .update({ debug, updated_at: new Date().toISOString() })
@@ -332,6 +350,13 @@ async function handleCaptureViewport(body, context, res) {
     durationMs: Date.now() - startedAt,
     screenshots: stored.map((s) => s.label),
     capturedAt: new Date().toISOString(),
+    ...(usedFallback ? { usedFallback: true } : {}),
+    ...(captureAttempts.length ? {
+      failedAttempts: captureAttempts.map((a) => ({
+        mode: a.mode, attempt: a.attempt || null,
+        error: String(a.error || '').slice(0, 200),
+      })),
+    } : {}),
   }];
 
   await supabase

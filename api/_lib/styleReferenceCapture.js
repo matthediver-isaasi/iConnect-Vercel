@@ -37,6 +37,13 @@ export const MAX_PAGE_HEIGHT_PX = 12000;       // spec §17 max page height
 export const MAX_CROPS_PER_VIEWPORT = 4;       // + 1 full page = 5 shots max
 export const MAX_SCREENSHOT_BYTES = 4 * 1024 * 1024; // per image cap
 export const POST_LOAD_DELAY_MS_DEFAULT = 1200;
+export const RETRY_POST_LOAD_DELAY_MS = 400;   // 2nd attempt: shorter settle
+export const FULL_PAGE_CAP_PX = 8000;          // full-page shot height cap
+// Total base64 budget for ONE /function response. Keeps the JSON body well
+// under browserless/serverless response limits — the runner stops taking
+// crops once the budget is spent (the full-page shot always ships).
+export const FUNCTION_PAYLOAD_BUDGET_B64 = 3_800_000;
+export const MAX_WALK_ELEMENTS = 3500;         // evidence walk cap (was 6000)
 
 // The in-page capture/extraction program. Runs on browserless (Puppeteer).
 // Returns { data: { finalUrl, metrics, screenshots: [{label, b64, width,
@@ -45,7 +52,7 @@ const CAPTURE_RUNNER_CODE = `
 export default async function ({ page, context }) {
   const {
     url, viewport, navigationTimeout, postLoadDelay,
-    maxPageHeight, maxCrops,
+    maxPageHeight, maxCrops, payloadBudget, maxWalkElements, fullPageCap,
   } = context;
 
   await page.setViewport({
@@ -84,10 +91,10 @@ export default async function ({ page, context }) {
       const limit = Math.min(document.body.scrollHeight, maxH);
       for (let y = 0; y < limit; y += step) {
         window.scrollTo(0, y);
-        await new Promise((r) => setTimeout(r, 120));
+        await new Promise((r) => setTimeout(r, 80));
       }
       window.scrollTo(0, 0);
-      await new Promise((r) => setTimeout(r, 250));
+      await new Promise((r) => setTimeout(r, 200));
     }, maxPageHeight);
   } catch {}
 
@@ -97,7 +104,7 @@ export default async function ({ page, context }) {
       const imgs = Array.from(document.images || []).slice(0, 80);
       await Promise.race([
         Promise.all(imgs.map((im) => im.complete ? null : new Promise((r) => { im.onload = r; im.onerror = r; }))),
-        new Promise((r) => setTimeout(r, 4000)),
+        new Promise((r) => setTimeout(r, 2500)),
       ]);
     });
   } catch {}
@@ -114,7 +121,7 @@ export default async function ({ page, context }) {
   // ---------------- Structured evidence extraction ----------------
   let metrics = null;
   try {
-    metrics = await page.evaluate((MAX_H) => {
+    metrics = await page.evaluate((MAX_H, MAX_ELS) => {
       const round = (n) => Math.round(n * 10) / 10;
       const clean = (s, m) => String(s || '').replace(/\\s+/g, ' ').trim().slice(0, m || 120);
 
@@ -193,7 +200,7 @@ export default async function ({ page, context }) {
       for (const [w, c] of widthCounts) if (c > best) { best = c; contentWidth = w; }
 
       // ---- Walk visible elements once ----
-      const all = Array.from(document.querySelectorAll('body *')).slice(0, 6000);
+      const all = Array.from(document.querySelectorAll('body *')).slice(0, MAX_ELS || 3500);
       const typoMap = new Map();
       const colorMap = new Map();
       const spacingCounts = new Map();
@@ -414,32 +421,54 @@ export default async function ({ page, context }) {
         svgs,
         componentFamilies,
       };
-    }, maxPageHeight);
+    }, maxPageHeight, maxWalkElements);
   } catch (err) {
     metrics = { extractError: String(err && err.message || err).slice(0, 300) };
   }
 
   // ---------------- Screenshots ----------------
+  // Budget-aware: the JSON response carries base64 images, so we track the
+  // cumulative base64 size and stop taking crops once the budget is spent.
+  // The full-page shot always ships (and is height-capped) so a capture can
+  // never come back empty just because the page is image-heavy.
   const screenshots = [];
   const vpName = viewport.name;
-  const shoot = async (label, clip) => {
+  const budget = payloadBudget || 3800000;
+  let usedB64 = 0;
+  const shoot = async (label, clip, quality) => {
     try {
       const b64 = await page.screenshot({
-        type: 'jpeg', quality: 72, encoding: 'base64',
+        type: 'jpeg', quality: quality || 72, encoding: 'base64',
         ...(clip ? { clip } : { fullPage: true }),
       });
+      if (screenshots.length > 0 && usedB64 + b64.length > budget) return false;
+      usedB64 += b64.length;
       screenshots.push({ label, b64, width: clip ? Math.round(clip.width) : viewport.width, height: clip ? Math.round(clip.height) : null });
-    } catch {}
+      return true;
+    } catch { return false; }
   };
 
-  const pageH = Math.min((metrics && metrics.page && metrics.page.pageHeight) || viewport.height, maxPageHeight);
+  // Page height measured directly so a failed metrics pass never forces an
+  // uncapped fullPage screenshot of a very tall page.
+  let measuredH = 0;
+  try {
+    measuredH = await page.evaluate(() => Math.max(
+      document.documentElement.scrollHeight,
+      document.body ? document.body.scrollHeight : 0,
+    ));
+  } catch {}
+  const pageH = Math.min(
+    (metrics && metrics.page && metrics.page.pageHeight) || measuredH || viewport.height,
+    maxPageHeight,
+  );
   const vw = viewport.width;
+  const fpCap = fullPageCap || 8000;
 
-  // Full page (clipped to max height via clip when page is very tall).
-  if (pageH > maxPageHeight - 10) {
-    await shoot(vpName + '_full_page', { x: 0, y: 0, width: vw, height: maxPageHeight });
+  // Full page (height-capped via clip when the page is tall).
+  if (pageH > fpCap) {
+    await shoot(vpName + '_full_page', { x: 0, y: 0, width: vw, height: fpCap }, 65);
   } else {
-    await shoot(vpName + '_full_page');
+    await shoot(vpName + '_full_page', null, 65);
   }
 
   // Region crops (spec §3): hero, card cluster(s), mid, lower.
@@ -467,13 +496,14 @@ export default async function ({ page, context }) {
   let taken = 0;
   for (const c of crops) {
     if (taken >= maxCrops) break;
+    if (usedB64 >= budget) break;
     const key = Math.round(c.y / 200);
     if (seen.has(key)) continue;
     seen.add(key);
     const h = Math.min(c.h, pageH - c.y);
     if (h < 120) continue;
-    await shoot(c.label, { x: 0, y: Math.round(c.y), width: vw, height: Math.round(h) });
-    taken += 1;
+    const ok = await shoot(c.label, { x: 0, y: Math.round(c.y), width: vw, height: Math.round(h) });
+    if (ok) taken += 1;
   }
 
   return {
@@ -512,14 +542,18 @@ export async function captureViewportBundle(url, viewportName, { postLoadDelayMs
           postLoadDelay: postLoadDelayMs,
           maxPageHeight: MAX_PAGE_HEIGHT_PX,
           maxCrops: MAX_CROPS_PER_VIEWPORT,
+          payloadBudget: FUNCTION_PAYLOAD_BUDGET_B64,
+          maxWalkElements: MAX_WALK_ELEMENTS,
+          fullPageCap: FULL_PAGE_CAP_PX,
         },
       }),
     });
   } catch (err) {
-    throw new Error(
+    throw makeCaptureError(
       err?.name === 'AbortError'
         ? 'The page took too long to render for capture.'
         : 'Could not reach the capture service.',
+      err?.name === 'AbortError' ? `fetch aborted after ${timeoutMs + 15000}ms` : `fetch failed: ${String(err?.message || err).slice(0, 200)}`,
     );
   } finally {
     clearTimeout(timer);
@@ -527,22 +561,26 @@ export async function captureViewportBundle(url, viewportName, { postLoadDelayMs
   if (!resp.ok) {
     const detail = await resp.text().catch(() => '');
     console.error('[styleReferenceCapture] non-2xx:', resp.status, detail.slice(0, 300));
-    throw new Error(
+    throw makeCaptureError(
       resp.status === 400 || resp.status === 500
         ? 'The reference page could not be rendered — check the URL is public and loads normally.'
         : `Capture service error (${resp.status}).`,
+      `capture service HTTP ${resp.status}: ${detail.slice(0, 200)}`,
     );
   }
   let data;
-  try { data = await resp.json(); } catch { throw new Error('The capture service returned an unreadable response.'); }
+  try { data = await resp.json(); } catch {
+    throw makeCaptureError('The capture service returned an unreadable response.', 'non-JSON /function response body');
+  }
   if (data?.error) {
     console.error('[styleReferenceCapture] runner error:', data.error, String(data.message || '').slice(0, 300));
-    throw new Error(
+    throw makeCaptureError(
       data.error === 'navigation_failed'
         ? 'The reference page could not be loaded.'
         : data.error === 'redirected_to_unsupported_scheme'
           ? 'The reference page redirected somewhere that cannot be captured.'
           : 'The reference page could not be captured.',
+      `runner ${data.error}: ${String(data.message || '').slice(0, 200)}`,
     );
   }
   const screenshots = [];
@@ -553,11 +591,188 @@ export async function captureViewportBundle(url, viewportName, { postLoadDelayMs
     screenshots.push({ label: String(s.label).slice(0, 60), buffer, width: s.width || null, height: s.height || null });
   }
   if (screenshots.length === 0) {
-    throw new Error('No usable screenshots could be captured from the reference page.');
+    throw makeCaptureError(
+      'No usable screenshots could be captured from the reference page.',
+      `runner returned ${Array.isArray(data?.screenshots) ? data.screenshots.length : 0} screenshots, none usable`,
+    );
   }
   return {
     finalUrl: String(data.finalUrl || url),
     metrics: data.metrics && typeof data.metrics === 'object' ? data.metrics : null,
     screenshots,
   };
+}
+
+// Minimal fallback runner: goto + one full-page (height-capped) screenshot.
+// Deliberately no scroll pass, no metrics walk, no crops — the smallest
+// possible browserless session. Returns the REAL post-redirect page.url()
+// so the endpoint's redirect revalidation keeps working in fallback mode.
+const FALLBACK_RUNNER_CODE = `
+export default async function ({ page, context }) {
+  const { url, viewport, navigationTimeout, fullPageCap } = context;
+  await page.setViewport({
+    width: viewport.width,
+    height: viewport.height,
+    deviceScaleFactor: 1,
+    isMobile: !!viewport.isMobile,
+    hasTouch: !!viewport.isMobile,
+  });
+  try {
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: navigationTimeout });
+  } catch (err) {
+    return { data: { error: 'navigation_failed', message: String(err && err.message || err).slice(0, 500) }, type: 'application/json' };
+  }
+  const finalUrl = page.url();
+  if (!/^https?:\\/\\//i.test(finalUrl)) {
+    return { data: { error: 'redirected_to_unsupported_scheme', message: finalUrl.slice(0, 200) }, type: 'application/json' };
+  }
+  await new Promise((r) => setTimeout(r, 500));
+  let pageH = viewport.height;
+  try {
+    pageH = await page.evaluate(() => Math.max(
+      document.documentElement.scrollHeight,
+      document.body ? document.body.scrollHeight : 0,
+    )) || viewport.height;
+  } catch {}
+  const clip = pageH > fullPageCap
+    ? { x: 0, y: 0, width: viewport.width, height: fullPageCap }
+    : null;
+  let b64;
+  try {
+    b64 = await page.screenshot({
+      type: 'jpeg', quality: 60, encoding: 'base64',
+      ...(clip ? { clip } : { fullPage: true }),
+    });
+  } catch (err) {
+    return { data: { error: 'screenshot_failed', message: String(err && err.message || err).slice(0, 500) }, type: 'application/json' };
+  }
+  return {
+    data: {
+      finalUrl,
+      metrics: null,
+      screenshots: [{ label: viewport.name + '_full_page', b64, width: viewport.width, height: null }],
+    },
+    type: 'application/json',
+  };
+}
+`;
+
+/**
+ * Fallback capture: one full-page screenshot via a minimal /function runner.
+ * Returns the same bundle shape as captureViewportBundle (metrics: null).
+ */
+async function captureFallbackScreenshot(url, viewportName) {
+  const viewport = CAPTURE_VIEWPORTS.find((v) => v.name === viewportName);
+  if (!viewport) throw new Error(`Unknown capture viewport: ${viewportName}`);
+  const { token, baseUrl, timeoutMs } = getBrowserlessConfig();
+  if (!token) throw new Error('Screenshot capture is not configured on this server.');
+
+  const endpoint = `${baseUrl.replace(/\/$/, '')}/function?token=${encodeURIComponent(token)}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs + 15000);
+  let resp;
+  try {
+    resp = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        code: FALLBACK_RUNNER_CODE,
+        context: {
+          url,
+          viewport,
+          navigationTimeout: timeoutMs,
+          fullPageCap: FULL_PAGE_CAP_PX,
+        },
+      }),
+    });
+  } catch (err) {
+    throw makeCaptureError(
+      err?.name === 'AbortError'
+        ? 'The page took too long to render for capture.'
+        : 'Could not reach the capture service.',
+      `fallback fetch: ${err?.name === 'AbortError' ? `aborted after ${timeoutMs + 15000}ms` : String(err?.message || err).slice(0, 200)}`,
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!resp.ok) {
+    const detail = await resp.text().catch(() => '');
+    throw makeCaptureError(`Capture service error (${resp.status}).`, `fallback HTTP ${resp.status}: ${detail.slice(0, 200)}`);
+  }
+  let data;
+  try { data = await resp.json(); } catch {
+    throw makeCaptureError('The capture service returned an unreadable response.', 'fallback: non-JSON /function response body');
+  }
+  if (data?.error) {
+    throw makeCaptureError(
+      data.error === 'navigation_failed'
+        ? 'The reference page could not be loaded.'
+        : data.error === 'redirected_to_unsupported_scheme'
+          ? 'The reference page redirected somewhere that cannot be captured.'
+          : 'The reference page could not be captured.',
+      `fallback runner ${data.error}: ${String(data.message || '').slice(0, 200)}`,
+    );
+  }
+  const shot = Array.isArray(data?.screenshots) ? data.screenshots[0] : null;
+  const buffer = shot?.b64 ? Buffer.from(shot.b64, 'base64') : null;
+  if (!buffer || !buffer.length || buffer.length > MAX_SCREENSHOT_BYTES) {
+    throw makeCaptureError(
+      'No usable screenshots could be captured from the reference page.',
+      'fallback: empty or oversized screenshot',
+    );
+  }
+  return {
+    finalUrl: String(data.finalUrl || url),
+    metrics: null,
+    screenshots: [{ label: `${viewportName}_full_page`, buffer, width: viewport.width, height: null }],
+  };
+}
+
+// Error with a user-friendly `message` plus a technical `detail` string the
+// endpoint can log / persist for debugging (never invented, never a secret).
+function makeCaptureError(message, detail) {
+  const err = new Error(message);
+  if (detail) err.detail = String(detail).slice(0, 300);
+  return err;
+}
+
+/**
+ * Reliability wrapper (Task #2882): try the full /function capture, retry
+ * once with a shorter settle delay, then fall back to a plain full-page
+ * /screenshot capture (no metrics, no crops) so a flaky rich capture never
+ * hard-fails the whole flow. Returns:
+ *   { bundle, usedFallback, attempts: [{ mode, attempt?, error, detail? }] }
+ * Throws only when every route failed — the error carries a combined
+ * `detail` describing each attempt.
+ */
+export async function captureViewportWithFallback(url, viewportName) {
+  const attempts = [];
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      const bundle = await captureViewportBundle(url, viewportName, {
+        postLoadDelayMs: attempt === 1 ? POST_LOAD_DELAY_MS_DEFAULT : RETRY_POST_LOAD_DELAY_MS,
+      });
+      return { bundle, usedFallback: false, attempts };
+    } catch (err) {
+      attempts.push({ mode: 'function', attempt, error: err.message, detail: err.detail || null });
+    }
+  }
+  // Fallback: minimal /function runner — goto + ONE full-page shot only.
+  // Still /function (not /screenshot) so we get the REAL post-redirect
+  // page.url() back and the endpoint's redirect revalidation keeps working.
+  try {
+    const bundle = await captureFallbackScreenshot(url, viewportName);
+    return { bundle, usedFallback: true, attempts };
+  } catch (err) {
+    attempts.push({ mode: 'fallback', error: err.message, detail: err.detail || null });
+    const first = attempts[0];
+    const combined = new Error(first?.error || err.message);
+    combined.detail = attempts
+      .map((a) => `${a.mode}${a.attempt ? `#${a.attempt}` : ''}: ${a.error}${a.detail ? ` [${a.detail}]` : ''}`)
+      .join(' | ')
+      .slice(0, 600);
+    combined.attempts = attempts;
+    throw combined;
+  }
 }
