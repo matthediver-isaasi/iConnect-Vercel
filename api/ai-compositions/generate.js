@@ -65,18 +65,27 @@ function buildReferenceDiagnostics(styleReference, state) {
     } catch { return null; }
   };
   const dna = styleReference.designDna || null;
+  // Capture-stage: everything stored on the reference; generation-stage: the
+  // curated subset actually attached to the OpenAI request.
+  const captured = Array.isArray(styleReference.screenshots) ? styleReference.screenshots : [];
   return {
-    analysisId: styleReference.analysisId || null,
-    influence: styleReference.influence || null,
+    referenceAnalysisId: styleReference.analysisId || null,
+    referenceInfluenceLevel: styleReference.influence || null,
     designDnaIncluded: !!dna,
     designDnaSchemaVersion: dna ? (isDesignDnaV2(dna) ? dna.schemaVersion || '2.0' : 'v1') : null,
-    screenshotCount: inputs.length,
-    screenshotLabels: inputs.map((i) => i.label),
-    screenshotViewports: inputs.map((i) => i.viewport),
-    screenshotDetails: inputs.map((i) => i.detail),
-    screenshotAssetPaths: inputs.map((i) => assetPath(i.url)).filter(Boolean),
-    imagesIncludedInOpenAIRequest: (state?.referenceImagesSent || 0) > 0,
-    imagesSentCount: state?.referenceImagesSent || 0,
+    referenceScreenshotCount: inputs.length,
+    referenceScreenshotLabels: inputs.map((i) => i.label),
+    referenceScreenshotViewports: inputs.map((i) => i.viewport),
+    referenceScreenshotDetails: inputs.map((i) => i.detail),
+    // Screenshots are storage objects (no DB asset rows) — their identity is
+    // the storage-path portion of the public URL, never a signed URL.
+    referenceScreenshotAssetIds: inputs.map((i) => assetPath(i.url)).filter(Boolean),
+    captureScreenshotCount: captured.length,
+    captureScreenshotLabels: captured.map((s, i) => s.label || `screenshot ${i + 1}`),
+    captureScreenshotAssetIds: captured.map((s) => assetPath(s.url)).filter(Boolean),
+    referenceImagesIncludedInOpenAIRequest: (state?.referenceImagesSent || 0) > 0,
+    referenceImagesSentCount: state?.referenceImagesSent || 0,
+    openAIModel: 'gpt-4o-mini',
   };
 }
 

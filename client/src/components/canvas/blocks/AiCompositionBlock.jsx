@@ -245,18 +245,50 @@ function VersionEvidence({ compositionId, versionId }) {
   const meta = data?.version?.generation_metadata;
   if (!data) return <p className="text-xs text-muted-foreground">Loading…</p>;
   const ref = meta?.reference;
+  // Capture-stage screenshots (with URLs for thumbnails) live on the stored
+  // styleReference; the generation-stage subset is identified by label.
+  const captured = Array.isArray(meta?.styleReference?.screenshots) ? meta.styleReference.screenshots : [];
+  const sentLabels = new Set(ref?.referenceScreenshotLabels || []);
+  const thumbs = (shots) => (
+    <div className="flex flex-wrap gap-1">
+      {shots.map((s, i) => (
+        <figure key={s.url || i} className="w-16">
+          <img src={s.url} alt={s.label || `screenshot ${i + 1}`} className="h-10 w-16 rounded-md border border-border object-cover object-top" loading="lazy" />
+          <figcaption className="truncate text-[10px] text-muted-foreground">{s.label || s.viewport || `#${i + 1}`}</figcaption>
+        </figure>
+      ))}
+    </div>
+  );
   return (
-    <div className="space-y-1 text-xs text-muted-foreground" data-testid={`text-aic-evidence-${versionId}`}>
+    <div className="space-y-2 text-xs text-muted-foreground" data-testid={`text-aic-evidence-${versionId}`}>
       {meta?.model && <div>Model: {meta.model}{meta.compositionSchemaVersion ? ` · schema v${meta.compositionSchemaVersion}` : ''}</div>}
       {!ref && <div>No style reference was used for this version.</div>}
       {ref && (
         <>
-          <div>Style reference: {ref.influence || 'strong'} influence{ref.designDnaIncluded ? ` · Design DNA ${ref.designDnaSchemaVersion || ''}` : ' · no Design DNA'}</div>
           <div>
-            Screenshots sent to the AI: {ref.imagesIncludedInOpenAIRequest ? (ref.imagesSentCount || ref.screenshotCount) : 0}
-            {Array.isArray(ref.screenshotLabels) && ref.screenshotLabels.length > 0 && (
-              <span> ({ref.screenshotLabels.join(', ')})</span>
+            Reference analysis: {ref.referenceAnalysisId ? `${ref.referenceAnalysisId.slice(0, 8)}…` : 'not recorded'}
+            {' · '}{ref.referenceInfluenceLevel || 'strong'} influence
+            {ref.designDnaIncluded ? ` · Design DNA ${ref.designDnaSchemaVersion || ''}` : ' · no Design DNA'}
+          </div>
+          <div>
+            <div className="font-medium">1. Captured screenshots ({ref.captureScreenshotCount ?? captured.length})</div>
+            {captured.length > 0 ? thumbs(captured) : <div>No thumbnails stored for this version.</div>}
+          </div>
+          <div>
+            <div className="font-medium">2. Analysed for Design DNA</div>
+            <div>{ref.designDnaIncluded ? 'All captured screenshots fed the Design DNA analysis.' : 'No Design DNA analysis was included.'}</div>
+          </div>
+          <div>
+            <div className="font-medium">3. Sent with the generation request ({ref.referenceScreenshotCount || 0})</div>
+            {captured.some((s) => sentLabels.has(s.label)) && thumbs(captured.filter((s) => sentLabels.has(s.label)))}
+            {Array.isArray(ref.referenceScreenshotLabels) && ref.referenceScreenshotLabels.length > 0 && (
+              <div>{ref.referenceScreenshotLabels.join(', ')}</div>
             )}
+            <div>
+              {ref.referenceImagesIncludedInOpenAIRequest
+                ? `Accepted into the final AI request: ${ref.referenceImagesSentCount} image${ref.referenceImagesSentCount === 1 ? '' : 's'}.`
+                : 'No images were included in the final AI request.'}
+            </div>
           </div>
         </>
       )}
