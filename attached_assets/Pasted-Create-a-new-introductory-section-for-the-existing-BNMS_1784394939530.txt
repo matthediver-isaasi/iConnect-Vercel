@@ -1,0 +1,136 @@
+Create a new introductory section for the existing BNMS Patients and Carers page.
+
+## Purpose
+
+The section should introduce nuclear medicine to patients, parents and carers who may be unfamiliar with it or anxious about an upcoming appointment.
+
+Explain in clear, accessible language that nuclear medicine can help healthcare professionals understand how parts of the body are functioning and may also be used in some treatments.
+
+The section should help the visitor feel informed and supported without making promises, minimising legitimate concerns or giving individual medical advice.
+
+## Reference design
+
+Use the supplied reference screenshots and complete Design DNA as the authoritative visual style for this section.
+
+Use the screenshots as direct evidence of:
+
+* Graphic and illustration treatment
+* Card construction
+* Visual relationships
+* Composition
+* Scale
+* Image placement
+* Section rhythm
+* Responsive behaviour
+
+Use the structured Design DNA for:
+
+* Measured typography
+* Colours
+* Spacing
+* Border radiuses
+* Borders
+* Shadows
+* Button treatments
+* Component recipes
+
+The new section must clearly belong to the same design family as the reference page.
+
+Create an original composition for this content. Do not reproduce the exact layout, section order, wording or imagery of the reference page.
+
+Preserve the existing BNMS branding and accessibility requirements.
+
+## Content requirements
+
+Include:
+
+* A concise and welcoming section heading
+* A short explanation of what nuclear medicine can help clinicians understand
+* A clear distinction between diagnostic uses and treatment uses, without going into procedure-specific detail
+* A visual concept that helps explain nuclear medicine to a non-clinical audience
+* A clear onward action inviting visitors to learn what happens during a nuclear medicine appointment
+
+Keep the amount of text appropriate for a visually led introductory section.
+
+Use general language and make clear that individual procedures, instructions and experiences vary.
+
+Do not invent:
+
+* Preparation instructions
+* Appointment durations
+* Radiation doses
+* Clinical outcomes
+* Treatment eligibility
+* Procedure-specific details
+
+Do not provide individual medical advice.
+
+## Composition requirements
+
+Create a deliberately designed visual composition rather than a standard heading, paragraph and row of cards.
+
+Use the reference design language to determine the best arrangement. The section may include:
+
+* A prominent original illustration
+* Connected or offset content cards
+* Varied card sizes
+* Layered elements
+* Supporting labels
+* Visual annotations
+* Decorative background forms
+* A clear visual journey
+* Asymmetric placement
+
+Avoid defaulting to:
+
+* Three identical cards in a row
+* Equal-width feature boxes
+* Repetitive rectangular panels
+* Generic icons
+* A conventional corporate feature grid
+* Stock-style medical photography
+* Large blocks of uninterrupted text
+
+All essential wording must remain real accessible HTML text and must not be embedded only within an image.
+
+## Existing-page integration
+
+Review the Canvas content immediately before and after the insertion point.
+
+The section must:
+
+* Complement the existing page without repeating its title or introduction
+* Create a natural transition from the preceding content
+* Lead naturally towards the content that follows
+* Preserve all existing manual Canvas elements
+* Use the available width correctly
+* Expand the parent Canvas page safely
+* Avoid overlapping surrounding elements
+
+## Responsive behaviour
+
+Create purposefully composed desktop, tablet and mobile versions.
+
+Do not simply shrink the desktop layout.
+
+For smaller screens:
+
+* Recompose layered elements where necessary
+* Stack content in a logical order
+* Preserve the visual story
+* Simplify decorative elements where appropriate
+* Maintain readable typography
+* Keep the onward action prominent
+* Preserve a logical semantic reading order
+
+## Final review
+
+Before presenting the result:
+
+* Compare it against the supplied reference screenshots
+* Confirm that it belongs to the same visual design family
+* Confirm that the composition is original
+* Check that card, illustration and button treatments are consistent with the Design DNA
+* Check desktop, tablet and mobile for collisions, clipping and weak hierarchy
+* Confirm that no unsupported medical claims have been introduced
+* Confirm that all important content remains accessible text

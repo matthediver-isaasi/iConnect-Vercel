@@ -1,0 +1,49 @@
+<div data-cb="block-mrqmbsjj-wubysb" data-block-id="block-mrqmbsjj-wubysb" data-block-type="ai-composition" style="background: transparent; border-color: rgb(203, 213, 225); border-width: 0px; border-style: solid; border-radius: 4px; opacity: 1; box-shadow: none; z-index: 1; padding: 0px; box-sizing: border-box; overflow: hidden;"><div><div data-aic="block-mrqmbsjj-wubysb" class=""><style>[data-aic="block-mrqmbsjj-wubysb"]{position:relative;width:100%;}
+[data-aic="block-mrqmbsjj-wubysb"] .aic-img-placeholder{background:rgba(127,127,127,0.12);border:1px dashed rgba(127,127,127,0.4);border-radius:4px;min-height:60px;}
+[data-aic="block-mrqmbsjj-wubysb"] .aic-chart-row{display:flex;align-items:center;gap:8px;margin:4px 0;}
+[data-aic="block-mrqmbsjj-wubysb"] .aic-chart-label{flex:0 0 auto;min-width:80px;}
+[data-aic="block-mrqmbsjj-wubysb"] .aic-chart-bar{display:block;height:10px;border-radius:5px;background:currentColor;opacity:0.55;min-width:2px;}
+[data-aic="block-mrqmbsjj-wubysb"] .aic-chart-value{flex:0 0 auto;font-variant-numeric:tabular-nums;}
+[data-aic="block-mrqmbsjj-wubysb"] .aic-step-marker{display:inline-block;margin-right:8px;font-weight:600;}
+[data-aic="block-mrqmbsjj-wubysb"] .aic-step-desc{display:block;opacity:0.8;}
+[data-aic="block-mrqmbsjj-wubysb"] .aic-s-intro_nuclear_medicine{position:relative;width:100%;}
+[data-aic="block-mrqmbsjj-wubysb"] .aic-s-intro_nuclear_medicine{min-height:0px;}
+[data-aic="block-mrqmbsjj-wubysb"] .aic-e-bg_intro{background-color:#f0f4f8;position:absolute;left:0px;top:0px;}
+[data-aic="block-mrqmbsjj-wubysb"] .aic-e-container_intro{padding:32px;box-shadow:0 2px 4px rgba(0,0,0,0.1);border-radius:8;max-width:1136px;display:flex;flex-direction:column;gap:16px;align-items:center;}
+[data-aic="block-mrqmbsjj-wubysb"] .aic-e-heading_intro{color:#333333;font-size:24;font-family:Arial, sans-serif;font-weight:bold;margin-bottom:16px;position:absolute;left:0px;top:0px;}
+[data-aic="block-mrqmbsjj-wubysb"] .aic-e-paragraph_intro_1{color:#333333;font-size:16;font-family:Arial, sans-serif;margin-bottom:16px;position:absolute;left:0px;top:0px;}
+[data-aic="block-mrqmbsjj-wubysb"] .aic-e-paragraph_intro_2{color:#333333;font-size:16;font-family:Arial, sans-serif;margin-bottom:16px;position:absolute;left:0px;top:0px;}
+[data-aic="block-mrqmbsjj-wubysb"] .aic-e-paragraph_intro_3{color:#333333;font-size:16;font-family:Arial, sans-serif;margin-bottom:32px;position:absolute;left:0px;top:0px;}
+[data-aic="block-mrqmbsjj-wubysb"] .aic-e-button_intro{color:#ffffff;padding:16px 24px;font-size:16;font-family:Arial, sans-serif;font-weight:bold;border-radius:8;text-transform:uppercase;background-color:#0073e6;position:absolute;left:0px;top:0px;}
+@media (max-width:1024px){[data-aic="block-mrqmbsjj-wubysb"] .aic-s-intro_nuclear_medicine{min-height:0px;}
+[data-aic="block-mrqmbsjj-wubysb"] .aic-e-bg_intro{position:absolute;left:0px;top:0px;}
+[data-aic="block-mrqmbsjj-wubysb"] .aic-e-container_intro{max-width:768px;display:flex;flex-direction:column;gap:16px;align-items:center;}
+[data-aic="block-mrqmbsjj-wubysb"] .aic-e-heading_intro{position:absolute;left:0px;top:0px;}
+[data-aic="block-mrqmbsjj-wubysb"] .aic-e-paragraph_intro_1{position:absolute;left:0px;top:0px;}
+[data-aic="block-mrqmbsjj-wubysb"] .aic-e-paragraph_intro_2{position:absolute;left:0px;top:0px;}
+[data-aic="block-mrqmbsjj-wubysb"] .aic-e-paragraph_intro_3{position:absolute;left:0px;top:0px;}
+[data-aic="block-mrqmbsjj-wubysb"] .aic-e-button_intro{position:absolute;left:0px;top:0px;}}
+[data-aic="block-mrqmbsjj-wubysb"][data-aic-bp="tablet"] .aic-s-intro_nuclear_medicine{min-height:0px;}
+[data-aic="block-mrqmbsjj-wubysb"][data-aic-bp="tablet"] .aic-e-bg_intro{position:absolute;left:0px;top:0px;}
+[data-aic="block-mrqmbsjj-wubysb"][data-aic-bp="tablet"] .aic-e-container_intro{max-width:768px;display:flex;flex-direction:column;gap:16px;align-items:center;}
+[data-aic="block-mrqmbsjj-wubysb"][data-aic-bp="tablet"] .aic-e-heading_intro{position:absolute;left:0px;top:0px;}
+[data-aic="block-mrqmbsjj-wubysb"][data-aic-bp="tablet"] .aic-e-paragraph_intro_1{position:absolute;left:0px;top:0px;}
+[data-aic="block-mrqmbsjj-wubysb"][data-aic-bp="tablet"] .aic-e-paragraph_intro_2{position:absolute;left:0px;top:0px;}
+[data-aic="block-mrqmbsjj-wubysb"][data-aic-bp="tablet"] .aic-e-paragraph_intro_3{position:absolute;left:0px;top:0px;}
+[data-aic="block-mrqmbsjj-wubysb"][data-aic-bp="tablet"] .aic-e-button_intro{position:absolute;left:0px;top:0px;}
+@media (max-width:640px){[data-aic="block-mrqmbsjj-wubysb"] .aic-s-intro_nuclear_medicine{min-height:0px;}
+[data-aic="block-mrqmbsjj-wubysb"] .aic-e-bg_intro{position:absolute;left:0px;top:0px;}
+[data-aic="block-mrqmbsjj-wubysb"] .aic-e-container_intro{display:flex;flex-direction:column;gap:16px;align-items:center;}
+[data-aic="block-mrqmbsjj-wubysb"] .aic-e-heading_intro{position:absolute;left:0px;top:0px;}
+[data-aic="block-mrqmbsjj-wubysb"] .aic-e-paragraph_intro_1{position:absolute;left:0px;top:0px;}
+[data-aic="block-mrqmbsjj-wubysb"] .aic-e-paragraph_intro_2{position:absolute;left:0px;top:0px;}
+[data-aic="block-mrqmbsjj-wubysb"] .aic-e-paragraph_intro_3{position:absolute;left:0px;top:0px;}
+[data-aic="block-mrqmbsjj-wubysb"] .aic-e-button_intro{position:absolute;left:0px;top:0px;}}
+[data-aic="block-mrqmbsjj-wubysb"][data-aic-bp="mobile"] .aic-s-intro_nuclear_medicine{min-height:0px;}
+[data-aic="block-mrqmbsjj-wubysb"][data-aic-bp="mobile"] .aic-e-bg_intro{position:absolute;left:0px;top:0px;}
+[data-aic="block-mrqmbsjj-wubysb"][data-aic-bp="mobile"] .aic-e-container_intro{display:flex;flex-direction:column;gap:16px;align-items:center;}
+[data-aic="block-mrqmbsjj-wubysb"][data-aic-bp="mobile"] .aic-e-heading_intro{position:absolute;left:0px;top:0px;}
+[data-aic="block-mrqmbsjj-wubysb"][data-aic-bp="mobile"] .aic-e-paragraph_intro_1{position:absolute;left:0px;top:0px;}
+[data-aic="block-mrqmbsjj-wubysb"][data-aic-bp="mobile"] .aic-e-paragraph_intro_2{position:absolute;left:0px;top:0px;}
+[data-aic="block-mrqmbsjj-wubysb"][data-aic-bp="mobile"] .aic-e-paragraph_intro_3{position:absolute;left:0px;top:0px;}
+[data-aic="block-mrqmbsjj-wubysb"][data-aic-bp="mobile"] .aic-e-button_intro{position:absolute;left:0px;top:0px;}</style><div class="aic-s-intro_nuclear_medicine"><div class="aic-e-bg_intro" aria-hidden="true"></div><div class="aic-e-container_intro"></div><h2 class="aic-e-heading_intro" data-testid="text-aic-heading_intro">Understanding Nuclear Medicine</h2><p class="aic-e-paragraph_intro_1" data-testid="text-aic-paragraph_intro_1">Nuclear medicine is a specialized field that helps healthcare professionals understand how different parts of the body are functioning. This innovative approach can be used for both diagnostic purposes and certain treatments.</p><p class="aic-e-paragraph_intro_2" data-testid="text-aic-paragraph_intro_2">In diagnostics, nuclear medicine allows clinicians to visualize and assess organ function, providing crucial insights into your health. In some cases, it may also play a role in treatment, helping to target specific conditions effectively.</p><p class="aic-e-paragraph_intro_3" data-testid="text-aic-paragraph_intro_3">It's important to remember that while nuclear medicine can provide valuable information, individual experiences and procedures may vary. This section aims to inform and support you as you prepare for your appointment.</p><span role="presentation" class="aic-e-button_intro" data-testid="button-aic-button_intro">Learn More</span></div></div></div></div>
