@@ -25,6 +25,7 @@ import {
 import AiCompositionRenderer from '../AiCompositionRenderer';
 import AiCompositionEditPanel from './AiCompositionEditPanel';
 import { resolveDraftAfterGeneration, isDiscardableDraft } from '@/lib/aiCompositionRender';
+import { AdvancedBriefFields, PlanReviewPanel, EMPTY_ADVANCED_BRIEF, advancedBriefToBody } from '../AiPageBrief';
 import { useReportReflowHeight } from '../AccordionReflowContext';
 import { getTenantSlugFromLocation } from '@/api/publicClient';
 
@@ -101,54 +102,81 @@ export function AiCompositionRender({ block, asEditor }) {
 
 const STAGE_SEQUENCE = ['context', 'plan', 'copy', 'document'];
 
-function useGenerationLoop({ onComplete }) {
+export function useGenerationLoop({ onComplete, onSeo }) {
   const [running, setRunning] = useState(false);
   const [label, setLabel] = useState('');
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState(null);
+  // Phase 5: when the server pauses in `awaiting_plan`, the plan + jobId are
+  // surfaced so the caller can show the editable plan-review panel.
+  const [pendingPlan, setPendingPlan] = useState(null);
   const cancelledRef = useRef(false);
 
   useEffect(() => () => { cancelledRef.current = true; }, []);
 
-  const start = async (startBody) => {
+  const drive = async (initialResp) => {
+    let resp = initialResp;
+    let guard = 0;
+    while (!cancelledRef.current && resp.status === 'running' && guard < 12) {
+      guard += 1;
+      const idx = STAGE_SEQUENCE.indexOf(resp.stage);
+      setProgress(Math.min(0.9, 0.15 + (idx >= 0 ? idx : 0) * 0.25));
+      setLabel(resp.label || 'Generating…');
+      resp = await aicFetch('/api/ai-compositions/generate', {
+        method: 'POST',
+        body: JSON.stringify({ jobId: resp.jobId }),
+      });
+    }
+    if (cancelledRef.current) return;
+    if (resp.status === 'awaiting_plan') {
+      // Pause: hand the plan back for review; resumePlan continues the job.
+      setPendingPlan({ jobId: resp.jobId, plan: resp.plan });
+      setRunning(false);
+      setLabel('');
+      return;
+    }
+    if (resp.status === 'complete' && resp.compositionId) {
+      setProgress(1);
+      setLabel('Done');
+      if (resp.seo && onSeo) onSeo(resp.seo);
+      onComplete(resp.compositionId);
+    } else {
+      setError(resp.error || 'Generation failed. Nothing was changed — please try again.');
+    }
+    setRunning(false);
+  };
+
+  const run = async (fn) => {
     setRunning(true);
     setError(null);
     setLabel('Starting…');
     setProgress(0.05);
+    setPendingPlan(null);
     cancelledRef.current = false;
     try {
-      let resp = await aicFetch('/api/ai-compositions/generate', {
-        method: 'POST',
-        body: JSON.stringify(startBody),
-      });
-      // Drive the staged job until complete/failed. Each POST advances one stage.
-      let guard = 0;
-      while (!cancelledRef.current && resp.status === 'running' && guard < 12) {
-        guard += 1;
-        const idx = STAGE_SEQUENCE.indexOf(resp.stage);
-        setProgress(Math.min(0.9, 0.15 + (idx >= 0 ? idx : 0) * 0.25));
-        setLabel(resp.label || 'Generating…');
-        resp = await aicFetch('/api/ai-compositions/generate', {
-          method: 'POST',
-          body: JSON.stringify({ jobId: resp.jobId }),
-        });
-      }
-      if (cancelledRef.current) return;
-      if (resp.status === 'complete' && resp.compositionId) {
-        setProgress(1);
-        setLabel('Done');
-        onComplete(resp.compositionId);
-      } else {
-        setError(resp.error || 'Generation failed. Nothing was changed — please try again.');
-      }
+      await drive(await fn());
     } catch (err) {
-      if (!cancelledRef.current) setError(err.message || 'Generation failed');
-    } finally {
-      if (!cancelledRef.current) setRunning(false);
+      if (!cancelledRef.current) {
+        setError(err.message || 'Generation failed');
+        setRunning(false);
+      }
     }
   };
 
-  return { start, running, label, progress, error, setError };
+  const start = (startBody) => run(() => aicFetch('/api/ai-compositions/generate', {
+    method: 'POST',
+    body: JSON.stringify(startBody),
+  }));
+
+  // Approve (optionally edited) plan for a paused job.
+  const resumePlan = (jobId, plan) => run(() => aicFetch('/api/ai-compositions/generate', {
+    method: 'POST',
+    body: JSON.stringify({ jobId, approvePlan: true, ...(plan ? { plan } : {}) }),
+  }));
+
+  const cancelPlan = () => setPendingPlan(null);
+
+  return { start, resumePlan, cancelPlan, pendingPlan, running, label, progress, error, setError };
 }
 
 function BreakpointPreview({ compositionId }) {
@@ -265,6 +293,9 @@ export function AiCompositionInspector({ block, update, pageId }) {
   const [direction, setDirection] = useState('');
   const [creativity, setCreativity] = useState('brand_led');
   const [busy, setBusy] = useState(false);
+  // Phase 5 advanced brief (collapsed by default — simple briefs stay simple).
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [adv, setAdv] = useState(EMPTY_ADVANCED_BRIEF);
 
   const gen = useGenerationLoop({
     onComplete: (compositionId) => {
@@ -286,6 +317,7 @@ export function AiCompositionInspector({ block, update, pageId }) {
       mode: mode === 'auto' ? undefined : mode,
       direction: direction || undefined,
       creativity,
+      ...(advancedOpen ? advancedBriefToBody(adv) : {}),
       // Regenerating an inserted composition adds a version to it; a pending
       // draft is regenerated in place too.
       compositionId: activeId || undefined,
@@ -357,8 +389,30 @@ export function AiCompositionInspector({ block, update, pageId }) {
       </div>
 
       <Button
+        size="sm"
+        variant="ghost"
+        onClick={() => setAdvancedOpen((v) => !v)}
+        data-testid="button-aic-advanced-toggle"
+      >
+        {advancedOpen ? 'Hide advanced brief' : 'Advanced brief…'}
+      </Button>
+      {advancedOpen && (
+        <AdvancedBriefFields value={adv} onChange={setAdv} idPrefix={`aic-${block.id}`} />
+      )}
+
+      {gen.pendingPlan && (
+        <PlanReviewPanel
+          key={gen.pendingPlan.jobId}
+          plan={gen.pendingPlan.plan}
+          busy={gen.running}
+          onApprove={(plan) => gen.resumePlan(gen.pendingPlan.jobId, plan)}
+          onCancel={gen.cancelPlan}
+        />
+      )}
+
+      <Button
         onClick={generate}
-        disabled={gen.running || !brief.trim()}
+        disabled={gen.running || !brief.trim() || !!gen.pendingPlan}
         data-testid="button-aic-generate"
       >
         {gen.running

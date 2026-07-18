@@ -26,6 +26,9 @@ import {
   runCopyStage,
   runDocumentStage,
   assertAssetOwnership,
+  sanitizePlan,
+  reconcilePlaceholderRecords,
+  findFirstImageUrl,
 } from '../_lib/aiCompositionPipeline.js';
 import {
   collectImageBriefs,
@@ -140,6 +143,34 @@ async function buildBrandContext(tenantId) {
   };
 }
 
+// Verify the author's pinned records against the tenant's own data (Phase 5).
+// Only records that exist AND belong to the tenant survive into the prompts;
+// verified rows also pick up authoritative titles/slugs/details.
+const RECORD_VERIFIERS = {
+  page: { table: 'i_edit_page', select: 'id, title, slug', map: (r) => ({ title: r.title || r.slug, slug: r.slug }) },
+  event_registration: { table: 'event', select: 'id, title, start_date', map: (r) => ({ title: r.title, detail: r.start_date ? `Event on ${String(r.start_date).slice(0, 10)}` : 'Event' }) },
+  form: { table: 'form', select: 'id, name, slug', map: (r) => ({ title: r.name, slug: r.slug || null }) },
+  document: { table: 'file_repository', select: 'id, file_name', map: (r) => ({ title: r.file_name }) },
+  membership_application: { table: 'membership_tier_config', select: 'id, name', map: (r) => ({ title: r.name }) },
+};
+
+async function verifyBriefRecords(records, tenantId) {
+  const out = [];
+  for (const rec of records || []) {
+    const v = RECORD_VERIFIERS[rec.kind];
+    if (!v) continue;
+    const { data } = await supabase
+      .from(v.table)
+      .select(v.select)
+      .eq('id', rec.id)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    if (!data) continue;
+    out.push({ kind: rec.kind, id: rec.id, slug: rec.slug || null, ...v.map(data) });
+  }
+  return out;
+}
+
 async function updateJob(jobId, tenantId, patch) {
   await supabase
     .from('ai_composition_job')
@@ -190,6 +221,32 @@ export default async function handler(req, res) {
         compositionId: job.composition_id || null,
         versionId: job.state?.versionId || null,
         error: job.error || null,
+      });
+    }
+    // Plan review (Phase 5): the job pauses after planning until the author
+    // approves (optionally with an edited plan). Any other poll just returns
+    // the current plan snapshot.
+    if (job.status === 'awaiting_plan') {
+      if (body.approvePlan === true) {
+        const edited = body.plan !== undefined
+          ? sanitizePlan(body.plan, { records: (job.state || {}).records || [] })
+          : sanitizePlan(job.state?.plan, { records: (job.state || {}).records || [] });
+        if (!edited) return res.status(400).json({ error: 'The edited plan has no usable sections' });
+        job = {
+          ...job,
+          status: 'running',
+          stage: 'copy',
+          state: { ...(job.state || {}), plan: edited },
+        };
+        await updateJob(job.id, tenantId, { status: 'running', stage: 'copy', state: job.state });
+        return res.status(200).json({ jobId: job.id, stage: 'copy', status: 'running', label: STAGE_LABELS.copy });
+      }
+      return res.status(200).json({
+        jobId: job.id,
+        stage: job.stage,
+        status: 'awaiting_plan',
+        label: 'Review the page plan',
+        plan: job.state?.plan || null,
       });
     }
   } else {
@@ -295,9 +352,14 @@ export default async function handler(req, res) {
       const guidance = buildGuidanceSummary(ctxSettings);
       if (brand && guidance) brand.guidance = guidance;
       const compositionType = resolveCompositionType(options.mode, pageContext);
+      // Phase 5: verify pinned records against the tenant's own data before
+      // any prompt sees them.
+      const records = options.records.length
+        ? await verifyBriefRecords(options.records, tenantId)
+        : [];
       await updateJob(job.id, tenantId, {
         stage: 'plan',
-        state: { ...state, brand, pageContext, compositionType },
+        state: { ...state, brand, pageContext, compositionType, records },
       });
       return res.status(200).json({ jobId: job.id, stage: 'plan', status: 'running', label: STAGE_LABELS.plan });
     }
@@ -309,17 +371,38 @@ export default async function handler(req, res) {
     const callLlm = makeCallLlm(client);
 
     if (stage === 'plan') {
+      // Prompts only ever see SERVER-VERIFIED records (state.records), never
+      // the raw client-supplied list.
       const plan = await runPlanStage({
-        callLlm, brief, options,
+        callLlm, brief,
+        options: { ...options, records: state.records || [] },
         brand: state.brand, pageContext: state.pageContext,
         compositionType: state.compositionType,
       });
+      // Phase 5 plan review: pause here and hand the plan to the author.
+      if (options.reviewPlan) {
+        await updateJob(job.id, tenantId, {
+          status: 'awaiting_plan',
+          stage: 'plan',
+          state: { ...state, plan },
+        });
+        return res.status(200).json({
+          jobId: job.id,
+          stage: 'plan',
+          status: 'awaiting_plan',
+          label: 'Review the page plan',
+          plan,
+        });
+      }
       await updateJob(job.id, tenantId, { stage: 'copy', state: { ...state, plan } });
       return res.status(200).json({ jobId: job.id, stage: 'copy', status: 'running', label: STAGE_LABELS.copy });
     }
 
     if (stage === 'copy') {
-      const copy = await runCopyStage({ callLlm, brief, plan: state.plan, brand: state.brand });
+      const copy = await runCopyStage({
+        callLlm, brief, plan: state.plan, brand: state.brand,
+        generateSeo: options.generateSeo,
+      });
       await updateJob(job.id, tenantId, { stage: 'document', state: { ...state, copy } });
       return res.status(200).json({ jobId: job.id, stage: 'document', status: 'running', label: STAGE_LABELS.document });
     }
@@ -333,6 +416,8 @@ export default async function handler(req, res) {
         compositionType: state.compositionType,
         brief,
       });
+      // Phase 5: placeholders may only reference server-verified records.
+      reconcilePlaceholderRecords(doc, state.records || []);
       // Asset ownership guard: the model may never reference existing files
       // (only imageBriefs), so any resolved id must belong to this tenant.
       await assertAssetOwnership(doc, tenantId, async (fileId) => {
@@ -429,6 +514,14 @@ export default async function handler(req, res) {
         .eq('id', compositionId)
         .eq('tenant_id', tenantId)
         .maybeSingle();
+      // Phase 5: page-level SEO suggestion. The og:image suggestion is the
+      // first generated image in the document (tenant-owned asset) — the
+      // client applies all of it to i_edit_page only with author consent.
+      let seoSuggestion;
+      if (state.copy?.seo) {
+        const ogImageUrl = findFirstImageUrl(doc);
+        seoSuggestion = { ...state.copy.seo, ...(ogImageUrl ? { ogImageUrl } : {}) };
+      }
       const { data: version, error: verErr } = await supabase
         .from('ai_composition_version')
         .insert({
@@ -445,6 +538,9 @@ export default async function handler(req, res) {
             creativity: options.creativity,
             mode: options.mode,
             attempts,
+            // Phase 5: page-level SEO suggestion (applied to i_edit_page by
+            // the client with the author's consent — never silently).
+            seo: seoSuggestion,
             assetResults: assetResults.length
               ? assetResults.map((r) => ({ elementId: r.elementId, ok: r.ok, error: r.error }))
               : undefined,
@@ -497,6 +593,7 @@ export default async function handler(req, res) {
         versionId: version.id,
         assetResults: assetResults.map((r) => ({ elementId: r.elementId, ok: r.ok, error: r.error || undefined })),
         imageFlags: altFlags,
+        seo: seoSuggestion,
         validation: { ok: validation.ok, critical: validation.critical.length, warnings: validation.warnings.length },
         usageWarning: job.options?.usageWarning || undefined,
       });

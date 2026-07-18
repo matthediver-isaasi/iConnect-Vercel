@@ -28,6 +28,7 @@ import {
   aicLinkHref,
   aicLinkTarget,
 } from '@/lib/aiCompositionRender';
+import AicFunctionalComponent from './AicFunctionalComponent';
 
 function elClass(el) {
   return `aic-e-${String(el.id || '').replace(/[^a-zA-Z0-9_-]/g, '')}`;
@@ -189,6 +190,28 @@ function AicElement({ el, ctx }) {
               </div>
             );
           })}
+        </div>
+      );
+    }
+    case 'canvas_component_placeholder': {
+      // Phase 5 (Task #2853): the AI recommends + positions standard iConnect
+      // functionality; the REAL canvas block renders here — never a recreation.
+      // In selectable (editor) mode the placeholder is select-only so clicks
+      // don't operate the embedded component.
+      const body = (
+        <AicFunctionalComponent el={el} asEditor={ctx.selectable} className={cls} />
+      );
+      if (!ctx.selectable) return body;
+      return (
+        <div
+          {...sel}
+          onClickCapture={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            ctx.onSelect?.({ type: 'element', elementId: el.id, elementType: el.type });
+          }}
+        >
+          {body}
         </div>
       );
     }

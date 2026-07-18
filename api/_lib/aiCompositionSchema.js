@@ -51,6 +51,25 @@ export const ELEMENT_TYPES = [
 
 const CONTAINER_TYPES = new Set(['container', 'group', 'card', 'overlay', 'structured_infographic']);
 
+/**
+ * Approved iConnect functional components the AI may RECOMMEND and POSITION
+ * via canvas_component_placeholder elements (spec §8/§32 Phase 5). The AI is
+ * responsible for presentation only — a placeholder always resolves to the
+ * real, existing component at render time; the AI never recreates behaviour.
+ */
+export const FUNCTIONAL_COMPONENT_KEYS = [
+  'form',
+  'event_registration',
+  'event_list',
+  // NOTE: 'membership_application' is intentionally NOT in this list — there
+  // is no dedicated canvas block for it yet, and an unmapped placeholder
+  // renders nothing publicly. Re-add once a real block exists.
+  'news_listing',
+  'resource_list',
+  'member_directory',
+  'login',
+];
+
 /** Spec §16 link kinds. Internal destinations are record IDs — never raw URLs. */
 export const LINK_KINDS = [
   'page',
@@ -358,6 +377,29 @@ function validateElement(el, path, ctx) {
       if (!Array.isArray(series) || series.length === 0) {
         errors.push(`${path}: simple_chart requires a data.items array of structured values`);
       }
+    }
+  }
+  // Functional-component placeholders (spec §8, Phase 5): the AI positions an
+  // approved iConnect component — it never recreates its behaviour. The
+  // placeholder carries only a componentKey plus an optional record reference.
+  if (el.type === 'canvas_component_placeholder') {
+    if (!isPlainObject(el.data) || !FUNCTIONAL_COMPONENT_KEYS.includes(el.data.componentKey)) {
+      errors.push(`${path}: canvas_component_placeholder requires data.componentKey (one of ${FUNCTIONAL_COMPONENT_KEYS.join(', ')})`);
+    } else {
+      if (el.data.recordId !== undefined
+        && !(typeof el.data.recordId === 'string' && UUID_RE.test(el.data.recordId))) {
+        errors.push(`${path}: canvas_component_placeholder data.recordId must be a record UUID`);
+      }
+      if (el.data.recordSlug !== undefined
+        && !(typeof el.data.recordSlug === 'string' && SLUG_KEY_RE.test(el.data.recordSlug))) {
+        errors.push(`${path}: canvas_component_placeholder data.recordSlug is not a valid slug`);
+      }
+      if (el.data.label !== undefined && typeof el.data.label !== 'string') {
+        errors.push(`${path}: canvas_component_placeholder data.label must be a string`);
+      }
+    }
+    if (el.imageBrief !== undefined || isPlainObject(el.asset)) {
+      errors.push(`${path}: canvas_component_placeholder may not carry imagery — the real component renders itself`);
     }
   }
   if (el.type === 'svg_decorative') {

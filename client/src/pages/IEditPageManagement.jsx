@@ -16,7 +16,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { FileEdit, Plus, Search, LayoutGrid, List, ArrowUpDown, FileText, Loader2, CheckCircle2, XCircle, MinusCircle, TrendingDown, TrendingUp, Minus, Globe, AlertCircle, AlertTriangle } from "lucide-react";
+import { FileEdit, Plus, Search, LayoutGrid, List, ArrowUpDown, FileText, Loader2, CheckCircle2, XCircle, MinusCircle, TrendingDown, TrendingUp, Minus, Globe, AlertCircle, AlertTriangle, Sparkles } from "lucide-react";
 import {
   DndContext,
   DragOverlay,
@@ -37,6 +37,7 @@ import { Badge } from "@/components/ui/badge";
 import CanvasPageRenderer from "@/components/canvas/CanvasPageRenderer";
 import { extractSeedSwatches } from "@/lib/canvasSeedSwatches";
 import { createEmptyCanvasDesign, CANVAS_FLOW_VERSION } from "@/lib/canvasDesign";
+import CreatePageWithAiDialog from "@/components/canvas/CreatePageWithAiDialog";
 
 const VIEW_MODE_KEY = "iedit-page-view-mode";
 const SORT_MAP_KEY = "iedit-page-sort-map";
@@ -235,6 +236,7 @@ export default function IEditPageManagementPage() {
 
   // Create-from-document state.
   const [showDocDialog, setShowDocDialog] = useState(false);
+  const [showAiDialog, setShowAiDialog] = useState(false);
   const [docFiles, setDocFiles] = useState([]); // File[] selected/dropped in upload mode
   const [docDragOver, setDocDragOver] = useState(false);
   // Batch (multi-file) auto-create progress. null = not running/not started.
@@ -1226,6 +1228,14 @@ export default function IEditPageManagementPage() {
               <FileText className="w-4 h-4 mr-2" />
               From content
             </Button>
+            <Button
+              variant="outline"
+              onClick={() => setShowAiDialog(true)}
+              data-testid="button-create-with-ai"
+            >
+              <Sparkles className="w-4 h-4 mr-2" />
+              Create with AI
+            </Button>
             <Button onClick={() => setShowCreateDialog(true)} className="bg-blue-600 hover:bg-blue-700" data-testid="button-new-page">
               <Plus className="w-4 h-4 mr-2" />
               New Page
@@ -1865,6 +1875,9 @@ export default function IEditPageManagementPage() {
             )}
           </DialogContent>
         </Dialog>
+
+        {/* Create page with AI (Phase 5, Task #2853) */}
+        <CreatePageWithAiDialog open={showAiDialog} onOpenChange={setShowAiDialog} />
 
         {/* Create Page Dialog */}
         <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
