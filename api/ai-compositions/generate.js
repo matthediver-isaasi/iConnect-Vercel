@@ -46,6 +46,39 @@ import { storeGeneratedAsset, tenantPublicAssetPrefix } from '../_lib/aiComposit
 import { loadStudioSettings, buildGuidanceSummary } from '../_lib/aiDesignStudioSettings.js';
 import { checkAiUsageAllowance, recordAiUsageEvent } from '../_lib/aiUsage.js';
 import { runCompositionValidation } from '../_lib/aiCompositionValidation.js';
+import { styleReferenceImageInputs, isDesignDnaV2 } from '../_lib/styleReference.js';
+import { AI_COMPOSITION_SCHEMA_VERSION } from '../_lib/aiCompositionSchema.js';
+
+/**
+ * Reference-evidence diagnostics stored on the version (Task #2890).
+ * Never includes signed URLs, base64 data or credentials — screenshot
+ * identity is the storage-path portion of the public URL.
+ */
+function buildReferenceDiagnostics(styleReference, state) {
+  if (!styleReference) return undefined;
+  const inputs = styleReferenceImageInputs(styleReference);
+  const assetPath = (url) => {
+    try {
+      const p = new URL(url).pathname;
+      const i = p.indexOf('/public-assets/');
+      return i >= 0 ? p.slice(i + '/public-assets/'.length) : p;
+    } catch { return null; }
+  };
+  const dna = styleReference.designDna || null;
+  return {
+    analysisId: styleReference.analysisId || null,
+    influence: styleReference.influence || null,
+    designDnaIncluded: !!dna,
+    designDnaSchemaVersion: dna ? (isDesignDnaV2(dna) ? dna.schemaVersion || '2.0' : 'v1') : null,
+    screenshotCount: inputs.length,
+    screenshotLabels: inputs.map((i) => i.label),
+    screenshotViewports: inputs.map((i) => i.viewport),
+    screenshotDetails: inputs.map((i) => i.detail),
+    screenshotAssetPaths: inputs.map((i) => assetPath(i.url)).filter(Boolean),
+    imagesIncludedInOpenAIRequest: (state?.referenceImagesSent || 0) > 0,
+    imagesSentCount: state?.referenceImagesSent || 0,
+  };
+}
 
 /** Provider image call — gpt-image-1 via the shared OpenAI client. */
 function makeGenerateImage(client) {
@@ -78,10 +111,15 @@ function makeCallLlm(client) {
   return async ({ system, user, maxTokens, images }) => {
     // Style-reference screenshots ride along as vision inputs (Task #2873).
     // Text-only calls keep the plain string content exactly as before.
+    // Images may be curated inputs ({ url, detail }) or bare URL strings
+    // (back-compat). Curated crops ride at their requested detail level so
+    // the model can actually study the reference design (Task #2890).
     const userContent = Array.isArray(images) && images.length
       ? [
           { type: 'text', text: user },
-          ...images.map((url) => ({ type: 'image_url', image_url: { url, detail: 'low' } })),
+          ...images.map((img) => (typeof img === 'string'
+            ? { type: 'image_url', image_url: { url: img, detail: 'low' } }
+            : { type: 'image_url', image_url: { url: img.url, detail: img.detail || 'low' } })),
         ]
       : user;
     let completion;
@@ -479,7 +517,12 @@ export default async function handler(req, res) {
 
       // Hand the validated document to the assets stage (persistence happens
       // there so a mid-imagery timeout can resume without re-running the LLM).
-      const nextState = { ...state, doc, attempts };
+      const nextState = {
+        ...state, doc, attempts,
+        // Diagnostics (Task #2890): how many reference images actually rode
+        // along on the successful document request.
+        referenceImagesSent: attemptResult.imagesAttached || 0,
+      };
       delete nextState.documentAttempt;
       delete nextState.documentErrors;
       await updateJob(job.id, tenantId, {
@@ -621,8 +664,12 @@ export default async function handler(req, res) {
             creativity: options.creativity,
             mode: options.mode,
             attempts,
+            compositionSchemaVersion: AI_COMPOSITION_SCHEMA_VERSION,
             // Style reference (Task #2873): stored for audit/regeneration.
             styleReference: options.styleReference || undefined,
+            // Reference-evidence diagnostics (Task #2890): what actually
+            // reached the model, auditable per generation.
+            reference: buildReferenceDiagnostics(options.styleReference, state),
             // Phase 5: page-level SEO suggestion (applied to i_edit_page by
             // the client with the author's consent — never silently).
             seo: seoSuggestion,

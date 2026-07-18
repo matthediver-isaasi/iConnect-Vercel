@@ -17,7 +17,13 @@
 
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
-import { isDesignDnaV2, normalizeDesignDnaV2, buildDesignDnaGeneratorBlock } from './designDna.js';
+import {
+  isDesignDnaV2,
+  normalizeDesignDnaV2,
+  buildDesignDnaGeneratorBlock,
+  buildScreenshotEvidenceBlock,
+  selectGenerationCrops,
+} from './designDna.js';
 
 export const STYLE_REFERENCE_SOURCE_TYPES = ['page', 'url', 'upload'];
 export const INFLUENCE_LEVELS = ['light', 'strong', 'very_strong'];
@@ -30,7 +36,9 @@ export const SCREENSHOT_VIEWPORTS = [
 ];
 const VIEWPORT_NAMES = SCREENSHOT_VIEWPORTS.map((v) => v.name);
 
-export const MAX_REFERENCE_SCREENSHOTS = 4;
+// Raised 4 → 6 (Task #2890): room for ~4 desktop crops + 2 mobile crops so
+// generation prompts carry both the design language and its mobile stacking.
+export const MAX_REFERENCE_SCREENSHOTS = 6;
 
 /** Design DNA profile fields (spec: composition → anti-patterns). */
 export const DESIGN_DNA_FIELDS = [
@@ -292,6 +300,7 @@ export function buildStyleReferenceSummary(styleReference) {
     return buildDesignDnaGeneratorBlock(
       styleReference.designDna,
       INFLUENCE_LEVELS.includes(styleReference.influence) ? styleReference.influence : DEFAULT_INFLUENCE,
+      styleReferenceImageInputs(styleReference),
     );
   }
   const lines = [];
@@ -304,7 +313,7 @@ export function buildStyleReferenceSummary(styleReference) {
 """
 ${lines.join('\n') || 'See the attached reference screenshots.'}
 """
-${influence}
+${buildScreenshotEvidenceBlock(styleReferenceImageInputs(styleReference))}${influence}
 Style-reference guardrails (these ALWAYS win over the reference):
 - The organisation's own branding — colours, fonts, name, tagline, tone — ALWAYS takes precedence over anything in the reference.
 - NEVER copy the reference's text, wording, images, logos or brand assets. The reference informs style only.
@@ -317,6 +326,29 @@ Style-reference guardrails (these ALWAYS win over the reference):
 export function styleReferenceImageUrls(styleReference) {
   if (!styleReference || !Array.isArray(styleReference.screenshots)) return [];
   return styleReference.screenshots.map((s) => s.url).filter(Boolean);
+}
+
+/**
+ * Curated, labelled image inputs for generation LLM calls (Task #2890).
+ * Returns [{ url, label, viewport, detail }] in the exact order the images
+ * should be attached: high-value crops first (selectGenerationCrops mix of
+ * desktop + mobile), full-page overviews at low detail, everything else at
+ * high detail so the model can actually study the design.
+ */
+export function styleReferenceImageInputs(styleReference) {
+  if (!styleReference || !Array.isArray(styleReference.screenshots)) return [];
+  const shots = styleReference.screenshots.filter((s) => s && s.url);
+  // Labelled v2 captures get the curated ordering; unlabelled (legacy /
+  // upload) screenshots pass through in stored order.
+  const ordered = shots.every((s) => s.label)
+    ? selectGenerationCrops(shots, MAX_REFERENCE_SCREENSHOTS)
+    : shots.slice(0, MAX_REFERENCE_SCREENSHOTS);
+  return ordered.map((s, idx) => ({
+    url: s.url,
+    label: s.label || `reference screenshot ${idx + 1}`,
+    viewport: VIEWPORT_NAMES.includes(s.viewport) ? s.viewport : 'desktop',
+    detail: /full_page/.test(s.label || '') ? 'low' : 'high',
+  }));
 }
 
 export { isDesignDnaV2 } from './designDna.js';

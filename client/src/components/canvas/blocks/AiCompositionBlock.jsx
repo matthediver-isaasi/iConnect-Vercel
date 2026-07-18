@@ -231,10 +231,44 @@ function BreakpointPreview({ compositionId }) {
   );
 }
 
+/**
+ * Expandable per-version generation-evidence panel (Task #2890): shows what
+ * reference evidence (screenshots + Design DNA) actually reached the model.
+ * Fetches the full version row only when expanded.
+ */
+function VersionEvidence({ compositionId, versionId }) {
+  const { data } = useQuery({
+    queryKey: ['/api/ai-compositions', compositionId, 'version', versionId],
+    queryFn: () => aicFetch(`/api/ai-compositions/${compositionId}?versionId=${versionId}`),
+    enabled: !!compositionId && !!versionId,
+  });
+  const meta = data?.version?.generation_metadata;
+  if (!data) return <p className="text-xs text-muted-foreground">Loading…</p>;
+  const ref = meta?.reference;
+  return (
+    <div className="space-y-1 text-xs text-muted-foreground" data-testid={`text-aic-evidence-${versionId}`}>
+      {meta?.model && <div>Model: {meta.model}{meta.compositionSchemaVersion ? ` · schema v${meta.compositionSchemaVersion}` : ''}</div>}
+      {!ref && <div>No style reference was used for this version.</div>}
+      {ref && (
+        <>
+          <div>Style reference: {ref.influence || 'strong'} influence{ref.designDnaIncluded ? ` · Design DNA ${ref.designDnaSchemaVersion || ''}` : ' · no Design DNA'}</div>
+          <div>
+            Screenshots sent to the AI: {ref.imagesIncludedInOpenAIRequest ? (ref.imagesSentCount || ref.screenshotCount) : 0}
+            {Array.isArray(ref.screenshotLabels) && ref.screenshotLabels.length > 0 && (
+              <span> ({ref.screenshotLabels.join(', ')})</span>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function VersionHistory({ compositionId }) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [busyId, setBusyId] = useState(null);
+  const [evidenceId, setEvidenceId] = useState(null);
   const { data, refetch } = useQuery({
     queryKey: ['/api/ai-compositions', compositionId, 'versions'],
     queryFn: () => aicFetch(`/api/ai-compositions/${compositionId}?versions=1`),
@@ -263,25 +297,40 @@ function VersionHistory({ compositionId }) {
           {(data?.versions || []).map((v) => {
             const isCurrent = v.id === data?.currentVersionId;
             return (
-              <div key={v.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border p-2 text-xs">
-                <div className="min-w-0">
-                  <div className="truncate font-medium" data-testid={`text-aic-version-${v.id}`}>
-                    {v.change_summary || v.operation_type}
+              <div key={v.id} className="space-y-2 rounded-md border border-border p-2 text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="truncate font-medium" data-testid={`text-aic-version-${v.id}`}>
+                      {v.change_summary || v.operation_type}
+                    </div>
+                    <div className="text-muted-foreground">
+                      {new Date(v.created_at).toLocaleString()}{isCurrent ? ' · current' : ''}
+                    </div>
                   </div>
-                  <div className="text-muted-foreground">
-                    {new Date(v.created_at).toLocaleString()}{isCurrent ? ' · current' : ''}
+                  <div className="flex flex-wrap items-center gap-1">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setEvidenceId((cur) => (cur === v.id ? null : v.id))}
+                      data-testid={`button-aic-evidence-${v.id}`}
+                    >
+                      Evidence
+                    </Button>
+                    {!isCurrent && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busyId === v.id}
+                        onClick={() => restore(v.id)}
+                        data-testid={`button-aic-restore-${v.id}`}
+                      >
+                        {busyId === v.id ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Restore'}
+                      </Button>
+                    )}
                   </div>
                 </div>
-                {!isCurrent && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={busyId === v.id}
-                    onClick={() => restore(v.id)}
-                    data-testid={`button-aic-restore-${v.id}`}
-                  >
-                    {busyId === v.id ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Restore'}
-                  </Button>
+                {evidenceId === v.id && (
+                  <VersionEvidence compositionId={compositionId} versionId={v.id} />
                 )}
               </div>
             );

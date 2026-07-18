@@ -17,12 +17,44 @@ import {
   normalizeStyleReference,
   buildStyleReferenceSummary,
   styleReferenceImageUrls,
+  styleReferenceImageInputs,
   INFLUENCE_LEVELS,
   DEFAULT_INFLUENCE,
   MAX_REFERENCE_SCREENSHOTS,
   DESIGN_DNA_FIELDS,
 } from './styleReference.js';
 import { normalizeOptions, buildPlanPrompt, buildDocumentPrompt } from './aiCompositionPipeline.js';
+
+test('styleReferenceImageInputs returns curated labelled inputs with detail levels', () => {
+  const prefix = 'https://cdn.example.com/storage/v1/object/public/public-assets/tenant-1/';
+  const ref = {
+    sourceType: 'url',
+    influence: 'strong',
+    screenshots: [
+      { viewport: 'desktop', label: 'desktop_full_page', url: `${prefix}fp.jpg` },
+      { viewport: 'desktop', label: 'desktop_card_cluster_1', url: `${prefix}cc.jpg` },
+      { viewport: 'mobile', label: 'mobile_full_page', url: `${prefix}mfp.jpg` },
+    ],
+  };
+  const inputs = styleReferenceImageInputs(ref);
+  assert.equal(inputs.length, 3);
+  // Curated ordering: card cluster first when all shots are labelled.
+  assert.equal(inputs[0].label, 'desktop_card_cluster_1');
+  assert.equal(inputs[0].detail, 'high');
+  const fp = inputs.find((i) => i.label === 'desktop_full_page');
+  assert.equal(fp.detail, 'low');
+  const mfp = inputs.find((i) => i.label === 'mobile_full_page');
+  assert.equal(mfp.viewport, 'mobile');
+  // Unlabelled (legacy/upload) shots pass through in stored order.
+  const legacy = styleReferenceImageInputs({
+    screenshots: [{ viewport: 'desktop', url: `${prefix}x.jpg` }],
+  });
+  assert.equal(legacy.length, 1);
+  assert.equal(legacy[0].label, 'reference screenshot 1');
+  assert.equal(legacy[0].detail, 'high');
+  // No reference → [].
+  assert.deepEqual(styleReferenceImageInputs(null), []);
+});
 
 const PREFIX = 'https://cdn.example.com/storage/v1/object/public/public-assets/tenant-1/';
 

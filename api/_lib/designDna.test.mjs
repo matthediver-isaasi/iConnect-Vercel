@@ -14,6 +14,7 @@ import {
   runDesignDnaQualityGate,
   selectGenerationCrops,
   buildDesignDnaGeneratorBlock,
+  buildScreenshotEvidenceBlock,
   QUALITY_GATE_USER_MESSAGE,
 } from './designDna.js';
 import {
@@ -268,6 +269,70 @@ test('selectGenerationCrops prefers card clusters and hero', () => {
   assert.equal(picked[0], 'desktop_card_cluster_1');
   assert.equal(picked[1], 'desktop_hero');
   assert.equal(picked.length, 4);
+});
+
+test('selectGenerationCrops default max is 6 with a desktop/mobile mix', () => {
+  const shots = [
+    { label: 'desktop_full_page', url: 'u1' },
+    { label: 'desktop_hero', url: 'u2' },
+    { label: 'desktop_card_cluster_1', url: 'u3' },
+    { label: 'desktop_card_cluster_2', url: 'u4' },
+    { label: 'mobile_full_page', url: 'u5' },
+    { label: 'mobile_hero', url: 'u6' },
+    { label: 'mobile_card_cluster_1', url: 'u7' },
+    { label: 'tablet_full_page', url: 'u8' },
+  ];
+  const picked = selectGenerationCrops(shots).map((s) => s.label);
+  assert.equal(picked.length, 6);
+  // Desktop card clusters lead, and mobile stacking evidence is included.
+  assert.equal(picked[0], 'desktop_card_cluster_1');
+  assert.ok(picked.some((l) => l.startsWith('mobile_')));
+  assert.ok(picked.filter((l) => l.startsWith('desktop_')).length >= 3);
+});
+
+test('buildScreenshotEvidenceBlock labels images and states the authority split', () => {
+  const block = buildScreenshotEvidenceBlock([
+    { url: 'u1', label: 'desktop_card_cluster_1', viewport: 'desktop' },
+    { url: 'u2', label: 'mobile_full_page', viewport: 'mobile' },
+  ]);
+  assert.match(block, /1\. desktop_card_cluster_1 \(desktop viewport\)/);
+  assert.match(block, /2\. mobile_full_page \(mobile viewport\)/);
+  assert.match(block, /DIRECT VISUAL EVIDENCE/);
+  assert.match(block, /MEASURED VALUES/);
+  assert.match(block, /screenshots are authoritative for visual relationships/);
+  assert.match(block, /ORIGINAL composition/);
+  // No inputs → no block (prompts stay byte-identical).
+  assert.equal(buildScreenshotEvidenceBlock([]), '');
+  assert.equal(buildScreenshotEvidenceBlock(null), '');
+});
+
+test('normalizeDesignDnaV2 keeps evidenceConflicts and the generator block carries them', () => {
+  const dna = normalizeDesignDnaV2({
+    ...goodDna(),
+    evidenceConflicts: [
+      { topic: 'heading size', computedValue: '32px', screenshotObservation: 'looks ~48px', resolution: 'trust screenshots' },
+      { computedValue: 'no topic — dropped' },
+    ],
+  });
+  assert.equal(dna.evidenceConflicts.length, 1);
+  assert.equal(dna.evidenceConflicts[0].topic, 'heading size');
+  const block = buildDesignDnaGeneratorBlock(dna, 'strong');
+  assert.match(block, /"evidenceConflicts"/);
+  // Without conflicts the key is omitted entirely.
+  const clean = buildDesignDnaGeneratorBlock(normalizeDesignDnaV2(goodDna()), 'strong');
+  assert.ok(!/"evidenceConflicts"/.test(clean));
+});
+
+test('generator block injects the screenshot evidence block when inputs given', () => {
+  const dna = normalizeDesignDnaV2(goodDna());
+  const withImages = buildDesignDnaGeneratorBlock(dna, 'strong', [
+    { url: 'u1', label: 'desktop_hero', viewport: 'desktop' },
+  ]);
+  assert.match(withImages, /ATTACHED REFERENCE SCREENSHOTS/);
+  assert.match(withImages, /desktop_hero/);
+  // Back-compat: 2-arg call still works and omits the screenshot block.
+  const without = buildDesignDnaGeneratorBlock(dna, 'strong');
+  assert.ok(!/ATTACHED REFERENCE SCREENSHOTS/.test(without));
 });
 
 test('generator block carries the full structured DNA and priority order', () => {
