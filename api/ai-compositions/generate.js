@@ -759,7 +759,7 @@ export default async function handler(req, res) {
       await updateJob(job.id, tenantId, {
         stage: 'review',
         composition_id: compositionId,
-        state: { versionId: version.id, completion, brand: state.brand },
+        state: { versionId: version.id, completion, brand: state.brand, hasReference: Boolean(options.styleReference) },
       });
       return res.status(200).json({ jobId: job.id, stage: 'review', status: 'running', label: STAGE_LABELS.review });
     }
@@ -784,6 +784,7 @@ export default async function handler(req, res) {
           reviewResult = await runScreenshotReview({
             doc: versionRow.document,
             brand: state.brand || null,
+            hasReference: Boolean(state.hasReference),
             callVision: client ? makeCallVision(client) : null,
           });
           await supabase

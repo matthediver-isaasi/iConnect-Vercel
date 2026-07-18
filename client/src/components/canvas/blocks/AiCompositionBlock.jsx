@@ -390,15 +390,21 @@ export function AiCompositionInspector({ block, update, pageId }) {
   const [adv, setAdv] = useState(EMPTY_ADVANCED_BRIEF);
   // Style reference (Task #2873): null = no reference, generation unchanged.
   const [styleReference, setStyleReference] = useState(null);
-  // Screenshot review verdict for the current draft (Task #2894).
-  const [reviewVerdict, setReviewVerdict] = useState(null);
+  // Screenshot review verdict for the current draft (Task #2894). The
+  // in-session verdict arrives via the generation loop; the persisted verdict
+  // (validation_result.gates.screenshotReview on the current version) covers
+  // reloads and cases where the session verdict was lost — the server value
+  // wins whenever it is present.
+  const [sessionVerdict, setSessionVerdict] = useState(null);
+  const { data: draftData } = useAiComposition(draftId);
+  const reviewVerdict = draftData?.screenshotReview || sessionVerdict;
 
   const gen = useGenerationLoop({
     onComplete: (compositionId, screenshotReview) => {
       // Screenshot quality review (Task #2894): a failing verdict blocks
       // Insert (the draft stays reviewable/regeneratable); skipped or pass
       // blocks nothing.
-      setReviewVerdict(screenshotReview || null);
+      setSessionVerdict(screenshotReview || null);
       // Regenerating the inserted composition adds a version to it — it must
       // NOT re-enter draft mode (draft mode exposes Discard, which deletes).
       setDraftId(resolveDraftAfterGeneration(insertedId, compositionId));
@@ -426,7 +432,7 @@ export function AiCompositionInspector({ block, update, pageId }) {
   };
 
   const insert = () => {
-    if (!draftId) return;
+    if (!draftId || reviewVerdict?.status === 'fail') return;
     update((b) => ({ ...b, content: { ...b.content, compositionId: draftId } }));
     setDraftId('');
   };

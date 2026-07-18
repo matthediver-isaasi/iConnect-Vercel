@@ -119,6 +119,7 @@ function docStats(doc) {
     visualAssets: 0,
     infographic: 0,
     cards: 0,
+    composedContainers: 0,
     textEls: 0,
     ctas: [],
   };
@@ -128,6 +129,9 @@ function docStats(doc) {
     if (VISUAL_ASSET_TYPES.has(el.type)) stats.visualAssets += 1;
     if (INFOGRAPHIC_TYPES.has(el.type)) stats.infographic += 1;
     if (el.type === 'card') stats.cards += 1;
+    if (CONTAINER_TYPES.has(el.type) && Array.isArray(el.children) && el.children.length >= 2) {
+      stats.composedContainers += 1;
+    }
     if (TEXT_TYPES.has(el.type) && textOf(el)) stats.textEls += 1;
     if ((el.type === 'button' || el.type === 'text_link') && hasRealAction(el)) stats.ctas.push(el.id);
   });
@@ -187,7 +191,55 @@ export function checkPlanContract(doc, plan) {
     issues.push(issue('plan_contract', 'section_count_mismatch',
       `The plan declared ${planned} section(s) but the document has ${actual}.`));
   }
+  // Declared required assets: each one is a promise of a visual asset or
+  // intentional infographic structure in the final document.
+  const declaredAssets = Array.isArray(contract.requiredAssets) ? contract.requiredAssets.length : 0;
+  if (declaredAssets > 0) {
+    const delivered = stats.visualAssets + stats.infographic;
+    if (delivered < Math.min(declaredAssets, 6)) {
+      issues.push(issue('plan_contract', 'missing_required_assets',
+        `The plan declared ${declaredAssets} required visual asset(s) (${contract.requiredAssets.join('; ')}) but the document only contains ${delivered} image/illustration/infographic element(s).`));
+    }
+  }
+  // Declared component families: each recognised family must have at least
+  // one matching element in the document. Unrecognised family names are
+  // skipped (free text) — this gate is deterministic, never a guess.
+  const fams = Array.isArray(contract.componentFamilies) ? contract.componentFamilies : [];
+  for (const fam of fams) {
+    const evidence = componentFamilyEvidence(fam, stats);
+    if (evidence === false) {
+      issues.push(issue('plan_contract', 'missing_component_family',
+        `The plan promised a "${fam}" component family but the document contains no matching element.`,
+        { family: fam }));
+    }
+  }
   return issues;
+}
+
+// Recognised family keyword → whether docStats show at least one instance.
+// Returns true (present), false (promised but absent) or null (unrecognised
+// family name — not enforceable deterministically, skipped).
+export function componentFamilyEvidence(family, stats) {
+  const f = String(family || '').toLowerCase();
+  const has = (...types) => types.some((t) => stats.types.has(t));
+  if (/card/.test(f)) return stats.cards > 0;
+  if (/timeline/.test(f)) return has('timeline_item');
+  if (/process|step/.test(f)) return has('process_step');
+  if (/compar/.test(f)) return has('comparison_item');
+  if (/chart|graph/.test(f)) return has('simple_chart');
+  if (/infographic/.test(f)) return stats.infographic > 0 || has('structured_infographic');
+  if (/stat|metric|number/.test(f)) return has('statistic');
+  if (/button|cta|action/.test(f)) return stats.ctas.length > 0;
+  if (/image|photo|illustration|visual/.test(f)) return stats.visualAssets > 0;
+  return null;
+}
+
+/**
+ * Deterministic evidence of a reference-informed component recipe: a card,
+ * an intentional infographic structure, or a composed multi-child container.
+ */
+export function hasComponentRecipe(stats) {
+  return stats.cards > 0 || stats.infographic > 0 || stats.composedContainers > 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -247,6 +299,10 @@ export function checkPromptFulfilment(doc, requirements) {
   if (req.visualAsset && stats.visualAssets === 0 && stats.infographic === 0) {
     issues.push(issue('prompt_fulfilment', 'missing_visual_asset',
       'The brief asked for imagery/visuals but the document contains no image, illustration or intentional infographic structure.'));
+  }
+  if (req.referenceRecipe && !hasComponentRecipe(stats)) {
+    issues.push(issue('prompt_fulfilment', 'missing_reference_recipe',
+      'A style reference was supplied but the document contains no reference-informed component recipe (no card, infographic structure, or composed multi-child container).'));
   }
   if (req.realCta && stats.ctas.length === 0) {
     issues.push(issue('prompt_fulfilment', 'missing_real_cta',

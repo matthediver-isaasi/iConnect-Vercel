@@ -27,6 +27,7 @@ import {
 import { buildAicCss } from '../../client/src/lib/aiCompositionRender.js';
 import {
   buildGateHtml,
+  buildScreenshotReviewPrompt,
   parseScreenshotReview,
   runScreenshotReview,
 } from './aiCompositionScreenshotGate.js';
@@ -344,4 +345,48 @@ test('runScreenshotReview fails only the breakpoints the reviewer failed', async
     if (prev !== undefined) process.env.BROWSERLESS_API_TOKEN = prev;
     else delete process.env.BROWSERLESS_API_TOKEN;
   }
+});
+
+// ---------------------------------------------------------------------------
+// New contract checks: required assets, component families, reference recipe
+// ---------------------------------------------------------------------------
+
+test('checkPlanContract: missing_required_assets when delivered visuals fall short of declared', () => {
+  const plan = { contract: { requiredAssets: ['hero photo', 'team illustration', 'stats chart'] } };
+  const failures = checkPlanContract(brokenDoc(), plan);
+  assert.ok(failures.some((f) => f.code === 'missing_required_assets'));
+  // The valid doc has one illustration; declaring one asset passes.
+  const okPlan = { contract: { requiredAssets: ['illustration'] } };
+  assert.ok(!checkPlanContract(validDoc, okPlan).some((f) => f.code === 'missing_required_assets'));
+});
+
+test('checkPlanContract: missing_component_family for recognised families only', () => {
+  const plan = { contract: { componentFamilies: ['timeline', 'card', 'artisanal widget'] } };
+  const failures = checkPlanContract(validDoc, plan);
+  const fams = failures.filter((f) => f.code === 'missing_component_family').map((f) => f.family);
+  assert.ok(fams.includes('timeline'), 'timeline promised but absent must fail');
+  assert.ok(!fams.includes('card'), 'card is present, must not fail');
+  assert.ok(!fams.includes('artisanal widget'), 'unrecognised family must be skipped, never guessed');
+});
+
+test('checkPromptFulfilment: missing_reference_recipe enforced only when a style reference was used', () => {
+  const withRef = derivePromptRequirements({ brief: 'Make a section', options: { styleReference: { analysisId: 'a1' } } });
+  assert.equal(withRef.referenceRecipe, true);
+  const failures = checkPromptFulfilment(brokenDoc(), withRef);
+  assert.ok(failures.some((f) => f.code === 'missing_reference_recipe'));
+  // Valid doc has cards → recipe evidence present.
+  assert.ok(!checkPromptFulfilment(validDoc, withRef).some((f) => f.code === 'missing_reference_recipe'));
+  // No reference → never enforced.
+  const noRef = derivePromptRequirements({ brief: 'Make a section' });
+  assert.ok(!checkPromptFulfilment(brokenDoc(), noRef).some((f) => f.code === 'missing_reference_recipe'));
+});
+
+test('buildScreenshotReviewPrompt: semantic rubric always present; reference rule only with hasReference', () => {
+  const base = buildScreenshotReviewPrompt({ doc: validDoc });
+  for (const phrase of ['broken visual hierarchy', 'missing visual concept', 'unbalanced empty space', 'naive shrink']) {
+    assert.ok(base.system.includes(phrase), `rubric must include "${phrase}"`);
+  }
+  assert.ok(!base.system.includes('reference design language'));
+  const withRef = buildScreenshotReviewPrompt({ doc: validDoc, hasReference: true });
+  assert.ok(withRef.system.includes('reference design language'));
 });

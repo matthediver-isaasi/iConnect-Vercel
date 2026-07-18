@@ -69,7 +69,7 @@ export default async function handler(req, res) {
       }
       const { data: version, error } = await supabase
         .from('ai_composition_version')
-        .select('id, document, created_at')
+        .select('id, document, created_at, validation_result')
         .eq('id', comp.current_version_id)
         .eq('tenant_id', tenantId)
         .maybeSingle();
@@ -79,6 +79,9 @@ export default async function handler(req, res) {
         composition: comp,
         document: version?.document || null,
         versionId: version?.id || null,
+        // Screenshot quality review verdict (Task #2894): persisted so the
+        // client can enforce insert-blocking beyond the generating session.
+        screenshotReview: version?.validation_result?.gates?.screenshotReview || null,
       });
     }
 

@@ -127,16 +127,23 @@ export async function captureBreakpointScreenshot({ html, width, fetchImpl = fet
   }
 }
 
-export function buildScreenshotReviewPrompt({ doc }) {
+export function buildScreenshotReviewPrompt({ doc, hasReference = false } = {}) {
+  const referenceRule = hasReference
+    ? `\n- the supplied reference design language is not evident at all (the render looks like unstyled defaults with no deliberate visual treatment)`
+    : '';
   const system = `You are a strict quality inspector for AI-generated web page sections. You are shown full-page screenshots of ONE design at desktop, tablet and mobile widths.
 Respond ONLY with JSON:
 { "verdicts": [ { "breakpoint": "desktop"|"tablet"|"mobile", "pass": boolean, "issues": [string] } ] }
-FAIL a breakpoint ONLY for blunt, objective defects:
-- text rendered on top of other text (unreadable stacking)
+FAIL a breakpoint for these defects:
+- text rendered on top of other text (unreadable stacking / content piled in one position)
 - an essentially blank/empty render (no visible content)
 - content cut off or pushed outside the visible canvas
 - images or boxes covering the text
-Do NOT fail for taste: spacing preferences, colour choices, typography style or density are acceptable. When unsure, pass.`;
+- broken visual hierarchy (no discernible heading/body structure; everything reads as one undifferentiated blob)
+- missing visual concept (a design that promised imagery or structure renders as a bare wall of text)
+- severely unbalanced empty space (large dead regions with all content crammed into one corner or edge)${referenceRule}
+Additionally, FAIL the mobile breakpoint when it is a naive shrink of the desktop layout — desktop columns squashed side-by-side into unreadable slivers instead of re-composed (stacked) for the small screen.
+Do NOT fail for taste: spacing preferences, colour choices, typography style or density are acceptable. When unsure about a subjective call, pass — but the defects listed above are grounds for failure.`;
   const names = (doc?.sections || []).map((s) => s.id).join(', ');
   const user = `The design has ${doc?.sections?.length || 0} section(s): ${names}. Review each screenshot and return a verdict per breakpoint.`;
   return { system, user };
@@ -168,7 +175,7 @@ export function parseScreenshotReview(raw, breakpoints) {
  * Returns { status: 'pass'|'fail'|'skipped', breakpoints?, reason?, checkedAt }.
  * Never throws: any infrastructure failure degrades to `skipped`.
  */
-export async function runScreenshotReview({ doc, brand = null, callVision, fetchImpl = fetch, budgetMs = REVIEW_BUDGET_MS }) {
+export async function runScreenshotReview({ doc, brand = null, hasReference = false, callVision, fetchImpl = fetch, budgetMs = REVIEW_BUDGET_MS }) {
   const checkedAt = new Date().toISOString();
   const startedAt = Date.now();
   const remaining = () => budgetMs - (Date.now() - startedAt);
@@ -200,7 +207,7 @@ export async function runScreenshotReview({ doc, brand = null, callVision, fetch
   }
   let raw;
   try {
-    const { system, user } = buildScreenshotReviewPrompt({ doc });
+    const { system, user } = buildScreenshotReviewPrompt({ doc, hasReference });
     raw = await Promise.race([
       callVision({ system, user, images }),
       new Promise((_, reject) => setTimeout(() => reject(new Error('review budget exhausted')), Math.max(0, remaining())).unref?.() ?? undefined),
