@@ -5,11 +5,14 @@
 //   body (advance):  { jobId }
 //
 // Each invocation advances the job ONE stage (context → plan → copy →
-// document) and returns { jobId, stage, status, label, compositionId?,
-// versionId?, error? }. The client loops until status is 'complete' or
-// 'failed'. Stage state persists on the job row so each call stays well
-// inside the serverless time budget. Any failure leaves the page and any
-// existing composition untouched.
+// document → assets) and returns { jobId, stage, status, label,
+// compositionId?, versionId?, error?, progress? }. The client loops until
+// status is 'complete' or 'failed'. Stage state persists on the job row so
+// each call stays well inside the serverless time budget (Task #2866):
+//   - document: ONE LLM attempt per invocation (retry state on the job),
+//   - assets: a wall-clock-budgeted chunk of images per invocation with a
+//     resume cursor (already-stored images are never regenerated).
+// Any failure leaves the page and any existing composition untouched.
 
 import OpenAI from 'openai';
 import { supabase } from '../_lib/database.js';
@@ -24,7 +27,9 @@ import {
   resolveCompositionType,
   runPlanStage,
   runCopyStage,
-  runDocumentStage,
+  runDocumentAttempt,
+  documentExhaustedError,
+  MAX_DOCUMENT_RETRIES,
   assertAssetOwnership,
   sanitizePlan,
   reconcilePlaceholderRecords,
@@ -179,7 +184,13 @@ async function updateJob(jobId, tenantId, patch) {
     .eq('tenant_id', tenantId);
 }
 
+// Wall-clock budget for one assets-stage invocation: stop starting new
+// images past this point so persistence + response fit inside Vercel's
+// function limit even at 60s (see task #2866 / serverless time-budget rule).
+const ASSETS_CHUNK_BUDGET_MS = 35 * 1000;
+
 export default async function handler(req, res) {
+  const invocationStart = Date.now();
   if (!supabase) return res.status(503).json({ error: 'Database not configured' });
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
@@ -408,14 +419,42 @@ export default async function handler(req, res) {
     }
 
     if (stage === 'document') {
-      const { doc, attempts } = await runDocumentStage({
+      // ONE LLM attempt per invocation (Vercel 60s budget). Validation
+      // failures persist { documentAttempt, documentErrors } on the job and
+      // return `running` so the client re-invokes for the next attempt.
+      const attemptIndex = state.documentAttempt || 0;
+      const attemptResult = await runDocumentAttempt({
         callLlm,
         plan: state.plan,
         copy: state.copy,
         brand: state.brand,
         compositionType: state.compositionType,
         brief,
+        attempt: attemptIndex,
+        lastErrors: state.documentErrors || [],
       });
+      if (!attemptResult.ok) {
+        if (attemptIndex >= MAX_DOCUMENT_RETRIES) {
+          throw documentExhaustedError(attemptResult.errors);
+        }
+        await updateJob(job.id, tenantId, {
+          stage: 'document',
+          state: {
+            ...state,
+            documentAttempt: attemptIndex + 1,
+            documentErrors: attemptResult.errors,
+          },
+        });
+        return res.status(200).json({
+          jobId: job.id,
+          stage: 'document',
+          status: 'running',
+          label: STAGE_LABELS.document,
+          progress: { attempt: attemptIndex + 2, maxAttempts: MAX_DOCUMENT_RETRIES + 1 },
+        });
+      }
+      const doc = attemptResult.doc;
+      const attempts = attemptIndex + 1;
       // Phase 5: placeholders may only reference server-verified records.
       reconcilePlaceholderRecords(doc, state.records || []);
       // Asset ownership guard: the model may never reference existing files
@@ -431,9 +470,12 @@ export default async function handler(req, res) {
 
       // Hand the validated document to the assets stage (persistence happens
       // there so a mid-imagery timeout can resume without re-running the LLM).
+      const nextState = { ...state, doc, attempts };
+      delete nextState.documentAttempt;
+      delete nextState.documentErrors;
       await updateJob(job.id, tenantId, {
         stage: 'assets',
-        state: { ...state, doc, attempts },
+        state: nextState,
       });
       return res.status(200).json({ jobId: job.id, stage: 'assets', status: 'running', label: STAGE_LABELS.assets });
     }
@@ -456,12 +498,17 @@ export default async function handler(req, res) {
           if (el.type === 'generated_illustration' && el.imageBrief) delete el.imageBrief;
         });
       }
+      // Results carried over from earlier chunked invocations of this stage.
+      const priorResults = Array.isArray(state.assetResults) ? state.assetResults : [];
       const pendingBriefs = filterBriefsByPolicy(collectImageBriefs(doc), assetSettings);
       if (pendingBriefs.length > 0 && assetSettings.allowImageGeneration !== false) {
         const resolved = await resolveCompositionAssets({
           doc,
           brand: state.brand,
           generateImage: makeGenerateImage(client),
+          // Wall-clock budget: stop STARTING new images once ~35s of this
+          // invocation is spent; progress persists and the client re-invokes.
+          deadline: invocationStart + ASSETS_CHUNK_BUDGET_MS,
           storeAsset: (args) => storeGeneratedAsset({
             tenantId,
             memberId: context.memberId || null,
@@ -476,7 +523,34 @@ export default async function handler(req, res) {
           }),
         });
         doc = resolved.doc;
-        assetResults = resolved.results;
+        // Merge with earlier chunks; a retried element replaces its old entry.
+        const retriedIds = new Set(resolved.results.map((r) => r.elementId));
+        assetResults = priorResults
+          .filter((r) => !retriedIds.has(r.elementId))
+          .concat(resolved.results);
+        if (resolved.remaining > 0) {
+          // Budget exhausted with images left: persist the partially-resolved
+          // doc + results (updated_at heartbeat keeps the job non-stale) and
+          // hand back `running` so the client drives the next chunk. Already
+          // stored images carry a fileRepositoryId, so collectImageBriefs
+          // skips them on resume — no duplicates, no double metering.
+          await updateJob(job.id, tenantId, {
+            stage: 'assets',
+            state: { ...state, doc, assetResults },
+          });
+          return res.status(200).json({
+            jobId: job.id,
+            stage: 'assets',
+            status: 'running',
+            label: STAGE_LABELS.assets,
+            progress: {
+              imagesDone: assetResults.length,
+              imagesTotal: assetResults.length + resolved.remaining,
+            },
+          });
+        }
+      } else {
+        assetResults = priorResults;
       }
       // Alt-text workflow: record flags on the document, never block the run.
       const altFlags = collectAltTextFlags(doc);

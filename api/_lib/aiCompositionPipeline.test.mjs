@@ -247,3 +247,41 @@ test('assertAssetOwnership: cross-tenant asset rejected, own asset allowed', asy
   owners['file-2'] = null;
   await assert.rejects(() => assertAssetOwnership(doc, 'tenant-A', lookup));
 });
+
+// ---------------------------------------------------------------------------
+// Per-invocation document attempts (Task #2866 — serverless time budget)
+// ---------------------------------------------------------------------------
+
+test('runDocumentAttempt: single attempt returns ok/errors without throwing on validation failure', async () => {
+  const { runDocumentAttempt, documentExhaustedError } = await import('./aiCompositionPipeline.js');
+
+  // Invalid JSON → { ok:false } with errors, exactly ONE LLM call.
+  let calls = 0;
+  const bad = await runDocumentAttempt({
+    callLlm: async () => { calls += 1; return '{{{'; },
+    plan: validPlan, copy: validCopy, brand, compositionType: 'section', brief,
+  });
+  assert.equal(calls, 1);
+  assert.equal(bad.ok, false);
+  assert.deepEqual(bad.errors, ['response was not valid JSON']);
+
+  // Retry attempt feeds prior errors back into the prompt.
+  let sawFeedback = false;
+  const good = await runDocumentAttempt({
+    callLlm: async ({ user }) => {
+      sawFeedback = user.includes('previous attempt failed validation');
+      return JSON.stringify(SECTION_EXAMPLE);
+    },
+    plan: validPlan, copy: validCopy, brand, compositionType: 'section', brief,
+    attempt: 1, lastErrors: bad.errors,
+  });
+  assert.equal(sawFeedback, true, 'validation feedback included on retry attempts');
+  assert.equal(good.ok, true);
+  assert.ok(good.doc?.sections?.length);
+
+  // Exhausted error keeps the same shape callers already handle.
+  const err = documentExhaustedError(['e1']);
+  assert.equal(err.httpStatus, 502);
+  assert.equal(err.stage, 'document');
+  assert.deepEqual(err.validationErrors, ['e1']);
+});

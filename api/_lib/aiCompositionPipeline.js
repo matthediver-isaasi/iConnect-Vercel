@@ -375,41 +375,61 @@ export async function runCopyStage({ callLlm, brief, plan, brand, generateSeo = 
  * page and any existing composition untouched).
  */
 export async function runDocumentStage({ callLlm, plan, copy, brand, compositionType, brief, maxRetries = MAX_DOCUMENT_RETRIES }) {
-  const { system, user } = buildDocumentPrompt({ plan, copy, brand, compositionType, brief });
   let lastErrors = [];
   for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
-    const feedback = attempt === 0
-      ? ''
-      : `\n\nYour previous attempt failed validation with these errors — fix ALL of them:\n${lastErrors.slice(0, 20).map((e) => `- ${e}`).join('\n')}`;
-    const raw = await callLlm({ system, user: user + feedback, maxTokens: 8000 });
-    let doc;
-    try {
-      doc = parseJson(raw, 'design');
-    } catch (err) {
-      lastErrors = ['response was not valid JSON'];
-      continue;
-    }
-    // Normalise fields the model commonly gets slightly wrong before strict
-    // validation (defensive, never content-changing).
-    if (doc && typeof doc === 'object') {
-      doc.schemaVersion = AI_COMPOSITION_SCHEMA_VERSION;
-      doc.status = 'draft';
-      doc.compositionType = compositionType;
-      if (!doc.originalPrompt) doc.originalPrompt = brief;
-      doc.currentVersionId = null;
-      if (!Array.isArray(doc.protectedValues)) doc.protectedValues = [];
-      if (!Array.isArray(doc.generatedAssets)) doc.generatedAssets = [];
-      if (!Array.isArray(doc.conversation)) doc.conversation = [];
-      if (!doc.generationMetadata || typeof doc.generationMetadata !== 'object') doc.generationMetadata = {};
-      if (!doc.accessibility || typeof doc.accessibility !== 'object') doc.accessibility = {};
-    }
-    const result = validateComposition(doc);
-    if (result.ok) {
-      return { doc, attempts: attempt + 1 };
-    }
+    const result = await runDocumentAttempt({
+      callLlm, plan, copy, brand, compositionType, brief,
+      attempt, lastErrors,
+    });
+    if (result.ok) return { doc: result.doc, attempts: attempt + 1 };
     lastErrors = result.errors;
   }
-  throw Object.assign(
+  throw documentExhaustedError(lastErrors);
+}
+
+/**
+ * ONE document-generation LLM attempt (serverless time-budget: the endpoint
+ * runs a single attempt per invocation and persists { attempt, lastErrors }
+ * on the job so retries resume across invocations instead of stacking three
+ * LLM calls into one 60s window).
+ *
+ * Returns { ok: true, doc } or { ok: false, errors } — never throws for a
+ * validation failure. Provider failures still throw (same as before).
+ */
+export async function runDocumentAttempt({ callLlm, plan, copy, brand, compositionType, brief, attempt = 0, lastErrors = [] }) {
+  const { system, user } = buildDocumentPrompt({ plan, copy, brand, compositionType, brief });
+  const feedback = attempt === 0 || !lastErrors.length
+    ? ''
+    : `\n\nYour previous attempt failed validation with these errors — fix ALL of them:\n${lastErrors.slice(0, 20).map((e) => `- ${e}`).join('\n')}`;
+  const raw = await callLlm({ system, user: user + feedback, maxTokens: 8000 });
+  let doc;
+  try {
+    doc = parseJson(raw, 'design');
+  } catch (err) {
+    return { ok: false, errors: ['response was not valid JSON'] };
+  }
+  // Normalise fields the model commonly gets slightly wrong before strict
+  // validation (defensive, never content-changing).
+  if (doc && typeof doc === 'object') {
+    doc.schemaVersion = AI_COMPOSITION_SCHEMA_VERSION;
+    doc.status = 'draft';
+    doc.compositionType = compositionType;
+    if (!doc.originalPrompt) doc.originalPrompt = brief;
+    doc.currentVersionId = null;
+    if (!Array.isArray(doc.protectedValues)) doc.protectedValues = [];
+    if (!Array.isArray(doc.generatedAssets)) doc.generatedAssets = [];
+    if (!Array.isArray(doc.conversation)) doc.conversation = [];
+    if (!doc.generationMetadata || typeof doc.generationMetadata !== 'object') doc.generationMetadata = {};
+    if (!doc.accessibility || typeof doc.accessibility !== 'object') doc.accessibility = {};
+  }
+  const result = validateComposition(doc);
+  if (result.ok) return { ok: true, doc };
+  return { ok: false, errors: result.errors };
+}
+
+/** The error thrown when every document attempt failed validation. */
+export function documentExhaustedError(lastErrors = []) {
+  return Object.assign(
     new Error('The design could not be generated safely. Nothing was changed — please try again.'),
     { httpStatus: 502, stage: 'document', validationErrors: lastErrors.slice(0, 20) },
   );

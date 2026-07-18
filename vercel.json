@@ -12,6 +12,15 @@
     "api/platform/backups/run.js": {
       "maxDuration": 300
     },
+    "api/ai-compositions/generate.js": {
+      "maxDuration": 300
+    },
+    "api/ai-compositions/edit.js": {
+      "maxDuration": 300
+    },
+    "api/ai-compositions/images.js": {
+      "maxDuration": 300
+    },
     "api/**/*.js": {
       "maxDuration": 60
     }

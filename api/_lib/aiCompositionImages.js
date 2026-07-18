@@ -102,16 +102,23 @@ export function buildImagePrompt(brief = {}, brand = null, elementType = 'image'
  * imageBrief so the user can retry — it NEVER throws out of this function
  * for a single-asset failure. Only zero-brief inputs short-circuit.
  */
-export async function resolveCompositionAssets({ doc, brand = null, generateImage, storeAsset, maxAssets = 6 }) {
+export async function resolveCompositionAssets({ doc, brand = null, generateImage, storeAsset, maxAssets = 6, deadline = null }) {
   const next = JSON.parse(JSON.stringify(doc));
   const briefs = collectImageBriefs(next).slice(0, maxAssets);
   const results = [];
-  if (!briefs.length) return { doc: next, results };
+  if (!briefs.length) return { doc: next, results, remaining: 0 };
 
   const byId = new Map();
   walkElements(next, (el) => byId.set(el.id, el));
 
+  let remaining = 0;
   for (const item of briefs) {
+    // Serverless wall-clock budget: never START a new image past the
+    // deadline — the caller persists progress and resumes next invocation.
+    if (typeof deadline === 'number' && Date.now() >= deadline && results.length > 0) {
+      remaining += 1;
+      continue;
+    }
     const el = byId.get(item.elementId);
     if (!el) continue;
     const aspectRatio = normalizeAspect(item.brief.aspectRatio);
@@ -154,7 +161,7 @@ export async function resolveCompositionAssets({ doc, brand = null, generateImag
       });
     }
   }
-  return { doc: next, results };
+  return { doc: next, results, remaining };
 }
 
 /**

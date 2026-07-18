@@ -213,3 +213,80 @@ test('aspect helpers normalise unknown values and map to provider sizes', () => 
   assert.equal(normalizeAspect('portrait'), 'portrait');
   assert.equal(ASPECT_SIZES[normalizeAspect(undefined)], '1536x1024');
 });
+
+// ---------------------------------------------------------------------------
+// 5. Chunked assets stage (Task #2866 — serverless wall-clock budget)
+// ---------------------------------------------------------------------------
+
+test('deadline exhaustion: stops starting new images, reports remaining, resume skips done', async () => {
+  const doc = docWithImages();
+  let calls = 0;
+  // Deadline already in the past → first image still runs (at-least-one
+  // progress guarantee), the second is skipped and counted as remaining.
+  const first = await resolveCompositionAssets({
+    doc,
+    deadline: Date.now() - 1,
+    generateImage: async () => { calls += 1; return { buffer: Buffer.from('x'), model: 'm' }; },
+    storeAsset: async ({ elementId }) => ({ fileRepositoryId: `f_${elementId}`, url: `https://cdn/${elementId}.png` }),
+  });
+  assert.equal(calls, 1, 'exactly one image generated in the first chunk');
+  assert.equal(first.results.length, 1);
+  assert.equal(first.remaining, 1);
+  const heroEl = first.doc.sections[0].elements.find((e) => e.id === 'img_hero');
+  assert.equal(heroEl.asset.fileRepositoryId, 'f_img_hero');
+  const sideEl = first.doc.sections[0].elements.find((e) => e.id === 'img_side');
+  assert.equal(sideEl.asset, undefined, 'skipped element untouched, brief kept');
+
+  // Resume with the persisted doc: only the remaining brief is generated —
+  // the stored image is never regenerated (no duplicate storage).
+  const second = await resolveCompositionAssets({
+    doc: first.doc,
+    deadline: Date.now() + 60_000,
+    generateImage: async () => { calls += 1; return { buffer: Buffer.from('y'), model: 'm' }; },
+    storeAsset: async ({ elementId }) => ({ fileRepositoryId: `f_${elementId}`, url: `https://cdn/${elementId}.png` }),
+  });
+  assert.equal(calls, 2, 'resume generates ONLY the remaining image');
+  assert.equal(second.remaining, 0);
+  assert.deepEqual(second.results.map((r) => r.elementId), ['img_side']);
+});
+
+test('no deadline: behaves as before, remaining is 0', async () => {
+  const { results, remaining } = await resolveCompositionAssets({
+    doc: docWithImages(),
+    generateImage: async () => ({ buffer: Buffer.from('x'), model: 'm' }),
+    storeAsset: async ({ elementId }) => ({ fileRepositoryId: `f_${elementId}`, url: 'https://cdn/a.png' }),
+  });
+  assert.equal(results.length, 2);
+  assert.equal(remaining, 0);
+});
+
+test('a permanently failing image never starves later briefs across chunks', async () => {
+  const doc = docWithImages();
+  // Chunk 1: first image fails, deadline already passed → second is skipped.
+  const first = await resolveCompositionAssets({
+    doc,
+    deadline: Date.now() - 1,
+    generateImage: async ({ prompt }) => {
+      if (prompt.includes('members networking')) throw new Error('always fails');
+      return { buffer: Buffer.from('x'), model: 'm' };
+    },
+    storeAsset: async ({ elementId }) => ({ fileRepositoryId: `f_${elementId}`, url: 'https://cdn/a.png' }),
+  });
+  assert.equal(first.remaining, 1);
+  assert.equal(first.results[0].ok, false);
+
+  // Chunk 2 (resume): the failed brief is retried AND the pending one runs;
+  // remaining hits 0 so the run finalizes instead of looping forever.
+  const second = await resolveCompositionAssets({
+    doc: first.doc,
+    deadline: Date.now() + 60_000,
+    generateImage: async ({ prompt }) => {
+      if (prompt.includes('members networking')) throw new Error('always fails');
+      return { buffer: Buffer.from('x'), model: 'm' };
+    },
+    storeAsset: async ({ elementId }) => ({ fileRepositoryId: `f_${elementId}`, url: 'https://cdn/a.png' }),
+  });
+  assert.equal(second.remaining, 0, 'no briefs left → caller finalizes');
+  const ids = second.results.map((r) => `${r.elementId}:${r.ok}`).sort();
+  assert.deepEqual(ids, ['img_hero:false', 'img_side:true']);
+});

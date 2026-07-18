@@ -100,7 +100,7 @@ export function AiCompositionRender({ block, asEditor }) {
   );
 }
 
-const STAGE_SEQUENCE = ['context', 'plan', 'copy', 'document'];
+const STAGE_SEQUENCE = ['context', 'plan', 'copy', 'document', 'assets'];
 
 export function useGenerationLoop({ onComplete, onSeo }) {
   const [running, setRunning] = useState(false);
@@ -117,11 +117,21 @@ export function useGenerationLoop({ onComplete, onSeo }) {
   const drive = async (initialResp) => {
     let resp = initialResp;
     let guard = 0;
-    while (!cancelledRef.current && resp.status === 'running' && guard < 12) {
+    // Generous guard: the server chunks the document (retry per invocation)
+    // and assets (a few images per invocation) stages, so a long run can
+    // legitimately take many round-trips.
+    while (!cancelledRef.current && resp.status === 'running' && guard < 40) {
       guard += 1;
       const idx = STAGE_SEQUENCE.indexOf(resp.stage);
-      setProgress(Math.min(0.9, 0.15 + (idx >= 0 ? idx : 0) * 0.25));
-      setLabel(resp.label || 'Generating…');
+      setProgress(Math.min(0.9, 0.15 + (idx >= 0 ? idx : 0) * 0.19));
+      let label = resp.label || 'Generating…';
+      // Optional server progress detail: document attempt N or image K of N.
+      if (resp.progress?.attempt) {
+        label += ` (attempt ${resp.progress.attempt} of ${resp.progress.maxAttempts || 3})`;
+      } else if (resp.progress?.imagesTotal) {
+        label += ` (image ${Math.min(resp.progress.imagesDone + 1, resp.progress.imagesTotal)} of ${resp.progress.imagesTotal})`;
+      }
+      setLabel(label);
       resp = await aicFetch('/api/ai-compositions/generate', {
         method: 'POST',
         body: JSON.stringify({ jobId: resp.jobId }),
