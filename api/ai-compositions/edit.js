@@ -263,6 +263,17 @@ export default async function handler(req, res) {
         });
       }
 
+      // Image workflow step 1: hand the structured brief back to the client,
+      // which calls /api/ai-compositions/images to actually generate.
+      if (result.kind === 'image_request') {
+        return res.status(200).json({
+          status: 'needs_image',
+          summary: result.summary,
+          elementId: result.elementId,
+          brief: result.brief,
+        });
+      }
+
       // Breakpoint isolation double-check at the endpoint boundary.
       const bpViolations = checkBreakpointIsolation(doc, result.doc, breakpoint);
       if (bpViolations.length) {

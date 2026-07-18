@@ -105,11 +105,94 @@ function AicElement({ el, ctx }) {
     case 'shape':
     case 'background':
       return <div className={cls} aria-hidden="true" {...sel} />;
-    case 'image': {
-      const src = el.asset?.url || '';
-      if (!src) return <div className={cls} aria-hidden="true" {...sel} />;
-      return <img className={cls} src={src} alt={el.asset?.altText || ''} loading="lazy" {...sel} />;
+    case 'image':
+    case 'generated_illustration': {
+      // Phase 3: focal point → object-position; crop aspect → aspect-ratio;
+      // pending/failed assets render a neutral placeholder (never broken img).
+      const asset = el.asset || {};
+      const src = asset.url || '';
+      if (!src || asset.status === 'failed' || asset.status === 'pending') {
+        return (
+          <div
+            className={`${cls} aic-img-placeholder`}
+            data-aic-img-status={asset.status || 'empty'}
+            aria-hidden="true"
+            {...sel}
+          />
+        );
+      }
+      const fp = asset.focalPoint;
+      const cropAspect = asset.crop?.aspectRatio;
+      const imgStyle = {
+        ...(fp && Number.isFinite(fp.x) && Number.isFinite(fp.y)
+          ? { objectFit: 'cover', objectPosition: `${fp.x}% ${fp.y}%` }
+          : {}),
+        ...(cropAspect ? { aspectRatio: String(cropAspect).replace(':', ' / '), objectFit: 'cover', width: '100%' } : {}),
+        ...(sel.style || {}),
+      };
+      const img = (
+        <img
+          className={cls}
+          src={src}
+          alt={asset.altText || ''}
+          loading="lazy"
+          data-testid={`img-aic-${el.id}`}
+          {...sel}
+          style={Object.keys(imgStyle).length ? imgStyle : undefined}
+        />
+      );
+      // Simplified mobile variant (spec §20): swap the source on small screens.
+      if (asset.mobile?.url) {
+        return (
+          <picture>
+            <source media="(max-width: 640px)" srcSet={asset.mobile.url} />
+            {img}
+          </picture>
+        );
+      }
+      return img;
     }
+    case 'label':
+      return <span className={cls} data-testid={`text-aic-${el.id}`} {...sel}>{text || el.content?.label || ''}</span>;
+    case 'caption':
+      return <figcaption className={cls} data-testid={`text-aic-${el.id}`} {...sel}>{text}</figcaption>;
+    case 'timeline_item':
+    case 'process_step':
+      // Factual-text rule (spec §19): values/labels are ALWAYS real HTML text.
+      return (
+        <div className={cls} data-testid={`step-aic-${el.id}`} {...sel}>
+          {el.data?.marker != null && <span className="aic-step-marker">{el.data.marker}</span>}
+          <span className="aic-step-title">{el.data?.title ?? text}</span>
+          {el.data?.description ? <span className="aic-step-desc">{el.data.description}</span> : null}
+        </div>
+      );
+    case 'comparison_item':
+      return (
+        <div className={cls} data-testid={`compare-aic-${el.id}`} {...sel}>
+          <span className="aic-compare-label">{el.data?.label ?? ''}</span>
+          <span className="aic-compare-value">{el.data?.value ?? ''}</span>
+        </div>
+      );
+    case 'simple_chart': {
+      // Charts are HTML text + proportional bars — numbers never rasterised.
+      const items = Array.isArray(el.data?.items) ? el.data.items : [];
+      const max = Math.max(1, ...items.map((it) => Math.abs(Number(it?.value)) || 0));
+      return (
+        <div className={cls} role="img" aria-label={el.data?.label || 'Chart'} data-testid={`chart-aic-${el.id}`} {...sel}>
+          {items.map((it, i) => {
+            const v = Math.abs(Number(it?.value)) || 0;
+            return (
+              <div className="aic-chart-row" key={`${el.id}-r${i}`}>
+                <span className="aic-chart-label">{it?.label ?? ''}</span>
+                <span className="aic-chart-bar" aria-hidden="true" style={{ width: `${Math.round((v / max) * 100)}%` }} />
+                <span className="aic-chart-value">{it?.display ?? it?.value ?? ''}</span>
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+    case 'structured_infographic':
     case 'container':
     case 'group':
     case 'card':

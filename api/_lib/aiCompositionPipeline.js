@@ -19,7 +19,7 @@ import {
   CSS_PROPERTY_ALLOWLIST,
 } from './aiCompositionSchema.js';
 
-export const GENERATION_STAGES = ['context', 'plan', 'copy', 'document'];
+export const GENERATION_STAGES = ['context', 'plan', 'copy', 'document', 'assets'];
 
 export const CREATIVITY_LEVELS = ['strict', 'brand_led', 'expressive'];
 
@@ -32,6 +32,7 @@ export const STAGE_LABELS = {
   plan: 'Planning the composition',
   copy: 'Writing the copy',
   document: 'Generating the design',
+  assets: 'Creating the imagery',
 };
 
 // Phase 1 supported element palette (task scope): a subset of the full schema
@@ -40,6 +41,10 @@ export const STAGE_LABELS = {
 const PHASE1_ELEMENT_TYPES = [
   'background', 'container', 'group', 'heading', 'paragraph', 'image',
   'button', 'shape', 'statistic', 'card',
+  // Phase 3 (Task #2851): illustrations + infographic element compositions.
+  'generated_illustration', 'timeline_item', 'process_step',
+  'comparison_item', 'simple_chart', 'structured_infographic',
+  'label', 'caption',
 ];
 
 export function normalizeBrief(brief) {
@@ -164,7 +169,8 @@ Document shape:
   "layouts": { "desktop": { elementId: Frame }, "tablet": { ... }, "mobile": { ... } },
   "protectedValues": [], "generatedAssets": [], "conversation": [], "generationMetadata": {}, "accessibility": {}, "currentVersionId": null
 }
-Element: { "id": string, "type": one of ${PHASE1_ELEMENT_TYPES.join('|')}, "role": "h1".."h6" (headings only), "content": {"text": string} or {"html": "<p>…</p>"}, "data": {"value","label"} (statistic only), "style": { allowlisted CSS }, "children": [Element] (container/group/card only) }
+Element: { "id": string, "type": one of ${PHASE1_ELEMENT_TYPES.join('|')}, "role": "h1".."h6" (headings only), "content": {"text": string} or {"html": "<p>…</p>"}, "data": { structured values — see infographic rules }, "style": { allowlisted CSS }, "children": [Element] (container/group/card/structured_infographic only), "imageBrief": ImageBrief (image/generated_illustration only) }
+ImageBrief: { "subject": string (required), "style": string, "placement": string, "palette": string, "avoid": string, "aspectRatio": "square"|"landscape"|"portrait", "accessibilityDescription": string (REQUIRED — this becomes the alt text), "focalPoint": {"x":0-100,"y":0-100} }
 Frame: { "mode": "flow"|"flex"|"grid"|"absolute", "x","y","w","h","minH","z" numbers or null, "visible": boolean, "flex": {"direction","gap","align"}, "grid": {"columns","gap"} }
 
 HARD RULES (a document breaking these is rejected):
@@ -173,7 +179,10 @@ HARD RULES (a document breaking these is rejected):
 - layouts.desktop MUST contain a frame for EVERY element (including children). tablet/mobile only override what differs — give genuinely different layouts per breakpoint (e.g. multi-column desktop → stacked mobile).
 - style keys ONLY from: ${[...CSS_PROPERTY_ALLOWLIST].join(', ')}.
 - backgroundImage may ONLY be a linear/radial/conic gradient. Never url(...). No !important, no var(), no javascript.
-- Do NOT include links (omit the "link" field entirely) and do NOT include images unless an asset id was explicitly provided (this run provides none — use shape/background/gradient visuals instead).
+- Do NOT include links (omit the "link" field entirely).
+- Images/illustrations: NEVER invent an asset id or URL. To request imagery, add an image or generated_illustration element carrying an "imageBrief" (a later stage generates the asset). Use imagery sparingly (at most 3 per composition) and always provide accessibilityDescription.
+- Factual content (statistics, chart values, comparisons, dates, prices) MUST be structured data rendered as text, NEVER described inside an imageBrief. statistic requires data {"value","label"}. simple_chart requires data {"items":[{"label","value"}]} (values as plain text/numbers). comparison_item requires data {"label", "value"} or {"items":[…]}. timeline_item/process_step carry content.text plus optional data {"step"|"date"}. structured_infographic is a container whose children are those factual elements.
+- imageBrief.textOverlay, if used at all, may be decorative words only — never numbers, dates or facts.
 - No <script>/<style>/<iframe>/event handlers anywhere. content.html may only use <p>, <strong>, <em>, <ul>, <li>, <br>, <span>.
 - Use the copy verbatim from the COPY input. Do not add or change wording.
 - Use the brand colours and fonts. Numbers must be plain numbers, not strings, in frames.`;

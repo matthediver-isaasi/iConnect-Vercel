@@ -26,6 +26,33 @@ import {
   runDocumentStage,
   assertAssetOwnership,
 } from '../_lib/aiCompositionPipeline.js';
+import {
+  collectImageBriefs,
+  collectAltTextFlags,
+  resolveCompositionAssets,
+  ASPECT_SIZES,
+} from '../_lib/aiCompositionImages.js';
+import { storeGeneratedAsset } from '../_lib/aiCompositionAssetStore.js';
+
+/** Provider image call — gpt-image-1 via the shared OpenAI client. */
+function makeGenerateImage(client) {
+  return async ({ prompt, aspectRatio }) => {
+    let result;
+    try {
+      result = await client.images.generate({
+        model: 'gpt-image-1',
+        prompt,
+        size: ASPECT_SIZES[aspectRatio] || ASPECT_SIZES.landscape,
+        n: 1,
+      });
+    } catch (err) {
+      throw new Error('Image generation failed — the image service was unavailable.');
+    }
+    const b64 = result?.data?.[0]?.b64_json;
+    if (!b64) throw new Error('Image generation returned no image.');
+    return { buffer: Buffer.from(b64, 'base64'), model: 'gpt-image-1' };
+  };
+}
 
 function getOpenAIClient() {
   const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
@@ -272,7 +299,8 @@ export default async function handler(req, res) {
         compositionType: state.compositionType,
         brief,
       });
-      // Asset ownership guard (Phase 1 docs normally reference no assets).
+      // Asset ownership guard: the model may never reference existing files
+      // (only imageBriefs), so any resolved id must belong to this tenant.
       await assertAssetOwnership(doc, tenantId, async (fileId) => {
         const { data } = await supabase
           .from('file_repository')
@@ -281,6 +309,52 @@ export default async function handler(req, res) {
           .maybeSingle();
         return data?.tenant_id || null;
       });
+
+      // Hand the validated document to the assets stage (persistence happens
+      // there so a mid-imagery timeout can resume without re-running the LLM).
+      await updateJob(job.id, tenantId, {
+        stage: 'assets',
+        state: { ...state, doc, attempts },
+      });
+      return res.status(200).json({ jobId: job.id, stage: 'assets', status: 'running', label: STAGE_LABELS.assets });
+    }
+
+    if (stage === 'assets') {
+      const baseDoc = state.doc;
+      if (!baseDoc) throw new Error('Generation state was lost — please start again.');
+      const attempts = state.attempts || 1;
+
+      // Generate outstanding imagery with PER-ASSET failure isolation: a
+      // failed image flags that one element and the run continues (spec §30).
+      let doc = baseDoc;
+      let assetResults = [];
+      if (collectImageBriefs(baseDoc).length > 0) {
+        const resolved = await resolveCompositionAssets({
+          doc: baseDoc,
+          brand: state.brand,
+          generateImage: makeGenerateImage(client),
+          storeAsset: (args) => storeGeneratedAsset({
+            tenantId,
+            memberId: context.memberId || null,
+            compositionId: job.composition_id || null,
+            elementId: args.elementId,
+            buffer: args.buffer,
+            prompt: args.prompt,
+            model: args.model,
+            aspectRatio: args.aspectRatio,
+            brief: args.brief,
+            cost: args.cost,
+          }),
+        });
+        doc = resolved.doc;
+        assetResults = resolved.results;
+      }
+      // Alt-text workflow: record flags on the document, never block the run.
+      const altFlags = collectAltTextFlags(doc);
+      doc.accessibility = { ...(doc.accessibility || {}), imageFlags: altFlags };
+      doc.generatedAssets = assetResults
+        .filter((r) => r.ok)
+        .map((r) => ({ elementId: r.elementId, fileRepositoryId: r.fileRepositoryId }));
 
       // Persist: composition row (create or reuse) + immutable version.
       let compositionId = job.composition_id;
@@ -318,9 +392,13 @@ export default async function handler(req, res) {
           validation_result: { ok: true, attempts },
           generation_metadata: {
             model: 'gpt-4o-mini',
+            imageModel: assetResults.length ? 'gpt-image-1' : undefined,
             creativity: options.creativity,
             mode: options.mode,
             attempts,
+            assetResults: assetResults.length
+              ? assetResults.map((r) => ({ elementId: r.elementId, ok: r.ok, error: r.error }))
+              : undefined,
           },
           created_by: context.memberId || null,
         })
@@ -342,14 +420,17 @@ export default async function handler(req, res) {
       await updateJob(job.id, tenantId, {
         status: 'complete',
         composition_id: compositionId,
-        state: { ...state, versionId: version.id },
+        // Drop the heavy doc from persisted state once the version exists.
+        state: { versionId: version.id },
       });
       return res.status(200).json({
         jobId: job.id,
-        stage: 'document',
+        stage: 'assets',
         status: 'complete',
         compositionId,
         versionId: version.id,
+        assetResults: assetResults.map((r) => ({ elementId: r.elementId, ok: r.ok, error: r.error || undefined })),
+        imageFlags: altFlags,
       });
     }
 

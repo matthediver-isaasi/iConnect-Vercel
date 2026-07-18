@@ -222,19 +222,91 @@ function validateStyle(style, path, errors) {
   }
 }
 
+/** Asset generation lifecycle states (Phase 3). `failed` keeps the element in
+ * the document — one failed image never discards the run (spec §30). */
+export const ASSET_STATUSES = ['ready', 'pending', 'failed'];
+
+function validateFocalPoint(fp, path, errors) {
+  if (fp === undefined) return;
+  if (!isPlainObject(fp)
+    || typeof fp.x !== 'number' || typeof fp.y !== 'number'
+    || fp.x < 0 || fp.x > 100 || fp.y < 0 || fp.y > 100) {
+    errors.push(`${path}: focalPoint must be { x, y } percentages 0–100`);
+  }
+}
+
 function validateAssetRef(asset, path, errors) {
   if (asset === undefined) return;
   if (!isPlainObject(asset)) {
     errors.push(`${path}: asset must be an object`);
     return;
   }
-  if (!isNonEmptyString(asset.fileRepositoryId)) {
+  if (asset.status !== undefined && !ASSET_STATUSES.includes(asset.status)) {
+    errors.push(`${path}: unknown asset status "${asset.status}"`);
+  }
+  const pendingOrFailed = asset.status === 'pending' || asset.status === 'failed';
+  if (!pendingOrFailed && !isNonEmptyString(asset.fileRepositoryId)) {
     errors.push(`${path}: asset.fileRepositoryId is required`);
   }
   if (asset.altText !== undefined && typeof asset.altText !== 'string') {
     errors.push(`${path}: asset.altText must be a string`);
   }
+  validateFocalPoint(asset.focalPoint, `${path}.focalPoint`, errors);
+  if (asset.crop !== undefined) {
+    if (!isPlainObject(asset.crop)) {
+      errors.push(`${path}: asset.crop must be an object`);
+    } else if (asset.crop.aspectRatio !== undefined
+      && !/^\d+(\.\d+)?\s*\/\s*\d+(\.\d+)?$/.test(String(asset.crop.aspectRatio))) {
+      errors.push(`${path}: asset.crop.aspectRatio must look like "16 / 9"`);
+    }
+  }
+  if (asset.mobile !== undefined) {
+    if (!isPlainObject(asset.mobile) || !isNonEmptyString(asset.mobile.fileRepositoryId)) {
+      errors.push(`${path}: asset.mobile requires fileRepositoryId`);
+    }
+  }
 }
+
+/** Structured image-generation brief (spec §19). Carried on image /
+ * generated_illustration elements until the asset stage resolves them. */
+export const IMAGE_BRIEF_STRING_FIELDS = [
+  'subject', 'style', 'placement', 'palette', 'avoid',
+  'accessibilityDescription', 'mobileCrop',
+];
+
+export function validateImageBrief(brief, path, errors) {
+  if (brief === undefined) return;
+  if (!isPlainObject(brief)) {
+    errors.push(`${path}: imageBrief must be an object`);
+    return;
+  }
+  if (!isNonEmptyString(brief.subject)) {
+    errors.push(`${path}: imageBrief.subject is required`);
+  }
+  for (const key of IMAGE_BRIEF_STRING_FIELDS) {
+    if (brief[key] !== undefined && typeof brief[key] !== 'string') {
+      errors.push(`${path}: imageBrief.${key} must be a string`);
+    }
+  }
+  if (brief.aspectRatio !== undefined
+    && !/^(square|landscape|portrait)$/.test(String(brief.aspectRatio))) {
+    errors.push(`${path}: imageBrief.aspectRatio must be square, landscape or portrait`);
+  }
+  validateFocalPoint(brief.focalPoint, `${path}.focalPoint`, errors);
+  // Spec §19/§20 factual-text rule: essential/factual text is never rendered
+  // inside generated raster imagery. Text overlays may be decorative only.
+  if (brief.textOverlay !== undefined) {
+    if (typeof brief.textOverlay !== 'string') {
+      errors.push(`${path}: imageBrief.textOverlay must be a string`);
+    } else if (/\d/.test(brief.textOverlay)) {
+      errors.push(`${path}: imageBrief.textOverlay must not contain numbers or factual values — render those as real text elements`);
+    }
+  }
+}
+
+/** Element types whose values are factual and must stay structured text
+ * (spec §20) — never delegated to generated raster imagery. */
+export const FACTUAL_ELEMENT_TYPES = ['statistic', 'simple_chart', 'comparison_item'];
 
 function validateElement(el, path, ctx) {
   const { errors, elementIds } = ctx;
@@ -264,9 +336,29 @@ function validateElement(el, path, ctx) {
   }
   if (el.link !== undefined) validateLinkRef(el.link, `${path}.link`, errors);
   validateAssetRef(el.asset, `${path}.asset`, errors);
+  validateImageBrief(el.imageBrief, `${path}.imageBrief`, errors);
   validateStyle(el.style, `${path}.style`, errors);
-  if ((el.type === 'image' || el.type === 'generated_illustration') && !isPlainObject(el.asset)) {
-    errors.push(`${path}: ${el.type} requires an asset reference`);
+  if ((el.type === 'image' || el.type === 'generated_illustration')
+    && !isPlainObject(el.asset) && !isPlainObject(el.imageBrief)) {
+    errors.push(`${path}: ${el.type} requires an asset reference or an imageBrief`);
+  }
+  // Factual-text rule (spec §20): factual element types must carry structured
+  // data rendered as real text/SVG — they may never delegate their values to
+  // a generated raster image.
+  if (FACTUAL_ELEMENT_TYPES.includes(el.type)) {
+    if (el.imageBrief !== undefined || isPlainObject(el.asset)) {
+      errors.push(`${path}: ${el.type} is factual — values must be structured data, never a generated image`);
+    }
+    if (!isPlainObject(el.data)) {
+      errors.push(`${path}: ${el.type} requires a structured data object`);
+    } else if (el.type === 'statistic' && el.data.value === undefined) {
+      errors.push(`${path}: statistic requires data.value`);
+    } else if (el.type === 'simple_chart') {
+      const series = el.data.items || el.data.series || el.data.points;
+      if (!Array.isArray(series) || series.length === 0) {
+        errors.push(`${path}: simple_chart requires a data.items array of structured values`);
+      }
+    }
   }
   if (el.type === 'svg_decorative') {
     const svg = el.svg || {};

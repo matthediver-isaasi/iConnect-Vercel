@@ -94,3 +94,4 @@
 - [Aspect-carousel reflow reference](canvas-aspect-carousel-reflow.md) — public signed reflow must use the aspect-derived height at the stage width, not stored geom h; signed rows get a small push-slack.
 - [Canvas reflow font baseline](canvas-reflow-font-baseline.md) — public-path measurement-derived state must stay provisional until fonts.ready + double rAF, or fallback-font heights lock in phantom gaps.
 - [AI Composition prompt-led editing](ai-composition-editing.md) — proposals stored server-side and re-applied against current doc; redesigns=alternatives; links are record IDs w/ slug snapshot; breakpoint isolation checked twice.
+- [AI Composition generated imagery](ai-composition-images.md) — factual elements never carry images; failed assets keep their brief for retry; crop/focal are merge ops; crop aspect is "16 / 9" not "16:9".

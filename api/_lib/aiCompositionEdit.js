@@ -36,7 +36,7 @@ import {
 export const MAX_INSTRUCTION_CHARS = 1500;
 export const MAX_EDIT_RETRIES = 2; // total attempts = 1 + retries
 
-export const EDIT_KINDS = ['patch', 'section_redesign', 'composition_redesign', 'link_request'];
+export const EDIT_KINDS = ['patch', 'section_redesign', 'composition_redesign', 'link_request', 'image_request'];
 export const EDIT_BREAKPOINT_SCOPES = ['all', 'desktop', 'tablet', 'mobile'];
 
 const EDIT_ELEMENT_TYPES = [
@@ -170,6 +170,10 @@ Section: { "id": unique, "type": "ai_section", "readingOrder": [top-level elemen
 
 4. The instruction asks to link something to an internal destination (a page, event, form, document or membership tier) that you cannot identify by an exact record ID already present in the document:
 { "mode": "link_request", "elementId": "<selected or named element>", "query": "<short search phrase for the destination>", "summary": "..." }
+
+5. The instruction asks to add, generate, regenerate or change an IMAGE or illustration (its picture content — not its size/position/style):
+{ "mode": "image_request", "elementId": "<existing image element id, or omit to add a new one>", "brief": { "subject": string, "style": string, "placement": string, "aspectRatio": "square"|"landscape"|"portrait", "accessibilityDescription": string, "avoid": string }, "summary": "..." }
+NEVER invent asset ids or image URLs — image generation happens in a separate step from your brief.
 NEVER invent internal IDs or URLs. Internal links are record IDs chosen by the user. You may only emit update_link for kinds "external" (a real http(s) URL given by the user), "email", "tel" or "anchor" — link object: { "kind": ${LINK_KINDS.join('|')}, ... }.
 
 HARD RULES:
@@ -331,6 +335,27 @@ export async function runEditProposal({
         summary: String(out.summary || 'Choose a destination for this link.'),
         elementId,
         query: String(out.query || instruction).slice(0, 200),
+      };
+    }
+
+    if (out.mode === 'image_request') {
+      // Image workflow step 1: hand back a structured brief; the actual
+      // generation happens deterministically via the images endpoint.
+      const elementId = String(out.elementId || (target.type === 'element' ? target.elementId : '') || '');
+      if (elementId && !findElement(doc, elementId)) {
+        lastErrors = ['image_request elementId must reference an existing element (or be omitted)'];
+        continue;
+      }
+      const brief = (out.brief && typeof out.brief === 'object' && !Array.isArray(out.brief)) ? out.brief : null;
+      if (!brief || !String(brief.subject || '').trim()) {
+        lastErrors = ['image_request requires a brief with a subject'];
+        continue;
+      }
+      return {
+        kind: 'image_request',
+        summary: String(out.summary || 'Generate an image from this brief.'),
+        elementId: elementId || null,
+        brief,
       };
     }
 

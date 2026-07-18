@@ -392,6 +392,7 @@ export function FileRepositoryPicker({
 
   const emit = (file) => {
     onSelect?.({
+      id: file.id,
       url: file.file_url,
       name: file.file_name,
       mime_type: file.mime_type,

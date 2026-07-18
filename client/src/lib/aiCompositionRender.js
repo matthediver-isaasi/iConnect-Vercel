@@ -174,6 +174,17 @@ export function buildAicCss(doc, instanceId) {
 
   // Root + section shells.
   rules.push(`${scope}{position:relative;width:100%;}`);
+  // Phase 3 structural prelude: image placeholders + HTML-text chart rows
+  // (factual values are always real text, never rasterised into images).
+  rules.push(
+    `${scope} .aic-img-placeholder{background:rgba(127,127,127,0.12);border:1px dashed rgba(127,127,127,0.4);border-radius:4px;min-height:60px;}`,
+    `${scope} .aic-chart-row{display:flex;align-items:center;gap:8px;margin:4px 0;}`,
+    `${scope} .aic-chart-label{flex:0 0 auto;min-width:80px;}`,
+    `${scope} .aic-chart-bar{display:block;height:10px;border-radius:5px;background:currentColor;opacity:0.55;min-width:2px;}`,
+    `${scope} .aic-chart-value{flex:0 0 auto;font-variant-numeric:tabular-nums;}`,
+    `${scope} .aic-step-marker{display:inline-block;margin-right:8px;font-weight:600;}`,
+    `${scope} .aic-step-desc{display:block;opacity:0.8;}`,
+  );
   for (const section of doc?.sections || []) {
     const sid = cssSafe(section.id);
     const decls = styleDecls(section.style);

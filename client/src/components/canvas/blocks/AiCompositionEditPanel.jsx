@@ -17,7 +17,8 @@ import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Sparkles, Loader2, Check, X, Undo2, ChevronRight, ChevronDown,
-  Link2, MessageSquare, AlertTriangle,
+  Link2, MessageSquare, AlertTriangle, Image as ImageIcon, RefreshCw,
+  Crop, Crosshair, Smartphone, Replace,
 } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -161,6 +162,8 @@ export default function AiCompositionEditPanel({ compositionId }) {
   const [error, setError] = useState(null);
   const [proposal, setProposal] = useState(null); // { conversationId, kind, summary, warnings, previewDocument, isAlternative }
   const [destRequest, setDestRequest] = useState(null); // { elementId, query, candidates, summary }
+  const [imageRequest, setImageRequest] = useState(null); // { elementId, brief, summary }
+  const [imageNotice, setImageNotice] = useState(null);
   const [confirmProtected, setConfirmProtected] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
 
@@ -203,6 +206,10 @@ export default function AiCompositionEditPanel({ compositionId }) {
       if (resp.status === 'needs_destination') {
         setDestRequest(resp);
         setProposal(null);
+      } else if (resp.status === 'needs_image') {
+        setImageRequest(resp);
+        setProposal(null);
+        setDestRequest(null);
       } else {
         setProposal(resp);
         setDestRequest(null);
@@ -279,6 +286,65 @@ export default function AiCompositionEditPanel({ compositionId }) {
     });
   };
 
+  // ---- Phase 3: in-composition image actions -----------------------------
+  const selectedElement = useMemo(() => {
+    if (target?.type !== 'element' || !doc) return null;
+    let found = null;
+    const walk = (els) => {
+      for (const el of els || []) {
+        if (el?.id === target.elementId) { found = el; return; }
+        if (Array.isArray(el?.children)) walk(el.children);
+        if (found) return;
+      }
+    };
+    for (const s of doc.sections || []) { walk(s.elements); if (found) break; }
+    return found;
+  }, [target, doc]);
+  const isImageTarget = !!selectedElement
+    && ['image', 'generated_illustration'].includes(selectedElement.type);
+
+  const imageAction = async (action, extra = {}) => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    setImageNotice(null);
+    try {
+      const resp = await aicFetch('/api/ai-compositions/images', {
+        method: 'POST',
+        body: JSON.stringify({
+          action,
+          compositionId,
+          elementId: extra.elementId || target.elementId,
+          ...extra,
+        }),
+      });
+      setImageRequest(null);
+      invalidate();
+      if (resp.altTextMissing) {
+        setImageNotice('The image was updated, but it has no alt text yet — add a description so screen readers can announce it.');
+      } else {
+        setImageNotice('The image was updated.');
+      }
+    } catch (err) {
+      setError(err.message || 'The image action failed. Nothing was changed.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openReplacePicker = () => {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new CustomEvent('canvas:open-file-repository', {
+      detail: {
+        kind: 'image',
+        title: 'Replace this image',
+        onPick: (asset) => {
+          if (asset?.id) imageAction('replace', { fileRepositoryId: asset.id });
+        },
+      },
+    }));
+  };
+
   const warnings = proposal?.warnings || [];
 
   return (
@@ -347,6 +413,82 @@ export default function AiCompositionEditPanel({ compositionId }) {
       </div>
 
       {error && <p className="text-xs text-destructive" data-testid="text-aic-edit-error">{error}</p>}
+      {imageNotice && <p className="text-xs text-muted-foreground" data-testid="text-aic-image-notice">{imageNotice}</p>}
+
+      {isImageTarget && (
+        <div className="space-y-2 rounded-md border border-border p-2">
+          <div className="flex items-center gap-1 text-xs font-medium">
+            <ImageIcon className="h-3 w-3" /> Image actions
+          </div>
+          {selectedElement?.asset?.status === 'failed' && (
+            <p className="text-xs text-warning">This image failed to generate — you can retry below.</p>
+          )}
+          <div className="flex flex-wrap gap-1">
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => imageAction(selectedElement?.asset?.url ? 'regenerate' : 'generate')} data-testid="button-aic-img-regenerate">
+              <RefreshCw className="mr-1 h-3 w-3" /> {selectedElement?.asset?.url ? 'Regenerate' : 'Generate'}
+            </Button>
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => imageAction('alternative')} data-testid="button-aic-img-alternative">
+              <Sparkles className="mr-1 h-3 w-3" /> Alternative
+            </Button>
+            <Button size="sm" variant="outline" disabled={busy} onClick={openReplacePicker} data-testid="button-aic-img-replace">
+              <Replace className="mr-1 h-3 w-3" /> Replace…
+            </Button>
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => imageAction('simplify_mobile')} data-testid="button-aic-img-mobile">
+              <Smartphone className="mr-1 h-3 w-3" /> Simplify for mobile
+            </Button>
+          </div>
+          <div className="flex flex-wrap items-center gap-1">
+            <span className="flex items-center gap-1 text-xs text-muted-foreground"><Crop className="h-3 w-3" /> Crop:</span>
+            {[['1:1', '1 / 1'], ['16:9', '16 / 9'], ['4:3', '4 / 3'], ['3:4', '3 / 4']].map(([label, ar]) => (
+              <Button key={label} size="sm" variant="ghost" disabled={busy} onClick={() => imageAction('crop', { crop: { aspectRatio: ar } })} data-testid={`button-aic-img-crop-${label.replace(':', 'x')}`}>
+                {label}
+              </Button>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-1">
+            <span className="flex items-center gap-1 text-xs text-muted-foreground"><Crosshair className="h-3 w-3" /> Focus:</span>
+            {[
+              ['Centre', 50, 50], ['Top', 50, 20], ['Bottom', 50, 80], ['Left', 20, 50], ['Right', 80, 50],
+            ].map(([label, x, y]) => (
+              <Button key={label} size="sm" variant="ghost" disabled={busy} onClick={() => imageAction('focal', { focalPoint: { x, y } })} data-testid={`button-aic-img-focal-${String(label).toLowerCase()}`}>
+                {label}
+              </Button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {imageRequest && (
+        <div className="space-y-2 rounded-md border border-border p-2">
+          <div className="flex items-center gap-1 text-xs font-medium">
+            <ImageIcon className="h-3 w-3" /> Generate this image?
+          </div>
+          <p className="text-xs" data-testid="text-aic-image-brief">
+            {imageRequest.summary || 'The AI proposed an image.'}
+            {imageRequest.brief?.subject ? ` Subject: ${imageRequest.brief.subject}.` : ''}
+            {imageRequest.brief?.style ? ` Style: ${imageRequest.brief.style}.` : ''}
+          </p>
+          {!imageRequest.elementId && (
+            <p className="text-xs text-muted-foreground">
+              Select the image element to update, then generate. (Adding brand-new image elements happens through a redesign.)
+            </p>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              disabled={busy || (!imageRequest.elementId && !isImageTarget)}
+              onClick={() => imageAction('generate', {
+                elementId: imageRequest.elementId || target.elementId,
+                brief: imageRequest.brief,
+              })}
+              data-testid="button-aic-image-generate"
+            >
+              <Check className="mr-1 h-4 w-4" /> Generate image
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setImageRequest(null)} data-testid="button-aic-image-cancel">Cancel</Button>
+          </div>
+        </div>
+      )}
 
       {destRequest && (
         <div className="space-y-2 rounded-md border border-border p-2">
