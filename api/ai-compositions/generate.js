@@ -42,7 +42,7 @@ import {
   resolveCompositionAssets,
   ASPECT_SIZES,
 } from '../_lib/aiCompositionImages.js';
-import { storeGeneratedAsset } from '../_lib/aiCompositionAssetStore.js';
+import { storeGeneratedAsset, tenantPublicAssetPrefix } from '../_lib/aiCompositionAssetStore.js';
 import { loadStudioSettings, buildGuidanceSummary } from '../_lib/aiDesignStudioSettings.js';
 import { checkAiUsageAllowance, recordAiUsageEvent } from '../_lib/aiUsage.js';
 import { runCompositionValidation } from '../_lib/aiCompositionValidation.js';
@@ -75,14 +75,22 @@ function getOpenAIClient() {
 }
 
 function makeCallLlm(client) {
-  return async ({ system, user, maxTokens }) => {
+  return async ({ system, user, maxTokens, images }) => {
+    // Style-reference screenshots ride along as vision inputs (Task #2873).
+    // Text-only calls keep the plain string content exactly as before.
+    const userContent = Array.isArray(images) && images.length
+      ? [
+          { type: 'text', text: user },
+          ...images.map((url) => ({ type: 'image_url', image_url: { url, detail: 'low' } })),
+        ]
+      : user;
     let completion;
     try {
       completion = await client.chat.completions.create({
         model: 'gpt-4o-mini',
         messages: [
           { role: 'system', content: system },
-          { role: 'user', content: user },
+          { role: 'user', content: userContent },
         ],
         response_format: { type: 'json_object' },
         temperature: 0.4,
@@ -263,7 +271,7 @@ export default async function handler(req, res) {
   } else {
     const brief = normalizeBrief(body.brief);
     if (!brief) return res.status(400).json({ error: 'A brief is required' });
-    const options = normalizeOptions(body);
+    const options = normalizeOptions(body, { screenshotPrefix: tenantPublicAssetPrefix(tenantId) });
 
     // ---- Governance gate (Phase 4, spec §27/§28) --------------------------
     const studioSettings = await loadStudioSettings(supabase, tenantId);
@@ -332,7 +340,7 @@ export default async function handler(req, res) {
     job = created;
   }
 
-  const options = normalizeOptions(job.options || {});
+  const options = normalizeOptions(job.options || {}, { screenshotPrefix: tenantPublicAssetPrefix(tenantId) });
   const brief = job.brief;
   const state = job.state || {};
   const stage = job.stage;
@@ -430,6 +438,7 @@ export default async function handler(req, res) {
         brand: state.brand,
         compositionType: state.compositionType,
         brief,
+        styleReference: options.styleReference || null,
         attempt: attemptIndex,
         lastErrors: state.documentErrors || [],
       });
@@ -612,6 +621,8 @@ export default async function handler(req, res) {
             creativity: options.creativity,
             mode: options.mode,
             attempts,
+            // Style reference (Task #2873): stored for audit/regeneration.
+            styleReference: options.styleReference || undefined,
             // Phase 5: page-level SEO suggestion (applied to i_edit_page by
             // the client with the author's consent — never silently).
             seo: seoSuggestion,

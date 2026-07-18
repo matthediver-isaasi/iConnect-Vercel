@@ -26,6 +26,7 @@ import AiCompositionRenderer from '../AiCompositionRenderer';
 import AiCompositionEditPanel from './AiCompositionEditPanel';
 import { resolveDraftAfterGeneration, isDiscardableDraft } from '@/lib/aiCompositionRender';
 import { AdvancedBriefFields, PlanReviewPanel, EMPTY_ADVANCED_BRIEF, advancedBriefToBody } from '../AiPageBrief';
+import StyleReferencePicker from '../StyleReferencePicker';
 import { useReportReflowHeight } from '../AccordionReflowContext';
 import { getTenantSlugFromLocation } from '@/api/publicClient';
 
@@ -306,6 +307,8 @@ export function AiCompositionInspector({ block, update, pageId }) {
   // Phase 5 advanced brief (collapsed by default — simple briefs stay simple).
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [adv, setAdv] = useState(EMPTY_ADVANCED_BRIEF);
+  // Style reference (Task #2873): null = no reference, generation unchanged.
+  const [styleReference, setStyleReference] = useState(null);
 
   const gen = useGenerationLoop({
     onComplete: (compositionId) => {
@@ -327,6 +330,7 @@ export function AiCompositionInspector({ block, update, pageId }) {
       mode: mode === 'auto' ? undefined : mode,
       direction: direction || undefined,
       creativity,
+      ...(styleReference ? { styleReference } : {}),
       ...(advancedOpen ? advancedBriefToBody(adv) : {}),
       // Regenerating an inserted composition adds a version to it; a pending
       // draft is regenerated in place too.
@@ -397,6 +401,13 @@ export function AiCompositionInspector({ block, update, pageId }) {
           </SelectContent>
         </Select>
       </div>
+
+      <StyleReferencePicker
+        value={styleReference}
+        onChange={setStyleReference}
+        idPrefix={`aic-styleref-${block.id}`}
+        disabled={gen.running}
+      />
 
       <Button
         size="sm"

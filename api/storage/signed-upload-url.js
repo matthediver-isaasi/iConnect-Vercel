@@ -201,6 +201,15 @@ export default async function handler(req, res) {
       }
     }
 
+    // Style-reference screenshots (AI generation) are fed to a vision LLM —
+    // raster images only, no SVG (scriptable).
+    if (uploadType === 'style-reference') {
+      const ALLOWED_SCREENSHOT_MIMES = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+      if (!mimeType || !ALLOWED_SCREENSHOT_MIMES.includes(mimeType.toLowerCase())) {
+        return res.status(400).json({ error: 'Only JPEG, PNG, GIF or WebP screenshots are allowed for style references' });
+      }
+    }
+
     if (!fileSize || typeof fileSize !== 'number') {
       return res.status(400).json({ error: 'fileSize is required and must be a number' });
     }

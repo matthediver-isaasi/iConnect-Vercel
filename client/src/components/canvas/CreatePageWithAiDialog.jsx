@@ -31,6 +31,7 @@ import {
 import { Loader2, Sparkles } from 'lucide-react';
 import { createEmptyCanvasDesign, BLOCK_TYPES, BLOCK_DEFAULTS } from '@/lib/canvasDesign';
 import { AdvancedBriefFields, PlanReviewPanel, EMPTY_ADVANCED_BRIEF, advancedBriefToBody } from './AiPageBrief';
+import StyleReferencePicker from './StyleReferencePicker';
 import { useGenerationLoop } from './blocks/AiCompositionBlock';
 
 function slugify(s) {
@@ -67,12 +68,14 @@ export default function CreatePageWithAiDialog({ open, onOpenChange }) {
   const [seo, setSeo] = useState(null);
   const [applySeo, setApplySeo] = useState(true);
   const [creating, setCreating] = useState(false);
+  // Style reference (Task #2873): null = no reference, generation unchanged.
+  const [styleReference, setStyleReference] = useState(null);
 
   const reset = () => {
     setTitle(''); setSlug(''); setSlugTouched(false); setLayoutType('public');
     setBrief(''); setDirection(''); setCreativity('brand_led');
     setAdv({ ...EMPTY_ADVANCED_BRIEF, reviewPlan: true, generateSeo: true });
-    setSeo(null); setApplySeo(true); setCreating(false);
+    setSeo(null); setApplySeo(true); setCreating(false); setStyleReference(null);
   };
 
   const createPage = async (compositionId, seoSuggestion) => {
@@ -130,6 +133,7 @@ export default function CreatePageWithAiDialog({ open, onOpenChange }) {
       mode: 'whole_page',
       direction: direction || undefined,
       creativity,
+      ...(styleReference ? { styleReference } : {}),
       ...advancedBriefToBody(adv),
     });
   };
@@ -186,6 +190,13 @@ export default function CreatePageWithAiDialog({ open, onOpenChange }) {
               data-testid="input-ai-page-brief"
             />
           </div>
+
+          <StyleReferencePicker
+            value={styleReference}
+            onChange={setStyleReference}
+            idPrefix="ai-page-styleref"
+            disabled={busy}
+          />
 
           <AdvancedBriefFields value={adv} onChange={setAdv} idPrefix="ai-page" />
 

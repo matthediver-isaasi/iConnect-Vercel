@@ -96,3 +96,4 @@
 - [AI Composition prompt-led editing](ai-composition-editing.md) — proposals stored server-side and re-applied against current doc; redesigns=alternatives; links are record IDs w/ slug snapshot; breakpoint isolation checked twice.
 - [AI Composition generated imagery](ai-composition-images.md) — factual elements never carry images; failed assets keep their brief for retry; crop/focal are merge ops; crop aspect is "16 / 9" not "16:9".
 - [AI Composition Phase 5 page workflow](ai-composition-phase5.md) — plan-review pause, server-verified records only in prompts, placeholder→real-block mapping, SEO by consent.
+- [AI generation style reference](ai-style-reference.md) — no-reference generation must stay byte-identical; screenshots trusted only under tenant asset prefix; branding/content always beat the reference.

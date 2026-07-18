@@ -19,6 +19,17 @@ import { addTenantStorageBytes } from './tenantStorageUsage.js';
 
 const BUCKET = 'public-assets';
 
+/**
+ * The tenant's public-assets URL prefix. Used as the ownership boundary for
+ * style-reference screenshots (Task #2873): only URLs under this prefix are
+ * ever accepted into prompts.
+ */
+export function tenantPublicAssetPrefix(tenantId) {
+  if (!supabase || !tenantId) return null;
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(`${tenantId}/`);
+  return data?.publicUrl || null;
+}
+
 export async function storeGeneratedAsset({
   tenantId,
   memberId = null,

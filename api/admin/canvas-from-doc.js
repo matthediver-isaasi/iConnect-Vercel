@@ -26,6 +26,7 @@ import OpenAI from 'openai';
 import JSZip from 'jszip';
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasFeatureAccess } from '../_lib/tenantContext.js';
+import { normalizeDesignDna } from '../_lib/styleReference.js';
 import { buildNeutralDesign, buildDesign, extractThemeFromDesign, CONTENT_W } from '../_lib/canvasLayoutEngine.js';
 
 const MAX_DOC_CHARS = 12000;
@@ -284,12 +285,27 @@ Formatting (structure only, never changes wording):
 - Pick the section "type" that best fits (FAQ-like -> accordion, short repeated items -> cards, side-by-side -> columns, otherwise text). When in doubt, use "text".
 - Do NOT include icons, images, colors, sizes, heights, or positions.`;
 
-async function generateSpec(client, docText, fallbackTitle) {
+// Style reference (Task #2873): the Design DNA may ONLY nudge section-type
+// choices (layout classification). It must never affect wording, so the
+// fidelity rules above stay authoritative and isSpecFaithful still gates.
+function styleHintForSpec(designDna) {
+  if (!designDna) return '';
+  const parts = [];
+  if (designDna.composition) parts.push(`composition: ${designDna.composition}`);
+  if (designDna.layoutRhythm) parts.push(`layout rhythm: ${designDna.layoutRhythm}`);
+  if (designDna.sectionTransitions) parts.push(`section flow: ${designDna.sectionTransitions}`);
+  if (!parts.length) return '';
+  return `\n\nSTYLE PREFERENCE (affects ONLY which section "type" you pick — NEVER the text, which stays verbatim):
+The admin supplied a visual style reference described as — ${parts.join('; ')}.
+Where the document's content genuinely fits, lean towards section types that echo that rhythm (e.g. cards/columns for a modular grid feel, text for editorial flow). All fidelity rules above still apply unchanged.`;
+}
+
+async function generateSpec(client, docText, fallbackTitle, designDna = null) {
   const userPrompt = `Document title (best guess): ${fallbackTitle || '(unknown)'}\n\nDocument content (copy this text VERBATIM):\n"""\n${docText}\n"""`;
   const completion = await client.chat.completions.create({
     model: 'gpt-4o-mini',
     messages: [
-      { role: 'system', content: SPEC_SYSTEM_PROMPT },
+      { role: 'system', content: SPEC_SYSTEM_PROMPT + styleHintForSpec(designDna) },
       { role: 'user', content: userPrompt },
     ],
     response_format: { type: 'json_object' },
@@ -646,9 +662,13 @@ export default async function handler(req, res) {
     // process in one request, so their full text is never silently truncated.
     let spec;
     let faithfulLayout = 'plain';
+    // Style reference (Task #2873): layout-only hint. Only the analysed
+    // Design DNA is used here (no screenshots — this endpoint's model call
+    // must stay text-only and verbatim-gated).
+    const styleDna = normalizeDesignDna(body.styleReference?.designDna);
     if (docText.length <= MAX_DOC_CHARS) {
       try {
-        const rawSpec = await generateSpec(client, docText, fallbackTitle);
+        const rawSpec = await generateSpec(client, docText, fallbackTitle, styleDna);
         const candidate = sanitizeSpec(rawSpec, fallbackTitle);
         if (isSpecFaithful(candidate, docText)) {
           spec = candidate;
