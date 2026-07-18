@@ -362,6 +362,130 @@ test('repairComposition refuses to hoist beyond the per-section cap', () => {
   assert.equal(validateComposition(repaired).ok, false);
 });
 
+// --- style repairs (Task #2898: alias renames + value-shape coercion) ------
+
+test('repairComposition repairs the five style errors from failed prod job d9438f6e', () => {
+  const doc = clone(SECTION_EXAMPLE);
+  doc.sections[0].elements[3].style = {
+    textColor: '#ffffff',
+    background: '#1a2b3c',
+    radius: '8px',
+    border: { width: 1, style: 'solid', color: '#dddddd' },
+    padding: { top: 8, right: 12, bottom: 8, left: 12 },
+  };
+  // Sanity: fails before repair with allowlist + object-shape errors.
+  const before = validateComposition(clone(doc));
+  assert.equal(before.ok, false);
+  assert.ok(before.errors.some((e) => e.includes('"textColor"')));
+  assert.ok(before.errors.some((e) => e.includes('"border"') && e.includes('object value must be')));
+
+  const { doc: repaired, repairs } = repairComposition(doc);
+  const style = repaired.sections[0].elements[3].style;
+  assert.equal(style.color, '#ffffff');
+  assert.equal(style.backgroundColor, '#1a2b3c');
+  assert.equal(style.borderRadius, '8px');
+  assert.equal(style.border, '1px solid #dddddd');
+  assert.equal(style.padding, '8px 12px 8px 12px');
+  assert.equal(style.textColor, undefined);
+  assert.equal(style.background, undefined);
+  assert.equal(style.radius, undefined);
+  assert.ok(repairs.length >= 5);
+  assert.deepEqual(validateComposition(repaired).errors, []);
+});
+
+test('repairComposition renames each known style alias', () => {
+  const doc = clone(SECTION_EXAMPLE);
+  doc.sections[0].elements[0].style = {
+    textColor: '#111', bgColor: '#eee', cornerRadius: '4px', align: 'center',
+  };
+  const { doc: repaired } = repairComposition(doc);
+  const style = repaired.sections[0].elements[0].style;
+  assert.deepEqual(style, {
+    color: '#111', backgroundColor: '#eee', borderRadius: '4px', textAlign: 'center',
+  });
+  assert.deepEqual(validateComposition(repaired).errors, []);
+});
+
+test('repairComposition routes background gradients to backgroundImage', () => {
+  const doc = clone(SECTION_EXAMPLE);
+  doc.sections[0].elements[0].style = { background: 'linear-gradient(180deg, #fff, #000)' };
+  const { doc: repaired } = repairComposition(doc);
+  assert.equal(repaired.sections[0].elements[0].style.backgroundImage, 'linear-gradient(180deg, #fff, #000)');
+  assert.deepEqual(validateComposition(repaired).errors, []);
+});
+
+test('repairComposition drops an alias when the real property already exists (never overwrites)', () => {
+  const doc = clone(SECTION_EXAMPLE);
+  doc.sections[0].elements[0].style = { color: '#222', textColor: '#999' };
+  const { doc: repaired, repairs } = repairComposition(doc);
+  assert.equal(repaired.sections[0].elements[0].style.color, '#222');
+  assert.equal(repaired.sections[0].elements[0].style.textColor, undefined);
+  assert.ok(repairs.some((r) => r.includes('dropped duplicate alias "textColor"')));
+  assert.deepEqual(validateComposition(repaired).errors, []);
+});
+
+test('repairComposition coerces string-in-object sizes into { value, unit }', () => {
+  const doc = clone(SECTION_EXAMPLE);
+  doc.sections[0].elements[0].style = {
+    fontSize: { value: '32px' },
+    gap: { value: '1.5', unit: 'rem' }, // numeric string + valid unit: already validator-valid
+    letterSpacing: { value: '2%' },
+  };
+  const { doc: repaired } = repairComposition(doc);
+  const style = repaired.sections[0].elements[0].style;
+  assert.deepEqual(style.fontSize, { value: 32, unit: 'px' });
+  assert.deepEqual(style.gap, { value: '1.5', unit: 'rem' });
+  assert.deepEqual(style.letterSpacing, { value: 2, unit: '%' });
+  assert.deepEqual(validateComposition(repaired).errors, []);
+});
+
+test('repairComposition repairs styles on nested children too', () => {
+  const doc = clone(WHOLE_PAGE_EXAMPLE);
+  const card = doc.sections[1].elements[1].children[0];
+  card.children[0].style = { textColor: '#333' };
+  const { doc: repaired } = repairComposition(doc);
+  assert.equal(repaired.sections[1].elements[1].children[0].children[0].style.color, '#333');
+  assert.deepEqual(validateComposition(repaired).errors, []);
+});
+
+test('repairComposition leaves genuinely invalid styles for the validator to reject', () => {
+  // Unknown property with no alias.
+  const doc = clone(SECTION_EXAMPLE);
+  doc.sections[0].elements[0].style = { position: 'fixed' };
+  const { doc: r1, repairs: rep1 } = repairComposition(doc);
+  assert.deepEqual(rep1, []);
+  assert.equal(validateComposition(r1).ok, false);
+
+  // Unsafe value survives no alias-rename (background with url()).
+  const doc2 = clone(SECTION_EXAMPLE);
+  doc2.sections[0].elements[0].style = { background: 'url(https://evil.example/x.png)' };
+  const { doc: r2 } = repairComposition(doc2);
+  assert.equal(r2.sections[0].elements[0].style.background, 'url(https://evil.example/x.png)');
+  assert.equal(validateComposition(r2).ok, false);
+
+  // Uninterpretable object value stays broken.
+  const doc3 = clone(SECTION_EXAMPLE);
+  doc3.sections[0].elements[0].style = { fontSize: { value: 'big', unit: 'px' } };
+  const { doc: r3 } = repairComposition(doc3);
+  assert.equal(validateComposition(r3).ok, false);
+
+  // Border object smuggling declaration delimiters is never assembled.
+  const doc5 = clone(SECTION_EXAMPLE);
+  doc5.sections[0].elements[0].style = {
+    border: { width: 1, style: 'solid; behavior: url(#default#x)', color: '#fff' },
+  };
+  const { doc: r5 } = repairComposition(doc5);
+  assert.deepEqual(r5.sections[0].elements[0].style.border,
+    { width: 1, style: 'solid; behavior: url(#default#x)', color: '#fff' });
+  assert.equal(validateComposition(r5).ok, false);
+
+  // Unit mismatch between string and declared unit is ambiguous — untouched.
+  const doc4 = clone(SECTION_EXAMPLE);
+  doc4.sections[0].elements[0].style = { fontSize: { value: '32px', unit: 'rem' } };
+  const { doc: r4 } = repairComposition(doc4);
+  assert.equal(validateComposition(r4).ok, false);
+});
+
 test('repairComposition is a no-op on already-valid documents', () => {
   const doc = clone(WHOLE_PAGE_EXAMPLE);
   const { doc: repaired, repairs } = repairComposition(doc);

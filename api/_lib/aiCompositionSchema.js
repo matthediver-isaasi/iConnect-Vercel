@@ -800,9 +800,154 @@ function repairSectionNesting(section, sectionIndex, repairs) {
   walkList(section.elements);
 }
 
+// --- style repair (alias renames + value-shape coercion) -------------------
+
+/** Alias property names the model commonly invents → allowlisted equivalent. */
+const STYLE_PROPERTY_ALIASES = {
+  textColor: 'color',
+  bgColor: 'backgroundColor',
+  radius: 'borderRadius',
+  cornerRadius: 'borderRadius',
+  align: 'textAlign',
+};
+
+const CSS_LENGTH_STRING_RE = /^(-?\d+(?:\.\d+)?)(px|%|em|rem|vw|vh)$/;
+const BOX_SIDE_KEYS = ['top', 'right', 'bottom', 'left'];
+
+/** True when `value` already satisfies the validator's `{ value, unit }` shape. */
+function isValidValueUnit(value) {
+  return isPlainObject(value)
+    && Number.isFinite(Number(value.value))
+    && CSS_VALUE_UNITS.has(String(value.unit ?? 'px'));
+}
+
+/** Coerce a single length-ish part (number | "12px" | "12" | {value,unit}) to a
+ * CSS length string, or null when it cannot be read unambiguously. */
+function coerceLengthString(part) {
+  if (typeof part === 'number' && Number.isFinite(part)) return `${part}px`;
+  if (typeof part === 'string') {
+    const s = part.trim();
+    if (/^-?\d+(\.\d+)?$/.test(s)) return `${s}px`;
+    if (CSS_LENGTH_STRING_RE.test(s)) return s;
+    return null;
+  }
+  if (isValidValueUnit(part)) return `${Number(part.value)}${String(part.unit ?? 'px')}`;
+  return null;
+}
+
 /**
- * Deterministically repair the two purely MECHANICAL validation failure
- * classes the document LLM commonly slips on (Task: auto-repair):
+ * Coerce one near-miss style VALUE into a shape the validator accepts.
+ * Returns the coerced value, or `undefined` when the value is untouched
+ * (already valid, or not unambiguously repairable).
+ */
+function coerceStyleValue(key, value) {
+  // Plain strings, numbers, valid { value, unit } objects: already accepted.
+  if (!isPlainObject(value) || isValidValueUnit(value)) return undefined;
+
+  // { value: "12px" } / { value: "12", unit: "px" } — unit inside the string
+  // or a numeric string value.
+  if ('value' in value) {
+    const raw = value.value;
+    if (typeof raw === 'string') {
+      const m = raw.trim().match(CSS_LENGTH_STRING_RE);
+      if (m && (value.unit === undefined || value.unit === m[2])) {
+        return { value: Number(m[1]), unit: m[2] };
+      }
+      if (/^-?\d+(\.\d+)?$/.test(raw.trim()) && CSS_VALUE_UNITS.has(String(value.unit ?? 'px'))) {
+        return { value: Number(raw), unit: String(value.unit ?? 'px') };
+      }
+    }
+    return undefined;
+  }
+
+  // Composite border object { width, style, color } → "1px solid #ccc".
+  if (/^border(Top|Right|Bottom|Left)?$/.test(key)
+    && ('width' in value || 'style' in value || 'color' in value)) {
+    const width = value.width === undefined ? null : coerceLengthString(value.width);
+    if (value.width !== undefined && width === null) return undefined;
+    const parts = [width, value.style, value.color]
+      .filter((p) => typeof p === 'string' && p.trim());
+    if (!parts.length) return undefined;
+    const str = parts.join(' ');
+    // Never assemble a string carrying declaration/block delimiters or
+    // unsafe patterns — leave it for the validator to reject.
+    return (UNSAFE_CSS_VALUE_RE.test(str) || /[;{}<>]/.test(str)) ? undefined : str;
+  }
+
+  // Composite box object { top, right, bottom, left } → "8px 12px 8px 12px".
+  if (/^(padding|margin)$/.test(key)
+    && Object.keys(value).every((k) => BOX_SIDE_KEYS.includes(k))
+    && Object.keys(value).length > 0) {
+    const sides = BOX_SIDE_KEYS.map((k) => (value[k] === undefined ? '0px' : coerceLengthString(value[k])));
+    if (sides.some((s) => s === null)) return undefined;
+    return sides.join(' ');
+  }
+
+  return undefined;
+}
+
+/**
+ * Repair pass 3 — near-miss styles (seen verbatim in failed production job
+ * d9438f6e): alias property names (`textColor`, `background`, `radius`…) and
+ * value shapes the validator rejects but whose intent is unambiguous.
+ * Only explicit alias/coercion rules fire; anything else is left for
+ * `validateComposition` to reject as before.
+ */
+function repairElementStyles(section, sectionIndex, repairs) {
+  if (!isPlainObject(section) || !Array.isArray(section.elements)) return;
+  const visit = (el) => {
+    if (!isPlainObject(el)) return;
+    if (Array.isArray(el.children)) el.children.forEach(visit);
+    const style = el.style;
+    if (!isPlainObject(style)) return;
+    const label = isNonEmptyString(el.id) ? `"${el.id}"` : `type "${el.type}"`;
+    const note = (msg) => repairs.push(`sections[${sectionIndex}]: element ${label} style: ${msg}`);
+
+    // a. Alias renames (never overwrite an existing target property).
+    for (const [alias, target] of Object.entries(STYLE_PROPERTY_ALIASES)) {
+      if (!(alias in style)) continue;
+      if (target in style) {
+        delete style[alias];
+        note(`dropped duplicate alias "${alias}" (kept existing "${target}")`);
+      } else {
+        style[target] = style[alias];
+        delete style[alias];
+        note(`renamed "${alias}" to "${target}"`);
+      }
+    }
+    // `background` splits by value: gradient → backgroundImage, colour → backgroundColor.
+    if ('background' in style && typeof style.background === 'string'
+      && !UNSAFE_CSS_VALUE_RE.test(style.background)) {
+      const target = GRADIENT_ONLY_RE.test(style.background.trim())
+        ? 'backgroundImage' : 'backgroundColor';
+      if (target in style) {
+        delete style.background;
+        note(`dropped duplicate alias "background" (kept existing "${target}")`);
+      } else {
+        style[target] = style.background;
+        delete style.background;
+        note(`renamed "background" to "${target}"`);
+      }
+    }
+
+    // b. Value-shape coercion on allowlisted properties.
+    for (const [key, value] of Object.entries(style)) {
+      if (!CSS_PROPERTY_ALLOWLIST.has(key)) continue;
+      const coerced = coerceStyleValue(key, value);
+      if (coerced !== undefined) {
+        style[key] = coerced;
+        note(`coerced "${key}" value into a valid shape`);
+      }
+    }
+  };
+  section.elements.forEach(visit);
+}
+
+/**
+ * Deterministically repair the purely MECHANICAL validation failure
+ * classes the document LLM commonly slips on (Task: auto-repair). Besides
+ * the nesting pass above and the style pass (alias renames + value-shape
+ * coercion, Task #2898), two more:
  *
  * 1. `readingOrder is missing element "<id>"` — top-level element ids the
  *    model created but forgot to list. Missing ids are APPENDED in document
@@ -831,6 +976,9 @@ export function repairComposition(doc) {
   // Runs FIRST so the readingOrder pass below sees hoisted ids at top level
   // and previously "unknown" readingOrder refs now resolve.
   out.sections.forEach((section, i) => repairSectionNesting(section, i, repairs));
+
+  // --- 0.5. near-miss styles (alias properties + value-shape coercion) ---
+  out.sections.forEach((section, i) => repairElementStyles(section, i, repairs));
 
   // --- 1. readingOrder ---
   out.sections.forEach((section, i) => {
