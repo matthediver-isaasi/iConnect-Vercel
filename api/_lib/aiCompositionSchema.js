@@ -343,11 +343,19 @@ export function validateImageBrief(brief, path, errors) {
  * (spec §20) — never delegated to generated raster imagery. */
 export const FACTUAL_ELEMENT_TYPES = ['statistic', 'simple_chart', 'comparison_item'];
 
-function validateElement(el, path, ctx) {
+function validateElement(el, path, ctx, parentId = null) {
   const { errors, elementIds } = ctx;
   if (!isPlainObject(el)) {
     errors.push(`${path}: element must be an object`);
     return;
+  }
+  // Explicit parent-child contract: the hierarchy is defined by nesting
+  // (children arrays), which makes cycles impossible, and the tree-wide
+  // duplicate-id check above rejects duplicate parenting. If an element ALSO
+  // declares parentId it must agree with its actual container — a mismatch
+  // means the model produced an orphan/mis-parented element.
+  if (el.parentId !== undefined && el.parentId !== null && el.parentId !== parentId) {
+    errors.push(`${path}: parentId "${el.parentId}" does not match actual parent ${parentId ? `"${parentId}"` : '(top level)'}`);
   }
   if (!isNonEmptyString(el.id)) {
     errors.push(`${path}: element id is required`);
@@ -433,7 +441,7 @@ function validateElement(el, path, ctx) {
     } else if (!Array.isArray(el.children)) {
       errors.push(`${path}: children must be an array`);
     } else {
-      el.children.forEach((child, i) => validateElement(child, `${path}.children[${i}]`, ctx));
+      el.children.forEach((child, i) => validateElement(child, `${path}.children[${i}]`, ctx, el.id));
     }
   }
 }

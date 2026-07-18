@@ -473,3 +473,68 @@ test('validatePatch rejects unknown ops, missing targets, bad breakpoints and ra
   );
   assert.equal(validatePatch([]).ok, false);
 });
+
+// ---------------------------------------------------------------------------
+// Task acceptance: broken-composition rejection matrix + parent contract.
+// Reproduces the failure modes of the original unusable generation (every
+// element absolute at 0,0 with null size, empty flex container with orphaned
+// siblings, zero-height section) and proves each is rejected for its own
+// specific reason.
+// ---------------------------------------------------------------------------
+
+test('rejects the reproduced broken composition for each specific structural reason', () => {
+  const broken = {
+    schemaVersion: 1,
+    id: 'comp_broken',
+    name: 'Reproduced broken generation',
+    compositionType: 'section',
+    sections: [{
+      id: 'sec1',
+      type: 'ai_section',
+      readingOrder: ['wrap', 'h1', 'p1'],
+      elements: [
+        // Empty flex container -- its intended children were orphaned as siblings.
+        { id: 'wrap', type: 'container', children: [] },
+        { id: 'h1', type: 'heading', role: 'h2', content: { text: 'Title' } },
+        { id: 'p1', type: 'paragraph', content: { text: 'Body' } },
+      ],
+    }],
+    layouts: {
+      desktop: {
+        wrap: { mode: 'flex', direction: 'column' },
+        // All content stacked absolute at 0,0 with null/zero size -- the
+        // original bug's shape.
+        h1: { mode: 'absolute', x: 0, y: 0, w: null, h: 0 },
+        p1: { mode: 'absolute', x: 0, y: 0, w: null, h: 0 },
+      },
+    },
+  };
+  const result = validateComposition(broken);
+  assert.equal(result.ok, false);
+  const msgs = result.errors.join('\n');
+  assert.match(msgs, /"wrap" is flex but has no children/, 'empty flex container rejected');
+  assert.match(msgs, /"h1" requires a positive numeric w/, 'null-width absolute element rejected');
+  assert.match(msgs, /resolves to zero height/, 'zero-height absolute section rejected');
+});
+
+test('rejects a declared parentId that contradicts actual nesting (orphan/mis-parent)', () => {
+  const doc = clone(SECTION_EXAMPLE);
+  // Top-level element claiming to belong to a container it is not inside.
+  doc.sections[0].elements[1].parentId = 'some-container';
+  const result = validateComposition(doc);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((e) => e.includes('parentId')));
+});
+
+test('accepts matching parentId declarations and rejects mismatched nested ones', () => {
+  const doc = clone(SECTION_EXAMPLE);
+  const container = doc.sections[0].elements.find((e) => Array.isArray(e.children) && e.children.length);
+  assert.ok(container, 'fixture has a nested container');
+  container.children[0].parentId = container.id;
+  assert.deepEqual(validateComposition(doc).errors, []);
+
+  const doc2 = clone(SECTION_EXAMPLE);
+  const container2 = doc2.sections[0].elements.find((e) => Array.isArray(e.children) && e.children.length);
+  container2.children[0].parentId = 'somewhere-else';
+  assert.equal(validateComposition(doc2).ok, false);
+});
