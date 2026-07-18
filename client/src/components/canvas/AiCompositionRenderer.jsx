@@ -19,7 +19,7 @@
 // `forceBreakpoint` ('tablet'|'mobile') applies the breakpoint attribute
 // variants for editor preview, where the viewport itself does not change.
 
-import { useMemo } from 'react';
+import React, { useMemo } from 'react';
 import {
   buildAicCss,
   orderedElements,
@@ -85,15 +85,20 @@ function AicElement({ el, ctx }) {
           </a>
         );
       }
+      // Unresolved CTA (no navigable link yet): still a real, focusable
+      // button — disabled publicly, enabled in the editor so it can be
+      // selected — never a decorative span.
       return (
-        <span
-          role={ctx.selectable ? 'button' : 'presentation'}
+        <button
+          type="button"
+          disabled={!ctx.selectable}
           className={cls}
+          data-aic-cta="unresolved"
           data-testid={`button-aic-${el.id}`}
           {...sel}
         >
           {label}
-        </span>
+        </button>
       );
     }
     case 'statistic':

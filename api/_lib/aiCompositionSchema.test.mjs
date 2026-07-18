@@ -369,6 +369,89 @@ test('repairComposition is a no-op on already-valid documents', () => {
   assert.equal(repaired, doc);
 });
 
+// ---------------------------------------------------------------------------
+// Geometry & hierarchy validation (Task #2893) — the broken-in-production
+// failure modes must now be rejected at validation time.
+// ---------------------------------------------------------------------------
+
+test('rejects absolute frames with null/missing x, y or w on the effective frame', () => {
+  // Null w (verbatim from the broken production doc).
+  const doc = clone(WHOLE_PAGE_EXAMPLE);
+  doc.layouts.desktop.hero_bg = { mode: 'absolute', x: 0, y: 0, w: null, h: null };
+  const result = validateComposition(doc);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((e) => e.includes('positive numeric w')));
+
+  // Missing y.
+  const doc2 = clone(WHOLE_PAGE_EXAMPLE);
+  doc2.layouts.desktop.hero_cta = { mode: 'absolute', x: 510, w: 180, h: 48 };
+  const result2 = validateComposition(doc2);
+  assert.equal(result2.ok, false);
+  assert.ok(result2.errors.some((e) => e.includes('numeric x and y')));
+
+  // But h: null (content height) with numeric x/y/w stays valid (examples use it).
+  assert.deepEqual(validateComposition(clone(WHOLE_PAGE_EXAMPLE)).errors, []);
+});
+
+test('partial breakpoint overrides stay valid; a breaking override is caught on the merged frame', () => {
+  // The examples already carry partial mobile overrides — they must pass.
+  assert.equal(validateComposition(clone(WHOLE_PAGE_EXAMPLE)).ok, true);
+
+  // A mobile override that nulls the width breaks the EFFECTIVE mobile frame.
+  const doc = clone(WHOLE_PAGE_EXAMPLE);
+  doc.layouts.mobile.hero_cta = { w: null };
+  const result = validateComposition(doc);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((e) => e.includes('(mobile)') && e.includes('hero_cta')));
+});
+
+test('rejects a section whose absolute layout resolves to zero height', () => {
+  const doc = clone(WHOLE_PAGE_EXAMPLE);
+  // Every absolute frame collapses to y:0, h:0 → the section renders 0px tall.
+  for (const id of ['hero_bg', 'hero_heading', 'hero_sub', 'hero_cta']) {
+    doc.layouts.desktop[id] = { mode: 'absolute', x: 0, y: 0, w: 1200, h: 0, minH: 0 };
+  }
+  const result = validateComposition(doc);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((e) => e.includes('zero height')));
+});
+
+test('rejects flex/grid containers without children', () => {
+  const doc = clone(WHOLE_PAGE_EXAMPLE);
+  doc.sections[1].elements[1].children = [];
+  doc.layouts.desktop = Object.fromEntries(
+    Object.entries(doc.layouts.desktop).filter(([id]) => !id.startsWith('benefit_')),
+  );
+  const result = validateComposition(doc);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((e) => e.includes('"benefits_grid" is grid but has no children')));
+});
+
+test('rejects absolute children inside flex/grid containers', () => {
+  const doc = clone(SECTION_EXAMPLE);
+  // process_steps is a flex container; step_1 opts out into absolute.
+  doc.layouts.desktop.step_1 = { mode: 'absolute', x: 0, y: 0, w: 300, h: 100 };
+  const result = validateComposition(doc);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((e) => e.includes('children of flex/grid containers must not be absolute')));
+});
+
+test('style { value, unit } objects validate by shape — never as "[object Object]"', () => {
+  const doc = clone(SECTION_EXAMPLE);
+  doc.sections[0].elements[0].style = { fontSize: { value: 32, unit: 'px' } };
+  assert.deepEqual(validateComposition(doc).errors, []);
+
+  const doc2 = clone(SECTION_EXAMPLE);
+  doc2.sections[0].elements[0].style = { fontSize: { value: 'big', unit: 'px' } };
+  const result2 = validateComposition(doc2);
+  assert.equal(result2.ok, false);
+  assert.ok(result2.errors.some((e) => e.includes('object value must be')));
+
+  const doc3 = clone(SECTION_EXAMPLE);
+  doc3.sections[0].elements[0].style = { fontSize: { value: 16, unit: 'pt' } };
+  assert.equal(validateComposition(doc3).ok, false);
+});
+
 test('validatePatch accepts well-formed patches', () => {
   const result = validatePatch([
     { op: 'update_content', elementId: 'heading_01', changes: { text: 'New heading' } },

@@ -309,6 +309,9 @@ HARD RULES (a document breaking these is rejected):
 - Every section's readingOrder lists every top-level element id exactly once. All element ids unique. readingOrder may ONLY reference top-level element ids, never nested children.
 - ONLY these element types may have "children": container, group, card, overlay, structured_infographic. Every other type (background, heading, paragraph, button, image, shape, statistic, label, caption, etc.) must NEVER carry a "children" key — place such elements as flat siblings in the section's elements array. A background is a sibling behind other elements, not a wrapper around them.
 - layouts.desktop MUST contain a frame for EVERY element (including children). tablet/mobile only override what differs — give genuinely different layouts per breakpoint (e.g. multi-column desktop → stacked mobile). Double-check before answering: every element id appears in its section's readingOrder AND in layouts.desktop.
+- An "absolute" frame MUST carry numeric x, y and a positive numeric w — never null. h may be a positive number or null (content height). Never give every element of a section x:0, y:0 with null sizes — the section would render 0px tall.
+- Children of a "flex" or "grid" container must NEVER use mode "absolute" — they are laid out by the container. Every container/group/card/structured_infographic MUST contain at least one child.
+- Style values: unitless numbers mean pixels for sizes/spacing (fontSize, padding, gap…). Prefer explicit units ("18px", "1.5rem"). lineHeight/opacity/fontWeight stay unitless.
 - style keys ONLY from: ${[...CSS_PROPERTY_ALLOWLIST].join(', ')}.
 - backgroundImage may ONLY be a linear/radial/conic gradient. Never url(...). No !important, no var(), no javascript.
 - Do NOT include links (omit the "link" field entirely).

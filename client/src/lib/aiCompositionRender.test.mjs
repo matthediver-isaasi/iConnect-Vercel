@@ -14,6 +14,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  serializeAicCssValue,
   sanitizeAicStyle,
   sanitizeAicHtml,
   orderedElements,
@@ -206,4 +207,112 @@ test('aicLinkHref: internal kinds resolve only from safe identifiers', () => {
 test('aicLinkTarget: only external opens a new tab', () => {
   assert.equal(aicLinkTarget({ kind: 'external', url: 'https://x.y' }), '_blank');
   assert.equal(aicLinkTarget({ kind: 'page', slug: 'a' }), undefined);
+});
+
+// ---------------------------------------------------------------------------
+// Task #2893: unit serialization, section min-height, background/positioning.
+// ---------------------------------------------------------------------------
+
+test('serializeAicCssValue: {value,unit} objects, px defaults, unitless keys', () => {
+  assert.equal(serializeAicCssValue('fontSize', { value: 16, unit: 'px' }), '16px');
+  assert.equal(serializeAicCssValue('padding', { value: 1.5, unit: 'rem' }), '1.5rem');
+  assert.equal(serializeAicCssValue('fontSize', { value: 'big', unit: 'px' }), null);
+  assert.equal(serializeAicCssValue('fontSize', { value: 16, unit: 'pt' }), null);
+  assert.equal(serializeAicCssValue('fontSize', ['16px']), null);
+  assert.equal(serializeAicCssValue('fontSize', 24), '24px');
+  assert.equal(serializeAicCssValue('gap', '12'), '12px');
+  assert.equal(serializeAicCssValue('lineHeight', 1.5), '1.5');
+  assert.equal(serializeAicCssValue('fontWeight', 700), '700');
+  assert.equal(serializeAicCssValue('opacity', '0.8'), '0.8');
+  assert.equal(serializeAicCssValue('color', '#fff'), '#fff');
+  assert.equal(serializeAicCssValue('fontSize', ''), null);
+});
+
+test('sanitizeAicStyle serializes objects and bare numbers instead of "[object Object]"', () => {
+  const out = sanitizeAicStyle({
+    fontSize: { value: 32, unit: 'px' },
+    padding: 12,
+    lineHeight: 1.4,
+    color: { value: 'red' }, // invalid object → dropped, never "[object Object]"
+  });
+  assert.equal(out.fontSize, '32px');
+  assert.equal(out.padding, '12px');
+  assert.equal(out.lineHeight, '1.4');
+  assert.equal(out.color, undefined);
+  assert.ok(!JSON.stringify(out).includes('object Object'));
+});
+
+const absDoc = {
+  sections: [{
+    id: 's1',
+    readingOrder: ['bg', 'wrap'],
+    elements: [
+      { id: 'bg', type: 'background', style: { backgroundColor: '#001122' } },
+      {
+        id: 'wrap',
+        type: 'container',
+        children: [{ id: 'chip', type: 'label', content: { text: 'Hi' } }],
+      },
+    ],
+  }],
+  layouts: {
+    desktop: {
+      bg: { mode: 'absolute', x: 0, y: 0, w: null, h: null }, // incomplete geometry
+      wrap: { mode: 'flow', w: 1200 },
+      chip: { mode: 'absolute', x: 10, y: 10, w: 80, h: 24 },
+    },
+  },
+};
+
+test('buildAicCss: incomplete-geometry backgrounds cover the section, never intercept clicks', () => {
+  const css = buildAicCss(absDoc, 'inst');
+  const bgRule = css.split('}').find((r) => r.includes('.aic-e-bg{'));
+  assert.ok(bgRule.includes('pointer-events:none;'));
+  assert.ok(bgRule.includes('position:absolute;inset:0;z-index:0;'));
+});
+
+test('buildAicCss: containers with absolute children get position:relative', () => {
+  const css = buildAicCss(absDoc, 'inst');
+  const wrapRule = css.split('}').find((r) => r.includes('.aic-e-wrap{'));
+  assert.ok(wrapRule.includes('position:relative;'));
+});
+
+test('buildAicCss: null-geometry frames never emit a phantom zero min-height', () => {
+  const css = buildAicCss(absDoc, 'inst');
+  assert.ok(!/min-height:0px/.test(css));
+  // chip (y:10 + h:24) is nested, not top-level; bg is top-level absolute but
+  // has no numeric geometry — with a complete top-level frame the height returns:
+  const okDoc = JSON.parse(JSON.stringify(absDoc));
+  okDoc.layouts.desktop.bg = { mode: 'absolute', x: 0, y: 0, w: 1200, h: 480 };
+  const css2 = buildAicCss(okDoc, 'inst');
+  assert.ok(css2.includes('min-height:480px'));
+});
+
+test('buildAicCss: child absolute only at mobile gets breakpoint-scoped position:relative on the container', () => {
+  const bpDoc = {
+    sections: [{
+      id: 's1',
+      readingOrder: ['wrap'],
+      elements: [{
+        id: 'wrap',
+        type: 'container',
+        children: [{ id: 'chip', type: 'label', content: { text: 'Hi' } }],
+      }],
+    }],
+    layouts: {
+      desktop: {
+        wrap: { mode: 'flow', w: 1200 },
+        chip: { mode: 'flow', w: 80 },
+      },
+      mobile: {
+        chip: { mode: 'absolute', x: 10, y: 10, w: 80, h: 24 },
+      },
+    },
+  };
+  const css = buildAicCss(bpDoc, 'inst');
+  const baseWrap = css.split('\n').find((r) => r.startsWith('[data-aic="inst"] .aic-e-wrap{'));
+  assert.ok(!baseWrap.includes('position:relative'), 'no relative on desktop base rule');
+  const mobileMedia = css.split('\n').find((r) => r.startsWith('@media') && r.includes('.aic-e-wrap{'));
+  assert.ok(mobileMedia && mobileMedia.includes('position:relative;'), 'mobile media rule makes container relative');
+  assert.ok(css.includes('[data-aic-bp="mobile"] .aic-e-wrap{position:relative;'), 'forced-preview variant too');
 });

@@ -217,6 +217,9 @@ export function validateLinkRef(link, path, errors) {
   }
 }
 
+/** Units accepted in `{ value, unit }` style objects. */
+export const CSS_VALUE_UNITS = new Set(['px', '%', 'em', 'rem', 'vw', 'vh']);
+
 function validateStyle(style, path, errors) {
   if (style === undefined) return;
   if (!isPlainObject(style)) {
@@ -226,6 +229,19 @@ function validateStyle(style, path, errors) {
   for (const [key, value] of Object.entries(style)) {
     if (!CSS_PROPERTY_ALLOWLIST.has(key)) {
       errors.push(`${path}: style property "${key}" is not in the allowlist`);
+      continue;
+    }
+    // Structured `{ value, unit }` objects: validate shape, never String()
+    // them (that yields "[object Object]" which slips past the regexes).
+    if (isPlainObject(value)) {
+      if (!Number.isFinite(Number(value.value))
+        || !CSS_VALUE_UNITS.has(String(value.unit ?? 'px'))) {
+        errors.push(`${path}: style property "${key}" object value must be { value: number, unit: ${[...CSS_VALUE_UNITS].join('|')} }`);
+      }
+      continue;
+    }
+    if (Array.isArray(value)) {
+      errors.push(`${path}: style property "${key}" has an invalid value`);
       continue;
     }
     const str = String(value ?? '');
@@ -505,6 +521,134 @@ function validateLayouts(doc, ctx) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Geometry & hierarchy validation (Task: fix schema/hierarchy/rendering).
+// Overrides are PARTIAL by design, so completeness is checked on the
+// EFFECTIVE merged frame per breakpoint (desktop → tablet → mobile), never
+// on a raw override object.
+// ---------------------------------------------------------------------------
+
+const isFiniteNum = (v) => typeof v === 'number' && Number.isFinite(v);
+
+function mergeEffectiveFrame(base, override) {
+  if (!isPlainObject(override)) return base || null;
+  const merged = { ...(base || {}) };
+  for (const [k, v] of Object.entries(override)) {
+    if (v !== undefined) merged[k] = v;
+  }
+  return merged;
+}
+
+/** Effective frame for an element at a breakpoint (tablet/mobile inherit). */
+export function effectiveFrame(layouts, elementId, bp) {
+  if (!isPlainObject(layouts)) return null;
+  const desktop = isPlainObject(layouts.desktop) ? layouts.desktop[elementId] : null;
+  if (bp === 'desktop') return isPlainObject(desktop) ? desktop : null;
+  const tablet = mergeEffectiveFrame(
+    isPlainObject(desktop) ? desktop : null,
+    isPlainObject(layouts.tablet) ? layouts.tablet[elementId] : null,
+  );
+  if (bp === 'tablet') return tablet;
+  return mergeEffectiveFrame(
+    tablet,
+    isPlainObject(layouts.mobile) ? layouts.mobile[elementId] : null,
+  );
+}
+
+/** Map of every element id → { el, parent } (parent = containing element or null). */
+function collectElementTree(doc) {
+  const byId = new Map();
+  for (const section of Array.isArray(doc.sections) ? doc.sections : []) {
+    if (!isPlainObject(section) || !Array.isArray(section.elements)) continue;
+    const walk = (el, parent) => {
+      if (!isPlainObject(el) || !isNonEmptyString(el.id)) return;
+      if (!byId.has(el.id)) byId.set(el.id, { el, parent });
+      if (Array.isArray(el.children)) el.children.forEach((c) => walk(c, el));
+    };
+    section.elements.forEach((el) => walk(el, null));
+  }
+  return byId;
+}
+
+function validateGeometry(doc, ctx) {
+  const { errors } = ctx;
+  const layouts = doc.layouts;
+  if (!isPlainObject(layouts)) return;
+  const byId = collectElementTree(doc);
+
+  for (const [id, { el, parent }] of byId) {
+    for (const bp of AI_BREAKPOINTS) {
+      // Only re-check tablet/mobile when that layer actually overrides this
+      // element or its parent — otherwise the desktop report already covers it.
+      if (bp !== 'desktop') {
+        const layer = isPlainObject(layouts[bp]) ? layouts[bp] : null;
+        const overridden = layer && (isPlainObject(layer[id])
+          || (parent && isPlainObject(layer[parent.id])));
+        if (!overridden) continue;
+      }
+      const eff = effectiveFrame(layouts, id, bp);
+      if (!isPlainObject(eff) || eff.visible === false) continue;
+      if (eff.mode === 'absolute') {
+        // Absolute frames must be renderable: numeric x/y and a positive
+        // width. Height may be null/absent (content height) or minH-driven.
+        if (!isFiniteNum(eff.x) || !isFiniteNum(eff.y)) {
+          errors.push(`layouts (${bp}): absolute frame for "${id}" requires numeric x and y (null/missing is not renderable)`);
+        }
+        if (!isFiniteNum(eff.w) || eff.w <= 0) {
+          errors.push(`layouts (${bp}): absolute frame for "${id}" requires a positive numeric w`);
+        }
+        if (isFiniteNum(eff.h) && eff.h <= 0 && !isFiniteNum(eff.minH)) {
+          errors.push(`layouts (${bp}): absolute frame for "${id}" has zero/negative height — use a positive h, a minH, or h: null for content height`);
+        }
+      }
+      // Children of flex/grid containers participate in that layout — they
+      // may never opt out into absolute positioning.
+      if (parent) {
+        const pf = effectiveFrame(layouts, parent.id, bp);
+        if (isPlainObject(pf) && (pf.mode === 'flex' || pf.mode === 'grid')
+          && eff.mode === 'absolute') {
+          errors.push(`layouts (${bp}): "${id}" is absolute inside ${pf.mode} container "${parent.id}" — children of flex/grid containers must not be absolute`);
+        }
+      }
+    }
+    // A flex/grid container with nothing inside renders as dead space.
+    if (CONTAINER_TYPES.has(el.type)) {
+      const kids = Array.isArray(el.children)
+        ? el.children.filter((c) => isPlainObject(c)).length : 0;
+      if (kids === 0) {
+        const df = effectiveFrame(layouts, id, 'desktop');
+        if (isPlainObject(df) && (df.mode === 'flex' || df.mode === 'grid')) {
+          errors.push(`container "${id}" is ${df.mode} but has no children`);
+        }
+      }
+    }
+  }
+
+  // Absolute sections must resolve to a positive height on every breakpoint —
+  // otherwise the whole section renders 0px tall and everything overlaps.
+  (Array.isArray(doc.sections) ? doc.sections : []).forEach((section, si) => {
+    const ids = collectSectionElementIds(section);
+    if (!ids.length) return;
+    for (const bp of AI_BREAKPOINTS) {
+      let sawAbsolute = false;
+      let sawContentHeight = false;
+      let maxBottom = 0;
+      for (const id of ids) {
+        const eff = effectiveFrame(layouts, id, bp);
+        if (!isPlainObject(eff) || eff.mode !== 'absolute' || eff.visible === false) continue;
+        sawAbsolute = true;
+        const h = isFiniteNum(eff.h) ? eff.h : (isFiniteNum(eff.minH) ? eff.minH : null);
+        if (h === null) sawContentHeight = true; // content decides — can't be judged statically
+        const y = isFiniteNum(eff.y) ? eff.y : 0;
+        maxBottom = Math.max(maxBottom, y + (h ?? 0));
+      }
+      if (sawAbsolute && !sawContentHeight && maxBottom <= 0) {
+        errors.push(`sections[${si}] (${bp}): absolute layout resolves to zero height — visible absolute frames must produce a positive section height`);
+      }
+    }
+  });
+}
+
 function validateProtectedValues(doc, ctx) {
   const { errors, elementIds } = ctx;
   if (doc.protectedValues === undefined) return;
@@ -569,6 +713,7 @@ export function validateComposition(doc) {
   });
 
   validateLayouts(doc, ctx);
+  validateGeometry(doc, ctx);
   validateProtectedValues(doc, ctx);
 
   return { ok: errors.length === 0, errors };

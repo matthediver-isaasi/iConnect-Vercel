@@ -37,13 +37,47 @@ const UNSAFE_CSS_VALUE_RE = /url\s*\(|expression\s*\(|@import|javascript:|!impor
 const GRADIENT_ONLY_RE = /^(linear|radial|conic)-gradient\(/i;
 const TRANSFORM_SAFE_RE = /^(\s*(rotate|rotateZ|translate|translateX|translateY|scale|scaleX|scaleY)\([^()]*\)\s*)+$/i;
 
+// Dimensional properties: bare numbers (or numeric strings) mean pixels.
+// Everything else keeps numbers unitless (lineHeight, opacity, fontWeight…).
+const AIC_PX_PROPS = new Set([
+  'fontSize', 'letterSpacing', 'borderRadius', 'gap',
+  'padding', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
+  'margin', 'marginTop', 'marginRight', 'marginBottom', 'marginLeft',
+]);
+const AIC_CSS_UNITS = new Set(['px', '%', 'em', 'rem', 'vw', 'vh']);
+
+/**
+ * Serialize one style value to a CSS string:
+ *   - `{ value, unit }` objects → "16px" / "1.5rem" (invalid → null, never
+ *     the previous String() behaviour of "[object Object]")
+ *   - bare numbers / numeric strings on dimensional props → px appended
+ *   - anything else → trimmed string (null when empty)
+ */
+export function serializeAicCssValue(key, value) {
+  if (value !== null && typeof value === 'object') {
+    if (Array.isArray(value)) return null;
+    const n = Number(value.value);
+    const unit = String(value.unit ?? 'px');
+    if (!Number.isFinite(n) || !AIC_CSS_UNITS.has(unit)) return null;
+    return `${n}${unit}`;
+  }
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return null;
+    return AIC_PX_PROPS.has(key) ? `${value}px` : String(value);
+  }
+  const str = String(value ?? '').trim();
+  if (!str) return null;
+  if (AIC_PX_PROPS.has(key) && /^-?\d+(\.\d+)?$/.test(str)) return `${str}px`;
+  return str;
+}
+
 /** Drop any non-allowlisted or unsafe style entries. Returns a clean object. */
 export function sanitizeAicStyle(style) {
   const out = {};
   if (!style || typeof style !== 'object') return out;
   for (const [key, value] of Object.entries(style)) {
     if (!AIC_CSS_ALLOWLIST.has(key)) continue;
-    const str = String(value ?? '').trim();
+    const str = serializeAicCssValue(key, value);
     if (!str) continue;
     if (UNSAFE_CSS_VALUE_RE.test(str)) continue;
     if (key === 'backgroundImage' && !GRADIENT_ONLY_RE.test(str)) continue;
@@ -194,31 +228,64 @@ export function buildAicCss(doc, instanceId) {
       const tops = orderedElements(section);
       const anyAbs = tops.some((el) => frameFor(doc, el.id, bp)?.mode === 'absolute');
       if (anyAbs) {
+        // Only frames with real numeric geometry may drive the section
+        // height; null/absent y or h must never coerce into a phantom 0.
+        const fin = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
         let maxBottom = 0;
         for (const { el } of collectElements([section])) {
           const f = frameFor(doc, el.id, bp);
-          if (f?.mode === 'absolute') {
-            const bottom = (Number(f.y) || 0) + (Number(f.h) || Number(f.minH) || 0);
+          if (f?.mode === 'absolute' && f.visible !== false) {
+            const y = fin(f.y);
+            if (y === null) continue;
+            const h = fin(f.h) ?? fin(f.minH) ?? 0;
+            const bottom = y + h;
             if (bottom > maxBottom) maxBottom = bottom;
           }
         }
-        const rule = `${scope} .aic-s-${sid}{min-height:${Math.ceil(maxBottom)}px;}`;
-        if (bp === 'desktop') rules.push(rule);
-        else bpRules[bp].push(rule);
+        if (maxBottom > 0) {
+          const rule = `${scope} .aic-s-${sid}{min-height:${Math.ceil(maxBottom)}px;}`;
+          if (bp === 'desktop') rules.push(rule);
+          else bpRules[bp].push(rule);
+        }
       }
     }
   }
 
   // Elements.
+  const isCompleteAbsolute = (f) => {
+    if (!f || f.mode !== 'absolute') return false;
+    const fin = (v) => typeof v === 'number' && Number.isFinite(v);
+    return fin(f.x) && fin(f.y) && fin(f.w) && f.w > 0;
+  };
   for (const { el } of collectElements(doc?.sections)) {
     const cls = `.aic-e-${cssSafe(el.id)}`;
-    const base = styleDecls(el.style) + frameDecls(frameFor(doc, el.id, 'desktop'));
+    const desktopFrame = frameFor(doc, el.id, 'desktop');
+    let base = styleDecls(el.style) + frameDecls(desktopFrame);
+    // Backgrounds are decorative washes: never intercept clicks, and when
+    // their absolute geometry is incomplete, cover the whole section instead
+    // of collapsing into a stray box.
+    if (el.type === 'background' || el.type === 'section_background') {
+      base += 'pointer-events:none;';
+      if (!isCompleteAbsolute(desktopFrame)) {
+        base += 'position:absolute;inset:0;z-index:0;';
+      }
+    }
+    // A non-absolute container holding absolutely-positioned children must
+    // establish the positioning context, or the children escape the box.
+    // Evaluated per breakpoint: a child may only turn absolute at tablet or
+    // mobile via an override.
+    const needsRelative = (bp) => Array.isArray(el.children) && el.children.length
+      && frameFor(doc, el.id, bp)?.mode !== 'absolute'
+      && el.children.some((c) => c?.id && frameFor(doc, c.id, bp)?.mode === 'absolute');
+    if (needsRelative('desktop')) base += 'position:relative;';
     rules.push(`${scope} ${cls}{${base}}`);
     for (const bp of ['tablet', 'mobile']) {
       const merged = frameFor(doc, el.id, bp);
       const override = doc?.layouts?.[bp]?.[el.id];
-      if (!override) continue;
-      const decl = frameDecls(merged);
+      const relHere = !needsRelative('desktop') && needsRelative(bp);
+      if (!override && !relHere) continue;
+      let decl = override ? frameDecls(merged) : '';
+      if (relHere) decl += 'position:relative;';
       if (decl) bpRules[bp].push(`${scope} ${cls}{${decl}}`);
     }
   }
