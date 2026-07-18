@@ -56,9 +56,21 @@ function mockFetch(handler) {
       // Rich runner walks elements (usedB64 budget marker); fallback doesn't.
       const body = JSON.parse(options.body);
       endpoint = body.code.includes('usedB64') ? 'function' : 'fallback';
+    } else if (String(url).includes('/screenshot')) {
+      endpoint = 'rest';
     }
     calls.push({ endpoint, options });
     return handler(endpoint, calls.filter((c) => c.endpoint === endpoint).length);
+  };
+}
+
+function binaryResponse(buffer, status = 200) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    arrayBuffer: async () => buffer,
+    text: async () => '',
+    json: async () => ({}),
   };
 }
 
@@ -173,6 +185,7 @@ test('captureViewportWithFallback: fallback reports REAL post-redirect finalUrl 
 test('captureViewportWithFallback: fallback rejects unsupported redirect scheme', async () => {
   mockFetch((endpoint) => {
     if (endpoint === 'function') return jsonResponse({ message: 'boom' }, 500);
+    if (endpoint === 'rest') return binaryResponse(Buffer.alloc(0), 500);
     return jsonResponse({ error: 'redirected_to_unsupported_scheme', message: 'chrome-error://crash' });
   });
   await assert.rejects(
@@ -188,9 +201,10 @@ test('captureViewportWithFallback: fallback rejects unsupported redirect scheme'
   );
 });
 
-test('captureViewportWithFallback: total failure throws combined detail', async () => {
+test('captureViewportWithFallback: total failure throws combined detail incl. rest attempt', async () => {
   mockFetch((endpoint) => {
     if (endpoint === 'function') return jsonResponse({ error: 'navigation_failed', message: 'timeout' });
+    if (endpoint === 'rest') return binaryResponse(Buffer.alloc(0), 500);
     return jsonResponse({ message: 'nope' }, 500);
   });
   await assert.rejects(
@@ -200,10 +214,67 @@ test('captureViewportWithFallback: total failure throws combined detail', async 
       assert.match(err.detail, /function#1/);
       assert.match(err.detail, /function#2/);
       assert.match(err.detail, /fallback/);
-      assert.equal(err.attempts.length, 3);
+      assert.match(err.detail, /rest:/);
+      assert.equal(err.attempts.length, 4);
+      assert.equal(err.attempts[3].mode, 'rest');
       return true;
     },
   );
+});
+
+test('captureViewportWithFallback: REST /screenshot last resort returns usable bundle', async () => {
+  const jpeg = Buffer.from('real-jpeg-bytes-from-rest');
+  mockFetch((endpoint) => {
+    if (endpoint === 'rest') return binaryResponse(jpeg);
+    return jsonResponse({ message: 'boom' }, 500);
+  });
+  const result = await captureViewportWithFallback('https://example.org/', 'desktop');
+  assert.equal(result.usedFallback, true);
+  // Both /function routes recorded as failed attempts before REST succeeded.
+  assert.equal(result.attempts.length, 3);
+  assert.equal(result.attempts[2].mode, 'fallback');
+  assert.equal(result.bundle.finalUrl, 'https://example.org/');
+  assert.equal(result.bundle.metrics, null);
+  assert.equal(result.bundle.screenshots.length, 1);
+  assert.equal(result.bundle.screenshots[0].label, 'desktop_full_page');
+  assert.ok(result.bundle.screenshots[0].buffer.equals(jpeg));
+  assert.equal(calls.filter((c) => c.endpoint === 'rest').length, 1);
+});
+
+test('captureViewportWithFallback: oversized REST screenshot is rejected', async () => {
+  mockFetch((endpoint) => {
+    if (endpoint === 'rest') return binaryResponse(Buffer.alloc(4 * 1024 * 1024 + 1));
+    return jsonResponse({ message: 'boom' }, 500);
+  });
+  await assert.rejects(
+    captureViewportWithFallback('https://example.org/', 'desktop'),
+    (err) => {
+      assert.equal(err.attempts.length, 4);
+      assert.equal(err.attempts[3].mode, 'rest');
+      assert.match(err.attempts[3].detail, /oversized/);
+      return true;
+    },
+  );
+});
+
+test('runners coerce non-string screenshot results and flag empty ones', async () => {
+  // Static markers: both /function runners must carry the Uint8Array→base64
+  // coercion + typed empty-shot diagnostic (the live failure shape was
+  // page.screenshot() succeeding but yielding no data).
+  mockFetch((endpoint) => {
+    if (endpoint === 'rest') return binaryResponse(Buffer.from('x'));
+    return jsonResponse({ message: 'boom' }, 500);
+  });
+  await captureViewportWithFallback('https://example.org/', 'desktop').catch(() => {});
+  const runnerCodes = calls
+    .filter((c) => c.endpoint === 'function' || c.endpoint === 'fallback')
+    .map((c) => JSON.parse(c.options.body).code);
+  assert.ok(runnerCodes.length >= 3);
+  for (const code of runnerCodes) {
+    assert.ok(code.includes('toB64'), 'runner must coerce screenshot results');
+    assert.ok(code.includes('empty screenshot result'), 'runner must flag empty shots');
+    assert.ok(code.includes('browser().version()'), 'runner must report browser env');
+  }
 });
 
 test('runner context includes payload budget, walk cap, full-page cap and per-shot cap', async () => {

@@ -21,6 +21,7 @@
  */
 
 import { getBrowserlessConfig, isBrowserlessConfigured } from './browserlessAxe.js';
+import { captureScreenshot } from './browserlessScreenshot.js';
 
 export { isBrowserlessConfigured };
 
@@ -446,12 +447,46 @@ export default async function ({ page, context }) {
   // in the runner instead.
   const shotCap = maxShotB64 || 5200000;
   let usedB64 = 0;
-  const take = (clip, quality) => page.screenshot({
-    type: 'jpeg', quality, encoding: 'base64',
-    // Clips below the fold need captureBeyondViewport on some Chrome/
-    // Puppeteer combos, or the screenshot call throws.
-    ...(clip ? { clip, captureBeyondViewport: true } : { fullPage: true }),
-  });
+  // Newer Puppeteer versions return a Uint8Array from page.screenshot even
+  // with encoding:'base64' requested (older versions return a string). Coerce
+  // to a base64 string either way; '' means "no usable image data".
+  const toB64 = (res) => {
+    if (typeof res === 'string') return res;
+    if (res && typeof res.length === 'number' && res.length > 0) {
+      try { return Buffer.from(res).toString('base64'); } catch (e) {}
+      try {
+        let bin = '';
+        for (let i = 0; i < res.length; i += 0x8000) {
+          bin += String.fromCharCode.apply(null, Array.prototype.slice.call(res, i, i + 0x8000));
+        }
+        return btoa(bin);
+      } catch (e) {}
+    }
+    return '';
+  };
+  // Diagnostic: what did page.screenshot actually give us?
+  const describeShot = (res) => {
+    const ctor = res && res.constructor && res.constructor.name;
+    const len = res == null ? 'n/a' : (typeof res.length === 'number' ? res.length : 'n/a');
+    return typeof res + '/' + (ctor || '?') + '/len=' + len;
+  };
+  let envInfo = '';
+  try { envInfo = String(await page.browser().version()).slice(0, 80); } catch (e) {}
+  const take = async (clip, quality) => {
+    const raw = await page.screenshot({
+      type: 'jpeg', quality, encoding: 'base64',
+      // Clips below the fold need captureBeyondViewport on some Chrome/
+      // Puppeteer combos, or the screenshot call throws.
+      ...(clip ? { clip, captureBeyondViewport: true } : { fullPage: true }),
+    });
+    const b64 = toB64(raw);
+    if (!b64) {
+      const err = new Error('empty screenshot result (' + describeShot(raw) + (envInfo ? '; browser ' + envInfo : '') + ')');
+      err.emptyShot = true;
+      throw err;
+    }
+    return b64;
+  };
   const shoot = async (label, clip, quality) => {
     let q = quality || 72;
     let b64;
@@ -562,7 +597,7 @@ export default async function ({ page, context }) {
   }
 
   return {
-    data: { finalUrl, metrics, screenshots, viewport: vpName, shootErrors: shootErrors.slice(0, 5) },
+    data: { finalUrl, metrics, screenshots, viewport: vpName, shootErrors: shootErrors.slice(0, 5), env: envInfo },
     type: 'application/json',
   };
 }
@@ -656,9 +691,10 @@ export async function captureViewportBundle(url, viewportName, { postLoadDelayMs
       ? `; shoot errors: ${data.shootErrors.slice(0, 3).map((e) => String(e).slice(0, 200)).join(' | ')}`
       : '';
     const droppedNote = dropped.length ? `; dropped: ${dropped.slice(0, 3).join(' | ')}` : '';
+    const envNote = data?.env ? `; env: ${String(data.env).slice(0, 80)}` : '';
     throw makeCaptureError(
       'No usable screenshots could be captured from the reference page.',
-      `runner returned ${returned} screenshots, none usable${droppedNote}${runnerErrors}`,
+      `runner returned ${returned} screenshots, none usable${droppedNote}${runnerErrors}${envNote}`,
     );
   }
   return {
@@ -703,10 +739,40 @@ export default async function ({ page, context }) {
     ? { x: 0, y: 0, width: viewport.width, height: fullPageCap }
     : null;
   const shotCap = maxShotB64 || 5200000;
-  const take = (c, quality) => page.screenshot({
-    type: 'jpeg', quality, encoding: 'base64',
-    ...(c ? { clip: c, captureBeyondViewport: true } : { fullPage: true }),
-  });
+  // Newer Puppeteer versions return a Uint8Array from page.screenshot even
+  // with encoding:'base64' requested — coerce either way ('' = no data).
+  const toB64 = (res) => {
+    if (typeof res === 'string') return res;
+    if (res && typeof res.length === 'number' && res.length > 0) {
+      try { return Buffer.from(res).toString('base64'); } catch (e) {}
+      try {
+        let bin = '';
+        for (let i = 0; i < res.length; i += 0x8000) {
+          bin += String.fromCharCode.apply(null, Array.prototype.slice.call(res, i, i + 0x8000));
+        }
+        return btoa(bin);
+      } catch (e) {}
+    }
+    return '';
+  };
+  const describeShot = (res) => {
+    const ctor = res && res.constructor && res.constructor.name;
+    const len = res == null ? 'n/a' : (typeof res.length === 'number' ? res.length : 'n/a');
+    return typeof res + '/' + (ctor || '?') + '/len=' + len;
+  };
+  let envInfo = '';
+  try { envInfo = String(await page.browser().version()).slice(0, 80); } catch (e) {}
+  const take = async (c, quality) => {
+    const raw = await page.screenshot({
+      type: 'jpeg', quality, encoding: 'base64',
+      ...(c ? { clip: c, captureBeyondViewport: true } : { fullPage: true }),
+    });
+    const out = toB64(raw);
+    if (!out) {
+      throw new Error('empty screenshot result (' + describeShot(raw) + (envInfo ? '; browser ' + envInfo : '') + ')');
+    }
+    return out;
+  };
   let b64;
   let shootError = '';
   try {
@@ -727,6 +793,9 @@ export default async function ({ page, context }) {
     } catch (err) {
       shootError = (shootError ? shootError + ' | ' : '') + ('oversize retake: ' + String(err && err.message || err)).slice(0, 200);
     }
+    if (b64.length > shotCap) {
+      shootError = (shootError ? shootError + ' | ' : '') + 'oversized after retake (' + b64.length + ' b64 chars)';
+    }
   }
   return {
     data: {
@@ -734,6 +803,7 @@ export default async function ({ page, context }) {
       metrics: null,
       screenshots: [{ label: viewport.name + '_full_page', b64, width: viewport.width, height: null }],
       shootErrors: shootError ? [shootError] : [],
+      env: envInfo,
     },
     type: 'application/json',
   };
@@ -805,9 +875,10 @@ async function captureFallbackScreenshot(url, viewportName) {
     const runnerErrors = Array.isArray(data?.shootErrors) && data.shootErrors.length
       ? `; shoot errors: ${data.shootErrors.slice(0, 2).map((e) => String(e).slice(0, 200)).join(' | ')}`
       : '';
+    const envNote = data?.env ? `; env: ${String(data.env).slice(0, 80)}` : '';
     throw makeCaptureError(
       'No usable screenshots could be captured from the reference page.',
-      `fallback: empty or oversized screenshot — ${size}${runnerErrors}`,
+      `fallback: empty or oversized screenshot — ${size}${runnerErrors}${envNote}`,
     );
   }
   return {
@@ -854,12 +925,35 @@ export async function captureViewportWithFallback(url, viewportName) {
     return { bundle, usedFallback: true, attempts };
   } catch (err) {
     attempts.push({ mode: 'fallback', error: err.message, detail: err.detail || null });
+  }
+  // Last resort: the plain /screenshot REST endpoint — a far simpler contract
+  // than /function (binary JPEG back, no sandboxed runner). Tradeoff: it can't
+  // report the post-redirect URL, so finalUrl is the (already-validated)
+  // requested URL and the endpoint's redirect revalidation re-checks the same
+  // address. A working screenshot beats redirect fidelity here.
+  try {
+    const viewport = CAPTURE_VIEWPORTS.find((v) => v.name === viewportName);
+    const { buffer } = await captureScreenshot(url, viewport, { fullPage: true });
+    if (!buffer?.length || buffer.length > MAX_SCREENSHOT_BYTES) {
+      throw makeCaptureError(
+        'No usable screenshots could be captured from the reference page.',
+        `rest: empty or oversized screenshot — ${buffer ? `${buffer.length} bytes (cap ${MAX_SCREENSHOT_BYTES})` : 'no image data'}`,
+      );
+    }
+    const bundle = {
+      finalUrl: url,
+      metrics: null,
+      screenshots: [{ label: `${viewportName}_full_page`, buffer, width: viewport.width, height: null }],
+    };
+    return { bundle, usedFallback: true, attempts };
+  } catch (err) {
+    attempts.push({ mode: 'rest', error: err.message, detail: err.detail || null });
     const first = attempts[0];
     const combined = new Error(first?.error || err.message);
     combined.detail = attempts
       .map((a) => `${a.mode}${a.attempt ? `#${a.attempt}` : ''}: ${a.error}${a.detail ? ` [${a.detail}]` : ''}`)
       .join(' | ')
-      .slice(0, 600);
+      .slice(0, 700);
     combined.attempts = attempts;
     throw combined;
   }
