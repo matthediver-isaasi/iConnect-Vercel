@@ -240,6 +240,7 @@ ${tokenLines || '  /* no brand tokens available — choose tasteful accessible c
 }
 - The section must be RESPONSIVE: design for 1440px wide, then adapt with @media (max-width: 1024px) and @media (max-width: 390px) rules that genuinely recompose the layout (stacking, reordering, resizing) — never a shrunk desktop.
 - Height is AUTO: never set a fixed height on the section root; content defines height. No position: fixed or sticky. No @import, @font-face, @keyframes.
+- NEVER write CSS selectors targeting html or body, and never use :root outside the verbatim token block above — your code is injected into an existing page. Put page-level styles (background, base font, colour) on your own top-level <section> elements or a wrapper class you define.
 - Do not invent facts, prices, dates or statistics — only reuse what the brief states.
 ${wantsCta ? '- The brief calls for visitor action: include at least one clear call-to-action element with data-ai-action.\n' : ''}${visuallyLed ? `- This brief is VISUALLY LED: a generic "heading + paragraph + button" layout is rejected. Commit to a real composition — CSS grid/flex structure, layered inline SVG shapes or artwork, depth, deliberate typography scale. Aim for something a senior designer would sign off.\n` : ''}- Creativity level "${options.creativity || 'brand_led'}": ${options.creativity === 'strict' ? "stay very close to the organisation's existing style" : options.creativity === 'expressive' ? 'be bold and visually adventurous while staying on-brand' : 'balance brand consistency with fresh ideas'}.`;
 

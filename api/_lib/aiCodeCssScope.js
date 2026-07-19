@@ -28,12 +28,19 @@ import postcss from 'postcss';
 const SCOPE_ATTR = 'data-ai-composition';
 
 // Selectors that may never appear anywhere in a generated selector.
+// Note: a LEADING html/body prefix is remapped onto the wrapper in
+// scopeSelector() before this check runs — only non-leading uses reject.
 const FORBIDDEN_SELECTOR_RE = /(^|[\s>+~,(])\s*(html|body)\b|\[data-cb\b|\[data-canvas|\.canvas-|\.cb-|#root\b|\.admin-|\[data-radix|\.Toaster/i;
 
 const FORBIDDEN_VALUE_RE = /expression\s*\(|-moz-binding|behavior\s*:|javascript:/i;
 const MAX_Z_INDEX = 1000;
 
 const cssSafeUuid = (id) => String(id || '').replace(/[^a-zA-Z0-9_-]/g, '');
+
+/** Human/model-readable message for one rejection — includes retry guidance. */
+export function formatCssRejection(r) {
+  return `CSS rejected (${r.kind}): ${r.detail}${r.hint ? ` — ${r.hint}` : ''}`;
+}
 
 /** Strip any model-supplied [data-ai-composition=…] prefix from a selector. */
 function stripExistingScope(selector) {
@@ -46,8 +53,20 @@ function scopeSelector(selector, scope, rejections) {
   // :root → the wrapper (design tokens land on the composition root).
   if (/^:root$/i.test(sel)) return scope;
   sel = sel.replace(/^:root\b/i, '&');
-  if (FORBIDDEN_SELECTOR_RE.test(sel)) {
-    rejections.push({ kind: 'selector', detail: selector });
+  // A LEADING html/body prefix (e.g. `body`, `html body`, `body > .hero`)
+  // remaps onto the wrapper the same way :root does — inside a composition
+  // the wrapper IS the page-body context, so `body { … }` becomes wrapper
+  // styles and `body .hero` becomes `wrapper .hero`. This keeps the retry
+  // loop convergent when the model styles the page like a full document.
+  // html/body appearing anywhere ELSE in the selector is still rejected.
+  sel = sel.replace(/^(?:html\s*>?\s*)?body(?![\w-])|^html(?![\w-])/i, '&').trim();
+  if (sel === '' || sel === '&') return scope;
+  if (FORBIDDEN_SELECTOR_RE.test(sel.startsWith('&') ? sel.slice(1) : sel)) {
+    rejections.push({
+      kind: 'selector',
+      detail: selector,
+      hint: 'never style html/body or the surrounding app — scope every rule to your own sections, classes and data-ai-id elements',
+    });
     return null;
   }
   if (sel === '&') return scope;

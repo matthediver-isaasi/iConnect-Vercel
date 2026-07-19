@@ -156,18 +156,43 @@ test('css: model-supplied scope prefixes are stripped and replaced', () => {
   assert.equal(assertAllSelectorsScoped(r.css, UUID).ok, true);
 });
 
-test('css: rejects html/body/global/admin selectors', () => {
+test('css: leading html/body selectors remap onto the wrapper (like :root)', () => {
+  const scope = `[data-ai-composition="${UUID}"]`;
   const r = scopeAiCodeCss(`
-    body { display: none; }
-    html .x { color: red; }
-    .ok, body > div { color: blue; }
+    body { margin: 0; background: #fff; }
+    html body { color: #111; }
+    body > .hero { padding: 2rem; }
+    html { font-size: 16px; }
+    html>body { margin: 0; padding: 0; }
+    body.dark .x { color: white; }
+  `, UUID);
+  assert.equal(r.ok, true);
+  assert.equal(r.rejections.filter((x) => x.kind === 'selector').length, 0);
+  assert.match(r.css, /background: #fff/);
+  assert.doesNotMatch(r.css, /\b(html|body)\b/);
+  assert.ok(r.css.includes(`${scope} > .hero`));
+  assert.ok(r.css.includes(`${scope}.dark .x`));
+  assert.equal(assertAllSelectorsScoped(r.css, UUID).ok, true);
+});
+
+test('css: rejects non-leading html/body + global/admin selectors, with retry hint', () => {
+  const r = scopeAiCodeCss(`
+    .x body { color: red; }
+    div html { color: red; }
     [data-cb="1"] { opacity: 0; }
     .admin-panel { display: none; }
   `, UUID);
   assert.equal(r.ok, true);
   assert.doesNotMatch(r.css, /body|html|data-cb|admin-panel/);
-  assert.match(r.css, /\.ok/); // safe member of a mixed selector list survives
-  assert.ok(r.rejections.filter((x) => x.kind === 'selector').length >= 4);
+  const sels = r.rejections.filter((x) => x.kind === 'selector');
+  assert.equal(sels.length, 4);
+  assert.ok(sels.every((x) => x.hint && /html\/body/.test(x.hint)));
+});
+
+test('css: safe member of a mixed selector list survives a rejected sibling', () => {
+  const r = scopeAiCodeCss('.ok, .x [data-cb] div { color: blue; }', UUID);
+  assert.match(r.css, /\.ok/);
+  assert.doesNotMatch(r.css, /data-cb/);
 });
 
 test('css: rejects @import/@font-face/@keyframes, keeps @media scoped', () => {
@@ -238,7 +263,7 @@ test('pipeline policy: any hard CSS rejection fails the WHOLE package (reject-do
     '.a { position: fixed; top: 0; } .b { color: blue; }',
     '.a { z-index: 999999; }',
     '.a { background: url(https://evil.example/x.png); }',
-    'body { margin: 0; } .a { color: red; }',
+    '.wrap body { margin: 0; } .a { color: red; }',
   ];
   for (const css of cases) {
     const r = runAiCodePipeline(minimalPkg({ css }), UUID);

@@ -229,7 +229,7 @@ test('applyV2ElementPatch: breakpoint-scoped edits are CSS-only and enveloped', 
 test('applyV2ElementPatch: hard CSS policy violations reject the patch', () => {
   const r = applyV2ElementPatch(makeDoc(), {
     elementId: 'hero-title',
-    cssAdd: 'body { background: red; }',
+    cssAdd: '.x body { background: red; }',
   });
   assert.equal(r.ok, false);
   assert.match(r.errors.join(' '), /CSS rejected/);

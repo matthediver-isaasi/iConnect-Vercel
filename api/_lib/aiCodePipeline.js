@@ -17,7 +17,7 @@
 import { validateAiCodePackage, crossCheckManifests } from './aiCodePackageSchema.js';
 import { validateAssetRequests } from './aiCodeAssets.js';
 import { sanitizeAiCodeHtml } from './aiCodeHtmlSanitizer.js';
-import { scopeAiCodeCss, assertAllSelectorsScoped } from './aiCodeCssScope.js';
+import { scopeAiCodeCss, assertAllSelectorsScoped, formatCssRejection } from './aiCodeCssScope.js';
 
 /**
  * Run the full Phase 0 pipeline.
@@ -67,7 +67,7 @@ export function runAiCodePipeline(rawPackage, compositionId, { allowedImageHosts
   // 4. CSS AST scoping.
   const scoped = scopeAiCodeCss(pkg.css, compositionId);
   if (!scoped.ok) {
-    return fail(scoped.rejections.map((r) => `CSS rejected (${r.kind}): ${r.detail}`),
+    return fail(scoped.rejections.map(formatCssRejection),
       { htmlRemoved: htmlReport.removed });
   }
 
@@ -77,7 +77,7 @@ export function runAiCodePipeline(rawPackage, compositionId, { allowedImageHosts
   // a silently repaired version of what the generator produced.
   const hardCss = scoped.rejections.filter((r) => !r.warning);
   if (hardCss.length) {
-    return fail(hardCss.map((r) => `CSS rejected (${r.kind}): ${r.detail}`),
+    return fail(hardCss.map(formatCssRejection),
       { htmlRemoved: htmlReport.removed, cssRejections: scoped.rejections });
   }
 

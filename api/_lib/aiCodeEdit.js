@@ -28,7 +28,7 @@
 import { JSDOM } from 'jsdom';
 import postcss from 'postcss';
 import { sanitizeAiCodeHtml } from './aiCodeHtmlSanitizer.js';
-import { scopeAiCodeCss, assertAllSelectorsScoped } from './aiCodeCssScope.js';
+import { scopeAiCodeCss, assertAllSelectorsScoped, formatCssRejection } from './aiCodeCssScope.js';
 import { runAiCodePipeline } from './aiCodePipeline.js';
 import { runCodeRejectionGates, parseCodePackageResponse } from './aiCodeGeneration.js';
 
@@ -433,7 +433,7 @@ export function applyV2ElementPatch(doc, patch, { breakpoint = 'all', allowedIma
     const scoped = scopeAiCodeCss(cssAdd, doc.compositionId);
     const hard = (scoped.rejections || []).filter((r) => !r.warning);
     if (!scoped.ok || hard.length) {
-      return { ok: false, errors: (hard.length ? hard : scoped.rejections).map((r) => `CSS rejected (${r.kind}): ${r.detail}`) };
+      return { ok: false, errors: (hard.length ? hard : scoped.rejections).map(formatCssRejection) };
     }
     newCss = `${newCss}\n/* edit */\n${scoped.css}`;
     const leak = assertAllSelectorsScoped(newCss, doc.compositionId);
