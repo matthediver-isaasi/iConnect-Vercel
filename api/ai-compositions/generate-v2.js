@@ -48,10 +48,25 @@ import {
   buildRejectionCleanup,
   runRepairAttempt,
 } from '../_lib/aiCodeRepair.js';
+import {
+  VISUAL_CONCEPT_BREAKPOINTS,
+  MAX_VISUAL_REVISIONS,
+  VISUAL_SIMILARITY_THRESHOLD,
+  MAX_VISUAL_REPAIR_CYCLES,
+  normalizeRevisionInstruction,
+  buildVisualConceptPrompt,
+  buildDeconstructionPrompt,
+  parseDeconstructionResponse,
+  runSimilarityCompare,
+  decideSimilarityOutcome,
+  buildVisualWarning,
+} from '../_lib/aiDesignFirst.js';
 
 const STAGE_LABELS = {
   context: 'Reading your brand and page',
   plan: 'Planning the page content',
+  visual: 'Painting a visual concept',
+  deconstruct: 'Turning the approved visual into a build plan',
   code: 'Designing your section',
   assets: 'Creating imagery for your design',
   validate: 'Checking the design in a real browser',
@@ -227,6 +242,36 @@ export default async function handler(req, res) {
         error: job.error || null,
       });
     }
+    // Design-first (Phase 6): the job pauses after the visual proposal until
+    // the author approves or asks for a revision. Any other poll returns the
+    // current proposal + conversation history.
+    if (job.status === 'awaiting_visual') {
+      const proposal = job.state?.visualProposal || null;
+      if (body.visualAction === 'revise') {
+        const instruction = normalizeRevisionInstruction(body.instruction);
+        if (!instruction) return res.status(400).json({ error: 'Describe the change you want to see in the visual.' });
+        const revisions = [...(job.state?.visualRevisions || []), instruction].slice(-MAX_VISUAL_REVISIONS);
+        job = { ...job, status: 'running', stage: 'visual', state: { ...(job.state || {}), visualRevisions: revisions } };
+        await updateJob(job.id, tenantId, { status: 'running', stage: 'visual', state: job.state });
+        return res.status(200).json({ jobId: job.id, stage: 'visual', status: 'running', label: 'Revising the visual concept' });
+      }
+      if (body.visualAction === 'approve') {
+        if (!proposal?.desktopUrl || !proposal?.mobileUrl) {
+          return res.status(409).json({ error: 'There is no visual proposal to approve yet.' });
+        }
+        job = { ...job, status: 'running', stage: 'deconstruct', state: { ...(job.state || {}), approvedVisual: proposal } };
+        await updateJob(job.id, tenantId, { status: 'running', stage: 'deconstruct', state: job.state });
+        return res.status(200).json({ jobId: job.id, stage: 'deconstruct', status: 'running', label: STAGE_LABELS.deconstruct });
+      }
+      return res.status(200).json({
+        jobId: job.id,
+        stage: job.stage,
+        status: 'awaiting_visual',
+        label: 'Review the visual concept',
+        visualProposal: proposal,
+        visualRevisions: job.state?.visualRevisions || [],
+      });
+    }
   } else {
     const brief = normalizeBrief(body.brief);
     if (!brief) return res.status(400).json({ error: 'A brief is required' });
@@ -237,6 +282,8 @@ export default async function handler(req, res) {
     );
     options.rendererVersion = 2;
     options.compositionType = compositionType;
+    // Phase 6 design-first: opt-in visual-concept-before-build workflow.
+    options.designFirst = body.designFirst === true;
 
     // ---- Governance gate (shared with V1) --------------------------------
     const studioSettings = await loadStudioSettings(supabase, tenantId);
@@ -318,9 +365,76 @@ export default async function handler(req, res) {
   options.usageWarning = job.options?.usageWarning || null;
   // normalizeOptions whitelists keys — re-read the composition type raw.
   const compositionType = job.options?.compositionType === 'page_body' ? 'page_body' : 'section';
+  const designFirst = job.options?.designFirst === true;
   const brief = job.brief;
   const state = job.state || {};
   const stage = job.stage;
+
+  // Design-first (Phase 6): similarity alone must NEVER reject. When a
+  // similarity-driven repair chain fails technically (or a repaired document
+  // regresses functionally), fall back to the last candidate that PASSED
+  // functional validation and deliver it with a visual-similarity WARNING.
+  // Returns the response, or null when the fallback candidate is unavailable
+  // (caller proceeds with its normal rejection).
+  const completeWithVisualWarning = async () => {
+    const versionId = state.lastFunctionalPassVersionId;
+    if (!designFirst || !versionId) return null;
+    const compId = state.targetCompositionId;
+    const { data: v } = await supabase
+      .from('ai_composition_version')
+      .select('id, document, validation_result')
+      .eq('id', versionId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    if (!v?.document) return null;
+    const warning = buildVisualWarning(state.lastFunctionalPassSimilarity);
+    const vr = v.validation_result || {};
+    await supabase
+      .from('ai_composition_version')
+      .update({ validation_result: { ...vr, phase3: { ...(vr.phase3 || {}), status: 'passed', visualSimilarity: warning } } })
+      .eq('id', versionId)
+      .eq('tenant_id', tenantId);
+    const defaultName = compositionType === 'page_body' ? 'AI page' : 'AI section';
+    await supabase
+      .from('ai_composition')
+      .update({
+        current_version_id: versionId,
+        name: v.document.title || defaultName,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', compId)
+      .eq('tenant_id', tenantId);
+    await recordAiUsageEvent(supabase, {
+      tenantId,
+      memberId: context.memberId || null,
+      pageId: job.page_id || null,
+      compositionId: compId,
+      operation: 'generation',
+      model: AI_CODE_GENERATION_MODEL,
+      units: {
+        promptChars: brief.length,
+        textCalls: (state.codeCalls || 1) + (state.repairCalls || 0),
+      },
+      dedupeHash: options.dedupeHash,
+    });
+    await updateJob(job.id, tenantId, {
+      status: 'complete',
+      composition_id: compId,
+      state: { ...state, versionId },
+    });
+    return res.status(200).json({
+      jobId: job.id,
+      stage: 'validate',
+      status: 'complete',
+      compositionId: compId,
+      versionId,
+      qualityScore: state.lastFunctionalPassScore || 0,
+      validationStatus: 'passed',
+      repairCycles: state.repairCycle || 0,
+      visualSimilarity: warning,
+      usageWarning: options.usageWarning || null,
+    });
+  };
 
   const fail = async (err) => {
     await updateJob(job.id, tenantId, {
@@ -385,7 +499,7 @@ export default async function handler(req, res) {
       // The CSS scope is keyed on the composition uuid, so a NEW composition
       // gets its id minted up front; rows are only inserted on success.
       const targetCompositionId = job.composition_id || randomUUID();
-      const nextStage = compositionType === 'page_body' ? 'plan' : 'code';
+      const nextStage = compositionType === 'page_body' ? 'plan' : (designFirst ? 'visual' : 'code');
       await updateJob(job.id, tenantId, {
         stage: nextStage,
         state: { ...state, brand, pageContext, targetCompositionId, isNewComposition: !job.composition_id },
@@ -431,11 +545,144 @@ export default async function handler(req, res) {
           progress: { attempt: attempt + 1, maxAttempts: MAX_PLAN_RETRIES + 1 },
         });
       }
+      const afterPlan = designFirst ? 'visual' : 'code';
       await updateJob(job.id, tenantId, {
-        stage: 'code',
+        stage: afterPlan,
         state: { ...state, plan: parsed.plan, planAttempts: attempt + 1 },
       });
-      return res.status(200).json({ jobId: job.id, stage: 'code', status: 'running', label: 'Designing your page' });
+      return res.status(200).json({
+        jobId: job.id,
+        stage: afterPlan,
+        status: 'running',
+        label: afterPlan === 'visual' ? STAGE_LABELS.visual : 'Designing your page',
+      });
+    }
+
+    // ---- Visual proposal stage (Phase 6, design-first only) ----------------
+    // gpt-image-1 paints a desktop + mobile concept from the brief, brand,
+    // content plan and revision history; the images are stored as job
+    // artefacts (tenant media library) and the job pauses for approval.
+    if (stage === 'visual') {
+      const client = getOpenAIClient();
+      if (!client) {
+        return fail(Object.assign(new Error('AI image generation is not configured on this server.'), { httpStatus: 503 }));
+      }
+      const generateImage = makeGenerateImage(client);
+      const revisions = state.visualRevisions || [];
+      const round = (state.visualRound || 0) + 1;
+      const urls = {};
+      for (const { breakpoint, aspectRatio } of VISUAL_CONCEPT_BREAKPOINTS) {
+        const prompt = buildVisualConceptPrompt({
+          brief, brand: state.brand, plan: state.plan || null, options, breakpoint, revisions,
+        });
+        let img;
+        try {
+          img = await generateImage({ prompt, aspectRatio });
+        } catch {
+          return fail(Object.assign(
+            new Error('The visual concept could not be created — the image service was unavailable. Please try again.'),
+            { httpStatus: 502 },
+          ));
+        }
+        const stored = await storeGeneratedAsset({
+          tenantId,
+          memberId: context.memberId || null,
+          compositionId: state.targetCompositionId,
+          elementId: `visual-concept-${breakpoint}-r${round}`,
+          buffer: img.buffer,
+          prompt,
+          model: img.model,
+          provider: 'openai',
+          aspectRatio,
+          usageStatus: 'in_use',
+        });
+        if (!stored?.url) return fail(new Error('The visual concept image could not be stored.'));
+        urls[breakpoint] = stored.url;
+      }
+      const visualProposal = {
+        desktopUrl: urls.desktop,
+        mobileUrl: urls.mobile,
+        round,
+        createdAt: new Date().toISOString(),
+      };
+      const history = [...(state.visualProposalHistory || []), visualProposal].slice(-6);
+      await updateJob(job.id, tenantId, {
+        status: 'awaiting_visual',
+        stage: 'visual',
+        state: {
+          ...state,
+          visualProposal,
+          visualProposalHistory: history,
+          visualRound: round,
+          visualRevisions: revisions,
+        },
+      });
+      return res.status(200).json({
+        jobId: job.id,
+        stage: 'visual',
+        status: 'awaiting_visual',
+        label: 'Review the visual concept',
+        visualProposal,
+        visualRevisions: revisions,
+      });
+    }
+
+    // ---- Deconstruction stage (Phase 6): approved visual → layout intent ---
+    // The approved visual is authoritative ONLY for layout/style intent; the
+    // sanitizer strips all wording/link carriers so copy, facts, actions and
+    // slots keep coming exclusively from the structured manifests.
+    if (stage === 'deconstruct') {
+      const client = getOpenAIClient();
+      if (!client) {
+        return fail(Object.assign(new Error('AI generation is not configured on this server.'), { httpStatus: 503 }));
+      }
+      const approved = state.approvedVisual || state.visualProposal;
+      if (!approved?.desktopUrl || !approved?.mobileUrl) {
+        return fail(new Error('The approved visual could not be loaded.'));
+      }
+      const callLlm = makeCallLlm(client);
+      const prompt = buildDeconstructionPrompt({ plan: state.plan || null });
+      let raw;
+      try {
+        raw = await callLlm({
+          system: prompt.system,
+          user: prompt.user,
+          images: [
+            { url: approved.desktopUrl, detail: 'high' },
+            { url: approved.mobileUrl, detail: 'high' },
+          ],
+          maxTokens: 4000,
+        });
+      } catch (err) {
+        if (err.providerError) return fail(err);
+        throw err;
+      }
+      const parsed = parseDeconstructionResponse(raw);
+      if (!parsed.ok) {
+        const attempt = (state.deconstructAttempt || 0) + 1;
+        if (attempt > 1) {
+          // Deconstruction is an accelerator, not a gate: fall back to the
+          // normal code path with the concept images as the only visual guide.
+          await updateJob(job.id, tenantId, {
+            stage: 'code',
+            state: { ...state, approvedVisual: approved, designBlueprint: null, deconstructSkipped: true },
+          });
+          return res.status(200).json({ jobId: job.id, stage: 'code', status: 'running', label: STAGE_LABELS.code });
+        }
+        await updateJob(job.id, tenantId, { state: { ...state, deconstructAttempt: attempt } });
+        return res.status(200).json({
+          jobId: job.id,
+          stage: 'deconstruct',
+          status: 'running',
+          label: STAGE_LABELS.deconstruct,
+          progress: { attempt: attempt + 1, maxAttempts: 2 },
+        });
+      }
+      await updateJob(job.id, tenantId, {
+        stage: 'code',
+        state: { ...state, approvedVisual: approved, designBlueprint: parsed.blueprint },
+      });
+      return res.status(200).json({ jobId: job.id, stage: 'code', status: 'running', label: STAGE_LABELS.code });
     }
 
     if (stage === 'code') {
@@ -463,6 +710,15 @@ export default async function handler(req, res) {
           allowedImageHosts: [tenantPublicAssetPrefix(tenantId)].filter(Boolean),
           compositionType,
           plan: state.plan || null,
+          // Design-first (Phase 6): approved-visual blueprint + concept
+          // images guide layout/style; manifests remain the content contract.
+          designBlueprint: state.designBlueprint || null,
+          conceptImages: state.approvedVisual
+            ? [
+                { url: state.approvedVisual.desktopUrl, label: 'approved desktop concept' },
+                { url: state.approvedVisual.mobileUrl, label: 'approved mobile concept' },
+              ]
+            : [],
         });
       } catch (err) {
         if (err.providerError) return fail(err);
@@ -781,13 +1037,57 @@ export default async function handler(req, res) {
         review: review.status === 'reviewed' ? review.review : null,
       });
 
-      const decision = decideValidationOutcome({
+      let decision = decideValidationOutcome({
         layoutIssues: layout.issues,
         review,
         breakpointsInspected: layout.breakpointsInspected,
         repairCycle: state.repairCycle || 0,
         maxRepairCycles: MAX_REPAIR_CYCLES,
       });
+
+      // ---- Design-first similarity gate (Phase 6) --------------------------
+      // Only a build that already PASSED functional validation is compared
+      // against the approved visual. Below threshold → bounded repair cycles;
+      // budget exhausted → deliver with a WARNING (similarity alone never
+      // rejects); skipped compare never blocks.
+      let visualSimilarity = null;
+      let similarityReasons = [];
+      if (decision.outcome === 'pass' && designFirst && state.approvedVisual) {
+        const compare = await runSimilarityCompare({
+          callVision: client ? makeCallLlm(client) : null,
+          renderedShots: evidence.screenshots.map((s) => ({
+            breakpoint: s.breakpoint,
+            url: shotBuffers.has(s.breakpoint)
+              ? `data:image/jpeg;base64,${shotBuffers.get(s.breakpoint).toString('base64')}`
+              : s.url,
+          })),
+          conceptImages: {
+            desktop: state.approvedVisual.desktopUrl,
+            mobile: state.approvedVisual.mobileUrl,
+          },
+        });
+        const simDecision = decideSimilarityOutcome({
+          status: compare.status,
+          similarity: compare.similarity || 0,
+          differences: compare.differences || [],
+          repairCycle: state.visualRepairCycle || 0,
+          maxRepairCycles: MAX_VISUAL_REPAIR_CYCLES,
+        });
+        visualSimilarity = compare.status === 'compared'
+          ? {
+              status: simDecision.outcome === 'pass' ? 'met'
+                : simDecision.outcome === 'warn' ? 'warning' : 'below_threshold',
+              similarity: compare.similarity,
+              threshold: VISUAL_SIMILARITY_THRESHOLD,
+              differences: compare.differences || [],
+              repairCycle: state.visualRepairCycle || 0,
+            }
+          : { status: 'skipped', skipReason: compare.skipReason, threshold: VISUAL_SIMILARITY_THRESHOLD };
+        if (simDecision.outcome === 'repair') {
+          similarityReasons = simDecision.reasons;
+          decision = { outcome: 'repair', reasons: simDecision.reasons };
+        }
+      }
 
       // Record the full evidence on the candidate version (audit trail) —
       // screenshots use the STORED media-library URLs.
@@ -801,6 +1101,7 @@ export default async function handler(req, res) {
         captureErrors: [...(layout.captureErrors || []), ...(evidence.failures || [])],
         review: reviewRecord,
         qualityScore,
+        ...(visualSimilarity ? { visualSimilarity } : {}),
         ...(evidence.skipReason ? { skipReason: evidence.skipReason } : {}),
       };
       await supabase
@@ -867,6 +1168,7 @@ export default async function handler(req, res) {
           qualityScore,
           validationStatus: phase3.status,
           repairCycles: state.repairCycle || 0,
+          ...(visualSimilarity ? { visualSimilarity } : {}),
           usageWarning: options.usageWarning || null,
         });
       }
@@ -877,9 +1179,28 @@ export default async function handler(req, res) {
           state: {
             ...state,
             validationHistory: history,
+            // Similarity-driven repairs consume their OWN bounded budget, and
+            // remember the functionally-valid candidate + its similarity so
+            // any later technical failure falls back to it with a WARNING
+            // instead of rejecting (similarity alone never rejects).
+            ...(similarityReasons.length
+              ? {
+                  visualRepairCycle: (state.visualRepairCycle || 0) + 1,
+                  lastFunctionalPassVersionId: candidateId,
+                  lastFunctionalPassScore: qualityScore,
+                  lastFunctionalPassSimilarity: visualSimilarity,
+                }
+              : {}),
             repairEvidence: {
               layoutIssues: layout.issues.slice(0, 24),
-              reviewFindings: reviewRecord.status === 'reviewed' ? (reviewRecord.findings || []) : [],
+              reviewFindings: [
+                ...(reviewRecord.status === 'reviewed' ? (reviewRecord.findings || []) : []),
+                ...similarityReasons.map((message) => ({
+                  breakpoint: 'all',
+                  severity: 'blocking',
+                  message: `${message} (divergence from the customer-approved visual concept)`,
+                })),
+              ],
               screenshots: evidence.screenshots.map((s) => ({ breakpoint: s.breakpoint, width: s.width, url: s.url })),
             },
           },
@@ -894,6 +1215,11 @@ export default async function handler(req, res) {
       }
 
       // ---- Hard rejection: remove only OUR candidates, never the current ---
+      // Design-first: if a functionally-valid candidate exists (the rejection
+      // stems from a similarity-driven repair chain), deliver it with a
+      // WARNING instead — similarity alone never rejects.
+      const fallback = await completeWithVisualWarning();
+      if (fallback) return fallback;
       await rejectCandidates({ tenantId, compId, state });
       await updateJob(job.id, tenantId, { state: { ...state, validationHistory: history } });
       return fail(Object.assign(
@@ -951,6 +1277,11 @@ export default async function handler(req, res) {
         // a repair cycle. Retry with the errors if budget remains, else
         // reject (leaving any existing current version untouched).
         if (cycle + 1 >= MAX_REPAIR_CYCLES) {
+          // Design-first: a similarity-driven repair chain that fails
+          // technically must not discard the functionally-valid build —
+          // deliver it with a WARNING instead.
+          const fallback = await completeWithVisualWarning();
+          if (fallback) return fallback;
           const lastScore = (state.validationHistory || []).slice(-1)[0]?.qualityScore ?? 0;
           await rejectCandidates({ tenantId, compId, state });
           return fail(Object.assign(

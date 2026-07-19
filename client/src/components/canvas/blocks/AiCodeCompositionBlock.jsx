@@ -323,25 +323,33 @@ export function useCodeGenerationLoop({ onComplete }) {
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState(null);
   const [rejectionReasons, setRejectionReasons] = useState([]);
+  // Design-first (Phase 6): when the server pauses at `awaiting_visual`, the
+  // proposal (desktop + mobile concept images) is exposed for review; the
+  // loop resumes on approve / revise.
+  const [visualProposal, setVisualProposal] = useState(null);
+  const [visualRevisions, setVisualRevisions] = useState([]);
+  const [visualSimilarity, setVisualSimilarity] = useState(null);
+  const [awaitingJobId, setAwaitingJobId] = useState(null);
   const cancelledRef = useRef(false);
 
   useEffect(() => () => { cancelledRef.current = true; }, []);
 
-  const start = async (startBody) => {
+  const pump = async (firstBody) => {
     setRunning(true);
     setError(null);
     setRejectionReasons([]);
-    setLabel('Starting…');
-    setProgress(0.05);
+    setVisualProposal(null);
+    setAwaitingJobId(null);
+    setProgress((p) => Math.max(p, 0.05));
     cancelledRef.current = false;
     try {
       let resp = await aicFetch('/api/ai-compositions/generate-v2', {
         method: 'POST',
-        body: JSON.stringify(startBody),
+        body: JSON.stringify(firstBody),
       });
       let guard = 0;
-      // context + code with up to MAX_CODE_RETRIES refinement rounds.
-      while (!cancelledRef.current && resp.status === 'running' && guard < 12) {
+      // context (+plan/visual/deconstruct) + code with refinement rounds.
+      while (!cancelledRef.current && resp.status === 'running' && guard < 24) {
         guard += 1;
         let stepLabel = resp.label || 'Generating…';
         if (resp.progress?.attempt) {
@@ -355,9 +363,16 @@ export function useCodeGenerationLoop({ onComplete }) {
         });
       }
       if (cancelledRef.current) return;
-      if (resp.status === 'complete' && resp.compositionId) {
+      if (resp.status === 'awaiting_visual') {
+        setVisualProposal(resp.visualProposal || null);
+        setVisualRevisions(Array.isArray(resp.visualRevisions) ? resp.visualRevisions : []);
+        setAwaitingJobId(resp.jobId);
+        setLabel('Review the visual concept');
+        setProgress(0.35);
+      } else if (resp.status === 'complete' && resp.compositionId) {
         setProgress(1);
         setLabel('Done');
+        setVisualSimilarity(resp.visualSimilarity || null);
         onComplete(resp.compositionId);
       } else {
         setError(resp.error || 'Generation failed. Nothing was changed — please try again.');
@@ -372,7 +387,88 @@ export function useCodeGenerationLoop({ onComplete }) {
     }
   };
 
-  return { start, running, label, progress, error, rejectionReasons };
+  const start = async (startBody) => {
+    setProgress(0.05);
+    setVisualSimilarity(null);
+    setVisualRevisions([]);
+    setLabel('Starting…');
+    await pump(startBody);
+  };
+
+  const approveVisual = async () => {
+    if (!awaitingJobId) return;
+    await pump({ jobId: awaitingJobId, visualAction: 'approve' });
+  };
+
+  const reviseVisual = async (instruction) => {
+    if (!awaitingJobId || !instruction?.trim()) return;
+    await pump({ jobId: awaitingJobId, visualAction: 'revise', instruction: instruction.trim() });
+  };
+
+  return {
+    start, running, label, progress, error, rejectionReasons,
+    visualProposal, visualRevisions, visualSimilarity,
+    awaitingVisual: !!(awaitingJobId && visualProposal),
+    approveVisual, reviseVisual,
+  };
+}
+
+// Design-first review card: shows the desktop + mobile concept images with
+// approve / revise controls while the generation job is paused.
+function VisualProposalReview({ gen }) {
+  const [instruction, setInstruction] = useState('');
+  if (!gen.awaitingVisual || !gen.visualProposal) return null;
+  const p = gen.visualProposal;
+  return (
+    <div className="space-y-2 rounded-md border border-border p-2" data-testid="panel-aicc-visual-review">
+      <p className="text-sm font-medium">Visual concept {p.round > 1 ? `(revision ${p.round})` : ''}</p>
+      <p className="text-xs text-muted-foreground">
+        This is a visual mockup — the wording is placeholder and will be replaced by your real content when it's built.
+      </p>
+      <div className="flex gap-2">
+        <div className="min-w-0 flex-1 space-y-1">
+          <p className="text-xs text-muted-foreground">Desktop</p>
+          <img src={p.desktopUrl} alt="Desktop visual concept" className="w-full rounded-md border border-border" data-testid="img-aicc-visual-desktop" />
+        </div>
+        <div className="w-1/3 space-y-1">
+          <p className="text-xs text-muted-foreground">Mobile</p>
+          <img src={p.mobileUrl} alt="Mobile visual concept" className="w-full rounded-md border border-border" data-testid="img-aicc-visual-mobile" />
+        </div>
+      </div>
+      {gen.visualRevisions.length > 0 && (
+        <ul className="space-y-0.5 text-xs text-muted-foreground">
+          {gen.visualRevisions.map((r, i) => <li key={i}>· {r}</li>)}
+        </ul>
+      )}
+      <Textarea
+        value={instruction}
+        onChange={(e) => setInstruction(e.target.value)}
+        placeholder='e.g. "make the hero smaller", "reduce the yellow", "use an illustration rather than photography"'
+        rows={2}
+        disabled={gen.running}
+        data-testid="input-aicc-visual-instruction"
+      />
+      <div className="flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          onClick={gen.approveVisual}
+          disabled={gen.running}
+          data-testid="button-aicc-visual-approve"
+        >
+          <Check className="mr-1 h-4 w-4" /> Approve & build
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => { gen.reviseVisual(instruction); setInstruction(''); }}
+          disabled={gen.running || !instruction.trim()}
+          data-testid="button-aicc-visual-revise"
+        >
+          <RotateCcw className="mr-1 h-4 w-4" /> Request changes
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 const PREVIEW_WIDTHS = { desktop: 1440, tablet: 1024, mobile: 390 };
@@ -1039,6 +1135,7 @@ export function AiCodeCompositionInspector({ block, update, onChange, pageId }) 
   const [scope, setScope] = useState('section');
   const [direction, setDirection] = useState('');
   const [creativity, setCreativity] = useState('brand_led');
+  const [designFirst, setDesignFirst] = useState(false);
   const [styleReference, setStyleReference] = useState(null);
   const [busy, setBusy] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
@@ -1076,6 +1173,7 @@ export function AiCodeCompositionInspector({ block, update, onChange, pageId }) 
       compositionType: scope,
       direction: direction || undefined,
       creativity,
+      designFirst,
       ...(styleReference ? { styleReference } : {}),
       // Regenerating an inserted composition adds a version to it; a pending
       // draft is regenerated in place too.
@@ -1151,6 +1249,22 @@ export function AiCodeCompositionInspector({ block, update, onChange, pageId }) 
         </Select>
       </div>
 
+      <div className="space-y-1">
+        <Label>Workflow</Label>
+        <Select value={designFirst ? 'design_first' : 'code_first'} onValueChange={(v) => setDesignFirst(v === 'design_first')}>
+          <SelectTrigger data-testid="select-aicc-workflow"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="code_first">Build straight away</SelectItem>
+            <SelectItem value="design_first">Show me a visual concept first</SelectItem>
+          </SelectContent>
+        </Select>
+        {designFirst && (
+          <p className="text-xs text-muted-foreground">
+            You'll see a desktop and mobile mockup to approve or revise before anything is built.
+          </p>
+        )}
+      </div>
+
       <StyleReferencePicker
         value={styleReference}
         onChange={setStyleReference}
@@ -1171,6 +1285,15 @@ export function AiCodeCompositionInspector({ block, update, onChange, pageId }) 
         <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
           <div className="h-full bg-primary transition-all" style={{ width: `${Math.round(gen.progress * 100)}%` }} />
         </div>
+      )}
+
+      <VisualProposalReview gen={gen} />
+      {gen.visualSimilarity?.status === 'warning' && (
+        <p className="text-xs text-warning" data-testid="text-aicc-visual-warning">
+          The built section differs from the approved visual in places
+          {typeof gen.visualSimilarity.similarity === 'number' ? ` (similarity ${Math.round(gen.visualSimilarity.similarity * 100)}%)` : ''}.
+          You can refine it with prompt-led edits below.
+        </p>
       )}
       {gen.error && (
         <div className="space-y-1">
