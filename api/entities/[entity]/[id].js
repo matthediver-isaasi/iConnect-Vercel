@@ -18,6 +18,7 @@ import { syncBlogPostAuthors } from '../../_lib/blogPostAuthors.js';
 import { sendBriefNotification } from '../../article-briefs/notify.js';
 import { getAccountingProvider } from '../../_lib/accountingProvider.js';
 import { pruneSpeakerIdsFromReferences } from '../../_lib/speakerReferences.js';
+import { assessAiCodePagePublishGate } from '../../_lib/aiCodeActions.js';
 
 // Entity name to Supabase table mapping (singular names for Base44 compatibility)
 const entityToTable = {
@@ -719,6 +720,26 @@ export default async function handler(req, res) {
           return res
             .status(demoteAuthz.status || 409)
             .json({ error: demoteAuthz.error, ...(demoteAuthz.code && { code: demoteAuthz.code }) });
+        }
+      }
+
+      // AI Design Studio V2 publish gate (Task #2906): a canvas page cannot
+      // flip to "published" while any placed V2 composition still has
+      // unresolved data-ai-action links — those would render as dead ends on
+      // the public site. 409 carries the blockers for the editor UI.
+      if (tableName === 'i_edit_page' && sanitizedBody.status === 'published') {
+        try {
+          const gate = await assessAiCodePagePublishGate(supabase, tenantCtx.tenantId, id);
+          if (!gate.ok) {
+            return res.status(409).json({
+              error: 'This page has AI-designed links that are not connected to real content yet. Resolve them in the AI panel before publishing.',
+              code: 'AI_UNRESOLVED_ACTIONS',
+              blockers: gate.blockers.slice(0, 20),
+            });
+          }
+        } catch (err) {
+          // Fail-open: a gate infrastructure error must not brick publishing.
+          console.error('[Entity PATCH] AI publish gate check failed:', err.message || err);
         }
       }
 

@@ -24,12 +24,20 @@ import {
   runCodeAttempt,
   MAX_CODE_RETRIES,
   AI_CODE_GENERATION_MODEL,
+  buildContentPlanPrompt,
+  parsePlanResponse,
+  runPlanChecks,
 } from '../_lib/aiCodeGeneration.js';
+import { resolveCodeActions, makeSupabaseActionLookups } from '../_lib/aiCodeActions.js';
+import { resolveCodeSlots, makeSupabaseSlotLookups } from '../_lib/aiCodeSlots.js';
 
 const STAGE_LABELS = {
   context: 'Reading your brand and page',
+  plan: 'Planning the page content',
   code: 'Designing your section',
 };
+
+const MAX_PLAN_RETRIES = 2;
 
 function getOpenAIClient() {
   const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
@@ -176,11 +184,13 @@ export default async function handler(req, res) {
   } else {
     const brief = normalizeBrief(body.brief);
     if (!brief) return res.status(400).json({ error: 'A brief is required' });
+    const compositionType = body.compositionType === 'page_body' ? 'page_body' : 'section';
     const options = normalizeOptions(
       { ...body, mode: 'section' },
       { screenshotPrefix: tenantPublicAssetPrefix(tenantId) },
     );
     options.rendererVersion = 2;
+    options.compositionType = compositionType;
 
     // ---- Governance gate (shared with V1) --------------------------------
     const studioSettings = await loadStudioSettings(supabase, tenantId);
@@ -260,6 +270,8 @@ export default async function handler(req, res) {
   const options = normalizeOptions(job.options || {}, { screenshotPrefix: tenantPublicAssetPrefix(tenantId) });
   options.dedupeHash = job.options?.dedupeHash || null;
   options.usageWarning = job.options?.usageWarning || null;
+  // normalizeOptions whitelists keys — re-read the composition type raw.
+  const compositionType = job.options?.compositionType === 'page_body' ? 'page_body' : 'section';
   const brief = job.brief;
   const state = job.state || {};
   const stage = job.stage;
@@ -290,11 +302,57 @@ export default async function handler(req, res) {
       // The CSS scope is keyed on the composition uuid, so a NEW composition
       // gets its id minted up front; rows are only inserted on success.
       const targetCompositionId = job.composition_id || randomUUID();
+      const nextStage = compositionType === 'page_body' ? 'plan' : 'code';
       await updateJob(job.id, tenantId, {
-        stage: 'code',
+        stage: nextStage,
         state: { ...state, brand, pageContext, targetCompositionId, isNewComposition: !job.composition_id },
       });
-      return res.status(200).json({ jobId: job.id, stage: 'code', status: 'running', label: STAGE_LABELS.code });
+      return res.status(200).json({ jobId: job.id, stage: nextStage, status: 'running', label: STAGE_LABELS[nextStage] });
+    }
+
+    // ---- Plan stage (page_body only): content manifest + creative plan ----
+    if (stage === 'plan') {
+      const client = getOpenAIClient();
+      if (!client) {
+        return fail(Object.assign(new Error('AI generation is not configured on this server.'), { httpStatus: 503 }));
+      }
+      const callLlm = makeCallLlm(client);
+      const attempt = state.planAttempt || 0;
+      const lastErrors = state.planErrors || [];
+      const prompt = buildContentPlanPrompt({ brief, brand: state.brand, options, attempt, lastErrors });
+      let raw;
+      try {
+        raw = await callLlm({ system: prompt.system, user: prompt.user, maxTokens: 4000 });
+      } catch (err) {
+        if (err.providerError) return fail(err);
+        throw err;
+      }
+      const parsed = parsePlanResponse(raw);
+      const checks = parsed.ok ? runPlanChecks(parsed.plan) : parsed;
+      if (!parsed.ok || !checks.ok) {
+        const errors = (parsed.ok ? checks.errors : parsed.errors).slice(0, 8);
+        if (attempt >= MAX_PLAN_RETRIES) {
+          return fail(Object.assign(
+            new Error('We could not build a solid content plan for this page. Try adding more detail to your brief.'),
+            { rejectionReasons: errors },
+          ));
+        }
+        await updateJob(job.id, tenantId, {
+          state: { ...state, planAttempt: attempt + 1, planErrors: errors },
+        });
+        return res.status(200).json({
+          jobId: job.id,
+          stage: 'plan',
+          status: 'running',
+          label: 'Rethinking the page plan',
+          progress: { attempt: attempt + 1, maxAttempts: MAX_PLAN_RETRIES + 1 },
+        });
+      }
+      await updateJob(job.id, tenantId, {
+        stage: 'code',
+        state: { ...state, plan: parsed.plan, planAttempts: attempt + 1 },
+      });
+      return res.status(200).json({ jobId: job.id, stage: 'code', status: 'running', label: 'Designing your page' });
     }
 
     if (stage === 'code') {
@@ -318,6 +376,8 @@ export default async function handler(req, res) {
           attempt,
           lastErrors,
           allowedImageHosts: [], // Phase 1: inline SVG only, no raster imagery
+          compositionType,
+          plan: state.plan || null,
         });
       } catch (err) {
         if (err.providerError) return fail(err);
@@ -343,15 +403,37 @@ export default async function handler(req, res) {
         });
       }
 
+      // ---- Resolve actions (hints → real records) and slots BEFORE persist —
+      // the stored document carries server-built hrefs / sourceIds; the client
+      // never builds internal URLs itself. Unresolved actions stay flagged and
+      // are surfaced in the editor + blocked at publish time.
+      let documentToStore = result.document;
+      try {
+        const actions = await resolveCodeActions(
+          result.document.actions,
+          makeSupabaseActionLookups(supabase, tenantId),
+        );
+        const slots = await resolveCodeSlots(
+          result.document.slots,
+          makeSupabaseSlotLookups(supabase, tenantId),
+        );
+        documentToStore = { ...result.document, actions, slots };
+      } catch {
+        // Resolution is best-effort at generation time: a lookup failure
+        // leaves actions unresolved (still publishable-gated), never fails
+        // the whole generation.
+      }
+
       // ---- Persist: composition (renderer_version 2) + immutable version ---
       const compId = state.targetCompositionId;
+      const defaultName = compositionType === 'page_body' ? 'AI page' : 'AI section';
       if (state.isNewComposition) {
         const { error: compErr } = await supabase.from('ai_composition').insert({
           id: compId,
           tenant_id: tenantId,
           page_id: job.page_id || null,
-          name: result.document.title || 'AI section',
-          composition_type: 'section',
+          name: documentToStore.title || defaultName,
+          composition_type: compositionType,
           status: 'draft',
           renderer_version: 2,
           created_by: context.memberId || null,
@@ -364,14 +446,17 @@ export default async function handler(req, res) {
         .insert({
           composition_id: compId,
           tenant_id: tenantId,
-          document: result.document,
+          document: documentToStore,
           change_summary: state.isNewComposition ? 'Initial generation' : 'Regenerated from brief',
           operation_type: 'generation',
           validation_result: { pipeline: 'aiCodePipeline', ok: true, report: result.report },
           generation_metadata: {
             model: AI_CODE_GENERATION_MODEL,
             rendererVersion: 2,
+            compositionType,
             attempts: attempt + 1,
+            planAttempts: state.planAttempts || 0,
+            ...(state.plan ? { plan: state.plan } : {}),
             creativity: options.creativity,
             direction: options.direction || null,
             referenceInfluenceLevel: options.styleReference?.influence || null,
@@ -388,7 +473,7 @@ export default async function handler(req, res) {
         .from('ai_composition')
         .update({
           current_version_id: version.id,
-          name: result.document.title || 'AI section',
+          name: documentToStore.title || defaultName,
           updated_at: new Date().toISOString(),
         })
         .eq('id', compId)

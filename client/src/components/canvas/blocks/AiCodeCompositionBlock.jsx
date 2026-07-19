@@ -15,8 +15,9 @@
 // scripts/seed-bnms-scan-fixture.mjs).
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Code2, Loader2, RotateCcw, ShieldCheck, Sparkles, Trash2, TriangleAlert } from 'lucide-react';
+import { Check, Code2, Link2, Loader2, RotateCcw, Search, ShieldCheck, Sparkles, Trash2, TriangleAlert } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -29,6 +30,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import StyleReferencePicker from '../StyleReferencePicker';
+// Deferred usage only (render time), so the registry → dynamicBlocks →
+// this-file → registry cycle is safe: function declarations are hoisted.
+import { getBlockDefinition } from './registry';
 import { useReportReflowHeight } from '../AccordionReflowContext';
 import { getTenantSlugFromLocation } from '@/api/publicClient';
 
@@ -63,19 +67,143 @@ function isV2Document(doc) {
   return !!doc && doc.schemaVersion === '2.0' && typeof doc.html === 'string';
 }
 
+// ---------------------------------------------------------------------------
+// Slot rendering (Phase 2, Task #2906). The sanitiser empties every
+// data-iconnect-slot placeholder and stamps data-slot-key; the SERVER resolved
+// each slot into a trusted block config ({ type, content }). The client only
+// mounts the corresponding registry component into the placeholder — the
+// generated code never renders iConnect components itself.
+
+// Pseudo-type with no canvas block: a small trusted membership CTA panel.
+function MembershipApplicationCta({ content }) {
+  const href = content?.tierId
+    ? `/MembershipApplication?tier=${content.tierId}`
+    : '/MembershipApplication';
+  return (
+    <div className="rounded-md border border-border bg-card p-6 text-center">
+      <p className="mb-3 font-medium">
+        {content?.tierName ? `Apply for ${content.tierName} membership` : 'Apply for membership'}
+      </p>
+      <Button asChild data-testid="button-aicc-slot-membership">
+        <a href={href}>Apply now</a>
+      </Button>
+    </div>
+  );
+}
+
+function SlotContent({ slot, asEditor }) {
+  if (!slot?.resolved || !slot.block?.type) {
+    if (!asEditor) return null;
+    return (
+      <div className="rounded-md border border-dashed border-border bg-muted/40 p-6 text-center text-sm text-muted-foreground">
+        {slot?.unresolvedReason || 'This area is not connected to content yet.'}
+      </div>
+    );
+  }
+  if (slot.block.type === 'membership-application-cta') {
+    return <MembershipApplicationCta content={slot.block.content} />;
+  }
+  const def = getBlockDefinition(slot.block.type);
+  const Renderer = def?.Renderer;
+  if (!Renderer) return null;
+  const syntheticBlock = {
+    id: `aicc-slot-${slot.key}`,
+    type: slot.block.type,
+    content: slot.block.content || {},
+    style: {},
+  };
+  return <Renderer block={syntheticBlock} asEditor={!!asEditor} />;
+}
+
 /**
  * Pure V2 renderer: scoped <style> + sanitised HTML inside the scope wrapper.
- * Also used by the signed server preview page (same wrapper contract).
+ * After injection an effect wires the SERVER-resolved action hrefs onto
+ * [data-ai-action] elements (unresolved actions become inert placeholders)
+ * and mounts trusted slot components into [data-slot-key] placeholders via
+ * portals. The client never builds internal URLs itself.
  */
-export function AiCodeCompositionContent({ document: doc }) {
+export function AiCodeCompositionContent({ document: doc, asEditor }) {
   const compositionId = doc?.compositionId || '';
+  const rootRef = useRef(null);
+  const [slotMounts, setSlotMounts] = useState([]);
   const markup = useMemo(() => ({ __html: doc?.html || '' }), [doc?.html]);
+
+  // Wire actions + collect slot mount points whenever the markup re-injects.
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root || !doc) return;
+    const actions = new Map(
+      (Array.isArray(doc.actions) ? doc.actions : []).map((a) => [a?.key, a]),
+    );
+    root.querySelectorAll('[data-ai-action]').forEach((el) => {
+      const action = actions.get(el.getAttribute('data-ai-action'));
+      const isAnchor = el.tagName === 'A';
+      if (action && action.resolved && action.href) {
+        if (isAnchor) {
+          el.setAttribute('href', action.href);
+          if (action.type === 'external_url') {
+            el.setAttribute('target', '_blank');
+            el.setAttribute('rel', 'noopener noreferrer');
+          }
+        } else {
+          el.setAttribute('data-ai-href', action.href);
+          el.style.cursor = 'pointer';
+        }
+        el.removeAttribute('aria-disabled');
+      } else {
+        // Inert placeholder: never a dead navigation.
+        if (isAnchor) el.removeAttribute('href');
+        el.setAttribute('aria-disabled', 'true');
+        el.setAttribute('title', 'This link is not connected yet');
+        el.style.cursor = 'default';
+      }
+    });
+
+    const slots = new Map(
+      (Array.isArray(doc.slots) ? doc.slots : []).map((s) => [s?.key, s]),
+    );
+    const mounts = [];
+    root.querySelectorAll('[data-slot-key], [data-iconnect-slot]').forEach((el) => {
+      const key = el.getAttribute('data-slot-key') || el.getAttribute('data-iconnect-slot');
+      const slot = slots.get(key);
+      if (!slot) return;
+      el.innerHTML = '';
+      mounts.push({ key, el, slot });
+    });
+    setSlotMounts(mounts);
+  }, [doc]);
+
+  const onClickCapture = (e) => {
+    const actionEl = e.target?.closest?.('[data-ai-action]');
+    if (!actionEl) return;
+    if (asEditor) {
+      // Never navigate away from the builder.
+      e.preventDefault();
+      return;
+    }
+    const href = actionEl.getAttribute('data-ai-href');
+    if (href && actionEl.tagName !== 'A') {
+      e.preventDefault();
+      window.location.href = href;
+    }
+  };
+
   if (!isV2Document(doc) || !compositionId) return null;
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: doc.css || '' }} />
       {/* eslint-disable-next-line react/no-danger -- server-sanitised, immutable document */}
-      <div data-ai-composition={compositionId} dangerouslySetInnerHTML={markup} />
+      <div
+        ref={rootRef}
+        data-ai-composition={compositionId}
+        dangerouslySetInnerHTML={markup}
+        onClickCapture={onClickCapture}
+      />
+      {slotMounts.map(({ key, el, slot }) => createPortal(
+        <SlotContent slot={slot} asEditor={asEditor} />,
+        el,
+        `aicc-slot-${key}`,
+      ))}
     </>
   );
 }
@@ -120,7 +248,7 @@ export function AiCodeCompositionRender({ block, asEditor }) {
   }
   return (
     <div ref={reflowRef} data-testid={`aicc-${block.id}`}>
-      <AiCodeCompositionContent document={doc} />
+      <AiCodeCompositionContent document={doc} asEditor={!!asEditor} />
     </div>
   );
 }
@@ -281,11 +409,178 @@ function BreakpointPreview({ compositionId }) {
   );
 }
 
+// Which destinations `kinds` filter each record-backed action type searches.
+const ACTION_DEST_KINDS = {
+  internal_page: 'page',
+  event: 'event_registration',
+  event_registration: 'event_registration',
+  form: 'form',
+  membership_application: 'membership_application',
+  document: 'document',
+};
+const SELF_RESOLVING_TYPES = new Set(['external_url', 'anchor', 'email', 'tel']);
+const SELF_RESOLVING_FIELD = { external_url: 'url', anchor: 'anchorId', email: 'address', tel: 'number' };
+const SELF_RESOLVING_PLACEHOLDER = {
+  external_url: 'https://example.org/…',
+  anchor: 'section-anchor-id',
+  email: 'name@example.org',
+  tel: '+44 20 …',
+};
+
+// One unresolved action row: search real records (record-backed types) or
+// type a value (external/email/tel/anchor), then resolve server-side. The
+// server verifies the target and builds the href — never the client.
+function UnresolvedActionRow({ compositionId, action, onResolved }) {
+  const [q, setQ] = useState('');
+  const [results, setResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [value, setValue] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const selfResolving = SELF_RESOLVING_TYPES.has(action.type);
+
+  const search = async () => {
+    if (!q.trim()) return;
+    setSearching(true);
+    setError(null);
+    try {
+      const kinds = ACTION_DEST_KINDS[action.type];
+      const body = await aicFetch(`/api/ai-compositions/destinations?q=${encodeURIComponent(q.trim())}${kinds ? `&kinds=${kinds}` : ''}`);
+      setResults(Array.isArray(body.destinations) ? body.destinations.slice(0, 6) : []);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const resolve = async (target) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await aicFetch('/api/ai-compositions/resolve-action', {
+        method: 'POST',
+        body: JSON.stringify({ compositionId, actionKey: action.key, target }),
+      });
+      onResolved();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-1.5 rounded-md border border-border p-2" data-testid={`row-aicc-action-${action.key}`}>
+      <p className="text-xs">
+        <span className="font-medium">{action.label || action.hint || action.key}</span>{' '}
+        <span className="text-muted-foreground">· {action.type.replace(/_/g, ' ')}</span>
+      </p>
+      <p className="text-xs text-muted-foreground">{action.unresolvedReason || 'Not connected yet'}</p>
+      {selfResolving ? (
+        <div className="flex flex-wrap items-center gap-1">
+          <Input
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder={SELF_RESOLVING_PLACEHOLDER[action.type]}
+            className="flex-1"
+            data-testid={`input-aicc-resolve-${action.key}`}
+          />
+          <Button
+            size="icon"
+            variant="outline"
+            onClick={() => resolve({ [SELF_RESOLVING_FIELD[action.type]]: value.trim() })}
+            disabled={busy || !value.trim()}
+            data-testid={`button-aicc-resolve-${action.key}`}
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
+          </Button>
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center gap-1">
+            <Input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') search(); }}
+              placeholder="Search for the right content…"
+              className="flex-1"
+              data-testid={`input-aicc-search-${action.key}`}
+            />
+            <Button
+              size="icon"
+              variant="outline"
+              onClick={search}
+              disabled={searching || !q.trim()}
+              data-testid={`button-aicc-search-${action.key}`}
+            >
+              {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+            </Button>
+          </div>
+          {results.length > 0 && (
+            <ul className="space-y-1">
+              {results.map((r) => (
+                <li key={`${r.kind}-${r.id}`}>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-auto w-full justify-start whitespace-normal py-1 text-left"
+                    onClick={() => resolve({ recordId: r.id })}
+                    disabled={busy}
+                    data-testid={`button-aicc-pick-${action.key}-${r.id}`}
+                  >
+                    <span className="text-xs">{r.title}{r.detail ? ` — ${r.detail}` : ''}</span>
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </div>
+  );
+}
+
+function UnresolvedActionsPanel({ compositionId, doc }) {
+  const queryClient = useQueryClient();
+  const actions = Array.isArray(doc?.actions) ? doc.actions : [];
+  const referenced = Array.isArray(doc?.sanitisation?.actionKeys) && doc.sanitisation.actionKeys.length
+    ? new Set(doc.sanitisation.actionKeys)
+    : null;
+  const unresolved = actions.filter(
+    (a) => a && (!referenced || referenced.has(a.key)) && (a.resolved !== true || !a.href),
+  );
+  if (!unresolved.length) return null;
+  return (
+    <div className="space-y-2 rounded-md border border-border bg-muted/30 p-3">
+      <div className="flex items-center gap-2 text-xs font-medium">
+        <TriangleAlert className="h-3.5 w-3.5 text-warning" />
+        <span data-testid="text-aicc-unresolved-count">
+          {unresolved.length} link{unresolved.length === 1 ? '' : 's'} not connected — resolve before publishing
+        </span>
+      </div>
+      {unresolved.map((a) => (
+        <UnresolvedActionRow
+          key={a.key}
+          compositionId={compositionId}
+          action={a}
+          onResolved={() => {
+            queryClient.invalidateQueries({ queryKey: ['/api/ai-compositions', compositionId] });
+            queryClient.invalidateQueries({ queryKey: ['/api/ai-compositions', compositionId, 'versions'] });
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
 export function AiCodeCompositionInspector({ block, update, onChange, pageId }) {
   const queryClient = useQueryClient();
   const insertedId = block.content?.compositionId || '';
   const [draftId, setDraftId] = useState('');
   const [brief, setBrief] = useState('');
+  const [scope, setScope] = useState('section');
   const [direction, setDirection] = useState('');
   const [creativity, setCreativity] = useState('brand_led');
   const [styleReference, setStyleReference] = useState(null);
@@ -322,6 +617,7 @@ export function AiCodeCompositionInspector({ block, update, onChange, pageId }) 
     gen.start({
       pageId: pageId || undefined,
       brief,
+      compositionType: scope,
       direction: direction || undefined,
       creativity,
       ...(styleReference ? { styleReference } : {}),
@@ -351,6 +647,21 @@ export function AiCodeCompositionInspector({ block, update, onChange, pageId }) 
 
   return (
     <div className="space-y-3">
+      <div className="space-y-1">
+        <Label>What should the AI design?</Label>
+        <Select value={scope} onValueChange={setScope}>
+          <SelectTrigger data-testid="select-aicc-scope"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="section">A single section</SelectItem>
+            <SelectItem value="page_body">A full page body (multiple sections)</SelectItem>
+          </SelectContent>
+        </Select>
+        {scope === 'page_body' && (
+          <p className="text-xs text-muted-foreground">
+            Your site header, footer and navigation are never redesigned — the AI only creates the page content between them.
+          </p>
+        )}
+      </div>
       <div className="space-y-1">
         <Label htmlFor={`aicc-brief-${block.id}`}>Describe the section you want</Label>
         <Textarea
@@ -454,6 +765,7 @@ export function AiCodeCompositionInspector({ block, update, onChange, pageId }) 
             <span className="text-muted-foreground">· schema {doc.schemaVersion} · renderer v2</span>
           </p>
           <SanitisationReport report={doc.sanitisation} />
+          <UnresolvedActionsPanel compositionId={activeId} doc={doc} />
         </div>
       )}
 

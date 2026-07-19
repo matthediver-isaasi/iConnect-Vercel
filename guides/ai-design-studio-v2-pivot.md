@@ -230,3 +230,71 @@ the hand-authored BNMS fixture end-to-end (validate → sanitise → scope →
 store → render → screenshot). Phase 1 adds the generation loop that produces
 V2 packages and retries on pipeline rejection; the reject-don't-repair design
 above is what makes that loop convergent.
+
+## Phase 2: Full Page Bodies, Actions and Slots (Task #2906)
+
+Phase 2 extends V2 generation from a single section to a **full multi-section
+page body** (`compositionType: "page_body"`), and gives generated markup a
+safe way to link to real content and embed live platform components.
+
+### Plan stage (page bodies only)
+
+`api/ai-compositions/generate-v2.js` runs an extra staged step before code
+generation: a **content manifest + creative plan** produced by
+`buildContentPlanPrompt` / `parsePlanResponse` and hard-checked by
+`runPlanChecks` (all in `api/_lib/aiCodeGeneration.js`). The anti-degenerate
+check rejects thin or repetitive plans deterministically (3–10 unique
+kebab-keyed sections, distinct purposes and headlines, non-empty content
+manifest, at least one planned call to action) and feeds errors back into the
+retry prompt. The accepted plan is then passed into the code prompt and into
+`runCodeRejectionGates`, which enforces (page bodies only):
+
+- **No `<header>`, `<footer>` or `<nav>`** — site chrome is never recreated.
+- At least `PLAN_MIN_SECTIONS` `<section>` elements.
+- Every planned section key appears as `<section data-ai-id="<key>">`.
+- Planned slots must be reserved via `data-iconnect-slot` placeholders.
+
+### Action system (`api/_lib/aiCodeActions.js`)
+
+The model never writes internal URLs. Elements carry `data-ai-action="key"`
+hints; the `actions` manifest declares each key's type
+(`internal_page|external_url|anchor|form|event|event_registration|membership_application|document|email|tel`)
+plus a natural-language `hint`. After generation, `resolveCodeActions`
+resolves hints against real tenant records (best-effort, before persist);
+`buildActionHref` builds the canonical in-app href (mirrors V1 `aicLinkHref`);
+`validateExternalUrl` allows only clean `https:` URLs. Unresolved actions stay
+flagged on the stored document.
+
+- **Editor resolution:** `POST /api/ai-compositions/resolve-action`
+  (`{compositionId, actionKey, target}`) verifies an editor-picked record by
+  id (`makeSupabaseActionLookupsById`) or a typed value for self-resolving
+  types, and stores a new immutable version. The inspector's
+  `UnresolvedActionsPanel` in `AiCodeCompositionBlock.jsx` drives this via the
+  existing destinations search endpoint.
+- **Publish gate:** publishing an `i_edit_page` (PATCH `status='published'` in
+  `api/entities/[entity]/[id].js`) is blocked with a 409
+  (`code: AI_UNRESOLVED_ACTIONS`) while any referenced action on an embedded
+  V2 composition is unresolved (`assessAiCodePagePublishGate`, fail-open on
+  errors). Slots never block publish — only actions do.
+- **Client wiring:** the block renderer attaches resolved hrefs onto
+  `[data-ai-action]` elements at mount (external links get
+  `target="_blank" rel="noopener noreferrer"`; unresolved ones are inert with
+  `aria-disabled`); non-anchor elements navigate via a capture click handler
+  (suppressed in the editor).
+
+### Slot system (`api/_lib/aiCodeSlots.js`)
+
+`data-iconnect-slot="<kind>"` placeholders reserve space for **trusted
+iConnect components** rendered by the platform, never by generated code.
+`resolveCodeSlots` maps kinds (`form`, `event_registration`, `event_listing`,
+`membership_application`, `document_list`, `news_listing`, `directory`,
+`login_prompt`, `donation`) to real canvas block configs; the client mounts
+them via `createPortal` into the placeholder elements using the canvas block
+registry. Unresolved slots render nothing (and never block publish).
+
+### Tests
+
+`api/_lib/aiCodeActions.test.mjs` (actions, publish gate, slots — pure,
+injected lookups) and the Phase 2 half of `api/_lib/aiCodeGeneration.test.mjs`
+(plan prompt/checks, page_body gates, compositionType contract). Both run in
+the `ai-assistant-tests` validation glob.

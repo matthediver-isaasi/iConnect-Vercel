@@ -4,6 +4,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  buildContentPlanPrompt,
+  parsePlanResponse,
+  runPlanChecks,
+  PLAN_MIN_SECTIONS,
+  PLAN_MAX_SECTIONS,
   buildIconnectBrandTokens,
   brandTokensCssBlock,
   buildCodePrompt,
@@ -291,4 +296,155 @@ test('runCodeAttempt propagates provider errors (thrown by callLlm)', async () =
     () => runCodeAttempt({ callLlm, compositionId: COMP_ID, brief: 'x', brand: BRAND }),
     /down/,
   );
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2 (Task #2906): content-manifest + creative-plan stage
+// ---------------------------------------------------------------------------
+
+function goodPlan() {
+  return {
+    contentManifest: [
+      { key: 'intro', role: 'hero copy', text: 'Join a thriving community of beekeepers across the country.' },
+      { key: 'benefits', role: 'detail', text: 'Training, insurance and events for every member.' },
+    ],
+    sections: [
+      { key: 'hero', purpose: 'hero', headline: 'Welcome to BNMS', contentKeys: ['intro'], slot: null, actionTypes: ['membership_application'] },
+      { key: 'benefits', purpose: 'proof', headline: 'Why members join', contentKeys: ['benefits'], slot: null, actionTypes: [] },
+      { key: 'events', purpose: 'detail', headline: 'Upcoming events', contentKeys: [], slot: 'event_listing', actionTypes: ['event_registration'] },
+      { key: 'join', purpose: 'call-to-action', headline: 'Become a member', contentKeys: [], slot: 'membership_application', actionTypes: ['membership_application'] },
+    ],
+    creativeDirection: 'A warm, honey-toned page with layered hexagon motifs.',
+  };
+}
+
+test('buildContentPlanPrompt embeds brief, brand and retry feedback', () => {
+  const { system, user } = buildContentPlanPrompt({
+    brief: 'A membership page for beekeepers',
+    brand: BRAND,
+    options: { desiredAction: 'Join' },
+    attempt: 1,
+    lastErrors: ['Sections too repetitive'],
+  });
+  assert.match(system, /FULL PAGE BODY/);
+  assert.match(system, /never plan them/i);
+  assert.match(user, /A membership page for beekeepers/);
+  assert.match(user, /BNMS/);
+  assert.match(user, /Sections too repetitive/);
+  assert.ok(PLAN_MIN_SECTIONS >= 3 && PLAN_MAX_SECTIONS <= 10);
+});
+
+test('parsePlanResponse rejects non-JSON and non-objects', () => {
+  assert.equal(parsePlanResponse('nope').ok, false);
+  assert.equal(parsePlanResponse('[1,2]').ok, false);
+  assert.equal(parsePlanResponse(JSON.stringify(goodPlan())).ok, true);
+});
+
+test('runPlanChecks passes a varied plan', () => {
+  const res = runPlanChecks(goodPlan());
+  assert.equal(res.ok, true, JSON.stringify(res.errors));
+});
+
+test('runPlanChecks rejects degenerate plans', () => {
+  // Too few sections.
+  const thin = goodPlan();
+  thin.sections = thin.sections.slice(0, 2);
+  assert.equal(runPlanChecks(thin).ok, false);
+
+  // Repetitive purposes.
+  const rep = goodPlan();
+  rep.sections = rep.sections.map((s) => ({ ...s, purpose: 'hero' }));
+  const repRes = runPlanChecks(rep);
+  assert.equal(repRes.ok, false);
+  assert.ok(repRes.errors.some((e) => /repetitive/.test(e)));
+
+  // Duplicate headlines.
+  const dup = goodPlan();
+  dup.sections = dup.sections.map((s) => ({ ...s, headline: 'Same' }));
+  assert.equal(runPlanChecks(dup).ok, false);
+
+  // Duplicate / missing keys.
+  const badKeys = goodPlan();
+  badKeys.sections[1].key = 'hero';
+  badKeys.sections[2].key = 'Not Kebab';
+  assert.equal(runPlanChecks(badKeys).ok, false);
+
+  // Empty content manifest.
+  const noContent = goodPlan();
+  noContent.contentManifest = [];
+  assert.equal(runPlanChecks(noContent).ok, false);
+
+  // No planned call to action anywhere.
+  const noCta = goodPlan();
+  noCta.sections = noCta.sections.map((s) => ({ ...s, actionTypes: [] }));
+  const noCtaRes = runPlanChecks(noCta);
+  assert.equal(noCtaRes.ok, false);
+  assert.ok(noCtaRes.errors.some((e) => /call to action/.test(e)));
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2: page_body rejection gates
+// ---------------------------------------------------------------------------
+
+function goodPageDocument() {
+  const sect = (key, heading, extra = '') => `<section data-ai-id="${key}">
+    <h2 data-ai-id="${key}-heading">${heading}</h2>
+    <p data-ai-id="${key}-copy">Real copy for the ${heading} section that says something concrete and useful to visitors.</p>
+    ${extra}
+  </section>`;
+  return {
+    compositionType: 'page_body',
+    html: [
+      sect('hero', 'Welcome', '<a data-ai-id="hero-cta" data-ai-action="join">Join now</a>'),
+      sect('benefits', 'Benefits'),
+      sect('events', 'Events', '<div data-iconnect-slot="event_listing" data-slot-key="events-slot"></div>'),
+      sect('join', 'Become a member'),
+    ].join('\n'),
+    css: '.x { display: grid; } @media (max-width: 1024px) { .x { display: block; } }',
+  };
+}
+
+test('page_body gates pass a good multi-section document', () => {
+  const report = { actionKeys: ['join'], slotKeys: ['events-slot'], aiIds: [], htmlRemoved: [] };
+  const res = runCodeRejectionGates(goodPageDocument(), report, { brief: 'x', plan: goodPlan() });
+  assert.equal(res.ok, true, JSON.stringify(res.errors));
+});
+
+test('page_body gate: header/footer/nav recreation rejected', () => {
+  const doc = goodPageDocument();
+  doc.html = `<header data-ai-id="site-header">My header</header>${doc.html}`;
+  const res = runCodeRejectionGates(doc, { actionKeys: ['join'], slotKeys: ['events-slot'], htmlRemoved: [] }, { plan: goodPlan() });
+  assert.equal(res.ok, false);
+  assert.ok(res.errors.some((e) => /never recreated/.test(e)));
+});
+
+test('page_body gate: too few sections rejected', () => {
+  const doc = goodPageDocument();
+  doc.html = '<section data-ai-id="only"><h2 data-ai-id="h">One long enough heading here</h2><p data-ai-id="p">Some sufficiently long copy to avoid the near-blank gate firing.</p></section>';
+  const res = runCodeRejectionGates(doc, { actionKeys: [], slotKeys: [], htmlRemoved: [] }, {});
+  assert.equal(res.ok, false);
+  assert.ok(res.errors.some((e) => /at least/.test(e)));
+});
+
+test('page_body gate: planned section missing from markup rejected', () => {
+  const plan = goodPlan();
+  plan.sections.push({ key: 'faq', purpose: 'detail', headline: 'FAQ', contentKeys: [], slot: null, actionTypes: [] });
+  const res = runCodeRejectionGates(goodPageDocument(), { actionKeys: ['join'], slotKeys: ['events-slot'], htmlRemoved: [] }, { plan });
+  assert.equal(res.ok, false);
+  assert.ok(res.errors.some((e) => /faq/.test(e)));
+});
+
+test('page_body gate: planned slots with no placeholders rejected', () => {
+  const res = runCodeRejectionGates(goodPageDocument(), { actionKeys: ['join'], slotKeys: [], htmlRemoved: [] }, { plan: goodPlan() });
+  assert.equal(res.ok, false);
+  assert.ok(res.errors.some((e) => /data-iconnect-slot/.test(e)));
+});
+
+test('runCodeAttempt rejects a package whose compositionType mismatches the run', async () => {
+  const callLlm = async () => JSON.stringify(goodPackage()); // section package
+  const res = await runCodeAttempt({
+    callLlm, compositionId: COMP_ID, brief: 'x', brand: BRAND, compositionType: 'page_body', plan: goodPlan(),
+  });
+  assert.equal(res.ok, false);
+  assert.ok(res.errors.some((e) => /compositionType/.test(e)));
 });
