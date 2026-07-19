@@ -7167,12 +7167,15 @@ function FeaturedJobInspector({ block, update, breakpoint }) {
 
 export const DYNAMIC_BLOCK_DEFINITIONS = {
   [BLOCK_TYPES.AI_COMPOSITION]: {
-    label: 'AI Composition',
+    label: 'AI Composition (legacy)',
     icon: Sparkles,
     category: 'data',
     Editor: (props) => <AiCompositionRender {...props} asEditor />,
     Renderer: AiCompositionRender,
     Inspector: AiCompositionInspector,
+    // V2 (native code) is the only insertable AI block now; existing V1
+    // blocks keep rendering/editing but no new ones can be added.
+    paletteHidden: true,
   },
   // AI Design Studio V2 (Task #2904): native HTML/CSS/SVG code packages.
   // autoHeight — the flowed document drives the block's footprint.
