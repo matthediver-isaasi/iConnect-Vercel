@@ -164,7 +164,7 @@ export function crossCheckManifests(pkg, htmlRefs) {
   const actionKeys = new Set((pkg.actions || []).map((a) => a.key));
   const slotKeys = new Set((pkg.slots || []).map((s) => s.key));
   for (const k of htmlRefs.actionKeys || []) {
-    if (!actionKeys.has(k)) errors.push(`HTML references action "${k}" missing from the actions manifest`);
+    if (!actionKeys.has(k)) errors.push(`HTML references action "${k}" missing from the actions manifest — every data-ai-action attribute value must be YOUR OWN kebab-case key with a matching actions[].key entry; an action TYPE name (e.g. "anchor") is not a key`);
   }
   for (const k of htmlRefs.slotKeys || []) {
     if (!slotKeys.has(k)) errors.push(`HTML references slot "${k}" missing from the slots manifest`);

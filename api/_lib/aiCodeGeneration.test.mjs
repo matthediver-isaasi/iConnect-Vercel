@@ -368,6 +368,46 @@ test('runCodeAttempt: final attempt auto-declares undeclared action keys as unre
   assert.equal(auto.autoDeclared, true);
 });
 
+test('runCodeAttempt: final attempt records auto-declared keys in the report', async () => {
+  const callLlm = async () => JSON.stringify(undeclaredActionPackage());
+  const res = await runCodeAttempt({
+    callLlm, compositionId: COMP_ID, brief: 'x', brand: BRAND, attempt: MAX_CODE_RETRIES,
+  });
+  assert.equal(res.ok, true);
+  assert.deepEqual(res.autoDeclaredActionKeys, ['anchor']);
+  assert.deepEqual(res.report.autoDeclaredActionKeys, ['anchor']);
+});
+
+test('runCodeAttempt: no reconciliation means no autoDeclared metadata', async () => {
+  const callLlm = async () => JSON.stringify(goodPackage());
+  const res = await runCodeAttempt({
+    callLlm, compositionId: COMP_ID, brief: 'x', brand: BRAND, attempt: MAX_CODE_RETRIES,
+  });
+  assert.equal(res.ok, true);
+  assert.deepEqual(res.autoDeclaredActionKeys, []);
+  assert.equal(res.report.autoDeclaredActionKeys, undefined);
+});
+
+test('runCodeAttempt: malformed (non-array) actions manifest stays fatal on the final attempt', async () => {
+  const pkg = undeclaredActionPackage();
+  pkg.actions = { key: 'join', type: 'anchor' }; // object, not an array
+  const callLlm = async () => JSON.stringify(pkg);
+  const res = await runCodeAttempt({
+    callLlm, compositionId: COMP_ID, brief: 'x', brand: BRAND, attempt: MAX_CODE_RETRIES,
+  });
+  assert.equal(res.ok, false);
+  assert.match(res.errors.join(' '), /actions must be an array/);
+});
+
+test('cross-check retry feedback teaches the key-vs-type distinction', async () => {
+  const callLlm = async () => JSON.stringify(undeclaredActionPackage());
+  const res = await runCodeAttempt({
+    callLlm, compositionId: COMP_ID, brief: 'x', brand: BRAND, attempt: 0,
+  });
+  assert.equal(res.ok, false);
+  assert.match(res.errors.join(' '), /action TYPE name .* is not a key/);
+});
+
 test('buildCodePrompt spells out that the action key is never a type name', () => {
   const { system } = buildCodePrompt({ brief: 'x', brand: BRAND, options: {} });
   assert.match(system, /NEVER an action type name/);

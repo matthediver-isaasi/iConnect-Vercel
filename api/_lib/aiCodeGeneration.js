@@ -456,12 +456,19 @@ export async function runCodeAttempt({
   // the whole generation — auto-declare the missing key as an unresolved
   // "anchor" action, which renders as an inert placeholder the editor can
   // wire up via resolve-action (same UX as any other unresolved action).
-  if (attempt >= MAX_CODE_RETRIES && parsed.package && typeof parsed.package === 'object') {
+  // A genuinely malformed manifest (actions present but not an array) stays
+  // FATAL — reconciliation only ever appends to a valid/absent list.
+  let autoDeclaredActionKeys = [];
+  if (
+    attempt >= MAX_CODE_RETRIES
+    && parsed.package && typeof parsed.package === 'object'
+    && (parsed.package.actions === undefined
+      || parsed.package.actions === null
+      || Array.isArray(parsed.package.actions))
+  ) {
     const htmlStr = typeof parsed.package.html === 'string' ? parsed.package.html : '';
-    const declared = new Set(
-      (Array.isArray(parsed.package.actions) ? parsed.package.actions : [])
-        .map((a) => a?.key).filter(Boolean),
-    );
+    const existing = Array.isArray(parsed.package.actions) ? parsed.package.actions : [];
+    const declared = new Set(existing.map((a) => a?.key).filter(Boolean));
     const KEY_OK = /^[a-z0-9][a-z0-9_-]{0,79}$/i;
     const missing = new Set();
     for (const m of htmlStr.matchAll(/data-ai-action\s*=\s*["']([^"']+)["']/gi)) {
@@ -469,9 +476,10 @@ export async function runCodeAttempt({
       if (key && KEY_OK.test(key) && !declared.has(key)) missing.add(key);
     }
     if (missing.size) {
+      autoDeclaredActionKeys = [...missing];
       parsed.package.actions = [
-        ...(Array.isArray(parsed.package.actions) ? parsed.package.actions : []),
-        ...[...missing].map((key) => ({ key, type: 'anchor', label: key, autoDeclared: true })),
+        ...existing,
+        ...autoDeclaredActionKeys.map((key) => ({ key, type: 'anchor', label: key, autoDeclared: true })),
       ];
     }
   }
@@ -488,10 +496,17 @@ export async function runCodeAttempt({
   const gates = runCodeRejectionGates(result.document, result.report, { brief, options, plan });
   if (!gates.ok) return { ok: false, errors: gates.errors };
 
+  // Record reconciliation in the report so the stored validation metadata
+  // (and inspector) show which action keys were auto-declared.
+  if (autoDeclaredActionKeys.length) {
+    result.report.autoDeclaredActionKeys = autoDeclaredActionKeys;
+  }
+
   return {
     ok: true,
     document: result.document,
     report: result.report,
+    autoDeclaredActionKeys,
     // The UNSCOPED model CSS — kept for Phase 3 repair prompts so the repair
     // model never sees (and never has to strip) the platform scope prefix.
     rawCss: typeof parsed.package.css === 'string' ? parsed.package.css : null,

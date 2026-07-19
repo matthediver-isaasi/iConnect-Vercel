@@ -813,6 +813,12 @@ export default async function handler(req, res) {
             referenceInfluenceLevel: options.styleReference?.influence || null,
             referenceImagesSentCount: result.imagesAttached || 0,
             designDnaIncluded: !!options.styleReference?.designDna,
+            // Final-attempt reconciliation warning: these data-ai-action keys
+            // were used in the HTML but not declared by the model; they were
+            // auto-declared as unresolved anchor actions.
+            ...(result.autoDeclaredActionKeys?.length
+              ? { warnings: [`Auto-declared undeclared action key(s): ${result.autoDeclaredActionKeys.join(', ')}`], autoDeclaredActionKeys: result.autoDeclaredActionKeys }
+              : {}),
           },
           created_by: context.memberId || null,
         })
