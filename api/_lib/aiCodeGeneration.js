@@ -428,6 +428,9 @@ export async function runCodeAttempt({
     ok: true,
     document: result.document,
     report: result.report,
+    // The UNSCOPED model CSS — kept for Phase 3 repair prompts so the repair
+    // model never sees (and never has to strip) the platform scope prefix.
+    rawCss: typeof parsed.package.css === 'string' ? parsed.package.css : null,
     imagesAttached: (prompt.images || []).length,
   };
 }

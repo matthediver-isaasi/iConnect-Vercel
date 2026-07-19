@@ -14,42 +14,16 @@
 //      Browserless, stores them in the tenant media library, and records
 //      them on the version's generation_metadata.screenshots.
 
-import crypto from 'node:crypto';
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasFeatureAccess } from '../_lib/tenantContext.js';
 import { captureScreenshot, isBrowserlessConfigured } from '../_lib/browserlessScreenshot.js';
 import { storeGeneratedAsset } from '../_lib/aiCompositionAssetStore.js';
-
-const SIGNATURE_TTL_MS = 10 * 60 * 1000;
-
-function signingSecret() {
-  return process.env.AIC_PREVIEW_SECRET || process.env.CRON_SECRET || null;
-}
-
-function sign(compositionId, versionId, exp) {
-  const secret = signingSecret();
-  if (!secret) return null;
-  return crypto.createHmac('sha256', secret)
-    .update(`${compositionId}.${versionId}.${exp}`)
-    .digest('hex');
-}
-
-function verifySignature(compositionId, versionId, exp, sig) {
-  const expected = sign(compositionId, versionId, exp);
-  if (!expected || !sig) return false;
-  const a = Buffer.from(expected);
-  const b = Buffer.from(String(sig));
-  if (a.length !== b.length) return false;
-  if (!crypto.timingSafeEqual(a, b)) return false;
-  return Number(exp) > Date.now();
-}
-
-function appOrigin(req) {
-  if (process.env.VITE_APP_URL) return process.env.VITE_APP_URL.replace(/\/$/, '');
-  const host = req.headers['x-forwarded-host'] || req.headers.host;
-  const proto = req.headers['x-forwarded-proto'] || 'https';
-  return `${proto}://${host}`;
-}
+import {
+  signingSecret,
+  verifyPreviewSignature,
+  buildSignedPreviewUrl,
+  appOrigin,
+} from '../_lib/aiCodePreviewSign.js';
 
 const escapeHtml = (s) => String(s || '').replace(/[&<>"]/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]
@@ -83,7 +57,7 @@ export default async function handler(req, res) {
     if (!compositionId || !versionId || !exp || !sig) {
       return res.status(400).send('Missing parameters');
     }
-    if (!verifySignature(compositionId, versionId, exp, sig)) {
+    if (!verifyPreviewSignature(compositionId, versionId, exp, sig)) {
       return res.status(403).send('Invalid or expired preview link');
     }
     const loaded = await loadVersionDocument(compositionId, versionId);
@@ -155,11 +129,7 @@ export default async function handler(req, res) {
     return res.status(503).json({ error: 'Screenshot capture is not configured on this server' });
   }
 
-  const exp = Date.now() + SIGNATURE_TTL_MS;
-  const sig = sign(compositionId, versionId, exp);
-  const previewUrl = `${appOrigin(req)}/api/ai-compositions/preview`
-    + `?compositionId=${encodeURIComponent(compositionId)}`
-    + `&versionId=${encodeURIComponent(versionId)}&exp=${exp}&sig=${sig}`;
+  const previewUrl = buildSignedPreviewUrl(appOrigin(req), compositionId, versionId);
 
   const targets = doc.responsiveTargets || { desktop: 1440, tablet: 1024, mobile: 390 };
   const viewports = [

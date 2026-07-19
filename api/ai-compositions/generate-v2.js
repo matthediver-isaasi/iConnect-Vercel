@@ -30,11 +30,25 @@ import {
 } from '../_lib/aiCodeGeneration.js';
 import { resolveCodeActions, makeSupabaseActionLookups } from '../_lib/aiCodeActions.js';
 import { resolveCodeSlots, makeSupabaseSlotLookups } from '../_lib/aiCodeSlots.js';
+import { storeGeneratedAsset } from '../_lib/aiCompositionAssetStore.js';
+import { styleReferenceImageInputs } from '../_lib/styleReference.js';
+import { buildSignedPreviewUrl, appOrigin } from '../_lib/aiCodePreviewSign.js';
+import { captureValidationEvidence } from '../_lib/aiCodeVisualValidation.js';
+import { inspectCodeLayout, scoreQuality } from '../_lib/aiCodeLayoutInspector.js';
+import { runVisualReview } from '../_lib/aiCodeVisualReview.js';
+import {
+  MAX_REPAIR_CYCLES,
+  decideValidationOutcome,
+  buildRejectionCleanup,
+  runRepairAttempt,
+} from '../_lib/aiCodeRepair.js';
 
 const STAGE_LABELS = {
   context: 'Reading your brand and page',
   plan: 'Planning the page content',
   code: 'Designing your section',
+  validate: 'Checking the design in a real browser',
+  repair: 'Fixing issues we found',
 };
 
 const MAX_PLAN_RETRIES = 2;
@@ -287,7 +301,44 @@ export default async function handler(req, res) {
       status: 'failed',
       error: err.message || 'Generation failed',
       rejectionReasons: err.rejectionReasons || undefined,
+      qualityScore: typeof err.qualityScore === 'number' ? err.qualityScore : undefined,
     });
+  };
+
+  // Hard-rejection cleanup: delete ONLY this job's candidate versions and (if
+  // the composition was created by this job) the empty shell. The
+  // composition's current version — if any — is never touched.
+  const rejectCandidates = async ({ tenantId: tid, compId, state: st }) => {
+    try {
+      const { data: comp } = await supabase
+        .from('ai_composition')
+        .select('current_version_id')
+        .eq('id', compId)
+        .eq('tenant_id', tid)
+        .maybeSingle();
+      const cleanup = buildRejectionCleanup({
+        isNewComposition: !!st.isNewComposition,
+        candidateVersionIds: st.candidateVersionIds || [],
+        currentVersionId: comp?.current_version_id || null,
+      });
+      if (cleanup.versionIdsToDelete.length) {
+        await supabase
+          .from('ai_composition_version')
+          .delete()
+          .in('id', cleanup.versionIdsToDelete)
+          .eq('tenant_id', tid);
+      }
+      if (cleanup.deleteComposition) {
+        await supabase
+          .from('ai_composition')
+          .delete()
+          .eq('id', compId)
+          .eq('tenant_id', tid)
+          .is('current_version_id', null);
+      }
+    } catch (err) {
+      console.error('[generate-v2] rejection cleanup failed (non-fatal):', err.message);
+    }
   };
 
   try {
@@ -424,7 +475,12 @@ export default async function handler(req, res) {
         // the whole generation.
       }
 
-      // ---- Persist: composition (renderer_version 2) + immutable version ---
+      // ---- Persist a CANDIDATE version (Phase 3) ---------------------------
+      // The composition shell (for a new composition) and the version row are
+      // written now so the CSP-locked preview can render it for validation —
+      // but current_version_id is NOT touched until validation passes. A
+      // failed generation can therefore never replace a valid current
+      // version.
       const compId = state.targetCompositionId;
       const defaultName = compositionType === 'page_body' ? 'AI page' : 'AI section';
       if (state.isNewComposition) {
@@ -449,7 +505,12 @@ export default async function handler(req, res) {
           document: documentToStore,
           change_summary: state.isNewComposition ? 'Initial generation' : 'Regenerated from brief',
           operation_type: 'generation',
-          validation_result: { pipeline: 'aiCodePipeline', ok: true, report: result.report },
+          validation_result: {
+            pipeline: 'aiCodePipeline',
+            ok: true,
+            report: result.report,
+            phase3: { status: 'pending' },
+          },
           generation_metadata: {
             model: AI_CODE_GENERATION_MODEL,
             rendererVersion: 2,
@@ -469,39 +530,351 @@ export default async function handler(req, res) {
         .single();
       if (verErr) return fail(new Error('Failed to save the generated version.'));
 
-      await supabase
-        .from('ai_composition')
-        .update({
-          current_version_id: version.id,
-          name: documentToStore.title || defaultName,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', compId)
-        .eq('tenant_id', tenantId);
-
-      await recordAiUsageEvent(supabase, {
-        tenantId,
-        memberId: context.memberId || null,
-        pageId: job.page_id || null,
-        compositionId: compId,
-        operation: 'generation',
-        model: AI_CODE_GENERATION_MODEL,
-        units: { promptChars: brief.length, textCalls: attempt + 1 },
-        dedupeHash: options.dedupeHash,
-      });
-
       await updateJob(job.id, tenantId, {
-        status: 'complete',
+        stage: 'validate',
         composition_id: compId,
-        state: { ...state, versionId: version.id },
+        state: {
+          ...state,
+          candidateVersionId: version.id,
+          candidateVersionIds: [version.id],
+          candidateRawCss: result.rawCss || null,
+          codeCalls: attempt + 1,
+          repairCycle: 0,
+          repairCalls: 0,
+          validationHistory: [],
+        },
       });
       return res.status(200).json({
         jobId: job.id,
-        stage: 'code',
-        status: 'complete',
-        compositionId: compId,
-        versionId: version.id,
-        usageWarning: options.usageWarning || null,
+        stage: 'validate',
+        status: 'running',
+        label: STAGE_LABELS.validate,
+      });
+    }
+
+    // ---- Validate stage: screenshots + geometry + AI review ----------------
+    if (stage === 'validate') {
+      const compId = state.targetCompositionId;
+      const candidateId = state.candidateVersionId;
+      const { data: candidate } = await supabase
+        .from('ai_composition_version')
+        .select('id, document, validation_result, generation_metadata')
+        .eq('id', candidateId)
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+      if (!candidate?.document) return fail(new Error('The generated version could not be loaded for validation.'));
+      const doc = candidate.document;
+
+      const previewUrl = buildSignedPreviewUrl(appOrigin(req), compId, candidateId);
+      const shotBuffers = new Map();
+      const evidence = await captureValidationEvidence({
+        previewUrl,
+        responsiveTargets: doc.responsiveTargets,
+        storeShot: async ({ buffer, breakpoint, width }) => {
+          const stored = await storeGeneratedAsset({
+            tenantId,
+            memberId: context.memberId || null,
+            compositionId: compId,
+            buffer,
+            prompt: `Phase 3 validation screenshot (${breakpoint} ${width}px, cycle ${state.repairCycle || 0})`,
+            provider: 'browserless',
+            model: 'screenshot',
+            usageStatus: 'in_use',
+          });
+          shotBuffers.set(breakpoint, buffer);
+          return stored;
+        },
+      });
+
+      // Deterministic browser-geometry checks.
+      const layout = inspectCodeLayout(evidence.metricsCaptures, { document: doc });
+
+      // AI visual review — advisory unless a finding is blocking; skipped is
+      // never blocking. Same-invocation buffers ride along as data URLs so
+      // the vision call does not depend on media-library URL reachability.
+      const client = getOpenAIClient();
+      const review = await runVisualReview({
+        callVision: client ? makeCallLlm(client) : null,
+        screenshots: evidence.screenshots.map((s) => ({
+          ...s,
+          url: shotBuffers.has(s.breakpoint)
+            ? `data:image/jpeg;base64,${shotBuffers.get(s.breakpoint).toString('base64')}`
+            : s.url,
+        })),
+        // The customer's style-reference screenshots ride along as labelled
+        // reference evidence so the reviewer judges the render against the
+        // requested direction, not just in isolation.
+        referenceImages: styleReferenceImageInputs(options.styleReference),
+        brief,
+        brand: state.brand,
+        plan: state.plan || null,
+      });
+      const reviewRecord = review.status === 'reviewed'
+        ? { status: 'reviewed', ...review.review }
+        : { status: 'skipped', skipReason: review.skipReason };
+
+      const qualityScore = scoreQuality({
+        layoutIssues: layout.issues,
+        review: review.status === 'reviewed' ? review.review : null,
+      });
+
+      const decision = decideValidationOutcome({
+        layoutIssues: layout.issues,
+        review,
+        breakpointsInspected: layout.breakpointsInspected,
+        repairCycle: state.repairCycle || 0,
+        maxRepairCycles: MAX_REPAIR_CYCLES,
+      });
+
+      // Record the full evidence on the candidate version (audit trail) —
+      // screenshots use the STORED media-library URLs.
+      const phase3 = {
+        status: decision.outcome === 'pass'
+          ? (decision.skippedValidation || evidence.status === 'skipped' ? 'skipped' : 'passed')
+          : decision.outcome === 'repair' ? 'needs_repair' : 'rejected',
+        repairCycle: state.repairCycle || 0,
+        breakpointsInspected: layout.breakpointsInspected,
+        layoutIssues: layout.issues,
+        captureErrors: [...(layout.captureErrors || []), ...(evidence.failures || [])],
+        review: reviewRecord,
+        qualityScore,
+        ...(evidence.skipReason ? { skipReason: evidence.skipReason } : {}),
+      };
+      await supabase
+        .from('ai_composition_version')
+        .update({
+          validation_result: { ...(candidate.validation_result || {}), phase3 },
+          generation_metadata: {
+            ...(candidate.generation_metadata || {}),
+            ...(evidence.screenshots.length ? { screenshots: evidence.screenshots } : {}),
+          },
+        })
+        .eq('id', candidateId)
+        .eq('tenant_id', tenantId);
+
+      const history = [...(state.validationHistory || []), {
+        repairCycle: state.repairCycle || 0,
+        versionId: candidateId,
+        outcome: decision.outcome,
+        qualityScore,
+        blockingReasons: decision.reasons.slice(0, 12),
+        screenshots: evidence.screenshots.map((s) => ({ breakpoint: s.breakpoint, url: s.url })),
+        reviewStatus: reviewRecord.status,
+      }];
+
+      if (decision.outcome === 'pass') {
+        // Promote — this is the ONLY place current_version_id changes.
+        const defaultName = compositionType === 'page_body' ? 'AI page' : 'AI section';
+        await supabase
+          .from('ai_composition')
+          .update({
+            current_version_id: candidateId,
+            name: doc.title || defaultName,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', compId)
+          .eq('tenant_id', tenantId);
+
+        await recordAiUsageEvent(supabase, {
+          tenantId,
+          memberId: context.memberId || null,
+          pageId: job.page_id || null,
+          compositionId: compId,
+          operation: 'generation',
+          model: AI_CODE_GENERATION_MODEL,
+          units: {
+            promptChars: brief.length,
+            textCalls: (state.codeCalls || 1) + (state.repairCalls || 0)
+              + (reviewRecord.status === 'reviewed' ? history.length : 0),
+          },
+          dedupeHash: options.dedupeHash,
+        });
+
+        await updateJob(job.id, tenantId, {
+          status: 'complete',
+          composition_id: compId,
+          state: { ...state, versionId: candidateId, validationHistory: history },
+        });
+        return res.status(200).json({
+          jobId: job.id,
+          stage: 'validate',
+          status: 'complete',
+          compositionId: compId,
+          versionId: candidateId,
+          qualityScore,
+          validationStatus: phase3.status,
+          repairCycles: state.repairCycle || 0,
+          usageWarning: options.usageWarning || null,
+        });
+      }
+
+      if (decision.outcome === 'repair') {
+        await updateJob(job.id, tenantId, {
+          stage: 'repair',
+          state: {
+            ...state,
+            validationHistory: history,
+            repairEvidence: {
+              layoutIssues: layout.issues.slice(0, 24),
+              reviewFindings: reviewRecord.status === 'reviewed' ? (reviewRecord.findings || []) : [],
+              screenshots: evidence.screenshots.map((s) => ({ breakpoint: s.breakpoint, width: s.width, url: s.url })),
+            },
+          },
+        });
+        return res.status(200).json({
+          jobId: job.id,
+          stage: 'repair',
+          status: 'running',
+          label: STAGE_LABELS.repair,
+          progress: { repairCycle: (state.repairCycle || 0) + 1, maxRepairCycles: MAX_REPAIR_CYCLES },
+        });
+      }
+
+      // ---- Hard rejection: remove only OUR candidates, never the current ---
+      await rejectCandidates({ tenantId, compId, state });
+      await updateJob(job.id, tenantId, { state: { ...state, validationHistory: history } });
+      return fail(Object.assign(
+        new Error('The design did not pass visual validation after automated repairs. Nothing was changed — try rephrasing your brief.'),
+        { rejectionReasons: decision.reasons.slice(0, 12), qualityScore },
+      ));
+    }
+
+    // ---- Repair stage: one LLM repair attempt per invocation ---------------
+    if (stage === 'repair') {
+      const client = getOpenAIClient();
+      if (!client) {
+        await rejectCandidates({ tenantId, compId: state.targetCompositionId, state });
+        return fail(Object.assign(new Error('AI generation is not configured on this server.'), { httpStatus: 503 }));
+      }
+      const compId = state.targetCompositionId;
+      const { data: candidate } = await supabase
+        .from('ai_composition_version')
+        .select('id, document')
+        .eq('id', state.candidateVersionId)
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+      if (!candidate?.document) return fail(new Error('The version to repair could not be loaded.'));
+
+      const cycle = state.repairCycle || 0;
+      const ev = state.repairEvidence || {};
+      let repaired;
+      try {
+        repaired = await runRepairAttempt({
+          callLlm: makeCallLlm(client),
+          compositionId: compId,
+          document: candidate.document,
+          rawCss: state.candidateRawCss || null,
+          brief,
+          brand: state.brand,
+          options,
+          plan: state.plan || null,
+          layoutIssues: ev.layoutIssues || [],
+          reviewFindings: ev.reviewFindings || [],
+          screenshots: ev.screenshots || [],
+          repairCycle: cycle,
+          maxRepairCycles: MAX_REPAIR_CYCLES,
+          previousRepairErrors: state.repairErrors || [],
+        });
+      } catch (err) {
+        if (err.providerError) return fail(err);
+        throw err;
+      }
+
+      if (!repaired.ok) {
+        // The repair itself failed the safety pipeline/gates — that consumes
+        // a repair cycle. Retry with the errors if budget remains, else
+        // reject (leaving any existing current version untouched).
+        if (cycle + 1 >= MAX_REPAIR_CYCLES) {
+          const lastScore = (state.validationHistory || []).slice(-1)[0]?.qualityScore ?? 0;
+          await rejectCandidates({ tenantId, compId, state });
+          return fail(Object.assign(
+            new Error('The design did not pass visual validation after automated repairs. Nothing was changed — try rephrasing your brief.'),
+            { rejectionReasons: repaired.errors.slice(0, 12), qualityScore: lastScore },
+          ));
+        }
+        await updateJob(job.id, tenantId, {
+          state: {
+            ...state,
+            repairCycle: cycle + 1,
+            repairCalls: (state.repairCalls || 0) + 1,
+            repairErrors: repaired.errors.slice(0, 12),
+          },
+        });
+        return res.status(200).json({
+          jobId: job.id,
+          stage: 'repair',
+          status: 'running',
+          label: STAGE_LABELS.repair,
+          progress: { repairCycle: cycle + 2, maxRepairCycles: MAX_REPAIR_CYCLES },
+        });
+      }
+
+      // Re-resolve actions/slots on the repaired document (same best-effort
+      // policy as generation).
+      let documentToStore = repaired.document;
+      try {
+        const actions = await resolveCodeActions(
+          repaired.document.actions,
+          makeSupabaseActionLookups(supabase, tenantId),
+        );
+        const slots = await resolveCodeSlots(
+          repaired.document.slots,
+          makeSupabaseSlotLookups(supabase, tenantId),
+        );
+        documentToStore = { ...repaired.document, actions, slots };
+      } catch {}
+
+      const { data: repairedVersion, error: repErr } = await supabase
+        .from('ai_composition_version')
+        .insert({
+          composition_id: compId,
+          tenant_id: tenantId,
+          parent_version_id: state.candidateVersionId,
+          document: documentToStore,
+          change_summary: `Automated repair (cycle ${cycle + 1})`,
+          operation_type: 'repair',
+          validation_result: {
+            pipeline: 'aiCodePipeline',
+            ok: true,
+            report: repaired.report,
+            phase3: { status: 'pending', repairCycle: cycle + 1 },
+          },
+          generation_metadata: {
+            model: AI_CODE_GENERATION_MODEL,
+            rendererVersion: 2,
+            compositionType,
+            repairCycle: cycle + 1,
+            repairedFrom: state.candidateVersionId,
+            repairEvidence: {
+              layoutIssueCount: (ev.layoutIssues || []).length,
+              reviewFindingCount: (ev.reviewFindings || []).length,
+              beforeScreenshots: ev.screenshots || [],
+            },
+          },
+          created_by: context.memberId || null,
+        })
+        .select('id')
+        .single();
+      if (repErr) return fail(new Error('Failed to save the repaired version.'));
+
+      await updateJob(job.id, tenantId, {
+        stage: 'validate',
+        state: {
+          ...state,
+          candidateVersionId: repairedVersion.id,
+          candidateVersionIds: [...(state.candidateVersionIds || []), repairedVersion.id],
+          candidateRawCss: repaired.rawCss || null,
+          repairCycle: cycle + 1,
+          repairCalls: (state.repairCalls || 0) + 1,
+          repairErrors: [],
+        },
+      });
+      return res.status(200).json({
+        jobId: job.id,
+        stage: 'validate',
+        status: 'running',
+        label: 'Re-checking the repaired design',
+        progress: { repairCycle: cycle + 1, maxRepairCycles: MAX_REPAIR_CYCLES },
       });
     }
 
