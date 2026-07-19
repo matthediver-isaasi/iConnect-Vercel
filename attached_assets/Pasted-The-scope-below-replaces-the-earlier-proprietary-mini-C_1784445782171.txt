@@ -1,0 +1,1427 @@
+The scope below replaces the earlier proprietary mini-Canvas/scene-graph approach. It retains the useful work already completed—reference capture, Design DNA, versioning, prompt-led editing and Canvas integration—but changes the generated output to native, sanitised HTML/CSS/SVG rendered by the browser.
+
+iConnect AI Design Studio V2
+AI Code Composition and Visual Iteration
+1. Project decision
+
+The current AI Composition architecture should be revised.
+
+The existing implementation asks AI to generate a proprietary layout document containing element hierarchy, coordinates, dimensions and styles, which is then translated by an iConnect renderer into HTML and CSS.
+
+Testing has demonstrated that this approach:
+
+Restricts the AI’s design capability.
+Requires iConnect to reproduce browser-layout behaviour.
+Creates fragile parent-child and geometry handling.
+Produces invalid or incomplete CSS.
+Makes responsive design substantially harder.
+Introduces several transformation stages where valid layout information can be lost.
+Does not reliably reproduce the quality that ChatGPT can achieve when generating native frontend code.
+
+The replacement architecture should allow AI to generate:
+
+Semantic HTML
+Scoped CSS
+Sanitised inline SVG
+Media-library asset requests
+Approved iConnect component slots
+Responsive desktop, tablet and mobile behaviour
+
+The browser should perform the layout using native HTML, CSS Grid, Flexbox and responsive media queries.
+
+The product principle remains:
+
+Customers direct the design through prompts; AI performs the design and implementation work.
+
+2. Evidence and quality benchmark
+
+The supplied BNMS “I’m having a scan” visual and code package demonstrate the expected creative standard.
+
+The package includes:
+
+A visually designed two-column hero.
+A bespoke inline SVG scanner illustration.
+Layered labels and decorative backgrounds.
+A reassurance strip.
+A four-stage patient journey.
+A highlighted safety panel.
+A six-card scan-information section.
+A patient FAQ using semantic <details> elements.
+A prominent final call to action.
+Responsive Grid and Flexbox changes.
+Design tokens for colours, shadows and radiuses.
+Semantic headings, links, sections and navigation.
+No custom JavaScript.
+
+Use these files as a visual and architectural benchmark, not as the final production implementation:
+
+bnms-im-having-a-scan-visual.png
+bnms-im-having-a-scan.html
+bnms-scan.css
+
+The generated example still requires content review, link mapping and integration with the real iConnect header, footer and functional components. However, it demonstrates the level of design freedom the new architecture must support.
+
+The AI Design Studio should be capable of producing output of comparable structural and visual quality.
+
+3. Core product architecture
+
+Introduce a new internal Canvas block type:
+
+ai-code-composition
+
+Suggested user-facing names:
+
+AI Composition
+AI-designed section
+Create with AI
+AI-designed page
+
+An AI Code Composition can represent:
+
+A single section inserted into an existing Canvas page.
+Multiple related sections forming most or all of a blank page body.
+A visual infographic or explainer.
+A hero section.
+A call-to-action section.
+A visually redesigned version of existing content.
+
+Whole-page and section generation must use the same underlying architecture.
+
+Blank Canvas page
+
+An AI Code Composition may contain the entire page body:
+
+Canvas page
+├── Existing iConnect header
+├── AI Code Composition
+│   ├── Hero
+│   ├── Visual journey
+│   ├── Information cards
+│   ├── Safety notice
+│   ├── FAQ
+│   └── Closing CTA
+└── Existing iConnect footer
+Existing Canvas page
+
+An AI Code Composition may create one complementary section:
+
+Canvas page
+├── Manual Canvas hero
+├── Manual introduction
+├── AI Code Composition: process infographic
+├── Standard iConnect form
+├── AI Code Composition: closing CTA
+└── Existing footer
+
+The AI Composition must participate in normal page flow and use automatic content height.
+
+4. Do not generate the global site shell by default
+
+The AI must not normally recreate:
+
+Site header
+Navigation
+Footer
+Cookie controls
+Member login controls
+Authentication interfaces
+Global alerts
+Existing page breadcrumbs
+
+These remain owned by iConnect.
+
+For a standard full-page request, AI generates the page body only.
+
+The page-generation context should tell the model which global elements already surround the Canvas.
+
+A separate microsite or standalone-page mode may be considered later, but it is not part of this release.
+
+5. What the AI should return
+
+The AI must return a structured generation package rather than unstructured conversational prose.
+
+Suggested contract:
+
+{
+  "schemaVersion": "2.0",
+  "compositionType": "page_body",
+  "title": "I’m having a scan",
+  "html": "<section data-ai-id=\"hero\">...</section>",
+  "css": "[data-ai-composition=\"...\"] .hero { ... }",
+  "assets": [],
+  "actions": [],
+  "slots": [],
+  "contentManifest": [],
+  "protectedValues": [],
+  "responsiveTargets": {
+    "desktop": 1440,
+    "tablet": 1024,
+    "mobile": 390
+  },
+  "promptRequirements": [],
+  "generationSummary": ""
+}
+
+The response must use a strict validated schema.
+
+HTML
+
+The HTML may include:
+
+Semantic sections
+Headings
+Paragraphs
+Lists
+Cards
+Links
+Buttons represented through approved actions
+<details> and <summary>
+Figures
+Tables where suitable
+Sanitised inline SVG
+Decorative elements
+iConnect slot placeholders
+
+It must not include:
+
+<script>
+Inline event handlers
+Frames
+Object/embed elements
+External stylesheets
+Arbitrary forms
+Payment markup
+Authentication markup
+Unapproved external resources
+CSS
+
+The CSS may use:
+
+Grid
+Flexbox
+Normal document flow
+Absolute positioning inside bounded visual areas
+Custom properties
+Gradients
+Shadows
+Border radiuses
+Pseudo-elements
+Responsive media queries
+Approved image masks
+Clip paths
+CSS transforms
+Fluid type using clamp()
+
+It must not use:
+
+Global selectors that affect the rest of the page
+@import
+Unapproved @font-face
+External CSS URLs
+position: fixed
+Unsafe or unsupported browser features
+Selectors targeting html, body, the Canvas editor or global navigation
+Excessive z-index values
+Rules capable of covering the admin interface
+SVG
+
+Inline SVG should be supported because it is a major source of AI creativity.
+
+Allow:
+
+Shapes
+Paths
+Gradients
+Illustrations
+Icons
+Decorative diagrams
+Accessible titles and descriptions
+
+Remove:
+
+Scripts
+External references
+Event handlers
+Foreign objects
+Embedded HTML
+External image URLs unless rewritten to approved media assets
+6. Stable AI element identifiers
+
+Every meaningful generated element must have a stable identifier:
+
+<section data-ai-id="scan-journey">
+<h2 data-ai-id="scan-journey-heading">
+<a data-ai-id="find-scan-button" data-ai-action="find-scan">
+
+Stable identifiers are required for:
+
+Prompting changes to a selected item
+Link updates
+Content protection
+Version comparison
+Accessibility issue reporting
+Visual-review feedback
+Code patching
+Admin selection overlays
+
+Identifiers must survive revisions unless an element is deliberately removed or replaced.
+
+7. Scoped CSS
+
+Generated CSS must be isolated to the AI Composition instance.
+
+The stored CSS should be parsed using a real CSS AST parser and rewritten under a unique wrapper:
+
+<div data-ai-composition="composition-uuid">
+    ...
+</div>
+
+Example:
+
+[data-ai-composition="composition-uuid"] .hero {
+  display: grid;
+}
+
+The scoping process must:
+
+Prefix all selectors.
+Reject global selectors.
+Handle media queries.
+Handle pseudo-elements.
+Handle keyframes if limited animation is introduced later.
+Prevent selectors from escaping the wrapper.
+Prevent generated CSS from affecting sibling Canvas blocks.
+Prevent generated CSS from affecting the Canvas editor.
+
+Do not rely on string replacement alone.
+
+Use a CSS parser and AST transformation.
+
+8. Design tokens and target branding
+
+The target organisation’s branding remains authoritative.
+
+The AI generation request should include approved variables for:
+
+Primary colours
+Secondary colours
+Accent colours
+Text colours
+Background colours
+Font families
+Heading weights
+Button treatment
+Border radiuses
+Shadows
+Content width
+Spacing scale
+
+Prefer generated CSS that refers to iConnect-provided variables:
+
+color: var(--iconnect-brand-primary);
+font-family: var(--iconnect-heading-font);
+
+The AI may create composition-specific variables where appropriate:
+
+--aic-card-shadow: 0 18px 45px rgba(...);
+
+It must not load unrelated fonts or replace organisation branding with the reference brand.
+
+9. Reference-page integration
+
+Retain the Browserless reference-page work already completed.
+
+The generation request should receive:
+
+Selected reference screenshots
+Desktop reference crops
+Mobile reference crops
+Full structured Design DNA
+Target organisation branding
+The user’s content brief
+Existing Canvas context
+Available width
+Reference-influence level
+Division of responsibility
+
+Use screenshots for:
+
+Composition
+Scale
+Card relationships
+Illustration language
+Image placement
+Overlap
+Visual rhythm
+Section transitions
+Responsive visual behaviour
+
+Use Design DNA for:
+
+Measured typography
+Colours
+Spacing
+Radiuses
+Borders
+Shadows
+Component recipes
+Breakpoint observations
+
+The model should be instructed to create an original implementation using the reference design language without copying its exact layout, wording or assets.
+
+10. Multi-stage generation pipeline
+
+Do not treat one AI response as a finished page.
+
+Use this workflow:
+
+Stage 1: brief and content manifest
+
+Resolve:
+
+Purpose
+Audience
+Required sections
+Exact factual content
+Protected wording
+Required links
+Required calls to action
+Required iConnect components
+Approved media
+Medical, legal or organisational constraints
+
+Create a structured content manifest.
+
+Example:
+
+{
+  "pageTitle": "I’m having a scan",
+  "sections": [
+    {
+      "key": "hero",
+      "purpose": "Introduce the page and reassure the patient"
+    },
+    {
+      "key": "journey",
+      "purpose": "Explain the general stages"
+    }
+  ],
+  "actions": [
+    {
+      "key": "find-scan",
+      "type": "internal_page",
+      "status": "unresolved"
+    }
+  ]
+}
+Stage 2: creative plan
+
+Ask the model to plan:
+
+Page narrative
+Visual focal point
+Section sequence
+Illustration approach
+Card families
+Responsive transformations
+How the reference design will be applied
+Which standard iConnect components are required
+
+Reject a plan that reduces a visually led request to a heading, paragraphs and one button.
+
+Stage 3: initial HTML/CSS/SVG generation
+
+Generate the structured code package.
+
+The model should be free to use native layout systems rather than supplying exact pixel coordinates for every item.
+
+Stage 4: static validation and sanitisation
+
+Before rendering:
+
+Validate the response schema.
+Parse and sanitise HTML.
+Parse and scope CSS.
+Sanitize inline SVG.
+Resolve approved assets.
+Resolve action placeholders.
+Verify stable AI IDs.
+Verify heading structure.
+Reject unsafe or malformed code.
+Stage 5: isolated preview render
+
+Render the sanitised result on a dedicated internal preview route.
+
+Do not inject unvalidated AI markup directly into the Canvas editor.
+
+The preview route should:
+
+Use a strict Content Security Policy.
+Include approved organisation fonts and variables.
+Include no application credentials.
+Include no member data.
+Expose only the generated composition.
+Be accessible to Browserless through a signed, short-lived URL.
+Stage 6: Browserless screenshots
+
+Capture:
+
+1440px desktop
+1024px tablet
+390px mobile
+
+Store screenshots as generation evidence.
+
+Stage 7: deterministic layout checks
+
+Use browser-computed geometry to detect:
+
+Zero-size content
+Severe overlaps
+Horizontal scrolling
+Clipped headings
+Off-canvas buttons
+Empty sections
+Missing CTA actions
+Unreadably small text
+Broken media
+Invalid parent height
+Excessive page width
+Stage 8: AI visual review
+
+Send the rendered screenshots, original brief and reference screenshots to the visual-review model.
+
+Review:
+
+Prompt fulfilment
+Visual quality
+Reference-family resemblance
+Hierarchy
+Balance
+Creativity
+Card treatment
+Illustration quality
+Text density
+Mobile re-composition
+Cropping
+Missing sections
+Weak calls to action
+Stage 9: automated repair
+
+Where the result fails, ask the coding model to update the HTML/CSS/SVG.
+
+Supply:
+
+Current code
+Current screenshots
+Validation issues
+Visual-review feedback
+Original brief
+Protected content
+Reference evidence
+
+Allow a configurable maximum of two repair cycles initially.
+
+Stage 10: user review
+
+Only after technical validation should the Composition be presented for:
+
+Accept
+Request change
+Create alternative
+Reject
+Compare versions
+View desktop
+View tablet
+View mobile
+11. Prompt-led revisions
+
+The primary editing experience remains conversational.
+
+Users may select:
+
+Complete Composition
+Section
+Card
+Heading
+Paragraph
+Image
+Illustration
+Button
+FAQ
+Group
+
+Examples:
+
+Make the hero less tall and enlarge the illustration.
+
+Turn these four cards into a horizontal journey on desktop.
+
+Use a softer background behind the safety notice.
+
+Rewrite this heading in friendlier language.
+
+Link this button to the patient leaflets page.
+
+Keep all content but create a more editorial alternative.
+
+Revision process
+
+For a selected item, provide the model with:
+
+Stable data-ai-id
+Current HTML
+Relevant CSS
+Current screenshot
+Requested change
+Protected values
+Target breakpoint
+Surrounding context
+Minor changes
+
+Prefer a structured patch or targeted replacement.
+
+Examples:
+
+Change text
+Update action
+Swap media asset
+Adjust one CSS rule
+Move one section
+Creative changes
+
+Allow a complete revised version of the Composition.
+
+Examples:
+
+Redesign hero
+Recompose page
+Change illustration language
+Create alternative concept
+
+Every accepted revision creates a new immutable version.
+
+12. Actions and links
+
+Generated internal links must not be invented as raw URLs.
+
+The model should generate action keys:
+
+<a data-ai-action="patient-leaflets">
+  Browse patient leaflets
+</a>
+
+The structured package should include:
+
+{
+  "key": "patient-leaflets",
+  "type": "internal_page",
+  "pageId": "page-uuid"
+}
+
+Where the page does not yet exist:
+
+Keep the action unresolved.
+Show it in the editor.
+Require destination selection before publishing.
+Render a safe preview placeholder.
+
+Supported actions should include:
+
+Internal page
+External URL
+Page anchor
+Form
+Event
+Event registration
+Membership application
+Document
+Email
+Telephone
+Approved custom iConnect action
+
+External URLs must be validated.
+
+13. Approved iConnect functional slots
+
+AI-generated code must not recreate trusted application functionality.
+
+Introduce slot placeholders:
+
+<div
+  data-iconnect-slot="patient-leaflet-list"
+  data-slot-key="scan-leaflets">
+</div>
+
+The Composition manifest should define:
+
+{
+  "key": "scan-leaflets",
+  "type": "document_list",
+  "sourceId": "source-uuid"
+}
+
+Supported slots may include:
+
+Form
+Event registration
+Event listing
+Membership application
+Document listing
+News listing
+Directory
+Login prompt
+Donation or payment component
+Existing Canvas element
+
+iConnect renders the trusted component inside the designated location.
+
+The AI controls the surrounding presentation, not the underlying business logic.
+
+14. Generated imagery
+
+Support two visual-asset methods.
+
+Inline SVG
+
+Best for:
+
+Illustrations
+Icons
+Abstract graphics
+Process diagrams
+Decorative backgrounds
+
+SVG must be sanitised.
+
+Generated or uploaded media assets
+
+Best for:
+
+Photography
+Detailed illustration
+Textures
+Complex scenes
+
+Generated images must:
+
+Be stored in the organisation media library.
+Receive an asset ID.
+Include generation metadata.
+Include alt text.
+Support replacement.
+Support focal points and crops.
+Remain associated with Composition versions.
+
+The model should request assets through the structured package rather than embedding base64 media.
+
+15. Optional design-first mode
+
+Add a second workflow after the code-first route is stable:
+
+Design first
+
+The user chooses:
+
+Create a visual concept before building.
+
+Stage 1: visual proposal
+
+Generate a desktop visual concept and a mobile visual concept using:
+
+Reference screenshots
+Target branding
+Content manifest
+Page brief
+
+The visual is a design proposal, not the final webpage.
+
+Stage 2: visual prompt changes
+
+Support:
+
+Make the hero smaller.
+
+Move the safety panel above the journey.
+
+Use six scan cards.
+
+Reduce the yellow.
+
+Use an illustration rather than photography.
+
+Stage 3: approval
+
+The user approves the visual direction.
+
+Stage 4: visual deconstruction
+
+Analyse the approved visual into:
+
+Sections
+Layout structures
+Grid proportions
+Card recipes
+Background regions
+Typography hierarchy
+Media placements
+Decorative graphics
+Responsive intent
+Stage 5: code build
+
+Generate semantic HTML/CSS/SVG using:
+
+Approved visual
+Exact content manifest
+Target brand tokens
+Required actions
+Required slots
+Stage 6: screenshot comparison and repair
+
+Render the implementation and compare it against the approved visual.
+
+Perform controlled repair cycles until it reaches the required similarity threshold or is presented with warnings.
+
+Important limitation
+
+The approved visual must not become the authoritative source for:
+
+Exact wording
+Medical facts
+Links
+Semantic structure
+Accessibility
+Functional components
+
+Those remain controlled by the structured content and action manifests.
+
+16. Security and sanitisation
+
+This feature introduces AI-generated markup and therefore requires a strict security boundary.
+
+HTML sanitisation
+
+Use a real server-side HTML parser and sanitizer.
+
+Allow only approved tags and attributes.
+
+Remove:
+
+Scripts
+Event handlers
+Iframes
+Objects
+Embeds
+Forms unless represented as trusted slots
+Meta tags
+Link tags
+Base tags
+Style tags inside HTML
+Dangerous URLs
+Unknown custom elements
+CSS sanitisation
+
+Parse CSS using an AST.
+
+Block:
+
+@import
+Unapproved @font-face
+External URLs
+Global selectors
+position: fixed
+CSS expressions
+Unsafe browser-specific behaviours
+Excessive z-index
+Selectors escaping the wrapper
+Rules targeting Canvas/admin selectors
+
+Allow sufficient visual properties to preserve creativity.
+
+Do not reduce CSS to such a narrow allowlist that it recreates the limitations of the old scene graph.
+
+SVG sanitisation
+
+Remove:
+
+Scripts
+Event handlers
+Foreign objects
+External resource references
+Embedded HTML
+Unsafe URL attributes
+Content Security Policy
+
+Use a strict CSP for preview and published output where compatible with the existing site architecture.
+
+No JavaScript
+
+Arbitrary generated JavaScript is prohibited in the initial release.
+
+Interactive behaviours should use:
+
+Native HTML elements
+CSS
+Approved iConnect components
+Approved action handlers
+17. Accessibility
+
+AI output must pass automated and visual accessibility checks.
+
+Require:
+
+Semantic headings
+One logical page heading
+Logical heading order
+Real links and buttons
+Keyboard access
+Visible focus
+Appropriate contrast
+Alt text
+Decorative-image handling
+Correct labels
+Real text rather than essential text inside images
+Semantic FAQ elements
+Logical DOM reading order
+Responsive reflow at 200% and 400% zoom
+Reduced-motion support if animation is later allowed
+
+Critical accessibility issues must prevent approval.
+
+18. Content and factual protection
+
+Maintain protected values separately from visual code.
+
+Protected values may include:
+
+Medical statements
+Legal wording
+Event dates
+Prices
+Statistics
+Names
+Internal link destinations
+Form IDs
+Sponsor information
+Data-source bindings
+Approved alt text
+
+A creative redesign may change their presentation but must not change their underlying content without explicit instruction.
+
+Where exact content is important, assign a stable content key:
+
+<p data-ai-id="appointment-warning"
+   data-content-key="appointment_warning">
+
+The revision workflow must preserve locked content keys.
+
+19. Versioning
+
+Every generation and accepted revision must create an immutable version containing:
+
+HTML
+CSS
+SVG
+Asset references
+Action manifest
+Slot manifest
+Content manifest
+Protected values
+Reference analysis ID
+Generation prompt
+Revision prompt
+Desktop screenshot
+Tablet screenshot
+Mobile screenshot
+Validation results
+Accessibility results
+Model metadata
+Parent version ID
+
+Support:
+
+Restore
+Compare
+Duplicate
+Create alternative
+Reject proposal
+Keep both
+Undo latest accepted revision
+
+Never overwrite the only valid version.
+
+20. Storage model
+
+Adapt to the existing database conventions, but conceptually store:
+
+AI compositions
+ID
+Organisation ID
+Canvas block ID
+Page ID
+Composition type
+Current version ID
+Status
+Created by
+Created at
+Updated at
+AI composition versions
+ID
+Composition ID
+Parent version ID
+HTML
+CSS
+Asset manifest
+Action manifest
+Slot manifest
+Content manifest
+Protected-value manifest
+Validation results
+Screenshot asset IDs
+Generation metadata
+Created by
+Created at
+AI design jobs
+ID
+Organisation ID
+User ID
+Operation
+Status
+Current stage
+Input references
+Error information
+Usage
+Cost
+Started at
+Completed at
+
+Reuse existing tables and storage where practical.
+
+21. Canvas Builder integration
+
+The AI Code Composition should behave like a normal Canvas block externally.
+
+Support:
+
+Insert
+Reorder
+Duplicate
+Hide
+Delete
+Configure width
+Configure outer spacing
+Automatic height
+Preview
+Edit with AI
+View versions
+Create alternative
+
+Do not expose generated code to ordinary users by default.
+
+An admin-only code inspector may be provided for debugging.
+
+Outer block styling
+
+The Canvas wrapper should avoid applying unexpected presentation defaults.
+
+Default to:
+
+background: transparent
+padding: 0
+border: none
+overflow: visible or safely calculated
+height: auto
+
+Do not clip generated content through overflow: hidden unless explicitly required for the Composition.
+
+22. Migration from the current implementation
+
+Do not remove existing AI Composition records abruptly.
+
+Keep existing V1 blocks readable
+
+Existing scene-graph AI blocks should continue to render where possible.
+
+Introduce V2 separately
+
+Use:
+
+ai-code-composition
+
+or a clear version field:
+
+renderer_version: 2
+Stop creating V1 blocks
+
+After V2 passes acceptance testing:
+
+Disable new V1 generation.
+Retain V1 rendering for backwards compatibility.
+Mark V1 as legacy in admin diagnostics.
+Rebuild option
+
+Offer:
+
+Rebuild this AI Composition using the new renderer.
+
+The rebuild workflow should reuse:
+
+Original prompt
+Reference analysis
+Brand context
+Existing copy
+Protected links
+Assets
+Conversation history where relevant
+
+Do not attempt an automatic scene-graph-to-code conversion without user review.
+
+23. What to retain from the existing work
+
+Retain and reuse:
+
+Browserless screenshot capture
+Reference-page screenshots
+Design DNA
+Reference influence settings
+Organisation brand context
+Media-library integration
+Prompt history
+Version history
+Protected values
+Usage controls
+Cost reporting
+Permissions
+Approval workflow
+Desktop/tablet/mobile preview
+Accessibility checks
+Tenant isolation
+Existing OpenAI service abstraction
+
+Replace or deprecate:
+
+Proprietary element-coordinate generation
+Absolute-position defaults
+Scene-graph-to-CSS conversion
+Custom responsive geometry engine
+Requirement to express all creative output as Canvas primitives
+24. Composition Inspector
+
+Provide an admin-only diagnostic view.
+
+Inputs
+User brief
+Content manifest
+Reference screenshots
+Design DNA
+Brand profile
+Existing Canvas context
+Selected influence level
+Model and prompt version
+Initial output
+Creative plan
+Raw structured response
+HTML
+CSS
+SVG
+Asset requests
+Action manifest
+Slot manifest
+Processing
+HTML sanitizer changes
+CSS parser and scoping changes
+SVG sanitizer changes
+Resolved links
+Resolved slots
+Rejected rules
+Warnings
+Render results
+Desktop screenshot
+Tablet screenshot
+Mobile screenshot
+Computed dimensions
+Overflow checks
+Accessibility checks
+Visual-review feedback
+Repair changes
+
+Do not log API keys, signed media URLs, cookies or sensitive content.
+
+25. Delivery phases
+Phase 0: technical pivot and proof
+
+Deliver:
+
+Audit of reusable V1 work.
+Proposed V2 structured code package.
+HTML sanitisation approach.
+CSS AST scoping approach.
+SVG sanitisation approach.
+Preview-render architecture.
+Action and slot contracts.
+Migration plan.
+Security review.
+
+Create a hand-authored proof fixture based on the supplied BNMS example.
+
+Prove:
+
+valid HTML/CSS/SVG package
+→ sanitised package
+→ correctly scoped Canvas rendering
+→ desktop/tablet/mobile screenshots
+
+Do not begin AI generation until this proof works.
+
+Phase 1: code-first AI section generation
+
+Deliver:
+
+New V2 Canvas block.
+Prompt-to-code generation.
+Single-section generation.
+Reference screenshots and Design DNA.
+Semantic HTML.
+Scoped CSS.
+Inline SVG.
+Automatic height.
+Version creation.
+Static security validation.
+Desktop/tablet/mobile rendering.
+Phase 2: full-page body generation
+
+Deliver:
+
+Multi-section page-body generation.
+Blank Canvas workflow.
+Content planning.
+Section narrative.
+Existing header/footer preservation.
+Multiple calls to action.
+Responsive layout.
+Standard functional slots.
+Phase 3: visual validation and repair
+
+Deliver:
+
+Browserless output screenshots.
+Deterministic layout validation.
+AI visual critique.
+Up to two automated repair cycles.
+Quality scoring.
+Failed-output rejection.
+Before-and-after screenshots.
+Phase 4: prompt-led editing
+
+Deliver:
+
+Element selection overlays.
+Stable AI identifiers.
+Targeted content changes.
+Targeted style changes.
+Asset replacement.
+Link resolution.
+Section reordering.
+Alternative designs.
+Breakpoint-specific prompts.
+Phase 5: generated images and advanced SVG
+
+Deliver:
+
+Image-generation requests.
+Media-library integration.
+Image editing.
+Illustration replacement.
+More sophisticated infographics.
+Asset provenance.
+Phase 6: optional design-first workflow
+
+Deliver:
+
+Generate visual proposal.
+Prompt-based visual revisions.
+Visual approval.
+Visual deconstruction.
+Code build.
+Screenshot comparison.
+Implementation repair.
+26. Initial benchmark test
+
+Use the BNMS reference page:
+
+https://bnms.dev.iconn.app/patients-carers
+
+Generate the body for:
+
+I’m having a scan
+
+The output should aim for the standard shown in the supplied visual.
+
+It should include, where supported by approved content:
+
+Strong patient-facing hero.
+Original scan-related illustration.
+Appointment-stage reassurance.
+Visual step-by-step journey.
+Important safety notice.
+Scan-information cards.
+Questions section.
+Closing call to action.
+Distinct mobile composition.
+
+It must not:
+
+Recreate the site header or footer.
+Invent live destinations.
+Embed essential text in an image.
+Provide unsupported clinical advice.
+Produce a generic single text panel.
+Use the old absolute-coordinate renderer.
+27. Hard rejection criteria
+
+A generated proposal must be rejected before user review when:
+
+HTML or CSS fails parsing.
+Unsafe content is present.
+CSS escapes the wrapper.
+Required sections are missing.
+Prompt-required visual content is absent.
+The output is only a heading, paragraphs and button for a complex page brief.
+A real CTA is not present.
+Important links cannot be resolved or flagged.
+Desktop output has severe overlap.
+Horizontal scrolling is introduced.
+Important content is clipped.
+Mobile is merely an unusable scaled desktop layout.
+Critical accessibility issues exist.
+The Composition is blank or near blank.
+Required assets failed without a suitable fallback.
+Global page styles are modified.
+28. Acceptance criteria
+Visual capability
+AI can generate semantic layouts comparable in complexity to the supplied BNMS example.
+AI can use Grid, Flexbox, SVG, layered graphics and varied cards.
+Output is not restricted to standard Canvas primitives.
+Reference-page styling is recognisable without exact copying.
+Full pages and sections are visually distinct and deliberately composed.
+Canvas integration
+An AI section can be placed between manual Canvas elements.
+A full page body can be generated inside a blank Canvas.
+Composition height is automatic.
+Following blocks reflow safely.
+Global header and footer remain controlled by iConnect.
+Generated CSS cannot affect other blocks.
+Responsive behaviour
+Desktop, tablet and mobile render successfully.
+Layout changes meaningfully across breakpoints.
+No horizontal scrolling.
+No clipped headings or controls.
+Illustrations and cards recompose appropriately.
+Prompt-led changes
+Users can select a complete Composition or meaningful element.
+A requested text change affects the selected text.
+A requested image change preserves surrounding layout.
+A requested layout change produces a new validated render.
+A major redesign creates an alternative.
+Protected facts and links remain unchanged.
+Security
+No generated JavaScript is executed.
+HTML, CSS and SVG are parsed and sanitised.
+CSS is correctly scoped.
+External resources are blocked or rewritten.
+Tenant boundaries are enforced.
+Untrusted preview rendering is isolated.
+Existing permissions remain authoritative.
+Accessibility
+Semantic headings and sections are present.
+Links and buttons are real interactive elements.
+Keyboard access works.
+Contrast is validated.
+Alt text is present.
+FAQ patterns use accessible elements.
+Critical issues block approval.
+Visual iteration
+Browserless captures all target breakpoints.
+AI can review the rendered output.
+Failed layouts receive repair attempts.
+The user sees only technically valid proposals.
+Repair history is auditable.
+Versioning
+Every accepted generation has an immutable version.
+Previous versions can be restored.
+Alternatives can coexist.
+Failed generations never replace the current valid version.
+29. Testing requirements
+
+Add automated tests for:
+
+HTML allowlist and rejection
+Event-handler removal
+Script removal
+CSS parsing
+Selector scoping
+Global-selector rejection
+External URL rejection
+SVG sanitisation
+Stable AI IDs
+Action resolution
+Slot resolution
+Version creation
+Version restoration
+Asset ownership
+Tenant isolation
+Automatic height
+Canvas reflow
+Desktop rendering
+Tablet rendering
+Mobile rendering
+Overflow detection
+Overlap detection
+Accessibility validation
+Provider failure
+Browserless failure
+Repair-cycle limit
+Usage accounting
+
+Add browser-level tests for:
+
+Generate an AI section inside an existing page.
+Generate a complete page body on a blank Canvas.
+Generate an inline SVG illustration.
+Insert a trusted iConnect form slot.
+Change a heading through a prompt.
+Change an illustration through a prompt.
+Resolve an internal link.
+Recompose mobile only.
+Create an alternative design.
+Restore an earlier version.
+Confirm CSS does not leak into sibling Canvas blocks.
+Confirm unsafe generated code is rejected.
+30. Critical instruction to Replit
+
+Do not continue trying to make the proprietary V1 scene graph reproduce the visual quality of native frontend code.
+
+The revised implementation should use:
+
+AI-generated semantic HTML
++ scoped CSS
++ sanitised SVG
++ trusted iConnect slots
++ browser rendering
++ screenshot-based visual review
++ prompt-led revisions
+
+The browser should be responsible for layout.
+
+The AI should be allowed to use the frontend technologies in which it already demonstrates strong design capability.
+
+The first development milestone is not another model prompt. It is proving that a hand-authored package comparable to the supplied BNMS example can be safely:
+
+Sanitised
+Scoped
+Rendered inside Canvas
+Captured at all breakpoints
+Validated
+Versioned
+
+Once that pipeline works, connect AI generation to it.
