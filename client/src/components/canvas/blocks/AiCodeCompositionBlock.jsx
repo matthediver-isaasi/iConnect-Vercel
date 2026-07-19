@@ -174,13 +174,28 @@ export function AiCodeCompositionContent({ document: doc, asEditor }) {
   }, [doc]);
 
   const onClickCapture = (e) => {
-    const actionEl = e.target?.closest?.('[data-ai-action]');
-    if (!actionEl) return;
     if (asEditor) {
-      // Never navigate away from the builder.
+      // Never navigate away from the builder. Instead, clicking an element
+      // with a data-ai-id selects it for prompt-led editing (Task #2908):
+      // broadcast to the inspector's edit panel via a window CustomEvent.
       e.preventDefault();
+      const el = e.target?.closest?.('[data-ai-id]');
+      const root = rootRef.current;
+      if (el && root) {
+        root.querySelectorAll('[data-aicc-selected]').forEach((n) => n.removeAttribute('data-aicc-selected'));
+        el.setAttribute('data-aicc-selected', 'true');
+        window.dispatchEvent(new CustomEvent('aicc-element-selected', {
+          detail: {
+            compositionId,
+            aiId: el.getAttribute('data-ai-id'),
+            label: (el.textContent || '').trim().slice(0, 60) || el.tagName.toLowerCase(),
+          },
+        }));
+      }
       return;
     }
+    const actionEl = e.target?.closest?.('[data-ai-action]');
+    if (!actionEl) return;
     const href = actionEl.getAttribute('data-ai-href');
     if (href && actionEl.tagName !== 'A') {
       e.preventDefault();
@@ -188,10 +203,16 @@ export function AiCodeCompositionContent({ document: doc, asEditor }) {
     }
   };
 
+  // Editor-only selection/hover affordances for identified elements.
+  const editorCss = asEditor
+    ? `[data-ai-composition="${compositionId}"] [data-ai-id]:hover { outline: 1px dashed hsl(var(--primary) / 0.6); outline-offset: 2px; cursor: pointer; }
+[data-ai-composition="${compositionId}"] [data-aicc-selected] { outline: 2px solid hsl(var(--primary)); outline-offset: 2px; }`
+    : '';
+
   if (!isV2Document(doc) || !compositionId) return null;
   return (
     <>
-      <style dangerouslySetInnerHTML={{ __html: doc.css || '' }} />
+      <style dangerouslySetInnerHTML={{ __html: `${doc.css || ''}${editorCss ? `\n${editorCss}` : ''}` }} />
       {/* eslint-disable-next-line react/no-danger -- server-sanitised, immutable document */}
       <div
         ref={rootRef}
@@ -352,13 +373,12 @@ function useCodeGenerationLoop({ onComplete }) {
 
 const PREVIEW_WIDTHS = { desktop: 1440, tablet: 1024, mobile: 390 };
 
-function BreakpointPreview({ compositionId }) {
+// Renders any V2 document (current or a PROPOSED one) at breakpoint widths.
+// The document's @media rules evaluate against the VIEWPORT, so a scaled
+// div cannot preview breakpoints — render inside an iframe whose window is
+// the target width, then scale the iframe down to the inspector column.
+function DocBreakpointPreview({ doc, testId = 'iframe-aicc-preview' }) {
   const [bp, setBp] = useState('desktop');
-  const { data } = useAiCodeComposition(compositionId);
-  const doc = data?.document;
-  // The document's @media rules evaluate against the VIEWPORT, so a scaled
-  // div cannot preview breakpoints — render inside an iframe whose window is
-  // the target width, then scale the iframe down to the inspector column.
   const srcDoc = useMemo(() => {
     if (!isV2Document(doc)) return '';
     return [
@@ -402,11 +422,18 @@ function BreakpointPreview({ compositionId }) {
             transformOrigin: 'top left',
             pointerEvents: 'none',
           }}
-          data-testid="iframe-aicc-preview"
+          data-testid={testId}
         />
       </div>
     </div>
   );
+}
+
+function BreakpointPreview({ compositionId }) {
+  const { data } = useAiCodeComposition(compositionId);
+  const doc = data?.document;
+  if (!isV2Document(doc)) return null;
+  return <DocBreakpointPreview doc={doc} />;
 }
 
 // Which destinations `kinds` filter each record-backed action type searches.
@@ -571,6 +598,390 @@ function UnresolvedActionsPanel({ compositionId, doc }) {
           }}
         />
       ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Prompt-led editing (Task #2908). Proposals are computed AND stored
+// server-side; accept re-applies the stored proposal against the CURRENT
+// document. The panel only orchestrates: propose → preview → accept/reject,
+// plus undo and the edit history.
+
+const BREAKPOINT_LABELS = { all: 'All screen sizes', desktop: 'Desktop only', tablet: 'Tablet only', mobile: 'Mobile only' };
+
+function AiCodeEditPanel({ compositionId }) {
+  const queryClient = useQueryClient();
+  const [instruction, setInstruction] = useState('');
+  const [selected, setSelected] = useState(null); // { aiId, label }
+  const [breakpoint, setBreakpoint] = useState('all');
+  const [busy, setBusy] = useState(false);
+  const [proposal, setProposal] = useState(null); // propose response
+  const [error, setError] = useState(null);
+  const [needsConfirm, setNeedsConfirm] = useState(null); // { warnings }
+  const [criticalIssues, setCriticalIssues] = useState([]);
+
+  // Listen for element selection clicks from the rendered composition.
+  useEffect(() => {
+    const onSelect = (e) => {
+      if (e.detail?.compositionId !== compositionId) return;
+      setSelected({ aiId: e.detail.aiId, label: e.detail.label });
+    };
+    window.addEventListener('aicc-element-selected', onSelect);
+    return () => window.removeEventListener('aicc-element-selected', onSelect);
+  }, [compositionId]);
+
+  const historyQuery = useQuery({
+    queryKey: ['/api/ai-compositions', compositionId, 'edit-v2-history'],
+    queryFn: () => aicFetch(`/api/ai-compositions/edit-v2?compositionId=${compositionId}`),
+    enabled: !!compositionId,
+    staleTime: 15 * 1000,
+  });
+
+  const invalidateComposition = () => {
+    queryClient.invalidateQueries({ queryKey: ['/api/ai-compositions', compositionId] });
+    queryClient.invalidateQueries({ queryKey: ['/api/ai-compositions', compositionId, 'versions'] });
+    queryClient.invalidateQueries({ queryKey: ['/api/ai-compositions', compositionId, 'edit-v2-history'] });
+  };
+
+  const resetOutcome = () => {
+    setError(null);
+    setNeedsConfirm(null);
+    setCriticalIssues([]);
+  };
+
+  const propose = async () => {
+    if (!instruction.trim() || busy) return;
+    setBusy(true);
+    resetOutcome();
+    setProposal(null);
+    try {
+      const body = await aicFetch('/api/ai-compositions/edit-v2', {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'propose',
+          compositionId,
+          instruction: instruction.trim(),
+          target: selected ? { type: 'element', elementId: selected.aiId } : { type: 'composition' },
+          breakpoint,
+        }),
+      });
+      setProposal(body);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const accept = async (confirmProtected = false) => {
+    if (!proposal || busy) return;
+    setBusy(true);
+    setError(null);
+    setCriticalIssues([]);
+    try {
+      const res = await fetch(buildEditV2Url(), {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'accept', conversationId: proposal.conversationId, confirmProtected }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setProposal(null);
+        setNeedsConfirm(null);
+        setInstruction('');
+        invalidateComposition();
+      } else if (res.status === 409 && body.requiresConfirmation) {
+        setNeedsConfirm({ warnings: body.warnings || [] });
+      } else if (res.status === 422 && body.code === 'AI_VALIDATION_CRITICAL') {
+        setCriticalIssues(body.validation?.critical || []);
+        setError(body.error);
+      } else {
+        setError(body.error || 'Could not apply this change.');
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const reject = async () => {
+    if (!proposal || busy) return;
+    setBusy(true);
+    resetOutcome();
+    try {
+      await aicFetch('/api/ai-compositions/edit-v2', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'reject', conversationId: proposal.conversationId }),
+      });
+      setProposal(null);
+      invalidateComposition();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const undo = async () => {
+    if (busy) return;
+    setBusy(true);
+    resetOutcome();
+    try {
+      await aicFetch('/api/ai-compositions/edit-v2', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'undo', compositionId }),
+      });
+      invalidateComposition();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const history = (historyQuery.data?.conversation || []).slice(0, 8);
+
+  return (
+    <div className="space-y-3 border-t border-border pt-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Label>Edit with AI</Label>
+        <Button size="sm" variant="ghost" onClick={undo} disabled={busy} data-testid="button-aicc-edit-undo">
+          <RotateCcw className="mr-1 h-4 w-4" /> Undo last change
+        </Button>
+      </div>
+      <div className="space-y-1">
+        {selected ? (
+          <div className="flex flex-wrap items-center gap-1 text-xs">
+            <span className="rounded-md border border-border bg-muted/40 px-2 py-1" data-testid="text-aicc-edit-target">
+              Editing: {selected.label}
+            </span>
+            <Button size="sm" variant="ghost" onClick={() => setSelected(null)} data-testid="button-aicc-edit-clear-target">
+              Whole design
+            </Button>
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Tip: click any part of the design on the canvas to edit just that element.
+          </p>
+        )}
+        <Textarea
+          value={instruction}
+          onChange={(e) => setInstruction(e.target.value)}
+          placeholder='e.g. "Make the heading larger" or "Redesign this as two columns"'
+          rows={3}
+          data-testid="input-aicc-edit-instruction"
+        />
+        <div className="flex flex-wrap items-center gap-2">
+          <Select value={breakpoint} onValueChange={setBreakpoint}>
+            <SelectTrigger className="flex-1" data-testid="select-aicc-edit-breakpoint"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {Object.entries(BREAKPOINT_LABELS).map(([k, label]) => (
+                <SelectItem key={k} value={k}>{label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button onClick={propose} disabled={busy || !instruction.trim()} data-testid="button-aicc-edit-propose">
+            {busy && !proposal
+              ? (<><Loader2 className="mr-1 h-4 w-4 animate-spin" /> Working…</>)
+              : (<><Sparkles className="mr-1 h-4 w-4" /> Propose change</>)}
+          </Button>
+        </div>
+      </div>
+
+      {proposal && (
+        <div className="space-y-2 rounded-md border border-border bg-muted/30 p-3">
+          <p className="text-xs" data-testid="text-aicc-edit-summary">
+            <span className="font-medium">{proposal.isAlternative ? 'New design alternative: ' : 'Proposed change: '}</span>
+            {proposal.summary || 'Preview below.'}
+          </p>
+          {proposal.isAlternative && (
+            <p className="text-xs text-muted-foreground">
+              This is a full redesign — accepting saves it as an alternative without replacing your current design.
+            </p>
+          )}
+          {isV2Document(proposal.previewDocument) && (
+            <DocBreakpointPreview doc={proposal.previewDocument} testId="iframe-aicc-edit-preview" />
+          )}
+          {(proposal.warnings || []).length > 0 && (
+            <ul className="space-y-0.5 text-xs text-muted-foreground">
+              {proposal.warnings.slice(0, 6).map((w, i) => (
+                <li key={i} className="flex items-start gap-1">
+                  <TriangleAlert className="mt-0.5 h-3 w-3 shrink-0 text-warning" />
+                  <span>{w.reason || `${w.label || w.key || w.type}: “${w.before}” → “${w.after}”`}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {needsConfirm ? (
+            <div className="space-y-1">
+              <p className="text-xs font-medium">This change alters facts (prices, dates or names). Apply anyway?</p>
+              {(needsConfirm.warnings || []).slice(0, 6).map((w, i) => (
+                <p key={i} className="text-xs text-muted-foreground">{w.label || w.key}: “{w.before}” → “{w.after}”</p>
+              ))}
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" onClick={() => accept(true)} disabled={busy} data-testid="button-aicc-edit-confirm">
+                  <Check className="mr-1 h-4 w-4" /> Yes, apply
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setNeedsConfirm(null)} disabled={busy} data-testid="button-aicc-edit-cancel-confirm">
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" onClick={() => accept(false)} disabled={busy} data-testid="button-aicc-edit-accept">
+                {busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Check className="mr-1 h-4 w-4" />} Accept
+              </Button>
+              <Button size="sm" variant="ghost" onClick={reject} disabled={busy} data-testid="button-aicc-edit-reject">
+                <Trash2 className="mr-1 h-4 w-4" /> Reject
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {error && <p className="text-xs text-destructive" data-testid="text-aicc-edit-error">{error}</p>}
+      {criticalIssues.length > 0 && (
+        <ul className="space-y-0.5 text-xs text-destructive">
+          {criticalIssues.slice(0, 6).map((c, i) => <li key={i}>· {c.detail || c.rule || String(c)}</li>)}
+        </ul>
+      )}
+
+      {history.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-xs font-medium text-muted-foreground">Recent edits</p>
+          <ul className="max-h-32 space-y-1 overflow-y-auto text-xs text-muted-foreground">
+            {history.map((h) => (
+              <li key={h.id} data-testid={`row-aicc-edit-history-${h.id}`}>
+                <span className={h.status === 'accepted' ? '' : 'line-through opacity-70'}>
+                  {h.summary || h.instruction}
+                </span>{' '}
+                · {h.status}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function buildEditV2Url() {
+  const slug = getTenantSlugFromLocation();
+  const url = new URL('/api/ai-compositions/edit-v2', window.location.origin);
+  if (slug) url.searchParams.set('tenant', slug);
+  return url.pathname + url.search;
+}
+
+// Saved redesign alternatives: shown side by side, switched explicitly.
+function AlternativesPanel({ compositionId }) {
+  const queryClient = useQueryClient();
+  const [busyId, setBusyId] = useState(null);
+  const { data } = useQuery({
+    queryKey: ['/api/ai-compositions', compositionId, 'versions'],
+    queryFn: () => aicFetch(`/api/ai-compositions/${compositionId}?versions=1`),
+    enabled: !!compositionId,
+    staleTime: 15 * 1000,
+  });
+  const alternatives = (data?.versions || []).filter((v) => v.is_alternative);
+  if (!alternatives.length) return null;
+
+  const useAlternative = async (versionId) => {
+    setBusyId(versionId);
+    try {
+      await aicFetch(`/api/ai-compositions/${compositionId}?restore=1`, {
+        method: 'POST',
+        body: JSON.stringify({ versionId }),
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/ai-compositions', compositionId] });
+      queryClient.invalidateQueries({ queryKey: ['/api/ai-compositions', compositionId, 'versions'] });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <div className="space-y-2 border-t border-border pt-3">
+      <Label>Design alternatives</Label>
+      <ul className="space-y-1">
+        {alternatives.slice(0, 6).map((v) => (
+          <li key={v.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border p-2" data-testid={`row-aicc-alternative-${v.id}`}>
+            <span className="text-xs">{v.change_summary || 'Redesign'}</span>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => useAlternative(v.id)}
+              disabled={!!busyId}
+              data-testid={`button-aicc-use-alternative-${v.id}`}
+            >
+              {busyId === v.id ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Use this design
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// Admin-only Composition Inspector: validation reports, generation metadata
+// and the conversation trail. The endpoint 404s for non-admins, so the whole
+// section simply hides itself when the fetch fails.
+function CompositionInspectorPanel({ compositionId }) {
+  const [open, setOpen] = useState(false);
+  const { data, error } = useQuery({
+    queryKey: ['/api/ai-compositions', compositionId, 'inspector'],
+    queryFn: () => aicFetch(`/api/ai-compositions/${compositionId}?inspector=1`),
+    enabled: !!compositionId && open,
+    retry: false,
+    staleTime: 30 * 1000,
+  });
+  if (!compositionId) return null;
+  if (open && error) return null; // non-admin (404) or unavailable — hide entirely
+  return (
+    <div className="space-y-2 border-t border-border pt-3">
+      <Button size="sm" variant="ghost" onClick={() => setOpen((v) => !v)} data-testid="button-aicc-inspector-toggle">
+        <ShieldCheck className="mr-1 h-4 w-4" /> {open ? 'Hide technical details' : 'Technical details (admin)'}
+      </Button>
+      {open && data && (
+        <div className="space-y-2 text-xs">
+          <p className="text-muted-foreground" data-testid="text-aicc-inspector-meta">
+            {data.versions?.length || 0} versions · current {String(data.currentVersionId || '').slice(0, 8)}
+          </p>
+          <ul className="max-h-48 space-y-1 overflow-y-auto">
+            {(data.versions || []).slice(0, 15).map((v) => (
+              <li key={v.id} className="rounded-md border border-border p-2" data-testid={`row-aicc-inspector-version-${v.id}`}>
+                <p>
+                  <span className="font-medium">{v.operation_type || 'generate'}</span>
+                  {v.is_alternative ? ' · alternative' : ''}
+                  {v.id === data.currentVersionId ? ' · current' : ''}
+                </p>
+                <p className="text-muted-foreground">{v.change_summary || '—'}</p>
+                <p className="text-muted-foreground">
+                  model {v.generation_metadata?.model || '?'} ·{' '}
+                  validation {v.validation_result?.ok === false ? 'failed' : 'ok'}
+                  {v.validation_result?.phase3?.status ? ` · phase3 ${v.validation_result.phase3.status}` : ''}
+                </p>
+              </li>
+            ))}
+          </ul>
+          {(data.conversation || []).length > 0 && (
+            <>
+              <p className="font-medium text-muted-foreground">Edit conversation</p>
+              <ul className="max-h-32 space-y-1 overflow-y-auto text-muted-foreground">
+                {data.conversation.slice(0, 15).map((c) => (
+                  <li key={c.id} data-testid={`row-aicc-inspector-convo-${c.id}`}>
+                    “{c.instruction}” → {c.kind} · {c.status}
+                    {c.breakpoint && c.breakpoint !== 'all' ? ` · ${c.breakpoint}` : ''}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -767,6 +1178,16 @@ export function AiCodeCompositionInspector({ block, update, onChange, pageId }) 
           <SanitisationReport report={doc.sanitisation} />
           <UnresolvedActionsPanel compositionId={activeId} doc={doc} />
         </div>
+      )}
+
+      {/* Prompt-led editing operates on the INSERTED composition only —
+          drafts are regenerated, not edited. */}
+      {insertedId && !draftId && isV2Document(doc) && (
+        <>
+          <AiCodeEditPanel compositionId={insertedId} />
+          <AlternativesPanel compositionId={insertedId} />
+          <CompositionInspectorPanel compositionId={insertedId} />
+        </>
       )}
 
       <div className="space-y-2 border-t border-border pt-3">

@@ -14,7 +14,7 @@
 // so composition existence is never leaked.
 
 import { supabase } from '../_lib/database.js';
-import { getTenantContext, hasFeatureAccess } from '../_lib/tenantContext.js';
+import { getTenantContext, hasFeatureAccess, hasAdminAccess } from '../_lib/tenantContext.js';
 import {
   selectVersionsToPrune,
   buildRestoreVersion,
@@ -61,6 +61,38 @@ export default async function handler(req, res) {
   if (req.method === 'GET') {
     const wantVersions = req.query.versions === '1';
     const versionId = req.query.versionId;
+    const wantInspector = req.query.inspector === '1';
+
+    // Composition Inspector (Task #2908) — ADMIN-ONLY diagnostic surface:
+    // full sanitisation/validation reports, generation metadata and the edit
+    // conversation trail. 404 (not 403) so nothing leaks to non-admins.
+    if (wantInspector) {
+      if (!context.isAuthenticated) return res.status(404).json({ error: 'Not found' });
+      if (!(await hasAdminAccess(context))) return res.status(404).json({ error: 'Not found' });
+      const [{ data: versions, error: verErr }, { data: conversation }] = await Promise.all([
+        supabase
+          .from('ai_composition_version')
+          .select('id, parent_version_id, change_summary, operation_type, is_alternative, locked, validation_result, generation_metadata, created_by, created_at')
+          .eq('composition_id', id)
+          .eq('tenant_id', tenantId)
+          .order('created_at', { ascending: false })
+          .limit(30),
+        supabase
+          .from('ai_composition_conversation')
+          .select('id, instruction, target, breakpoint, kind, summary, warnings, status, version_id, created_at')
+          .eq('composition_id', id)
+          .eq('tenant_id', tenantId)
+          .order('created_at', { ascending: false })
+          .limit(30),
+      ]);
+      if (verErr) return res.status(500).json({ error: 'Failed to load versions' });
+      return res.status(200).json({
+        composition: comp,
+        currentVersionId: comp.current_version_id,
+        versions: versions || [],
+        conversation: conversation || [],
+      });
+    }
 
     if (!wantVersions && !versionId) {
       // Public read of the CURRENT document only (tenant-scoped above).
