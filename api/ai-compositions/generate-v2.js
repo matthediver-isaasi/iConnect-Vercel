@@ -28,9 +28,15 @@ import {
   parsePlanResponse,
   runPlanChecks,
 } from '../_lib/aiCodeGeneration.js';
+import {
+  resolveV2AssetRequests,
+  collectPendingAssetRequests,
+  requiredAssetFailures,
+} from '../_lib/aiCodeAssets.js';
 import { resolveCodeActions, makeSupabaseActionLookups } from '../_lib/aiCodeActions.js';
 import { resolveCodeSlots, makeSupabaseSlotLookups } from '../_lib/aiCodeSlots.js';
 import { storeGeneratedAsset } from '../_lib/aiCompositionAssetStore.js';
+import { ASPECT_SIZES } from '../_lib/aiCompositionImages.js';
 import { styleReferenceImageInputs } from '../_lib/styleReference.js';
 import { buildSignedPreviewUrl, appOrigin } from '../_lib/aiCodePreviewSign.js';
 import { captureValidationEvidence } from '../_lib/aiCodeVisualValidation.js';
@@ -47,11 +53,17 @@ const STAGE_LABELS = {
   context: 'Reading your brand and page',
   plan: 'Planning the page content',
   code: 'Designing your section',
+  assets: 'Creating imagery for your design',
   validate: 'Checking the design in a real browser',
   repair: 'Fixing issues we found',
 };
 
 const MAX_PLAN_RETRIES = 2;
+// One retry pass over failed asset requests (per-asset isolation inside).
+const MAX_ASSET_ATTEMPTS = 2;
+// Wall-clock budget per assets invocation — the stage is resumable, so we
+// stop starting new provider calls near the limit and resume next call.
+const ASSET_STAGE_BUDGET_MS = 45000;
 
 function getOpenAIClient() {
   const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
@@ -91,6 +103,26 @@ function makeCallLlm(client) {
       );
     }
     return completion.choices?.[0]?.message?.content || '';
+  };
+}
+
+/** Provider image call — gpt-image-1 via the shared OpenAI client (as V1). */
+function makeGenerateImage(client) {
+  return async ({ prompt, aspectRatio }) => {
+    let result;
+    try {
+      result = await client.images.generate({
+        model: 'gpt-image-1',
+        prompt,
+        size: ASPECT_SIZES[aspectRatio] || ASPECT_SIZES.landscape,
+        n: 1,
+      });
+    } catch (err) {
+      throw new Error('Image generation failed — the image service was unavailable.');
+    }
+    const b64 = result?.data?.[0]?.b64_json;
+    if (!b64) throw new Error('Image generation returned no image.');
+    return { buffer: Buffer.from(b64, 'base64'), model: 'gpt-image-1' };
   };
 }
 
@@ -426,7 +458,9 @@ export default async function handler(req, res) {
           pageContext: state.pageContext,
           attempt,
           lastErrors,
-          allowedImageHosts: [], // Phase 1: inline SVG only, no raster imagery
+          // Phase 5: fulfilled asset srcs live under the tenant's public
+          // media-library prefix — the only host generated markup may use.
+          allowedImageHosts: [tenantPublicAssetPrefix(tenantId)].filter(Boolean),
           compositionType,
           plan: state.plan || null,
         });
@@ -530,8 +564,13 @@ export default async function handler(req, res) {
         .single();
       if (verErr) return fail(new Error('Failed to save the generated version.'));
 
+      // Image asset requests (Phase 5) are fulfilled in their own resumable
+      // stage BEFORE validation, so the browser screenshots judge the design
+      // with its real imagery in place.
+      const hasAssetRequests = collectPendingAssetRequests(documentToStore).length > 0;
+      const nextStage = hasAssetRequests ? 'assets' : 'validate';
       await updateJob(job.id, tenantId, {
-        stage: 'validate',
+        stage: nextStage,
         composition_id: compId,
         state: {
           ...state,
@@ -539,11 +578,135 @@ export default async function handler(req, res) {
           candidateVersionIds: [version.id],
           candidateRawCss: result.rawCss || null,
           codeCalls: attempt + 1,
+          assetAttempt: 0,
           repairCycle: 0,
           repairCalls: 0,
           validationHistory: [],
         },
       });
+      return res.status(200).json({
+        jobId: job.id,
+        stage: nextStage,
+        status: 'running',
+        label: STAGE_LABELS[nextStage],
+      });
+    }
+
+    // ---- Assets stage: fulfil image_request entries (Phase 5) --------------
+    // Library-first when the request names an existing image, otherwise
+    // gpt-image-1 → storeGeneratedAsset (file_repository + ai_generated_asset,
+    // tenant-owned). Per-asset failure isolation: failed requests keep their
+    // brief, one retry pass; only REQUIRED failures hard-reject.
+    if (stage === 'assets') {
+      const compId = state.targetCompositionId;
+      const candidateId = state.candidateVersionId;
+      const { data: candidate } = await supabase
+        .from('ai_composition_version')
+        .select('id, document, generation_metadata')
+        .eq('id', candidateId)
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+      if (!candidate?.document) return fail(new Error('The generated version could not be loaded for imagery.'));
+
+      // Library-first fulfilment must not depend on the image provider being
+      // configured: only requests that actually need GENERATION require the
+      // client. Missing provider surfaces as a per-asset failure (retryable,
+      // and hard-rejecting only when the request is required).
+      const client = getOpenAIClient();
+      const generateImage = client
+        ? makeGenerateImage(client)
+        : async () => { throw new Error('AI image generation is not configured on this server.'); };
+
+      const searchLibrary = async ({ query }) => {
+        const q = String(query || '').trim();
+        if (!q) return null;
+        const { data: rows } = await supabase
+          .from('file_repository')
+          .select('id, file_url')
+          .eq('tenant_id', tenantId)
+          .eq('file_type', 'image')
+          .or(`file_name.ilike.%${q.replace(/[%,()]/g, ' ')}%,description.ilike.%${q.replace(/[%,()]/g, ' ')}%`)
+          .limit(1);
+        const hit = rows?.[0];
+        return hit?.file_url ? { fileRepositoryId: hit.id, url: hit.file_url } : null;
+      };
+
+      const resolved = await resolveV2AssetRequests({
+        doc: candidate.document,
+        brand: state.brand,
+        generateImage,
+        storeAsset: async ({ buffer, request, prompt, model, cost, aspectRatio }) => storeGeneratedAsset({
+          tenantId,
+          memberId: context.memberId || null,
+          compositionId: compId,
+          elementId: request.key,
+          buffer,
+          prompt,
+          model,
+          provider: 'openai',
+          aspectRatio,
+          brief: { ...request, accessibilityDescription: request.alt },
+          usageStatus: 'in_use',
+          cost,
+        }),
+        searchLibrary,
+        deadline: Date.now() + ASSET_STAGE_BUDGET_MS,
+      });
+
+      // Persist the (partially) fulfilled document + per-version provenance.
+      const priorResults = candidate.generation_metadata?.assetResults || [];
+      const assetResults = [
+        ...priorResults.filter((r) => !resolved.results.some((n) => n.key === r.key)),
+        ...resolved.results,
+      ];
+      await supabase
+        .from('ai_composition_version')
+        .update({
+          document: resolved.doc,
+          generation_metadata: { ...(candidate.generation_metadata || {}), assetResults },
+        })
+        .eq('id', candidateId)
+        .eq('tenant_id', tenantId);
+
+      // Deadline hit with work left — resume in the next invocation.
+      if (resolved.remaining > 0) {
+        await updateJob(job.id, tenantId, { state: { ...state } });
+        return res.status(200).json({
+          jobId: job.id,
+          stage: 'assets',
+          status: 'running',
+          label: STAGE_LABELS.assets,
+          progress: { assetsRemaining: resolved.remaining },
+        });
+      }
+
+      const stillPending = collectPendingAssetRequests(resolved.doc);
+      if (stillPending.length) {
+        const attemptNo = (state.assetAttempt || 0) + 1;
+        if (attemptNo < MAX_ASSET_ATTEMPTS) {
+          // Failed requests kept their brief — retry pass.
+          await updateJob(job.id, tenantId, { state: { ...state, assetAttempt: attemptNo } });
+          return res.status(200).json({
+            jobId: job.id,
+            stage: 'assets',
+            status: 'running',
+            label: 'Retrying imagery that failed',
+            progress: { assetAttempt: attemptNo + 1, maxAttempts: MAX_ASSET_ATTEMPTS },
+          });
+        }
+        const requiredFailed = requiredAssetFailures(resolved.doc.assets);
+        if (requiredFailed.length) {
+          await rejectCandidates({ tenantId, compId, state });
+          return fail(Object.assign(
+            new Error('A required image could not be created after retries. Nothing was changed — please try again.'),
+            { rejectionReasons: requiredFailed.map((a) => `Image "${a.key}" (${a.subject}) failed: ${a.fulfilment?.error || 'unknown error'}`).slice(0, 12) },
+          ));
+        }
+        // Optional failures: proceed — placeholders have no src and simply
+        // don't render; the failed request keeps its brief for later retry.
+      }
+
+      await updateJob(job.id, tenantId, { stage: 'validate', state: { ...state } });
       return res.status(200).json({
         jobId: job.id,
         stage: 'validate',
@@ -774,6 +937,9 @@ export default async function handler(req, res) {
           repairCycle: cycle,
           maxRepairCycles: MAX_REPAIR_CYCLES,
           previousRepairErrors: state.repairErrors || [],
+          // Fulfilled asset srcs (tenant media library) must survive the
+          // repair re-run of the sanitising pipeline.
+          allowedImageHosts: [tenantPublicAssetPrefix(tenantId)].filter(Boolean),
         });
       } catch (err) {
         if (err.providerError) return fail(err);

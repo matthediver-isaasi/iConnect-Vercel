@@ -17,7 +17,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Code2, Link2, Loader2, RotateCcw, Search, ShieldCheck, Sparkles, Trash2, TriangleAlert } from 'lucide-react';
+import { Check, Code2, Image as ImageIcon, Link2, Loader2, RotateCcw, Search, ShieldCheck, Sparkles, Trash2, TriangleAlert } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -184,11 +184,15 @@ export function AiCodeCompositionContent({ document: doc, asEditor }) {
       if (el && root) {
         root.querySelectorAll('[data-aicc-selected]').forEach((n) => n.removeAttribute('data-aicc-selected'));
         el.setAttribute('data-aicc-selected', 'true');
+        const img = el.tagName === 'IMG' ? el : el.querySelector?.('img[data-ai-id]');
         window.dispatchEvent(new CustomEvent('aicc-element-selected', {
           detail: {
             compositionId,
             aiId: el.getAttribute('data-ai-id'),
             label: (el.textContent || '').trim().slice(0, 60) || el.tagName.toLowerCase(),
+            // Image context (Phase 5): a selected <img> (or an element wrapping
+            // exactly one) unlocks the deterministic "Replace image" action.
+            imageAiId: el.tagName === 'IMG' ? el.getAttribute('data-ai-id') : (img?.getAttribute('data-ai-id') || null),
           },
         }));
       }
@@ -313,7 +317,7 @@ function SanitisationReport({ report }) {
 // Staged generation loop for /api/ai-compositions/generate-v2: keeps POSTing
 // { jobId } while the server reports `running` (context → code, one LLM
 // attempt per invocation, retries included).
-function useCodeGenerationLoop({ onComplete }) {
+export function useCodeGenerationLoop({ onComplete }) {
   const [running, setRunning] = useState(false);
   const [label, setLabel] = useState('');
   const [progress, setProgress] = useState(0);
@@ -625,7 +629,7 @@ function AiCodeEditPanel({ compositionId }) {
   useEffect(() => {
     const onSelect = (e) => {
       if (e.detail?.compositionId !== compositionId) return;
-      setSelected({ aiId: e.detail.aiId, label: e.detail.label });
+      setSelected({ aiId: e.detail.aiId, label: e.detail.label, imageAiId: e.detail.imageAiId || null });
     };
     window.addEventListener('aicc-element-selected', onSelect);
     return () => window.removeEventListener('aicc-element-selected', onSelect);
@@ -742,6 +746,42 @@ function AiCodeEditPanel({ compositionId }) {
     }
   };
 
+  // Deterministic image replacement (Phase 5): pick a media-library image and
+  // swap the selected <img> via the server-verified replace-image action —
+  // no LLM involved, tenant ownership checked server-side.
+  const replaceImage = async (fileRepositoryId) => {
+    if (!selected?.imageAiId || busy) return;
+    setBusy(true);
+    resetOutcome();
+    try {
+      await aicFetch('/api/ai-compositions/edit-v2', {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'replace-image',
+          compositionId,
+          aiId: selected.imageAiId,
+          fileRepositoryId,
+        }),
+      });
+      invalidateComposition();
+    } catch (err) {
+      setError(err.message || 'The image could not be replaced. Nothing was changed.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openReplaceImagePicker = () => {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new CustomEvent('canvas:open-file-repository', {
+      detail: {
+        kind: 'image',
+        title: 'Replace this image',
+        onPick: (asset) => { if (asset?.id) replaceImage(asset.id); },
+      },
+    }));
+  };
+
   const history = (historyQuery.data?.conversation || []).slice(0, 8);
 
   return (
@@ -761,6 +801,11 @@ function AiCodeEditPanel({ compositionId }) {
             <Button size="sm" variant="ghost" onClick={() => setSelected(null)} data-testid="button-aicc-edit-clear-target">
               Whole design
             </Button>
+            {selected.imageAiId && (
+              <Button size="sm" variant="outline" onClick={openReplaceImagePicker} disabled={busy} data-testid="button-aicc-replace-image">
+                <ImageIcon className="mr-1 h-4 w-4" /> Replace image
+              </Button>
+            )}
           </div>
         ) : (
           <p className="text-xs text-muted-foreground">

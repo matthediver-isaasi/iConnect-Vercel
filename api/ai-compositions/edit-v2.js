@@ -33,6 +33,8 @@ import {
   assessV2Accept,
   newCriticalIssues,
 } from '../_lib/aiCodeEdit.js';
+import { replaceImageSource, updateImagePresentation } from '../_lib/aiCodeAssets.js';
+import { tenantPublicAssetPrefix, markGeneratedAssetUsage } from '../_lib/aiCompositionAssetStore.js';
 import { loadStudioSettings } from '../_lib/aiDesignStudioSettings.js';
 import { checkAiUsageAllowance, recordAiUsageEvent } from '../_lib/aiUsage.js';
 
@@ -136,7 +138,7 @@ export default async function handler(req, res) {
   if (!context.isAuthenticated) return res.status(401).json({ error: 'Authentication required' });
 
   const requestedAction = req.method === 'POST' ? (req.body?.action || '') : '';
-  const neededFeature = (requestedAction === 'accept' || requestedAction === 'undo')
+  const neededFeature = (requestedAction === 'accept' || requestedAction === 'undo' || requestedAction === 'replace-image' || requestedAction === 'image-presentation')
     ? AI_FEATURE_APPROVE
     : AI_FEATURE_GENERATE;
   if (!(await canUseAiFeature(context, neededFeature))) {
@@ -226,6 +228,9 @@ export default async function handler(req, res) {
         brand,
         compositionId: comp.id,
         screenshots: versionScreenshots(version),
+        // Fulfilled Phase 5 asset srcs (tenant media library) must survive
+        // the edit pipeline's re-sanitisation.
+        allowedImageHosts: [tenantPublicAssetPrefix(tenantId)].filter(Boolean),
       });
 
       const warnings = (result.warnings || []).map((v) => ({
@@ -296,6 +301,7 @@ export default async function handler(req, res) {
         currentDoc: doc,
         breakpoint: row.breakpoint || 'all',
         confirmProtected: !!body.confirmProtected || acceptSettings.requireFactualApproval === false,
+        allowedImageHosts: [tenantPublicAssetPrefix(tenantId)].filter(Boolean),
       });
       if (!gate.ok) {
         return res.status(gate.status).json({
@@ -380,6 +386,139 @@ export default async function handler(req, res) {
         isAlternative,
         currentVersionId: isAlternative ? version.id : inserted.id,
       });
+    }
+
+    // ---- replace-image (deterministic, Phase 5) ----------------------------
+    // Swap the src of an <img data-ai-id> for a media-library image the
+    // SERVER verifies belongs to this tenant. No LLM involved — this is the
+    // editor's "choose a different picture" path.
+    if (action === 'replace-image') {
+      const loaded = await loadComposition(body.compositionId, tenantId);
+      if (!loaded) return res.status(404).json({ error: 'Composition not found' });
+      const { comp, version, doc } = loaded;
+
+      const aiId = String(body.aiId || '').trim();
+      const fileRepositoryId = body.fileRepositoryId;
+      if (!aiId || !fileRepositoryId) {
+        return res.status(400).json({ error: 'aiId and fileRepositoryId are required' });
+      }
+      // Tenant ownership check — the replacement must be THIS tenant's image.
+      const { data: file } = await supabase
+        .from('file_repository')
+        .select('id, file_url, file_type')
+        .eq('id', fileRepositoryId)
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+      if (!file?.file_url) return res.status(404).json({ error: 'Image not found in your media library' });
+      if (file.file_type && file.file_type !== 'image') {
+        return res.status(400).json({ error: 'The selected file is not an image' });
+      }
+
+      const alt = typeof body.alt === 'string' ? body.alt : null;
+      const replaced = replaceImageSource(doc, aiId, { url: file.file_url, alt });
+      if (!replaced.ok) return res.status(409).json({ error: replaced.errors[0] || 'Replacement failed' });
+
+      const { data: inserted, error: insErr } = await supabase
+        .from('ai_composition_version')
+        .insert({
+          composition_id: comp.id,
+          tenant_id: tenantId,
+          parent_version_id: version.id,
+          document: replaced.doc,
+          change_summary: 'Replaced an image from the media library',
+          operation_type: 'edit',
+          validation_result: { pipeline: 'aiCodeAssets.replaceImageSource', ok: true, phase3: { status: 'pending' } },
+          generation_metadata: {
+            rendererVersion: 2,
+            imageReplacement: {
+              aiId,
+              assetKey: replaced.assetKey,
+              fileRepositoryId: file.id,
+              previousUrl: replaced.previousUrl,
+            },
+          },
+          created_by: context.memberId || null,
+        })
+        .select('id')
+        .single();
+      if (insErr) return res.status(500).json({ error: 'Failed to save the new version' });
+
+      await supabase
+        .from('ai_composition')
+        .update({ current_version_id: inserted.id, updated_at: new Date().toISOString() })
+        .eq('id', comp.id)
+        .eq('tenant_id', tenantId);
+
+      // Usage tracking: a replaced GENERATED asset is no longer in use.
+      if (replaced.previousUrl && replaced.previousUrl !== file.file_url) {
+        const { data: prevAsset } = await supabase
+          .from('ai_generated_asset')
+          .select('file_repository_id, file_repository:file_repository_id(file_url)')
+          .eq('tenant_id', tenantId)
+          .eq('composition_id', comp.id)
+          .limit(50);
+        const prev = (prevAsset || []).find((a) => a?.file_repository?.file_url === replaced.previousUrl);
+        if (prev?.file_repository_id) {
+          await markGeneratedAssetUsage(tenantId, prev.file_repository_id, 'replaced');
+        }
+      }
+
+      return res.status(200).json({ status: 'accepted', versionId: inserted.id, currentVersionId: inserted.id });
+    }
+
+    // ---- image-presentation (deterministic focal point / crop, Phase 5) ---
+    // Merge-semantics update of an image's focal point and/or crop: the
+    // change is applied as a scoped stylesheet rule (inline styles are
+    // sanitiser-forbidden) and merged onto the asset manifest entry so it
+    // round-trips through re-validation. Layout markup is never touched.
+    if (action === 'image-presentation') {
+      const loaded = await loadComposition(body.compositionId, tenantId);
+      if (!loaded) return res.status(404).json({ error: 'Composition not found' });
+      const { comp, version, doc } = loaded;
+
+      const aiId = String(body.aiId || '').trim();
+      if (!aiId) return res.status(400).json({ error: 'aiId is required' });
+      const changes = {};
+      if ('focalPoint' in body) changes.focalPoint = body.focalPoint;
+      if ('crop' in body) changes.crop = body.crop;
+
+      const updated = updateImagePresentation(doc, aiId, changes);
+      if (!updated.ok) return res.status(400).json({ error: updated.errors[0] || 'The change could not be applied' });
+
+      const { data: inserted, error: insErr } = await supabase
+        .from('ai_composition_version')
+        .insert({
+          composition_id: comp.id,
+          tenant_id: tenantId,
+          parent_version_id: version.id,
+          document: updated.doc,
+          change_summary: 'focalPoint' in changes && 'crop' in changes
+            ? 'Adjusted image focal point and crop'
+            : ('focalPoint' in changes ? 'Adjusted image focal point' : 'Adjusted image crop'),
+          operation_type: 'edit',
+          validation_result: { pipeline: 'aiCodeAssets.updateImagePresentation', ok: true },
+          generation_metadata: {
+            rendererVersion: 2,
+            imagePresentation: {
+              aiId,
+              assetKey: updated.assetKey,
+              focalPoint: updated.focalPoint,
+              crop: updated.crop,
+            },
+          },
+          created_by: context.memberId || null,
+        })
+        .select('id')
+        .single();
+      if (insErr) return res.status(500).json({ error: 'Failed to save the new version' });
+
+      await supabase
+        .from('ai_composition')
+        .update({ current_version_id: inserted.id, updated_at: new Date().toISOString() })
+        .eq('id', comp.id)
+        .eq('tenant_id', tenantId);
+
+      return res.status(200).json({ status: 'accepted', versionId: inserted.id, currentVersionId: inserted.id });
     }
 
     // ---- reject -----------------------------------------------------------

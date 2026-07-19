@@ -37,6 +37,11 @@ export const AI_CODE_ACTION_TYPES = new Set([
   'event_registration', 'membership_application', 'document', 'email', 'tel',
 ]);
 
+// Asset request kinds (Phase 5, Task #2909). The model requests raster
+// imagery declaratively; per-field validation lives in aiCodeAssets.js
+// (validateAssetRequests), called by the pipeline.
+export const AI_CODE_ASSET_TYPES = new Set(['image_request']);
+
 // Trusted iConnect slot kinds (spec §13).
 export const AI_CODE_SLOT_TYPES = new Set([
   'form', 'event_registration', 'event_listing', 'membership_application',
@@ -113,7 +118,7 @@ export function validateAiCodePackage(raw) {
   const css = isStr(raw.css) ? raw.css : '';
   if (Buffer.byteLength(css, 'utf8') > MAX_CSS_BYTES) errors.push('css exceeds the size limit');
 
-  const assets = checkKeyedList(raw.assets, 'assets', errors);
+  const assets = checkKeyedList(raw.assets, 'assets', errors, { types: AI_CODE_ASSET_TYPES });
   const actions = checkKeyedList(raw.actions, 'actions', errors, { types: AI_CODE_ACTION_TYPES });
   const slots = checkKeyedList(raw.slots, 'slots', errors, { types: AI_CODE_SLOT_TYPES });
   const contentManifest = checkKeyedList(raw.contentManifest, 'contentManifest', errors, { requireType: false });
@@ -163,6 +168,10 @@ export function crossCheckManifests(pkg, htmlRefs) {
   }
   for (const k of htmlRefs.slotKeys || []) {
     if (!slotKeys.has(k)) errors.push(`HTML references slot "${k}" missing from the slots manifest`);
+  }
+  const assetKeys = new Set((pkg.assets || []).map((a) => a.key));
+  for (const k of htmlRefs.assetKeys || []) {
+    if (!assetKeys.has(k)) errors.push(`HTML references image asset "${k}" missing from the assets manifest`);
   }
   if (!(htmlRefs.aiIds || []).length) {
     errors.push('HTML contains no stable data-ai-id identifiers');

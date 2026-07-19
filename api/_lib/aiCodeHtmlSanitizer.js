@@ -139,6 +139,7 @@ export function sanitizeAiCodeHtml(rawHtml, { allowedImageHosts = [] } = {}) {
   const actionKeys = [];
   const slotKeys = [];
   const contentKeys = [];
+  const assetKeys = [];
   const headings = [];
 
   const isAllowedImageUrl = (url) => {
@@ -156,7 +157,7 @@ export function sanitizeAiCodeHtml(rawHtml, { allowedImageHosts = [] } = {}) {
     for (const attr of Array.from(el.attributes)) {
       const n = attr.name.toLowerCase();
       if (n.startsWith('data-')
-          && !['data-ai-id', 'data-ai-action', 'data-iconnect-slot', 'data-slot-key', 'data-content-key'].includes(n)) {
+          && !['data-ai-id', 'data-ai-action', 'data-ai-asset', 'data-iconnect-slot', 'data-slot-key', 'data-content-key'].includes(n)) {
         el.removeAttribute(attr.name);
         removed.push({ kind: 'attribute', detail: n });
       }
@@ -219,6 +220,18 @@ export function sanitizeAiCodeHtml(rawHtml, { allowedImageHosts = [] } = {}) {
       }
     }
 
+    // Image asset placeholders (Phase 5): <img data-ai-asset="<key>"> is a
+    // declarative request fulfilled server-side. Only <img> may carry it.
+    const assetKey = el.getAttribute('data-ai-asset');
+    if (assetKey !== null) {
+      if (tag === 'img' && KEY_RE.test(assetKey)) {
+        assetKeys.push(assetKey);
+      } else {
+        el.removeAttribute('data-ai-asset');
+        removed.push({ kind: 'attribute', detail: `data-ai-asset=${assetKey}` });
+      }
+    }
+
     // Images: only media-library / same-origin sources survive.
     if (tag === 'img' || tag === 'source') {
       for (const attr of ['src', 'srcset']) {
@@ -260,6 +273,6 @@ export function sanitizeAiCodeHtml(rawHtml, { allowedImageHosts = [] } = {}) {
 
   return {
     html: doc.body.innerHTML,
-    report: { aiIds, actionKeys, slotKeys, contentKeys, headings, removed },
+    report: { aiIds, actionKeys, slotKeys, contentKeys, assetKeys, headings, removed },
   };
 }

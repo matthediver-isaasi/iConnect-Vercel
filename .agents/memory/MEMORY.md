@@ -103,3 +103,4 @@
 - [AI V2 code-first generation](ai-code-v2-generation.md) — staged generate-v2 job loop; sanitiser removals are hard rejections; breakpoint previews need iframe srcDoc (media queries ignore scaled divs).
 - [AI V2 visual validation & repair](ai-code-v2-validation.md) — candidate versions promote only on pass; skipped captures/review never block; browser measures, Node judges; repair gets unscoped CSS.
 - [AI V2 prompt-led editing](ai-code-v2-editing.md) — accept re-applies stored proposal vs CURRENT doc; revisions merge only `resolved` onto model actions (stored post-pipeline shapes fail raw package schema).
+- [AI V2 generated raster imagery](ai-code-v2-assets.md) — imgs are declarative asset requests (data-ai-asset + manifest), fulfilled server-side host-allowlisted; only required failures hard-reject; replacement is a deterministic edit action.

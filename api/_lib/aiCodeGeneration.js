@@ -197,6 +197,7 @@ export function buildCodePrompt({
   "html": string,   // the section markup — semantic HTML + inline SVG only
   "css": string,    // plain CSS (NOT scoped — the platform scopes it)
   "actions": [ { "key": string, "type": "external_url"|"anchor"|"email"|"tel", ... } ],
+  "assets": [ { "key": string, "type": "image_request", "subject": string, "alt": string, "style"?: string, "aspectRatio"?: "square"|"landscape"|"portrait", "required"?: boolean } ],
   "responsiveTargets": { "desktop": 1440, "tablet": 1024, "mobile": 390 },
   "generationSummary": string  // one paragraph: your design intent
 }`;
@@ -208,6 +209,7 @@ export function buildCodePrompt({
   "css": string,    // plain CSS (NOT scoped — the platform scopes it)
   "actions": [ { "key": string, "type": ${PAGE_ACTION_TYPES_DOC}, "label": string, "hint": string, ... } ],
   "slots": [ { "key": string, "type": "form"|"event_registration"|"event_listing"|"membership_application"|"document_list"|"news_listing"|"directory"|"login_prompt"|"donation", "hint": string } ],
+  "assets": [ { "key": string, "type": "image_request", "subject": string, "alt": string, "style"?: string, "aspectRatio"?: "square"|"landscape"|"portrait", "required"?: boolean } ],
   "responsiveTargets": { "desktop": 1440, "tablet": 1024, "mobile": 390 },
   "generationSummary": string  // one paragraph: your design intent
 }`;
@@ -222,7 +224,8 @@ export function buildCodePrompt({
 ${isPage ? pageShape : sectionShape}
 
 HARD RULES — a package breaking ANY of these is automatically rejected:
-${pageRules}- NO <script>, <iframe>, <img>, event handler attributes, or external URLs in CSS url(). Decorative graphics must be INLINE <svg> you draw yourself.
+${pageRules}- NO <script>, <iframe>, event handler attributes, or external URLs in CSS url(). Decorative graphics must be INLINE <svg> you draw yourself.
+- PHOTOGRAPHIC / RASTER IMAGERY: NEVER write an <img src> yourself — you have no image URLs. Where a photo or rendered image genuinely improves the design, place <img data-ai-id="…" data-ai-asset="<key>" alt="<descriptive alt text>"> (NO src) and declare the key in the "assets" manifest as { "key", "type": "image_request", "subject" (what the image shows), "alt", optional "style"/"aspectRatio"/"required" }. The platform generates or picks the image after your code is approved. Set "required": true ONLY if the design is meaningless without it. Give the placeholder CSS a defined aspect ratio so layout holds before the image loads. Never request images of specific real people, and never rely on the image to carry facts, prices or dates.
 - Every meaningful element (headings, paragraphs, buttons, links, svg graphics, list items, cards) carries a UNIQUE, stable, kebab-case data-ai-id attribute (e.g. data-ai-id="hero-heading").
 - Interactive elements (buttons/links) carry data-ai-action="<key>" and every key MUST be declared in the "actions" manifest.${isPage ? '' : ' type "external_url" may ONLY use a URL that appears verbatim in the brief; "email"/"tel" only addresses/numbers from the brief; otherwise use type "anchor". NEVER invent URLs.'}
 - Your CSS starts with EXACTLY this token block (verbatim), then uses var(--iconnect-*) for brand colours and fonts throughout:
@@ -353,9 +356,23 @@ export function runCodeRejectionGates(document, report, { brief = '', options = 
     errors.push(`Disallowed markup was found and is forbidden: ${kinds.join(', ')} — use only permitted HTML tags and attributes, no scripts, iframes or event handlers.`);
   }
 
-  // Raster imagery is out of scope for Phase 1 (inline SVG only).
-  if (/<img\b/i.test(html)) {
-    errors.push('<img> elements are not allowed — draw decorative graphics as inline <svg> instead.');
+  // Raster imagery (Phase 5): every <img> in MODEL output must be a declared
+  // asset-request placeholder (data-ai-asset, fulfilled/stored server-side
+  // with provenance). The model never authors a src of its own — not even a
+  // relative same-origin one — because that would bypass the manifest flow
+  // entirely (no fulfilment record, no ai_generated_asset provenance) and
+  // open an untracked-origin / same-origin request surface. Fulfilled and
+  // deterministically replaced images keep their data-ai-asset attribute, so
+  // legitimate srcs always co-exist with an asset key.
+  const imgTags = html.match(/<img\b[^>]*>/gi) || [];
+  const nonAssetImgs = imgTags.filter((tag) => !/data-ai-asset\s*=/i.test(tag));
+  if (nonAssetImgs.length) {
+    errors.push(`${nonAssetImgs.length} <img> element(s) are missing a data-ai-asset request key — NEVER write an <img src> yourself; request photographic imagery via the assets manifest (<img data-ai-asset="<key>"> with a matching "assets" entry), or draw decorative graphics as inline <svg>.`);
+  }
+  const declaredAssetKeys = new Set((document?.assets || []).map((a) => a?.key).filter(Boolean));
+  const unusedAssets = [...declaredAssetKeys].filter((k) => !(report?.assetKeys || []).includes(k));
+  if (unusedAssets.length) {
+    errors.push(`Asset request(s) declared but never placed in the markup: ${unusedAssets.join(', ')} — every assets entry needs a matching <img data-ai-asset="<key>">.`);
   }
 
   // Every heading / button / link must carry a data-ai-id.

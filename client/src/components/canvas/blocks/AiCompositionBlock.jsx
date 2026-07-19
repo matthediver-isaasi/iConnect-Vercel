@@ -14,7 +14,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Sparkles, Loader2, RotateCcw, Trash2, Check, History } from 'lucide-react';
+import { Sparkles, Loader2, RotateCcw, Trash2, Check, History, Wand2 } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -23,6 +23,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import AiCompositionRenderer from '../AiCompositionRenderer';
+import { useCodeGenerationLoop } from './AiCodeCompositionBlock';
 import AiCompositionEditPanel from './AiCompositionEditPanel';
 import { resolveDraftAfterGeneration, isDiscardableDraft } from '@/lib/aiCompositionRender';
 import { AdvancedBriefFields, PlanReviewPanel, EMPTY_ADVANCED_BRIEF, advancedBriefToBody } from '../AiPageBrief';
@@ -376,6 +377,156 @@ function VersionHistory({ compositionId }) {
   );
 }
 
+/**
+ * Phase 5 (Task #2909) — "Rebuild with the new renderer": ADMIN-ONLY action on
+ * legacy V1 compositions. Fetches the stored V1 generation context (brief,
+ * direction, creativity, style reference) from the server, lets the admin
+ * review/adjust the brief, then runs a normal V2 generation as a brand-NEW
+ * composition. The V1 record is never mutated; switching the block to the new
+ * renderer is an explicit final step after previewing the result.
+ */
+function RebuildWithV2Panel({ compositionId, pageId, update }) {
+  const [seed, setSeed] = useState(null);       // null = not fetched
+  const [hidden, setHidden] = useState(false);  // 404 = not an admin → hide
+  const [brief, setBrief] = useState('');
+  const [rebuiltId, setRebuiltId] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const gen = useCodeGenerationLoop({ onComplete: (id) => setRebuiltId(id) });
+
+  const fetchSeed = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const data = await aicFetch(`/api/ai-compositions/rebuild-v2?compositionId=${compositionId}`);
+      setSeed(data);
+      setBrief(data.seed?.brief || '');
+    } catch (err) {
+      if (err.status === 404) setHidden(true);
+      else setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const startRebuild = () => {
+    if (!brief.trim() || gen.running) return;
+    setRebuiltId('');
+    // Faithful rebuild: fold the server-extracted V1 context (copy, links,
+    // protected values, past edit requests) into the generation brief so the
+    // V2 result preserves the existing content, not just the original prompt.
+    // NOTE: the server hard-caps briefs at 2000 chars, so the context block is
+    // budgeted (protected values first, then copy/links) and each line is
+    // truncated — never let context truncate away the user's own brief.
+    const MAX_BRIEF = 2000;
+    const trimLine = (s, n = 120) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
+    const content = seed?.seed?.content;
+    const convo = seed?.seed?.conversation || [];
+    const contextParts = [];
+    if (content?.protectedValues?.length) {
+      contextParts.push('These values are PROTECTED and must appear unchanged:\n'
+        + content.protectedValues.slice(0, 10).map((p) => `- ${trimLine(`${p.path || p.elementId || ''}: ${p.value ?? ''}`)}`).join('\n'));
+    }
+    if (content?.copy?.length) {
+      contextParts.push('Preserve this existing copy (same meaning, same facts):\n'
+        + content.copy.slice(0, 10).map((c) => `- ${c.role ? `[${c.role}] ` : ''}${trimLine(c.text)}`).join('\n'));
+    }
+    if (content?.links?.length) {
+      contextParts.push('Keep these links/destinations:\n'
+        + content.links.slice(0, 8).map((l) => `- ${trimLine(`${l.label || l.elementId || 'link'}: ${typeof l.link === 'string' ? l.link : JSON.stringify(l.link)}`)}`).join('\n'));
+    }
+    if (convo.length) {
+      contextParts.push('Earlier edit requests from the user (honour their intent):\n'
+        + convo.slice(-4).map((c) => `- ${trimLine(c.instruction)}`).join('\n'));
+    }
+    const userBrief = brief.trim();
+    let fullBrief = userBrief;
+    if (contextParts.length) {
+      const budget = MAX_BRIEF - userBrief.length - 60;
+      let context = '';
+      for (const part of contextParts) {
+        if (context.length + part.length + 2 > budget) break;
+        context += (context ? '\n\n' : '') + part;
+      }
+      if (context) {
+        fullBrief = `${userBrief}\n\n--- Existing design context (must be preserved) ---\n${context}`;
+      }
+    }
+    gen.start({
+      pageId: pageId || undefined,
+      brief: fullBrief,
+      direction: seed?.seed?.direction || undefined,
+      creativity: seed?.seed?.creativity || 'brand_led',
+      ...(seed?.seed?.styleReference ? { styleReference: seed.seed.styleReference } : {}),
+      compositionType: seed?.composition?.compositionType === 'page_body' ? 'page_body' : undefined,
+    });
+  };
+
+  const switchToNew = () => {
+    if (!rebuiltId) return;
+    // Explicit user action: the block becomes a V2 block pointing at the NEW
+    // composition. The V1 composition record is left untouched.
+    update((b) => ({ ...b, type: 'ai-code-composition', content: { compositionId: rebuiltId } }));
+  };
+
+  if (hidden) return null;
+
+  return (
+    <div className="space-y-2 rounded-md border border-border p-2">
+      <p className="text-xs font-medium">New renderer</p>
+      <p className="text-xs text-muted-foreground">
+        This design uses the previous AI renderer. You can rebuild it with the new
+        renderer using the original brief — the current design stays untouched until
+        you switch.
+      </p>
+      {!seed && (
+        <Button size="sm" variant="outline" onClick={fetchSeed} disabled={busy} data-testid="button-aic-rebuild-v2">
+          {busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Wand2 className="mr-1 h-4 w-4" />}
+          Rebuild with new renderer…
+        </Button>
+      )}
+      {seed && !rebuiltId && (
+        <div className="space-y-2">
+          <Textarea
+            value={brief}
+            onChange={(e) => setBrief(e.target.value)}
+            rows={3}
+            data-testid="input-aic-rebuild-brief"
+          />
+          {!seed.seed?.briefFromJob && (
+            <p className="text-xs text-muted-foreground">
+              The original brief wasn’t stored — review the suggested brief above before rebuilding.
+            </p>
+          )}
+          <Button size="sm" onClick={startRebuild} disabled={gen.running || !brief.trim()} data-testid="button-aic-rebuild-start">
+            {gen.running
+              ? (<><Loader2 className="mr-1 h-4 w-4 animate-spin" /> {gen.label}</>)
+              : (<><Sparkles className="mr-1 h-4 w-4" /> Rebuild</>)}
+          </Button>
+          {gen.error && <p className="text-xs text-destructive" data-testid="text-aic-rebuild-error">{gen.error}</p>}
+        </div>
+      )}
+      {rebuiltId && (
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            The rebuilt design is ready. Switching replaces this block’s content with the
+            new version — the old design remains available if you undo.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" onClick={switchToNew} data-testid="button-aic-rebuild-switch">
+              <Check className="mr-1 h-4 w-4" /> Switch to new renderer
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setRebuiltId('')} data-testid="button-aic-rebuild-again">
+              <RotateCcw className="mr-1 h-4 w-4" /> Rebuild again
+            </Button>
+          </div>
+        </div>
+      )}
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </div>
+  );
+}
+
 export function AiCompositionInspector({ block, update, pageId }) {
   const queryClient = useQueryClient();
   const insertedId = block.content?.compositionId || '';
@@ -565,6 +716,9 @@ export function AiCompositionInspector({ block, update, pageId }) {
 
       {insertedId && !draftId && <VersionHistory compositionId={insertedId} />}
       {insertedId && !draftId && <AiCompositionEditPanel compositionId={insertedId} />}
+      {insertedId && !draftId && (
+        <RebuildWithV2Panel compositionId={insertedId} pageId={pageId} update={update} />
+      )}
     </div>
   );
 }

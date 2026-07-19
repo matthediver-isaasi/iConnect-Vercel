@@ -15,6 +15,7 @@
 // scoping changes, and hard failures return ok:false with explicit errors.
 
 import { validateAiCodePackage, crossCheckManifests } from './aiCodePackageSchema.js';
+import { validateAssetRequests } from './aiCodeAssets.js';
 import { sanitizeAiCodeHtml } from './aiCodeHtmlSanitizer.js';
 import { scopeAiCodeCss, assertAllSelectorsScoped } from './aiCodeCssScope.js';
 
@@ -43,6 +44,12 @@ export function runAiCodePipeline(rawPackage, compositionId, { allowedImageHosts
   const v = validateAiCodePackage(rawPackage);
   if (!v.ok) return fail(v.errors);
   const pkg = v.package;
+
+  // 1b. Asset requests (Phase 5): image_request entries must carry a subject
+  // and alt text; the fulfilment stage relies on these being well-formed.
+  const av = validateAssetRequests(pkg.assets);
+  if (!av.ok) return fail(av.errors);
+  pkg.assets = av.assets;
 
   // 2. HTML + SVG sanitisation.
   let html, htmlReport;
@@ -88,6 +95,7 @@ export function runAiCodePipeline(rawPackage, compositionId, { allowedImageHosts
     actionKeys: htmlReport.actionKeys,
     slotKeys: htmlReport.slotKeys,
     contentKeys: htmlReport.contentKeys,
+    assetKeys: htmlReport.assetKeys,
     headings: htmlReport.headings,
   };
 

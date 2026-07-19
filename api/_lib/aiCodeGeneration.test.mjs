@@ -166,14 +166,59 @@ test('gate: near-blank output rejected', () => {
   assert.match(res.errors.join(' '), /blank/);
 });
 
-test('gate: <img> rejected (Phase 1 is inline SVG only)', () => {
+// Phase 5: EVERY <img> in model output must be a declarative asset-request
+// placeholder (data-ai-asset). A model-authored src — absolute OR relative —
+// bypasses the manifest/provenance flow and is rejected outright.
+test('gate: <img> with no data-ai-asset and no src rejected', () => {
   const pkg = goodPackage();
   const res = runCodeRejectionGates(
-    { html: pkg.html + '<img src="https://x/y.png">', css: pkg.css },
+    { html: pkg.html + '<img data-ai-id="pic" alt="x">', css: pkg.css },
     REPORT,
     { brief: 'plain brief', options: {} },
   );
-  assert.match(res.errors.join(' '), /<img>/);
+  assert.match(res.errors.join(' '), /missing a data-ai-asset request key/);
+});
+
+test('gate: model-authored <img src> without data-ai-asset rejected (absolute and relative)', () => {
+  const pkg = goodPackage();
+  for (const src of ['https://x/y.png', '/uploads/sneaky.png']) {
+    const res = runCodeRejectionGates(
+      { html: pkg.html + `<img data-ai-id="pic" src="${src}" alt="y">`, css: pkg.css },
+      REPORT,
+      { brief: 'plain brief', options: {} },
+    );
+    assert.equal(res.ok, false, `src="${src}" must be rejected`);
+    assert.match(res.errors.join(' '), /missing a data-ai-asset request key/);
+  }
+});
+
+test('gate: <img data-ai-asset> placeholder accepted, with or without a fulfilled src', () => {
+  const pkg = goodPackage();
+  const res = runCodeRejectionGates(
+    {
+      html: pkg.html
+        + '<img data-ai-id="pic" data-ai-asset="hero" alt="x">'
+        + '<img data-ai-id="pic2" data-ai-asset="team" src="https://x/y.png" alt="y">',
+      css: pkg.css,
+      assets: [
+        { key: 'hero', type: 'image_request', subject: 's', alt: 'x' },
+        { key: 'team', type: 'image_request', subject: 't', alt: 'y' },
+      ],
+    },
+    { ...REPORT, assetKeys: ['hero', 'team'] },
+    { brief: 'plain brief', options: {} },
+  );
+  assert.doesNotMatch(res.errors.join(' '), /data-ai-asset|<img>/);
+});
+
+test('gate: declared asset request never placed in markup rejected', () => {
+  const pkg = goodPackage();
+  const res = runCodeRejectionGates(
+    { html: pkg.html, css: pkg.css, assets: [{ key: 'ghost', type: 'image_request', subject: 's', alt: 'x' }] },
+    REPORT,
+    { brief: 'plain brief', options: {} },
+  );
+  assert.match(res.errors.join(' '), /never placed in the markup: ghost/);
 });
 
 test('gate: meaningful elements missing data-ai-id rejected', () => {
