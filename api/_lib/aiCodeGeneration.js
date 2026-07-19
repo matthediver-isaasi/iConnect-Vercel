@@ -191,7 +191,7 @@ const PAGE_ACTION_TYPES_DOC = `"internal_page"|"external_url"|"anchor"|"form"|"e
 
 export function buildCodePrompt({
   brief, brand, options = {}, pageContext = null, attempt = 0, lastErrors = [],
-  lastStats = null,
+  lastStats = null, carryForward = null,
   compositionType = 'section', plan = null,
   designBlueprint = null, conceptImages = [],
 }) {
@@ -261,11 +261,28 @@ ${wantsCta ? '- The brief calls for visitor action: include at least one clear c
     ? `EXISTING PAGE CONTENT (for context — design a section that fits):\n${pageContext.blocks.slice(0, 25).map((b, i) => `${i + 1}. [${b.type}] ${String(b.text || '').slice(0, 120)}`).join('\n')}\n`
     : '';
   const styleRef = buildStyleReferenceSummary(options.styleReference);
-  const statsLine = isPage && lastStats && (Number.isFinite(lastStats.htmlChars) || Number.isFinite(lastStats.cssChars))
-    ? `Your previous attempt measured: html ${Number.isFinite(lastStats.htmlChars) ? lastStats.htmlChars : '?'} characters (minimum ${PAGE_HTML_MIN_CHARS}), css ${Number.isFinite(lastStats.cssChars) ? lastStats.cssChars : '?'} characters (minimum ${PAGE_CSS_MIN_CHARS}). Produce a SUBSTANTIALLY richer page, not a lightly padded version of the same output.\n`
-    : '';
+  const verdict = (ok) => (ok === true ? 'PASSED' : ok === false ? 'FAILED' : '?');
+  const hasVerdicts = isPage && lastStats
+    && (typeof lastStats.htmlOk === 'boolean' || typeof lastStats.cssOk === 'boolean');
+  let statsLine = '';
+  if (isPage && lastStats && (Number.isFinite(lastStats.htmlChars) || Number.isFinite(lastStats.cssChars))) {
+    if (hasVerdicts) {
+      statsLine = `Your previous attempt scored per check: HTML ${Number.isFinite(lastStats.htmlChars) ? lastStats.htmlChars : '?'} characters — ${verdict(lastStats.htmlOk)} its checks (minimum ${PAGE_HTML_MIN_CHARS} characters, no header/footer/nav, all planned sections present); CSS ${Number.isFinite(lastStats.cssChars) ? lastStats.cssChars : '?'} characters — ${verdict(lastStats.cssOk)} its checks (minimum ${PAGE_CSS_MIN_CHARS} characters, real display: grid/flex layout, @media recomposition). PRESERVE everything that PASSED at the same quality and fix ONLY what FAILED — do not regress a passing part while fixing the other.\n`;
+    } else {
+      statsLine = `Your previous attempt measured: html ${Number.isFinite(lastStats.htmlChars) ? lastStats.htmlChars : '?'} characters (minimum ${PAGE_HTML_MIN_CHARS}), css ${Number.isFinite(lastStats.cssChars) ? lastStats.cssChars : '?'} characters (minimum ${PAGE_CSS_MIN_CHARS}). Produce a SUBSTANTIALLY richer page, not a lightly padded version of the same output.\n`;
+    }
+  }
+  // Anti-oscillation carry-forward (Task #2938): when exactly one side of the
+  // previous attempt passed its gates, hand it back verbatim so the retry
+  // repairs the failing side instead of regenerating (and losing) good work.
+  let carryBlock = '';
+  if (isPage && carryForward && typeof carryForward.html === 'string' && carryForward.html) {
+    carryBlock = `YOUR PREVIOUS ATTEMPT'S HTML PASSED all HTML checks. REUSE IT EXACTLY as your "html" value — do not rewrite, shorten or restructure it (you may only add missing data-ai-id attributes). Your job this attempt is the CSS ONLY: write substantially richer CSS (at least ${PAGE_CSS_MIN_CHARS} characters) that styles this exact markup with real display: grid/flex layouts and @media recomposition. Here is the HTML to reuse:\n"""\n${carryForward.html}\n"""\n`;
+  } else if (isPage && carryForward && typeof carryForward.css === 'string' && carryForward.css) {
+    carryBlock = `YOUR PREVIOUS ATTEMPT'S CSS PASSED all CSS checks. REUSE IT EXACTLY as your "css" value (you may extend it with additional rules for new elements, but keep the existing rules). Your job this attempt is the HTML ONLY: fix every HTML problem listed above while keeping class names and structure compatible with this CSS:\n"""\n${carryForward.css}\n"""\n`;
+  }
   const retryBlock = attempt > 0 && lastErrors.length
-    ? `YOUR PREVIOUS ATTEMPT WAS REJECTED for these reasons — fix EVERY one:\n${lastErrors.slice(0, 12).map((e) => `- ${e}`).join('\n')}\n${statsLine}`
+    ? `YOUR PREVIOUS ATTEMPT WAS REJECTED for these reasons — fix EVERY one:\n${lastErrors.slice(0, 12).map((e) => `- ${e}`).join('\n')}\n${statsLine}${carryBlock}`
     : '';
   const advanced = [];
   if (options.purpose) advanced.push(`Purpose: ${options.purpose}`);
@@ -347,6 +364,77 @@ const stripText = (html) => String(html || '')
 
 /** Tags that must each carry a data-ai-id ("meaningful elements"). */
 const MEANINGFUL_TAG_RE = /<(h[1-6]|button|a)\b[^>]*>/gi;
+
+// ---------------------------------------------------------------------------
+// Mechanical auto-repair: missing data-ai-id (Task #2938).
+//
+// The data-ai-id attribute is OUR bookkeeping label, not model content —
+// rejecting an otherwise-good page because 3 links lack an id throws away a
+// whole attempt for something the server can fix deterministically.
+// Reject-don't-repair applies to sanitisation/security, not to mechanical id
+// labelling. The gate in runCodeRejectionGates stays as a backstop.
+// ---------------------------------------------------------------------------
+
+/**
+ * Inject unique kebab-case data-ai-id attributes onto any heading/button/link
+ * that lacks one. Collision-safe against ids already present in the markup.
+ * Returns { html, injected }.
+ */
+export function autoRepairMissingAiIds(html) {
+  const src = String(html || '');
+  const existing = new Set();
+  for (const m of src.matchAll(/data-ai-id\s*=\s*["']([^"']*)["']/gi)) existing.add(m[1]);
+  let injected = 0;
+  const counters = {};
+  const out = src.replace(/<(h[1-6]|button|a)\b([^>]*)>/gi, (full, tag, attrs) => {
+    if (/data-ai-id\s*=/i.test(attrs)) return full;
+    const t = tag.toLowerCase();
+    let id;
+    do {
+      counters[t] = (counters[t] || 0) + 1;
+      id = `auto-${t}-${counters[t]}`;
+    } while (existing.has(id));
+    existing.add(id);
+    injected += 1;
+    return `<${tag} data-ai-id="${id}"${attrs}>`;
+  });
+  return { html: out, injected };
+}
+
+/**
+ * Classify a deterministic gate error as fixable on the 'html' side, the
+ * 'css' side, or 'both' (unclassifiable / spans both sides). Used to make
+ * sure a carried-forward side is TRULY clean: HTML is only carried when every
+ * failure is css-side, and vice versa — never on the size-floor heuristics
+ * alone.
+ */
+export function classifyGateErrorSide(error) {
+  const s = String(error || '');
+  if (/page CSS is far too thin|uses no grid or flex layout|CSS has no @media/i.test(s)) return 'css';
+  if (/page markup is far too thin|blank or nearly blank|never recreated|<section> element|missing from the markup|data-iconnect-slot placeholders|Disallowed markup|data-ai-asset|never placed in the markup|data-ai-id attribute|calls for imagery|data-ai-action/i.test(s)) return 'html';
+  return 'both';
+}
+
+/**
+ * Decide whether the NEXT retry should carry part of the failed attempt
+ * forward (Task #2938 anti-oscillation). Pure + deterministic:
+ *  - HTML passed ALL its gates but CSS failed → carry the HTML, retry fixes CSS.
+ *  - CSS passed ALL its gates but HTML failed → carry the CSS.
+ *  - Both failed (or stats unavailable) → full regeneration, no carry.
+ * Only meaningful for page_body attempts (stats booleans are page-only, and
+ * are downgraded by the actual gate-error classification in runCodeAttempt).
+ */
+export function decideCarryForward(stats, raw) {
+  if (!stats || !raw) return null;
+  if (stats.htmlOk !== true && stats.cssOk !== true) return null;
+  if (stats.htmlOk === true && stats.cssOk !== true && typeof raw.html === 'string' && raw.html) {
+    return { html: raw.html };
+  }
+  if (stats.cssOk === true && stats.htmlOk !== true && typeof raw.css === 'string' && raw.css) {
+    return { css: raw.css };
+  }
+  return null;
+}
 
 export function runCodeRejectionGates(document, report, { brief = '', options = {}, plan = null } = {}) {
   const errors = [];
@@ -481,13 +569,15 @@ export function runCodeRejectionGates(document, report, { brief = '', options = 
  */
 export async function runCodeAttempt({
   callLlm, compositionId, brief, brand, options = {}, pageContext = null,
-  attempt = 0, lastErrors = [], lastStats = null, allowedImageHosts = [],
+  attempt = 0, lastErrors = [], lastStats = null, carryForward = null,
+  allowedImageHosts = [],
   maxRetries = MAX_CODE_RETRIES,
   compositionType = 'section', plan = null,
   designBlueprint = null, conceptImages = [],
 }) {
   const prompt = buildCodePrompt({
-    brief, brand, options, pageContext, attempt, lastErrors, lastStats, compositionType, plan,
+    brief, brand, options, pageContext, attempt, lastErrors, lastStats, carryForward,
+    compositionType, plan,
     designBlueprint, conceptImages,
   });
   const raw = await callLlm({
@@ -534,13 +624,47 @@ export async function runCodeAttempt({
     }
   }
 
+  // Mechanical auto-repair (Task #2938, page_body only): inject missing
+  // data-ai-id attributes onto headings/buttons/links BEFORE the pipeline and
+  // gates — the ids are our own bookkeeping, and rejecting a whole page over
+  // them caused retries to discard otherwise-passing work. The gate stays as
+  // a backstop. Section behaviour is unchanged.
+  let autoInjectedAiIds = 0;
+  if (compositionType === 'page_body' && typeof parsed.package?.html === 'string') {
+    const repaired = autoRepairMissingAiIds(parsed.package.html);
+    if (repaired.injected > 0) {
+      parsed.package.html = repaired.html;
+      autoInjectedAiIds = repaired.injected;
+    }
+  }
+
+  const rawHtml = typeof parsed.package?.html === 'string' ? parsed.package.html : null;
+  const rawCssStr = typeof parsed.package?.css === 'string' ? parsed.package.css : null;
+
   // Measured sizes of the raw model output — fed back into the next retry
   // prompt (page_body) so the model knows HOW FAR OFF the floors it landed,
-  // not just that it failed.
+  // not just that it failed. For pages we also record PER-SIDE verdicts
+  // (htmlOk/cssOk mirror the deterministic gates exactly) so the retry
+  // prompt can say what to PRESERVE, and decideCarryForward can hand the
+  // passing side back verbatim.
   const stats = {
-    htmlChars: typeof parsed.package?.html === 'string' ? parsed.package.html.length : null,
-    cssChars: typeof parsed.package?.css === 'string' ? parsed.package.css.length : null,
+    htmlChars: rawHtml ? rawHtml.length : null,
+    cssChars: rawCssStr ? rawCssStr.length : null,
   };
+  if (compositionType === 'page_body') {
+    const h = rawHtml || '';
+    const c = rawCssStr || '';
+    const planKeys = (Array.isArray(plan?.sections) ? plan.sections : [])
+      .map((s) => (typeof s?.key === 'string' ? s.key : ''))
+      .filter(Boolean);
+    stats.htmlOk = h.length >= PAGE_HTML_MIN_CHARS
+      && !/<(header|footer|nav)\b/i.test(h)
+      && (h.match(/<section\b/gi) || []).length >= PLAN_MIN_SECTIONS
+      && planKeys.every((k) => new RegExp(`data-ai-id\\s*=\\s*["']${k}["']`, 'i').test(h));
+    stats.cssOk = c.length >= PAGE_CSS_MIN_CHARS
+      && /display\s*:\s*(grid|inline-grid|flex|inline-flex)/i.test(c)
+      && /@media[^{]*max-width/i.test(c);
+  }
 
   // The declared composition type is part of the contract: a page_body run
   // must not silently accept a single-section package (and vice versa).
@@ -548,16 +672,35 @@ export async function runCodeAttempt({
     return { ok: false, errors: [`compositionType must be "${compositionType}".`], stats };
   }
 
+  const rawSides = { html: rawHtml, css: rawCssStr };
   const result = runAiCodePipeline(parsed.package, compositionId, { allowedImageHosts });
-  if (!result.ok) return { ok: false, errors: result.errors, stats };
+  if (!result.ok) {
+    // Pipeline (sanitiser/schema) rejections can implicate either side —
+    // never carry anything forward from them.
+    if (compositionType === 'page_body') { stats.htmlOk = false; stats.cssOk = false; }
+    return { ok: false, errors: result.errors, stats, raw: rawSides };
+  }
 
   const gates = runCodeRejectionGates(result.document, result.report, { brief, options, plan });
-  if (!gates.ok) return { ok: false, errors: gates.errors, stats };
+  if (!gates.ok) {
+    // A side only counts as PASSED when every actual gate failure is
+    // attributable to the OTHER side — the size/structure heuristics above
+    // are necessary but not sufficient (architect review, Task #2938).
+    if (compositionType === 'page_body') {
+      const sides = gates.errors.map(classifyGateErrorSide);
+      if (sides.some((side) => side !== 'css')) stats.htmlOk = false;
+      if (sides.some((side) => side !== 'html')) stats.cssOk = false;
+    }
+    return { ok: false, errors: gates.errors, stats, raw: rawSides };
+  }
 
   // Record reconciliation in the report so the stored validation metadata
   // (and inspector) show which action keys were auto-declared.
   if (autoDeclaredActionKeys.length) {
     result.report.autoDeclaredActionKeys = autoDeclaredActionKeys;
+  }
+  if (autoInjectedAiIds > 0) {
+    result.report.autoInjectedAiIds = autoInjectedAiIds;
   }
 
   return {
@@ -565,6 +708,7 @@ export async function runCodeAttempt({
     document: result.document,
     report: result.report,
     autoDeclaredActionKeys,
+    autoInjectedAiIds,
     // The UNSCOPED model CSS — kept for Phase 3 repair prompts so the repair
     // model never sees (and never has to strip) the platform scope prefix.
     rawCss: typeof parsed.package.css === 'string' ? parsed.package.css : null,

@@ -17,6 +17,9 @@ import {
   briefWantsCta,
   runCodeRejectionGates,
   runCodeAttempt,
+  autoRepairMissingAiIds,
+  decideCarryForward,
+  classifyGateErrorSide,
   MAX_CODE_RETRIES,
   MAX_PAGE_CODE_RETRIES,
   PAGE_HTML_MIN_CHARS,
@@ -719,4 +722,192 @@ test('runCodeAttempt final-attempt reconciliation honours a custom maxRetries', 
   });
   assert.equal(final.ok, true, JSON.stringify(final.errors));
   assert.deepEqual(final.autoDeclaredActionKeys, ['mystery-key']);
+});
+
+// ---------------------------------------------------------------------------
+// Task #2938: anti-oscillation — id auto-repair, per-gate verdicts,
+// carry-forward.
+// ---------------------------------------------------------------------------
+
+test('autoRepairMissingAiIds injects unique ids only where missing', () => {
+  const html = '<h2>No id</h2><a data-ai-id="keep" href="#">ok</a><button class="x">Go</button><a href="#">two</a>';
+  const { html: out, injected } = autoRepairMissingAiIds(html);
+  assert.equal(injected, 3);
+  assert.match(out, /<h2 data-ai-id="auto-h2-1">/);
+  assert.match(out, /<button data-ai-id="auto-button-1" class="x">/);
+  assert.match(out, /<a data-ai-id="auto-a-1" href="#">two<\/a>/);
+  assert.match(out, /<a data-ai-id="keep" href="#">ok<\/a>/);
+});
+
+test('autoRepairMissingAiIds is collision-safe against existing ids', () => {
+  const html = '<h2 data-ai-id="auto-h2-1">taken</h2><h2>needs one</h2>';
+  const { html: out, injected } = autoRepairMissingAiIds(html);
+  assert.equal(injected, 1);
+  assert.match(out, /<h2 data-ai-id="auto-h2-2">needs one<\/h2>/);
+});
+
+test('autoRepairMissingAiIds no-ops when everything is labelled', () => {
+  const html = '<h2 data-ai-id="h">Hi</h2>';
+  const res = autoRepairMissingAiIds(html);
+  assert.equal(res.injected, 0);
+  assert.equal(res.html, html);
+});
+
+test('runCodeAttempt (page_body) auto-repairs missing data-ai-id instead of rejecting', async () => {
+  const doc = goodPageDocument();
+  const pkg = {
+    schemaVersion: '2.0',
+    compositionType: 'page_body',
+    title: 'Page',
+    html: doc.html + '<section data-ai-id="extra"><h2>Unlabelled heading</h2><p data-ai-id="extra-p">Enough copy to keep every other gate perfectly happy in this section too.</p></section>',
+    css: doc.css,
+    actions: [{ key: 'join', type: 'anchor', target: 'hero' }],
+    slots: [{ key: 'events-slot', type: 'event_listing', hint: 'events' }],
+    responsiveTargets: { desktop: 1440, tablet: 1024, mobile: 390 },
+    generationSummary: 'x',
+  };
+  const callLlm = async () => JSON.stringify(pkg);
+  const res = await runCodeAttempt({
+    callLlm, compositionId: COMP_ID, brief: 'x', brand: BRAND,
+    compositionType: 'page_body', plan: goodPlan(),
+  });
+  assert.equal(res.ok, true, JSON.stringify(res.errors || []));
+  assert.equal(res.autoInjectedAiIds, 1);
+  assert.equal(res.report.autoInjectedAiIds, 1);
+  assert.match(res.document.html, /data-ai-id="auto-h2-1"/);
+});
+
+test('runCodeAttempt (section) does NOT auto-repair missing data-ai-id', async () => {
+  const pkg = goodPackage();
+  pkg.html += '<a href="#unlabelled">No id</a>';
+  const callLlm = async () => JSON.stringify(pkg);
+  const res = await runCodeAttempt({ callLlm, compositionId: COMP_ID, brief: 'x', brand: BRAND });
+  assert.equal(res.ok, false);
+  assert.match(res.errors.join(' '), /missing a stable data-ai-id/);
+});
+
+test('runCodeAttempt (page_body) failure carries per-side verdicts and raw sides', async () => {
+  const doc = goodPageDocument();
+  const pkg = {
+    schemaVersion: '2.0',
+    compositionType: 'page_body',
+    title: 'Page',
+    html: doc.html,
+    css: '.thin { display: grid; } @media (max-width: 1024px) { .thin { display: block; } }',
+    actions: [{ key: 'join', type: 'anchor', target: 'hero' }],
+    slots: [{ key: 'events-slot', type: 'event_listing', hint: 'events' }],
+    responsiveTargets: { desktop: 1440, tablet: 1024, mobile: 390 },
+    generationSummary: 'x',
+  };
+  const callLlm = async () => JSON.stringify(pkg);
+  const res = await runCodeAttempt({
+    callLlm, compositionId: COMP_ID, brief: 'x', brand: BRAND,
+    compositionType: 'page_body', plan: goodPlan(),
+  });
+  assert.equal(res.ok, false);
+  assert.equal(res.stats.htmlOk, true);
+  assert.equal(res.stats.cssOk, false);
+  assert.equal(res.raw.html, pkg.html);
+  assert.equal(res.raw.css, pkg.css);
+});
+
+test('classifyGateErrorSide maps gate messages to the fixable side', () => {
+  assert.equal(classifyGateErrorSide('The page CSS is far too thin (600 characters) — style every section deliberately.'), 'css');
+  assert.equal(classifyGateErrorSide('The page CSS uses no grid or flex layout — a full page body must use real layout structure.'), 'css');
+  assert.equal(classifyGateErrorSide('The CSS has no @media (max-width: …) rules — the section must genuinely adapt.'), 'css');
+  assert.equal(classifyGateErrorSide('The page markup is far too thin (2000 characters) — a full page body needs rich structure.'), 'html');
+  assert.equal(classifyGateErrorSide('Disallowed markup was found and is forbidden: element "script".'), 'html');
+  assert.equal(classifyGateErrorSide('3 heading/button/link element(s) are missing a stable data-ai-id attribute — every meaningful element needs one.'), 'html');
+  assert.equal(classifyGateErrorSide('Planned section(s) missing from the markup: hero.'), 'html');
+  assert.equal(classifyGateErrorSide('The design is too generic for this visually-led brief — use real layout structure.'), 'both');
+  assert.equal(classifyGateErrorSide(''), 'both');
+});
+
+test('runCodeAttempt (page_body) downgrades htmlOk when an html-side gate also fails', async () => {
+  const doc = goodPageDocument();
+  const pkg = {
+    schemaVersion: '2.0',
+    compositionType: 'page_body',
+    title: 'Page',
+    // Big enough HTML to pass the size heuristic, but with a data-ai-asset
+    // declaration that is never placed — an html-side gate failure.
+    html: doc.html,
+    css: '.thin { display: grid; } @media (max-width: 1024px) { .thin { display: block; } }',
+    actions: [{ key: 'join', type: 'anchor', target: 'hero' }],
+    slots: [{ key: 'events-slot', type: 'event_listing', hint: 'events' }],
+    assets: [{ key: 'never-used', kind: 'photo', prompt: 'x', alt: 'x' }],
+    responsiveTargets: { desktop: 1440, tablet: 1024, mobile: 390 },
+    generationSummary: 'x',
+  };
+  const callLlm = async () => JSON.stringify(pkg);
+  const res = await runCodeAttempt({
+    callLlm, compositionId: COMP_ID, brief: 'x', brand: BRAND,
+    compositionType: 'page_body', plan: goodPlan(),
+  });
+  assert.equal(res.ok, false);
+  assert.equal(res.stats.htmlOk, false); // heuristic passed but a real html-side gate failed
+  assert.equal(res.stats.cssOk, false);
+  assert.equal(decideCarryForward(res.stats, res.raw), null); // nothing carried when both dirty
+});
+
+test('decideCarryForward picks the passing side only', () => {
+  const raw = { html: '<section>x</section>', css: '.x{display:grid}' };
+  assert.deepEqual(decideCarryForward({ htmlOk: true, cssOk: false }, raw), { html: raw.html });
+  assert.deepEqual(decideCarryForward({ htmlOk: false, cssOk: true }, raw), { css: raw.css });
+  assert.equal(decideCarryForward({ htmlOk: false, cssOk: false }, raw), null);
+  assert.equal(decideCarryForward({ htmlOk: true, cssOk: true }, raw), null);
+  assert.equal(decideCarryForward(null, raw), null);
+  assert.equal(decideCarryForward({ htmlChars: 100, cssChars: 100 }, raw), null); // sections: no verdicts
+  assert.equal(decideCarryForward({ htmlOk: true, cssOk: false }, null), null);
+});
+
+test('buildCodePrompt (page_body retry) reports per-gate verdicts and preservation rule', () => {
+  const { user } = buildCodePrompt({
+    brief: 'A welcome page', brand: BRAND, options: {},
+    compositionType: 'page_body', plan: goodPlan(),
+    attempt: 1,
+    lastErrors: ['The page CSS is far too thin (660 characters)'],
+    lastStats: { htmlChars: 4364, cssChars: 660, htmlOk: true, cssOk: false },
+  });
+  assert.match(user, /HTML 4364 characters — PASSED/);
+  assert.match(user, /CSS 660 characters — FAILED/);
+  assert.match(user, /PRESERVE everything that PASSED/);
+});
+
+test('buildCodePrompt (page_body retry) embeds carried-forward HTML with keep-it instructions', () => {
+  const { user } = buildCodePrompt({
+    brief: 'A welcome page', brand: BRAND, options: {},
+    compositionType: 'page_body', plan: goodPlan(),
+    attempt: 1,
+    lastErrors: ['The page CSS is far too thin (660 characters)'],
+    lastStats: { htmlChars: 4364, cssChars: 660, htmlOk: true, cssOk: false },
+    carryForward: { html: '<section data-ai-id="hero">KEEP-THIS-MARKUP</section>' },
+  });
+  assert.match(user, /HTML PASSED all HTML checks/);
+  assert.match(user, /REUSE IT EXACTLY/);
+  assert.match(user, /KEEP-THIS-MARKUP/);
+  assert.match(user, /CSS ONLY/);
+});
+
+test('buildCodePrompt (page_body retry) embeds carried-forward CSS symmetrically', () => {
+  const { user } = buildCodePrompt({
+    brief: 'A welcome page', brand: BRAND, options: {},
+    compositionType: 'page_body', plan: goodPlan(),
+    attempt: 1,
+    lastErrors: ['The page markup is far too thin (2665 characters)'],
+    lastStats: { htmlChars: 2665, cssChars: 2100, htmlOk: false, cssOk: true },
+    carryForward: { css: '.keep-this-css { display: grid; }' },
+  });
+  assert.match(user, /CSS PASSED all CSS checks/);
+  assert.match(user, /keep-this-css/);
+  assert.match(user, /HTML ONLY/);
+});
+
+test('buildCodePrompt (section) ignores carryForward entirely', () => {
+  const { user } = buildCodePrompt({
+    brief: 'A hero', brand: BRAND, options: {},
+    attempt: 1, lastErrors: ['too thin'],
+    carryForward: { html: '<section>SHOULD-NOT-APPEAR</section>' },
+  });
+  assert.doesNotMatch(user, /SHOULD-NOT-APPEAR/);
 });

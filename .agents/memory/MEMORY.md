@@ -107,3 +107,4 @@
 - [AI V2 design-first workflow](ai-design-first.md) — approved visual is layout intent only (sanitized blueprint, never content); similarity gate = bounded repairs then WARNING, never reject on similarity alone.
 - [Quality gates belong in the prompt too](ai-quality-gate-prompt-pairing.md) — post-hoc gates + terse retry feedback don't converge; state floors up front and feed back measured deltas.
 - [jsdom pinned to v26 for Vercel](jsdom-vercel-esm-pin.md) — jsdom 27+ pulls an ESM-only encoding dep that crashes Vercel functions with ERR_REQUIRE_ESM; keep ^26.
+- [AI V2 retry carry-forward](ai-code-v2-retry-carry.md) — carry a passing HTML/CSS side between retries only when ALL real gate errors sit on the other side; heuristics alone trap loops.

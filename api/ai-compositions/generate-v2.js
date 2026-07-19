@@ -22,6 +22,7 @@ import { loadStudioSettings, buildGuidanceSummary } from '../_lib/aiDesignStudio
 import { checkAiUsageAllowance, recordAiUsageEvent } from '../_lib/aiUsage.js';
 import {
   runCodeAttempt,
+  decideCarryForward,
   MAX_CODE_RETRIES,
   MAX_PAGE_CODE_RETRIES,
   AI_CODE_GENERATION_MODEL,
@@ -696,6 +697,7 @@ export default async function handler(req, res) {
       const attempt = state.codeAttempt || 0;
       const lastErrors = state.codeErrors || [];
       const lastStats = state.codeStats || null;
+      const carryForward = state.codeCarry || null;
       // Pages get one extra retry — they face the multi-gate anti-bland bar.
       const maxRetries = compositionType === 'page_body' ? MAX_PAGE_CODE_RETRIES : MAX_CODE_RETRIES;
       let result;
@@ -710,6 +712,7 @@ export default async function handler(req, res) {
           attempt,
           lastErrors,
           lastStats,
+          carryForward,
           maxRetries,
           // Phase 5: fulfilled asset srcs live under the tenant's public
           // media-library prefix — the only host generated markup may use.
@@ -744,6 +747,10 @@ export default async function handler(req, res) {
             codeAttempt: attempt + 1,
             codeErrors: result.errors.slice(0, 12),
             codeStats: result.stats || null,
+            // Anti-oscillation (Task #2938): when exactly one side (HTML or
+            // CSS) passed its gates, carry it into the next attempt so the
+            // model repairs the failing side instead of starting over.
+            codeCarry: decideCarryForward(result.stats, result.raw),
           },
         });
         return res.status(200).json({
@@ -847,6 +854,11 @@ export default async function handler(req, res) {
         composition_id: compId,
         state: {
           ...state,
+          // Retry bookkeeping is no longer needed once an attempt passes —
+          // drop the (potentially large) carried HTML/CSS from job state.
+          codeCarry: null,
+          codeErrors: null,
+          codeStats: null,
           candidateVersionId: version.id,
           candidateVersionIds: [version.id],
           candidateRawCss: result.rawCss || null,
