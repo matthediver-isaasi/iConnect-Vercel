@@ -511,20 +511,35 @@ test('runPlanChecks rejects degenerate plans', () => {
 // ---------------------------------------------------------------------------
 
 function goodPageDocument() {
-  const sect = (key, heading, extra = '') => `<section data-ai-id="${key}">
+  const cards = (key) => `<div data-ai-id="${key}-cards" class="${key}-cards">${[1, 2, 3].map((n) => `
+      <article data-ai-id="${key}-card-${n}" class="card">
+        <h3 data-ai-id="${key}-card-${n}-title">Card ${n} title for the ${key} section</h3>
+        <p data-ai-id="${key}-card-${n}-copy">Substantive supporting copy for card ${n}: it explains a concrete benefit in plain language, uses real detail from the content manifest, and gives the visitor a reason to keep reading down the page.</p>
+      </article>`).join('')}
+  </div>`;
+  const sect = (key, heading, extra = '') => `<section data-ai-id="${key}" class="section-${key}">
     <h2 data-ai-id="${key}-heading">${heading}</h2>
-    <p data-ai-id="${key}-copy">Real copy for the ${heading} section that says something concrete and useful to visitors.</p>
+    <p data-ai-id="${key}-copy">Real copy for the ${heading} section that says something concrete and useful to visitors, written out at full paragraph length so the section reads as finished content rather than a placeholder skeleton.</p>
+    ${cards(key)}
     ${extra}
   </section>`;
+  const cssSections = ['hero', 'benefits', 'events', 'join'].map((key) => `
+.section-${key} { padding: 64px 24px; background: var(--iconnect-primary, #f6f8fa); }
+.section-${key} h2 { font-size: 2.25rem; line-height: 1.15; margin-bottom: 16px; letter-spacing: -0.01em; }
+.section-${key} p { max-width: 62ch; color: #333a45; margin-bottom: 24px; }
+.${key}-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+.${key}-cards .card { border-radius: 8px; padding: 24px; background: #fff; box-shadow: 0 1px 3px rgba(16, 24, 40, 0.08); }
+@media (max-width: 1024px) { .${key}-cards { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 390px) { .${key}-cards { grid-template-columns: 1fr; } .section-${key} { padding: 40px 16px; } }`).join('\n');
   return {
     compositionType: 'page_body',
     html: [
-      sect('hero', 'Welcome', '<a data-ai-id="hero-cta" data-ai-action="join">Join now</a>'),
+      sect('hero', 'Welcome', '<a data-ai-id="hero-cta" data-ai-action="join">Join now</a><svg data-ai-id="hero-art" viewBox="0 0 100 100"><circle cx="50" cy="50" r="40"/></svg>'),
       sect('benefits', 'Benefits'),
       sect('events', 'Events', '<div data-iconnect-slot="event_listing" data-slot-key="events-slot"></div>'),
       sect('join', 'Become a member'),
     ].join('\n'),
-    css: '.x { display: grid; } @media (max-width: 1024px) { .x { display: block; } }',
+    css: `.x { display: grid; } ${cssSections} @media (max-width: 1024px) { .x { display: block; } }`,
   };
 }
 
@@ -556,6 +571,54 @@ test('page_body gate: planned section missing from markup rejected', () => {
   const res = runCodeRejectionGates(goodPageDocument(), { actionKeys: ['join'], slotKeys: ['events-slot'], htmlRemoved: [] }, { plan });
   assert.equal(res.ok, false);
   assert.ok(res.errors.some((e) => /faq/.test(e)));
+});
+
+test('anti-bland gate: thin page HTML and CSS rejected with instructive errors', () => {
+  const doc = goodPageDocument();
+  doc.html = ['hero', 'benefits', 'events', 'join'].map((k) => `<section data-ai-id="${k}"><h2 data-ai-id="${k}-h">Heading ${k}</h2><p data-ai-id="${k}-p">Enough copy to dodge the near-blank gate but nothing more.</p>${k === 'events' ? '<div data-iconnect-slot="event_listing" data-slot-key="events-slot"></div>' : ''}${k === 'hero' ? '<a data-ai-id="cta" data-ai-action="join">Join</a>' : ''}</section>`).join('');
+  doc.css = '.x { display: grid; } @media (max-width: 1024px) { .x { display: block; } }';
+  const res = runCodeRejectionGates(doc, { actionKeys: ['join'], slotKeys: ['events-slot'], htmlRemoved: [] }, { plan: goodPlan() });
+  assert.equal(res.ok, false);
+  assert.ok(res.errors.some((e) => /markup is far too thin/.test(e)));
+  assert.ok(res.errors.some((e) => /CSS is far too thin/.test(e)));
+});
+
+test('anti-bland gate: page CSS without grid/flex rejected', () => {
+  const doc = goodPageDocument();
+  doc.css = `body { color: #111; } ${'.pad { padding: 24px; margin: 12px; border: 1px solid #eee; background: #fafafa; } '.repeat(40)} @media (max-width: 1024px) { .pad { padding: 12px; } }`;
+  const res = runCodeRejectionGates(doc, { actionKeys: ['join'], slotKeys: ['events-slot'], htmlRemoved: [] }, { plan: goodPlan() });
+  assert.equal(res.ok, false);
+  assert.ok(res.errors.some((e) => /no grid or flex layout/.test(e)));
+});
+
+test('anti-bland gate: imagery promised by the plan but none delivered rejected', () => {
+  const doc = goodPageDocument();
+  // Strip the inline SVG so the page has zero visual richness.
+  doc.html = doc.html.replace(/<svg[\s\S]*?<\/svg>/gi, '');
+  const plan = goodPlan();
+  plan.creativeDirection = 'A warm, photographic page with hero imagery of patients and carers.';
+  const res = runCodeRejectionGates(doc, { actionKeys: ['join'], slotKeys: ['events-slot'], htmlRemoved: [] }, { plan });
+  assert.equal(res.ok, false);
+  assert.ok(res.errors.some((e) => /calls for imagery/.test(e)));
+
+  // Same page WITH an asset request passes the imagery gate.
+  const withAsset = goodPageDocument();
+  withAsset.html = withAsset.html.replace(/<svg[\s\S]*?<\/svg>/gi, '<img data-ai-id="hero-img" data-ai-asset="hero-photo" alt="Patients and carers">');
+  withAsset.assets = [{ key: 'hero-photo', type: 'image_request', subject: 'patients and carers', alt: 'Patients and carers' }];
+  const ok = runCodeRejectionGates(withAsset, { actionKeys: ['join'], slotKeys: ['events-slot'], assetKeys: ['hero-photo'], htmlRemoved: [] }, { plan });
+  assert.equal(ok.ok, true, JSON.stringify(ok.errors));
+});
+
+test('anti-bland gate: style reference attached but zero visual richness rejected', () => {
+  const doc = goodPageDocument();
+  doc.html = doc.html.replace(/<svg[\s\S]*?<\/svg>/gi, '');
+  const res = runCodeRejectionGates(
+    doc,
+    { actionKeys: ['join'], slotKeys: ['events-slot'], htmlRemoved: [] },
+    { plan: goodPlan(), options: { styleReference: { screenshots: [{ url: 'https://x/shot.png' }] } } },
+  );
+  assert.equal(res.ok, false);
+  assert.ok(res.errors.some((e) => /calls for imagery/.test(e)));
 });
 
 test('page_body gate: planned slots with no placeholders rejected', () => {

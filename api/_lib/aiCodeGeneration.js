@@ -14,7 +14,11 @@ import { runAiCodePipeline } from './aiCodePipeline.js';
 import { buildStyleReferenceSummary, styleReferenceImageInputs } from './styleReference.js';
 import { designBlueprintBlock } from './aiDesignFirst.js';
 
-export const AI_CODE_GENERATION_MODEL = 'gpt-4o-mini';
+// Vision-capable generation model. gpt-4o-mini (the original default) largely
+// ignored attached reference screenshots and produced bare skeletons (Task
+// #2931) — the default is now gpt-4o, overridable per-environment without a
+// deploy via AI_CODE_GENERATION_MODEL.
+export const AI_CODE_GENERATION_MODEL = process.env.AI_CODE_GENERATION_MODEL || 'gpt-4o';
 export const MAX_CODE_RETRIES = 2; // total attempts = 1 + retries
 
 // ---------------------------------------------------------------------------
@@ -317,6 +321,12 @@ export function parseCodePackageResponse(raw) {
 // the sanitised document + report. Reject, never repair.
 // ---------------------------------------------------------------------------
 
+// Anti-bland floors for full page bodies (Task #2931): the bland BNMS run
+// shipped ~1.5KB of HTML for a whole page. Real multi-section pages land well
+// above these floors; they only catch degenerate skeletons.
+export const PAGE_HTML_MIN_CHARS = 3000;
+export const PAGE_CSS_MIN_CHARS = 1500;
+
 const stripText = (html) => String(html || '')
   .replace(/<svg[\s\S]*?<\/svg>/gi, ' ')
   .replace(/<[^>]+>/g, ' ')
@@ -361,6 +371,33 @@ export function runCodeRejectionGates(document, report, { brief = '', options = 
   const text = stripText(html);
   if (text.length < 40) {
     errors.push('The section is blank or nearly blank — it must contain real, visible content.');
+  }
+
+  // Anti-bland gates (page_body): a full page delivered as a thin skeleton
+  // (the failure mode behind Task #2931 — ~1.5KB of bare headings) is
+  // rejected with instructive feedback so the retry produces a real design.
+  if (isPage) {
+    if (html.length < PAGE_HTML_MIN_CHARS) {
+      errors.push(`The page markup is far too thin (${html.length} characters) — a full page body needs rich, real structure in every section: layered containers, cards or grids, inline SVG accents and complete copy from the content manifest, not a bare list of headings.`);
+    }
+    if (css.length < PAGE_CSS_MIN_CHARS) {
+      errors.push(`The page CSS is far too thin (${css.length} characters) — style every section deliberately: backgrounds, spacing rhythm, typography scale, grid/flex layouts and responsive recomposition, not just a handful of rules.`);
+    }
+    if (!/display\s*:\s*(grid|inline-grid|flex|inline-flex)/i.test(css)) {
+      errors.push('The page CSS uses no grid or flex layout — a full page body must use real layout structure (CSS grid/flex columns, card rows), never a single centred column of text.');
+    }
+    // When the approved creative direction promises imagery or the author
+    // attached style-reference screenshots, a page with zero visual richness
+    // (no image requests AND no inline SVG) is a bland skeleton — reject.
+    const direction = String(plan?.creativeDirection || '');
+    const promisesImagery = /\b(image|imagery|photo|photograph|picture|illustration|hero\s+visual|visual(s)?\b)/i.test(direction);
+    const hasStyleReference = Array.isArray(options?.styleReference?.screenshots)
+      && options.styleReference.screenshots.length > 0;
+    const assetCount = (document?.assets || []).length;
+    const hasSvg = /<svg\b/i.test(html);
+    if ((promisesImagery || hasStyleReference) && !assetCount && !hasSvg) {
+      errors.push('The creative direction calls for imagery but the page requests no images and draws no inline SVG — request photographic imagery via the assets manifest (<img data-ai-asset="…">) or draw decorative inline SVG artwork.');
+    }
   }
 
   // Reject-don't-repair: the sanitiser strips disallowed markup (scripts,

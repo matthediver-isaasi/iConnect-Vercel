@@ -329,6 +329,7 @@ export function useCodeGenerationLoop({ onComplete }) {
   const [visualProposal, setVisualProposal] = useState(null);
   const [visualRevisions, setVisualRevisions] = useState([]);
   const [visualSimilarity, setVisualSimilarity] = useState(null);
+  const [validationWarning, setValidationWarning] = useState(null);
   const [awaitingJobId, setAwaitingJobId] = useState(null);
   const cancelledRef = useRef(false);
 
@@ -373,6 +374,7 @@ export function useCodeGenerationLoop({ onComplete }) {
         setProgress(1);
         setLabel('Done');
         setVisualSimilarity(resp.visualSimilarity || null);
+        setValidationWarning(resp.validationWarning || null);
         onComplete(resp.compositionId);
       } else {
         setError(resp.error || 'Generation failed. Nothing was changed — please try again.');
@@ -390,6 +392,7 @@ export function useCodeGenerationLoop({ onComplete }) {
   const start = async (startBody) => {
     setProgress(0.05);
     setVisualSimilarity(null);
+    setValidationWarning(null);
     setVisualRevisions([]);
     setLabel('Starting…');
     await pump(startBody);
@@ -407,7 +410,7 @@ export function useCodeGenerationLoop({ onComplete }) {
 
   return {
     start, running, label, progress, error, rejectionReasons,
-    visualProposal, visualRevisions, visualSimilarity,
+    visualProposal, visualRevisions, visualSimilarity, validationWarning,
     awaitingVisual: !!(awaitingJobId && visualProposal),
     approveVisual, reviseVisual,
   };
@@ -1288,6 +1291,12 @@ export function AiCodeCompositionInspector({ block, update, onChange, pageId }) 
       )}
 
       <VisualProposalReview gen={gen} />
+      {gen.validationWarning && (
+        <p className="flex items-start gap-1 text-xs text-warning" data-testid="text-aicc-validation-skipped">
+          <TriangleAlert className="mt-0.5 h-3 w-3 shrink-0" />
+          {gen.validationWarning}
+        </p>
+      )}
       {gen.visualSimilarity?.status === 'warning' && (
         <p className="text-xs text-warning" data-testid="text-aicc-visual-warning">
           The built section differs from the approved visual in places

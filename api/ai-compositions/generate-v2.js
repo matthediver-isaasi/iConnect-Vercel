@@ -1097,16 +1097,26 @@ export default async function handler(req, res) {
 
       // Record the full evidence on the candidate version (audit trail) —
       // screenshots use the STORED media-library URLs.
+      const validationSkipped = decision.outcome === 'pass'
+        && (decision.skippedValidation || evidence.status === 'skipped');
+      // A skipped validation must never masquerade as a perfect score: when
+      // nothing was inspected the score is unknown (null), and the skip is
+      // surfaced as an explicit warning on the version metadata and in the
+      // completion response so the editor can show it.
+      const reportedQualityScore = validationSkipped ? null : qualityScore;
+      const validationWarning = validationSkipped
+        ? `Visual quality checks were skipped (${evidence.skipReason || 'no breakpoints could be inspected'}) — this design has NOT been visually verified.`
+        : null;
       const phase3 = {
         status: decision.outcome === 'pass'
-          ? (decision.skippedValidation || evidence.status === 'skipped' ? 'skipped' : 'passed')
+          ? (validationSkipped ? 'skipped' : 'passed')
           : decision.outcome === 'repair' ? 'needs_repair' : 'rejected',
         repairCycle: state.repairCycle || 0,
         breakpointsInspected: layout.breakpointsInspected,
         layoutIssues: layout.issues,
         captureErrors: [...(layout.captureErrors || []), ...(evidence.failures || [])],
         review: reviewRecord,
-        qualityScore,
+        qualityScore: reportedQualityScore,
         ...(visualSimilarity ? { visualSimilarity } : {}),
         ...(evidence.skipReason ? { skipReason: evidence.skipReason } : {}),
       };
@@ -1117,6 +1127,14 @@ export default async function handler(req, res) {
           generation_metadata: {
             ...(candidate.generation_metadata || {}),
             ...(evidence.screenshots.length ? { screenshots: evidence.screenshots } : {}),
+            ...(validationWarning
+              ? {
+                  warnings: [
+                    ...((candidate.generation_metadata || {}).warnings || []).filter((w) => w?.kind !== 'validation_skipped'),
+                    { kind: 'validation_skipped', message: validationWarning },
+                  ],
+                }
+              : {}),
           },
         })
         .eq('id', candidateId)
@@ -1126,7 +1144,7 @@ export default async function handler(req, res) {
         repairCycle: state.repairCycle || 0,
         versionId: candidateId,
         outcome: decision.outcome,
-        qualityScore,
+        qualityScore: reportedQualityScore,
         blockingReasons: decision.reasons.slice(0, 12),
         screenshots: evidence.screenshots.map((s) => ({ breakpoint: s.breakpoint, url: s.url })),
         reviewStatus: reviewRecord.status,
@@ -1171,8 +1189,9 @@ export default async function handler(req, res) {
           status: 'complete',
           compositionId: compId,
           versionId: candidateId,
-          qualityScore,
+          qualityScore: reportedQualityScore,
           validationStatus: phase3.status,
+          ...(validationWarning ? { validationWarning } : {}),
           repairCycles: state.repairCycle || 0,
           ...(visualSimilarity ? { visualSimilarity } : {}),
           usageWarning: options.usageWarning || null,
