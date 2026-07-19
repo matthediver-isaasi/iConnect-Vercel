@@ -18,6 +18,9 @@ import {
   runCodeRejectionGates,
   runCodeAttempt,
   MAX_CODE_RETRIES,
+  MAX_PAGE_CODE_RETRIES,
+  PAGE_HTML_MIN_CHARS,
+  PAGE_CSS_MIN_CHARS,
 } from './aiCodeGeneration.js';
 
 const COMP_ID = '12345678-1234-4321-8765-123456789abc';
@@ -634,4 +637,86 @@ test('runCodeAttempt rejects a package whose compositionType mismatches the run'
   });
   assert.equal(res.ok, false);
   assert.ok(res.errors.some((e) => /compositionType/.test(e)));
+});
+
+// ---------------------------------------------------------------------------
+// Quality bar in the prompt + measured-size retry feedback + page retry budget
+// (jobId 2c2b4a4e follow-up: gates existed only post-hoc; state them up front)
+// ---------------------------------------------------------------------------
+
+test('buildCodePrompt (page_body) states the richness/layout/imagery bar up front', () => {
+  const { system } = buildCodePrompt({
+    brief: 'A welcome page', brand: BRAND, options: {},
+    compositionType: 'page_body', plan: goodPlan(),
+  });
+  assert.match(system, new RegExp(`at least \\$?${PAGE_HTML_MIN_CHARS} characters`));
+  assert.match(system, new RegExp(`at least \\$?${PAGE_CSS_MIN_CHARS} characters`));
+  assert.match(system, /RICHNESS BAR/);
+  assert.match(system, /LAYOUT BAR/);
+  assert.match(system, /IMAGERY BAR/);
+});
+
+test('buildCodePrompt (section) omits the page richness bar', () => {
+  const { system } = buildCodePrompt({ brief: 'A hero', brand: BRAND, options: {} });
+  assert.doesNotMatch(system, /RICHNESS BAR/);
+});
+
+test('buildCodePrompt (page_body retry) includes previous measured sizes next to the floors', () => {
+  const { user } = buildCodePrompt({
+    brief: 'A welcome page', brand: BRAND, options: {},
+    compositionType: 'page_body', plan: goodPlan(),
+    attempt: 1,
+    lastErrors: ['The page markup is far too thin (1952 characters)'],
+    lastStats: { htmlChars: 1952, cssChars: 800 },
+  });
+  assert.match(user, /html 1952 characters \(minimum 3000\)/);
+  assert.match(user, /css 800 characters \(minimum 1500\)/);
+  assert.match(user, /SUBSTANTIALLY richer/);
+});
+
+test('buildCodePrompt (section retry) never includes the measured-size line', () => {
+  const { user } = buildCodePrompt({
+    brief: 'A hero', brand: BRAND, options: {},
+    attempt: 1, lastErrors: ['too thin'], lastStats: { htmlChars: 500, cssChars: 200 },
+  });
+  assert.doesNotMatch(user, /characters \(minimum/);
+});
+
+test('runCodeAttempt returns measured stats on a gate rejection', async () => {
+  const pkg = goodPackage();
+  pkg.compositionType = 'page_body'; // mismatch → hard reject, but stats present
+  const callLlm = async () => JSON.stringify(goodPackage());
+  const res = await runCodeAttempt({
+    callLlm, compositionId: COMP_ID, brief: 'x', brand: BRAND, compositionType: 'page_body', plan: goodPlan(),
+  });
+  assert.equal(res.ok, false);
+  assert.ok(res.stats);
+  assert.equal(typeof res.stats.htmlChars, 'number');
+  assert.equal(typeof res.stats.cssChars, 'number');
+});
+
+test('page retry budget exceeds the section budget', () => {
+  assert.ok(MAX_PAGE_CODE_RETRIES > MAX_CODE_RETRIES);
+});
+
+test('runCodeAttempt final-attempt reconciliation honours a custom maxRetries', async () => {
+  // Package with an undeclared action key; at attempt === MAX_CODE_RETRIES it
+  // would normally reconcile — but with a HIGHER maxRetries it must still be
+  // treated as a non-final attempt and hard-reject.
+  const pkg = goodPackage();
+  pkg.html = pkg.html.replace('data-ai-action="join"', 'data-ai-action="mystery-key"');
+  pkg.actions = [];
+  const callLlm = async () => JSON.stringify(pkg);
+  const res = await runCodeAttempt({
+    callLlm, compositionId: COMP_ID, brief: 'x', brand: BRAND,
+    attempt: MAX_CODE_RETRIES, maxRetries: MAX_PAGE_CODE_RETRIES,
+  });
+  assert.equal(res.ok, false);
+  // And at the custom final attempt it reconciles.
+  const final = await runCodeAttempt({
+    callLlm, compositionId: COMP_ID, brief: 'x', brand: BRAND,
+    attempt: MAX_PAGE_CODE_RETRIES, maxRetries: MAX_PAGE_CODE_RETRIES,
+  });
+  assert.equal(final.ok, true, JSON.stringify(final.errors));
+  assert.deepEqual(final.autoDeclaredActionKeys, ['mystery-key']);
 });

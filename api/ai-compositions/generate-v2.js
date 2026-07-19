@@ -23,6 +23,7 @@ import { checkAiUsageAllowance, recordAiUsageEvent } from '../_lib/aiUsage.js';
 import {
   runCodeAttempt,
   MAX_CODE_RETRIES,
+  MAX_PAGE_CODE_RETRIES,
   AI_CODE_GENERATION_MODEL,
   buildContentPlanPrompt,
   parsePlanResponse,
@@ -694,6 +695,9 @@ export default async function handler(req, res) {
 
       const attempt = state.codeAttempt || 0;
       const lastErrors = state.codeErrors || [];
+      const lastStats = state.codeStats || null;
+      // Pages get one extra retry — they face the multi-gate anti-bland bar.
+      const maxRetries = compositionType === 'page_body' ? MAX_PAGE_CODE_RETRIES : MAX_CODE_RETRIES;
       let result;
       try {
         result = await runCodeAttempt({
@@ -705,6 +709,8 @@ export default async function handler(req, res) {
           pageContext: state.pageContext,
           attempt,
           lastErrors,
+          lastStats,
+          maxRetries,
           // Phase 5: fulfilled asset srcs live under the tenant's public
           // media-library prefix — the only host generated markup may use.
           allowedImageHosts: [tenantPublicAssetPrefix(tenantId)].filter(Boolean),
@@ -726,21 +732,26 @@ export default async function handler(req, res) {
       }
 
       if (!result.ok) {
-        if (attempt >= MAX_CODE_RETRIES) {
+        if (attempt >= maxRetries) {
           return fail(Object.assign(
             new Error('The design did not pass our quality checks after several attempts. Try rephrasing your brief or adding more detail.'),
             { rejectionReasons: result.errors.slice(0, 12) },
           ));
         }
         await updateJob(job.id, tenantId, {
-          state: { ...state, codeAttempt: attempt + 1, codeErrors: result.errors.slice(0, 12) },
+          state: {
+            ...state,
+            codeAttempt: attempt + 1,
+            codeErrors: result.errors.slice(0, 12),
+            codeStats: result.stats || null,
+          },
         });
         return res.status(200).json({
           jobId: job.id,
           stage: 'code',
           status: 'running',
           label: 'Refining the design',
-          progress: { attempt: attempt + 1, maxAttempts: MAX_CODE_RETRIES + 1 },
+          progress: { attempt: attempt + 1, maxAttempts: maxRetries + 1 },
         });
       }
 

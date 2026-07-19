@@ -20,6 +20,10 @@ import { designBlueprintBlock } from './aiDesignFirst.js';
 // deploy via AI_CODE_GENERATION_MODEL.
 export const AI_CODE_GENERATION_MODEL = process.env.AI_CODE_GENERATION_MODEL || 'gpt-4o';
 export const MAX_CODE_RETRIES = 2; // total attempts = 1 + retries
+// Full page bodies get one extra retry: they face the multi-gate anti-bland
+// bar (size floors, layout, imagery) and are the expensive case where an
+// extra shot materially raises the success rate. Sections keep the default.
+export const MAX_PAGE_CODE_RETRIES = 3;
 
 // ---------------------------------------------------------------------------
 // Brand tokens — the tenant's brand values exposed to the generated CSS as
@@ -187,6 +191,7 @@ const PAGE_ACTION_TYPES_DOC = `"internal_page"|"external_url"|"anchor"|"form"|"e
 
 export function buildCodePrompt({
   brief, brand, options = {}, pageContext = null, attempt = 0, lastErrors = [],
+  lastStats = null,
   compositionType = 'section', plan = null,
   designBlueprint = null, conceptImages = [],
 }) {
@@ -224,6 +229,9 @@ export function buildCodePrompt({
 - The body is a sequence of top-level <section> elements. Each carries data-ai-id set to its planned section key.
 - ACTIONS: record-backed types ("internal_page", "form", "event", "event_registration", "membership_application", "document") must include a "hint" — a short search phrase naming the real record (e.g. "membership application form"). The platform resolves hints to real records; NEVER write internal URLs or hrefs yourself. "external_url" may ONLY use a URL that appears verbatim in the brief; "email"/"tel" only addresses/numbers from the brief.
 - SLOTS: where the plan reserves a live platform component, output a placeholder element with data-iconnect-slot="<key>" and NO children (the platform renders the real component inside it), and declare the key in the "slots" manifest with its type and hint. Never fake a form, event list, directory or donation widget with your own markup — always use a slot.
+- RICHNESS BAR (quality gates reject thin output): a full page body is a SUBSTANTIAL document — the "html" string must be at least ${PAGE_HTML_MIN_CHARS} characters and the "css" string at least ${PAGE_CSS_MIN_CHARS} characters. A bare list of headings and paragraphs is rejected. Every section gets rich, real structure: layered containers, card grids or columns, complete copy from the content manifest, decorative inline SVG accents.
+- LAYOUT BAR: the CSS MUST use real layout structure — display: grid and/or display: flex for card rows, columns and section compositions. A single centred column of text is rejected.
+- IMAGERY BAR: when the creative direction calls for imagery or visuals (or reference screenshots are attached), the page MUST include visual richness — request photographic imagery via the assets manifest (<img data-ai-asset="…">) and/or draw decorative inline <svg> artwork. A page with neither is rejected.
 ` : '';
 
   const system = `You are a senior creative front-end designer. You write production-quality, semantic HTML and modern CSS for ${isPage ? 'a FULL PAGE BODY (multiple sections)' : 'a single website SECTION'}. Respond ONLY with a JSON object — the V2 code package:
@@ -253,8 +261,11 @@ ${wantsCta ? '- The brief calls for visitor action: include at least one clear c
     ? `EXISTING PAGE CONTENT (for context — design a section that fits):\n${pageContext.blocks.slice(0, 25).map((b, i) => `${i + 1}. [${b.type}] ${String(b.text || '').slice(0, 120)}`).join('\n')}\n`
     : '';
   const styleRef = buildStyleReferenceSummary(options.styleReference);
+  const statsLine = isPage && lastStats && (Number.isFinite(lastStats.htmlChars) || Number.isFinite(lastStats.cssChars))
+    ? `Your previous attempt measured: html ${Number.isFinite(lastStats.htmlChars) ? lastStats.htmlChars : '?'} characters (minimum ${PAGE_HTML_MIN_CHARS}), css ${Number.isFinite(lastStats.cssChars) ? lastStats.cssChars : '?'} characters (minimum ${PAGE_CSS_MIN_CHARS}). Produce a SUBSTANTIALLY richer page, not a lightly padded version of the same output.\n`
+    : '';
   const retryBlock = attempt > 0 && lastErrors.length
-    ? `YOUR PREVIOUS ATTEMPT WAS REJECTED for these reasons — fix EVERY one:\n${lastErrors.slice(0, 12).map((e) => `- ${e}`).join('\n')}\n`
+    ? `YOUR PREVIOUS ATTEMPT WAS REJECTED for these reasons — fix EVERY one:\n${lastErrors.slice(0, 12).map((e) => `- ${e}`).join('\n')}\n${statsLine}`
     : '';
   const advanced = [];
   if (options.purpose) advanced.push(`Purpose: ${options.purpose}`);
@@ -470,12 +481,13 @@ export function runCodeRejectionGates(document, report, { brief = '', options = 
  */
 export async function runCodeAttempt({
   callLlm, compositionId, brief, brand, options = {}, pageContext = null,
-  attempt = 0, lastErrors = [], allowedImageHosts = [],
+  attempt = 0, lastErrors = [], lastStats = null, allowedImageHosts = [],
+  maxRetries = MAX_CODE_RETRIES,
   compositionType = 'section', plan = null,
   designBlueprint = null, conceptImages = [],
 }) {
   const prompt = buildCodePrompt({
-    brief, brand, options, pageContext, attempt, lastErrors, compositionType, plan,
+    brief, brand, options, pageContext, attempt, lastErrors, lastStats, compositionType, plan,
     designBlueprint, conceptImages,
   });
   const raw = await callLlm({
@@ -498,7 +510,7 @@ export async function runCodeAttempt({
   // FATAL — reconciliation only ever appends to a valid/absent list.
   let autoDeclaredActionKeys = [];
   if (
-    attempt >= MAX_CODE_RETRIES
+    attempt >= maxRetries
     && parsed.package && typeof parsed.package === 'object'
     && (parsed.package.actions === undefined
       || parsed.package.actions === null
@@ -522,17 +534,25 @@ export async function runCodeAttempt({
     }
   }
 
+  // Measured sizes of the raw model output — fed back into the next retry
+  // prompt (page_body) so the model knows HOW FAR OFF the floors it landed,
+  // not just that it failed.
+  const stats = {
+    htmlChars: typeof parsed.package?.html === 'string' ? parsed.package.html.length : null,
+    cssChars: typeof parsed.package?.css === 'string' ? parsed.package.css.length : null,
+  };
+
   // The declared composition type is part of the contract: a page_body run
   // must not silently accept a single-section package (and vice versa).
   if (parsed.package?.compositionType !== compositionType) {
-    return { ok: false, errors: [`compositionType must be "${compositionType}".`] };
+    return { ok: false, errors: [`compositionType must be "${compositionType}".`], stats };
   }
 
   const result = runAiCodePipeline(parsed.package, compositionId, { allowedImageHosts });
-  if (!result.ok) return { ok: false, errors: result.errors };
+  if (!result.ok) return { ok: false, errors: result.errors, stats };
 
   const gates = runCodeRejectionGates(result.document, result.report, { brief, options, plan });
-  if (!gates.ok) return { ok: false, errors: gates.errors };
+  if (!gates.ok) return { ok: false, errors: gates.errors, stats };
 
   // Record reconciliation in the report so the stored validation metadata
   // (and inspector) show which action keys were auto-declared.
