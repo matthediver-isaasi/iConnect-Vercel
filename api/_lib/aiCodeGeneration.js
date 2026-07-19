@@ -229,7 +229,7 @@ HARD RULES — a package breaking ANY of these is automatically rejected:
 ${pageRules}- NO <script>, <iframe>, event handler attributes, or external URLs in CSS url(). Decorative graphics must be INLINE <svg> you draw yourself.
 - PHOTOGRAPHIC / RASTER IMAGERY: NEVER write an <img src> yourself — you have no image URLs. Where a photo or rendered image genuinely improves the design, place <img data-ai-id="…" data-ai-asset="<key>" alt="<descriptive alt text>"> (NO src) and declare the key in the "assets" manifest as { "key", "type": "image_request", "subject" (what the image shows), "alt", optional "style"/"aspectRatio"/"required" }. The platform generates or picks the image after your code is approved. Set "required": true ONLY if the design is meaningless without it. Give the placeholder CSS a defined aspect ratio so layout holds before the image loads. Never request images of specific real people, and never rely on the image to carry facts, prices or dates.
 - Every meaningful element (headings, paragraphs, buttons, links, svg graphics, list items, cards) carries a UNIQUE, stable, kebab-case data-ai-id attribute (e.g. data-ai-id="hero-heading").
-- Interactive elements (buttons/links) carry data-ai-action="<key>" and every key MUST be declared in the "actions" manifest.${isPage ? '' : ' type "external_url" may ONLY use a URL that appears verbatim in the brief; "email"/"tel" only addresses/numbers from the brief; otherwise use type "anchor". NEVER invent URLs.'}
+- Interactive elements (buttons/links) carry data-ai-action="<key>" where <key> is a descriptive kebab-case key YOU invent (e.g. data-ai-action="join-cta"), and every key MUST have a matching { "key": "join-cta", "type": ..., ... } entry in the "actions" manifest. The attribute value is always your own key, NEVER an action type name — data-ai-action="anchor" is wrong unless "anchor" is a declared key.${isPage ? '' : ' type "external_url" may ONLY use a URL that appears verbatim in the brief; "email"/"tel" only addresses/numbers from the brief; otherwise use type "anchor". NEVER invent URLs.'}
 - Your CSS starts with EXACTLY this token block (verbatim), then uses var(--iconnect-*) for brand colours and fonts throughout:
 :root {
 ${tokenLines || '  /* no brand tokens available — choose tasteful accessible colours */'}
@@ -448,6 +448,33 @@ export async function runCodeAttempt({
   });
   const parsed = parseCodePackageResponse(raw);
   if (!parsed.ok) return { ok: false, errors: parsed.errors };
+
+  // Final-attempt reconciliation: a data-ai-action key the model used in the
+  // HTML but forgot to declare in the actions manifest is a hard cross-check
+  // rejection. On earlier attempts we keep the rejection so the retry prompt
+  // teaches the model; on the LAST attempt we reconcile instead of failing
+  // the whole generation — auto-declare the missing key as an unresolved
+  // "anchor" action, which renders as an inert placeholder the editor can
+  // wire up via resolve-action (same UX as any other unresolved action).
+  if (attempt >= MAX_CODE_RETRIES && parsed.package && typeof parsed.package === 'object') {
+    const htmlStr = typeof parsed.package.html === 'string' ? parsed.package.html : '';
+    const declared = new Set(
+      (Array.isArray(parsed.package.actions) ? parsed.package.actions : [])
+        .map((a) => a?.key).filter(Boolean),
+    );
+    const KEY_OK = /^[a-z0-9][a-z0-9_-]{0,79}$/i;
+    const missing = new Set();
+    for (const m of htmlStr.matchAll(/data-ai-action\s*=\s*["']([^"']+)["']/gi)) {
+      const key = m[1];
+      if (key && KEY_OK.test(key) && !declared.has(key)) missing.add(key);
+    }
+    if (missing.size) {
+      parsed.package.actions = [
+        ...(Array.isArray(parsed.package.actions) ? parsed.package.actions : []),
+        ...[...missing].map((key) => ({ key, type: 'anchor', label: key, autoDeclared: true })),
+      ];
+    }
+  }
 
   // The declared composition type is part of the contract: a page_body run
   // must not silently accept a single-section package (and vice versa).

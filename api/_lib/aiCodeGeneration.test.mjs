@@ -335,6 +335,45 @@ test('runCodeAttempt feeds previous errors back into the retry prompt', async ()
   assert.ok(MAX_CODE_RETRIES >= 1);
 });
 
+// Regression (Task #2929): the model wrote data-ai-action="anchor" (the TYPE
+// name as the key) without a manifest entry, exhausting all retries in prod.
+function undeclaredActionPackage() {
+  const pkg = goodPackage();
+  pkg.html = pkg.html.replace(
+    'data-ai-action="join"',
+    'data-ai-action="anchor"',
+  );
+  pkg.actions = [];
+  return pkg;
+}
+
+test('runCodeAttempt: undeclared action key still hard-rejects on non-final attempts', async () => {
+  const callLlm = async () => JSON.stringify(undeclaredActionPackage());
+  const res = await runCodeAttempt({
+    callLlm, compositionId: COMP_ID, brief: 'x', brand: BRAND, attempt: 0,
+  });
+  assert.equal(res.ok, false);
+  assert.match(res.errors.join(' '), /missing from the actions manifest/);
+});
+
+test('runCodeAttempt: final attempt auto-declares undeclared action keys as unresolved anchors', async () => {
+  const callLlm = async () => JSON.stringify(undeclaredActionPackage());
+  const res = await runCodeAttempt({
+    callLlm, compositionId: COMP_ID, brief: 'x', brand: BRAND, attempt: MAX_CODE_RETRIES,
+  });
+  assert.equal(res.ok, true, JSON.stringify(res.errors || []));
+  const auto = (res.document.actions || []).find((a) => a.key === 'anchor');
+  assert.ok(auto, 'auto-declared action present');
+  assert.equal(auto.type, 'anchor');
+  assert.equal(auto.autoDeclared, true);
+});
+
+test('buildCodePrompt spells out that the action key is never a type name', () => {
+  const { system } = buildCodePrompt({ brief: 'x', brand: BRAND, options: {} });
+  assert.match(system, /NEVER an action type name/);
+  assert.match(system, /data-ai-action="join-cta"/);
+});
+
 test('runCodeAttempt propagates provider errors (thrown by callLlm)', async () => {
   const callLlm = async () => { throw Object.assign(new Error('down'), { providerError: true }); };
   await assert.rejects(
