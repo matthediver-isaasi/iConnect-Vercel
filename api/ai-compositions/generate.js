@@ -463,12 +463,16 @@ export default async function handler(req, res) {
     if (stage === 'plan') {
       // Prompts only ever see SERVER-VERIFIED records (state.records), never
       // the raw client-supplied list.
-      const plan = await runPlanStage({
+      const rawPlan = await runPlanStage({
         callLlm, brief,
         options: { ...options, records: state.records || [] },
         brand: state.brand, pageContext: state.pageContext,
         compositionType: state.compositionType,
       });
+      // Sanitize BEFORE persisting so the contract the quality gates enforce
+      // is always the bounded one (e.g. requiredAssets capped at the imagery
+      // budget) — not just on the plan-review resume path (Task #2900).
+      const plan = sanitizePlan(rawPlan, { records: state.records || [] });
       // Phase 5 plan review: pause here and hand the plan to the author.
       if (options.reviewPlan) {
         await updateJob(job.id, tenantId, {
@@ -510,7 +514,9 @@ export default async function handler(req, res) {
         compositionType: state.compositionType,
         brief,
         styleReference: options.styleReference || null,
-        options,
+        // Document prompts/links only ever see SERVER-VERIFIED records
+        // (state.records), never the raw client-supplied list (Task #2900).
+        options: { ...options, records: state.records || [] },
         attempt: attemptIndex,
         lastErrors: state.documentErrors || [],
       });

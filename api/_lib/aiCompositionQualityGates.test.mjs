@@ -390,3 +390,82 @@ test('buildScreenshotReviewPrompt: semantic rubric always present; reference rul
   const withRef = buildScreenshotReviewPrompt({ doc: validDoc, hasReference: true });
   assert.ok(withRef.system.includes('reference design language'));
 });
+
+// ---------------------------------------------------------------------------
+// Task #2900 — final-attempt reconciliation of self-inflicted gate failures
+// ---------------------------------------------------------------------------
+
+test('reconcileQualityGateFailures: classification', async () => {
+  const { reconcileQualityGateFailures } = await import('./aiCompositionQualityGates.js');
+  const emptyDoc = { sections: [{ elements: [] }], layouts: { desktop: {}, tablet: {}, mobile: {} } };
+  const mkReport = (gateIssues) => ({
+    gates: {
+      plan_contract: { issues: gateIssues.plan_contract || [] },
+      prompt_fulfilment: { issues: gateIssues.prompt_fulfilment || [] },
+      layout: { issues: gateIssues.layout || [] },
+      css: { issues: gateIssues.css || [] },
+    },
+  });
+  const planIssue = { gate: 'plan_contract', code: 'missing_card_recipe', message: 'no card' };
+  const plan = { contract: { requiresCardRecipe: true, requiredAssets: ['a', 'b'], componentFamilies: ['card grid'] } };
+
+  // Layout/CSS breakage is never reconcilable.
+  assert.equal(reconcileQualityGateFailures({
+    doc: emptyDoc, plan, brief: 'x', report: mkReport({ plan_contract: [planIssue], layout: [{ gate: 'layout', code: 'z', message: 'broken' }] }),
+  }), null);
+
+  // Nothing failed → nothing to reconcile.
+  assert.equal(reconcileQualityGateFailures({ doc: emptyDoc, plan, brief: 'x', report: mkReport({}) }), null);
+
+  // Pure plan over-promises reconcile with a downgraded contract.
+  const ok = reconcileQualityGateFailures({
+    doc: emptyDoc, plan, brief: 'simple info page', report: mkReport({ plan_contract: [planIssue] }),
+  });
+  assert.ok(ok);
+  assert.equal(ok.warnings.length, 1);
+  assert.equal(ok.contract.requiresCardRecipe, false);
+  assert.deepEqual(ok.contract.requiredAssets, []);
+  assert.deepEqual(ok.contract.componentFamilies, []);
+
+  // missing_visual_asset reconciles ONLY when the brief did not ask for imagery.
+  const visIssue = { gate: 'prompt_fulfilment', code: 'missing_visual_asset', message: 'no imagery' };
+  assert.ok(reconcileQualityGateFailures({
+    doc: emptyDoc, plan, brief: 'About our committee', report: mkReport({ prompt_fulfilment: [visIssue] }),
+  }));
+  assert.equal(reconcileQualityGateFailures({
+    doc: emptyDoc, plan, brief: 'Show photos of our members', report: mkReport({ prompt_fulfilment: [visIssue] }),
+  }), null);
+
+  // missing_real_cta reconciles ONLY when no action was requested.
+  const ctaIssue = { gate: 'prompt_fulfilment', code: 'missing_real_cta', message: 'no cta' };
+  assert.ok(reconcileQualityGateFailures({
+    doc: emptyDoc, plan, brief: 'About our history', report: mkReport({ prompt_fulfilment: [ctaIssue] }),
+  }));
+  assert.equal(reconcileQualityGateFailures({
+    doc: emptyDoc, plan, brief: 'About us', options: { desiredAction: 'sign up' }, report: mkReport({ prompt_fulfilment: [ctaIssue] }),
+  }), null);
+  assert.equal(reconcileQualityGateFailures({
+    doc: emptyDoc, plan, brief: 'Add a big sign-up button', report: mkReport({ prompt_fulfilment: [ctaIssue] }),
+  }), null);
+  assert.equal(reconcileQualityGateFailures({
+    doc: emptyDoc, plan, brief: 'About us', options: { records: [{ id: 'x' }] }, report: mkReport({ prompt_fulfilment: [ctaIssue] }),
+  }), null);
+
+  // Anything else in prompt_fulfilment (e.g. trivial composition) stays fatal.
+  assert.equal(reconcileQualityGateFailures({
+    doc: emptyDoc, plan, brief: 'About us',
+    report: mkReport({ prompt_fulfilment: [{ gate: 'prompt_fulfilment', code: 'trivial_composition', message: 'too thin' }] }),
+  }), null);
+
+  // A plan without a contract still reconciles (contract: null).
+  const noContract = reconcileQualityGateFailures({
+    doc: emptyDoc, plan: {}, brief: 'About us', report: mkReport({ plan_contract: [planIssue] }),
+  });
+  assert.ok(noContract);
+  assert.equal(noContract.contract, null);
+});
+
+test('sanitizePlanContract caps requiredAssets at the imagery budget (3)', () => {
+  const c = sanitizePlanContract({ requiredAssets: ['a', 'b', 'c', 'd', 'e'] });
+  assert.deepEqual(c.requiredAssets, ['a', 'b', 'c']);
+});

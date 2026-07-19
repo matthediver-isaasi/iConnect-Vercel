@@ -100,9 +100,12 @@ export function sanitizePlanContract(raw) {
     if (v) out[f] = v;
   }
   const assets = Array.isArray(raw.requiredAssets) ? raw.requiredAssets : [];
+  // Cap at 3 — the document stage's imagery budget ("at most 3 per
+  // composition"), so the plan can never promise more assets than the
+  // document is allowed to deliver (Task #2900).
   out.requiredAssets = assets
     .filter((a) => typeof a === 'string' && a.trim())
-    .slice(0, 10)
+    .slice(0, 3)
     .map((a) => clean(a, 160));
   const fams = Array.isArray(raw.componentFamilies) ? raw.componentFamilies : [];
   out.componentFamilies = fams
@@ -622,4 +625,69 @@ export function runQualityGates({ doc, plan = null, brief = '', options = {} }) 
       checkedAt: new Date().toISOString(),
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Final-attempt reconciliation (Task #2900)
+// ---------------------------------------------------------------------------
+
+// A CTA is only a hard requirement when the author asked for one: an explicit
+// desiredAction, pinned records to link to, or the brief literally asking for
+// a button/CTA. Deterministic — mirrors how derivePromptRequirements reads
+// the brief.
+const CTA_REQUEST_RE = /\b(button|buttons|cta|call.?to.?action)\b/i;
+
+/**
+ * Decide whether a document that failed the quality gates on its FINAL retry
+ * can be accepted anyway. The plan contract is a promise our own pipeline
+ * made to itself — when the ONLY remaining failures are unmet plan promises
+ * (not schema, layout, CSS, or anything the author's brief actually asked
+ * for), a broken internal promise should degrade gracefully, not kill the
+ * job.
+ *
+ * Returns { warnings, contract } when reconcilable (contract = the plan's
+ * contract downgraded to what the document actually delivered, or null when
+ * the plan had no contract), or null when any genuine failure remains.
+ */
+export function reconcileQualityGateFailures({ doc, plan = null, brief = '', options = {}, report }) {
+  const gates = report?.gates || {};
+  const layoutIssues = gates.layout?.issues || [];
+  const cssIssues = gates.css?.issues || [];
+  if (layoutIssues.length || cssIssues.length) return null; // genuinely broken
+  const planIssues = gates.plan_contract?.issues || [];
+  const promptIssues = gates.prompt_fulfilment?.issues || [];
+  if (planIssues.length === 0 && promptIssues.length === 0) return null; // nothing to reconcile
+
+  // What the BRIEF alone requires, independent of the plan's promises — a
+  // plan-inflated requirement is reconcilable, an author-requested one is not.
+  const briefReq = derivePromptRequirements({ brief, options, plan: null });
+  const briefText = [brief, options.contentNotes, options.direction, options.purpose]
+    .filter(Boolean).join(' ');
+  const ctaRequested = Boolean(String(options.desiredAction || '').trim())
+    || (Array.isArray(options.records) && options.records.length > 0)
+    || CTA_REQUEST_RE.test(briefText);
+
+  for (const i of promptIssues) {
+    if (i.code === 'missing_reference_recipe') continue; // style reference is advisory
+    if (i.code === 'missing_visual_asset' && !briefReq.visualAsset) continue; // plan over-promise only
+    if (i.code === 'missing_real_cta' && !ctaRequested) continue;
+    return null; // trivial_composition, mobile transformation, section height, author-requested asks → genuine
+  }
+  // Every plan_contract issue is by definition our own promise → reconcilable.
+
+  const stats = docStats(doc);
+  let contract = null;
+  if (plan?.contract && typeof plan.contract === 'object') {
+    contract = { ...plan.contract };
+    if (stats.cards === 0) contract.requiresCardRecipe = false;
+    if (stats.visualAssets === 0 && stats.infographic === 0) contract.requiresIllustration = false;
+    const delivered = stats.visualAssets + stats.infographic;
+    contract.requiredAssets = (Array.isArray(contract.requiredAssets) ? contract.requiredAssets : [])
+      .slice(0, delivered);
+    contract.componentFamilies = (Array.isArray(contract.componentFamilies) ? contract.componentFamilies : [])
+      .filter((f) => componentFamilyEvidence(f, stats) !== false);
+    if (!hasMobileRecomposition(doc)) contract.requiresResponsiveRecomposition = false;
+  }
+  const warnings = [...planIssues, ...promptIssues].map((i) => `[${i.gate}] ${i.message}`);
+  return { warnings, contract };
 }

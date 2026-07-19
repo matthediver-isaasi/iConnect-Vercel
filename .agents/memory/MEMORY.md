@@ -98,3 +98,4 @@
 - [AI Composition Phase 5 page workflow](ai-composition-phase5.md) — plan-review pause, server-verified records only in prompts, placeholder→real-block mapping, SEO by consent.
 - [AI Composition quality gates](ai-composition-quality-gates.md) — deterministic gates retryable in-pipeline; screenshot review is advisory (skipped=non-blocking) with a hard wall-clock budget; geometry judged only on authored breakpoints.
 - [AI generation style reference](ai-style-reference.md) — no-reference generation must stay byte-identical; screenshots trusted only under tenant asset prefix; branding/content always beat the reference.
+- [AI composition gate reconciliation](ai-composition-gate-reconciliation.md) — gates enforcing the plan's own promises must reconcile on final retry; check prompt rules and gate demands as a pair.

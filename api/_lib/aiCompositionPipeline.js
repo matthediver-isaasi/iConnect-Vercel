@@ -25,7 +25,7 @@ import {
   buildStyleReferenceSummary,
   styleReferenceImageInputs,
 } from './styleReference.js';
-import { sanitizePlanContract, runQualityGates } from './aiCompositionQualityGates.js';
+import { sanitizePlanContract, runQualityGates, reconcileQualityGateFailures } from './aiCompositionQualityGates.js';
 
 export const GENERATION_STAGES = ['context', 'plan', 'copy', 'document', 'assets', 'review'];
 
@@ -247,7 +247,7 @@ export function buildPlanPrompt({ brief, options, brand, pageContext, compositio
 Respond ONLY with a JSON object:
 { "name": string, "audience": string, "narrative": string, "sections": [ { "id": string, "name": string, "purpose": string, "elements": [string], "components": [ { "componentKey": string, "recordId": string (optional), "reason": string } ] (optional) } ], "contract": { "intendedComposition": string, "focalPoint": string, "desktopStructure": string, "mobileTransformation": string, "referenceApplication": string, "requiresIllustration": boolean, "requiresCardRecipe": boolean, "requiresResponsiveRecomposition": boolean, "requiredAssets": [string], "componentFamilies": [string] } }
 Rules:
-- "contract" is your binding creative commitment — the final design is checked against it. State the intended composition, the focal point, the desktop structure, how the design transforms on mobile (never a shrunk copy of desktop), and how the reference design language is applied (or "n/a" when there is no reference). "requiredAssets" lists the visual assets the design needs; "componentFamilies" lists the component recipes (e.g. "card grid", "stat band") you commit to using. Set the three boolean requirements honestly — they are enforced.
+- "contract" is your binding creative commitment — the final design is checked against it and the draft is REJECTED if any promise is unmet, so promise ONLY what this specific brief genuinely needs. Simple informational content needs no card recipe and few or no images. State the intended composition, the focal point, the desktop structure, how the design transforms on mobile (never a shrunk copy of desktop), and how the reference design language is applied (or "n/a" when there is no reference). "requiredAssets" lists ONLY essential visual assets (maximum 3 — the imagery budget); "componentFamilies" lists ONLY component recipes (e.g. "card grid", "stat band") you are certain the design will use. Set requiresIllustration and requiresCardRecipe to true only when the brief clearly calls for them.
 - ${compositionType === 'section' ? 'Exactly ONE section.' : '3 to 6 sections telling one coherent story.'}
 - Element hints must come from: ${PHASE1_ELEMENT_TYPES.join(', ')}.
 - Where standard iConnect functionality genuinely serves the page goal, RECOMMEND it via a section "components" entry rather than designing a lookalike. componentKey must be one of: ${FUNCTIONAL_COMPONENT_KEYS.map((k) => `${k} (${FUNCTIONAL_COMPONENT_DESCRIPTIONS[k]})`).join('; ')}. recordId may ONLY be an id from AVAILABLE RECORDS. Recommend components sparingly — only when they clearly help.
@@ -292,7 +292,28 @@ ${brief}
   return { system, user };
 }
 
-export function buildDocumentPrompt({ plan, copy, brand, compositionType, brief, styleReference = null }) {
+/**
+ * Prompt block restating the plan-contract obligations as a checklist the
+ * document model can act on directly (Task #2900): the quality gates enforce
+ * these, so telling the model up front — on attempt 1, not only in retry
+ * feedback — is the difference between passing and burning every retry.
+ */
+export function contractObligationsSummary(plan) {
+  const c = plan?.contract;
+  if (!c || typeof c !== 'object') return '';
+  const lines = [];
+  if (c.requiresIllustration) lines.push('- Include at least one image, generated_illustration or intentional infographic element.');
+  if (c.requiresCardRecipe) lines.push('- Include at least one card element (a real card recipe, not a plain container).');
+  const assets = (Array.isArray(c.requiredAssets) ? c.requiredAssets : []).filter((a) => typeof a === 'string' && a.trim()).slice(0, 6);
+  if (assets.length) lines.push(`- Deliver ${assets.length} visual asset element(s), one per promise: ${assets.join('; ')}.`);
+  const families = (Array.isArray(c.componentFamilies) ? c.componentFamilies : []).filter((f) => typeof f === 'string' && f.trim()).slice(0, 8);
+  if (families.length) lines.push(`- Use every promised component family: ${families.join('; ')}.`);
+  if (c.requiresResponsiveRecomposition !== false) lines.push('- Give the mobile layout at least one genuinely different structure (stacking, reordering or hiding) — never a shrunk copy of desktop.');
+  if (!lines.length) return '';
+  return `PLAN CONTRACT OBLIGATIONS (each is checked automatically — a draft missing any is rejected):\n${lines.join('\n')}\n`;
+}
+
+export function buildDocumentPrompt({ plan, copy, brand, compositionType, brief, styleReference = null, records = [] }) {
   const system = `You are a web designer producing an AI Composition document (schemaVersion ${AI_COMPOSITION_SCHEMA_VERSION}) — a strict JSON design document. Respond ONLY with the JSON document.
 
 Document shape:
@@ -321,7 +342,7 @@ HARD RULES (a document breaking these is rejected):
 - Style values: unitless numbers mean pixels for sizes/spacing (fontSize, padding, gap…). Prefer explicit units ("18px", "1.5rem"). lineHeight/opacity/fontWeight stay unitless.
 - style keys ONLY from: ${[...CSS_PROPERTY_ALLOWLIST].join(', ')}.
 - backgroundImage may ONLY be a linear/radial/conic gradient. Never url(...). No !important, no var(), no javascript.
-- Do NOT include links (omit the "link" field entirely).
+- Give call-to-action buttons a real "link". Allowed links ONLY: { "kind": "anchor", "anchorId": <a section id in THIS document> }; { "kind": "external", "url": … } where the URL appears verbatim in the brief or brand input; { "kind": "email"|"tel", "email"|"tel": … } using an address/number from the brief; or an internal record link ({ "kind": "page"|"event_registration"|"form"|"membership_application"|"document" } with its id field) whose id comes ONLY from AVAILABLE RECORDS or the plan's component recordIds. NEVER invent record ids or URLs — a link with an unverified record id is stripped automatically. When nothing real exists to link to, use an anchor to another section.
 - Standard iConnect functionality (forms, event registration, membership application, login, listings, directories) must NEVER be recreated with buttons/inputs/lookalikes. Where the PLAN recommends a component, place a top-level element { "type": "canvas_component_placeholder", "data": { "componentKey": <the plan's componentKey>, "recordId": <the plan's recordId if given>, "label": short human label } } with a generous frame (full content width, height ≥ 320). No children, no imageBrief on placeholders. Only use componentKeys from: ${FUNCTIONAL_COMPONENT_KEYS.join(', ')}. Never invent recordIds.
 - Images/illustrations: NEVER invent an asset id or URL. To request imagery, add an image or generated_illustration element carrying an "imageBrief" (a later stage generates the asset). Use imagery sparingly (at most 3 per composition) and always provide accessibilityDescription.
 - Factual content (statistics, chart values, comparisons, dates, prices) MUST be structured data rendered as text, NEVER described inside an imageBrief. statistic requires data {"value","label"}. simple_chart requires data {"items":[{"label","value"}]} (values as plain text/numbers). comparison_item requires data {"label", "value"} or {"items":[…]}. timeline_item/process_step carry content.text plus optional data {"step"|"date"}. structured_infographic is a container whose children are those factual elements.
@@ -334,7 +355,7 @@ HARD RULES (a document breaking these is rejected):
 """
 ${brandSummary(brand)}
 """
-${styleRef}PLAN:
+${styleRef}${recordsSummary(records)}${contractObligationsSummary(plan)}PLAN:
 """
 ${JSON.stringify(plan).slice(0, 6000)}
 """
@@ -423,7 +444,8 @@ export async function runDocumentStage({ callLlm, plan, copy, brand, composition
  * validation failure. Provider failures still throw (same as before).
  */
 export async function runDocumentAttempt({ callLlm, plan, copy, brand, compositionType, brief, styleReference = null, options = {}, attempt = 0, lastErrors = [] }) {
-  const { system, user, images } = buildDocumentPrompt({ plan, copy, brand, compositionType, brief, styleReference });
+  const records = Array.isArray(options.records) ? options.records : [];
+  const { system, user, images } = buildDocumentPrompt({ plan, copy, brand, compositionType, brief, styleReference, records });
   const nestingCorrection = lastErrors.some((e) => typeof e === 'string' && e.includes('cannot have children'))
     ? '\nIMPORTANT: do NOT nest elements inside background, heading, paragraph, button or any other non-container type. Only container, group, card, overlay and structured_infographic may have children. Make every other element a flat top-level sibling in its section.'
     : '';
@@ -463,19 +485,83 @@ export async function runDocumentAttempt({ callLlm, plan, copy, brand, compositi
     if (!doc.generationMetadata || typeof doc.generationMetadata !== 'object') doc.generationMetadata = {};
     doc.generationMetadata.repairs = repairs;
   }
+  // Links may only point at server-verified records — strip any invented
+  // record ids BEFORE validation/gating so the gates judge the true document
+  // (Task #2900; mirrors reconcilePlaceholderRecords for placeholders).
+  const strippedLinks = stripUnverifiedRecordLinks(doc, records);
+  if (strippedLinks > 0 && doc?.generationMetadata) {
+    doc.generationMetadata.strippedLinks = strippedLinks;
+  }
   const result = validateComposition(doc);
   if (!result.ok) return { ok: false, errors: result.errors, imagesAttached };
   // Quality gates (Task #2894): a schema-valid document can still be
   // visually broken or semantically empty. Gate failures feed the SAME
   // bounded retry loop as schema errors; the report is recorded on the
   // document so generation diagnostics stay observable.
-  const gates = runQualityGates({
-    doc, plan, brief,
-    options: { styleReference, purpose: options.purpose, direction: options.direction, contentNotes: options.contentNotes },
-  });
+  const gateOptions = {
+    styleReference,
+    purpose: options.purpose,
+    direction: options.direction,
+    contentNotes: options.contentNotes,
+    desiredAction: options.desiredAction,
+    records,
+  };
+  const gates = runQualityGates({ doc, plan, brief, options: gateOptions });
   doc.generationMetadata.qualityGates = gates.report;
-  if (!gates.ok) return { ok: false, errors: gates.failures, imagesAttached };
+  if (!gates.ok) {
+    // Final attempt (Task #2900): when the ONLY remaining failures are the
+    // plan's own over-promises (never layout/CSS breakage or something the
+    // author's brief actually asked for), accept the draft with recorded
+    // warnings and a contract downgraded to what was delivered — a broken
+    // internal promise must not fail the whole job.
+    if (attempt >= MAX_DOCUMENT_RETRIES) {
+      const reconciled = reconcileQualityGateFailures({
+        doc, plan, brief, options: gateOptions, report: gates.report,
+      });
+      if (reconciled) {
+        doc.generationMetadata.qualityGates = {
+          ...gates.report,
+          reconciled: {
+            warnings: reconciled.warnings,
+            downgradedContract: reconciled.contract,
+            at: new Date().toISOString(),
+          },
+        };
+        return { ok: true, doc, repairs, imagesAttached, reconciledWarnings: reconciled.warnings };
+      }
+    }
+    return { ok: false, errors: gates.failures, imagesAttached };
+  }
   return { ok: true, doc, repairs, imagesAttached };
+}
+
+/**
+ * Remove button/element links that reference record ids NOT verified
+ * server-side (the pinned brief records). External/anchor/email/tel links
+ * and links to verified records survive untouched. Returns the number of
+ * links stripped.
+ */
+const LINK_RECORD_ID_FIELDS = ['pageId', 'eventId', 'formId', 'fileId', 'tierId'];
+export function stripUnverifiedRecordLinks(doc, records = []) {
+  const verified = new Set((records || []).map((r) => r?.id).filter(Boolean));
+  let stripped = 0;
+  const walk = (els) => {
+    for (const el of els || []) {
+      const link = el?.link;
+      if (link && typeof link === 'object') {
+        const ids = LINK_RECORD_ID_FIELDS
+          .map((f) => link[f])
+          .filter((v) => typeof v === 'string' && v.trim());
+        if (ids.length && ids.some((id) => !verified.has(id))) {
+          delete el.link;
+          stripped += 1;
+        }
+      }
+      if (Array.isArray(el?.children)) walk(el.children);
+    }
+  };
+  for (const section of doc?.sections || []) walk(section.elements);
+  return stripped;
 }
 
 /** The error thrown when every document attempt failed validation. */

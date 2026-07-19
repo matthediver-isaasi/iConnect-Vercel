@@ -34,6 +34,15 @@ const options = normalizeOptions({});
 const validPlan = { name: 'Plan', sections: [{ id: 's1', name: 'Hero', purpose: 'intro', elements: ['heading'] }] };
 const validCopy = { sections: [{ id: 's1', heading: 'Hello', paragraphs: ['World'], buttonLabels: [] }] };
 
+// The example fixtures carry links to these record ids; runDocumentAttempt
+// strips links to any id NOT verified server-side, so tests that expect the
+// fixtures to pass unchanged must pin the matching records (Task #2900).
+const fixtureRecords = [
+  { kind: 'event_registration', id: '4f6f2f9e-0000-4000-8000-000000000001', title: 'Annual Conference' },
+  { kind: 'form', id: '8a1b3c5d-0000-4000-8000-000000000002', title: 'Contact form' },
+];
+const fixtureOptions = normalizeOptions({ records: fixtureRecords });
+
 test('normalizeBrief collapses whitespace and caps length', () => {
   assert.equal(normalizeBrief('  a\n\n b  '), 'a b');
   assert.equal(normalizeBrief('x'.repeat(MAX_BRIEF_CHARS + 500)).length, MAX_BRIEF_CHARS);
@@ -193,7 +202,7 @@ test('runCopyStage: empty sections rejected', async () => {
 test('runDocumentStage: valid fixture document passes on first attempt', async () => {
   const callLlm = async () => JSON.stringify(SECTION_EXAMPLE);
   const { doc, attempts } = await runDocumentStage({
-    callLlm, plan: validPlan, copy: validCopy, brand, compositionType: 'section', brief,
+    callLlm, plan: validPlan, copy: validCopy, brand, compositionType: 'section', brief, options: fixtureOptions,
   });
   assert.equal(attempts, 1);
   assert.equal(doc.sections.length, 1);
@@ -223,7 +232,7 @@ test('runDocumentStage: recovers when a retry produces a valid document', async 
     return n === 1 ? '{{{' : JSON.stringify(SECTION_EXAMPLE);
   };
   const { attempts } = await runDocumentStage({
-    callLlm, plan: validPlan, copy: validCopy, brand, compositionType: 'section', brief,
+    callLlm, plan: validPlan, copy: validCopy, brand, compositionType: 'section', brief, options: fixtureOptions,
   });
   assert.equal(attempts, 2);
 });
@@ -273,7 +282,7 @@ test('runDocumentAttempt: single attempt returns ok/errors without throwing on v
       return JSON.stringify(SECTION_EXAMPLE);
     },
     plan: validPlan, copy: validCopy, brand, compositionType: 'section', brief,
-    attempt: 1, lastErrors: bad.errors,
+    options: fixtureOptions, attempt: 1, lastErrors: bad.errors,
   });
   assert.equal(sawFeedback, true, 'validation feedback included on retry attempts');
   assert.equal(good.ok, true);
@@ -300,7 +309,7 @@ test('runDocumentAttempt: auto-repairs mechanical readingOrder/frame slips and r
 
   const result = await runDocumentAttempt({
     callLlm: async () => JSON.stringify(broken),
-    plan: validPlan, copy: validCopy, brand, compositionType: 'section', brief,
+    plan: validPlan, copy: validCopy, brand, compositionType: 'section', brief, options: fixtureOptions,
   });
   assert.equal(result.ok, true, 'mechanical slips are self-healed instead of failing the attempt');
   assert.ok(result.doc.sections[0].readingOrder.includes(dropped));
@@ -335,7 +344,7 @@ test('runDocumentAttempt: repairs invalid nesting (background wrapping content) 
 
   const result = await runDocumentAttempt({
     callLlm: async () => JSON.stringify(nested),
-    plan: validPlan, copy: validCopy, brand, compositionType: 'multi_section_page', brief,
+    plan: validPlan, copy: validCopy, brand, compositionType: 'multi_section_page', brief, options: fixtureOptions,
   });
   assert.equal(result.ok, true, 'nested draft is repaired instead of failing the attempt');
   assert.deepEqual(
@@ -364,4 +373,103 @@ test('runDocumentAttempt: nesting errors add a targeted corrective line to retry
     attempt: 1, lastErrors: ['some other error'],
   });
   assert.ok(!prompt2.includes('do NOT nest elements'));
+});
+
+// ---------------------------------------------------------------------------
+// Task #2900 — plan over-promise reconciliation + link handling
+// ---------------------------------------------------------------------------
+
+test('stripUnverifiedRecordLinks: removes invented record ids, keeps verified/external/anchor', async () => {
+  const { stripUnverifiedRecordLinks } = await import('./aiCompositionPipeline.js');
+  const doc = {
+    sections: [{
+      elements: [
+        { id: 'b1', type: 'button', link: { kind: 'event_registration', eventId: UUID_A } },
+        { id: 'b2', type: 'button', link: { kind: 'form', formId: UUID_B } },
+        { id: 'b3', type: 'button', link: { kind: 'external', url: 'https://example.org' } },
+        { id: 'b4', type: 'button', link: { kind: 'anchor', anchorId: 'sec_2' } },
+        {
+          id: 'c1', type: 'container', children: [
+            { id: 'b5', type: 'button', link: { kind: 'page', pageId: UUID_B } },
+          ],
+        },
+      ],
+    }],
+  };
+  const stripped = stripUnverifiedRecordLinks(doc, [{ id: UUID_A }]);
+  assert.equal(stripped, 2);
+  const els = doc.sections[0].elements;
+  assert.ok(els[0].link, 'verified record link survives');
+  assert.equal(els[1].link, undefined, 'unverified form link stripped');
+  assert.ok(els[2].link, 'external link survives');
+  assert.ok(els[3].link, 'anchor link survives');
+  assert.equal(els[4].children[0].link, undefined, 'nested unverified link stripped');
+});
+
+test('buildDocumentPrompt: allows real links, lists records and contract obligations up front', async () => {
+  const { buildDocumentPrompt, contractObligationsSummary } = await import('./aiCompositionPipeline.js');
+  const plan = {
+    ...validPlan,
+    contract: {
+      requiresIllustration: true,
+      requiresCardRecipe: true,
+      requiredAssets: ['hero photo'],
+      componentFamilies: ['card grid'],
+    },
+  };
+  const { system, user } = buildDocumentPrompt({
+    plan, copy: validCopy, brand, compositionType: 'section', brief, records: fixtureRecords,
+  });
+  // The old blanket link ban is gone; the CTA rule is stated instead.
+  assert.ok(!system.includes('Do NOT include links'));
+  assert.ok(system.includes('NEVER invent record ids'));
+  // Pinned records are available to the document stage, not just the plan.
+  assert.ok(user.includes(fixtureRecords[0].id));
+  // The contract obligations are front-loaded on attempt 1.
+  assert.ok(user.includes('PLAN CONTRACT OBLIGATIONS'));
+  assert.ok(user.includes('card grid'));
+  assert.ok(user.includes('hero photo'));
+  // No contract → no obligations block.
+  assert.equal(contractObligationsSummary(validPlan), '');
+});
+
+// Regression for prod job 0984f330: the plan over-promised (card recipe,
+// component families, asset counts) and every retry burned on unmet plan
+// promises. On the FINAL attempt those self-inflicted failures must be
+// reconciled — the draft is accepted with warnings and a downgraded contract.
+test('runDocumentAttempt: final attempt accepts a draft failing only its own plan promises', async () => {
+  const { runDocumentAttempt } = await import('./aiCompositionPipeline.js');
+  const overPromisingPlan = {
+    ...validPlan,
+    contract: {
+      intendedComposition: 'grand vision',
+      requiresIllustration: true,
+      requiresCardRecipe: true,
+      requiresResponsiveRecomposition: true,
+      requiredAssets: ['hero photo', 'team photo', 'icon set'],
+      componentFamilies: ['card grid'],
+    },
+  };
+  const callLlm = async () => JSON.stringify(SECTION_EXAMPLE);
+
+  // Before the final attempt the same failures still drive a retry.
+  const early = await runDocumentAttempt({
+    callLlm, plan: overPromisingPlan, copy: validCopy, brand,
+    compositionType: 'section', brief, options: fixtureOptions, attempt: 0,
+  });
+  assert.equal(early.ok, false);
+  assert.ok(early.errors.some((e) => e.startsWith('[plan_contract]')));
+
+  // On the final attempt the plan-contract failures reconcile.
+  const final = await runDocumentAttempt({
+    callLlm, plan: overPromisingPlan, copy: validCopy, brand,
+    compositionType: 'section', brief, options: fixtureOptions, attempt: MAX_DOCUMENT_RETRIES,
+  });
+  assert.equal(final.ok, true, 'self-inflicted plan failures must not kill the job');
+  assert.ok(Array.isArray(final.reconciledWarnings) && final.reconciledWarnings.length > 0);
+  const rec = final.doc.generationMetadata.qualityGates.reconciled;
+  assert.ok(rec, 'reconciliation recorded in generationMetadata');
+  assert.deepEqual(rec.warnings, final.reconciledWarnings);
+  assert.equal(rec.downgradedContract.requiresCardRecipe, false);
+  assert.deepEqual(rec.downgradedContract.componentFamilies, []);
 });
