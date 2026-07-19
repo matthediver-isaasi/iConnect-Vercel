@@ -15,6 +15,7 @@ import {
 import IEditFeaturedJobElement, { IEditFeaturedJobElementEditor } from '@/components/iedit/elements/IEditFeaturedJobElement';
 import { Sparkles } from 'lucide-react';
 import { AiCompositionRender, AiCompositionInspector } from './AiCompositionBlock';
+import { AiCodeCompositionRender, AiCodeCompositionInspector } from './AiCodeCompositionBlock';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -7172,6 +7173,20 @@ export const DYNAMIC_BLOCK_DEFINITIONS = {
     Editor: (props) => <AiCompositionRender {...props} asEditor />,
     Renderer: AiCompositionRender,
     Inspector: AiCompositionInspector,
+  },
+  // AI Design Studio V2 (Task #2904): native HTML/CSS/SVG code packages.
+  // autoHeight — the flowed document drives the block's footprint.
+  // allowOverflow — the wrapper must never clip decorative bleed/shadows;
+  // the document flows naturally and blocks below reflow beneath it.
+  [BLOCK_TYPES.AI_CODE_COMPOSITION]: {
+    label: 'AI Composition (V2)',
+    icon: Sparkles,
+    category: 'data',
+    Editor: (props) => <AiCodeCompositionRender {...props} asEditor />,
+    Renderer: AiCodeCompositionRender,
+    Inspector: AiCodeCompositionInspector,
+    autoHeight: true,
+    allowOverflow: true,
   },
   [BLOCK_TYPES.EVENT_LIST]: {
     label: 'Event list',

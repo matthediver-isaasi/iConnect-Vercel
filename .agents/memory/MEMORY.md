@@ -99,3 +99,4 @@
 - [AI Composition quality gates](ai-composition-quality-gates.md) — deterministic gates retryable in-pipeline; screenshot review is advisory (skipped=non-blocking) with a hard wall-clock budget; geometry judged only on authored breakpoints.
 - [AI generation style reference](ai-style-reference.md) — no-reference generation must stay byte-identical; screenshots trusted only under tenant asset prefix; branding/content always beat the reference.
 - [AI composition gate reconciliation](ai-composition-gate-reconciliation.md) — gates enforcing the plan's own promises must reconcile on final retry; check prompt rules and gate demands as a pair.
+- [AI V2 native-code pipeline](ai-code-v2-pipeline.md) — sanitise once at store time, composition uuid = CSS scope (pipe against the real id), reject-don't-repair; DOMPurify needs '#text' allowed.

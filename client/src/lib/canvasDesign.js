@@ -211,6 +211,10 @@ export const BLOCK_TYPES = {
   // server-generated, schema-validated AI Composition document rendered
   // in-DOM with instance-scoped allowlisted CSS (no generated JS).
   AI_COMPOSITION: 'ai-composition',
+  // AI Design Studio V2 (Task #2904): native HTML/CSS/SVG code packages
+  // (renderer_version 2). V1 `ai-composition` scene-graph blocks stay
+  // renderable but read-only.
+  AI_CODE_COMPOSITION: 'ai-code-composition',
   // Task #2558 — flow (auto-layout) layout containers. `row` lays its children
   // out horizontally as columns (the real Row/Columns primitive that replaces
   // expressing side-by-side layouts with X coordinates); `group` is a
@@ -1482,6 +1486,17 @@ BLOCK_DEFAULTS[BLOCK_TYPES.AI_COMPOSITION] = {
   content: { compositionId: '' },
 };
 
+// AI Design Studio V2 (Task #2904): native HTML/CSS/SVG code package rendered
+// verbatim inside a [data-ai-composition="uuid"] wrapper. The document is
+// sanitised + CSS-scoped server-side (aiCodePipeline.js) before it is ever
+// stored; the client injects it as-is and never re-processes it.
+BLOCK_DEFAULTS[BLOCK_TYPES.AI_CODE_COMPOSITION] = {
+  name: 'AI Composition (V2)',
+  geom: { w: 800, h: 320 },
+  style: { background: 'transparent', borderWidth: 0 },
+  content: { compositionId: '' },
+};
+
 // Hero Carousel block: slide-based hero with per-slide backgrounds, overlays,
 // rich-text headings, CTA buttons, and configurable carousel playback.
 BLOCK_DEFAULTS[BLOCK_TYPES.HERO_CAROUSEL] = {
@@ -2070,6 +2085,8 @@ export const AUTO_HEIGHT_LEAF_TYPES = new Set([
   // AI Compositions size to their generated content (Task #2849): the block
   // reports its rendered height so the parent canvas reflows around it.
   BLOCK_TYPES.AI_COMPOSITION,
+  // V2 code compositions are pure flowed HTML — always content-sized (#2904).
+  BLOCK_TYPES.AI_CODE_COMPOSITION,
 ]);
 
 // ===========================================================================
@@ -2867,6 +2884,10 @@ export function validateBlock(block) {
       // is added first, then a draft is generated and inserted from the
       // inspector) — flag it so authors don't publish an empty placeholder.
       if (!c.compositionId) errors.push('AI Composition has no generated design yet.');
+      break;
+    case BLOCK_TYPES.AI_CODE_COMPOSITION:
+      // Same authoring flow as V1: element first, design attached after.
+      if (!c.compositionId) errors.push('AI Composition (V2) has no design attached yet.');
       break;
     case BLOCK_TYPES.DYNAMIC_DIRECTORY_EMBED:
       if (!c.directorySlug) errors.push('Dynamic directory embed requires a directory.');
