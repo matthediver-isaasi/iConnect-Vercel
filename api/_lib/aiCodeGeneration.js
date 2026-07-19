@@ -91,6 +91,14 @@ export function briefWantsCta(brief, desiredAction = '') {
 
 export const PLAN_MIN_SECTIONS = 3;
 export const PLAN_MAX_SECTIONS = 10;
+// Copy-depth floors (Task #2941): a thin content manifest dooms every code
+// attempt (the code model faithfully renders thin copy into a thin page that
+// can never pass PAGE_HTML_MIN_CHARS). Reject thin plans HERE — the cheap
+// stage — with precise feedback, instead of burning code retries.
+export const PLAN_COPY_MIN_CHARS_PER_SECTION = 150;
+export const PLAN_SECTION_MIN_LINKED_COPY_CHARS = 120;
+export const PLAN_FAQ_MIN_QA_ITEMS = 3;
+const FAQ_SECTION_RE = /\bfaq\b|frequently asked/i;
 
 export function buildContentPlanPrompt({ brief, brand, options = {}, attempt = 0, lastErrors = [] }) {
   const system = `You are a senior content strategist and creative director planning a FULL PAGE BODY for a membership organisation's website (the site header and footer already exist — never plan them). Respond ONLY with a JSON object:
@@ -106,7 +114,8 @@ RULES:
 - "slot" reserves space for a live platform component; allowed values: form, event_registration, event_listing, membership_application, document_list, news_listing, directory, login_prompt, donation — or null.
 - "actionTypes" lists the navigation intents the section will offer, from: internal_page, external_url, anchor, form, event, event_registration, membership_application, document, email, tel.
 - At least one section plans a clear call to action.
-- Never invent facts, prices, dates or statistics — only reuse what the brief states.`;
+- COPY DEPTH (plans failing these floors are rejected): the contentManifest is the page's ENTIRE copy budget — the build stage cannot add facts you did not plan. Carry at least ${PLAN_COPY_MIN_CHARS_PER_SECTION} characters of real copy per planned content section overall (sections reserving a live platform slot are exempt), and link every non-slot section (via contentKeys) to at least ${PLAN_SECTION_MIN_LINKED_COPY_CHARS} characters of manifest copy. Write SEVERAL items per section — practical details, step-by-step guidance, reassuring specifics — not one thin sentence each. An FAQ-style section must link at least ${PLAN_FAQ_MIN_QA_ITEMS} complete question-and-answer items (each item's text contains the question AND its full answer).
+- Expand the brief's subject with helpful general guidance the organisation could stand behind, but never invent facts, prices, dates or statistics — only reuse what the brief states.`;
   const brandLines = [];
   if (brand?.name) brandLines.push(`Organisation: ${brand.name}`);
   if (brand?.tagline) brandLines.push(`Tagline: ${brand.tagline}`);
@@ -175,6 +184,39 @@ export function runPlanChecks(plan) {
   const manifest = Array.isArray(plan?.contentManifest) ? plan.contentManifest : [];
   if (!manifest.some((m) => typeof m?.text === 'string' && m.text.trim().length >= 10)) {
     errors.push('The content manifest is empty — list the real copy the page will show.');
+  }
+  // Copy-depth floors (Task #2941): a manifest of one-sentence snippets makes
+  // the code stage's richness gate unwinnable — reject the plan here instead.
+  const textLen = (m) => (typeof m?.text === 'string' ? m.text.trim().length : 0);
+  const manifestByKey = new Map(
+    manifest.filter((m) => typeof m?.key === 'string').map((m) => [m.key, m]),
+  );
+  if (sections.length >= PLAN_MIN_SECTIONS && manifest.length) {
+    // Slot sections render a live platform component — they legitimately need
+    // little manifest copy, so the total floor scales by NON-slot sections.
+    const nonSlotCount = sections.filter((s) => s && typeof s === 'object' && !s.slot).length;
+    const totalCopy = manifest.reduce((n, m) => n + textLen(m), 0);
+    const floor = Math.max(1, nonSlotCount) * PLAN_COPY_MIN_CHARS_PER_SECTION;
+    if (totalCopy < floor) {
+      errors.push(`The content manifest carries only ${totalCopy} characters of copy across ${manifest.length} item(s) — a page with ${nonSlotCount} content section(s) needs at least ${floor} characters of real, specific copy. Write SEVERAL items per section (practical details, step-by-step guidance, question-and-answer pairs), not one sentence each.`);
+    }
+    for (const s of sections) {
+      if (!s || typeof s !== 'object' || s.slot) continue;
+      const k = typeof s.key === 'string' ? s.key : '(missing key)';
+      const linked = (Array.isArray(s.contentKeys) ? s.contentKeys : [])
+        .map((ck) => manifestByKey.get(ck))
+        .filter(Boolean);
+      const linkedCopy = linked.reduce((n, m) => n + textLen(m), 0);
+      if (linkedCopy < PLAN_SECTION_MIN_LINKED_COPY_CHARS) {
+        errors.push(`Section "${k}" links only ${linkedCopy} characters of manifest copy via contentKeys — every non-slot section needs at least ${PLAN_SECTION_MIN_LINKED_COPY_CHARS} characters of real copy planned for it.`);
+      }
+      if (FAQ_SECTION_RE.test(`${s.key || ''} ${s.headline || ''} ${s.purpose || ''}`)) {
+        const qaItems = linked.filter((m) => /\?/.test(String(m?.text || '')));
+        if (qaItems.length < PLAN_FAQ_MIN_QA_ITEMS) {
+          errors.push(`FAQ section "${k}" links only ${qaItems.length} question-and-answer item(s) — plan at least ${PLAN_FAQ_MIN_QA_ITEMS} complete Q&A pairs (each item's text contains the question AND its full answer).`);
+        }
+      }
+    }
   }
   const plannedActions = sections.flatMap((s) => (Array.isArray(s?.actionTypes) ? s.actionTypes : []));
   if (!plannedActions.length) {
@@ -271,6 +313,17 @@ ${wantsCta ? '- The brief calls for visitor action: include at least one clear c
     } else {
       statsLine = `Your previous attempt measured: html ${Number.isFinite(lastStats.htmlChars) ? lastStats.htmlChars : '?'} characters (minimum ${PAGE_HTML_MIN_CHARS}), css ${Number.isFinite(lastStats.cssChars) ? lastStats.cssChars : '?'} characters (minimum ${PAGE_CSS_MIN_CHARS}). Produce a SUBSTANTIALLY richer page, not a lightly padded version of the same output.\n`;
     }
+    // Task #2941: when the HTML side is (or may be) thin, tell the model how
+    // much copy the manifest actually carries so it knows the fix is to
+    // EXPAND each item into structured presentation, not repeat sentences.
+    const htmlThin = hasVerdicts ? lastStats.htmlOk === false : (Number.isFinite(lastStats.htmlChars) && lastStats.htmlChars < PAGE_HTML_MIN_CHARS);
+    if (htmlThin && plan && typeof plan === 'object') {
+      const planManifest = Array.isArray(plan.contentManifest) ? plan.contentManifest : [];
+      const manifestChars = planManifest.reduce((n, m) => n + (typeof m?.text === 'string' ? m.text.trim().length : 0), 0);
+      if (manifestChars > 0) {
+        statsLine += `The content manifest carries ${manifestChars} characters of copy across ${planManifest.length} item(s). Reaching ${PAGE_HTML_MIN_CHARS} characters of markup therefore requires EXPANDING every manifest item into full structured presentation — card grids, multi-step lists, accordion question-and-answer blocks, sub-headings, connective copy — not pasting each item as a single sentence (and never inventing new facts, prices, dates or statistics).\n`;
+      }
+    }
   }
   // Anti-oscillation carry-forward (Task #2938): when exactly one side of the
   // previous attempt passed its gates, hand it back verbatim so the retry
@@ -299,6 +352,7 @@ ${sections.map((s, i) => `${i + 1}. [${s.key}] purpose: ${s.purpose}; headline: 
 CREATIVE DIRECTION: ${String(plan.creativeDirection || '').slice(0, 600)}
 CONTENT MANIFEST (use this copy — do not invent other facts):
 ${manifest.slice(0, 40).map((m) => `- [${m.key}] (${m.role || 'copy'}) ${String(m.text || '').slice(0, 240)}`).join('\n')}
+The manifest is a FLOOR, not the whole page: expand every item into full presentation — card grids, multi-step lists, accordion question-and-answer blocks, supporting sub-headings and connective copy that elaborates what the manifest states. Never paste a manifest item as a lone sentence in an otherwise bare section, and never invent new facts, prices, dates or statistics while expanding.
 `;
   }
 

@@ -9,6 +9,9 @@ import {
   runPlanChecks,
   PLAN_MIN_SECTIONS,
   PLAN_MAX_SECTIONS,
+  PLAN_COPY_MIN_CHARS_PER_SECTION,
+  PLAN_SECTION_MIN_LINKED_COPY_CHARS,
+  PLAN_FAQ_MIN_QA_ITEMS,
   buildIconnectBrandTokens,
   brandTokensCssBlock,
   buildCodePrompt,
@@ -435,12 +438,13 @@ test('runCodeAttempt propagates provider errors (thrown by callLlm)', async () =
 function goodPlan() {
   return {
     contentManifest: [
-      { key: 'intro', role: 'hero copy', text: 'Join a thriving community of beekeepers across the country.' },
-      { key: 'benefits', role: 'detail', text: 'Training, insurance and events for every member.' },
+      { key: 'intro', role: 'hero copy', text: 'Join a thriving community of beekeepers across the country. Whether you are just starting out or have kept bees for decades, BNMS gives you the training, support and friendships to help your colonies flourish season after season.' },
+      { key: 'benefits', role: 'detail', text: 'Membership includes hands-on training days at our teaching apiaries, public liability and bee disease insurance, a mentoring scheme pairing new members with experienced keepers, and a busy calendar of talks and social events across the country.' },
+      { key: 'benefits-extra', role: 'detail', text: 'Members also receive our quarterly journal packed with seasonal advice, discounted equipment through partner suppliers, and access to a members-only forum where questions get answered by keepers who have seen it all before.' },
     ],
     sections: [
       { key: 'hero', purpose: 'hero', headline: 'Welcome to BNMS', contentKeys: ['intro'], slot: null, actionTypes: ['membership_application'] },
-      { key: 'benefits', purpose: 'proof', headline: 'Why members join', contentKeys: ['benefits'], slot: null, actionTypes: [] },
+      { key: 'benefits', purpose: 'proof', headline: 'Why members join', contentKeys: ['benefits', 'benefits-extra'], slot: null, actionTypes: [] },
       { key: 'events', purpose: 'detail', headline: 'Upcoming events', contentKeys: [], slot: 'event_listing', actionTypes: ['event_registration'] },
       { key: 'join', purpose: 'call-to-action', headline: 'Become a member', contentKeys: [], slot: 'membership_application', actionTypes: ['membership_application'] },
     ],
@@ -510,6 +514,109 @@ test('runPlanChecks rejects degenerate plans', () => {
   const noCtaRes = runPlanChecks(noCta);
   assert.equal(noCtaRes.ok, false);
   assert.ok(noCtaRes.errors.some((e) => /call to action/.test(e)));
+});
+
+// Task #2941: copy-depth floors — a manifest of one-sentence snippets dooms
+// every code attempt against the page richness gate, so reject the plan.
+test('runPlanChecks rejects a thin content manifest (total copy floor)', () => {
+  const thin = goodPlan();
+  thin.contentManifest = [
+    { key: 'intro', role: 'intro', text: 'Welcome to BNMS. Here is what to expect at your scan.' },
+    { key: 'benefits', role: 'detail', text: 'Training, insurance and events for every member of ours.' },
+    { key: 'benefits-extra', role: 'detail', text: 'Members also receive our quarterly journal with advice too.' },
+  ];
+  const res = runPlanChecks(thin);
+  assert.equal(res.ok, false);
+  assert.ok(res.errors.some((e) => /content manifest carries only \d+ characters/.test(e)), JSON.stringify(res.errors));
+});
+
+test('runPlanChecks rejects a non-slot section with too little linked copy', () => {
+  const plan = goodPlan();
+  plan.sections[0].contentKeys = []; // hero links nothing
+  const res = runPlanChecks(plan);
+  assert.equal(res.ok, false);
+  assert.ok(res.errors.some((e) => /Section "hero" links only 0 characters/.test(e)), JSON.stringify(res.errors));
+});
+
+test('runPlanChecks slot sections are exempt from the linked-copy floor', () => {
+  const res = runPlanChecks(goodPlan()); // events + join carry slots and no contentKeys
+  assert.equal(res.ok, true, JSON.stringify(res.errors));
+});
+
+// Architect refinement: the total copy floor scales by NON-slot sections, so
+// a legitimately content-light, slot-heavy plan is not falsely rejected.
+test('runPlanChecks passes a slot-heavy plan with modest manifest copy', () => {
+  const plan = goodPlan();
+  // Only the hero carries copy; the other three sections are live slots.
+  plan.contentManifest = [plan.contentManifest[0]]; // ~230 chars, floor = 1 * 150
+  plan.sections[1] = { ...plan.sections[1], contentKeys: [], slot: 'news_listing' };
+  const res = runPlanChecks(plan);
+  assert.equal(res.ok, true, JSON.stringify(res.errors));
+});
+
+test('runPlanChecks does not treat non-FAQ "question" wording as an FAQ section', () => {
+  const plan = goodPlan();
+  plan.sections[1] = { ...plan.sections[1], headline: 'Questions about joining? We can help' };
+  const res = runPlanChecks(plan);
+  assert.equal(res.ok, true, JSON.stringify(res.errors));
+});
+
+test('runPlanChecks requires Q&A pairs for FAQ-style sections', () => {
+  const plan = goodPlan();
+  plan.sections[1] = {
+    key: 'faq', purpose: 'faq', headline: 'Frequently asked questions',
+    contentKeys: ['benefits', 'benefits-extra'], slot: null, actionTypes: [],
+  };
+  const res = runPlanChecks(plan);
+  assert.equal(res.ok, false);
+  assert.ok(res.errors.some((e) => /FAQ section "faq" links only 0 question-and-answer/.test(e)), JSON.stringify(res.errors));
+
+  // With three full Q&A items it passes.
+  const qa = (n) => ({
+    key: `faq-${n}`, role: 'faq',
+    text: `Question ${n}: how long does the appointment take? Answer: most visits take under an hour from arrival to leaving, including time to change and a short wait while we check the images are clear.`,
+  });
+  plan.contentManifest.push(qa(1), qa(2), qa(3));
+  plan.sections[1].contentKeys = ['faq-1', 'faq-2', 'faq-3'];
+  const ok = runPlanChecks(plan);
+  assert.equal(ok.ok, true, JSON.stringify(ok.errors));
+});
+
+test('buildContentPlanPrompt states the copy-depth floors up front', () => {
+  const { system } = buildContentPlanPrompt({ brief: 'x', brand: BRAND });
+  assert.match(system, /COPY DEPTH/);
+  assert.match(system, new RegExp(`${PLAN_COPY_MIN_CHARS_PER_SECTION} characters of real copy per planned content section`));
+  assert.match(system, new RegExp(`${PLAN_SECTION_MIN_LINKED_COPY_CHARS} characters of manifest copy`));
+  assert.match(system, new RegExp(`${PLAN_FAQ_MIN_QA_ITEMS} complete question-and-answer items`));
+});
+
+test('buildCodePrompt tells the model the manifest is a floor to expand', () => {
+  const { user } = buildCodePrompt({
+    brief: 'x', brand: BRAND, compositionType: 'page_body', plan: goodPlan(),
+  });
+  assert.match(user, /The manifest is a FLOOR, not the whole page/);
+  assert.match(user, /never invent new facts/);
+});
+
+test('buildCodePrompt retry feedback includes manifest size when HTML was thin', () => {
+  const plan = goodPlan();
+  const manifestChars = plan.contentManifest.reduce((n, m) => n + m.text.trim().length, 0);
+  const { user } = buildCodePrompt({
+    brief: 'x', brand: BRAND, compositionType: 'page_body', plan,
+    attempt: 1, lastErrors: ['markup far too thin'],
+    lastStats: { htmlChars: 2500, cssChars: 1600, htmlOk: false, cssOk: false },
+  });
+  assert.match(user, new RegExp(`content manifest carries ${manifestChars} characters of copy across ${plan.contentManifest.length} item`));
+  assert.match(user, /EXPANDING every manifest item/);
+});
+
+test('buildCodePrompt omits the manifest hint when HTML passed its checks', () => {
+  const { user } = buildCodePrompt({
+    brief: 'x', brand: BRAND, compositionType: 'page_body', plan: goodPlan(),
+    attempt: 1, lastErrors: ['css too small'],
+    lastStats: { htmlChars: 5000, cssChars: 900, htmlOk: true, cssOk: false },
+  });
+  assert.doesNotMatch(user, /EXPANDING every manifest item/);
 });
 
 // ---------------------------------------------------------------------------
