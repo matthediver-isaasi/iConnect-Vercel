@@ -220,7 +220,33 @@ export default async function handler(req, res) {
       }
       allRows.sort((a, b) => a.name.localeCompare(b.name));
     } else {
-      for (const r of allRows) r.name = r.key;
+      // Resolve member ids so the client can link each email to the member
+      // record. Emails are stored lowercased (row keys already are); lookup is
+      // tenant-scoped and chunked to dodge long IN lists / the 1000-row cap.
+      const emails = allRows.map((r) => r.key);
+      const memberIdByEmail = new Map();
+      for (let i = 0; i < emails.length; i += 200) {
+        const chunk = emails.slice(i, i + 200);
+        const { data: members, error: memberErr } = await supabase
+          .from('member')
+          .select('id, email')
+          .eq('tenant_id', tenantId)
+          .in('email', chunk);
+        if (memberErr) {
+          console.error('[Form Conversion Report] Failed to fetch members:', memberErr);
+          break;
+        }
+        for (const m of members || []) {
+          if (typeof m.email === 'string') {
+            const key = m.email.trim().toLowerCase();
+            if (!memberIdByEmail.has(key)) memberIdByEmail.set(key, m.id);
+          }
+        }
+      }
+      for (const r of allRows) {
+        r.name = r.key;
+        r.memberId = memberIdByEmail.get(r.key) || null;
+      }
       allRows.sort((a, b) => a.name.localeCompare(b.name));
     }
 

@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -456,7 +457,6 @@ export default function FormConversionReport() {
                         <th className="py-2 pr-4 font-medium">
                           {isOrgMode ? "Organisation" : "Email"}
                         </th>
-                        {isOrgMode && <th className="py-2 pr-4 font-medium">Organisation ID</th>}
                         <th className="py-2 pr-4 font-medium">Source submitted</th>
                         <th className="py-2 pr-4 font-medium">Target submitted</th>
                         <th className="py-2 font-medium">Status</th>
@@ -466,13 +466,26 @@ export default function FormConversionReport() {
                       {rows.map((row) => (
                         <tr key={row.key} className="border-b last:border-0" data-testid={`row-entity-${row.key}`}>
                           <td className="py-2 pr-4 font-medium" data-testid={`text-entity-name-${row.key}`}>
-                            {row.name}
+                            {isOrgMode ? (
+                              <Link
+                                to={`/organisations/${row.key}`}
+                                className="hover:underline text-foreground"
+                                data-testid={`link-entity-${row.key}`}
+                              >
+                                {row.name}
+                              </Link>
+                            ) : row.memberId ? (
+                              <Link
+                                to={`/members/${row.memberId}`}
+                                className="hover:underline text-foreground"
+                                data-testid={`link-entity-${row.key}`}
+                              >
+                                {row.name}
+                              </Link>
+                            ) : (
+                              row.name
+                            )}
                           </td>
-                          {isOrgMode && (
-                            <td className="py-2 pr-4 text-xs text-muted-foreground font-mono">
-                              {row.key}
-                            </td>
-                          )}
                           <td className="py-2 pr-4">
                             <DatesCell dates={row.sourceDates} />
                           </td>
