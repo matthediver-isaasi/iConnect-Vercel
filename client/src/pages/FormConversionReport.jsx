@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeftRight, Building2, Users, ChevronLeft, ChevronRight, Loader2, FileText, Percent, CheckCircle2, XCircle } from "lucide-react";
+import { ArrowLeftRight, Building2, Users, ChevronLeft, ChevronRight, Loader2, FileText, Percent, CheckCircle2, XCircle, Download } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { base44 } from "@/api/base44Client";
 import { createPageUrl } from "@/utils";
@@ -74,6 +74,44 @@ export default function FormConversionReport() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [page, setPage] = useState(1);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState(null);
+
+  const handleExportCsv = async () => {
+    setExporting(true);
+    setExportError(null);
+    try {
+      const params = new URLSearchParams({
+        sourceFormId,
+        targetFormId,
+        matchBy,
+        comparison,
+        export: "1",
+      });
+      if (dateFrom) params.set("dateFrom", dateFrom);
+      if (dateTo) params.set("dateTo", dateTo);
+      const res = await fetch(`/api/reports/form-conversion-report?${params}`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Export failed (${res.status})`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `form-conversion-report-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setExportError(err.message || "Export failed");
+    } finally {
+      setExporting(false);
+    }
+  };
 
   useEffect(() => {
     if (isAccessReady) {
@@ -370,11 +408,32 @@ export default function FormConversionReport() {
                   </span>
                 )}
               </CardTitle>
-              {reportFetching && !reportLoading && (
-                <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-              )}
+              <div className="flex items-center gap-2">
+                {reportFetching && !reportLoading && (
+                  <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleExportCsv}
+                  disabled={exporting || reportLoading || !!reportError || (pagination && pagination.totalRows === 0)}
+                  data-testid="button-export-csv"
+                >
+                  {exporting ? (
+                    <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4 mr-1" />
+                  )}
+                  Export CSV
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
+              {exportError && (
+                <div className="mb-3 text-sm text-destructive" data-testid="text-export-error">
+                  {exportError}
+                </div>
+              )}
               {reportError ? (
                 <div className="p-6 text-center text-sm text-destructive" data-testid="text-report-error">
                   {reportError.message}

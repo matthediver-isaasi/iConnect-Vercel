@@ -21,6 +21,7 @@ import {
   resolveMemberExclusions,
   makeFeatureAccessChecker,
 } from '../_lib/memberFeatureAccess.js';
+import { escapeCsvCell, CSV_BOM, CSV_ROW_SEPARATOR } from '../_lib/csvCell.js';
 
 const PAGE_SIZE = 1000;
 const MAX_TOTAL_ROWS = 50000;
@@ -110,6 +111,7 @@ export default async function handler(req, res) {
       dateTo,
       page = '1',
       pageSize = '25',
+      export: exportMode,
     } = req.query;
 
     if (!sourceFormId || !targetFormId) {
@@ -220,6 +222,36 @@ export default async function handler(req, res) {
     } else {
       for (const r of allRows) r.name = r.key;
       allRows.sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    // CSV export: stream ALL matching rows (no pagination) with the same
+    // filters/RBAC as the on-screen report.
+    if (exportMode === '1' || exportMode === 'csv') {
+      const header = [
+        matchBy === 'organization' ? 'Organisation' : 'Email',
+        ...(matchBy === 'organization' ? ['Organisation ID'] : []),
+        'Status',
+        'Source submitted',
+        'Target submitted',
+      ];
+      const lines = [header.map(escapeCsvCell).join(',')];
+      for (const r of allRows) {
+        const cols = [
+          r.name,
+          ...(matchBy === 'organization' ? [r.key] : []),
+          r.converted ? 'Converted' : 'Not converted',
+          r.sourceDates.join('; '),
+          r.targetDates.join('; '),
+        ];
+        lines.push(cols.map(escapeCsvCell).join(','));
+      }
+      const filename = `form-conversion-report-${new Date().toISOString().slice(0, 10)}.csv`;
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      // BOM so Excel opens UTF-8 correctly.
+      return res
+        .status(200)
+        .send(CSV_BOM + lines.join(CSV_ROW_SEPARATOR) + CSV_ROW_SEPARATOR);
     }
 
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
