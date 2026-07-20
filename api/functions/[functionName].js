@@ -12,6 +12,7 @@ import { creditTrainingFundForPurchase } from '../_lib/trainingFundPurchase.js';
 import { getStripeCredentials, findOrCreateStripeCustomer } from '../_lib/stripeCredentials.js';
 import { sendConfirmationEmailsFromTemplate as sharedSendConfirmationEmailsFromTemplate } from '../_lib/eventConfirmationEmail.js';
 import { sanitizeOptionSelections } from '../_lib/eventOptionSelections.js';
+import { getAllowVoucherUseAfterExpiry, isVoucherUsableForEventDate } from '../_lib/voucherExpiryPolicy.js';
 import {
   ticketHasAccessRestrictions,
   isTicketAccessibleToMember,
@@ -2377,6 +2378,7 @@ const functionHandlers = {
       // Process voucher deductions if any - with ownership validation
       if (selectedVoucherIds && selectedVoucherIds.length > 0) {
         console.log('[createOneOffEventBooking] Processing vouchers:', selectedVoucherIds);
+        const allowVoucherAfterExpiry = await getAllowVoucherUseAfterExpiry(supabase, event.tenant_id || org.tenant_id);
         for (const voucherId of selectedVoucherIds) {
           console.log('[createOneOffEventBooking] Looking up voucher:', voucherId, 'for org:', org.id);
           // Fetch voucher from the voucher table and validate it belongs to the member's organization
@@ -2389,6 +2391,12 @@ const functionHandlers = {
             .single();
           
           console.log('[createOneOffEventBooking] Voucher lookup result:', voucher ? { id: voucher.id, value: voucher.value, status: voucher.status } : 'not found', 'error:', voucherError?.message);
+          
+          if (voucher && !isVoucherUsableForEventDate(voucher, event.start_date, allowVoucherAfterExpiry)) {
+            return res.status(400).json({
+              error: 'One or more selected vouchers expire before the event takes place and cannot be used for this booking.'
+            });
+          }
           
           if (voucher && voucher.value > 0) {
             // Clamp amount to remaining cost

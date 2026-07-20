@@ -18,6 +18,7 @@ import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import VoucherSelector from "./VoucherSelector";
 import { useBalancesRealtime } from "@/hooks/useBalancesRealtime";
+import { publicClient } from "@/api/publicClient";
 import { getEffectiveTicketPrice } from "@/lib/ticketPricing";
 
 // Stripe promise will be initialized dynamically
@@ -722,6 +723,14 @@ export default function PaymentOptions({
   const hasEnoughTickets = isOneOffEvent ? true : availableProgramTickets >= ticketsRequired;
 
   const trainingFundAllowedRoles = organizationInfo?.training_fund_allowed_role_ids || [];
+  // Tenant setting: can a voucher pay for an event that starts after the voucher expires?
+  const { data: voucherExpirySetting } = useQuery({
+    queryKey: ['/api/public/system-settings', 'allow_voucher_use_after_expiry'],
+    queryFn: () => publicClient.getSystemSetting('allow_voucher_use_after_expiry'),
+    staleTime: 5 * 60 * 1000,
+  });
+  const restrictVouchersToEventDate = voucherExpirySetting?.setting_value === 'false';
+
   const voucherAllowedRoles = organizationInfo?.voucher_allowed_role_ids || [];
   const memberRoleId = memberInfo?.role_id;
   const isTrainingFundRoleAllowed = trainingFundAllowedRoles.length === 0 || (memberRoleId && trainingFundAllowedRoles.includes(memberRoleId));
@@ -1485,6 +1494,8 @@ export default function PaymentOptions({
                       selectedVouchers={selectedVouchers}
                       onVoucherToggle={setSelectedVouchers}
                       maxAmount={costAfterDiscount}
+                      eventStartDate={event?.start_date || null}
+                      restrictToEventDate={restrictVouchersToEventDate}
                     />
                     {voucherAmount > 0 && (
                       <div className="mt-3 pt-3 border-t border-blue-200">

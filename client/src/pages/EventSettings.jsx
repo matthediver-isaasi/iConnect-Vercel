@@ -110,6 +110,9 @@ export default function EventSettingsPage() {
   // Require internal reference on events
   const [requireInternalReference, setRequireInternalReference] = useState(false);
   
+  // Allow vouchers to be used for events after their expiry date
+  const [allowVoucherAfterExpiry, setAllowVoucherAfterExpiry] = useState(true);
+  
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -294,6 +297,11 @@ export default function EventSettingsPage() {
     const requireInternalRefSetting = settings.find(s => s.setting_key === 'require_internal_reference');
     if (requireInternalRefSetting) {
       setRequireInternalReference(requireInternalRefSetting.setting_value === 'true');
+    }
+
+    const voucherExpirySetting = settings.find(s => s.setting_key === 'allow_voucher_use_after_expiry');
+    if (voucherExpirySetting) {
+      setAllowVoucherAfterExpiry(voucherExpirySetting.setting_value !== 'false');
     }
 
     const featuredBgSetting = settings.find(s => s.setting_key === 'featured_events_background');
@@ -643,6 +651,21 @@ export default function EventSettingsPage() {
           setting_key: 'require_internal_reference',
           setting_value: requireInternalReference.toString(),
           description: 'Require an internal reference when creating or editing events'
+        });
+      }
+
+      // Save voucher expiry vs event date setting
+      const voucherExpirySetting = settings.find(s => s.setting_key === 'allow_voucher_use_after_expiry');
+      if (voucherExpirySetting) {
+        await base44.entities.SystemSettings.update(voucherExpirySetting.id, {
+          setting_value: allowVoucherAfterExpiry.toString(),
+          description: 'Allow training vouchers to be used for events that take place after the voucher expiry date'
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'allow_voucher_use_after_expiry',
+          setting_value: allowVoucherAfterExpiry.toString(),
+          description: 'Allow training vouchers to be used for events that take place after the voucher expiry date'
         });
       }
 
@@ -1486,6 +1509,47 @@ export default function EventSettingsPage() {
                   onClick={handleSaveSettings}
                   disabled={isSaving}
                   data-testid="button-save-donation-settings"
+                >
+                  <Save className="w-4 h-4 mr-2" />
+                  Save
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Voucher Settings Section */}
+        <Card className="border-slate-200 shadow-sm mb-8">
+          <CardHeader className="border-b border-slate-200">
+            <div className="flex items-center gap-2">
+              <Ticket className="w-5 h-5 text-blue-600" />
+              <CardTitle>Voucher Settings</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-6">
+            <div className="max-w-2xl space-y-4">
+              <div className="flex items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <Label htmlFor="voucher-after-expiry-toggle">
+                    Allow vouchers to be used for events after their expiry date
+                  </Label>
+                  <p className="text-xs text-slate-500">
+                    When enabled, a voucher can pay for an event that takes place after the voucher expires, as long as the voucher is still valid at the time of booking.
+                    When disabled, a voucher can only be used for events that start before the voucher's expiry date.
+                  </p>
+                </div>
+                <Switch
+                  id="voucher-after-expiry-toggle"
+                  checked={allowVoucherAfterExpiry}
+                  onCheckedChange={setAllowVoucherAfterExpiry}
+                  data-testid="switch-allow-voucher-after-expiry"
+                />
+              </div>
+              <div className="flex justify-end pt-2">
+                <Button
+                  onClick={handleSaveSettings}
+                  disabled={isSaving}
+                  data-testid="button-save-voucher-settings"
                 >
                   <Save className="w-4 h-4 mr-2" />
                   Save

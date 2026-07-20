@@ -8,7 +8,15 @@ import { Badge } from "@/components/ui/badge";
 import { Ticket, Calendar, AlertCircle, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 
-export default function VoucherSelector({ organizationId, selectedVouchers, onVoucherToggle, maxAmount }) {
+export default function VoucherSelector({ organizationId, selectedVouchers, onVoucherToggle, maxAmount, eventStartDate = null, restrictToEventDate = false }) {
+  // When the tenant disallows using vouchers past their expiry for a later event,
+  // a voucher is only eligible if it expires AFTER the event's start date.
+  const eventStart = restrictToEventDate && eventStartDate ? new Date(eventStartDate) : null;
+  const isVoucherEligible = (voucher) => {
+    if (!eventStart || isNaN(eventStart.getTime())) return true;
+    if (!voucher.expires_at) return true;
+    return new Date(voucher.expires_at) > eventStart;
+  };
   // Fetch raw vouchers without any sorting in the queryFn
   const { data: rawVouchers = [], isLoading, error } = useQuery({
     queryKey: ['vouchers', organizationId],
@@ -125,11 +133,27 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
 
   const handleToggle = (voucherId, checked) => {
     if (checked) {
+      const voucher = vouchers.find(v => v.id === voucherId);
+      if (voucher && !isVoucherEligible(voucher)) return;
       onVoucherToggle([...selectedVouchers, voucherId]);
     } else {
       onVoucherToggle(selectedVouchers.filter(id => id !== voucherId));
     }
   };
+
+  // If the eligibility rule kicks in (e.g. setting/event date loads after the user
+  // selected a voucher), automatically deselect any ineligible vouchers.
+  useEffect(() => {
+    if (!eventStart || isNaN(eventStart.getTime())) return;
+    if (!vouchers.length || !selectedVouchers.length) return;
+    const eligibleSelected = selectedVouchers.filter(id => {
+      const voucher = vouchers.find(v => v.id === id);
+      return !voucher || isVoucherEligible(voucher);
+    });
+    if (eligibleSelected.length !== selectedVouchers.length) {
+      onVoucherToggle(eligibleSelected);
+    }
+  }, [vouchers, selectedVouchers, restrictToEventDate, eventStartDate]);
 
   if (isLoading) {
     return (
@@ -188,7 +212,8 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
 
       <div className="space-y-2 max-h-64 overflow-y-auto">
         {vouchers.map((voucher) => {
-          const isSelected = selectedVouchers.includes(voucher.id);
+          const isEligible = isVoucherEligible(voucher);
+          const isSelected = isEligible && selectedVouchers.includes(voucher.id);
           const usageInfo = voucherUsageInfo.get(voucher.id);
           const isFullyUsed = usageInfo?.isFullyUsed || false;
           const remainingValue = usageInfo?.remainingValue || 0;
@@ -231,7 +256,8 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
           return (
             <div
               key={voucher.id}
-              className={`p-3 rounded-lg border transition-all ${borderColor} ${bgColor}`}
+              className={`p-3 rounded-lg border transition-all ${borderColor} ${bgColor} ${!isEligible ? 'opacity-60' : ''}`}
+              data-testid={`voucher-option-${voucher.id}`}
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
@@ -255,6 +281,14 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
                     </span>
                   </div>
                   
+                  {!isEligible && (
+                    <div className="mt-2 pt-2 border-t border-warning/30">
+                      <p className="text-xs text-warning font-medium" data-testid={`text-voucher-ineligible-${voucher.id}`}>
+                        This voucher expires before the event takes place, so it can't be used for this booking.
+                      </p>
+                    </div>
+                  )}
+                  
                   {showRemainingValue && (
                     <div className="mt-2 pt-2 border-t border-warning/30">
                       <p className="text-xs text-warning font-medium">
@@ -266,6 +300,7 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
                 
                 <Switch
                   checked={isSelected}
+                  disabled={!isEligible}
                   onCheckedChange={(checked) => handleToggle(voucher.id, checked)}
                   className="shrink-0"
                 />

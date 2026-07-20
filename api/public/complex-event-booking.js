@@ -17,6 +17,7 @@ import {
   getMemberGroupIdsForMember
 } from '../_lib/ticketAccess.js';
 import { getAccountingProvider } from '../_lib/accountingProvider.js';
+import { getAllowVoucherUseAfterExpiry, isVoucherUsableForEventDate } from '../_lib/voucherExpiryPolicy.js';
 import { sendConfirmationEmailsFromTemplate } from '../_lib/eventConfirmationEmail.js';
 
 function generateBookingReference() {
@@ -94,7 +95,7 @@ export default async function handler(req, res) {
 
     const { data: event, error: eventError } = await supabase
       .from('complex_event')
-      .select('id, title, status, event_state, tenant_id, member_group_id, available_seats, internal_reference, xero_account_code, pricing_config, dietary_options, allergy_options, accessibility_options')
+      .select('id, title, status, event_state, tenant_id, member_group_id, available_seats, internal_reference, xero_account_code, pricing_config, dietary_options, allergy_options, accessibility_options, start_date')
       .eq('id', event_id)
       .eq('tenant_id', tenant.id)
       .in('status', ['published', 'tbc'])
@@ -488,6 +489,23 @@ export default async function handler(req, res) {
           return res.status(400).json({ error: 'selected_voucher_ids is required for voucher payment' });
         }
 
+        const allowVoucherAfterExpiry = await getAllowVoucherUseAfterExpiry(supabase, event.tenant_id || tenant.id);
+
+        // Event start for the expiry policy: stored start_date, falling back to
+        // the earliest session start when start_date hasn't been computed yet.
+        let voucherPolicyEventStart = event.start_date || null;
+        if (!allowVoucherAfterExpiry && !voucherPolicyEventStart) {
+          const { data: earliestSession } = await supabase
+            .from('complex_event_session')
+            .select('start_time')
+            .eq('complex_event_id', event.id)
+            .not('start_time', 'is', null)
+            .order('start_time', { ascending: true })
+            .limit(1)
+            .maybeSingle();
+          voucherPolicyEventStart = earliestSession?.start_time || null;
+        }
+
         for (const voucherId of voucherIds) {
           const { data: voucher } = await supabase
             .from('voucher')
@@ -496,6 +514,12 @@ export default async function handler(req, res) {
             .eq('organization_id', org.id)
             .eq('status', 'active')
             .single();
+
+          if (voucher && !isVoucherUsableForEventDate(voucher, voucherPolicyEventStart, allowVoucherAfterExpiry)) {
+            return res.status(400).json({
+              error: 'One or more selected vouchers expire before the event takes place and cannot be used for this booking.'
+            });
+          }
 
           if (voucher && voucher.value > 0) {
             const amountToUse = Math.min(voucher.value, totalCostPounds - voucherAmountApplied - validatedTrainingFundAmount);

@@ -22,6 +22,7 @@ import TourButton from "../components/tour/TourButton";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useProgramTicketRealtime } from "@/hooks/useProgramTicketRealtime";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { publicClient } from "@/api/publicClient";
 
 // Load Stripe outside component to avoid recreating on every render
 let stripePromise = null;
@@ -283,6 +284,14 @@ export default function BuyProgramTicketsPage({
     refetchOnMount: true,
   });
 
+  // Tenant setting: can a voucher pay for an event that starts after the voucher expires?
+  const { data: voucherExpirySetting } = useQuery({
+    queryKey: ['/api/public/system-settings', 'allow_voucher_use_after_expiry'],
+    queryFn: () => publicClient.getSystemSetting('allow_voucher_use_after_expiry'),
+    staleTime: 5 * 60 * 1000,
+  });
+  const restrictVouchersToEventDate = voucherExpirySetting?.setting_value === 'false';
+
   // Fetch vouchers to calculate total value of selected ones
   const { data: vouchers = [] } = useQuery({
     queryKey: ['vouchers', organizationInfo?.id],
@@ -444,6 +453,19 @@ export default function BuyProgramTicketsPage({
     }
     return acc;
   }, {});
+
+  // Earliest upcoming event start for the selected program's tag — used to gate
+  // voucher eligibility when the tenant disallows vouchers past their expiry.
+  const earliestProgramEventStart = React.useMemo(() => {
+    if (!selectedProgram?.program_tag) return null;
+    const now = new Date();
+    const starts = events
+      .filter(e => e.program_tag === selectedProgram.program_tag && e.start_date)
+      .map(e => new Date(e.start_date))
+      .filter(d => !isNaN(d.getTime()) && d >= now)
+      .sort((a, b) => a - b);
+    return starts.length > 0 ? starts[0].toISOString() : null;
+  }, [events, selectedProgram]);
 
   const calculateCost = (program, qty) => {
     const offerType = program.offer_type || "none";
@@ -1167,6 +1189,8 @@ export default function BuyProgramTicketsPage({
                           selectedVouchers={selectedVouchers}
                           onVoucherToggle={setSelectedVouchers}
                           maxAmount={totalCost}
+                          eventStartDate={earliestProgramEventStart}
+                          restrictToEventDate={restrictVouchersToEventDate}
                         />
                         {voucherAmount > 0 && (
                           <div className="mt-3 pt-3 border-t border-blue-200">
