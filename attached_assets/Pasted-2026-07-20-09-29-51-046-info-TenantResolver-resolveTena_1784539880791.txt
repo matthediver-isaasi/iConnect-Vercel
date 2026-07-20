@@ -1,0 +1,34 @@
+2026-07-20 09:29:51.046 [info] [TenantResolver] resolveTenantFromRequest called
+2026-07-20 09:29:51.048 [info] [TenantResolver] Params - tenant: undefined domain: undefined
+2026-07-20 09:29:51.048 [info] [TenantResolver] Falling back to host-based resolution, hostname: gsf.dev.iconn.app
+2026-07-20 09:29:51.048 [info] [TenantResolver] resolveTenantFromHost called with: gsf.dev.iconn.app
+2026-07-20 09:29:51.048 [info] [TenantResolver] Parsed host: gsf.dev.iconn.app
+2026-07-20 09:29:51.048 [info] [TenantResolver] Preview environment detected, environment: dev
+2026-07-20 09:29:51.049 [info] [TenantResolver] Subdomain detected, slug: gsf
+2026-07-20 09:29:51.049 [info] [TenantResolver] Looking up by slug: gsf
+2026-07-20 09:29:51.236 [info] [TenantResolver] Found tenant by slug: gsf
+2026-07-20 09:29:51.244 [info] [Session] getSession: Looking up session: 0ef6277b (cookie)
+2026-07-20 09:29:51.354 [info] [Session] getSession: Session found, userType: member
+2026-07-20 09:29:51.356 [info] [TenantContext] About to call getSessionTenantUser
+2026-07-20 09:29:51.356 [info] [Session] getSession: Looking up session: 0ef6277b (cookie)
+2026-07-20 09:29:51.469 [info] [Session] getSession: Session found, userType: member
+2026-07-20 09:29:51.469 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"0ef6277b","userType":"member","memberId":"49f0b578-2e2f-46f8-a151-2c4c08cc570c","identityId":"dc156a30-ae8d-4aee-b965-b54fe4b17105","tenantId":"21296ad6-1350-483a-a90c-1b06ece70501"}
+2026-07-20 09:29:51.469 [info] [Session] Found member session with identityId, attempting promotion
+2026-07-20 09:29:51.684 [info] [Session] No tenant_user record found for identity promotion
+2026-07-20 09:29:51.684 [info] [Session] Member session promotion failed
+2026-07-20 09:29:51.684 [info] [TenantContext] getSessionTenantUser returned: null
+2026-07-20 09:29:51.684 [info] [TenantContext] Checking for member session...
+2026-07-20 09:29:51.684 [info] [Session] getSession: Looking up session: 0ef6277b (cookie)
+2026-07-20 09:29:51.799 [info] [Session] getSession: Session found, userType: member
+2026-07-20 09:29:51.799 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"0ef6277b","userType":"member","memberId":"49f0b578-2e2f-46f8-a151-2c4c08cc570c"}
+2026-07-20 09:29:51.915 [info] [TenantContext] Member found: {
+  memberId: '49f0b578-2e2f-46f8-a151-2c4c08cc570c',
+  organizationId: '7a097c15-1028-4e12-acde-c5ababb7201e'
+}
+2026-07-20 09:29:51.915 [info] [TenantContext] Tenant from member: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-07-20 09:29:52.266 [error] [Dashboard Widgets] Update failed: {
+  code: '23514',
+  details: 'Failing row contains (8318794c-9cd3-42b7-ba73-9a8a8a5f0e77, 21296ad6-1350-483a-a90c-1b06ece70501, shared, null, Unique countries of operation, list, third, {"color": "default", "source": "organization", "filters": [], "g..., 14, 49f0b578-2e2f-46f8-a151-2c4c08cc570c, 2026-06-24 10:29:41.542272+00, 2026-07-20 09:29:52.153+00).',
+  hint: null,
+  message: 'new row for relation "dashboard_widget" violates check constraint "dashboard_widget_widget_type_check"'
+}
