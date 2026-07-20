@@ -95,7 +95,7 @@ export default function FormConversionReport() {
     enabled: accessChecked,
     queryFn: async () => {
       const all = await base44.entities.Form.list();
-      return (all || []).sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+      return (all || []).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
     },
     staleTime: 60 * 1000,
   });
@@ -239,7 +239,7 @@ export default function FormConversionReport() {
               </SelectTrigger>
               <SelectContent>
                 {forms.map((f) => (
-                  <SelectItem key={f.id} value={f.id}>{f.title || "(Untitled form)"}</SelectItem>
+                  <SelectItem key={f.id} value={f.id}>{f.name || "(Untitled form)"}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -252,7 +252,7 @@ export default function FormConversionReport() {
               </SelectTrigger>
               <SelectContent>
                 {forms.map((f) => (
-                  <SelectItem key={f.id} value={f.id}>{f.title || "(Untitled form)"}</SelectItem>
+                  <SelectItem key={f.id} value={f.id}>{f.name || "(Untitled form)"}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
