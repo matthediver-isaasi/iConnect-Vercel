@@ -63,6 +63,13 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
     return runDdWidgetConfig(config, tenantId, source, maxGroups);
   }
 
+  // Form conversion has a bespoke shape (two forms, distinct-entity
+  // intersection) so it routes through its own aggregator — the generic
+  // measure / group-by / time-bucket machinery does not apply.
+  if (source.isConversion) {
+    return runConversionWidgetConfig(config, tenantId, source);
+  }
+
   const measure = normaliseMeasure(config.measure);
   const groupBy = config.groupBy || null;
   const timeBucket = config.timeBucket || null;
@@ -1214,5 +1221,136 @@ async function runDdWidgetConfig(config, tenantId, source, maxGroups = MAX_GROUP
     categories: ['value'],
     rows: config.cumulative ? applyCumulative(timeRows) : timeRows,
     granularity: timeBucket.granularity,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Form conversion aggregator
+// ---------------------------------------------------------------------------
+
+/**
+ * Paginate every submission of a single form for a tenant past PostgREST's
+ * 1000-row page cap. `dateFilters` (system filters on created_date) are
+ * applied at the query level when supplied.
+ */
+async function fetchFormSubmissions(formId, tenantId, dateFilters = []) {
+  const rows = [];
+  for (let from = 0; from < MAX_TOTAL_ROWS; from += PAGE_SIZE) {
+    const to = Math.min(from + PAGE_SIZE - 1, MAX_TOTAL_ROWS - 1);
+    let query = supabase
+      .from('form_submission')
+      .select('id, organization_id, submitted_by_email, created_date')
+      .eq('tenant_id', tenantId)
+      .eq('form_id', formId)
+      // Stable ordering is required for .range() pagination — without it
+      // PostgREST may skip or repeat rows across pages.
+      .order('id', { ascending: true });
+    query = applySystemFilters(query, dateFilters, null);
+    const { data: page, error } = await query.range(from, to);
+    if (error) {
+      throw new Error(`Failed to fetch form submissions: ${error.message}`);
+    }
+    rows.push(...(page || []));
+    if (!page || page.length < PAGE_SIZE) break;
+    // A full page that fills our scan budget means more rows remain — refuse
+    // rather than silently truncate (matches the generic aggregator's guard).
+    if (rows.length >= MAX_TOTAL_ROWS) {
+      throw new Error(
+        `Widget would scan more than ${MAX_TOTAL_ROWS} rows. ` +
+        `Add filters to narrow the dataset.`,
+      );
+    }
+  }
+  return rows;
+}
+
+/**
+ * Form conversion: count distinct entities (organisations or members by
+ * lowercased submitter email) that submitted BOTH the source form and the
+ * target form. Date filters (system created_date filters) scope the TARGET
+ * form's submissions only — a conversion counts when the target submission
+ * falls inside the range, regardless of when the source one happened.
+ */
+async function runConversionWidgetConfig(config, tenantId, source) {
+  const conv = config.conversion || {};
+  const { sourceFormId, targetFormId, matchBy } = conv;
+  if (!sourceFormId || !targetFormId) {
+    throw new Error('Choose both a source form and a target form');
+  }
+  if (sourceFormId === targetFormId) {
+    throw new Error('Source and target forms must be different');
+  }
+  if (matchBy !== 'organization' && matchBy !== 'member') {
+    throw new Error('Match by must be organisation or member');
+  }
+
+  // Both forms must belong to this tenant — otherwise a crafted config
+  // could count another tenant's submissions.
+  const { data: forms, error: formErr } = await supabase
+    .from('form')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .in('id', [sourceFormId, targetFormId]);
+  if (formErr) {
+    throw new Error(`Failed to verify forms: ${formErr.message}`);
+  }
+  const foundIds = new Set((forms || []).map(f => f.id));
+  if (!foundIds.has(sourceFormId) || !foundIds.has(targetFormId)) {
+    throw new Error('One or both selected forms no longer exist');
+  }
+
+  const timestampField = source.timestampField || 'created_date';
+  const dateFilters = (config.filters || []).filter(
+    f => f.fieldKind === 'system' && f.field === timestampField,
+  );
+
+  const [sourceRows, targetRows] = await Promise.all([
+    fetchFormSubmissions(sourceFormId, tenantId),
+    fetchFormSubmissions(targetFormId, tenantId, dateFilters),
+  ]);
+
+  // Rows without a usable match key (no organisation / blank email) can
+  // never convert, so they're skipped when building the key sets — but
+  // they still count toward the raw submission totals shown on the card.
+  const keyOf = row => {
+    if (matchBy === 'organization') return row.organization_id || null;
+    const email = typeof row.submitted_by_email === 'string'
+      ? row.submitted_by_email.trim().toLowerCase()
+      : '';
+    return email || null;
+  };
+  const sourceKeys = new Set();
+  for (const row of sourceRows) {
+    const key = keyOf(row);
+    if (key) sourceKeys.add(key);
+  }
+  const targetKeys = new Set();
+  for (const row of targetRows) {
+    const key = keyOf(row);
+    if (key) targetKeys.add(key);
+  }
+
+  let convertedCount = 0;
+  for (const key of sourceKeys) {
+    if (targetKeys.has(key)) convertedCount += 1;
+  }
+  const sourceEntityCount = sourceKeys.size;
+  const conversionRate = sourceEntityCount > 0
+    ? (convertedCount / sourceEntityCount) * 100
+    : null;
+
+  return {
+    type: 'conversion',
+    value: convertedCount,
+    convertedCount,
+    conversionRate,
+    matchBy,
+    sourceSubmissionCount: sourceRows.length,
+    targetSubmissionCount: targetRows.length,
+    sourceEntityCount,
+    targetEntityCount: targetKeys.size,
+    total: convertedCount,
+    categories: ['value'],
+    rows: [{ key: 'Converted', value: convertedCount }],
   };
 }

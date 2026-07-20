@@ -137,6 +137,8 @@ const DEFAULT_DRAFT = {
     timeBucket: null,
     // DD-only stage-transition mode; null for every other source.
     transition: null,
+    // Form-conversion only; null for every other source.
+    conversion: null,
     // Stat/KPI-only number format; null = legacy compact style (1.5M).
     numberFormat: null,
     filters: [],
@@ -217,6 +219,7 @@ export default function WidgetBuilderModal({
           timeBucket: seed.config?.timeBucket || null,
           cumulative: !!seed.config?.cumulative,
           transition: seed.config?.transition || null,
+          conversion: seed.config?.conversion || null,
           numberFormat: seed.config?.numberFormat || null,
           filters: seed.config?.filters || [],
         },
@@ -251,6 +254,13 @@ export default function WidgetBuilderModal({
   const isDdSource = !!currentSource?.isDd;
   const transition = draft.config.transition || null;
   const transitionActive = isDdSource && !!transition?.mode;
+
+  // Form-conversion capability (surfaced via the source's `isConversion`
+  // flag). The source/target pickers use the tenant's forms published on
+  // the source descriptor. Conversion widgets always render as a stat.
+  const isConversionSource = !!currentSource?.isConversion;
+  const conversion = draft.config.conversion || null;
+  const conversionForms = currentSource?.forms || [];
   const ddStageOptions = useMemo(() => {
     const f = (currentSource?.systemFields || []).find(s => s.name === "workflow_status");
     return Array.isArray(f?.options) ? f.options : [];
@@ -345,6 +355,16 @@ export default function WidgetBuilderModal({
     }));
   };
 
+  const updateConversion = patch => {
+    setDraft(prev => ({
+      ...prev,
+      config: {
+        ...prev.config,
+        conversion: { ...(prev.config.conversion || {}), ...patch },
+      },
+    }));
+  };
+
   const updateFilter = (index, patch) => {
     setDraft(prev => {
       const filters = [...(prev.config.filters || [])];
@@ -390,6 +410,30 @@ export default function WidgetBuilderModal({
       const agg = draft.config.measure.aggregator;
       const reqText = agg === "count_distinct" ? "needs a field" : "needs a numeric field";
       errs.push(`${agg} ${reqText}.`);
+    }
+    if (isConversionSource) {
+      // Conversion widgets validate their own picker set; the measure /
+      // group-by / chart-type rules below don't apply.
+      const conv = draft.config.conversion || {};
+      if (!conv.sourceFormId) errs.push("Choose a source form.");
+      if (!conv.targetFormId) errs.push("Choose a target form.");
+      if (
+        conv.sourceFormId &&
+        conv.targetFormId &&
+        conv.sourceFormId === conv.targetFormId
+      ) {
+        errs.push("Source and target forms must be different.");
+      }
+      (draft.config.filters || []).forEach((f, i) => {
+        if (!f.field && !f.fieldId) errs.push(`Filter ${i + 1}: choose a field.`);
+        if (
+          !["is_null", "is_not_null", "lmic"].includes(f.operator) &&
+          (f.value === null || f.value === undefined || f.value === "")
+        ) {
+          errs.push(`Filter ${i + 1}: enter a value.`);
+        }
+      });
+      return errs;
     }
     const tActive = !!draft.config.transition?.mode;
     if (tActive) {
@@ -445,7 +489,7 @@ export default function WidgetBuilderModal({
       }
     });
     return errs;
-  }, [draft, requireMeasureField, fieldOptions]);
+  }, [draft, requireMeasureField, fieldOptions, isConversionSource]);
 
   const canSave = validationErrors.length === 0;
 
@@ -531,11 +575,14 @@ export default function WidgetBuilderModal({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {WIDGET_TYPES.map(t => (
-                      <SelectItem key={t.value} value={t.value}>
-                        {t.label}
-                      </SelectItem>
-                    ))}
+                    {WIDGET_TYPES
+                      // Conversion widgets only render as a stat card.
+                      .filter(t => !isConversionSource || t.value === "stat")
+                      .map(t => (
+                        <SelectItem key={t.value} value={t.value}>
+                          {t.label}
+                        </SelectItem>
+                      ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -694,22 +741,29 @@ export default function WidgetBuilderModal({
               <Label>Data source</Label>
               <Select
                 value={draft.config.source}
-                onValueChange={value =>
+                onValueChange={value => {
+                  const sel = sources.find(s => s.id === value);
+                  const toConversion = !!sel?.isConversion;
                   setDraft(prev => ({
                     ...prev,
+                    // Conversion widgets only render as a stat card.
+                    widget_type: toConversion ? "stat" : prev.widget_type,
                     config: {
                       source: value,
                       measure: { aggregator: "count", field: null, fieldKind: null, fieldId: null },
                       groupBy: null,
                       timeBucket: null,
                       cumulative: false,
+                      conversion: toConversion
+                        ? { sourceFormId: null, targetFormId: null, matchBy: "organization" }
+                        : null,
                       // Display-only settings survive a source change.
                       color: prev.config.color || "default",
                       numberFormat: prev.config.numberFormat || null,
                       filters: [],
                     },
-                  }))
-                }
+                  }));
+                }}
               >
                 <SelectTrigger data-testid="select-widget-source">
                   <SelectValue />
@@ -723,6 +777,76 @@ export default function WidgetBuilderModal({
                 </SelectContent>
               </Select>
             </div>
+
+            {isConversionSource && (
+              <div className="space-y-3 rounded-md border p-3">
+                <div className="space-y-1">
+                  <Label>Form conversion</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Counts how many distinct organisations or members submitted
+                    both forms. Date filters apply to the target form's
+                    submissions.
+                  </p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Source form</Label>
+                    <Select
+                      value={conversion?.sourceFormId || ""}
+                      onValueChange={value => updateConversion({ sourceFormId: value })}
+                    >
+                      <SelectTrigger data-testid="select-conversion-source-form">
+                        <SelectValue placeholder="Choose form" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {conversionForms.map(f => (
+                          <SelectItem key={f.value} value={f.value}>
+                            {f.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Target form</Label>
+                    <Select
+                      value={conversion?.targetFormId || ""}
+                      onValueChange={value => updateConversion({ targetFormId: value })}
+                    >
+                      <SelectTrigger data-testid="select-conversion-target-form">
+                        <SelectValue placeholder="Choose form" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {conversionForms.map(f => (
+                          <SelectItem key={f.value} value={f.value}>
+                            {f.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Match by</Label>
+                  <Select
+                    value={conversion?.matchBy || "organization"}
+                    onValueChange={value => updateConversion({ matchBy: value })}
+                  >
+                    <SelectTrigger data-testid="select-conversion-matchby">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="organization">
+                        Organisation (submission's organisation)
+                      </SelectItem>
+                      <SelectItem value="member">
+                        Member (submitter's email)
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
 
             {isDdSource && (
               <div className="space-y-3 rounded-md border p-3">
@@ -811,7 +935,7 @@ export default function WidgetBuilderModal({
               </div>
             )}
 
-            {!transitionActive && (
+            {!transitionActive && !isConversionSource && (
             <>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-2">
@@ -1306,6 +1430,25 @@ function PreviewWidget({ widget, payload }) {
 
 function PreviewBody({ widget, payload }) {
   const rows = payload.rows || [];
+  if (payload.type === "conversion") {
+    const rate = payload.conversionRate;
+    return (
+      <div className="space-y-1">
+        <p className="text-3xl font-semibold tracking-tight">
+          {formatNumber(payload.convertedCount, widget.config.numberFormat)}
+          {rate !== null && rate !== undefined && (
+            <span className="ml-2 text-base font-normal text-muted-foreground">
+              ({rate.toFixed(1)}% converted)
+            </span>
+          )}
+        </p>
+        <p className="text-xs uppercase text-muted-foreground">
+          {payload.sourceSubmissionCount ?? 0} source ·{" "}
+          {payload.targetSubmissionCount ?? 0} target submissions
+        </p>
+      </div>
+    );
+  }
   switch (widget.widget_type) {
     case "stat": {
       const value = payload.type === "scalar" ? payload.value : rows[0]?.value;

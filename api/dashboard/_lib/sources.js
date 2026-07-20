@@ -157,6 +157,24 @@ export const DASHBOARD_SOURCES = {
       { name: 'last_login', label: 'Last login', type: 'date' },
     ],
   },
+  form_conversion: {
+    id: 'form_conversion',
+    label: 'Form conversion',
+    table: 'form_submission',
+    timestampField: 'created_date',
+    // Bespoke two-form funnel source: the widget counts how many distinct
+    // organisations / members submitted BOTH a source form and a target
+    // form. Config lives under `config.conversion` and the aggregation
+    // engine routes through its own code path — the generic measure /
+    // group-by / time-bucket machinery does not apply.
+    isConversion: true,
+    systemFields: [
+      // Exposed so admins can date-scope the funnel: filters on this
+      // field apply to the TARGET form's submissions (a conversion only
+      // counts when the target submission falls inside the range).
+      { name: 'created_date', label: 'Submitted at (target form)', type: 'date' },
+    ],
+  },
 };
 
 /**
@@ -213,6 +231,29 @@ async function resolveSystemFields(def, tenantId) {
   );
 }
 
+/**
+ * For the Form conversion source the builder needs the tenant's forms to
+ * populate the source/target pickers. Returns id + name options sorted by
+ * name; inactive forms are included because historic submissions still
+ * count toward conversion.
+ */
+async function getTenantFormOptions(tenantId) {
+  if (!supabase || !tenantId) return [];
+  try {
+    const { data, error } = await supabase
+      .from('form')
+      .select('id, name')
+      .eq('tenant_id', tenantId);
+    if (error) throw error;
+    return (data || [])
+      .map(f => ({ value: f.id, label: f.name || f.id }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  } catch (err) {
+    console.error('[Dashboard Sources] Failed to load form options:', err.message);
+    return [];
+  }
+}
+
 export async function getSourceCatalog(tenantId) {
   const sources = [];
   for (const def of Object.values(DASHBOARD_SOURCES)) {
@@ -225,6 +266,12 @@ export async function getSourceCatalog(tenantId) {
       // Surfaced so the builder can offer DD-only capabilities (stage
       // transitions) without hard-coding the source id client-side.
       isDd: !!def.isDd,
+      // Form-conversion capability flag + the tenant's forms for the
+      // source/target pickers.
+      isConversion: !!def.isConversion,
+      ...(def.isConversion
+        ? { forms: await getTenantFormOptions(tenantId) }
+        : {}),
       systemFields,
       customFields,
     });

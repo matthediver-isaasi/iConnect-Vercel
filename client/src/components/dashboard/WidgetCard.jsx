@@ -107,6 +107,20 @@ const WIDTH_LABEL = { fifth: "1/5", third: "1/3", half: "1/2", full: "Full" };
 function buildExportRows(widget, payload) {
   if (!payload) return [];
   const type = widget.widget_type;
+  if (payload.type === "conversion") {
+    return [
+      ["Metric", "Value"],
+      ["Converted", payload.convertedCount ?? 0],
+      [
+        "Conversion rate (%)",
+        payload.conversionRate === null || payload.conversionRate === undefined
+          ? ""
+          : Number(payload.conversionRate).toFixed(1),
+      ],
+      ["Source submissions", payload.sourceSubmissionCount ?? 0],
+      ["Target submissions", payload.targetSubmissionCount ?? 0],
+    ];
+  }
   if (type === "stat") {
     const value =
       payload.type === "scalar" ? payload.value : payload.rows?.[0]?.value;
@@ -303,6 +317,9 @@ export default function WidgetCard({
 
 function WidgetBody({ widget, payload }) {
   if (!payload) return null;
+  if (payload.type === "conversion") {
+    return <ConversionBody widget={widget} payload={payload} />;
+  }
   switch (widget.widget_type) {
     case "stat":
       return <StatBody widget={widget} payload={payload} />;
@@ -340,6 +357,34 @@ function StatBody({ widget, payload }) {
         {widget.config?.transition?.mode
           ? `${payload.total ?? 0} transition${payload.total === 1 ? "" : "s"}`
           : `${aggregator} · ${payload.total ?? 0} record${payload.total === 1 ? "" : "s"}`}
+      </p>
+    </div>
+  );
+}
+
+// Form-conversion stat card: headline = distinct entities that submitted
+// BOTH forms, with the conversion % and the raw submission counts below.
+function ConversionBody({ widget, payload }) {
+  const rate = payload.conversionRate;
+  return (
+    <div className="flex flex-1 flex-col justify-center gap-1">
+      <p
+        className="text-3xl font-semibold tracking-tight"
+        data-testid={`stat-value-${widget.id}`}
+      >
+        {formatNumber(payload.convertedCount, widget.config?.numberFormat)}
+        {rate !== null && rate !== undefined && (
+          <span className="ml-2 text-base font-normal text-muted-foreground">
+            ({Number(rate).toFixed(1)}% converted)
+          </span>
+        )}
+      </p>
+      <p
+        className="text-xs uppercase text-muted-foreground"
+        data-testid={`conversion-detail-${widget.id}`}
+      >
+        {payload.sourceSubmissionCount ?? 0} source ·{" "}
+        {payload.targetSubmissionCount ?? 0} target submissions
       </p>
     </div>
   );

@@ -76,6 +76,15 @@ const numberFormatSchema = z.object({
   decimals: z.number().int().min(0).max(4).nullable().optional(),
 });
 
+// Form-conversion widgets (source `form_conversion`): admin picks a source
+// form and a target form plus how submissions are matched — by the
+// submission's organisation, or by the submitter's (lowercased) email.
+const conversionSchema = z.object({
+  sourceFormId: z.string().min(1),
+  targetFormId: z.string().min(1),
+  matchBy: z.enum(['organization', 'member']),
+});
+
 export const widgetConfigSchema = z.object({
   source: z.string(),
   measure: measureSchema,
@@ -92,7 +101,28 @@ export const widgetConfigSchema = z.object({
   // Stat/KPI-only display formatting; null/absent = legacy compact style.
   numberFormat: numberFormatSchema.nullable().optional(),
   filters: z.array(filterSchema).default([]),
-}).passthrough();
+  // Form-conversion only: required when source === 'form_conversion',
+  // ignored (should be null/absent) for every other source.
+  conversion: conversionSchema.nullable().optional(),
+}).passthrough().superRefine((cfg, ctx) => {
+  if (cfg.source === 'form_conversion') {
+    if (!cfg.conversion) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['conversion'],
+        message: 'Form conversion widgets need a source form, target form and match-by setting.',
+      });
+      return;
+    }
+    if (cfg.conversion.sourceFormId === cfg.conversion.targetFormId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['conversion', 'targetFormId'],
+        message: 'Source and target forms must be different.',
+      });
+    }
+  }
+});
 
 // `fifth` (col-span-2 on a 12-col grid) gives a five-card top row of
 // KPI stats. Widths form a cycle in WidgetCard (fifth → third → half →
