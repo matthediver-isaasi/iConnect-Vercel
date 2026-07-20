@@ -93,6 +93,7 @@ const builtInPages = [
   { value: "FundraisingManagement", label: "Fundraising Management" },
   { value: "FormBuilder", label: "Form Builder" },
   { value: "FormManagement", label: "Form Management" },
+  { value: "FormConversionReport", label: "Form Conversion Report" },
   { value: "FormSettings", label: "Form Settings" },
   { value: "FormSubmissions", label: "Form Submissions" },
   { value: "FormView", label: "Form View" },

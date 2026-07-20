@@ -236,6 +236,7 @@ const hardcodedPublicPages = [
   { name: "FloaterManagement", label: "Floater Management" },
   { name: "FormBuilder", label: "Form Builder" },
   { name: "FormManagement", label: "Form Management" },
+  { name: "FormConversionReport", label: "Form Conversion Report" },
   { name: "FormSubmissions", label: "Form Submissions" },
   { name: "FormView", label: "Form View" },
   { name: "GuestWriterManagement", label: "Guest Writer Management" },

@@ -307,6 +307,8 @@ import EventCheckInDashboard from "./EventCheckInDashboard";
 
 import EventRegistrationReport from "./EventRegistrationReport";
 
+import FormConversionReport from "./FormConversionReport";
+
 import OrganisationEngagementReport from "./OrganisationEngagementReport";
 
 import MembershipTierManagement from "./MembershipTierManagement";
@@ -519,6 +521,7 @@ const PAGES = {
     TicketSalesAnalytics: TicketSalesAnalytics,
     PendingPurchaseOrdersReport: PendingPurchaseOrdersReport,
     EventRegistrationReport: EventRegistrationReport,
+    FormConversionReport: FormConversionReport,
     OrganisationEngagementReport: OrganisationEngagementReport,
     MembershipTierManagement: MembershipTierManagement,
     MembershipSettings: MembershipSettings,
@@ -905,6 +908,7 @@ function PagesContent() {
                 <Route path="/TicketSalesAnalytics" element={<TicketSalesAnalytics />} />
                 <Route path="/PendingPurchaseOrdersReport" element={<PendingPurchaseOrdersReport />} />
                 <Route path="/EventRegistrationReport" element={<EventRegistrationReport />} />
+                <Route path="/FormConversionReport" element={<FormConversionReport />} />
                 <Route path="/OrganisationEngagementReport" element={<OrganisationEngagementReport />} />
                 <Route path="/MembershipTierManagement" element={<MembershipTierManagement />} />
                 <Route path="/MembershipSettings" element={<MembershipSettings />} />

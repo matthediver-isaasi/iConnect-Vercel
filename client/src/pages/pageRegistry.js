@@ -118,6 +118,7 @@ export const PAGE_NAMES = [
   "ReportsDashboard",
   "DueDiligenceReports",
   "EventRegistrationReport",
+  "FormConversionReport",
   "OrganisationEngagementReport",
   "MembershipTierManagement",
   "MembershipSettings",

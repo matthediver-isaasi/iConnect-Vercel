@@ -588,6 +588,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
       {
         id: "forms.review-submission",
         label: "Review Submission"
+      },
+      {
+        id: "forms.conversion-report",
+        label: "Form Conversion Report"
       }
     ]
   },
