@@ -18,7 +18,7 @@ export default async function handler(req, res) {
     }
 
     const { tenantId } = tenantContext;
-    const { eventId, eventName, internalReference, dateFrom, dateTo, generate } = req.query;
+    const { eventId, eventName, internalReference, dateFrom, dateTo, eventDateFrom, eventDateTo, generate } = req.query;
 
     let { data: regularEvents, error: eventsError } = await supabase
       .from('event')
@@ -133,6 +133,69 @@ export default async function handler(req, res) {
           } else {
             targetEventIds.push(e.id);
           }
+        }
+      }
+
+      // Event date range filter: simple events use event.start_date; complex
+      // events use the earliest complex_event_session start_time, falling back
+      // to complex_event.start_date when the event has no sessions. Applied to
+      // the target ID lists (including the direct eventId path) BEFORE bookings
+      // are fetched. Bounds are whole days, inclusive.
+      if (eventDateFrom || eventDateTo) {
+        const fromMs = eventDateFrom ? new Date(eventDateFrom + 'T00:00:00.000Z').getTime() : null;
+        let toMs = null;
+        if (eventDateTo) {
+          const toDate = new Date(eventDateTo + 'T00:00:00.000Z');
+          toDate.setUTCDate(toDate.getUTCDate() + 1);
+          toMs = toDate.getTime();
+        }
+
+        const inRange = (dateValue) => {
+          if (!dateValue) return false;
+          const ms = new Date(dateValue).getTime();
+          if (Number.isNaN(ms)) return false;
+          if (fromMs !== null && ms < fromMs) return false;
+          if (toMs !== null && ms >= toMs) return false;
+          return true;
+        };
+
+        if (targetEventIds.length > 0) {
+          const startDateById = new Map((regularEvents || []).map(e => [e.id, e.start_date]));
+          targetEventIds = targetEventIds.filter(id => inRange(startDateById.get(id)));
+        }
+
+        if (targetComplexEventIds.length > 0) {
+          const earliestSessionByEvent = new Map();
+          const { data: sessionRows, error: sessionsError } = await supabase
+            .from('complex_event_session')
+            .select('complex_event_id, start_time')
+            .in('complex_event_id', targetComplexEventIds)
+            .eq('tenant_id', tenantId);
+
+          if (sessionsError) {
+            console.error('[Event Registration Report] Error fetching complex event sessions for date filter:', sessionsError);
+          } else {
+            for (const s of sessionRows || []) {
+              if (!s.start_time) continue;
+              const ms = new Date(s.start_time).getTime();
+              if (Number.isNaN(ms)) continue;
+              const existing = earliestSessionByEvent.get(s.complex_event_id);
+              if (existing === undefined || ms < existing) {
+                earliestSessionByEvent.set(s.complex_event_id, ms);
+              }
+            }
+          }
+
+          const complexStartById = new Map((complexEvents || []).map(e => [e.id, e.start_date]));
+          targetComplexEventIds = targetComplexEventIds.filter(id => {
+            const sessionMs = earliestSessionByEvent.get(id);
+            if (sessionMs !== undefined) {
+              if (fromMs !== null && sessionMs < fromMs) return false;
+              if (toMs !== null && sessionMs >= toMs) return false;
+              return true;
+            }
+            return inRange(complexStartById.get(id));
+          });
         }
       }
 

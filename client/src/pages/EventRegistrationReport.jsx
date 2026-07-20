@@ -228,6 +228,8 @@ export default function EventRegistrationReport() {
   const [filterInternalRef, setFilterInternalRef] = useState("");
   const [filterDateFrom, setFilterDateFrom] = useState("");
   const [filterDateTo, setFilterDateTo] = useState("");
+  const [filterEventDateFrom, setFilterEventDateFrom] = useState("");
+  const [filterEventDateTo, setFilterEventDateTo] = useState("");
 
   const { data: eventsForTypeAhead = [] } = useQuery({
     queryKey: ['event-registration-report-events'],
@@ -318,6 +320,8 @@ export default function EventRegistrationReport() {
     if (!appliedFilters.eventId && appliedFilters.internalReference) params.set('internalReference', appliedFilters.internalReference);
     if (appliedFilters.dateFrom) params.set('dateFrom', appliedFilters.dateFrom);
     if (appliedFilters.dateTo) params.set('dateTo', appliedFilters.dateTo);
+    if (appliedFilters.eventDateFrom) params.set('eventDateFrom', appliedFilters.eventDateFrom);
+    if (appliedFilters.eventDateTo) params.set('eventDateTo', appliedFilters.eventDateTo);
     return `/api/reports/event-registration-report?${params.toString()}`;
   };
 
@@ -684,6 +688,8 @@ export default function EventRegistrationReport() {
       internalReference: filterInternalRef.trim(),
       dateFrom: filterDateFrom,
       dateTo: filterDateTo,
+      eventDateFrom: filterEventDateFrom,
+      eventDateTo: filterEventDateTo,
     });
     setCurrentPage(1);
     setSearchQuery("");
@@ -695,12 +701,14 @@ export default function EventRegistrationReport() {
     setFilterInternalRef("");
     setFilterDateFrom("");
     setFilterDateTo("");
+    setFilterEventDateFrom("");
+    setFilterEventDateTo("");
     setAppliedFilters(null);
     setSearchQuery("");
     setCurrentPage(1);
   };
 
-  const hasActiveFilters = filterEventName || filterInternalRef || filterDateFrom || filterDateTo;
+  const hasActiveFilters = filterEventName || filterInternalRef || filterDateFrom || filterDateTo || filterEventDateFrom || filterEventDateTo;
   const reportGenerated = !!appliedFilters;
 
   const filteredGroups = useMemo(() => {
@@ -1373,6 +1381,24 @@ export default function EventRegistrationReport() {
                 value={filterDateTo}
                 onChange={(e) => setFilterDateTo(e.target.value)}
                 data-testid="input-filter-date-to"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Event Date From</label>
+              <Input
+                type="date"
+                value={filterEventDateFrom}
+                onChange={(e) => setFilterEventDateFrom(e.target.value)}
+                data-testid="input-filter-event-date-from"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Event Date To</label>
+              <Input
+                type="date"
+                value={filterEventDateTo}
+                onChange={(e) => setFilterEventDateTo(e.target.value)}
+                data-testid="input-filter-event-date-to"
               />
             </div>
           </div>
