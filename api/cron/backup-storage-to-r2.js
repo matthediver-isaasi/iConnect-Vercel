@@ -1,15 +1,23 @@
 /**
- * Incremental Supabase Storage → Cloudflare R2 backup (daily cron, 02:00 UTC).
+ * Incremental Supabase Storage → Cloudflare R2 backup (scheduled cron).
  *
- * Thin wrapper around runStorageBackup() in api/_lib/backupRunner.js — the same
- * runner powers the platform manual-trigger endpoint. See that module for the
- * incremental / resumable behaviour.
+ * Fires every 10 minutes between 02:00–07:59 UTC (see vercel.json). Each
+ * invocation:
+ *   1. exits cheaply if today's sweep already completed (per-UTC-day check),
+ *   2. otherwise loops resumable chunks via runStorageBackupToCompletion()
+ *      until the sweep finishes or the invocation nears its 300s cap —
+ *      the next scheduled fire resumes from the persisted cursor.
+ *
+ * The same runner powers the platform manual-trigger endpoint.
  *
  * Guard: Authorization: Bearer <CRON_SECRET>
  * maxDuration: 300 s (set in vercel.json for this function)
  */
 
-import { runStorageBackup } from '../_lib/backupRunner.js';
+import { runStorageBackupToCompletion, getCompletedTodayCursor } from '../_lib/backupRunner.js';
+
+const MAX_DURATION_MS = 300_000;
+const SAFETY_HEADROOM_MS = 30_000;
 
 export default async function handler(req, res) {
   const cronSecret = process.env.CRON_SECRET;
@@ -17,6 +25,17 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  const result = await runStorageBackup();
+  const completedToday = await getCompletedTodayCursor('storage');
+  if (completedToday) {
+    return res.status(200).json({
+      ok: true,
+      skipped: true,
+      reason: 'Storage backup already completed today',
+      completedAt: completedToday.clearedAt,
+    });
+  }
+
+  const deadline = Date.now() + MAX_DURATION_MS - SAFETY_HEADROOM_MS;
+  const result = await runStorageBackupToCompletion({ deadline });
   return res.status(result.ok ? 200 : 500).json(result);
 }

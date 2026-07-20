@@ -17,13 +17,28 @@ function formatBytes(bytes) {
   return `${(bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
+const STALLED_AFTER_MS = 3 * 60 * 60 * 1000; // no cursor progress for 3h => stalled
+
 function cursorSummary(cursor) {
   if (!cursor) return { label: 'Never run', tone: 'idle' };
   if (cursor.completed) {
     const when = cursor.clearedAt ? format(new Date(cursor.clearedAt), 'MMM d, yyyy HH:mm') : 'unknown';
     return { label: `Last completed ${when}`, tone: 'done' };
   }
-  return { label: 'Paused mid-run (will resume)', tone: 'paused' };
+  const lastActivity = cursor.updatedAt ? new Date(cursor.updatedAt) : null;
+  if (lastActivity && !Number.isNaN(lastActivity.getTime())) {
+    if (Date.now() - lastActivity.getTime() > STALLED_AFTER_MS) {
+      return {
+        label: `Paused mid-run since ${format(lastActivity, 'MMM d, yyyy HH:mm')} — not progressing, check the scheduled job`,
+        tone: 'stalled',
+      };
+    }
+    return {
+      label: `In progress — resuming automatically (last activity ${format(lastActivity, 'HH:mm')})`,
+      tone: 'paused',
+    };
+  }
+  return { label: 'Paused mid-run — will resume automatically on the next scheduled run', tone: 'paused' };
 }
 
 export default function BackupManagement() {
@@ -154,7 +169,8 @@ export default function BackupManagement() {
         <Info className="h-4 w-4" />
         <AlertTitle>How manual backups work</AlertTitle>
         <AlertDescription>
-          Backups also run automatically every day. Triggering one here runs the same job immediately and streams it to
+          Backups run automatically every day and finish on their own — the scheduled job keeps resuming until each
+          backup completes. Triggering one here runs the same job immediately and streams it to
           Cloudflare R2 in resumable chunks — keep this tab open until it reports complete. Storage backups are
           incremental (only new or changed files are copied); database backups write a fresh timestamped dump.
         </AlertDescription>

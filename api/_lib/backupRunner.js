@@ -10,6 +10,12 @@
  * continued by the next invocation. This lets a manual run drive a backup to
  * completion by re-invoking until the returned summary reports it is done.
  *
+ * The cron endpoints use the *ToCompletion loop helpers below, which repeat
+ * chunks inside a single invocation until the backup finishes or the
+ * invocation nears its maxDuration cap, plus a per-UTC-day early-exit
+ * (getCompletedTodayCursor) so a frequent cron schedule is a cheap no-op once
+ * the day's backup is done.
+ *
  * Required env vars:
  *   DEST_SUPABASE_URL or SUPABASE_URL        (storage backup; DEST_SUPABASE_URL
  *   DEST_SUPABASE_KEY or SUPABASE_SERVICE_KEY preferred, falls back to the
@@ -193,6 +199,7 @@ export async function runStorageBackup({ timeBudgetMs = DEFAULT_STORAGE_TIME_BUD
               lastBucket: bucketName,
               lastPath: obj.path,
               sweepStarted,
+              updatedAt: new Date().toISOString(),
             });
             break outerLoop;
           }
@@ -397,7 +404,12 @@ export async function runDatabaseBackup({ timeBudgetMs = DEFAULT_DB_TIME_BUDGET_
 
       if (Date.now() - startTime > timeBudgetMs) {
         const remaining = tables.slice(i);
-        await saveCursor(r2, r2Bucket, DB_CURSOR_KEY, { stamp, folderPrefix, nextTable: key });
+        await saveCursor(r2, r2Bucket, DB_CURSOR_KEY, {
+          stamp,
+          folderPrefix,
+          nextTable: key,
+          updatedAt: new Date().toISOString(),
+        });
         summary.skipped.push(...remaining.map((t) => t.key));
         console.warn(`[backup-database] time budget exceeded, saved cursor at ${key}; ${remaining.length} deferred`);
         break;
@@ -464,4 +476,134 @@ export async function getBackupStatus() {
     loadCursor(r2, r2Bucket, DB_CURSOR_KEY),
   ]);
   return { ok: true, configured: true, storage, database };
+}
+
+// ── cron loop helpers ───────────────────────────────────────────────────────
+
+/** True when the two ISO timestamps fall on the same UTC calendar day. */
+export function isSameUtcDay(aIso, bIso) {
+  if (!aIso || !bIso) return false;
+  const a = new Date(aIso);
+  const b = new Date(bIso);
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return false;
+  return a.toISOString().slice(0, 10) === b.toISOString().slice(0, 10);
+}
+
+/**
+ * If the backup of the given kind ('storage' | 'database') already completed
+ * today (UTC), return its completed cursor so a scheduled invocation can
+ * no-op cheaply. Returns null when the backup should run (never run,
+ * completed on a previous day, or paused mid-run).
+ */
+export async function getCompletedTodayCursor(kind, { now = new Date().toISOString() } = {}) {
+  const ctx = r2Context();
+  if (!ctx) return null;
+  const key = kind === 'storage' ? STORAGE_CURSOR_KEY : DB_CURSOR_KEY;
+  const cursor = await loadCursor(ctx.r2, ctx.bucket, key);
+  if (cursor?.completed && cursor.clearedAt && isSameUtcDay(cursor.clearedAt, now)) {
+    return cursor;
+  }
+  return null;
+}
+
+const MIN_CHUNK_MS = 15_000;
+
+/**
+ * Repeat storage-backup chunks until the sweep completes or `deadline`
+ * (epoch ms) is near. Each chunk persists its own resume cursor, so stopping
+ * at the deadline just defers the remainder to the next scheduled invocation.
+ */
+export async function runStorageBackupToCompletion({
+  deadline,
+  chunkBudgetMs = DEFAULT_STORAGE_TIME_BUDGET_MS,
+  runChunk = runStorageBackup,
+} = {}) {
+  const start = Date.now();
+  const totals = { ok: true, copied: 0, skipped: 0, errored: 0, bytes: 0, chunks: 0, deferred: false, durationMs: 0 };
+
+  while (true) {
+    const remaining = deadline - Date.now();
+    if (remaining < MIN_CHUNK_MS) {
+      totals.deferred = true;
+      break;
+    }
+    const chunk = await runChunk({ timeBudgetMs: Math.min(chunkBudgetMs, remaining) });
+    totals.chunks++;
+    totals.copied += chunk.copied || 0;
+    totals.skipped += chunk.skipped || 0;
+    totals.errored += chunk.errored || 0;
+    totals.bytes += chunk.bytes || 0;
+    if (!chunk.ok) {
+      totals.ok = false;
+      totals.error = chunk.error;
+      totals.deferred = !!chunk.deferred;
+      break;
+    }
+    if (!chunk.deferred) {
+      totals.deferred = false;
+      break;
+    }
+  }
+
+  totals.durationMs = Date.now() - start;
+  return totals;
+}
+
+/**
+ * Repeat database-dump chunks until the run completes or `deadline` (epoch ms)
+ * is near. Stops early (without retrying) when a chunk reports errored tables
+ * with nothing left to resume — retrying the same failing tables in a loop
+ * would spin until the deadline without progress.
+ */
+export async function runDatabaseBackupToCompletion({
+  deadline,
+  chunkBudgetMs = DEFAULT_DB_TIME_BUDGET_MS,
+  runChunk = runDatabaseBackup,
+} = {}) {
+  const start = Date.now();
+  const totals = {
+    ok: true,
+    runStamp: null,
+    totalTables: 0,
+    dumped: 0,
+    erroredTables: [],
+    totalCompressedBytes: 0,
+    chunks: 0,
+    complete: false,
+    durationMs: 0,
+  };
+
+  while (true) {
+    const remaining = deadline - Date.now();
+    if (remaining < MIN_CHUNK_MS) break;
+
+    const chunk = await runChunk({ timeBudgetMs: Math.min(chunkBudgetMs, remaining) });
+    totals.chunks++;
+    totals.runStamp = chunk.runStamp || totals.runStamp;
+    totals.totalTables = chunk.totalTables || totals.totalTables;
+    totals.dumped += chunk.dumped?.length || 0;
+    totals.totalCompressedBytes += chunk.totalCompressedBytes || 0;
+    if (Array.isArray(chunk.errored) && chunk.errored.length) {
+      totals.erroredTables.push(...chunk.errored);
+    }
+
+    if (!chunk.ok) {
+      totals.ok = false;
+      totals.error = chunk.error;
+      break;
+    }
+    if (chunk.complete) {
+      totals.complete = true;
+      break;
+    }
+    if (!chunk.skipped?.length) {
+      // Nothing deferred but not complete => tables errored; do not retry-loop.
+      totals.ok = false;
+      totals.error = `${chunk.errored?.length || 0} table(s) failed to dump`;
+      break;
+    }
+  }
+
+  totals.durationMs = Date.now() - start;
+  return totals;
 }

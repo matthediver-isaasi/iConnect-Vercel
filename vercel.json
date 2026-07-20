@@ -92,11 +92,11 @@
     },
     {
       "path": "/api/cron/backup-storage-to-r2",
-      "schedule": "0 2 * * *"
+      "schedule": "*/10 2-7 * * *"
     },
     {
       "path": "/api/cron/backup-database-to-r2",
-      "schedule": "10 2 * * *"
+      "schedule": "5-59/10 2-7 * * *"
     }
   ],
   "rewrites": [
