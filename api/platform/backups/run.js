@@ -14,7 +14,12 @@
  */
 
 import { getSessionPlatformOwner } from '../../_lib/platformSession.js';
-import { runStorageBackup, runDatabaseBackup } from '../../_lib/backupRunner.js';
+import {
+  runStorageBackup,
+  runDatabaseBackup,
+  acquireBackupLock,
+  releaseBackupLock,
+} from '../../_lib/backupRunner.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -31,11 +36,27 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Invalid backup type. Use "storage" or "database".' });
   }
 
+  // Lease lock: don't process the same backup concurrently with a cron chunk
+  // loop (or another manual run) — they share resume cursors in R2. Each
+  // manual invocation is one chunk, so acquire/release around the chunk; the
+  // TTL guarantees a crashed run never wedges backups.
+  const lock = await acquireBackupLock(type, { holder: 'manual' });
+  if (!lock.acquired) {
+    return res.status(409).json({
+      error: `A ${type} backup run is already in progress (started by ${lock.holder}). Try again shortly.`,
+      inProgress: true,
+      lockedBy: lock.holder,
+      lockExpiresAt: lock.expiresAt,
+    });
+  }
+
   try {
     const result = type === 'storage' ? await runStorageBackup() : await runDatabaseBackup();
     return res.status(result.ok ? 200 : 500).json({ type, ...result });
   } catch (err) {
     console.error('[platform/backups/run] fatal:', err.message);
     return res.status(500).json({ error: err.message || 'Backup run failed' });
+  } finally {
+    await releaseBackupLock(type, lock.token);
   }
 }

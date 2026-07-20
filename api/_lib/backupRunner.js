@@ -36,6 +36,7 @@ import { pipeline } from 'stream/promises';
 import { createGzip } from 'zlib';
 import { PassThrough } from 'stream';
 import copyStreams from 'pg-copy-streams';
+import { randomUUID } from 'crypto';
 import { createR2Client, getR2Bucket, headR2Object, putR2Object, getR2ObjectText } from './r2Client.js';
 
 const { Pool } = pg;
@@ -43,6 +44,8 @@ const { to: copyTo } = copyStreams;
 
 export const STORAGE_CURSOR_KEY = '_backup-state/storage-cursor.json';
 export const DB_CURSOR_KEY = '_backup-state/database-cursor.json';
+export const STORAGE_LOCK_KEY = '_backup-state/storage-lock.json';
+export const DB_LOCK_KEY = '_backup-state/database-lock.json';
 
 const STORAGE_R2_PREFIX = 'supabase-storage';
 const DUMP_PREFIX = 'database-dumps';
@@ -88,6 +91,100 @@ async function clearCursor(r2, bucket, key) {
     JSON.stringify({ completed: true, clearedAt: new Date().toISOString() }),
     { contentType: 'application/json' }
   ).catch(() => {}); // best-effort
+}
+
+// ── backup run lease lock ───────────────────────────────────────────────────
+//
+// Best-effort short-TTL lease stored in R2 so a cron chunk loop and a manual
+// run never process the same backup kind concurrently (racing on the shared
+// resume cursor). NOT a strict mutex — R2 has no compare-and-swap here — but
+// the write-then-verify pattern closes the common races, and the TTL means a
+// crashed holder can never wedge backups permanently. On R2 errors the lock
+// fails OPEN (backups keep running) since the lock is protection, not a gate.
+
+export const DEFAULT_LOCK_TTL_MS = 6 * 60_000; // > 300s maxDuration of any holder
+
+function lockKeyFor(kind) {
+  return kind === 'storage' ? STORAGE_LOCK_KEY : DB_LOCK_KEY;
+}
+
+/**
+ * Try to acquire the lease for a backup kind ('storage' | 'database').
+ * Returns { acquired: true, token } on success, or
+ * { acquired: false, holder, expiresAt } when another live run holds it.
+ * `deps` allows injecting load/save for tests.
+ */
+export async function acquireBackupLock(kind, {
+  holder = 'unknown',
+  ttlMs = DEFAULT_LOCK_TTL_MS,
+  now = Date.now(),
+  deps = null,
+} = {}) {
+  let load, save;
+  if (deps) {
+    ({ load, save } = deps);
+  } else {
+    const ctx = r2Context();
+    if (!ctx) return { acquired: true, token: null }; // no R2 => runners will report config error themselves
+    load = (key) => loadCursor(ctx.r2, ctx.bucket, key);
+    save = (key, value) => saveCursor(ctx.r2, ctx.bucket, key, value);
+  }
+  const key = lockKeyFor(kind);
+  const token = randomUUID();
+  try {
+    const existing = await load(key);
+    if (
+      existing &&
+      !existing.released &&
+      existing.token &&
+      existing.expiresAt &&
+      new Date(existing.expiresAt).getTime() > now
+    ) {
+      return { acquired: false, holder: existing.holder || 'unknown', expiresAt: existing.expiresAt };
+    }
+
+    await save(key, {
+      token,
+      holder,
+      acquiredAt: new Date(now).toISOString(),
+      expiresAt: new Date(now + ttlMs).toISOString(),
+    });
+
+    // Verify we won any near-simultaneous write race.
+    const check = await load(key);
+    if (check?.token !== token) {
+      return { acquired: false, holder: check?.holder || 'unknown', expiresAt: check?.expiresAt };
+    }
+    return { acquired: true, token };
+  } catch (err) {
+    console.warn(`[backup-lock] acquire ${kind} failed (${err.message}); proceeding without lock`);
+    return { acquired: true, token: null, degraded: true };
+  }
+}
+
+/**
+ * Release the lease if we still own it (token match). Best-effort; a missed
+ * release just means waiting out the TTL.
+ */
+export async function releaseBackupLock(kind, token, { deps = null } = {}) {
+  if (!token) return;
+  let load, save;
+  if (deps) {
+    ({ load, save } = deps);
+  } else {
+    const ctx = r2Context();
+    if (!ctx) return;
+    load = (key) => loadCursor(ctx.r2, ctx.bucket, key);
+    save = (key, value) => saveCursor(ctx.r2, ctx.bucket, key, value);
+  }
+  const key = lockKeyFor(kind);
+  try {
+    const existing = await load(key);
+    if (existing?.token !== token) return; // someone else took over after TTL expiry
+    await save(key, { released: true, releasedAt: new Date().toISOString() });
+  } catch (err) {
+    console.warn(`[backup-lock] release ${kind} failed (${err.message}); lease will expire via TTL`);
+  }
 }
 
 // ── storage backup ──────────────────────────────────────────────────────────

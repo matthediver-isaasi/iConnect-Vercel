@@ -16,7 +16,12 @@
  * maxDuration: 300 s (set in vercel.json for this function)
  */
 
-import { runDatabaseBackupToCompletion, getCompletedTodayCursor } from '../_lib/backupRunner.js';
+import {
+  runDatabaseBackupToCompletion,
+  getCompletedTodayCursor,
+  acquireBackupLock,
+  releaseBackupLock,
+} from '../_lib/backupRunner.js';
 
 const MAX_DURATION_MS = 300_000;
 const SAFETY_HEADROOM_MS = 30_000;
@@ -37,7 +42,22 @@ export default async function handler(req, res) {
     });
   }
 
-  const deadline = Date.now() + MAX_DURATION_MS - SAFETY_HEADROOM_MS;
-  const result = await runDatabaseBackupToCompletion({ deadline });
-  return res.status(result.ok ? 200 : 500).json(result);
+  const lock = await acquireBackupLock('database', { holder: 'cron' });
+  if (!lock.acquired) {
+    return res.status(200).json({
+      ok: true,
+      skipped: true,
+      reason: 'Another database backup run is in progress',
+      lockedBy: lock.holder,
+      lockExpiresAt: lock.expiresAt,
+    });
+  }
+
+  try {
+    const deadline = Date.now() + MAX_DURATION_MS - SAFETY_HEADROOM_MS;
+    const result = await runDatabaseBackupToCompletion({ deadline });
+    return res.status(result.ok ? 200 : 500).json(result);
+  } finally {
+    await releaseBackupLock('database', lock.token);
+  }
 }
