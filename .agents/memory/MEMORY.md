@@ -106,6 +106,7 @@
 - [AI V2 generated raster imagery](ai-code-v2-assets.md) — imgs are declarative asset requests (data-ai-asset + manifest), fulfilled server-side host-allowlisted; only required failures hard-reject; replacement is a deterministic edit action.
 - [AI V2 design-first workflow](ai-design-first.md) — approved visual is layout intent only (sanitized blueprint, never content); similarity gate = bounded repairs then WARNING, never reject on similarity alone.
 - [Quality gates belong in the prompt too](ai-quality-gate-prompt-pairing.md) — post-hoc gates + terse retry feedback don't converge; state floors up front and feed back measured deltas.
+- [Unchecked supabase inserts hide schema drift](unchecked-supabase-inserts.md) — supabase-js returns {error}, never throws; unchecked side-effect inserts fail silently forever on column drift.
 - [jsdom pinned to v26 for Vercel](jsdom-vercel-esm-pin.md) — jsdom 27+ pulls an ESM-only encoding dep that crashes Vercel functions with ERR_REQUIRE_ESM; keep ^26.
 - [AI V2 retry carry-forward](ai-code-v2-retry-carry.md) — carry a passing HTML/CSS side between retries only when ALL real gate errors sit on the other side; heuristics alone trap loops.
 - [complex_event_session FK column](complex-event-session-fk.md) — parent FK is complex_event_id (NOT event_id, despite some code querying that); session start column is start_time.

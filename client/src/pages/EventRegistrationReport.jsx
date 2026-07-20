@@ -1727,7 +1727,11 @@ export default function EventRegistrationReport() {
                                   ) : '-'}
                                 </td>
                                 <td className="py-3 pr-3 whitespace-nowrap">
-                                  {gp.xeroInvoiceNumber ? <span className="text-xs font-mono">{gp.xeroInvoiceNumber}</span> : '-'}
+                                  {gp.xeroInvoiceNumber ? (
+                                    <span className="text-xs font-mono">{gp.xeroInvoiceNumber}</span>
+                                  ) : gp.xeroInvoiceError ? (
+                                    <span className="text-xs italic text-warning" title={gp.xeroInvoiceError} data-testid={`text-invoice-failed-${attendee.id}`}>Failed</span>
+                                  ) : '-'}
                                 </td>
                                 <td className="py-3 pr-3 whitespace-nowrap">
                                   <Badge variant={attendee.status === 'confirmed' ? 'default' : attendee.status === 'cancelled' ? 'destructive' : 'secondary'}>
@@ -1820,7 +1824,11 @@ export default function EventRegistrationReport() {
                                 ) : '-'}
                               </td>
                               <td className="py-2 pr-3 whitespace-nowrap" rowSpan={groupRowCount}>
-                                {gp.xeroInvoiceNumber ? <span className="text-xs font-mono">{gp.xeroInvoiceNumber}</span> : '-'}
+                                {gp.xeroInvoiceNumber ? (
+                                  <span className="text-xs font-mono">{gp.xeroInvoiceNumber}</span>
+                                ) : gp.xeroInvoiceError ? (
+                                  <span className="text-xs italic text-warning" title={gp.xeroInvoiceError} data-testid={`text-invoice-failed-group-${group.groupRef || keyAttendeeId}`}>Failed</span>
+                                ) : '-'}
                               </td>
                             </>
                           );

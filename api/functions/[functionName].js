@@ -3057,12 +3057,18 @@ const functionHandlers = {
     // Account charges only apply to account/PO payments (not Stripe)
     if (!isGuestBooking && validatedRemainingBalance > 0 && paymentMethod === 'account' && org) {
       console.log(`[Xero] Creating account charge record for £${validatedRemainingBalance.toFixed(2)}`);
-      await supabase
+      // NOTE: the table has no `value` column — the amount lives in
+      // total_cost_before_discount (a previous version used `value`, which
+      // made every insert fail silently because the result was not checked).
+      const { error: accountChargeError } = await supabase
         .from('program_ticket_transaction')
         .insert({
           organization_id: org.id,
+          tenant_id: event.tenant_id || member?.tenant_id || null,
           transaction_type: 'account_charge',
-          value: validatedRemainingBalance,
+          program_name: event.title || 'One-off Event', // NOT NULL column
+          quantity: ticketsRequired || 1,
+          total_cost_before_discount: validatedRemainingBalance,
           booking_reference: bookingReference,
           event_name: event.title || 'One-off Event',
           member_email: memberEmail,
@@ -3070,6 +3076,10 @@ const functionHandlers = {
           po_to_follow: poToFollow,
           notes: `Account charge: £${validatedRemainingBalance.toFixed(2)} for ${event.title || 'event'} (PO: ${poToFollow ? 'To follow' : (purchaseOrderNumber || 'N/A')})`
         });
+      if (accountChargeError) {
+        console.error(`[Xero] Failed to create account charge record: ${accountChargeError.message}`);
+        xeroDebug.accountChargeError = accountChargeError.message;
+      }
     }
 
     // Xero invoices are created for ANY payment method when there's a balance due
@@ -3345,7 +3355,8 @@ const functionHandlers = {
                   .from('booking')
                   .update({
                     xero_invoice_id: invoice.InvoiceID,
-                    xero_invoice_number: invoice.InvoiceNumber
+                    xero_invoice_number: invoice.InvoiceNumber,
+                    xero_invoice_error: null
                   })
                   .eq('booking_group_reference', bookingReference);
 
@@ -3460,6 +3471,30 @@ const functionHandlers = {
             xeroDebug.error = xeroError.message;
             xeroDebug.errorStack = xeroError.stack;
             // Don't fail the booking, just log the error
+          }
+
+          // Failure marker: the invoice flow is best-effort (errors never fail
+          // the booking), so record WHY no invoice was created on the booking
+          // rows. Cleared automatically when an invoice is later created.
+          if (!xeroInvoiceResult) {
+            const failureSummary = (
+              xeroDebug.error ||
+              (xeroDebug.invoiceResponseStatus ? `Xero API returned status ${xeroDebug.invoiceResponseStatus}` : null) ||
+              'Invoice creation failed for an unknown reason'
+            ).toString().substring(0, 500);
+            try {
+              const { error: markerError } = await supabase
+                .from('booking')
+                .update({ xero_invoice_error: failureSummary })
+                .eq('booking_group_reference', bookingReference);
+              if (markerError) {
+                console.error(`[Xero] Failed to record invoice failure marker: ${markerError.message}`);
+              } else {
+                console.log(`[Xero] Recorded invoice failure marker on booking group ${bookingReference}: ${failureSummary}`);
+              }
+            } catch (markerErr) {
+              console.error(`[Xero] Failure marker update threw: ${markerErr.message}`);
+            }
           }
         }
         }

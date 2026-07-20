@@ -217,7 +217,7 @@ export default async function handler(req, res) {
       if (targetEventIds.length > 0) {
         let bookingQuery = supabase
           .from('booking')
-          .select('id, event_id, member_id, attendee_email, attendee_first_name, attendee_last_name, ticket_price, total_cost, payment_method, voucher_amount, training_fund_amount, account_amount, purchase_order_number, po_to_follow, stripe_payment_intent_id, ticket_class_name, ticket_class_id, organization_id, booking_reference, booking_group_reference, xero_invoice_id, xero_invoice_number, is_guest_booking, status, created_at, third_party_consent, designation, buddy, badge, dietary_selections, allergy_selections, accessibility_selections, discount_code_id, discount_code_amount')
+          .select('id, event_id, member_id, attendee_email, attendee_first_name, attendee_last_name, ticket_price, total_cost, payment_method, voucher_amount, training_fund_amount, account_amount, purchase_order_number, po_to_follow, stripe_payment_intent_id, ticket_class_name, ticket_class_id, organization_id, booking_reference, booking_group_reference, xero_invoice_id, xero_invoice_number, xero_invoice_error, is_guest_booking, status, created_at, third_party_consent, designation, buddy, badge, dietary_selections, allergy_selections, accessibility_selections, discount_code_id, discount_code_amount')
           .in('event_id', targetEventIds)
           .eq('tenant_id', tenantId)
           .order('booking_group_reference', { ascending: true, nullsFirst: false })
@@ -566,6 +566,7 @@ export default async function handler(req, res) {
             stripePaymentIntentId: first.stripe_payment_intent_id,
             xeroInvoiceNumber: first.xero_invoice_number,
             xeroInvoiceId: first.xero_invoice_id,
+            xeroInvoiceError: first.xero_invoice_error || null,
             bookingReference: first.booking_reference,
           },
           hasZoom: eventInfo.has_zoom || false,
