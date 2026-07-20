@@ -110,3 +110,4 @@
 - [jsdom pinned to v26 for Vercel](jsdom-vercel-esm-pin.md) — jsdom 27+ pulls an ESM-only encoding dep that crashes Vercel functions with ERR_REQUIRE_ESM; keep ^26.
 - [AI V2 retry carry-forward](ai-code-v2-retry-carry.md) — carry a passing HTML/CSS side between retries only when ALL real gate errors sit on the other side; heuristics alone trap loops.
 - [complex_event_session FK column](complex-event-session-fk.md) — parent FK is complex_event_id (NOT event_id, despite some code querying that); session start column is start_time.
+- [Membership invoice add-on lines](membership-invoice-addons.md) — add-on lines stored at fee-approval; EVERY org invoice path (manual, advance, cron x2) must pass extraLineItems + bake totals + run training-fund processing.

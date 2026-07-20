@@ -193,7 +193,7 @@ export async function findOrCreateXeroContact(accessToken, xeroTenantId, contact
   throw new Error('Failed to create Xero contact');
 }
 
-export async function createXeroMembershipInvoice({ appTenantId, organizationName, invoicingEmail, invoicingAddress, membershipYear, tierLabel, finalCost, currency, reference, vatRate, markAsPaid, stripePaymentIntentId, invoiceDescription }) {
+export async function createXeroMembershipInvoice({ appTenantId, organizationName, invoicingEmail, invoicingAddress, membershipYear, tierLabel, finalCost, currency, reference, vatRate, markAsPaid, stripePaymentIntentId, invoiceDescription, extraLineItems }) {
   if (!supabase) throw new Error('Supabase not configured');
   if (!appTenantId) throw new Error('appTenantId is required');
   if (!organizationName) throw new Error('organizationName is required');
@@ -260,6 +260,21 @@ export async function createXeroMembershipInvoice({ appTenantId, organizationNam
     lineItem.TaxType = taxType;
   }
 
+  const lineItems = [lineItem];
+  // Add-on lines (e.g. Training Fund top-up, free-form extras) appended after
+  // the membership fee line. Each carries its own nominal code + VAT type.
+  for (const extra of (Array.isArray(extraLineItems) ? extraLineItems : [])) {
+    const extraLine = {
+      Description: extra.description || 'Additional item',
+      Quantity: Number(extra.quantity) > 0 ? Number(extra.quantity) : 1,
+      UnitAmount: (Number(extra.unitCost) || 0).toFixed(2),
+      AccountCode: extra.nominalCode || xeroAccountCode,
+    };
+    const extraTaxType = extra.vatRate?.taxType || (typeof extra.vatRate === 'string' ? extra.vatRate : null);
+    if (extraTaxType) extraLine.TaxType = extraTaxType;
+    lineItems.push(extraLine);
+  }
+
   const invoicePayload = {
     Invoices: [{
       Type: 'ACCREC',
@@ -267,7 +282,7 @@ export async function createXeroMembershipInvoice({ appTenantId, organizationNam
       Reference: reference || `Membership ${membershipYear}`,
       Status: xeroInvoiceStatus,
       DueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      LineItems: [lineItem]
+      LineItems: lineItems
     }]
   };
 

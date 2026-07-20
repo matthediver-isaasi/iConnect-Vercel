@@ -4,6 +4,14 @@ import { getAccountingProvider, buildInvoiceColumnUpdate } from '../_lib/account
 import { simulateMembershipForOrg } from '../_lib/membershipSimulation.js';
 import { sendMembershipInvoiceEmail } from '../_lib/membershipInvoiceEmail.js';
 import { resolveInvoiceAddress } from '../_lib/invoiceAddressResolver.js';
+import {
+  getMembershipAddonSettings,
+  validateAddonLines,
+  loadAddonLines,
+  computeAddonTotals,
+  buildExtraLineItems,
+  processTrainingFundAddons,
+} from '../_lib/membershipAddons.js';
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -72,6 +80,7 @@ async function handleGet(req, res, tenantId) {
           purchase_order_number: row.purchase_order_number || null,
           po_supplied_by_member: row.po_source === 'member',
           fees_approved: !!row.fees_approved,
+          addon_lines: Array.isArray(row.addon_lines) ? row.addon_lines : [],
           id: row.id,
         };
       }
@@ -98,6 +107,8 @@ async function ensureColumns() {
         ADD COLUMN IF NOT EXISTS po_source TEXT;
         ALTER TABLE organisation_membership_invoicing 
         ADD COLUMN IF NOT EXISTS fees_approved BOOLEAN DEFAULT false;
+        ALTER TABLE organisation_membership_invoicing 
+        ADD COLUMN IF NOT EXISTS addon_lines JSONB;
       `
     });
     columnEnsured = true;
@@ -275,6 +286,11 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
     console.log('[Invoicing] Could not fetch PO number (non-fatal):', poErr.message);
   }
 
+  // Add-on lines stored at fee-approval time — appended to the invoice and
+  // included in the stored totals.
+  const addonLines = await loadAddonLines(tenantId, organizationId, membershipYear.label);
+  const addonTotals = computeAddonTotals(addonLines);
+
   const { data: record, error: insertError } = await supabase
     .from('organisation_membership_history')
     .insert({
@@ -291,20 +307,20 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
       rollover_discount: simResult.rolloverDiscount || 0,
       custom_discount_total: simResult.customDiscountTotal || 0,
       custom_discount_details: simResult.customDiscountDetails?.length > 0 ? simResult.customDiscountDetails : null,
-      final_cost: finalCost,
+      final_cost: Math.round((finalCost + addonTotals.subtotal) * 100) / 100,
       currency: currency,
       billing_period: simResult.billingPeriod || 'annual',
       purchase_order_number: poNumber,
       vat_rate_percent: simResult.vatRatePercent || null,
-      vat_amount: simResult.vatAmount || 0,
-      total_with_vat: simResult.totalWithVat || finalCost,
+      vat_amount: Math.round(((simResult.vatAmount || 0) + addonTotals.vat) * 100) / 100,
+      total_with_vat: Math.round(((simResult.totalWithVat || finalCost) + addonTotals.total) * 100) / 100,
       year_number: simResult.yearNumber || null,
       prorata_days: simResult.prorataDays || null,
       free_period_days_applied: simResult.freePeriodDaysApplied || 0,
       override_applied: simResult.overrideApplied || false,
       override_type: simResult.overrideType || null,
       status: 'active',
-      notes: `Manual renewal via admin action (year ${simResult.yearNumber}, go-live: ${simResult.goLiveDate})`,
+      notes: `Manual renewal via admin action (year ${simResult.yearNumber}, go-live: ${simResult.goLiveDate})${addonLines.length > 0 ? `. ${addonLines.length} add-on line(s) included.` : ''}`,
     })
     .select()
     .single();
@@ -336,6 +352,7 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
       reference: xeroReference,
       vatRate: bandVatRate,
       invoiceDescription: simResult.config?.invoice_description || null,
+      extraLineItems: buildExtraLineItems(addonLines),
     });
 
     if (xeroInvoice) {
@@ -348,6 +365,18 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
         console.error(`[Invoicing] Failed to link ${providerLabel} invoice to history record (non-fatal):`, linkError.message);
       } else {
         console.log(`[Invoicing] ${providerLabel} invoice created: ${xeroInvoice.invoice_number || '(no invoice number)'} for ${org.name}`);
+      }
+
+      try {
+        await processTrainingFundAddons({
+          tenantId,
+          organizationId,
+          invoice: xeroInvoice,
+          addonLines,
+          createdBy: tenantContext.memberId || null,
+        });
+      } catch (tfErr) {
+        console.error('[Invoicing] Training fund add-on processing failed (non-fatal):', tfErr.message);
       }
     }
   } catch (xeroErr) {
@@ -466,6 +495,11 @@ async function handleAdvanceInvoice(req, res, tenantId, tenantContext) {
     console.log('[Invoicing] Could not fetch PO number (non-fatal):', poErr.message);
   }
 
+  // Add-on lines stored at fee-approval time — appended to the invoice and
+  // included in the stored totals.
+  const addonLines = await loadAddonLines(tenantId, organizationId, membershipYear.label);
+  const addonTotals = computeAddonTotals(addonLines);
+
   const { data: record, error: insertError } = await supabase
     .from('organisation_membership_history')
     .insert({
@@ -482,13 +516,13 @@ async function handleAdvanceInvoice(req, res, tenantId, tenantContext) {
       rollover_discount: simResult.rolloverDiscount || 0,
       custom_discount_total: simResult.customDiscountTotal || 0,
       custom_discount_details: simResult.customDiscountDetails?.length > 0 ? simResult.customDiscountDetails : null,
-      final_cost: finalCost,
+      final_cost: Math.round((finalCost + addonTotals.subtotal) * 100) / 100,
       currency: currency,
       billing_period: simResult.billingPeriod || 'annual',
       purchase_order_number: poNumber,
       vat_rate_percent: simResult.vatRatePercent || null,
-      vat_amount: simResult.vatAmount || 0,
-      total_with_vat: simResult.totalWithVat || finalCost,
+      vat_amount: Math.round(((simResult.vatAmount || 0) + addonTotals.vat) * 100) / 100,
+      total_with_vat: Math.round(((simResult.totalWithVat || finalCost) + addonTotals.total) * 100) / 100,
       year_number: simResult.yearNumber || null,
       prorata_days: simResult.prorataDays || null,
       free_period_days_applied: simResult.freePeriodDaysApplied || 0,
@@ -496,7 +530,7 @@ async function handleAdvanceInvoice(req, res, tenantId, tenantContext) {
       override_type: simResult.overrideType || null,
       status: 'scheduled',
       scheduled_activation_date: activationDate,
-      notes: `Advance invoice (Invoice Now) via admin action (year ${simResult.yearNumber}, go-live: ${simResult.goLiveDate}). Membership activates on ${activationDate}.`,
+      notes: `Advance invoice (Invoice Now) via admin action (year ${simResult.yearNumber}, go-live: ${simResult.goLiveDate}). Membership activates on ${activationDate}.${addonLines.length > 0 ? ` ${addonLines.length} add-on line(s) included.` : ''}`,
     })
     .select()
     .single();
@@ -528,6 +562,7 @@ async function handleAdvanceInvoice(req, res, tenantId, tenantContext) {
       reference: xeroReference,
       vatRate: bandVatRate,
       invoiceDescription: simResult.config?.invoice_description || null,
+      extraLineItems: buildExtraLineItems(addonLines),
     });
   } catch (xeroErr) {
     console.error(`[Invoicing] ${providerLabel} advance invoice creation failed:`, xeroErr.message);
@@ -559,6 +594,18 @@ async function handleAdvanceInvoice(req, res, tenantId, tenantContext) {
     });
   }
   console.log(`[Invoicing] ${providerLabel} advance invoice created: ${xeroInvoice.invoice_number || '(no invoice number)'} for ${org.name}`);
+
+  try {
+    await processTrainingFundAddons({
+      tenantId,
+      organizationId,
+      invoice: xeroInvoice,
+      addonLines,
+      createdBy: tenantContext.memberId || null,
+    });
+  } catch (tfErr) {
+    console.error('[Invoicing] Training fund add-on processing failed (non-fatal):', tfErr.message);
+  }
 
   {
     try {
@@ -609,7 +656,7 @@ async function handleAdvanceInvoice(req, res, tenantId, tenantContext) {
 }
 
 async function handleApproval(req, res, tenantId) {
-  const { organizationId, membershipYear, action } = req.body;
+  const { organizationId, membershipYear, action, addonLines } = req.body;
 
   if (!organizationId || !membershipYear) {
     return res.status(400).json({ error: 'organizationId and membershipYear are required' });
@@ -623,6 +670,18 @@ async function handleApproval(req, res, tenantId) {
 
   const approved = action === 'approve';
 
+  // Add-on lines may only be supplied on approve, and are validated against
+  // the tenant's add-on settings. Unapprove always clears stored add-ons.
+  let storedAddonLines = null;
+  if (approved && addonLines != null) {
+    const settings = await getMembershipAddonSettings(tenantId);
+    const validation = validateAddonLines(addonLines, settings);
+    if (!validation.valid) {
+      return res.status(400).json({ error: validation.error });
+    }
+    storedAddonLines = validation.lines.length > 0 ? validation.lines : null;
+  }
+
   const { data: existing } = await supabase
     .from('organisation_membership_invoicing')
     .select('id')
@@ -634,7 +693,7 @@ async function handleApproval(req, res, tenantId) {
   if (existing) {
     const { error } = await supabase
       .from('organisation_membership_invoicing')
-      .update({ fees_approved: approved, updated_at: new Date().toISOString() })
+      .update({ fees_approved: approved, addon_lines: approved ? storedAddonLines : null, updated_at: new Date().toISOString() })
       .eq('id', existing.id);
 
     if (error) {
@@ -650,6 +709,7 @@ async function handleApproval(req, res, tenantId) {
         membership_year: membershipYear,
         invoicing_mode: 'manual',
         fees_approved: approved,
+        addon_lines: approved ? storedAddonLines : null,
         updated_at: new Date().toISOString(),
       });
 
@@ -659,5 +719,5 @@ async function handleApproval(req, res, tenantId) {
     }
   }
 
-  return res.json({ success: true, fees_approved: approved });
+  return res.json({ success: true, fees_approved: approved, addon_lines: approved ? (storedAddonLines || []) : [] });
 }

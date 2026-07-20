@@ -6,7 +6,22 @@ const SETTING_KEYS = [
   'membership_custom_message',
   'membership_cron_time',
   'membership_nominal_ledger',
+  'membership_addons_enabled',
+  'membership_addon_training_fund_enabled',
+  'membership_addon_freeform_enabled',
+  'membership_training_fund_nominal_code',
+  'membership_training_fund_vat_rate',
 ];
+
+function parseVatRateSetting(value) {
+  if (!value || value === 'none') return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && parsed.taxType ? parsed : null;
+  } catch {
+    return null;
+  }
+}
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -43,11 +58,29 @@ export default async function handler(req, res) {
         custom_message: settings.membership_custom_message && settings.membership_custom_message !== 'none' ? settings.membership_custom_message : '',
         cron_time: settings.membership_cron_time || '06:00',
         nominal_ledger: settings.membership_nominal_ledger || '',
+        addons_enabled: settings.membership_addons_enabled === 'true',
+        addon_training_fund_enabled: settings.membership_addon_training_fund_enabled === 'true',
+        addon_freeform_enabled: settings.membership_addon_freeform_enabled === 'true',
+        training_fund_nominal_code: settings.membership_training_fund_nominal_code || '',
+        training_fund_vat_rate: parseVatRateSetting(settings.membership_training_fund_vat_rate),
       });
     }
 
     if (req.method === 'PUT') {
-      const { require_approval, custom_message, cron_time, nominal_ledger } = req.body;
+      const {
+        require_approval, custom_message, cron_time, nominal_ledger,
+        addons_enabled, addon_training_fund_enabled, addon_freeform_enabled,
+        training_fund_nominal_code, training_fund_vat_rate,
+      } = req.body;
+
+      let vatRateValue = 'none';
+      if (training_fund_vat_rate && typeof training_fund_vat_rate === 'object' && training_fund_vat_rate.taxType) {
+        vatRateValue = JSON.stringify({
+          taxType: String(training_fund_vat_rate.taxType),
+          name: training_fund_vat_rate.name || null,
+          effectiveRate: training_fund_vat_rate.effectiveRate != null ? Number(training_fund_vat_rate.effectiveRate) : null,
+        });
+      }
 
       const validCronTime = /^\d{2}:00$/.test(cron_time) && parseInt(cron_time, 10) >= 0 && parseInt(cron_time, 10) <= 23
         ? cron_time
@@ -58,6 +91,11 @@ export default async function handler(req, res) {
         { key: 'membership_custom_message', value: custom_message || 'none' },
         { key: 'membership_cron_time', value: validCronTime },
         { key: 'membership_nominal_ledger', value: nominal_ledger || '' },
+        { key: 'membership_addons_enabled', value: String(!!addons_enabled) },
+        { key: 'membership_addon_training_fund_enabled', value: String(!!addon_training_fund_enabled) },
+        { key: 'membership_addon_freeform_enabled', value: String(!!addon_freeform_enabled) },
+        { key: 'membership_training_fund_nominal_code', value: training_fund_nominal_code || '' },
+        { key: 'membership_training_fund_vat_rate', value: vatRateValue },
       ];
 
       for (const { key, value } of updates) {
@@ -84,6 +122,11 @@ export default async function handler(req, res) {
         custom_message: custom_message || '',
         cron_time: validCronTime,
         nominal_ledger: nominal_ledger || '',
+        addons_enabled: !!addons_enabled,
+        addon_training_fund_enabled: !!addon_training_fund_enabled,
+        addon_freeform_enabled: !!addon_freeform_enabled,
+        training_fund_nominal_code: training_fund_nominal_code || '',
+        training_fund_vat_rate: vatRateValue === 'none' ? null : JSON.parse(vatRateValue),
       });
     }
 

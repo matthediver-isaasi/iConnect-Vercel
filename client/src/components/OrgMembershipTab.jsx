@@ -609,6 +609,9 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
   const [emailFeesManualEmails, setEmailFeesManualEmails] = useState([]);
   const [emailFeesConfirmStep, setEmailFeesConfirmStep] = useState(false);
   const [feesApprovedMap, setFeesApprovedMap] = useState({});
+  const [approveFeesDialogOpen, setApproveFeesDialogOpen] = useState(false);
+  const [approveFeesYearData, setApproveFeesYearData] = useState(null);
+  const [approveAddonLines, setApproveAddonLines] = useState([]);
   const [loadingInvoiceRecordId, setLoadingInvoiceRecordId] = useState(null);
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
   const [currentInvoiceUrl, setCurrentInvoiceUrl] = useState(null);
@@ -901,12 +904,16 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
   });
 
   const approvalMutation = useMutation({
-    mutationFn: async ({ membershipYear, action }) => {
+    mutationFn: async ({ membershipYear, action, addonLines }) => {
+      const body = { organizationId, membershipYear, action };
+      if (action === 'approve' && Array.isArray(addonLines)) {
+        body.addonLines = addonLines;
+      }
       const response = await fetch('/api/membership/org-membership-invoicing', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ organizationId, membershipYear, action }),
+        body: JSON.stringify(body),
       });
       if (!response.ok) {
         const err = await response.json();
@@ -918,11 +925,98 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
       queryClient.invalidateQueries({ queryKey: ['org-membership-invoicing', organizationId] });
       setFeesApprovedMap(prev => ({ ...prev, [variables.membershipYear]: result.fees_approved }));
       toast.success(result.fees_approved ? 'Fees approved' : 'Fees unapproved');
+      setApproveFeesDialogOpen(false);
+      setApproveFeesYearData(null);
+      setApproveAddonLines([]);
     },
     onError: (error) => {
       toast.error(error.message);
     },
   });
+
+  // Task #2962 — invoice add-on line items. When add-ons are enabled the
+  // Approve Fees action opens a modal where extra invoice lines can be
+  // attached before approval.
+  const addonsEnabled = !!membershipSettings?.addons_enabled &&
+    (!!membershipSettings?.addon_training_fund_enabled || !!membershipSettings?.addon_freeform_enabled);
+
+  const { data: addonSystemSettings = [] } = useQuery({
+    queryKey: ['/api/entities/SystemSettings'],
+    queryFn: () => base44.entities.SystemSettings.list(),
+    enabled: addonsEnabled,
+  });
+  const addonVatRates = (() => {
+    const setting = addonSystemSettings.find(s => s.setting_key === 'xero_vat_rates');
+    if (setting?.setting_value) {
+      try {
+        return JSON.parse(setting.setting_value).rates || [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  })();
+
+  const handleApproveFees = (yearData) => {
+    if (!addonsEnabled) {
+      approvalMutation.mutate({ membershipYear: yearData.membershipYear, action: 'approve' });
+      return;
+    }
+    setApproveFeesYearData(yearData);
+    setApproveAddonLines([]);
+    setApproveFeesDialogOpen(true);
+  };
+
+  const updateAddonLine = (index, patch) => {
+    setApproveAddonLines(prev => prev.map((line, i) => (i === index ? { ...line, ...patch } : line)));
+  };
+
+  const addonLineTotal = (line) => {
+    const unit = parseFloat(line.unitCost);
+    const qty = parseFloat(line.quantity);
+    if (!isFinite(unit) || !isFinite(qty)) return 0;
+    return Math.round(unit * qty * 100) / 100;
+  };
+
+  const addonSummary = (() => {
+    let subtotal = 0;
+    let vat = 0;
+    for (const line of approveAddonLines) {
+      const total = addonLineTotal(line);
+      subtotal += total;
+      const rate = line.type === 'training_fund'
+        ? (membershipSettings?.training_fund_vat_rate?.effectiveRate ?? 0)
+        : (line.vatRate?.effectiveRate ?? 0);
+      vat += Math.round(total * (parseFloat(rate) || 0)) / 100;
+    }
+    subtotal = Math.round(subtotal * 100) / 100;
+    vat = Math.round(vat * 100) / 100;
+    return { subtotal, vat, total: Math.round((subtotal + vat) * 100) / 100 };
+  })();
+
+  const addonLinesValid = approveAddonLines.every(line => {
+    const unit = parseFloat(line.unitCost);
+    const qty = parseFloat(line.quantity);
+    if (!isFinite(unit) || unit <= 0 || !isFinite(qty) || qty <= 0) return false;
+    if (!String(line.description || '').trim()) return false;
+    return true;
+  });
+
+  const submitApproveWithAddons = () => {
+    if (!approveFeesYearData) return;
+    approvalMutation.mutate({
+      membershipYear: approveFeesYearData.membershipYear,
+      action: 'approve',
+      addonLines: approveAddonLines.map(line => ({
+        type: line.type,
+        description: String(line.description || '').trim(),
+        nominalCode: line.type === 'training_fund' ? (membershipSettings?.training_fund_nominal_code || null) : (line.nominalCode || null),
+        vatRate: line.type === 'training_fund' ? (membershipSettings?.training_fund_vat_rate || null) : (line.vatRate || null),
+        unitCost: parseFloat(line.unitCost),
+        quantity: parseFloat(line.quantity),
+      })),
+    });
+  };
 
   const { data: invoicingData } = useQuery({
     queryKey: ['org-membership-invoicing', organizationId],
@@ -1459,7 +1553,7 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                 onlineCardPayment={!!config?.online_card_payment}
                 approvalRequired={!!membershipSettings?.require_approval}
                 feesApproved={!!feesApprovedMap[currentYearCost?.membershipYear]}
-                onApprove={() => approvalMutation.mutate({ membershipYear: currentYearCost.membershipYear, action: 'approve' })}
+                onApprove={() => handleApproveFees(currentYearCost)}
                 onUnapprove={() => approvalMutation.mutate({ membershipYear: currentYearCost.membershipYear, action: 'unapprove' })}
                 approvePending={approvalMutation.isPending}
               />
@@ -1542,7 +1636,7 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                 onlineCardPayment={!!config?.online_card_payment}
                 approvalRequired={!!membershipSettings?.require_approval}
                 feesApproved={!!feesApprovedMap[nextYearPreview?.membershipYear]}
-                onApprove={() => approvalMutation.mutate({ membershipYear: nextYearPreview.membershipYear, action: 'approve' })}
+                onApprove={() => handleApproveFees(nextYearPreview)}
                 onUnapprove={() => approvalMutation.mutate({ membershipYear: nextYearPreview.membershipYear, action: 'unapprove' })}
                 approvePending={approvalMutation.isPending}
                 showAdvanceInvoice={true}
@@ -1703,6 +1797,217 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={approveFeesDialogOpen} onOpenChange={(open) => {
+        if (!open) {
+          setApproveFeesDialogOpen(false);
+          setApproveFeesYearData(null);
+          setApproveAddonLines([]);
+        }
+      }}>
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Approve Fees{approveFeesYearData?.membershipYear ? ` — ${approveFeesYearData.membershipYear}` : ''}</DialogTitle>
+            <DialogDescription>
+              Optionally add extra line items to this organisation's membership invoice before approving.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {approveAddonLines.length > 0 && (
+              <div className="space-y-3">
+                {approveAddonLines.map((line, index) => (
+                  <div key={index} className="p-3 rounded-md border space-y-3" data-testid={`addon-line-${index}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <Badge variant="outline">
+                        {line.type === 'training_fund' ? 'Training Fund top-up' : 'Add-on'}
+                      </Badge>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => setApproveAddonLines(prev => prev.filter((_, i) => i !== index))}
+                        data-testid={`button-remove-addon-${index}`}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Description</Label>
+                      <Input
+                        value={line.description}
+                        onChange={(e) => updateAddonLine(index, { description: e.target.value })}
+                        data-testid={`input-addon-description-${index}`}
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Unit cost (ex VAT)</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={line.unitCost}
+                          onChange={(e) => updateAddonLine(index, { unitCost: e.target.value })}
+                          data-testid={`input-addon-unit-cost-${index}`}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Quantity</Label>
+                        <Input
+                          type="number"
+                          min="1"
+                          step="1"
+                          value={line.quantity}
+                          onChange={(e) => updateAddonLine(index, { quantity: e.target.value })}
+                          data-testid={`input-addon-quantity-${index}`}
+                        />
+                      </div>
+                      {line.type === 'training_fund' ? (
+                        <>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Nominal code</Label>
+                            <Input value={membershipSettings?.training_fund_nominal_code || ''} disabled readOnly />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">VAT rate</Label>
+                            <Input value={membershipSettings?.training_fund_vat_rate?.name || 'Provider default'} disabled readOnly />
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Nominal code</Label>
+                            <Input
+                              value={line.nominalCode || ''}
+                              onChange={(e) => updateAddonLine(index, { nominalCode: e.target.value })}
+                              placeholder="Default"
+                              data-testid={`input-addon-nominal-${index}`}
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">VAT rate</Label>
+                            <Select
+                              value={line.vatRate?.taxType || 'none'}
+                              onValueChange={(value) => {
+                                if (value === 'none') {
+                                  updateAddonLine(index, { vatRate: null });
+                                } else {
+                                  const rate = addonVatRates.find(r => r.taxType === value);
+                                  updateAddonLine(index, { vatRate: rate ? { taxType: rate.taxType, name: rate.name, effectiveRate: rate.effectiveRate } : null });
+                                }
+                              }}
+                            >
+                              <SelectTrigger data-testid={`select-addon-vat-${index}`}>
+                                <SelectValue placeholder="VAT rate" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">Provider default</SelectItem>
+                                {addonVatRates.map((rate) => (
+                                  <SelectItem key={rate.taxType} value={rate.taxType}>
+                                    {rate.name}{rate.effectiveRate != null ? ` (${rate.effectiveRate}%)` : ''}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                    <div className="flex justify-end text-sm">
+                      <span className="text-muted-foreground mr-2">Line total (ex VAT):</span>
+                      <span className="font-medium" data-testid={`text-addon-line-total-${index}`}>{formatCost(addonLineTotal(line), currency)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex gap-2 flex-wrap">
+              {membershipSettings?.addon_training_fund_enabled && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={approveAddonLines.some(l => l.type === 'training_fund')}
+                  onClick={() => setApproveAddonLines(prev => ([...prev, {
+                    type: 'training_fund',
+                    description: 'Training Fund top-up',
+                    unitCost: '',
+                    quantity: '1',
+                  }]))}
+                  data-testid="button-add-training-fund-line"
+                >
+                  <Plus className="w-3 h-3 mr-1" />
+                  Add Training Fund top-up
+                </Button>
+              )}
+              {membershipSettings?.addon_freeform_enabled && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setApproveAddonLines(prev => ([...prev, {
+                    type: 'freeform',
+                    description: '',
+                    nominalCode: '',
+                    vatRate: null,
+                    unitCost: '',
+                    quantity: '1',
+                  }]))}
+                  data-testid="button-add-freeform-line"
+                >
+                  <Plus className="w-3 h-3 mr-1" />
+                  Add line item
+                </Button>
+              )}
+            </div>
+
+            <Separator />
+            <div className="space-y-1 text-sm" data-testid="addon-invoice-summary">
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground">Membership fee (ex VAT)</span>
+                <span className="font-medium">{formatCost(approveFeesYearData?.finalCost || 0, currency)}</span>
+              </div>
+              {approveAddonLines.length > 0 && (
+                <div className="flex justify-between gap-2">
+                  <span className="text-muted-foreground">Add-ons (ex VAT)</span>
+                  <span className="font-medium">{formatCost(addonSummary.subtotal, currency)}</span>
+                </div>
+              )}
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground">VAT</span>
+                <span className="font-medium">{formatCost((approveFeesYearData?.vatAmount || 0) + addonSummary.vat, currency)}</span>
+              </div>
+              <div className="flex justify-between gap-2 pt-1 border-t">
+                <span className="font-semibold">Invoice total</span>
+                <span className="font-semibold" data-testid="text-addon-invoice-total">
+                  {formatCost((approveFeesYearData?.totalWithVat ?? approveFeesYearData?.finalCost ?? 0) + addonSummary.total, currency)}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setApproveFeesDialogOpen(false);
+                setApproveFeesYearData(null);
+                setApproveAddonLines([]);
+              }}
+              data-testid="button-cancel-approve-fees"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={submitApproveWithAddons}
+              disabled={approvalMutation.isPending || !addonLinesValid}
+              data-testid="button-confirm-approve-fees"
+            >
+              {approvalMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ShieldCheck className="w-4 h-4 mr-2" />}
+              Approve Fees
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={overrideModalOpen} onOpenChange={setOverrideModalOpen}>
         <DialogContent className="sm:max-w-lg">

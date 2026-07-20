@@ -363,6 +363,7 @@ export async function createQuickBooksMembershipInvoice({
   markAsPaid,
   stripePaymentIntentId,
   invoiceDescription,
+  extraLineItems,
 }) {
   if (!appTenantId) throw new Error('appTenantId is required');
   if (!organizationName) throw new Error('organizationName is required');
@@ -430,10 +431,76 @@ export async function createQuickBooksMembershipInvoice({
   };
   line.SalesItemLineDetail.TaxCodeRef = { value: taxCodeId };
 
+  const invoiceLines = [line];
+  // Add-on lines appended after the membership fee line. QBO invoice lines
+  // reference Items rather than nominal account codes, so each add-on's
+  // nominal code is resolved to a QBO Item: first an Item whose Name matches
+  // the nominal code, then an Item whose IncomeAccountRef points at an
+  // Account with that AcctNum. If neither resolves, the line falls back to
+  // the membership Item and the nominal code is recorded in the description
+  // so it is never silently dropped. VAT comes from the line's own tax code
+  // when supplied, falling back to the membership line's tax code.
+  const extraItemIdCache = new Map();
+  const resolveExtraItemId = async (nominalCode) => {
+    const key = String(nominalCode);
+    if (extraItemIdCache.has(key)) return extraItemIdCache.get(key);
+    let resolved = null;
+    const escaped = key.replace(/'/g, "\\'");
+    try {
+      const byName = await qboQuery(
+        accessToken, realmId, environment,
+        `SELECT * FROM Item WHERE Name = '${escaped}' AND Active = true`
+      );
+      resolved = byName?.QueryResponse?.Item?.[0]?.Id || null;
+      if (!resolved) {
+        const acctResp = await qboQuery(
+          accessToken, realmId, environment,
+          `SELECT * FROM Account WHERE AcctNum = '${escaped}' AND Active = true`
+        );
+        const accountId = acctResp?.QueryResponse?.Account?.[0]?.Id || null;
+        if (accountId) {
+          const byAccount = await qboQuery(
+            accessToken, realmId, environment,
+            `SELECT * FROM Item WHERE Active = true MAXRESULTS 1000`
+          );
+          const items = byAccount?.QueryResponse?.Item || [];
+          resolved = items.find((it) => it?.IncomeAccountRef?.value === accountId)?.Id || null;
+        }
+      }
+    } catch (resolveErr) {
+      console.log(`[QBO] Add-on Item resolution for nominal code ${key} failed (non-fatal): ${resolveErr.message}`);
+    }
+    if (resolved) {
+      console.log(`[QBO] Resolved add-on nominal code ${key} to Item ${resolved}`);
+    }
+    extraItemIdCache.set(key, resolved);
+    return resolved;
+  };
+
+  for (const extra of (Array.isArray(extraLineItems) ? extraLineItems : [])) {
+    const qty = Number(extra.quantity) > 0 ? Number(extra.quantity) : 1;
+    const unitPrice = Number(parseFloat(extra.unitCost || 0).toFixed(2));
+    const { taxCodeId: extraTaxCodeId } = parseTaxCodeRef(extra.vatRate);
+    const extraItemId = extra.nominalCode ? await resolveExtraItemId(extra.nominalCode) : null;
+    const descParts = [extra.description || 'Additional item'];
+    if (extra.nominalCode && !extraItemId) descParts.push(`Nominal code: ${extra.nominalCode}`);
+    invoiceLines.push({
+      DetailType: 'SalesItemLineDetail',
+      Amount: Number((unitPrice * qty).toFixed(2)),
+      Description: descParts.join('\n'),
+      SalesItemLineDetail: {
+        ItemRef: { value: extraItemId || itemId },
+        Qty: qty,
+        UnitPrice: unitPrice,
+        TaxCodeRef: { value: extraTaxCodeId || taxCodeId },
+      },
+    });
+  }
+
   const dueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   const invoicePayload = {
     CustomerRef: { value: customerId },
-    Line: [line],
+    Line: invoiceLines,
     DueDate: dueDate,
     CustomerMemo: { value: reference || `Membership ${membershipYear}` },
     // Required by QBO when the company file has VAT/Sales-Tax enabled. Without

@@ -8,9 +8,11 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Settings, Save, Loader2, ShieldCheck, MessageSquare, Clock, BookOpen } from "lucide-react";
+import { Settings, Save, Loader2, ShieldCheck, MessageSquare, Clock, BookOpen, PackagePlus } from "lucide-react";
 import { toast } from "sonner";
+import { useQuery } from "@tanstack/react-query";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { base44 } from "@/api/base44Client";
 
 export default function MembershipSettings() {
   const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -20,8 +22,28 @@ export default function MembershipSettings() {
   const [customMessage, setCustomMessage] = useState('');
   const [cronTime, setCronTime] = useState('06:00');
   const [nominalLedger, setNominalLedger] = useState('');
+  const [addonsEnabled, setAddonsEnabled] = useState(false);
+  const [addonTrainingFundEnabled, setAddonTrainingFundEnabled] = useState(false);
+  const [addonFreeformEnabled, setAddonFreeformEnabled] = useState(false);
+  const [trainingFundNominalCode, setTrainingFundNominalCode] = useState('');
+  const [trainingFundVatRate, setTrainingFundVatRate] = useState(null); // { taxType, name, effectiveRate } | null
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  const { data: systemSettings } = useQuery({
+    queryKey: ['/api/entities/SystemSettings'],
+    queryFn: () => base44.entities.SystemSettings.list(),
+    enabled: accessChecked,
+  });
+  const vatRates = (() => {
+    try {
+      const row = (systemSettings || []).find(s => s.setting_key === 'xero_vat_rates');
+      const parsed = row ? JSON.parse(row.setting_value) : null;
+      return Array.isArray(parsed?.rates) ? parsed.rates : [];
+    } catch {
+      return [];
+    }
+  })();
 
   useEffect(() => {
     if (isAccessReady) {
@@ -38,6 +60,11 @@ export default function MembershipSettings() {
         setCustomMessage(data.custom_message || '');
         setCronTime(data.cron_time || '06:00');
         setNominalLedger(data.nominal_ledger || '');
+        setAddonsEnabled(data.addons_enabled || false);
+        setAddonTrainingFundEnabled(data.addon_training_fund_enabled || false);
+        setAddonFreeformEnabled(data.addon_freeform_enabled || false);
+        setTrainingFundNominalCode(data.training_fund_nominal_code || '');
+        setTrainingFundVatRate(data.training_fund_vat_rate || null);
       })
       .catch(() => {
         toast.error('Failed to load membership settings');
@@ -57,6 +84,11 @@ export default function MembershipSettings() {
           custom_message: customMessage,
           cron_time: cronTime,
           nominal_ledger: nominalLedger,
+          addons_enabled: addonsEnabled,
+          addon_training_fund_enabled: addonTrainingFundEnabled,
+          addon_freeform_enabled: addonFreeformEnabled,
+          training_fund_nominal_code: trainingFundNominalCode,
+          training_fund_vat_rate: trainingFundVatRate,
         }),
       });
       if (!res.ok) {
@@ -214,6 +246,108 @@ export default function MembershipSettings() {
             <p className="text-xs text-muted-foreground italic">
               Using system-wide default account code
             </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <PackagePlus className="w-4 h-4" />
+            Invoice Add-ons
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between gap-4">
+            <div className="space-y-1">
+              <Label className="text-sm font-medium">Allow add-on line items on membership invoices</Label>
+              <p className="text-xs text-muted-foreground">
+                When enabled, admins can attach extra line items (such as a Training Fund top-up) to an
+                organisation's membership invoice when approving its fees.
+              </p>
+            </div>
+            <Switch
+              checked={addonsEnabled}
+              onCheckedChange={setAddonsEnabled}
+              data-testid="switch-addons-enabled"
+            />
+          </div>
+
+          {addonsEnabled && (
+            <>
+              <Separator />
+              <div className="flex items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <Label className="text-sm font-medium">Training Fund top-ups</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Add a Training Fund top-up line to the invoice. The fund is credited automatically
+                    when the invoice is paid.
+                  </p>
+                </div>
+                <Switch
+                  checked={addonTrainingFundEnabled}
+                  onCheckedChange={setAddonTrainingFundEnabled}
+                  data-testid="switch-addon-training-fund"
+                />
+              </div>
+
+              {addonTrainingFundEnabled && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pl-1">
+                  <div className="space-y-1">
+                    <Label className="text-sm font-medium">Training Fund nominal code</Label>
+                    <Input
+                      value={trainingFundNominalCode}
+                      onChange={(e) => setTrainingFundNominalCode(e.target.value)}
+                      placeholder="e.g. 210"
+                      className="w-40"
+                      data-testid="input-training-fund-nominal"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-sm font-medium">Training Fund VAT rate</Label>
+                    <Select
+                      value={trainingFundVatRate?.taxType || 'none'}
+                      onValueChange={(value) => {
+                        if (value === 'none') {
+                          setTrainingFundVatRate(null);
+                        } else {
+                          const rate = vatRates.find(r => r.taxType === value);
+                          setTrainingFundVatRate(rate ? { taxType: rate.taxType, name: rate.name, effectiveRate: rate.effectiveRate } : { taxType: value, name: null, effectiveRate: null });
+                        }
+                      }}
+                    >
+                      <SelectTrigger data-testid="select-training-fund-vat">
+                        <SelectValue placeholder="Select VAT rate" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">No VAT rate (provider default)</SelectItem>
+                        {vatRates.map((rate) => (
+                          <SelectItem key={rate.taxType} value={rate.taxType}>
+                            {rate.name}{rate.effectiveRate != null ? ` (${rate.effectiveRate}%)` : ''}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              )}
+
+              <Separator />
+              <div className="flex items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <Label className="text-sm font-medium">Free-form add-ons</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Add arbitrary line items with their own description, nominal code, VAT rate,
+                    unit cost and quantity.
+                  </p>
+                </div>
+                <Switch
+                  checked={addonFreeformEnabled}
+                  onCheckedChange={setAddonFreeformEnabled}
+                  data-testid="switch-addon-freeform"
+                />
+              </div>
+            </>
           )}
         </CardContent>
       </Card>

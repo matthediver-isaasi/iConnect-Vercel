@@ -1,0 +1,9 @@
+---
+name: Membership invoice add-on lines
+description: How add-on line items flow from fee approval to org membership invoices and the training fund.
+---
+Add-on lines are stored on `organisation_membership_invoicing.addon_lines` (JSONB) at fee-approval time and cleared on unapprove. Rule: any code path that creates an org membership invoice (manual renewal, advance invoice, both cron paths in process-membership-renewals) must (1) load lines via `loadAddonLines`, (2) pass `buildExtraLineItems` to createMembershipInvoice (Xero+QBO both accept `extraLineItems`), (3) bake addon subtotal/VAT/total into the history row's final_cost/vat_amount/total_with_vat, and (4) call `processTrainingFundAddons` after linking the invoice (idempotent per accounting_invoice_id; creates pending training_fund_purchase + RPC `increment_org_training_fund_pending`).
+**Why:** a missed path silently produces invoices without the add-ons or double-credits the training fund; the cron fee line must subtract the addon subtotal from record.final_cost to avoid double-counting.
+**How to apply:** when adding a new invoice-creation path or changing invoice totals, wire all four steps from `api/_lib/membershipAddons.js`. Training-fund line defaults (nominal code, VAT) are tenant settings and are FORCED server-side in validateAddonLines — the client values are advisory.
+
+Two subtleties: (a) the cron's invoiceExistingRecord subtracts the addon subtotal from record.final_cost ONLY when the record's notes carry the explicit "add-on line(s) included" bake marker — legacy/unbaked records keep the full fee (no underbilling) and get totals folded in at invoice time. Keep bake + subtract in lockstep via that marker. (b) QBO lines reference Items, not nominal codes: add-on lines resolve a per-line Item (Item name == nominal code, else Item whose IncomeAccountRef matches an Account with that AcctNum), falling back to the membership Item with the nominal code preserved in the description.

@@ -1,5 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { getAccountingProvider, buildInvoiceColumnUpdate } from '../_lib/accountingProvider.js';
+import { loadAddonLines, computeAddonTotals, buildExtraLineItems, processTrainingFundAddons } from '../_lib/membershipAddons.js';
 import { simulateMembershipForOrg, simulateMembershipForMember } from '../_lib/membershipSimulation.js';
 import { sendMembershipInvoiceEmail } from '../_lib/membershipInvoiceEmail.js';
 import { sendTenantEmail } from '../_lib/tenantEmailService.js';
@@ -396,6 +397,20 @@ async function invoiceExistingRecord(tenantId, orgId, simResult, results) {
     } catch {}
   }
 
+  // Add-on lines stored at fee-approval time. When the record was created by
+  // processOrgRenewal with add-ons present, the add-on subtotal was baked
+  // into final_cost and the notes carry an explicit "add-on line(s) included"
+  // marker — only then do we subtract it back out for the membership fee
+  // line (the add-ons go on the invoice as their own extra line items).
+  // Records created without that marker keep their full final_cost so we
+  // never underbill.
+  const addonLines = await loadAddonLines(tenantId, orgId, record.membership_year);
+  const addonTotals = computeAddonTotals(addonLines);
+  const addonsBaked = /add-on line\(s\) included/.test(record.notes || '');
+  const membershipFeeCost = addonsBaked
+    ? Math.max(0, Math.round((parseFloat(record.final_cost) - addonTotals.subtotal) * 100) / 100)
+    : Math.round(parseFloat(record.final_cost) * 100) / 100;
+
   let xeroInvoice = null;
   const provider = await getAccountingProvider(tenantId);
   const providerLabel = provider?.name === 'quickbooks' ? 'QuickBooks' : 'Xero';
@@ -411,18 +426,39 @@ async function invoiceExistingRecord(tenantId, orgId, simResult, results) {
       invoicingAddress: resolvedAddr,
       membershipYear: record.membership_year,
       tierLabel: record.tier_label,
-      finalCost: parseFloat(record.final_cost),
+      finalCost: membershipFeeCost,
       currency: record.currency || 'GBP',
       reference: xeroReference,
       vatRate: bandVatRate,
       invoiceDescription: simResult.config?.invoice_description || null,
+      extraLineItems: buildExtraLineItems(addonLines),
     });
 
     if (xeroInvoice) {
+      const invoiceUpdate = buildInvoiceColumnUpdate(xeroInvoice);
+      if (!addonsBaked && addonLines.length > 0) {
+        // The stored record predates the add-on bake — fold the addon
+        // totals in now so stored totals match the invoice just created.
+        invoiceUpdate.final_cost = Math.round((parseFloat(record.final_cost || 0) + addonTotals.subtotal) * 100) / 100;
+        invoiceUpdate.vat_amount = Math.round((parseFloat(record.vat_amount || 0) + addonTotals.vat) * 100) / 100;
+        invoiceUpdate.total_with_vat = Math.round((parseFloat(record.total_with_vat || record.final_cost || 0) + addonTotals.total) * 100) / 100;
+        invoiceUpdate.notes = `${record.notes || ''} ${addonLines.length} add-on line(s) included.`.trim();
+      }
       await supabase
         .from('organisation_membership_history')
-        .update(buildInvoiceColumnUpdate(xeroInvoice))
+        .update(invoiceUpdate)
         .eq('id', existingRecord.id);
+
+      try {
+        await processTrainingFundAddons({
+          tenantId,
+          organizationId: orgId,
+          invoice: xeroInvoice,
+          addonLines,
+        });
+      } catch (tfErr) {
+        console.error(`[cron/process-membership-renewals] Training fund add-on processing failed for org ${orgId} (non-fatal):`, tfErr.message);
+      }
     }
   } catch (xeroErr) {
     console.error(`[cron/process-membership-renewals] Scheduled ${providerLabel} invoice failed for org ${orgId} (non-fatal):`, xeroErr.message);
@@ -586,6 +622,14 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
     console.log(`[cron/process-membership-renewals] Could not fetch PO for org ${orgId} (non-fatal):`, poErr.message);
   }
 
+  // Add-on lines stored at fee-approval time. ALWAYS bake them into the
+  // stored history totals — even when the invoice is deferred (scheduled
+  // mode) — because invoiceExistingRecord later derives the membership fee
+  // line by subtracting the addon subtotal from record.final_cost. If the
+  // record were stored without add-ons, that subtraction would underbill.
+  const addonLines = await loadAddonLines(tenantId, orgId, membershipYear.label);
+  const addonTotals = computeAddonTotals(addonLines);
+
   const { data: record, error: insertError } = await supabase
     .from('organisation_membership_history')
     .insert({
@@ -602,20 +646,20 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
       rollover_discount: rolloverDiscount,
       custom_discount_total: customDiscountTotal,
       custom_discount_details: customDiscountDetails.length > 0 ? customDiscountDetails : null,
-      final_cost: finalCost,
+      final_cost: Math.round((finalCost + addonTotals.subtotal) * 100) / 100,
       currency: currency,
       billing_period: simResult.billingPeriod || 'annual',
       purchase_order_number: poNumber,
       vat_rate_percent: simResult.vatRatePercent || null,
-      vat_amount: simResult.vatAmount || 0,
-      total_with_vat: simResult.totalWithVat || finalCost,
+      vat_amount: Math.round(((simResult.vatAmount || 0) + addonTotals.vat) * 100) / 100,
+      total_with_vat: Math.round(((simResult.totalWithVat || finalCost) + addonTotals.total) * 100) / 100,
       year_number: yearNumber,
       prorata_days: simResult.prorataDays || null,
       free_period_days_applied: simResult.freePeriodDaysApplied || 0,
       override_applied: simResult.overrideApplied || false,
       override_type: simResult.overrideType || null,
       status: 'active',
-      notes: `${mode === 'automatic' ? 'Automatic' : 'Scheduled'} renewal via cron job (year ${yearNumber}, go-live: ${goLiveDate})`,
+      notes: `${mode === 'automatic' ? 'Automatic' : 'Scheduled'} renewal via cron job (year ${yearNumber}, go-live: ${goLiveDate})${addonLines.length > 0 ? `. ${addonLines.length} add-on line(s) included.` : ''}`,
     })
     .select()
     .single();
@@ -660,6 +704,7 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
         reference: xeroReference,
         vatRate: bandVatRate,
         invoiceDescription: simResult.config?.invoice_description || null,
+        extraLineItems: buildExtraLineItems(addonLines),
       });
 
       if (xeroInvoice) {
@@ -670,6 +715,17 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
 
         if (linkError) {
           console.error(`[cron/process-membership-renewals] Failed to link ${providerLabel} invoice for org ${orgId}:`, linkError.message);
+        }
+
+        try {
+          await processTrainingFundAddons({
+            tenantId,
+            organizationId: orgId,
+            invoice: xeroInvoice,
+            addonLines,
+          });
+        } catch (tfErr) {
+          console.error(`[cron/process-membership-renewals] Training fund add-on processing failed for org ${orgId} (non-fatal):`, tfErr.message);
         }
       }
     } catch (xeroErr) {
