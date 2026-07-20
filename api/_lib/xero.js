@@ -193,7 +193,7 @@ export async function findOrCreateXeroContact(accessToken, xeroTenantId, contact
   throw new Error('Failed to create Xero contact');
 }
 
-export async function createXeroMembershipInvoice({ appTenantId, organizationName, invoicingEmail, invoicingAddress, membershipYear, tierLabel, finalCost, currency, reference, vatRate, markAsPaid, stripePaymentIntentId, invoiceDescription, extraLineItems }) {
+export async function createXeroMembershipInvoice({ appTenantId, organizationName, invoicingEmail, invoicingAddress, membershipYear, tierLabel, finalCost, currency, reference, vatRate, markAsPaid, stripePaymentIntentId, invoiceDescription, extraLineItems, nominalCode }) {
   if (!supabase) throw new Error('Supabase not configured');
   if (!appTenantId) throw new Error('appTenantId is required');
   if (!organizationName) throw new Error('organizationName is required');
@@ -221,6 +221,11 @@ export async function createXeroMembershipInvoice({ appTenantId, organizationNam
       .eq('tenant_id', appTenantId)
       .maybeSingle();
     xeroAccountCode = accountCodeSetting?.setting_value || '200';
+  }
+  // An explicit nominal code (e.g. the Training Fund default from Membership
+  // Settings) overrides the membership ledger for the main invoice line.
+  if (nominalCode && String(nominalCode).trim()) {
+    xeroAccountCode = String(nominalCode).trim();
   }
 
   const { data: invoiceStatusSetting } = await supabase

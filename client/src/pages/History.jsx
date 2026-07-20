@@ -107,6 +107,20 @@ export default function HistoryPage({ hasBanner }) {
     staleTime: 0,
   });
 
+  // Fetch training fund purchases (top-ups) for the organization
+  const { data: trainingFundPurchases = [], isLoading: trainingFundPurchasesLoading } = useQuery({
+    queryKey: ['training-fund-purchases', organizationInfo?.id],
+    queryFn: async () => {
+      if (!organizationInfo?.id) return [];
+      const allPurchases = await base44.entities.TrainingFundPurchase.list();
+      return allPurchases
+        .filter(p => p.organization_id === organizationInfo.id && p.status !== 'cancelled')
+        .sort((a, b) => new Date(b.created_date) - new Date(a.created_date));
+    },
+    enabled: !!organizationInfo?.id,
+    staleTime: 0,
+  });
+
   // Fetch voucher transactions for the organization
   const { data: voucherTransactions = [], isLoading: voucherTransactionsLoading } = useQuery({
     queryKey: ['voucher-transactions-org', organizationInfo?.id],
@@ -235,12 +249,31 @@ export default function HistoryPage({ hasBanner }) {
     );
   }, [transactions, searchQuery, sortOrder, typeFilter]);
 
+  // Hide ledger credit rows that are already represented by a purchase card,
+  // so a paid top-up doesn't show twice in the Training Fund history.
+  const purchaseLedgerTransactionIds = useMemo(() => {
+    return new Set(trainingFundPurchases.map(p => p.transaction_id).filter(Boolean));
+  }, [trainingFundPurchases]);
+
+  const dedupedTrainingFundTransactions = useMemo(() => {
+    return trainingFundTransactions.filter(t => !purchaseLedgerTransactionIds.has(t.id));
+  }, [trainingFundTransactions, purchaseLedgerTransactionIds]);
+
+  // Filter training fund purchases (top-ups are always credits)
+  const filteredTrainingFundPurchases = useMemo(() => {
+    if (typeFilter === 'debit') return [];
+    return filterAndSortData(
+      trainingFundPurchases,
+      ['purchase_order_number', 'xero_invoice_number', 'accounting_invoice_number', 'status', 'payment_method']
+    );
+  }, [trainingFundPurchases, searchQuery, sortOrder, typeFilter]);
+
   // Filter training fund transactions
   const filteredTrainingFundTransactions = useMemo(() => {
-    let filtered = trainingFundTransactions;
+    let filtered = dedupedTrainingFundTransactions;
 
     if (typeFilter !== 'all') {
-      filtered = trainingFundTransactions.filter(t => {
+      filtered = dedupedTrainingFundTransactions.filter(t => {
         if (typeFilter === 'credit') return t.type === 'add' || t.type === 'credit' || t.type === 'credit_adjustment';
         if (typeFilter === 'debit') return t.type === 'deduct' || t.type === 'debit_adjustment' || t.type === 'usage' || t.type === 'booking_usage';
         return true;
@@ -252,7 +285,7 @@ export default function HistoryPage({ hasBanner }) {
       ['reason', 'event_title', 'booking_reference'],
       'created_at'
     );
-  }, [trainingFundTransactions, searchQuery, sortOrder, typeFilter]);
+  }, [dedupedTrainingFundTransactions, searchQuery, sortOrder, typeFilter]);
 
   // Filter voucher transactions
   const filteredVoucherTransactions = useMemo(() => {
@@ -316,7 +349,7 @@ export default function HistoryPage({ hasBanner }) {
     }
   };
 
-  const isLoading = bookingsLoading || membershipHistoryLoading || (hasOrg && (transactionsLoading || trainingFundLoading || voucherTransactionsLoading));
+  const isLoading = bookingsLoading || membershipHistoryLoading || (hasOrg && (transactionsLoading || trainingFundLoading || trainingFundPurchasesLoading || voucherTransactionsLoading));
 
   if (!memberInfo) {
     return (
@@ -500,6 +533,68 @@ export default function HistoryPage({ hasBanner }) {
   };
 
   const [loadingMembershipInvoice, setLoadingMembershipInvoice] = useState(null);
+  const [loadingPurchaseInvoice, setLoadingPurchaseInvoice] = useState(null);
+
+  const handleViewPurchaseInvoice = async (purchaseId, invoiceNumber) => {
+    setLoadingPurchaseInvoice(purchaseId);
+
+    try {
+      const response = await fetch(`/api/training-fund-invoice/${encodeURIComponent(purchaseId)}?inline=true`, {
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: 'Failed to load invoice' }));
+        throw new Error(error.error || 'Failed to load invoice');
+      }
+
+      const pdfBlob = await response.blob();
+      const blobUrl = URL.createObjectURL(pdfBlob);
+      const pdfUrl = `${blobUrl}#view=Fit&navpanes=0&toolbar=0`;
+
+      setCurrentInvoiceUrl(pdfUrl);
+      setCurrentInvoiceNumber(invoiceNumber);
+      setInvoiceModalOpen(true);
+    } catch (error) {
+      console.error('Error loading training fund invoice:', error);
+      toast.error(error.message || 'Failed to load invoice');
+    } finally {
+      setLoadingPurchaseInvoice(null);
+    }
+  };
+
+  const handleDownloadPurchaseInvoice = async (purchaseId, invoiceNumber) => {
+    setLoadingPurchaseInvoice(purchaseId);
+
+    try {
+      const response = await fetch(`/api/training-fund-invoice/${encodeURIComponent(purchaseId)}`, {
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: 'Failed to download invoice' }));
+        throw new Error(error.error || 'Failed to download invoice');
+      }
+
+      const pdfBlob = await response.blob();
+      const blobUrl = URL.createObjectURL(pdfBlob);
+
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = `training-fund-invoice-${invoiceNumber || purchaseId}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
+      toast.success('Downloading invoice...');
+    } catch (error) {
+      console.error('Error downloading training fund invoice:', error);
+      toast.error(error.message || 'Failed to download invoice');
+    } finally {
+      setLoadingPurchaseInvoice(null);
+    }
+  };
 
   const handleViewMembershipInvoice = async (recordId, invoiceNumber) => {
     setLoadingMembershipInvoice(recordId);
@@ -962,6 +1057,108 @@ export default function HistoryPage({ hasBanner }) {
     );
   };
 
+  // Component for a training fund top-up purchase (card or invoice)
+  const TrainingFundPurchaseCard = ({ purchase }) => {
+    const isAwaitingPayment = purchase.status === 'pending' && purchase.payment_method === 'invoice';
+    const isPaid = purchase.status === 'paid';
+    const invoiceNumber = purchase.accounting_invoice_number || purchase.xero_invoice_number;
+    const hasInvoice = !!(purchase.accounting_invoice_id || purchase.xero_invoice_id);
+    const purchaseDate = purchase.created_date ? new Date(purchase.created_date) : null;
+
+    return (
+      <div className="flex flex-col gap-3 p-4 bg-slate-50 rounded-lg border border-slate-200">
+        <div className="flex items-start sm:items-center gap-3 sm:gap-4">
+          <TransactionDateColumn date={purchaseDate} />
+
+          <div className="p-2 sm:p-3 rounded-lg bg-green-100 text-green-600 shrink-0">
+            <Wallet className="w-4 h-4 sm:w-5 sm:h-5" />
+          </div>
+
+          <div className="flex-1 min-w-0">
+            <TransactionDateInline date={purchaseDate} />
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
+              <h3 className="font-semibold text-slate-900">Training Fund Top-up</h3>
+              {isAwaitingPayment ? (
+                <Badge variant="warning" className="text-xs" data-testid={`badge-purchase-status-${purchase.id}`}>
+                  Awaiting payment
+                </Badge>
+              ) : isPaid ? (
+                <Badge variant="outline" className="text-xs bg-green-100 text-green-600" data-testid={`badge-purchase-status-${purchase.id}`}>
+                  Paid
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="text-xs" data-testid={`badge-purchase-status-${purchase.id}`}>
+                  {purchase.status || 'Pending'}
+                </Badge>
+              )}
+              <Badge variant="outline" className="text-xs">
+                {purchase.payment_method === 'invoice' ? 'Invoiced' : 'Card Payment'}
+              </Badge>
+            </div>
+
+            <div className="space-y-1">
+              {isPaid && purchase.paid_at && (
+                <p className="text-sm text-slate-600">Paid on {format(new Date(purchase.paid_at), 'd MMM yyyy')}</p>
+              )}
+              {isAwaitingPayment && !purchase.purchase_order_number && purchase.po_to_follow && (
+                <p className="text-sm text-slate-600">Purchase order to follow</p>
+              )}
+              {purchase.purchase_order_number && (
+                <p className="text-xs text-slate-500">PO: {purchase.purchase_order_number}</p>
+              )}
+              {invoiceNumber && (
+                <p className="text-xs text-slate-500">Invoice: {invoiceNumber}</p>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1 shrink-0">
+            <span className="text-lg font-semibold text-green-600" data-testid={`text-purchase-amount-${purchase.id}`}>
+              +£{(parseFloat(purchase.amount) || 0).toFixed(2)}
+            </span>
+          </div>
+        </div>
+
+        {canAccessInvoices && hasInvoice && (
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleViewPurchaseInvoice(purchase.id, invoiceNumber || purchase.id)}
+              disabled={loadingPurchaseInvoice === purchase.id}
+              data-testid={`button-view-purchase-invoice-${purchase.id}`}
+            >
+              {loadingPurchaseInvoice === purchase.id ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  <Eye className="w-4 h-4 mr-1" />
+                  View Invoice
+                </>
+              )}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleDownloadPurchaseInvoice(purchase.id, invoiceNumber || purchase.id)}
+              disabled={loadingPurchaseInvoice === purchase.id}
+              data-testid={`button-download-purchase-invoice-${purchase.id}`}
+            >
+              {loadingPurchaseInvoice === purchase.id ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  <Download className="w-4 h-4 mr-1" />
+                  Download
+                </>
+              )}
+            </Button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   // Component for voucher transaction with date column
   const VoucherTransactionCard = ({ transaction }) => {
     const isCredit = transaction.type === 'credit_adjustment';
@@ -1222,7 +1419,7 @@ export default function HistoryPage({ hasBanner }) {
           <CardContent className="pt-6">
             {isLoading ? (
               <div className="text-center py-8 text-slate-600">Loading transactions...</div>
-            ) : (bookingGroups.length === 0 && membershipHistory.length === 0 && (!hasOrg || (transactions.length === 0 && trainingFundTransactions.length === 0 && voucherTransactions.length === 0))) ? (
+            ) : (bookingGroups.length === 0 && membershipHistory.length === 0 && (!hasOrg || (transactions.length === 0 && trainingFundTransactions.length === 0 && trainingFundPurchases.length === 0 && voucherTransactions.length === 0))) ? (
               <div className="text-center py-8">
                 <Ticket className="w-12 h-12 text-slate-300 mx-auto mb-3" />
                 <p className="text-slate-600">No transactions yet</p>
@@ -1241,7 +1438,7 @@ export default function HistoryPage({ hasBanner }) {
                   )}
                   {hasOrg && (
                     <TabsTrigger value="training-fund" data-testid="tab-training-fund">
-                      Training Fund ({trainingFundTransactions.length})
+                      Training Fund ({dedupedTrainingFundTransactions.length + trainingFundPurchases.length})
                     </TabsTrigger>
                   )}
                   {hasOrg && (
@@ -1311,6 +1508,31 @@ export default function HistoryPage({ hasBanner }) {
                           className="text-sm"
                         >
                           View all {filteredTransactions.length} program ticket transactions
+                        </Button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Training Fund Top-up Purchases Section (org-only) */}
+                  {hasOrg && filteredTrainingFundPurchases.length > 0 && (
+                    <div className="space-y-3">
+                      <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                        <Wallet className="w-4 h-4" />
+                        Training Fund Top-ups ({filteredTrainingFundPurchases.length})
+                      </h3>
+                      {filteredTrainingFundPurchases.slice(0, 5).map((purchase) => (
+                        <TrainingFundPurchaseCard
+                          key={purchase.id}
+                          purchase={purchase}
+                        />
+                      ))}
+                      {filteredTrainingFundPurchases.length > 5 && (
+                        <Button 
+                          variant="link" 
+                          onClick={() => setActiveTab('training-fund')}
+                          className="text-sm"
+                        >
+                          View all {filteredTrainingFundPurchases.length} training fund top-ups
                         </Button>
                       )}
                     </div>
@@ -1394,7 +1616,7 @@ export default function HistoryPage({ hasBanner }) {
                   {/* No results message */}
                   {filteredBookingGroups.length === 0 && 
                    filteredMembershipHistory.length === 0 &&
-                   (!hasOrg || (filteredTransactions.length === 0 && filteredTrainingFundTransactions.length === 0 && filteredVoucherTransactions.length === 0)) &&
+                   (!hasOrg || (filteredTransactions.length === 0 && filteredTrainingFundTransactions.length === 0 && filteredTrainingFundPurchases.length === 0 && filteredVoucherTransactions.length === 0)) &&
                    searchQuery.trim() && (
                     <div className="text-center py-8">
                       <Search className="w-12 h-12 text-slate-300 mx-auto mb-3" />
@@ -1475,9 +1697,23 @@ export default function HistoryPage({ hasBanner }) {
 
                 {/* Training Fund Tab */}
                 <TabsContent value="training-fund" className="space-y-3">
+                  {filteredTrainingFundPurchases.length > 0 && (
+                    <div className="space-y-3 mb-6">
+                      <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                        <Wallet className="w-4 h-4" />
+                        Top-ups ({filteredTrainingFundPurchases.length})
+                      </h3>
+                      {filteredTrainingFundPurchases.map((purchase) => (
+                        <TrainingFundPurchaseCard
+                          key={purchase.id}
+                          purchase={purchase}
+                        />
+                      ))}
+                    </div>
+                  )}
                   {(() => {
                     const pagination = paginateData(filteredTrainingFundTransactions);
-                    return filteredTrainingFundTransactions.length === 0 ? (
+                    return filteredTrainingFundTransactions.length === 0 && filteredTrainingFundPurchases.length === 0 ? (
                       <div className="text-center py-8">
                         <Wallet className="w-12 h-12 text-slate-300 mx-auto mb-3" />
                         <p className="text-slate-600">

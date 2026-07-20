@@ -364,6 +364,7 @@ export async function createQuickBooksMembershipInvoice({
   stripePaymentIntentId,
   invoiceDescription,
   extraLineItems,
+  nominalCode,
 }) {
   if (!appTenantId) throw new Error('appTenantId is required');
   if (!organizationName) throw new Error('organizationName is required');
@@ -476,6 +477,20 @@ export async function createQuickBooksMembershipInvoice({
     extraItemIdCache.set(key, resolved);
     return resolved;
   };
+
+  // An explicit main-line nominal code (e.g. the Training Fund default from
+  // Membership Settings) resolves to a QBO Item the same way add-on lines do.
+  // If it can't be resolved the line keeps the membership Item and the nominal
+  // code is recorded in the description so it is never silently dropped.
+  if (nominalCode && String(nominalCode).trim()) {
+    const mainNominal = String(nominalCode).trim();
+    const mainItemId = await resolveExtraItemId(mainNominal);
+    if (mainItemId) {
+      line.SalesItemLineDetail.ItemRef = { value: mainItemId };
+    } else {
+      line.Description = `${line.Description}\nNominal code: ${mainNominal}`;
+    }
+  }
 
   for (const extra of (Array.isArray(extraLineItems) ? extraLineItems : [])) {
     const qty = Number(extra.quantity) > 0 ? Number(extra.quantity) : 1;

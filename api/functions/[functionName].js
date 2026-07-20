@@ -9,6 +9,7 @@ import { getZoomAccessTokenForTenant } from '../_lib/zoomClient.js';
 import { getXeroCredentials } from '../_lib/xeroCredentials.js';
 import { getAccountingProvider, getAccountingProviderByName, buildInvoiceColumnUpdate } from '../_lib/accountingProvider.js';
 import { creditTrainingFundForPurchase } from '../_lib/trainingFundPurchase.js';
+import { getMembershipAddonSettings } from '../_lib/membershipAddons.js';
 import { getStripeCredentials, findOrCreateStripeCustomer } from '../_lib/stripeCredentials.js';
 import { sendConfirmationEmailsFromTemplate as sharedSendConfirmationEmailsFromTemplate } from '../_lib/eventConfirmationEmail.js';
 import { sanitizeOptionSelections } from '../_lib/eventOptionSelections.js';
@@ -928,7 +929,10 @@ const functionHandlers = {
       throw new Error(`Failed to create purchase: ${insertErr?.message || 'unknown error'}`);
     }
 
-    // Create the accounting invoice.
+    // Create the accounting invoice. Nominal code + VAT come from the
+    // Training Fund defaults in Membership Settings (may be empty/null, in
+    // which case the provider falls back to its membership defaults).
+    const addonSettings = await getMembershipAddonSettings(tenantId);
     const poSuffix = purchaseOrderNumber ? ` (PO: ${purchaseOrderNumber})` : (poToFollow ? ' (PO to follow)' : '');
     let invoice;
     try {
@@ -942,7 +946,8 @@ const functionHandlers = {
         finalCost: amt,
         currency: 'GBP',
         reference: purchaseOrderNumber || 'Training Fund top-up',
-        vatRate: null,
+        vatRate: addonSettings.trainingFundVatRate || null,
+        nominalCode: addonSettings.trainingFundNominalCode || null,
         markAsPaid: false,
         stripePaymentIntentId: null,
         invoiceDescription: `Training Fund top-up${poSuffix}`,

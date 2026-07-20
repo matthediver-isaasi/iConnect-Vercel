@@ -57,7 +57,7 @@ export async function findInvoiceRowsForTenant(client, tenantId, invoiceKey) {
   const tenantOrgIds = tenantOrgs.map((o) => o.id);
   const orgNameById = new Map(tenantOrgs.map((o) => [o.id, o.name]));
   if (tenantOrgIds.length === 0) {
-    return { bookings: [], transactions: [], xeroInvoiceId: null, xeroInvoiceNumber: null, orgNameById };
+    return { bookings: [], transactions: [], trainingFundPurchases: [], xeroInvoiceId: null, xeroInvoiceNumber: null, orgNameById };
   }
 
   // 2. All members of those organisations (paginated). Required for the
@@ -172,14 +172,35 @@ export async function findInvoiceRowsForTenant(client, tenantId, invoiceKey) {
     return true;
   });
 
-  const firstWithId = bookings.find((b) => b.xero_invoice_id) || transactions.find((t) => t.xero_invoice_id);
+  // 7. Training Fund purchases (invoice payment method) for tenant orgs.
+  let trainingFundPurchases;
+  try {
+    trainingFundPurchases = await fetchAllPages('training_fund_purchase', invoiceKey, () => matchInvoice(
+      client
+        .from('training_fund_purchase')
+        .select('id, organization_id, created_by, amount, status, payment_method, xero_invoice_id, xero_invoice_number, created_date, purchase_order_number, po_to_follow')
+        .in('organization_id', tenantOrgIds)
+        .eq('payment_method', 'invoice')
+        .neq('status', 'cancelled')
+        .order('id', { ascending: true }),
+    ));
+  } catch (err) {
+    throw err;
+  }
+
+  const firstWithId = bookings.find((b) => b.xero_invoice_id)
+    || transactions.find((t) => t.xero_invoice_id)
+    || trainingFundPurchases.find((p) => p.xero_invoice_id);
   const xeroInvoiceId = parsed.xeroInvoiceId || firstWithId?.xero_invoice_id || null;
-  const firstWithNum = bookings.find((b) => b.xero_invoice_number) || transactions.find((t) => t.xero_invoice_number);
+  const firstWithNum = bookings.find((b) => b.xero_invoice_number)
+    || transactions.find((t) => t.xero_invoice_number)
+    || trainingFundPurchases.find((p) => p.xero_invoice_number);
   const xeroInvoiceNumber = parsed.xeroInvoiceNumber || firstWithNum?.xero_invoice_number || null;
 
   return {
     bookings,
     transactions,
+    trainingFundPurchases,
     xeroInvoiceId,
     xeroInvoiceNumber,
     orgNameById,
@@ -207,13 +228,15 @@ export async function applyInvoicePoUpdate({
   if (!found) {
     return { ok: false, status: 400, error: 'Invalid invoice key' };
   }
-  if (found.bookings.length === 0 && found.transactions.length === 0) {
+  const foundPurchases = found.trainingFundPurchases || [];
+  if (found.bookings.length === 0 && found.transactions.length === 0 && foundPurchases.length === 0) {
     return { ok: false, status: 404, error: 'Invoice not found for this tenant' };
   }
 
   const alreadyHasPo =
     found.bookings.some((b) => b.purchase_order_number && b.purchase_order_number.trim()) ||
-    found.transactions.some((t) => t.purchase_order_number && t.purchase_order_number.trim());
+    found.transactions.some((t) => t.purchase_order_number && t.purchase_order_number.trim()) ||
+    foundPurchases.some((p) => p.purchase_order_number && p.purchase_order_number.trim());
 
   let bookingsUpdated = 0;
   const bookingIdsToUpdate = found.bookings
@@ -271,6 +294,34 @@ export async function applyInvoicePoUpdate({
     transactionsUpdated = updated?.length || 0;
   }
 
+  let trainingFundPurchasesUpdated = 0;
+  const purchaseIdsToUpdate = foundPurchases
+    .filter((p) => !p.purchase_order_number || !p.purchase_order_number.trim())
+    .map((p) => p.id);
+  if (purchaseIdsToUpdate.length > 0) {
+    const ids = purchaseIdsToUpdate;
+    const { data: updated, error: pErr } = await client
+      .from('training_fund_purchase')
+      .update({ purchase_order_number: trimmedPO, po_to_follow: false })
+      .in('id', ids)
+      .select('id');
+    if (pErr) {
+      console.error(
+        `[PendingPO] applyInvoicePoUpdate training fund purchase update failed tenantId=${tenantId} invoiceKey=${invoiceKey} purchaseIds=${JSON.stringify(ids)}:`,
+        { message: pErr.message, details: pErr.details, hint: pErr.hint, code: pErr.code },
+      );
+      const detail = [pErr.message, pErr.code ? `code ${pErr.code}` : null, pErr.hint, pErr.details]
+        .filter(Boolean)
+        .join(' — ');
+      return {
+        ok: false,
+        status: 500,
+        error: `Failed to update training fund purchases: ${detail || 'unknown database error'}`,
+      };
+    }
+    trainingFundPurchasesUpdated = updated?.length || 0;
+  }
+
   let xeroUpdated = false;
   let xeroError = null;
   if (found.xeroInvoiceId) {
@@ -296,6 +347,7 @@ export async function applyInvoicePoUpdate({
     purchase_order_number: trimmedPO,
     bookingsUpdated,
     transactionsUpdated,
+    trainingFundPurchasesUpdated,
     xeroUpdated,
     xeroError,
     alreadyHasPo,
@@ -311,7 +363,8 @@ export async function summariseInvoice(client, tenantId, invoiceKey) {
     console.error(`[PendingPO] summariseInvoice lookup failed tenant=${tenantId} invoiceKey=${invoiceKey}: ${err.message}`);
     throw err;
   }
-  if (!found || (found.bookings.length === 0 && found.transactions.length === 0)) {
+  const summaryPurchases = found?.trainingFundPurchases || [];
+  if (!found || (found.bookings.length === 0 && found.transactions.length === 0 && summaryPurchases.length === 0)) {
     return null;
   }
 
@@ -371,6 +424,21 @@ export async function summariseInvoice(client, tenantId, invoiceKey) {
     }
     if (!existingPoNumber && t.purchase_order_number && t.purchase_order_number.trim()) {
       existingPoNumber = t.purchase_order_number.trim();
+    }
+  }
+
+  for (const p of summaryPurchases) {
+    totalCost += Number(p.amount) || 0;
+    quantity += 1;
+    if (p.created_date && (!earliestDate || new Date(p.created_date) < new Date(earliestDate))) {
+      earliestDate = p.created_date;
+    }
+    if (p.organization_id) orgIds.add(p.organization_id);
+    sourceNames.add('Training Fund top-up');
+    sourceTypes.add('Training Fund');
+    if (p.created_by) bookerMemberIds.add(p.created_by);
+    if (!existingPoNumber && p.purchase_order_number && p.purchase_order_number.trim()) {
+      existingPoNumber = p.purchase_order_number.trim();
     }
   }
 
@@ -481,7 +549,7 @@ export async function summariseInvoice(client, tenantId, invoiceKey) {
     bookerEmails,
     bookerNames,
     bookerNameDisplay,
-    rowCount: found.bookings.length + found.transactions.length,
+    rowCount: found.bookings.length + found.transactions.length + summaryPurchases.length,
   };
 }
 
@@ -710,6 +778,16 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
     .or(MISSING_PO_OR)
     .order('id', { ascending: true }));
 
+  const trainingFundPurchases = await fetchAllPages('training_fund_purchase', () => client
+    .from('training_fund_purchase')
+    .select('id, organization_id, created_by, amount, status, payment_method, xero_invoice_id, xero_invoice_number, created_date, purchase_order_number, po_to_follow')
+    .in('organization_id', tenantOrgIds)
+    .eq('payment_method', 'invoice')
+    .neq('status', 'cancelled')
+    .or(HAS_INVOICE_OR)
+    .or(MISSING_PO_OR)
+    .order('id', { ascending: true }));
+
   const bookingsWithOrg = await fetchAllPages('booking (with org)', () => client
     .from('booking')
     .select('id, organization_id, member_id, event_id, xero_invoice_id, xero_invoice_number, created_at, ticket_price, attendee_email, payment_method, status, purchase_order_number, po_to_follow, booking_group_reference')
@@ -775,7 +853,10 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
     }, {});
   }
 
-  const memberIds = [...new Set((bookings || []).map((b) => b.member_id).filter(Boolean))];
+  const memberIds = [...new Set([
+    ...(bookings || []).map((b) => b.member_id),
+    ...(trainingFundPurchases || []).map((p) => p.created_by),
+  ].filter(Boolean))];
   let memberMap = {};
   if (memberIds.length > 0) {
     const { data: members } = await client
@@ -840,6 +921,31 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
         total_cost: b.ticket_price,
         member_email: b.attendee_email || member?.email,
         booking_group_reference: b.booking_group_reference,
+      });
+    }
+  });
+
+  (trainingFundPurchases || []).forEach((p) => {
+    const hasInvoice = (p.xero_invoice_id && p.xero_invoice_id.trim() !== '')
+      || (p.xero_invoice_number && p.xero_invoice_number.trim() !== '');
+    const missingPO = !p.purchase_order_number || p.purchase_order_number.trim() === '';
+    const isActive = p.status !== 'cancelled';
+
+    if (hasInvoice && missingPO && isActive) {
+      const member = memberMap[p.created_by];
+      records.push({
+        id: p.id,
+        entityType: 'training_fund_purchase',
+        organization_id: p.organization_id,
+        source_name: 'Training Fund top-up',
+        source_type: 'Training Fund',
+        xero_invoice_id: p.xero_invoice_id,
+        xero_invoice_number: p.xero_invoice_number,
+        xero_invoice_pdf_uri: null,
+        created_date: p.created_date,
+        quantity: 1,
+        total_cost: p.amount,
+        member_email: member?.email || null,
       });
     }
   });
@@ -930,6 +1036,7 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
 
       const bookingBackfills = [];
       const transactionBackfills = [];
+      const trainingFundBackfills = [];
       for (let i = records.length - 1; i >= 0; i--) {
         const rec = records[i];
         if (!rec.xero_invoice_id) continue;
@@ -939,12 +1046,14 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
           bookingBackfills.push({ id: rec.id, po: poFromXero });
         } else if (rec.entityType === 'transaction') {
           transactionBackfills.push({ id: rec.id, po: poFromXero });
+        } else if (rec.entityType === 'training_fund_purchase') {
+          trainingFundBackfills.push({ id: rec.id, po: poFromXero });
         }
         records.splice(i, 1);
         xeroPoExcluded += 1;
       }
 
-      const runBackfill = async (table, rows) => {
+      const runBackfill = async (table, rows, extraUpdate = {}) => {
         const byPo = new Map();
         rows.forEach(({ id, po }) => {
           if (!byPo.has(po)) byPo.set(po, []);
@@ -953,7 +1062,7 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
         for (const [po, ids] of byPo) {
           const { data: updated, error } = await client
             .from(table)
-            .update({ purchase_order_number: po })
+            .update({ purchase_order_number: po, ...extraUpdate })
             .in('id', ids)
             .or('purchase_order_number.is.null,purchase_order_number.eq.')
             .select('id');
@@ -970,6 +1079,9 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
       }
       if (transactionBackfills.length > 0) {
         await runBackfill('program_ticket_transaction', transactionBackfills);
+      }
+      if (trainingFundBackfills.length > 0) {
+        await runBackfill('training_fund_purchase', trainingFundBackfills, { po_to_follow: false });
       }
 
       records.forEach((r) => {
