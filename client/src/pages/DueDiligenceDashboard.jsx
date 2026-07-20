@@ -448,14 +448,36 @@ export default function DueDiligenceDashboardPage() {
   const { data: submissionsData, isLoading: submissionsLoading, refetch } = useQuery({
     queryKey: ['dd-submissions', statusFilter, riskFilter, selectedFormId],
     queryFn: async () => {
-      const params = new URLSearchParams();
-      if (statusFilter !== 'all') params.set('status', statusFilter);
-      if (riskFilter !== 'all') params.set('riskLevel', riskFilter);
-      if (selectedFormId !== 'all') params.set('formId', selectedFormId);
-      params.set('limit', '100');
-      
-      const res = await apiRequest('GET', `/api/due-diligence/list-submissions?${params.toString()}`);
-      return res;
+      // Fetch ALL matching submissions in pages so search, filters and the
+      // stats operate over the complete dataset (the endpoint caps each
+      // request, and `total` counts rows BEFORE the formId join filter, so
+      // page by offset against that total).
+      const FETCH_PAGE_SIZE = 200;
+      const baseParams = () => {
+        const params = new URLSearchParams();
+        if (statusFilter !== 'all') params.set('status', statusFilter);
+        if (riskFilter !== 'all') params.set('riskLevel', riskFilter);
+        if (selectedFormId !== 'all') params.set('formId', selectedFormId);
+        params.set('limit', String(FETCH_PAGE_SIZE));
+        return params;
+      };
+      const all = [];
+      let offset = 0;
+      let total = null;
+      let first = null;
+      // Hard safety cap so a bad `total` can never loop forever.
+      for (let page = 0; page < 100; page++) {
+        const params = baseParams();
+        params.set('offset', String(offset));
+        const res = await apiRequest('GET', `/api/due-diligence/list-submissions?${params.toString()}`);
+        if (!first) first = res;
+        const batch = res?.submissions || [];
+        all.push(...batch);
+        total = typeof res?.total === 'number' ? res.total : null;
+        offset += FETCH_PAGE_SIZE;
+        if (total === null ? batch.length < FETCH_PAGE_SIZE : offset >= total) break;
+      }
+      return { ...(first || {}), submissions: all, total: total ?? all.length };
     },
     enabled: isAccessReady
   });
@@ -604,6 +626,20 @@ export default function DueDiligenceDashboardPage() {
 
     return filtered;
   }, [submissions, searchQuery, ownerFilter, cardReferenceFieldByFormId, outstandingDaysFilter, reviewerUrlFilter]);
+
+  // Display pagination (applied AFTER filtering so search/filters cover the
+  // whole dataset). Any filter change snaps back to page 1.
+  const PAGE_SIZE = 25;
+  const [currentPage, setCurrentPage] = useState(1);
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, ownerFilter, statusFilter, riskFilter, selectedFormId, outstandingDaysFilter, reviewerUrlFilter]);
+  const totalPages = Math.max(1, Math.ceil(filteredSubmissions.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedSubmissions = useMemo(
+    () => filteredSubmissions.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
+    [filteredSubmissions, safePage]
+  );
 
   // Derive available stages based on selected form
   const availableStages = useMemo(() => {
@@ -990,7 +1026,7 @@ export default function DueDiligenceDashboardPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredSubmissions.map((submission) => {
+                  {paginatedSubmissions.map((submission) => {
                     const formId = submission.form_submission?.form_id;
                     const refField = formId ? cardReferenceFieldByFormId[formId] : null;
                     const formWorkflowStages = (formId && workflowStagesByFormId[formId]) || DEFAULT_WORKFLOW_STAGES;
@@ -1012,6 +1048,36 @@ export default function DueDiligenceDashboardPage() {
                   })}
                 </TableBody>
               </Table>
+              {totalPages > 1 && (
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t px-4 py-3">
+                  <p className="text-sm text-muted-foreground" data-testid="text-pagination-summary">
+                    Showing {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, filteredSubmissions.length)} of {filteredSubmissions.length}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={safePage <= 1}
+                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      data-testid="button-page-prev"
+                    >
+                      Previous
+                    </Button>
+                    <span className="text-sm text-muted-foreground" data-testid="text-page-indicator">
+                      Page {safePage} of {totalPages}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={safePage >= totalPages}
+                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                      data-testid="button-page-next"
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <div className="text-center py-12 text-muted-foreground">
