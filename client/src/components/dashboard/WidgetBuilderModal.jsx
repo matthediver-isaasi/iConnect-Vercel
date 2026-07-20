@@ -58,6 +58,7 @@ const WIDGET_TYPES = [
   { value: "pie", label: "Pie chart" },
   { value: "donut", label: "Donut chart" },
   { value: "line", label: "Line chart" },
+  { value: "list", label: "List" },
 ];
 
 const WIDTHS = [
@@ -268,7 +269,7 @@ export default function WidgetBuilderModal({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ config: draft.config }),
+          body: JSON.stringify({ config: draft.config, widgetType: draft.widget_type }),
         });
         const body = await res.json();
         if (!res.ok) {
@@ -285,7 +286,7 @@ export default function WidgetBuilderModal({
     }, 350);
 
     return () => clearTimeout(handle);
-  }, [draft.config, open]);
+  }, [draft.config, draft.widget_type, open]);
 
   const updateConfig = patch => {
     setDraft(prev => ({ ...prev, config: { ...prev.config, ...patch } }));
@@ -413,6 +414,9 @@ export default function WidgetBuilderModal({
         !draft.config.timeBucket?.field
       ) {
         errs.push("Bar and pie charts need a group-by or time bucket.");
+      }
+      if (draft.widget_type === "list" && !draft.config.groupBy) {
+        errs.push("List widgets need a group-by field.");
       }
       // "Date moved to stage …" needs a stage chosen alongside it.
       const tbOpt = draft.config.timeBucket?.field
@@ -1356,6 +1360,31 @@ function PreviewBody({ widget, payload }) {
           </LineChart>
         </ChartContainer>
       );
+    case "list": {
+      if (rows.length === 0) return <EmptyPreview />;
+      const listTotal = rows.reduce((acc, r) => acc + (Number(r.value) || 0), 0);
+      return (
+        <div className="flex flex-col gap-2">
+          <div className="max-h-56 overflow-y-auto rounded-md border" data-testid="preview-list">
+            {rows.map((row, idx) => (
+              <div
+                key={`${row.key}-${idx}`}
+                className={cn(
+                  "flex items-center justify-between gap-3 px-3 py-1.5 text-sm",
+                  idx > 0 && "border-t",
+                )}
+              >
+                <span className="min-w-0 flex-1 truncate" title={row.key}>{row.key}</span>
+                <span className="shrink-0 tabular-nums font-medium">{formatNumber(row.value)}</span>
+              </div>
+            ))}
+          </div>
+          <p className="text-right text-xs text-muted-foreground">
+            {rows.length} group{rows.length === 1 ? "" : "s"} · Total: {formatNumber(listTotal)}
+          </p>
+        </div>
+      );
+    }
     case "pie":
     case "donut":
       if (rows.length === 0) return <EmptyPreview />;

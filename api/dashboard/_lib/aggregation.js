@@ -21,6 +21,10 @@ const DD_MOVED_TO_STAGE_FIELD = 'moved_to_stage';
 
 const MAX_BUCKETS = 50;
 const MAX_GROUPS = 20;
+// List widgets render rows in a scrollable pane, so they can afford far more
+// groups than a chart — but still cap them so a pathological group-by (e.g.
+// free-text field) can't blow up the response.
+export const MAX_LIST_GROUPS = 500;
 const PAGE_SIZE = 1000;
 // Hard ceiling on the number of rows we are willing to scan for a single
 // widget before refusing the query. This protects the API from runaway
@@ -34,13 +38,18 @@ const NUMERIC_AGGREGATORS = new Set(['sum', 'avg', 'min', 'max']);
  * data. The result shape varies slightly per widget type but always
  * includes a `categories` array (legend) and a `rows` array.
  */
-export async function runWidgetConfig(config, tenantId) {
+export async function runWidgetConfig(config, tenantId, options = {}) {
   if (!supabase) {
     throw new Error('Database not configured');
   }
   if (!config || typeof config !== 'object') {
     throw new Error('Invalid widget config');
   }
+
+  // Callers pass a larger cap for list widgets; charts keep MAX_GROUPS.
+  const maxGroups = Number.isInteger(options.maxGroups) && options.maxGroups > 0
+    ? Math.min(options.maxGroups, MAX_LIST_GROUPS)
+    : MAX_GROUPS;
 
   const source = getSourceDef(config.source);
   if (!source) {
@@ -51,7 +60,7 @@ export async function runWidgetConfig(config, tenantId) {
   // joined organisation org_type preference) so it routes through its
   // own aggregator instead of the generic preference-store path.
   if (source.isDd) {
-    return runDdWidgetConfig(config, tenantId, source);
+    return runDdWidgetConfig(config, tenantId, source, maxGroups);
   }
 
   const measure = normaliseMeasure(config.measure);
@@ -319,9 +328,9 @@ export async function runWidgetConfig(config, tenantId) {
     const grouped = Array.from(buckets.entries())
       .map(([key, values]) => ({ key, value: aggregate(values, measure.aggregator) }))
       .sort((a, b) => b.value - a.value);
-    if (grouped.length > MAX_GROUPS) {
+    if (grouped.length > maxGroups) {
       throw new Error(
-        `Group-by produced ${grouped.length} groups (max ${MAX_GROUPS}). ` +
+        `Group-by produced ${grouped.length} groups (max ${maxGroups}). ` +
         `Add a filter or pick a less granular field.`,
       );
     }
@@ -978,7 +987,7 @@ function computeDdTransitions(flat, config, source, transition, ddCtx) {
   };
 }
 
-async function runDdWidgetConfig(config, tenantId, source) {
+async function runDdWidgetConfig(config, tenantId, source, maxGroups = MAX_GROUPS) {
   const measure = normaliseMeasure(config.measure);
   // Stage-transition mode counts `status_changed` history events rather than
   // current-status rows, so group-by / time-bucket don't apply — neutralise
@@ -1170,9 +1179,9 @@ async function runDdWidgetConfig(config, tenantId, source) {
     const grouped = Array.from(buckets.entries())
       .map(([key, values]) => ({ key, value: aggregate(values, measure.aggregator) }))
       .sort((a, b) => b.value - a.value);
-    if (grouped.length > MAX_GROUPS) {
+    if (grouped.length > maxGroups) {
       throw new Error(
-        `Group-by produced ${grouped.length} groups (max ${MAX_GROUPS}). ` +
+        `Group-by produced ${grouped.length} groups (max ${maxGroups}). ` +
         `Add a filter or pick a less granular field.`,
       );
     }

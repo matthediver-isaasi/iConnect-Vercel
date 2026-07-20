@@ -1,6 +1,6 @@
 import { supabase } from '../../../_lib/database.js';
 import { getDashboardActor, tenantFilter } from '../../_lib/permissions.js';
-import { runWidgetConfig } from '../../_lib/aggregation.js';
+import { runWidgetConfig, MAX_LIST_GROUPS } from '../../_lib/aggregation.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST' && req.method !== 'GET') {
@@ -33,7 +33,9 @@ export default async function handler(req, res) {
   }
 
   try {
-    const result = await runWidgetConfig(widget.config, actor.tenantId);
+    const result = await runWidgetConfig(widget.config, actor.tenantId, {
+      maxGroups: widget.widget_type === 'list' ? MAX_LIST_GROUPS : undefined,
+    });
     return res.status(200).json({ widget, data: result });
   } catch (err) {
     console.error('[Dashboard Widgets] Data failed:', err);

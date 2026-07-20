@@ -101,7 +101,7 @@ const widthEnum = z.enum(['fifth', 'third', 'half', 'full']);
 
 export const widgetCreateSchema = z.object({
   title: z.string().min(1).max(200),
-  widget_type: z.enum(['stat', 'bar', 'pie', 'donut', 'line']),
+  widget_type: z.enum(['stat', 'bar', 'pie', 'donut', 'line', 'list']),
   scope: z.enum(['shared', 'personal']),
   width: widthEnum.default('third'),
   config: widgetConfigSchema,
@@ -109,7 +109,7 @@ export const widgetCreateSchema = z.object({
 
 export const widgetUpdateSchema = z.object({
   title: z.string().min(1).max(200).optional(),
-  widget_type: z.enum(['stat', 'bar', 'pie', 'donut', 'line']).optional(),
+  widget_type: z.enum(['stat', 'bar', 'pie', 'donut', 'line', 'list']).optional(),
   width: widthEnum.optional(),
   config: widgetConfigSchema.optional(),
 });

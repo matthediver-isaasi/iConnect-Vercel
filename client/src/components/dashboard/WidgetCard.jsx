@@ -314,6 +314,8 @@ function WidgetBody({ widget, payload }) {
       return <PieBody payload={payload} donut={true} widget={widget} />;
     case "line":
       return <LineBody payload={payload} widget={widget} />;
+    case "list":
+      return <ListBody payload={payload} widget={widget} />;
     default:
       return (
         <p className="text-sm text-muted-foreground">
@@ -497,6 +499,47 @@ function PieBody({ payload, donut, widget }) {
         data-testid={widget ? `widget-total-${widget.id}` : undefined}
       >
         Total: {formatNumber(total)}
+      </p>
+    </div>
+  );
+}
+
+function ListBody({ payload, widget }) {
+  const rows = payload.rows || [];
+  const total = useMemo(
+    () => rows.reduce((acc, r) => acc + (Number(r.value) || 0), 0),
+    [rows],
+  );
+  if (rows.length === 0) return <EmptyChart />;
+  return (
+    <div className="flex flex-1 flex-col gap-2">
+      <div
+        className="max-h-64 flex-1 overflow-y-auto rounded-md border"
+        data-testid={`widget-list-${widget.id}`}
+      >
+        {rows.map((row, idx) => (
+          <div
+            key={`${row.key}-${idx}`}
+            className={cn(
+              "flex items-center justify-between gap-3 px-3 py-1.5 text-sm",
+              idx > 0 && "border-t",
+            )}
+            data-testid={`widget-list-row-${widget.id}-${idx}`}
+          >
+            <span className="min-w-0 flex-1 truncate" title={row.key}>
+              {row.key}
+            </span>
+            <span className="shrink-0 tabular-nums font-medium">
+              {formatNumber(row.value)}
+            </span>
+          </div>
+        ))}
+      </div>
+      <p
+        className="text-right text-xs text-muted-foreground"
+        data-testid={`widget-total-${widget.id}`}
+      >
+        {rows.length} group{rows.length === 1 ? "" : "s"} · Total: {formatNumber(total)}
       </p>
     </div>
   );
