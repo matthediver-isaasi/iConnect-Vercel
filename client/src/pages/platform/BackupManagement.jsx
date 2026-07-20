@@ -25,6 +25,16 @@ function cursorSummary(cursor) {
     const when = cursor.clearedAt ? format(new Date(cursor.clearedAt), 'MMM d, yyyy HH:mm') : 'unknown';
     return { label: `Last completed ${when}`, tone: 'done' };
   }
+  if (cursor.lastError && !cursor.nextTable) {
+    const tables = Array.isArray(cursor.lastError.tables) ? cursor.lastError.tables : [];
+    const names = tables.map((t) => t.table || t).filter(Boolean);
+    const when = cursor.lastError.at ? format(new Date(cursor.lastError.at), 'MMM d, yyyy HH:mm') : 'unknown time';
+    return {
+      label: `Last run failed ${when} — ${names.length} table(s) could not be dumped: ${names.join(', ')}`,
+      tone: 'error',
+      failedTables: tables,
+    };
+  }
   const lastActivity = cursor.updatedAt ? new Date(cursor.updatedAt) : null;
   if (lastActivity && !Number.isNaN(lastActivity.getTime())) {
     if (Date.now() - lastActivity.getTime() > STALLED_AFTER_MS) {
@@ -253,7 +263,10 @@ export default function BackupManagement() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="text-sm text-muted-foreground">
+            <div
+              className={`text-sm ${databaseStatus.tone === 'error' ? 'text-destructive' : 'text-muted-foreground'}`}
+              data-testid="text-database-status"
+            >
               {statusLoading ? 'Loading status…' : databaseStatus.label}
             </div>
             <Button
@@ -274,6 +287,26 @@ export default function BackupManagement() {
               )}
             </Button>
           </div>
+
+          {!statusLoading && databaseStatus.tone === 'error' && databaseStatus.failedTables?.length > 0 && (
+            <div className="rounded-md border border-destructive/50 p-4 space-y-2" data-testid="panel-database-backup-errors">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-destructive" />
+                <span className="text-sm font-medium">Tables failing to back up</span>
+              </div>
+              <ul className="space-y-1">
+                {databaseStatus.failedTables.map((t, i) => (
+                  <li key={t.table || i} className="text-sm" data-testid={`text-failed-table-${i}`}>
+                    <span className="font-mono">{t.table || String(t)}</span>
+                    {t.error && <span className="text-muted-foreground"> — {t.error}</span>}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-sm text-muted-foreground">
+                These tables will be retried on the next run, but the same failure is likely until the underlying issue (permissions, corrupt data) is fixed.
+              </p>
+            </div>
+          )}
 
           {databaseProgress && (
             <div className="rounded-md border p-4 space-y-3" data-testid="progress-database">

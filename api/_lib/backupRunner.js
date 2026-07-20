@@ -453,11 +453,13 @@ export async function runDatabaseBackup({ timeBudgetMs = DEFAULT_DB_TIME_BUDGET_
   const startTime = Date.now();
 
   let stamp, folderPrefix, startFromTableKey;
+  let priorErrored = [];
   const dbCursor = await loadCursor(r2, r2Bucket, DB_CURSOR_KEY);
   if (dbCursor?.stamp && dbCursor?.nextTable && !dbCursor?.completed) {
     stamp = dbCursor.stamp;
     folderPrefix = dbCursor.folderPrefix;
     startFromTableKey = dbCursor.nextTable;
+    priorErrored = Array.isArray(dbCursor.erroredSoFar) ? dbCursor.erroredSoFar : [];
     console.log(`[backup-database] resuming run ${stamp} from table ${startFromTableKey}`);
   } else {
     stamp = runStamp();
@@ -501,11 +503,13 @@ export async function runDatabaseBackup({ timeBudgetMs = DEFAULT_DB_TIME_BUDGET_
 
       if (Date.now() - startTime > timeBudgetMs) {
         const remaining = tables.slice(i);
+        const erroredSoFar = [...priorErrored, ...summary.errored];
         await saveCursor(r2, r2Bucket, DB_CURSOR_KEY, {
           stamp,
           folderPrefix,
           nextTable: key,
           updatedAt: new Date().toISOString(),
+          ...(erroredSoFar.length ? { erroredSoFar } : {}),
         });
         summary.skipped.push(...remaining.map((t) => t.key));
         console.warn(`[backup-database] time budget exceeded, saved cursor at ${key}; ${remaining.length} deferred`);
@@ -525,11 +529,28 @@ export async function runDatabaseBackup({ timeBudgetMs = DEFAULT_DB_TIME_BUDGET_
       }
     }
 
-    summary.complete = summary.skipped.length === 0 && summary.errored.length === 0;
+    const allErrored = [...priorErrored, ...summary.errored];
+    summary.complete = summary.skipped.length === 0 && allErrored.length === 0;
     summary.durationMs = Date.now() - startTime;
 
     if (summary.complete) {
       await clearCursor(r2, r2Bucket, DB_CURSOR_KEY);
+    } else if (summary.skipped.length === 0 && allErrored.length > 0) {
+      // Run ended: nothing left to resume but some tables failed to dump.
+      // Persist an error marker on the cursor (no nextTable, so the next
+      // scheduled run starts fresh) so the Backups UI can surface the
+      // failing tables instead of showing a generic paused state.
+      summary.lastError = {
+        tables: allErrored,
+        at: new Date().toISOString(),
+        runStamp: stamp,
+      };
+      await saveCursor(r2, r2Bucket, DB_CURSOR_KEY, {
+        stamp,
+        folderPrefix,
+        updatedAt: new Date().toISOString(),
+        lastError: summary.lastError,
+      }).catch((err) => console.warn('[backup-database] error-marker write failed:', err.message));
     }
 
     const manifestKey = `${folderPrefix}/_manifest.json`;
@@ -695,8 +716,12 @@ export async function runDatabaseBackupToCompletion({
     }
     if (!chunk.skipped?.length) {
       // Nothing deferred but not complete => tables errored; do not retry-loop.
+      const failedCount = chunk.lastError?.tables?.length || chunk.errored?.length || 0;
       totals.ok = false;
-      totals.error = `${chunk.errored?.length || 0} table(s) failed to dump`;
+      totals.error = `${failedCount} table(s) failed to dump`;
+      if (chunk.lastError?.tables?.length && !totals.erroredTables.length) {
+        totals.erroredTables.push(...chunk.lastError.tables);
+      }
       break;
     }
   }
