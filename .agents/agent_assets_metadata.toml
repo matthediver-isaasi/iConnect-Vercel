@@ -78,3 +78,9 @@ id = "oifXWZnx3cfDJZsSdPajB"
 uri = "file://.local/tasks/seo-prerender-ssr-scope.md"
 type = "text"
 title = "SEO Prerender/SSR Scope (single-tenant)"
+
+[[outputs]]
+id = "Q0YW-61b8IPWdIZvJvwHQ"
+uri = "file://exports/job-posting-wrong-email-recipients.csv"
+type = "table"
+title = "Job Posting email recipients (317)"
