@@ -1445,8 +1445,13 @@ function PreviewBody({ widget, payload }) {
         <p className="text-xs uppercase text-muted-foreground">
           {payload.sourceEntityCount ?? payload.sourceSubmissionCount ?? 0}{" "}
           source ·{" "}
-          {payload.targetEntityCount ?? payload.targetSubmissionCount ?? 0}{" "}
-          target{" "}
+          {payload.notConvertedCount ??
+            Math.max(
+              0,
+              (payload.sourceEntityCount ?? payload.sourceSubmissionCount ?? 0) -
+                (payload.convertedCount ?? 0),
+            )}{" "}
+          not converted{" "}
           {payload.matchBy === "member" ? "members" : "organisations"}
         </p>
       </div>

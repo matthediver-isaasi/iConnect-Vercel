@@ -293,6 +293,7 @@ export default async function handler(req, res) {
         sourceEntityCount,
         targetEntityCount: targetDates.size,
         convertedCount,
+        notConvertedCount: sourceEntityCount - convertedCount,
         conversionRate,
       },
       matchBy,

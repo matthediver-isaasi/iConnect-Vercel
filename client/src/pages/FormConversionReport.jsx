@@ -369,18 +369,26 @@ export default function FormConversionReport() {
               testId="stat-source-entities"
             />
             <StatCard
-              icon={FileText}
-              label={isOrgMode ? "Target organisations" : "Target members"}
-              value={stats?.targetEntityCount ?? "—"}
-              loading={showLoading && !stats}
-              testId="stat-target-entities"
-            />
-            <StatCard
               icon={CheckCircle2}
               label="Converted"
               value={stats?.convertedCount ?? "—"}
               loading={showLoading && !stats}
               testId="stat-converted"
+            />
+            <StatCard
+              icon={XCircle}
+              label="Not converted"
+              value={
+                stats
+                  ? stats.notConvertedCount ??
+                    (stats.sourceEntityCount != null &&
+                    stats.convertedCount != null
+                      ? stats.sourceEntityCount - stats.convertedCount
+                      : "—")
+                  : "—"
+              }
+              loading={showLoading && !stats}
+              testId="stat-not-converted"
             />
             <StatCard
               icon={Percent}

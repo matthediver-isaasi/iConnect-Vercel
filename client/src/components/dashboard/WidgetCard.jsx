@@ -124,8 +124,13 @@ function buildExportRows(widget, payload) {
         payload.sourceEntityCount ?? payload.sourceSubmissionCount ?? 0,
       ],
       [
-        `Target ${entityLabel}`,
-        payload.targetEntityCount ?? payload.targetSubmissionCount ?? 0,
+        `Not converted ${entityLabel}`,
+        payload.notConvertedCount ??
+          Math.max(
+            0,
+            (payload.sourceEntityCount ?? payload.sourceSubmissionCount ?? 0) -
+              (payload.convertedCount ?? 0),
+          ),
       ],
     ];
   }
@@ -396,8 +401,14 @@ function ConversionBody({ widget, payload }) {
         data-testid={`conversion-detail-${widget.id}`}
       >
         {payload.sourceEntityCount ?? payload.sourceSubmissionCount ?? 0}{" "}
-        source · {payload.targetEntityCount ?? payload.targetSubmissionCount ?? 0}{" "}
-        target {entityLabel}
+        source ·{" "}
+        {payload.notConvertedCount ??
+          Math.max(
+            0,
+            (payload.sourceEntityCount ?? payload.sourceSubmissionCount ?? 0) -
+              (payload.convertedCount ?? 0),
+          )}{" "}
+        not converted {entityLabel}
       </p>
     </div>
   );

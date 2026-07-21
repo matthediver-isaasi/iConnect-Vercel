@@ -1349,6 +1349,7 @@ async function runConversionWidgetConfig(config, tenantId, source) {
     targetSubmissionCount: targetRows.length,
     sourceEntityCount,
     targetEntityCount: targetKeys.size,
+    notConvertedCount: sourceEntityCount - convertedCount,
     total: convertedCount,
     categories: ['value'],
     rows: [{ key: 'Converted', value: convertedCount }],
