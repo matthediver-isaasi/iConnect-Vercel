@@ -5364,23 +5364,39 @@ const functionHandlers = {
               `
             });
             
-            // Notify users with job posting management access
+            // Notify ADMIN-capable users with job posting management access.
+            // Must mirror api/_lib/jobPostingPaymentReconciliation.js: roles
+            // flagged is_admin/is_tenant_admin (not merely "doesn't exclude
+            // admin.job-postings" — that matches ordinary member roles and
+            // would mass-email the whole tenant), tenant-scoped, hard-capped.
+            const MAX_ADMIN_NOTIFICATIONS = 25;
             const { data: allRoles } = await supabase
               .from('role')
-              .select('*');
-            
-            // Filter to roles that have job posting management access
-            const jobManagementRoles = allRoles?.filter(r => {
-              const excludedFeatures = r.excluded_features || [];
-              return !excludedFeatures.includes('admin.job-postings');
-            }) || [];
-            
-            if (jobManagementRoles.length > 0) {
+              .select('id, is_admin, is_tenant_admin, excluded_features')
+              .eq('tenant_id', jobPosting.tenant_id);
+
+            const jobManagementRoles = (allRoles || []).filter(r =>
+              (r.is_admin === true || r.is_tenant_admin === true) &&
+              !(r.excluded_features || []).includes('admin.job-postings')
+            );
+
+            if (jobPosting.tenant_id && jobManagementRoles.length > 0) {
               const roleIds = jobManagementRoles.map(r => r.id);
-              const { data: allMembers } = await supabase.from('member').select('*');
-              const notifyMembers = allMembers?.filter(m => roleIds.includes(m.role_id)) || [];
-              
+              const { data: notifyMembersRaw } = await supabase
+                .from('member')
+                .select('id, email')
+                .eq('tenant_id', jobPosting.tenant_id)
+                .in('role_id', roleIds)
+                .limit(MAX_ADMIN_NOTIFICATIONS + 1);
+
+              const notifyMembers = notifyMembersRaw || [];
+              if (notifyMembers.length > MAX_ADMIN_NOTIFICATIONS) {
+                console.warn(`[handleJobPostingPaymentWebhook] admin notification recipient list exceeds ${MAX_ADMIN_NOTIFICATIONS} for tenant ${jobPosting.tenant_id}; capping`);
+                notifyMembers.length = MAX_ADMIN_NOTIFICATIONS;
+              }
+
               for (const member of notifyMembers) {
+                if (!member.email || member.email.endsWith('@deleted.local')) continue;
                 await mg.messages.create(mailgunDomain, {
                   from: mailgunFromEmail,
                   to: member.email,
