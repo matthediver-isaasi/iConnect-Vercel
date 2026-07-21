@@ -390,6 +390,26 @@ export default function MemberGroupManagementPage() {
     }
   });
 
+  const reinviteMutation = useMutation({
+    mutationFn: (inv) => apiRequest('POST', '/api/member-group-invites', {
+      action: 'create',
+      groupId: inv.group_id,
+      memberId: inv.member_id,
+      role: inv.group_role,
+    }),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['member-group-invites', inviteGroup?.id] });
+      if (result?.emailSent === false) {
+        toast.warning('Invitation created, but the email could not be sent: ' + (result.emailError || 'unknown error'));
+      } else {
+        toast.success('Invitation sent');
+      }
+    },
+    onError: (error) => {
+      toast.error('Failed to send invitation: ' + error.message);
+    }
+  });
+
   const cancelInviteMutation = useMutation({
     mutationFn: (invitationId) => apiRequest('POST', '/api/member-group-invites', { action: 'cancel', invitationId }),
     onSuccess: () => {
@@ -2899,6 +2919,18 @@ export default function MemberGroupManagementPage() {
                               disabled={resendInviteMutation.isPending}
                               title="Resend"
                               data-testid={`button-resend-invite-${inv.id}`}
+                            >
+                              <RotateCw className="w-3 h-3" />
+                            </Button>
+                          )}
+                          {(inv.status === 'declined' || inv.status === 'cancelled') && (
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => reinviteMutation.mutate(inv)}
+                              disabled={reinviteMutation.isPending}
+                              title="Invite again"
+                              data-testid={`button-reinvite-${inv.id}`}
                             >
                               <RotateCw className="w-3 h-3" />
                             </Button>

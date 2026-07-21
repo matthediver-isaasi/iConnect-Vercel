@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Mail, Search, FileText, Loader2, AlertTriangle, RotateCw } from "lucide-react";
+import { Mail, Search, FileText, Loader2, AlertTriangle, RotateCw, UserPlus } from "lucide-react";
 import { format } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -95,6 +95,33 @@ export default function MemberGroupInviteReportPage() {
     },
     onSettled: () => {
       setResendingId(null);
+    },
+  });
+
+  const [reinvitingId, setReinvitingId] = useState(null);
+  const reinviteMutation = useMutation({
+    mutationFn: (inv) => apiRequest("POST", "/api/member-group-invites", {
+      action: "create",
+      groupId: inv.group_id,
+      memberId: inv.member_id,
+      role: inv.group_role,
+    }),
+    onMutate: (inv) => {
+      setReinvitingId(inv.id);
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["member-group-invite-report"] });
+      if (result?.emailSent === false) {
+        toast.error("Invitation created, but the email could not be sent: " + (result.emailError || "unknown error"));
+      } else {
+        toast.success("Invitation sent");
+      }
+    },
+    onError: (error) => {
+      toast.error("Failed to send invitation: " + (error?.message || "unknown error"));
+    },
+    onSettled: () => {
+      setReinvitingId(null);
     },
   });
 
@@ -322,6 +349,21 @@ export default function MemberGroupInviteReportPage() {
                                     <RotateCw className="w-3 h-3 mr-1" />
                                   )}
                                   Resend
+                                </Button>
+                              ) : (inv.status === "declined" || inv.status === "cancelled") ? (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => reinviteMutation.mutate(inv)}
+                                  disabled={reinviteMutation.isPending}
+                                  data-testid={`button-reinvite-${inv.id}`}
+                                >
+                                  {reinvitingId === inv.id ? (
+                                    <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                  ) : (
+                                    <UserPlus className="w-3 h-3 mr-1" />
+                                  )}
+                                  Invite again
                                 </Button>
                               ) : (
                                 <span className="text-slate-400">-</span>
