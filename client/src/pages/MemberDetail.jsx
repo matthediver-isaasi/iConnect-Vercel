@@ -59,6 +59,15 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command";
 import { ChevronsUpDown } from "lucide-react";
 
+// Stable empty-array fallback for disabled/unloaded queries. Using an inline
+// `= []` destructure default creates a NEW array identity on every render,
+// which re-triggers any useEffect depending on it; combined with a setState
+// of a fresh object inside that effect this caused an infinite re-render loop
+// (org-less members: the org-pref-values query is disabled, so its data stays
+// undefined forever) that starved React Router's navigation transitions —
+// the URL changed but the page never repainted.
+const EMPTY_PREF_VALUES = [];
+
 function MemberDetailCountryMultiSelect({ fieldId, selectedValues, availableCountries, onChange, label }) {
   const [open, setOpen] = useState(false);
 
@@ -337,7 +346,7 @@ export default function MemberDetail() {
     }
   });
 
-  const { data: memberPrefValues = [] } = useQuery({
+  const { data: memberPrefValues = EMPTY_PREF_VALUES } = useQuery({
     queryKey: ['member-pref-values', id],
     enabled: !!id && isAccessReady,
     queryFn: async () => {
@@ -381,7 +390,7 @@ export default function MemberDetail() {
     }
   });
 
-  const { data: orgPrefValues = [] } = useQuery({
+  const { data: orgPrefValues = EMPTY_PREF_VALUES } = useQuery({
     queryKey: ['org-detail-preference-values', member?.organization_id],
     enabled: !!member?.organization_id && isAccessReady,
     queryFn: async () => {
