@@ -2891,30 +2891,30 @@ export default function MemberGroupManagementPage() {
                             {inv.status === 'pending' && <Clock className="w-3 h-3 mr-1" />}
                             {inv.status}
                           </Badge>
+                          {(inv.status === 'pending' || inv.status === 'expired') && (
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => resendInviteMutation.mutate(inv.id)}
+                              disabled={resendInviteMutation.isPending}
+                              title="Resend"
+                              data-testid={`button-resend-invite-${inv.id}`}
+                            >
+                              <RotateCw className="w-3 h-3" />
+                            </Button>
+                          )}
                           {inv.status === 'pending' && (
-                            <>
-                              <Button
-                                variant="outline"
-                                size="icon"
-                                onClick={() => resendInviteMutation.mutate(inv.id)}
-                                disabled={resendInviteMutation.isPending}
-                                title="Resend"
-                                data-testid={`button-resend-invite-${inv.id}`}
-                              >
-                                <RotateCw className="w-3 h-3" />
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="icon"
-                                onClick={() => cancelInviteMutation.mutate(inv.id)}
-                                disabled={cancelInviteMutation.isPending}
-                                title="Cancel"
-                                className="text-red-600 hover:text-red-700"
-                                data-testid={`button-cancel-invite-${inv.id}`}
-                              >
-                                <X className="w-3 h-3" />
-                              </Button>
-                            </>
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => cancelInviteMutation.mutate(inv.id)}
+                              disabled={cancelInviteMutation.isPending}
+                              title="Cancel"
+                              className="text-red-600 hover:text-red-700"
+                              data-testid={`button-cancel-invite-${inv.id}`}
+                            >
+                              <X className="w-3 h-3" />
+                            </Button>
                           )}
                         </div>
                       </div>

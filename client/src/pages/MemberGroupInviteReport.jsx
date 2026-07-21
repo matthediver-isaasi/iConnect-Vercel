@@ -1,12 +1,13 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Mail, Search, FileText, Loader2, AlertTriangle } from "lucide-react";
+import { Mail, Search, FileText, Loader2, AlertTriangle, RotateCw } from "lucide-react";
 import { format } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -74,6 +75,28 @@ export default function MemberGroupInviteReportPage() {
   });
 
   const invitations = useMemo(() => data?.invitations || [], [data]);
+
+  const [resendingId, setResendingId] = useState(null);
+  const resendInviteMutation = useMutation({
+    mutationFn: (invitationId) => apiRequest("POST", "/api/member-group-invites", { action: "resend", invitationId }),
+    onMutate: (invitationId) => {
+      setResendingId(invitationId);
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["member-group-invite-report"] });
+      if (result?.emailSent === false) {
+        toast.error("Invitation re-issued, but the email could not be sent: " + (result.emailError || "unknown error"));
+      } else {
+        toast.success("Invitation resent");
+      }
+    },
+    onError: (error) => {
+      toast.error("Failed to resend invitation: " + (error?.message || "unknown error"));
+    },
+    onSettled: () => {
+      setResendingId(null);
+    },
+  });
 
   const groupOptions = useMemo(() => {
     const seen = new Map();
@@ -246,6 +269,7 @@ export default function MemberGroupInviteReportPage() {
                           <th className="text-left p-4 text-sm font-semibold text-slate-700">Sent</th>
                           <th className="text-left p-4 text-sm font-semibold text-slate-700">Decision</th>
                           <th className="text-left p-4 text-sm font-semibold text-slate-700">Expiry</th>
+                          <th className="text-left p-4 text-sm font-semibold text-slate-700">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200">
@@ -279,6 +303,26 @@ export default function MemberGroupInviteReportPage() {
                             <td className="p-4">
                               {inv.expires_at ? (
                                 <span className="text-slate-900">{formatDate(inv.expires_at)}</span>
+                              ) : (
+                                <span className="text-slate-400">-</span>
+                              )}
+                            </td>
+                            <td className="p-4">
+                              {(inv.status === "pending" || inv.status === "expired") ? (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => resendInviteMutation.mutate(inv.id)}
+                                  disabled={resendInviteMutation.isPending}
+                                  data-testid={`button-resend-invite-${inv.id}`}
+                                >
+                                  {resendingId === inv.id ? (
+                                    <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                  ) : (
+                                    <RotateCw className="w-3 h-3 mr-1" />
+                                  )}
+                                  Resend
+                                </Button>
                               ) : (
                                 <span className="text-slate-400">-</span>
                               )}
