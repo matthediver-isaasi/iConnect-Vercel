@@ -5343,29 +5343,20 @@ const functionHandlers = {
           stripe_payment_intent_id: paymentIntentId || jobPosting.stripe_payment_intent_id
         }).eq('id', jobPosting.id);
         
-        // Send email notifications
-        const mailgunApiKey = process.env.MAILGUN_API_KEY;
-        const mailgunDomain = process.env.MAILGUN_DOMAIN;
-        const mailgunFromEmail = process.env.MAILGUN_FROM_EMAIL;
-        
-        if (mailgunApiKey && mailgunDomain) {
+        // Send email notifications via the shared email service so the
+        // per-tenant sending domain / From identity is resolved correctly
+        // (mirrors api/_lib/jobPostingPaymentReconciliation.js).
+        {
           try {
-            const FormData = (await import('form-data')).default;
-            const Mailgun = (await import('mailgun.js')).default;
-            const mailgun = new Mailgun(FormData);
-            const mg = mailgun.client({
-              username: 'api',
-              key: mailgunApiKey
-            });
-            
             // Send confirmation to poster
-            await mg.messages.create(mailgunDomain, {
-              from: mailgunFromEmail,
-              to: jobPosting.contact_email,
-              subject: 'Job Posting Payment Confirmed - Pending Approval',
-              html: `
+            if (jobPosting.contact_email) {
+              const posterResult = await sendEmail({
+                to: jobPosting.contact_email,
+                subject: 'Job Posting Payment Confirmed - Pending Approval',
+                tenantId: jobPosting.tenant_id,
+                html: `
                 <h2>Payment Confirmed!</h2>
-                <p>Dear ${jobPosting.contact_name},</p>
+                <p>Dear ${jobPosting.contact_name || 'there'},</p>
                 <p>Your payment of £${jobPosting.amount_paid} for the job posting <strong>${jobPosting.title}</strong> at <strong>${jobPosting.company_name}</strong> has been received successfully.</p>
                 <p>Your job posting is now pending approval from our team. You'll receive another email once it's approved and live on the job board.</p>
                 <p><strong>Job Details:</strong></p>
@@ -5377,7 +5368,11 @@ const functionHandlers = {
                 </ul>
                 <p>Best regards,<br>${tenantName}</p>
               `
-            });
+              });
+              if (!posterResult?.success) {
+                console.error(`[handleJobPostingPaymentWebhook] poster confirmation email failed for posting ${jobPosting.id}: ${posterResult?.error || 'unknown'}`);
+              }
+            }
             
             // Notify ADMIN-capable users with job posting management access.
             // Must mirror api/_lib/jobPostingPaymentReconciliation.js: roles
@@ -5412,10 +5407,10 @@ const functionHandlers = {
 
               for (const member of notifyMembers) {
                 if (!member.email || member.email.endsWith('@deleted.local')) continue;
-                await mg.messages.create(mailgunDomain, {
-                  from: mailgunFromEmail,
+                const adminResult = await sendEmail({
                   to: member.email,
                   subject: 'New Paid Job Posting Awaiting Approval',
+                  tenantId: jobPosting.tenant_id,
                   html: `
                     <h2>New Paid Job Posting Submitted</h2>
                     <p>A non-member has paid and submitted a new job posting that requires approval:</p>
@@ -5430,6 +5425,9 @@ const functionHandlers = {
                     <p>Please log in to the admin portal to review and approve this posting.</p>
                   `
                 });
+                if (!adminResult?.success) {
+                  console.error(`[handleJobPostingPaymentWebhook] admin notification email failed (to ${member.email}) for posting ${jobPosting.id}: ${adminResult?.error || 'unknown'}`);
+                }
               }
             }
           } catch (emailError) {
