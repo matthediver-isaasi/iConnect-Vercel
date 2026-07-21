@@ -63,6 +63,10 @@
       "schedule": "0 */3 * * *"
     },
     {
+      "path": "/api/cron/reconcile-job-posting-payments",
+      "schedule": "30 * * * *"
+    },
+    {
       "path": "/api/cron/run-form-submission-export-jobs",
       "schedule": "* * * * *"
     },

@@ -113,3 +113,4 @@
 - [useQuery `= []` default render loop](usequery-default-array-loop.md) — disabled query + inline array default + setState effect = silent infinite loop that freezes router transitions; use stable EMPTY consts.
 - [Pending-PO Xero reference heuristic](pending-po-reference-heuristic.md) — descriptive Xero References ('Training Fund top-up', 'Membership …') must be blacklisted or the PO report hides rows; PostgREST .or() fails on UPDATE.
 - [Membership invoice add-on lines](membership-invoice-addons.md) — add-on lines stored at fee-approval; EVERY org invoice path (manual, advance, cron x2) must pass extraLineItems + bake totals + run training-fund processing.
+- [Job posting payment legacy pitfalls](job-posting-payment-legacy.md) — non-member postings have NULL tenant_id; legacy admin-notify filter mass-emails the whole tenant, use is_admin roles + hard cap.
