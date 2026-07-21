@@ -8,7 +8,6 @@ import {
   getMembershipAddonSettings,
   validateAddonLines,
   loadAddonLines,
-  computeAddonTotals,
   buildExtraLineItems,
   processTrainingFundAddons,
 } from '../_lib/membershipAddons.js';
@@ -286,10 +285,11 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
     console.log('[Invoicing] Could not fetch PO number (non-fatal):', poErr.message);
   }
 
-  // Add-on lines stored at fee-approval time — appended to the invoice and
-  // included in the stored totals.
+  // Add-on lines stored at fee-approval time — appended to the invoice as
+  // extra line items only. They are intentionally NOT added to the stored
+  // membership cost fields (final_cost / vat_amount / total_with_vat), which
+  // record the pure membership fee.
   const addonLines = await loadAddonLines(tenantId, organizationId, membershipYear.label);
-  const addonTotals = computeAddonTotals(addonLines);
 
   const { data: record, error: insertError } = await supabase
     .from('organisation_membership_history')
@@ -307,20 +307,20 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
       rollover_discount: simResult.rolloverDiscount || 0,
       custom_discount_total: simResult.customDiscountTotal || 0,
       custom_discount_details: simResult.customDiscountDetails?.length > 0 ? simResult.customDiscountDetails : null,
-      final_cost: Math.round((finalCost + addonTotals.subtotal) * 100) / 100,
+      final_cost: Math.round(finalCost * 100) / 100,
       currency: currency,
       billing_period: simResult.billingPeriod || 'annual',
       purchase_order_number: poNumber,
       vat_rate_percent: simResult.vatRatePercent || null,
-      vat_amount: Math.round(((simResult.vatAmount || 0) + addonTotals.vat) * 100) / 100,
-      total_with_vat: Math.round(((simResult.totalWithVat || finalCost) + addonTotals.total) * 100) / 100,
+      vat_amount: Math.round((simResult.vatAmount || 0) * 100) / 100,
+      total_with_vat: Math.round((simResult.totalWithVat || finalCost) * 100) / 100,
       year_number: simResult.yearNumber || null,
       prorata_days: simResult.prorataDays || null,
       free_period_days_applied: simResult.freePeriodDaysApplied || 0,
       override_applied: simResult.overrideApplied || false,
       override_type: simResult.overrideType || null,
       status: 'active',
-      notes: `Manual renewal via admin action (year ${simResult.yearNumber}, go-live: ${simResult.goLiveDate})${addonLines.length > 0 ? `. ${addonLines.length} add-on line(s) included.` : ''}`,
+      notes: `Manual renewal via admin action (year ${simResult.yearNumber}, go-live: ${simResult.goLiveDate})${addonLines.length > 0 ? `. ${addonLines.length} add-on line(s) invoiced.` : ''}`,
     })
     .select()
     .single();
@@ -495,10 +495,11 @@ async function handleAdvanceInvoice(req, res, tenantId, tenantContext) {
     console.log('[Invoicing] Could not fetch PO number (non-fatal):', poErr.message);
   }
 
-  // Add-on lines stored at fee-approval time — appended to the invoice and
-  // included in the stored totals.
+  // Add-on lines stored at fee-approval time — appended to the invoice as
+  // extra line items only. They are intentionally NOT added to the stored
+  // membership cost fields (final_cost / vat_amount / total_with_vat), which
+  // record the pure membership fee.
   const addonLines = await loadAddonLines(tenantId, organizationId, membershipYear.label);
-  const addonTotals = computeAddonTotals(addonLines);
 
   const { data: record, error: insertError } = await supabase
     .from('organisation_membership_history')
@@ -516,13 +517,13 @@ async function handleAdvanceInvoice(req, res, tenantId, tenantContext) {
       rollover_discount: simResult.rolloverDiscount || 0,
       custom_discount_total: simResult.customDiscountTotal || 0,
       custom_discount_details: simResult.customDiscountDetails?.length > 0 ? simResult.customDiscountDetails : null,
-      final_cost: Math.round((finalCost + addonTotals.subtotal) * 100) / 100,
+      final_cost: Math.round(finalCost * 100) / 100,
       currency: currency,
       billing_period: simResult.billingPeriod || 'annual',
       purchase_order_number: poNumber,
       vat_rate_percent: simResult.vatRatePercent || null,
-      vat_amount: Math.round(((simResult.vatAmount || 0) + addonTotals.vat) * 100) / 100,
-      total_with_vat: Math.round(((simResult.totalWithVat || finalCost) + addonTotals.total) * 100) / 100,
+      vat_amount: Math.round((simResult.vatAmount || 0) * 100) / 100,
+      total_with_vat: Math.round((simResult.totalWithVat || finalCost) * 100) / 100,
       year_number: simResult.yearNumber || null,
       prorata_days: simResult.prorataDays || null,
       free_period_days_applied: simResult.freePeriodDaysApplied || 0,
@@ -530,7 +531,7 @@ async function handleAdvanceInvoice(req, res, tenantId, tenantContext) {
       override_type: simResult.overrideType || null,
       status: 'scheduled',
       scheduled_activation_date: activationDate,
-      notes: `Advance invoice (Invoice Now) via admin action (year ${simResult.yearNumber}, go-live: ${simResult.goLiveDate}). Membership activates on ${activationDate}.${addonLines.length > 0 ? ` ${addonLines.length} add-on line(s) included.` : ''}`,
+      notes: `Advance invoice (Invoice Now) via admin action (year ${simResult.yearNumber}, go-live: ${simResult.goLiveDate}). Membership activates on ${activationDate}.${addonLines.length > 0 ? ` ${addonLines.length} add-on line(s) invoiced.` : ''}`,
     })
     .select()
     .single();
