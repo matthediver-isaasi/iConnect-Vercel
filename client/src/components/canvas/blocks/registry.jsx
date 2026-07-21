@@ -128,6 +128,7 @@ import {
 // that don't use it.
 const RichTextEditor = lazy(() => import('@/components/email-builder/RichTextEditor'));
 const FontAwesomeIconPicker = lazy(() => import('@/components/canvas/FontAwesomeIconPicker'));
+const LucideIconPicker = lazy(() => import('@/components/canvas/LucideIconPicker'));
 
 export const LUCIDE_ICONS = {
   Star, Bell, Award, Check, Heart, Mail, Phone, Globe, Calendar, Clock,
@@ -2152,35 +2153,56 @@ function TextInspector({ block, update, breakpoint }) {
 }
 
 // IMAGE ----------------------------------------------------------------------
-function _sanitizeFaIconClassForImage(raw) {
+// The Image block's iconClass field holds either a Font Awesome class string
+// ("fa-solid fa-star") or a Lucide icon name ("arrow-right"). Resolve the raw
+// stored value to a name renderStyleIcon can handle, or '' when it is neither.
+// Legacy bare fa- tokens (stored without a style token) get "fa-solid" added
+// so they keep rendering as FA rather than being mistaken for Lucide names.
+function _resolveImageIconName(raw) {
   if (!raw || typeof raw !== 'string') return '';
-  return raw
-    .trim()
-    .split(/\s+/)
-    .filter((t) => /^fa[a-z0-9-]*$/.test(t))
-    .join(' ');
+  const n = raw.trim();
+  if (!n) return '';
+  if (isFaIconName(n)) return sanitizeFaIconClass(n) ? n : '';
+  if (/^fa-[a-z0-9-]+$/i.test(n) && !FA_STYLE_TOKEN.test(n)) return `fa-solid ${n}`;
+  if (/^[A-Za-z][A-Za-z0-9-]*$/.test(n)) return n; // Lucide (kebab or Pascal)
+  return '';
 }
 
 function ImageRender({ block, asEditor, priority }) {
   const c = block.content || {};
-  const iconClass = _sanitizeFaIconClassForImage(c.iconClass);
+  const iconName = _resolveImageIconName(c.iconClass);
 
-  if (iconClass) {
+  if (iconName) {
     const alignToJustify = (a) => (a === 'center' ? 'center' : a === 'right' ? 'flex-end' : 'flex-start');
+    const iconSize = Number.isFinite(Number(c.iconSize)) && Number(c.iconSize) > 0 ? Number(c.iconSize) : 64;
+    const frame = c.iconFrame === 'square' || c.iconFrame === 'circle' ? c.iconFrame : 'none';
+    let inner = renderStyleIcon(iconName, iconSize, c.iconColor || undefined);
+    if (frame !== 'none') {
+      const pad = Math.max(8, Math.round(iconSize * 0.35));
+      inner = (
+        <span
+          aria-hidden="true"
+          style={{
+            width: iconSize + pad * 2,
+            height: iconSize + pad * 2,
+            background: c.iconFrameColor || '#e2e8f0',
+            borderRadius: frame === 'circle' ? '50%' : 6,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+          }}
+        >
+          {inner}
+        </span>
+      );
+    }
     const iconEl = (
       <div
         className="w-full h-full flex items-center"
         style={{ justifyContent: alignToJustify(c.iconAlign) }}
       >
-        <i
-          className={iconClass}
-          aria-hidden="true"
-          style={{
-            fontSize: Number.isFinite(Number(c.iconSize)) && Number(c.iconSize) > 0 ? Number(c.iconSize) : 64,
-            color: c.iconColor || undefined,
-            lineHeight: 1,
-          }}
-        />
+        {inner}
       </div>
     );
     if (c.href && !asEditor) {
@@ -2238,7 +2260,8 @@ function ImageInspector({ block, update }) {
   const c = block.content || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
-  const iconClass = _sanitizeFaIconClassForImage(c.iconClass);
+  const [lucidePickerOpen, setLucidePickerOpen] = useState(false);
+  const iconName = _resolveImageIconName(c.iconClass);
   return (
     <>
       <ImageField
@@ -2249,16 +2272,24 @@ function ImageInspector({ block, update }) {
       />
       <div className="pt-1 border-t border-slate-100 space-y-2">
         <div className="flex items-center gap-2">
-          <Label className="text-xs text-slate-600">Font Awesome icon</Label>
-          {iconClass ? (
-            <i
-              className={iconClass}
-              aria-hidden="true"
-              style={{ color: c.iconColor || undefined }}
-              data-testid="preview-image-icon"
-            />
+          <Label className="text-xs text-slate-600">Icon (instead of image)</Label>
+          {iconName ? (
+            <span data-testid="preview-image-icon" className="inline-flex items-center">
+              {renderStyleIcon(iconName, 16, c.iconColor || undefined)}
+            </span>
           ) : null}
         </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="w-full justify-start gap-2"
+          onClick={() => setLucidePickerOpen(true)}
+          data-testid="button-browse-image-lucide-icon"
+        >
+          <Search className="w-4 h-4" />
+          Browse Lucide icons…
+        </Button>
         <Button
           type="button"
           variant="outline"
@@ -2268,7 +2299,7 @@ function ImageInspector({ block, update }) {
           data-testid="button-browse-image-icon"
         >
           <Search className="w-4 h-4" />
-          {iconClass ? 'Change icon…' : 'Browse icons…'}
+          Browse Font Awesome icons…
         </Button>
         <Suspense fallback={null}>
           {iconPickerOpen ? (
@@ -2279,15 +2310,23 @@ function ImageInspector({ block, update }) {
               currentValue={c.iconClass}
             />
           ) : null}
+          {lucidePickerOpen ? (
+            <LucideIconPicker
+              open={lucidePickerOpen}
+              onClose={() => setLucidePickerOpen(false)}
+              onSelect={(name) => set({ iconClass: name })}
+              currentValue={c.iconClass}
+            />
+          ) : null}
         </Suspense>
         <TextField
-          label="Font Awesome class (advanced — or use the picker above)"
+          label="Icon name / class (advanced — or use the pickers above)"
           value={c.iconClass}
           onChange={(v) => set({ iconClass: v })}
-          placeholder="fa-solid fa-image"
+          placeholder="fa-solid fa-image or arrow-right"
           testId="input-image-icon-class"
         />
-        {iconClass && (
+        {iconName && (
           <>
             <NumberField
               label="Icon size (px)"
@@ -2314,12 +2353,31 @@ function ImageInspector({ block, update }) {
               onChange={(v) => set({ iconColor: v })}
               testId="input-image-icon-color"
             />
+            <SelectField
+              label="Frame"
+              value={c.iconFrame === 'square' || c.iconFrame === 'circle' ? c.iconFrame : 'none'}
+              onChange={(v) => set({ iconFrame: v })}
+              options={[
+                { value: 'none', label: 'None' },
+                { value: 'square', label: 'Square' },
+                { value: 'circle', label: 'Circle' },
+              ]}
+              testId="select-image-icon-frame"
+            />
+            {(c.iconFrame === 'square' || c.iconFrame === 'circle') && (
+              <ColorField
+                label="Frame background colour"
+                value={c.iconFrameColor}
+                onChange={(v) => set({ iconFrameColor: v })}
+                testId="input-image-icon-frame-color"
+              />
+            )}
             <Button
               type="button"
               variant="ghost"
               size="sm"
               className="w-full justify-start text-slate-500"
-              onClick={() => set({ iconClass: '', iconSize: 64, iconColor: '', iconAlign: 'center' })}
+              onClick={() => set({ iconClass: '', iconSize: 64, iconColor: '', iconAlign: 'center', iconFrame: 'none', iconFrameColor: '' })}
               data-testid="button-remove-image-icon"
             >
               Remove icon
@@ -2367,7 +2425,7 @@ function ImageInspector({ block, update }) {
           )}
         </>
       )}
-      {!iconClass && (
+      {!iconName && (
         <SelectField
           label="Object fit"
           value={c.objectFit || 'cover'}

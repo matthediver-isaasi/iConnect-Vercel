@@ -520,11 +520,16 @@ export const BLOCK_DEFAULTS = {
       //   'vh'             — viewport-relative height (heightValue + 'vh')
       heightMode: 'auto',
       heightValue: null,
-      // Font Awesome icon (alternative to image)
+      // Icon (alternative to image). iconClass holds either a Font Awesome
+      // class string (e.g. "fa-solid fa-star") or a Lucide icon name
+      // (e.g. "arrow-right") — resolved by the shared renderStyleIcon helper.
       iconClass: '',
       iconSize: 64,
       iconColor: '',
       iconAlign: 'center',
+      // Optional frame drawn behind the icon: 'none' | 'square' | 'circle'
+      iconFrame: 'none',
+      iconFrameColor: '',
     },
   },
   [BLOCK_TYPES.BUTTON]: {
