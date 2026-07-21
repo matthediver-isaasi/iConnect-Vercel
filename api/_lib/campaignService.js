@@ -877,7 +877,7 @@ async function fetchAllMembersPaginated(tenantId, selectFields, filters = {}) {
 
 const ALLOWED_SEGMENT_TYPES = new Set([
   'audience_list', 'individual_members', 'role', 'organisation', 
-  'communication_category', 'form', 'member_group', 'event_attendees',
+  'communication_category', 'form', 'member_group', 'member_group_admins', 'event_attendees',
   'event_form', 'field_filter'
 ]);
 
@@ -1040,6 +1040,58 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
           .in('id', idBatch)
           .not('email', 'ilike', 'deleted_%@deleted.local');
         
+        if (members) allMembers.push(...members);
+      }
+
+      recipients = allMembers.filter(m => m.email);
+    }
+  } else if (targetType === 'member_group_admins' && targetIds.length > 0) {
+    // Task #2981: only the admins of the selected groups. Admin status is the
+    // per-assignment is_group_admin flag (legacy leadership roles retired)
+    // plus a non-expired expires_at, mirroring memberGroupAdminAccess.js.
+    const allAssignments = [];
+    let assignmentOffset = 0;
+    const assignmentBatchSize = 1000;
+    let hasMoreAssignments = true;
+    const nowIso = new Date().toISOString();
+
+    while (hasMoreAssignments) {
+      const { data: batch } = await supabase
+        .from('member_group_assignment')
+        .select('member_id, expires_at, is_group_admin')
+        .in('group_id', targetIds)
+        .eq('is_group_admin', true)
+        .range(assignmentOffset, assignmentOffset + assignmentBatchSize - 1);
+
+      if (batch && batch.length > 0) {
+        allAssignments.push(...batch);
+        assignmentOffset += batch.length;
+        hasMoreAssignments = batch.length === assignmentBatchSize;
+      } else {
+        hasMoreAssignments = false;
+      }
+    }
+
+    const liveAssignments = allAssignments.filter(a =>
+      a.member_id
+      && a.is_group_admin === true
+      && (!a.expires_at || new Date(a.expires_at).toISOString() > nowIso)
+    );
+    const memberIds = [...new Set(liveAssignments.map(a => a.member_id))];
+
+    if (memberIds.length > 0) {
+      const allMembers = [];
+      const idBatchSize = 500;
+
+      for (let i = 0; i < memberIds.length; i += idBatchSize) {
+        const idBatch = memberIds.slice(i, i + idBatchSize);
+        const { data: members } = await supabase
+          .from('member')
+          .select('id, email, first_name, last_name, communications_opted_out_all')
+          .eq('tenant_id', tenantId)
+          .in('id', idBatch)
+          .not('email', 'ilike', 'deleted_%@deleted.local');
+
         if (members) allMembers.push(...members);
       }
 

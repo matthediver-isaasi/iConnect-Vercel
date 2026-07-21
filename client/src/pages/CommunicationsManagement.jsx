@@ -397,6 +397,7 @@ export default function CommunicationsManagementPage() {
     const typeLabels = {
       communication_category: 'Categories',
       member_group: 'Groups',
+      member_group_admins: 'Group Admins',
       role: 'Roles',
       form: 'Forms',
       fundraisers: 'Fundraisers',
@@ -427,6 +428,10 @@ export default function CommunicationsManagementPage() {
       const base = names.length > 0 ? `${label}: ${names.join(', ')}` : `${label} (${count})`;
       const roleNames = Array.isArray(segment.roles) ? segment.roles.filter(Boolean) : [];
       return roleNames.length > 0 ? `${base} — Roles: ${roleNames.join(', ')}` : base;
+    }
+    if (segment.type === 'member_group_admins') {
+      const names = (segment.ids || []).map(id => memberGroups.find(g => g.id === id)?.name).filter(Boolean);
+      return names.length > 0 ? `${label}: ${names.join(', ')}` : `${label} (${count})`;
     }
     if (segment.type === 'communication_category') {
       const names = (segment.ids || []).map(id => categories.find(c => c.id === id)?.name).filter(Boolean);
@@ -2693,6 +2698,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                         )}
                         <SelectItem value="communication_category">Categories</SelectItem>
                         <SelectItem value="member_group">Groups</SelectItem>
+                        <SelectItem value="member_group_admins">Group Admins</SelectItem>
                         <SelectItem value="role">Roles</SelectItem>
                         {formsWithCategory.length > 0 && (
                           <SelectItem value="form">Form Subscribers</SelectItem>
@@ -3453,6 +3459,16 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                 );
                                 setAddListSegmentRoles(prev => prev.filter(r => stillAvailable.has(r)));
                               }} className="rounded" data-testid={`checkbox-group-${group.id}`} />
+                            <span className="text-sm">{group.name}</span>
+                          </label>
+                        ))}
+                        {addListSegmentType === 'member_group_admins' && memberGroups.map(group => (
+                          <label key={group.id} className="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" checked={addListSegmentIds.includes(group.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) setAddListSegmentIds(prev => [...prev, group.id]);
+                                else setAddListSegmentIds(prev => prev.filter(i => i !== group.id));
+                              }} className="rounded" data-testid={`checkbox-group-admins-${group.id}`} />
                             <span className="text-sm">{group.name}</span>
                           </label>
                         ))}
