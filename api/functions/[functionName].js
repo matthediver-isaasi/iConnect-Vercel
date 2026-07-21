@@ -4473,9 +4473,20 @@ const functionHandlers = {
     return { success: true, job_id: jobPosting.id, job_posting: jobPosting };
   },
 
-  async createJobPostingNonMember(params) {
+  async createJobPostingNonMember(params, req) {
     if (!supabase) throw new Error('Supabase not configured');
-    
+
+    // Task #3003: stamp tenant_id at creation. Historically these rows were
+    // inserted with tenant_id NULL, which made payment attribution require
+    // probing every tenant's Stripe account and broke per-tenant admin
+    // queues/emails. The poster is on a specific tenant's site, so the
+    // tenant context is always resolvable here — hard-fail if it isn't.
+    const tenantContext = await getTenantContext(req);
+    const tenantId = tenantContext?.tenantId;
+    if (!tenantId) {
+      return { success: false, error: 'Unable to determine tenant context' };
+    }
+
     const {
       title,
       description,
@@ -4494,15 +4505,18 @@ const functionHandlers = {
       attachment_names = []
     } = params;
 
-    // Get pricing from system settings
+    // Get pricing from system settings (tenant-scoped, global row as fallback)
     let price = 50; // Default price in GBP
     const { data: settings } = await supabase
       .from('system_settings')
-      .select('*')
-      .eq('setting_key', 'job_posting_price');
-    
+      .select('tenant_id, setting_value')
+      .eq('setting_key', 'job_posting_price')
+      .or(`tenant_id.eq.${tenantId},tenant_id.is.null`);
+
     if (settings && settings.length > 0) {
-      price = parseFloat(settings[0].setting_value);
+      const match = settings.find((s) => s.tenant_id === tenantId) || settings.find((s) => !s.tenant_id);
+      const parsed = parseFloat(match?.setting_value);
+      if (Number.isFinite(parsed)) price = parsed;
     }
 
     // Calculate expiry date (90 days from now)
@@ -4512,6 +4526,7 @@ const functionHandlers = {
     const { data: jobPosting, error } = await supabase
       .from('job_posting')
       .insert({
+        tenant_id: tenantId,
         title,
         description,
         company_name,
