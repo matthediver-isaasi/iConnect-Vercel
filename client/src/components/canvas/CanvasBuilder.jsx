@@ -1881,7 +1881,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       <CanvasSwatchProvider micrositeId={micrositeId}>
       <div className="flex flex-col h-full" data-testid="canvas-builder">
         {/* Sub-toolbar with alignment + undo/redo + grid */}
-        <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-b border-slate-200 bg-white">
+        <div className="shrink-0 flex flex-wrap items-center gap-x-2 gap-y-2 px-3 py-2 border-b border-slate-200 bg-white">
           <Button size="icon" variant="ghost" onClick={handleUndo} disabled={!canUndo} title="Undo" data-testid="button-undo">
             <Undo2 className="w-4 h-4" />
           </Button>
@@ -1989,7 +1989,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
           >
             <Wand2 className="w-4 h-4 mr-1.5" /> Auto build
           </Button>
-          <div className="flex-1" />
+          <div className="flex-1 basis-0" />
           <Button
             size="sm" variant="ghost"
             onClick={() => setShowPalettePanel(true)}
@@ -2067,25 +2067,27 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
           >
             <Eraser className="w-4 h-4" />
           </Button>
-          <div className="w-px h-6 bg-slate-200 mx-1" />
-          <Button size="icon" variant="ghost" onClick={zoomOut} title="Zoom out" data-testid="button-zoom-out">
-            <ZoomOut className="w-4 h-4" />
-          </Button>
-          <button
-            type="button"
-            onClick={resetZoom}
-            className="h-8 px-2 text-xs rounded hover:bg-slate-100 tabular-nums min-w-[3.5rem]"
-            title="Reset zoom"
-            data-testid="button-zoom-reset"
-          >
-            {Math.round(zoom * 100)}%
-          </button>
-          <Button size="icon" variant="ghost" onClick={zoomIn} title="Zoom in" data-testid="button-zoom-in">
-            <ZoomIn className="w-4 h-4" />
-          </Button>
-          <Button size="icon" variant="ghost" onClick={resetZoom} title="Fit to 100%" data-testid="button-zoom-fit">
-            <Maximize2 className="w-4 h-4" />
-          </Button>
+          <div className="flex items-center gap-2 shrink-0" data-testid="group-zoom-controls">
+            <div className="w-px h-6 bg-slate-200 mx-1" />
+            <Button size="icon" variant="ghost" onClick={zoomOut} title="Zoom out" data-testid="button-zoom-out">
+              <ZoomOut className="w-4 h-4" />
+            </Button>
+            <button
+              type="button"
+              onClick={resetZoom}
+              className="h-8 px-2 text-xs rounded hover:bg-slate-100 tabular-nums min-w-[3.5rem]"
+              title="Reset zoom"
+              data-testid="button-zoom-reset"
+            >
+              {Math.round(zoom * 100)}%
+            </button>
+            <Button size="icon" variant="ghost" onClick={zoomIn} title="Zoom in" data-testid="button-zoom-in">
+              <ZoomIn className="w-4 h-4" />
+            </Button>
+            <Button size="icon" variant="ghost" onClick={resetZoom} title="Fit to 100%" data-testid="button-zoom-fit">
+              <Maximize2 className="w-4 h-4" />
+            </Button>
+          </div>
         </div>
 
         {/* Main layout */}
