@@ -2179,13 +2179,23 @@ function ImageRender({ block, asEditor, priority }) {
     let inner = renderStyleIcon(iconName, iconSize, c.iconColor || undefined);
     if (frame !== 'none') {
       const pad = Math.max(8, Math.round(iconSize * 0.35));
+      // '' keeps the legacy default fill; the literal 'transparent' means no fill
+      // (outline-only frames introduced in Task #3014).
+      const fill = c.iconFrameColor === 'transparent' ? 'transparent' : (c.iconFrameColor || '#e2e8f0');
+      const borderWidth = Number.isFinite(Number(c.iconFrameBorderWidth)) ? Math.max(0, Number(c.iconFrameBorderWidth)) : 0;
+      const borderColor = (c.iconFrameBorderColor || '').trim();
+      const hasBorder = borderWidth > 0 && !!borderColor;
       inner = (
         <span
           aria-hidden="true"
           style={{
             width: iconSize + pad * 2,
             height: iconSize + pad * 2,
-            background: c.iconFrameColor || '#e2e8f0',
+            background: fill,
+            ...(hasBorder ? { border: `${borderWidth}px solid ${borderColor}` } : {}),
+            // Border must not change the outer box size, so the circle stays
+            // perfectly round and the icon stays centered.
+            boxSizing: 'border-box',
             borderRadius: frame === 'circle' ? '50%' : 6,
             display: 'inline-flex',
             alignItems: 'center',
@@ -2365,19 +2375,43 @@ function ImageInspector({ block, update }) {
               testId="select-image-icon-frame"
             />
             {(c.iconFrame === 'square' || c.iconFrame === 'circle') && (
-              <ColorField
-                label="Frame background colour"
-                value={c.iconFrameColor}
-                onChange={(v) => set({ iconFrameColor: v })}
-                testId="input-image-icon-frame-color"
-              />
+              <>
+                <ToggleField
+                  label="Transparent background"
+                  value={c.iconFrameColor === 'transparent'}
+                  onChange={(v) => set({ iconFrameColor: v ? 'transparent' : '' })}
+                  testId="toggle-image-icon-frame-transparent"
+                />
+                {c.iconFrameColor !== 'transparent' && (
+                  <ColorField
+                    label="Frame background colour"
+                    value={c.iconFrameColor}
+                    onChange={(v) => set({ iconFrameColor: v })}
+                    testId="input-image-icon-frame-color"
+                  />
+                )}
+                <ColorField
+                  label="Frame border colour (optional)"
+                  value={c.iconFrameBorderColor}
+                  onChange={(v) => set({ iconFrameBorderColor: v })}
+                  testId="input-image-icon-frame-border-color"
+                />
+                <NumberField
+                  label="Frame border width (px)"
+                  value={Number.isFinite(Number(c.iconFrameBorderWidth)) ? Number(c.iconFrameBorderWidth) : 0}
+                  onChange={(v) => set({ iconFrameBorderWidth: v })}
+                  min={0}
+                  max={20}
+                  testId="input-image-icon-frame-border-width"
+                />
+              </>
             )}
             <Button
               type="button"
               variant="ghost"
               size="sm"
               className="w-full justify-start text-slate-500"
-              onClick={() => set({ iconClass: '', iconSize: 64, iconColor: '', iconAlign: 'center', iconFrame: 'none', iconFrameColor: '' })}
+              onClick={() => set({ iconClass: '', iconSize: 64, iconColor: '', iconAlign: 'center', iconFrame: 'none', iconFrameColor: '', iconFrameBorderColor: '', iconFrameBorderWidth: 0 })}
               data-testid="button-remove-image-icon"
             >
               Remove icon

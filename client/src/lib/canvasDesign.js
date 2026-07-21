@@ -529,7 +529,13 @@ export const BLOCK_DEFAULTS = {
       iconAlign: 'center',
       // Optional frame drawn behind the icon: 'none' | 'square' | 'circle'
       iconFrame: 'none',
+      // Frame fill colour. '' = default fill (#e2e8f0), the literal string
+      // 'transparent' = no fill (outline-only frames).
       iconFrameColor: '',
+      // Optional frame border (outline). Border renders only when a colour is
+      // set and width > 0; both empty/0 = no border (legacy fill-only frames).
+      iconFrameBorderColor: '',
+      iconFrameBorderWidth: 0,
     },
   },
   [BLOCK_TYPES.BUTTON]: {
