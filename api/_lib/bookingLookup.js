@@ -126,6 +126,31 @@ export function getBookingTable(source) {
   return source === BOOKING_SOURCE_COMPLEX ? 'complex_event_booking' : 'booking';
 }
 
+export async function resolveEventTitleById(eventId, tenantId) {
+  if (!eventId) return null;
+  try {
+    const { data: ev } = await supabase
+      .from('event')
+      .select('id, title, tenant_id')
+      .eq('id', eventId)
+      .maybeSingle();
+    if (ev && (!ev.tenant_id || !tenantId || ev.tenant_id === tenantId) && ev.title) {
+      return ev.title;
+    }
+    const { data: ce } = await supabase
+      .from('complex_event')
+      .select('id, title, tenant_id')
+      .eq('id', eventId)
+      .maybeSingle();
+    if (ce && (!ce.tenant_id || !tenantId || ce.tenant_id === tenantId) && ce.title) {
+      return ce.title;
+    }
+  } catch (err) {
+    console.warn('[BookingLookup] resolveEventTitleById failed (non-blocking):', err.message);
+  }
+  return null;
+}
+
 export async function reinstateVoucherDirect(booking, refund_allocation, reversalOptions, reversalResults, tenantId) {
   const voucherId = booking.voucher_id;
   const voucherAmount = parseFloat(booking.voucher_amount) || 0;
@@ -180,7 +205,7 @@ export async function reinstateVoucherDirect(booking, refund_allocation, reversa
       organization_id: booking.organization_id || null,
       booking_reference: booking.booking_reference,
       event_id: booking.event_id,
-      event_title: 'Cancellation refund',
+      event_title: (await resolveEventTitleById(booking.event_id, tenantId)) || null,
       member_id: booking.member_id,
       member_email: booking.attendee_email,
       amount: refundAmount,
@@ -288,7 +313,7 @@ export async function reinstateVoucherFromTransactions(booking, refund_allocatio
         organization_id: vtx.organization_id,
         booking_reference: booking.booking_reference,
         event_id: booking.event_id,
-        event_title: vtx.event_title || 'Cancellation refund',
+        event_title: vtx.event_title || (await resolveEventTitleById(booking.event_id, tenantId)) || null,
         member_id: booking.member_id,
         member_email: vtx.member_email || booking.attendee_email,
         amount: voucherRefundAmount,

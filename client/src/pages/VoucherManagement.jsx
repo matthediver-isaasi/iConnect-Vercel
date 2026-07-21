@@ -170,10 +170,14 @@ export default function VoucherManagementPage() {
     queryKey: ['voucher-transactions', selectedVoucher?.id],
     queryFn: async () => {
       if (!selectedVoucher?.id) return [];
-      const allTransactions = await base44.entities.VoucherTransaction.list();
-      return allTransactions
-        .filter(tx => tx.voucher_id === selectedVoucher.id)
-        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      const response = await fetch(`/api/admin/voucher-transactions?voucher_id=${encodeURIComponent(selectedVoucher.id)}`, {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error('Failed to load transaction history');
+      }
+      const payload = await response.json();
+      return payload.transactions || [];
     },
     enabled: !!selectedVoucher?.id,
     staleTime: 0,
@@ -783,6 +787,8 @@ export default function VoucherManagementPage() {
   const formatTransactionType = (type) => {
     switch (type) {
       case 'booking_usage': return { label: 'Booking', color: 'bg-blue-100 text-blue-800' };
+      case 'cancellation_refund': return { label: 'Cancellation Refund', color: 'bg-green-100 text-green-800' };
+      case 'voucher_awarded': return { label: 'Awarded', color: 'bg-green-100 text-green-800' };
       case 'credit_adjustment': return { label: 'Credit', color: 'bg-green-100 text-green-800' };
       case 'debit_adjustment': return { label: 'Debit', color: 'bg-warning/10 text-warning' };
       case 'adjustment': return { label: 'Adjustment', color: 'bg-warning/10 text-warning' };
@@ -896,12 +902,21 @@ export default function VoucherManagementPage() {
                             </span>
                           </div>
                           
-                          {transaction.event_title && (
-                            <p className="text-slate-700 mb-2">
-                              Event: {transaction.event_title}
+                          {transaction.usage_description && (
+                            <p className="text-slate-700 mb-1" data-testid={`text-usage-${transaction.id}`}>
+                              {transaction.usage_description}
                             </p>
                           )}
-                          
+
+                          {(transaction.event_date || transaction.event_internal_reference) && (
+                            <p className="text-sm text-slate-500 mb-1" data-testid={`text-event-detail-${transaction.id}`}>
+                              {[
+                                transaction.event_date ? `Event date: ${format(new Date(transaction.event_date), 'dd MMM yyyy')}` : null,
+                                transaction.event_internal_reference ? `Ref: ${transaction.event_internal_reference}` : null,
+                              ].filter(Boolean).join(' · ')}
+                            </p>
+                          )}
+
                           {transaction.booking_reference && (
                             <p className="text-sm text-slate-500 mb-2">
                               Booking: {transaction.booking_reference}
@@ -918,15 +933,16 @@ export default function VoucherManagementPage() {
                             </span>
                           </div>
                           
-                          {transaction.member_email && (
-                            <p className="text-xs text-slate-400 mt-2">
-                              Used by: {transaction.member_email}
+                          {(transaction.member_name || transaction.member_email) && (
+                            <p className="text-xs text-slate-400 mt-2" data-testid={`text-used-by-${transaction.id}`}>
+                              Used by: {transaction.member_name || transaction.member_email}
+                              {transaction.member_name && transaction.member_email ? ` (${transaction.member_email})` : ''}
                             </p>
                           )}
                         </div>
                         
                         <div className="text-right flex-shrink-0">
-                          {transaction.type === 'credit_adjustment' ? (
+                          {['credit_adjustment', 'cancellation_refund', 'voucher_awarded'].includes(transaction.type) ? (
                             <span className="text-lg font-bold text-green-600">
                               +£{(transaction.amount || 0).toFixed(2)}
                             </span>
