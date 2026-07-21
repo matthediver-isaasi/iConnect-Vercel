@@ -1,15 +1,17 @@
 #!/usr/bin/env node
 /**
- * One-off remediation: raise the missing Xero invoice for booking group
- * OOE-1770381875481-N766O (tenant GFI). The post-booking invoice flow failed
- * silently on 6 Feb 2026, leaving the booking with no Xero invoice and no
- * account_charge transaction row.
+ * One-off remediation: raise a missing Xero invoice for a single booking group
+ * (tenant GFI) where the post-booking invoice flow failed silently, leaving
+ * the booking with no Xero invoice and no account_charge transaction row.
+ * Used for OOE-1770381875481-N766O (6 Feb 2026) and OOE-1770907303824-L30DM
+ * (12 Feb 2026).
  *
- * Hard-pinned to a single booking group — this is NOT a general backfill tool.
+ * Hard-pinned to tenant GFI and a single booking group per run — this is NOT
+ * a general backfill tool.
  *
  * Usage:
- *   node scripts/raise-missing-booking-invoice.mjs            # dry run (default)
- *   node scripts/raise-missing-booking-invoice.mjs --apply    # create the invoice
+ *   node scripts/raise-missing-booking-invoice.mjs --booking=<GROUP_REF>            # dry run (default)
+ *   node scripts/raise-missing-booking-invoice.mjs --booking=<GROUP_REF> --apply    # create the invoice
  *
  * Idempotency guards:
  *   - If the bookings already carry a Xero invoice id/number, invoice creation
@@ -34,7 +36,12 @@ if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY) {
 
 const APPLY = process.argv.includes('--apply');
 
-const BOOKING_GROUP_REFERENCE = 'OOE-1770381875481-N766O';
+const bookingArg = process.argv.find((a) => a.startsWith('--booking='));
+const BOOKING_GROUP_REFERENCE = bookingArg ? bookingArg.slice('--booking='.length).trim() : '';
+if (!BOOKING_GROUP_REFERENCE) {
+  console.error('Missing --booking=<GROUP_REF> argument (e.g. --booking=OOE-1770907303824-L30DM).');
+  process.exit(1);
+}
 const TENANT_ID = 'fd82da65-aab7-4a5c-85b8-b2febeb2003d'; // GFI
 
 const { supabase } = await import('../api/_lib/database.js');
