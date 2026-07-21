@@ -112,5 +112,6 @@
 - [complex_event_session FK column](complex-event-session-fk.md) — parent FK is complex_event_id (NOT event_id, despite some code querying that); session start column is start_time.
 - [useQuery `= []` default render loop](usequery-default-array-loop.md) — disabled query + inline array default + setState effect = silent infinite loop that freezes router transitions; use stable EMPTY consts.
 - [Pending-PO Xero reference heuristic](pending-po-reference-heuristic.md) — descriptive Xero References ('Training Fund top-up', 'Membership …') must be blacklisted or the PO report hides rows; PostgREST .or() fails on UPDATE.
+- [Member group role name canonicalisation](member-group-role-name-canonicalisation.md) — role names are free text duplicated across ~9 surfaces incl. role-keyed JSONB maps; rename/merge must rewrite all together.
 - [Membership invoice add-on lines](membership-invoice-addons.md) — add-on lines stored at fee-approval; EVERY org invoice path (manual, advance, cron x2) must pass extraLineItems + bake totals + run training-fund processing.
 - [Job posting payment legacy pitfalls](job-posting-payment-legacy.md) — non-member postings have NULL tenant_id; legacy admin-notify filter mass-emails the whole tenant, use is_admin roles + hard cap.

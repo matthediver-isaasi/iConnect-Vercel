@@ -31,6 +31,7 @@ import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useMemberGroupSettings } from "@/hooks/useMemberGroupSettings";
 import { buildTermSnapshot } from "@/lib/memberGroupTermSnapshot";
+import { roleNameKey, canonicalizeRoleName, collectTenantRoleNames, isEmptyRoleHtml, isEmptyRoleTermDef } from "@/lib/memberGroupRoleNames";
 import { createPageUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
 import SimpleRichTextEditor from "@/components/SimpleRichTextEditor";
@@ -74,6 +75,7 @@ export default function MemberGroupManagementPage() {
   const [selectedGroup, setSelectedGroup] = useState(null);
   const [groupToDelete, setGroupToDelete] = useState(null);
   const [newRole, setNewRole] = useState('');
+  const [roleSuggestionsOpen, setRoleSuggestionsOpen] = useState(false);
   const [selectedRoleForTerms, setSelectedRoleForTerms] = useState('');
   const [bulkText, setBulkText] = useState('');
   const [showBulkRoles, setShowBulkRoles] = useState(false);
@@ -183,6 +185,19 @@ export default function MemberGroupManagementPage() {
     () => new Set(guests.filter((g) => g.member_id).map((g) => g.member_id)),
     [guests]
   );
+
+  // Role names used across ALL of the tenant's member groups, deduplicated
+  // case-insensitively. Drives the add-role autocomplete + spelling match.
+  const tenantRoleNames = React.useMemo(() => collectTenantRoleNames(groups), [groups]);
+
+  // Forward-search suggestions while typing a new role name.
+  const roleSuggestions = React.useMemo(() => {
+    const q = roleNameKey(newRole);
+    if (!q) return [];
+    return tenantRoleNames
+      .filter((name) => roleNameKey(name).startsWith(q))
+      .slice(0, 8);
+  }, [newRole, tenantRoleNames]);
 
   const { data: classifications = [], isLoading: loadingClassifications } = useQuery({
     queryKey: ['member-group-classifications'],
@@ -744,11 +759,39 @@ export default function MemberGroupManagementPage() {
       .trim().length > 0;
     const sanitizedAboutTheGroup = aboutTheGroupHasText ? sanitizeRichText(rawAboutTheGroup) : null;
 
+    // Merge any case-only duplicate roles still lingering in the list (legacy
+    // data pre-dating standardisation): first spelling wins per lowercase key.
+    const dedupedRoles = [];
+    {
+      const seenRoleKeys = new Set();
+      for (const r of groupForm.roles || []) {
+        const key = roleNameKey(r);
+        if (!key || seenRoleKeys.has(key)) continue;
+        seenRoleKeys.add(key);
+        dedupedRoles.push(r);
+      }
+    }
+    // Map a role-ish string onto the surviving spelling (case-insensitive), so
+    // role-keyed metadata and role arrays never detach from the final name.
+    const roleByKey = new Map(dedupedRoles.map((r) => [roleNameKey(r), r]));
+    const toSurvivingRole = (r) => roleByKey.get(roleNameKey(r)) || null;
+
     // Prune leadership_roles / projects_enabled_roles to only roles still on the group.
-    const validRoles = new Set(groupForm.roles || []);
-    const prunedLeadership = (groupForm.leadership_roles || []).filter((r) => validRoles.has(r));
-    const prunedProjects = (groupForm.projects_enabled_roles || []).filter((r) => validRoles.has(r));
-    const prunedForum = (groupForm.forum_enabled_roles || []).filter((r) => validRoles.has(r));
+    const validRoles = new Set(dedupedRoles);
+    const remapRoleArray = (arr) => {
+      const out = [];
+      const seen = new Set();
+      for (const r of arr || []) {
+        const surviving = toSurvivingRole(r);
+        if (!surviving || seen.has(surviving)) continue;
+        seen.add(surviving);
+        out.push(surviving);
+      }
+      return out;
+    };
+    const prunedLeadership = remapRoleArray(groupForm.leadership_roles);
+    const prunedProjects = remapRoleArray(groupForm.projects_enabled_roles);
+    const prunedForum = remapRoleArray(groupForm.forum_enabled_roles);
 
     // Prune + normalise per-role terms of reference: keep only roles still on the
     // group, and drop entries whose rich-text content is visually empty.
@@ -757,13 +800,14 @@ export default function MemberGroupManagementPage() {
       : {};
     const prunedRoleTerms = {};
     for (const [roleName, html] of Object.entries(rawRoleTerms)) {
-      if (!validRoles.has(roleName)) continue;
+      const surviving = toSurvivingRole(roleName);
+      if (!surviving) continue;
+      // Empty entries are never stored, so non-empty always survives a
+      // case-only merge; among non-empty entries, the surviving spelling's
+      // own entry wins deterministically.
+      if (prunedRoleTerms[surviving] !== undefined && roleName !== surviving) continue;
       const raw = (html || '').trim();
-      const hasText = raw
-        .replace(/<[^>]*>/g, '')
-        .replace(/&nbsp;|\u00A0/g, ' ')
-        .trim().length > 0;
-      if (hasText) prunedRoleTerms[roleName] = raw;
+      if (!isEmptyRoleHtml(raw)) prunedRoleTerms[surviving] = raw;
     }
 
     // Prune per-role terms-of-reference URLs (Task #1655): keep only roles still
@@ -773,9 +817,11 @@ export default function MemberGroupManagementPage() {
       : {};
     const prunedRoleTermsUrl = {};
     for (const [roleName, url] of Object.entries(rawRoleTermsUrl)) {
-      if (!validRoles.has(roleName)) continue;
+      const surviving = toSurvivingRole(roleName);
+      if (!surviving) continue;
+      if (prunedRoleTermsUrl[surviving] !== undefined && roleName !== surviving) continue;
       const trimmed = (url || '').toString().trim();
-      if (trimmed) prunedRoleTermsUrl[roleName] = trimmed;
+      if (trimmed) prunedRoleTermsUrl[surviving] = trimmed;
     }
 
     // Prune + normalise per-role term definitions (Task #1626): keep only roles
@@ -786,13 +832,15 @@ export default function MemberGroupManagementPage() {
       : {};
     const prunedRoleTermDefs = {};
     for (const [roleName, def] of Object.entries(rawRoleTermDefs)) {
-      if (!validRoles.has(roleName) || !def || typeof def !== 'object') continue;
+      const surviving = toSurvivingRole(roleName);
+      if (!surviving) continue;
+      if (prunedRoleTermDefs[surviving] !== undefined && roleName !== surviving) continue;
+      if (isEmptyRoleTermDef(def)) continue;
       const value = Number(def.term_value);
       const maxTerms = Number(def.max_terms);
       const hasValue = Number.isFinite(value) && value > 0;
       const hasMax = Number.isFinite(maxTerms) && maxTerms > 0;
-      if (!hasValue && !hasMax) continue;
-      prunedRoleTermDefs[roleName] = {
+      prunedRoleTermDefs[surviving] = {
         term_value: hasValue ? Math.floor(value) : null,
         term_unit: hasValue ? (def.term_unit === 'months' ? 'months' : 'years') : null,
         max_terms: hasMax ? Math.floor(maxTerms) : null,
@@ -801,10 +849,13 @@ export default function MemberGroupManagementPage() {
 
     const payload = {
       ...groupForm,
+      roles: dedupedRoles,
       description: sanitizedDescription,
       who_is_it_for: sanitizedWhoIsItFor,
       about_the_group: sanitizedAboutTheGroup,
-      default_self_join_role: groupForm.allow_self_join ? groupForm.default_self_join_role : null,
+      default_self_join_role: groupForm.allow_self_join
+        ? (toSurvivingRole(groupForm.default_self_join_role) || groupForm.default_self_join_role)
+        : null,
       leadership_roles: prunedLeadership,
       projects_enabled: !!groupForm.projects_enabled,
       projects_enabled_roles: groupForm.projects_enabled ? prunedProjects : [],
@@ -832,15 +883,31 @@ export default function MemberGroupManagementPage() {
     }
   };
 
-  const handleAddRole = () => {
-    if (!newRole.trim()) return;
-    if (groupForm.roles.includes(newRole.trim())) {
-      toast.error('Role already exists');
+  // Resolve the spelling a typed role should be saved as: an existing role in
+  // this group blocks (case-insensitive duplicate); a tenant-wide match reuses
+  // that spelling; a genuinely new name is Title Cased.
+  const resolveNewRoleName = (raw) => {
+    const key = roleNameKey(raw);
+    if (!key) return { error: null, name: '' };
+    if ((groupForm.roles || []).some((r) => roleNameKey(r) === key)) {
+      return { error: 'Role already exists', name: '' };
+    }
+    return { error: null, name: canonicalizeRoleName(raw, tenantRoleNames) };
+  };
+
+  const addRoleByName = (raw) => {
+    const { error, name } = resolveNewRoleName(raw);
+    if (error) {
+      toast.error(error);
       return;
     }
-    setGroupForm({ ...groupForm, roles: [...groupForm.roles, newRole.trim()] });
+    if (!name) return;
+    setGroupForm({ ...groupForm, roles: [...groupForm.roles, name] });
     setNewRole('');
+    setRoleSuggestionsOpen(false);
   };
+
+  const handleAddRole = () => addRoleByName(newRole);
 
   const handleBulkAddRoles = () => {
     if (!bulkRolesText.trim()) {
@@ -849,12 +916,19 @@ export default function MemberGroupManagementPage() {
     }
 
     const lines = bulkRolesText.split('\n').filter(line => line.trim());
-    const newRoles = lines.map(line => line.trim());
     const existingRoles = groupForm.roles || [];
-    
-    // Filter out duplicates
-    const uniqueNewRoles = newRoles.filter(role => !existingRoles.includes(role));
-    
+
+    // Case-insensitive dedupe against existing roles AND within the batch,
+    // matching tenant-wide spellings / Title Casing new names.
+    const seen = new Set(existingRoles.map((r) => roleNameKey(r)));
+    const uniqueNewRoles = [];
+    for (const line of lines) {
+      const key = roleNameKey(line);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      uniqueNewRoles.push(canonicalizeRoleName(line, tenantRoleNames));
+    }
+
     if (uniqueNewRoles.length === 0) {
       toast.error('All roles already exist');
       return;
@@ -1143,13 +1217,14 @@ export default function MemberGroupManagementPage() {
         if (!group) continue;
 
         let newRoles = [...(group.roles || [])];
-        
+        const roleKey = roleNameKey(role);
+
         if (action === 'add') {
-          if (!newRoles.includes(role)) {
+          if (!newRoles.some(r => roleNameKey(r) === roleKey)) {
             newRoles.push(role);
           }
         } else if (action === 'remove') {
-          newRoles = newRoles.filter(r => r !== role);
+          newRoles = newRoles.filter(r => roleNameKey(r) !== roleKey);
         }
 
         updates.push(
@@ -1183,7 +1258,9 @@ export default function MemberGroupManagementPage() {
     bulkUpdateGroupsMutation.mutate({
       groupIds: selectedGroups,
       action: bulkEditAction,
-      role: bulkEditRole.trim()
+      // Reuse an existing tenant-wide spelling (case-insensitive) or Title
+      // Case a genuinely new role name.
+      role: canonicalizeRoleName(bulkEditRole, tenantRoleNames)
     });
   };
 
@@ -1825,12 +1902,39 @@ export default function MemberGroupManagementPage() {
                   </div>
                 ) : (
                   <div className="flex gap-2 mb-2">
-                    <Input
-                      value={newRole}
-                      onChange={(e) => setNewRole(e.target.value)}
-                      onKeyPress={(e) => e.key === 'Enter' && handleAddRole()}
-                      placeholder="e.g., Chair, Vice Chair, Member"
-                    />
+                    <div className="relative flex-1">
+                      <Input
+                        value={newRole}
+                        onChange={(e) => { setNewRole(e.target.value); setRoleSuggestionsOpen(true); }}
+                        onFocus={() => setRoleSuggestionsOpen(true)}
+                        onBlur={() => setTimeout(() => setRoleSuggestionsOpen(false), 150)}
+                        onKeyPress={(e) => e.key === 'Enter' && handleAddRole()}
+                        placeholder="e.g., Chair, Vice Chair, Member"
+                        data-testid="input-new-role"
+                      />
+                      {roleSuggestionsOpen && roleSuggestions.length > 0 && (
+                        <div
+                          className="absolute left-0 right-0 top-full mt-1 z-50 rounded-md border border-slate-200 bg-white shadow-md max-h-48 overflow-y-auto"
+                          data-testid="list-role-suggestions"
+                        >
+                          <p className="px-3 pt-2 pb-1 text-[11px] uppercase tracking-wide text-slate-400">
+                            Roles used in your groups
+                          </p>
+                          {roleSuggestions.map((name) => (
+                            <button
+                              key={name}
+                              type="button"
+                              className="block w-full text-left px-3 py-1.5 text-sm text-slate-700 hover-elevate active-elevate-2"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => addRoleByName(name)}
+                              data-testid={`suggestion-role-${name}`}
+                            >
+                              {name}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                     <Button onClick={handleAddRole} type="button">
                       <Plus className="w-4 h-4" />
                     </Button>
