@@ -111,4 +111,5 @@
 - [AI V2 retry carry-forward](ai-code-v2-retry-carry.md) — carry a passing HTML/CSS side between retries only when ALL real gate errors sit on the other side; heuristics alone trap loops.
 - [complex_event_session FK column](complex-event-session-fk.md) — parent FK is complex_event_id (NOT event_id, despite some code querying that); session start column is start_time.
 - [useQuery `= []` default render loop](usequery-default-array-loop.md) — disabled query + inline array default + setState effect = silent infinite loop that freezes router transitions; use stable EMPTY consts.
+- [Pending-PO Xero reference heuristic](pending-po-reference-heuristic.md) — descriptive Xero References ('Training Fund top-up', 'Membership …') must be blacklisted or the PO report hides rows; PostgREST .or() fails on UPDATE.
 - [Membership invoice add-on lines](membership-invoice-addons.md) — add-on lines stored at fee-approval; EVERY org invoice path (manual, advance, cron x2) must pass extraLineItems + bake totals + run training-fund processing.

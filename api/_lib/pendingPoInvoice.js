@@ -978,7 +978,14 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
           'tbc', 'tbd', 'pending', 'awaiting po', 'awaiting',
           'po to follow', 'po-to-follow', 'tofollow', 'to follow',
           '-', '--', '0',
+          // Descriptive references our own invoice-creation paths write when
+          // no PO exists yet — these are NOT purchase order numbers.
+          'training fund top-up', 'training fund topup', 'training fund',
+          'membership',
         ]);
+        // "Membership 2026/27"-style references written by the membership
+        // invoice path are descriptions, not PO numbers.
+        if (/^membership\s/i.test(lower)) return false;
         if (blacklist.has(lower)) return false;
         return /[a-z0-9]/i.test(s);
       };
@@ -1060,16 +1067,25 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
           byPo.get(po).push(id);
         });
         for (const [po, ids] of byPo) {
-          const { data: updated, error } = await client
-            .from(table)
-            .update({ purchase_order_number: po, ...extraUpdate })
-            .in('id', ids)
-            .or('purchase_order_number.is.null,purchase_order_number.eq.')
-            .select('id');
-          if (error) {
-            console.error(`[PendingPO] Backfill ${table} failed for ${ids.length} row(s):`, error.message);
-          } else {
-            xeroPoBackfilled += (updated || []).length;
+          // NOTE: PostgREST rejects `.or(...)` filters on UPDATE requests
+          // (42703 "column does not exist"), so the missing-PO guard is run
+          // as two separate updates: NULL rows and empty-string rows.
+          const guards = [
+            (q) => q.is('purchase_order_number', null),
+            (q) => q.eq('purchase_order_number', ''),
+          ];
+          for (const applyGuard of guards) {
+            const { data: updated, error } = await applyGuard(
+              client
+                .from(table)
+                .update({ purchase_order_number: po, ...extraUpdate })
+                .in('id', ids),
+            ).select('id');
+            if (error) {
+              console.error(`[PendingPO] Backfill ${table} failed for ${ids.length} row(s):`, error.message);
+            } else {
+              xeroPoBackfilled += (updated || []).length;
+            }
           }
         }
       };
