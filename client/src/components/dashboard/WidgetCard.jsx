@@ -108,6 +108,8 @@ function buildExportRows(widget, payload) {
   if (!payload) return [];
   const type = widget.widget_type;
   if (payload.type === "conversion") {
+    const entityLabel =
+      payload.matchBy === "member" ? "members" : "organisations";
     return [
       ["Metric", "Value"],
       ["Converted", payload.convertedCount ?? 0],
@@ -117,8 +119,14 @@ function buildExportRows(widget, payload) {
           ? ""
           : Number(payload.conversionRate).toFixed(1),
       ],
-      ["Source submissions", payload.sourceSubmissionCount ?? 0],
-      ["Target submissions", payload.targetSubmissionCount ?? 0],
+      [
+        `Source ${entityLabel}`,
+        payload.sourceEntityCount ?? payload.sourceSubmissionCount ?? 0,
+      ],
+      [
+        `Target ${entityLabel}`,
+        payload.targetEntityCount ?? payload.targetSubmissionCount ?? 0,
+      ],
     ];
   }
   if (type === "stat") {
@@ -363,9 +371,13 @@ function StatBody({ widget, payload }) {
 }
 
 // Form-conversion stat card: headline = distinct entities that submitted
-// BOTH forms, with the conversion % and the raw submission counts below.
+// BOTH forms, with the conversion % and the unique entity counts below.
+// Falls back to raw submission counts for cached payloads that predate
+// the entity-count fields.
 function ConversionBody({ widget, payload }) {
   const rate = payload.conversionRate;
+  const entityLabel =
+    payload.matchBy === "member" ? "members" : "organisations";
   return (
     <div className="flex flex-1 flex-col justify-center gap-1">
       <p
@@ -383,8 +395,9 @@ function ConversionBody({ widget, payload }) {
         className="text-xs uppercase text-muted-foreground"
         data-testid={`conversion-detail-${widget.id}`}
       >
-        {payload.sourceSubmissionCount ?? 0} source ·{" "}
-        {payload.targetSubmissionCount ?? 0} target submissions
+        {payload.sourceEntityCount ?? payload.sourceSubmissionCount ?? 0}{" "}
+        source · {payload.targetEntityCount ?? payload.targetSubmissionCount ?? 0}{" "}
+        target {entityLabel}
       </p>
     </div>
   );

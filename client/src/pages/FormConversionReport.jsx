@@ -363,17 +363,17 @@ export default function FormConversionReport() {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <StatCard
               icon={FileText}
-              label="Source submissions"
-              value={stats?.sourceSubmissionCount ?? "—"}
+              label={isOrgMode ? "Source organisations" : "Source members"}
+              value={stats?.sourceEntityCount ?? "—"}
               loading={showLoading && !stats}
-              testId="stat-source-submissions"
+              testId="stat-source-entities"
             />
             <StatCard
               icon={FileText}
-              label="Target submissions"
-              value={stats?.targetSubmissionCount ?? "—"}
+              label={isOrgMode ? "Target organisations" : "Target members"}
+              value={stats?.targetEntityCount ?? "—"}
               loading={showLoading && !stats}
-              testId="stat-target-submissions"
+              testId="stat-target-entities"
             />
             <StatCard
               icon={CheckCircle2}
