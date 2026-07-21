@@ -65,6 +65,44 @@ export default async function handler(req, res) {
     return res.status(403).json({ error: 'Admin access required' });
   }
 
+  // Lightweight mode: return redemption (booking_usage) transaction dates
+  // keyed by voucher id for the whole tenant in one call. Used by the
+  // Voucher Management "Used date" range filter so the client doesn't have
+  // to fetch transactions voucher-by-voucher.
+  const redemptionDatesMode =
+    req.query?.redemption_dates === '1' || req.query?.redemption_dates === 'true';
+  if (redemptionDatesMode) {
+    try {
+      const redemptionDates = {};
+      const pageSize = 1000;
+      let from = 0;
+      while (true) {
+        const { data, error } = await supabase
+          .from('voucher_transaction')
+          .select('voucher_id, created_at')
+          .eq('tenant_id', tenantId)
+          .eq('type', 'booking_usage')
+          .order('id', { ascending: true })
+          .range(from, from + pageSize - 1);
+        if (error) {
+          console.error('[VoucherTransactions] Redemption dates query error:', error);
+          return res.status(500).json({ error: 'Failed to fetch redemption dates' });
+        }
+        for (const row of (data || [])) {
+          if (!row.voucher_id || !row.created_at) continue;
+          if (!redemptionDates[row.voucher_id]) redemptionDates[row.voucher_id] = [];
+          redemptionDates[row.voucher_id].push(row.created_at);
+        }
+        if (!data || data.length < pageSize) break;
+        from += pageSize;
+      }
+      return res.status(200).json({ redemption_dates: redemptionDates });
+    } catch (err) {
+      console.error('[VoucherTransactions] Redemption dates unexpected error:', err);
+      return res.status(500).json({ error: 'Failed to fetch redemption dates' });
+    }
+  }
+
   const voucherId = req.query?.voucher_id;
   if (!voucherId) {
     return res.status(400).json({ error: 'voucher_id is required' });

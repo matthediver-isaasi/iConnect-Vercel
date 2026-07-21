@@ -75,6 +75,9 @@ export default function VoucherManagementPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [orgFilter, setOrgFilter] = useState("all");
   const [showExpired, setShowExpired] = useState(false);
+  const [dateFilterField, setDateFilterField] = useState("issued");
+  const [dateFilterFrom, setDateFilterFrom] = useState("");
+  const [dateFilterTo, setDateFilterTo] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
 
   const [showDialog, setShowDialog] = useState(false);
@@ -183,6 +186,30 @@ export default function VoucherManagementPage() {
     staleTime: 0,
   });
 
+  const dateFilterActive = !!(dateFilterFrom || dateFilterTo);
+
+  // Redemption (booking_usage) transaction dates keyed by voucher id.
+  // Fetched lazily: only when the "Used" date filter is actually in play.
+  const {
+    data: redemptionDatesByVoucher = {},
+    isLoading: loadingRedemptionDates,
+  } = useQuery({
+    queryKey: ['voucher-redemption-dates'],
+    queryFn: async () => {
+      const response = await fetch('/api/admin/voucher-transactions?redemption_dates=1', {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error('Failed to load redemption dates');
+      }
+      const payload = await response.json();
+      return payload.redemption_dates || {};
+    },
+    enabled: !!accessChecked && dateFilterField === 'used' && dateFilterActive,
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
   // Keep selectedVoucher in sync with the latest data from vouchers query
   useEffect(() => {
     if (selectedVoucher && vouchers.length > 0) {
@@ -237,13 +264,41 @@ export default function VoucherManagementPage() {
         return new Date(v.expires_at) >= new Date();
       });
     }
-    
+
+    if (dateFilterFrom || dateFilterTo) {
+      // Inclusive local-date range; either end may be empty (open-ended).
+      const fromMs = dateFilterFrom ? new Date(`${dateFilterFrom}T00:00:00`).getTime() : null;
+      const toMs = dateFilterTo ? new Date(`${dateFilterTo}T23:59:59.999`).getTime() : null;
+      const inRange = (dateStr) => {
+        if (!dateStr) return false;
+        const ms = new Date(dateStr).getTime();
+        if (isNaN(ms)) return false;
+        if (fromMs !== null && ms < fromMs) return false;
+        if (toMs !== null && ms > toMs) return false;
+        return true;
+      };
+      if (dateFilterField === 'used') {
+        // Only apply once the redemption-date map has loaded, so the list
+        // doesn't flash empty while the lazy fetch is in flight.
+        if (!loadingRedemptionDates) {
+          filtered = filtered.filter(v => {
+            const dates = redemptionDatesByVoucher[v.id];
+            return Array.isArray(dates) && dates.some(inRange);
+          });
+        }
+      } else if (dateFilterField === 'expiry') {
+        filtered = filtered.filter(v => inRange(v.expires_at));
+      } else {
+        filtered = filtered.filter(v => inRange(v.issued_at || v.created_at));
+      }
+    }
+
     return filtered.sort((a, b) => {
       const dateA = new Date(a.expires_at || 0);
       const dateB = new Date(b.expires_at || 0);
       return dateB.getTime() - dateA.getTime();
     });
-  }, [vouchers, searchTerm, statusFilter, orgFilter, showExpired, organizations]);
+  }, [vouchers, searchTerm, statusFilter, orgFilter, showExpired, organizations, dateFilterField, dateFilterFrom, dateFilterTo, redemptionDatesByVoucher, loadingRedemptionDates]);
 
   const totalPages = Math.ceil(filteredVouchers.length / ITEMS_PER_PAGE);
   const paginatedVouchers = useMemo(() => {
@@ -280,7 +335,7 @@ export default function VoucherManagementPage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, statusFilter, orgFilter, showExpired]);
+  }, [searchTerm, statusFilter, orgFilter, showExpired, dateFilterField, dateFilterFrom, dateFilterTo]);
 
   const createMutation = useMutation({
     mutationFn: (data) => base44.entities.Voucher.create(data),
@@ -623,6 +678,13 @@ export default function VoucherManagementPage() {
         }
       }
       if (!exportAllOrgs) params.set('organization_ids', Array.from(exportOrgIds).join(','));
+      // The page's active voucher date-range filter narrows the export to
+      // the same vouchers shown in the list, like the other filters do.
+      if (dateFilterActive) {
+        params.set('voucher_date_field', dateFilterField);
+        if (dateFilterFrom) params.set('voucher_from', dateFilterFrom);
+        if (dateFilterTo) params.set('voucher_to', dateFilterTo);
+      }
       for (const rule of exportSortRules) {
         const parts = [rule.field, rule.dir];
         if (rule.fallback) parts.push(rule.fallback);
@@ -1046,6 +1108,49 @@ export default function VoucherManagementPage() {
                   </SelectContent>
                 </Select>
 
+                <div className="flex flex-wrap items-center gap-2">
+                  <Select value={dateFilterField} onValueChange={setDateFilterField}>
+                    <SelectTrigger className="w-[130px]" data-testid="select-date-filter-field">
+                      <SelectValue placeholder="Date field" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="issued">Issued date</SelectItem>
+                      <SelectItem value="expiry">Expiry date</SelectItem>
+                      <SelectItem value="used">Used date</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    type="date"
+                    value={dateFilterFrom}
+                    onChange={(e) => setDateFilterFrom(e.target.value)}
+                    className="w-[150px]"
+                    aria-label="From date"
+                    data-testid="input-date-filter-from"
+                  />
+                  <span className="text-sm text-slate-400">to</span>
+                  <Input
+                    type="date"
+                    value={dateFilterTo}
+                    onChange={(e) => setDateFilterTo(e.target.value)}
+                    className="w-[150px]"
+                    aria-label="To date"
+                    data-testid="input-date-filter-to"
+                  />
+                  {dateFilterActive && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => { setDateFilterFrom(""); setDateFilterTo(""); }}
+                      data-testid="button-clear-date-filter"
+                    >
+                      Clear dates
+                    </Button>
+                  )}
+                  {dateFilterField === 'used' && dateFilterActive && loadingRedemptionDates && (
+                    <Loader2 className="w-4 h-4 animate-spin text-slate-400" aria-label="Loading redemption dates" />
+                  )}
+                </div>
+
                 <button
                   onClick={() => setShowExpired(!showExpired)}
                   className={`flex items-center gap-2 px-3 py-2 rounded-md border text-sm transition-colors ${
@@ -1099,7 +1204,7 @@ export default function VoucherManagementPage() {
                   </p>
                   <Button 
                     variant="outline" 
-                    onClick={() => { setSearchTerm(""); setStatusFilter("all"); setOrgFilter("all"); setShowExpired(true); }}
+                    onClick={() => { setSearchTerm(""); setStatusFilter("all"); setOrgFilter("all"); setShowExpired(true); setDateFilterFrom(""); setDateFilterTo(""); }}
                   >
                     Clear Filters
                   </Button>
@@ -1491,6 +1596,14 @@ export default function VoucherManagementPage() {
                 Choose which columns to include, narrow by date or organisation, and pick how the rows should be sorted.
               </DialogDescription>
             </DialogHeader>
+
+            {dateFilterActive && (
+              <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800" data-testid="text-export-list-date-filter-note">
+                The page's active date filter ({dateFilterField === 'used' ? 'Used' : dateFilterField === 'expiry' ? 'Expiry' : 'Issued'} date
+                {dateFilterFrom ? `, from ${dateFilterFrom}` : ''}{dateFilterTo ? `, to ${dateFilterTo}` : ''}) will also be applied:
+                only transactions for vouchers matching that range are exported. Clear the date filter on the page to export everything.
+              </div>
+            )}
 
             <div className="space-y-6">
               <div>

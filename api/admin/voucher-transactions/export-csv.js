@@ -288,6 +288,23 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'exclude_expired_in_range requires a "from" and/or "to" date' });
   }
 
+  // Voucher-level date filter mirroring the Voucher Management list filter:
+  // restricts the export to transactions of vouchers whose Issued / Expiry /
+  // Used (redemption) date falls inside the given inclusive range.
+  const voucherDateField = q.voucher_date_field ? String(q.voucher_date_field) : null;
+  if (voucherDateField !== null && !['issued', 'expiry', 'used'].includes(voucherDateField)) {
+    return res.status(400).json({ error: 'Invalid voucher_date_field' });
+  }
+  const voucherFromIso = parseDateBoundary(q.voucher_from, false);
+  const voucherToIso = parseDateBoundary(q.voucher_to, true);
+  if (q.voucher_from && !voucherFromIso) {
+    return res.status(400).json({ error: 'Invalid "voucher_from" date' });
+  }
+  if (q.voucher_to && !voucherToIso) {
+    return res.status(400).json({ error: 'Invalid "voucher_to" date' });
+  }
+  const voucherDateFilterActive = !!(voucherDateField && (voucherFromIso || voucherToIso));
+
   let sortRules;
   if (Object.prototype.hasOwnProperty.call(q, 'sort')) {
     const { rules, error } = parseSortRules(q.sort);
@@ -324,6 +341,70 @@ export default async function handler(req, res) {
   const needEventLookup = needEventRef || needEventDate;
 
   try {
+    // Resolve which vouchers are eligible under the voucher-level date
+    // filter (null = no restriction).
+    let eligibleVoucherIds = null;
+    if (voucherDateFilterActive) {
+      eligibleVoucherIds = new Set();
+      const inVoucherWindow = (dateStr) => {
+        if (!dateStr) return false;
+        const d = new Date(dateStr);
+        if (isNaN(d.getTime())) return false;
+        const iso = d.toISOString();
+        if (voucherFromIso && iso < voucherFromIso) return false;
+        if (voucherToIso && iso > voucherToIso) return false;
+        return true;
+      };
+      const pageSize = 1000;
+      if (voucherDateField === 'used') {
+        let vFrom = 0;
+        while (true) {
+          let query = supabase
+            .from('voucher_transaction')
+            .select('voucher_id')
+            .eq('tenant_id', tenantId)
+            .eq('type', 'booking_usage');
+          if (voucherFromIso) query = query.gte('created_at', voucherFromIso);
+          if (voucherToIso) query = query.lte('created_at', voucherToIso);
+          query = query.order('id', { ascending: true }).range(vFrom, vFrom + pageSize - 1);
+          const { data, error } = await query;
+          if (error) {
+            console.error('[VoucherExportCSV] Used-date voucher filter query error:', error);
+            return res.status(500).json({ error: 'Failed to resolve used-date voucher filter' });
+          }
+          (data || []).forEach(r => { if (r.voucher_id) eligibleVoucherIds.add(r.voucher_id); });
+          if (!data || data.length < pageSize) break;
+          vFrom += pageSize;
+        }
+      } else {
+        let hasIssuedAt = true;
+        let vFrom = 0;
+        const buildQuery = () => supabase
+          .from('voucher')
+          .select(hasIssuedAt ? 'id, created_at, expires_at, issued_at' : 'id, created_at, expires_at')
+          .eq('tenant_id', tenantId)
+          .order('id', { ascending: true })
+          .range(vFrom, vFrom + pageSize - 1);
+        while (true) {
+          let { data, error } = await buildQuery();
+          if (error && error.code === '42703' && hasIssuedAt) {
+            hasIssuedAt = false;
+            ({ data, error } = await buildQuery());
+          }
+          if (error) {
+            console.error('[VoucherExportCSV] Voucher date filter query error:', error);
+            return res.status(500).json({ error: 'Failed to resolve voucher date filter' });
+          }
+          for (const v of (data || [])) {
+            const d = voucherDateField === 'expiry' ? v.expires_at : (v.issued_at || v.created_at);
+            if (inVoucherWindow(d)) eligibleVoucherIds.add(v.id);
+          }
+          if (!data || data.length < pageSize) break;
+          vFrom += pageSize;
+        }
+      }
+    }
+
     const allTransactions = [];
     const pageSize = 1000;
     let from = 0;
@@ -347,6 +428,15 @@ export default async function handler(req, res) {
       }
       if (!data || data.length < pageSize) break;
       from += pageSize;
+    }
+
+    if (eligibleVoucherIds) {
+      // Keep only transactions belonging to vouchers that match the
+      // voucher-level date filter. Rows without a linked voucher can't
+      // match any voucher date, so they are dropped too.
+      const kept = allTransactions.filter(t => t.voucher_id && eligibleVoucherIds.has(t.voucher_id));
+      allTransactions.length = 0;
+      allTransactions.push(...kept);
     }
 
     const { data: organizations, error: orgErr } = await supabase
@@ -589,6 +679,7 @@ export default async function handler(req, res) {
             break;
           }
           for (const v of (tenantVouchers || [])) {
+            if (eligibleVoucherIds && !eligibleVoucherIds.has(v.id)) continue;
             voucherIdsInReport.add(v.id);
             if (!voucherMap[v.id]) voucherMap[v.id] = v;
           }
