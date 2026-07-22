@@ -1273,30 +1273,44 @@ async function fetchFormSubmissions(formId, tenantId, dateFilters = []) {
  */
 async function runConversionWidgetConfig(config, tenantId, source) {
   const conv = config.conversion || {};
-  const { sourceFormId, targetFormId, matchBy } = conv;
-  if (!sourceFormId || !targetFormId) {
-    throw new Error('Choose both a source form and a target form');
+  const { sourceFormId, matchBy } = conv;
+  // Multi-target: `targetFormIds` is a list; legacy configs carry a single
+  // `targetFormId`. An entity converts when it submitted ANY target form.
+  const targetFormIds = [
+    ...new Set(
+      (Array.isArray(conv.targetFormIds) && conv.targetFormIds.length > 0
+        ? conv.targetFormIds
+        : [conv.targetFormId]
+      ).filter(Boolean),
+    ),
+  ];
+  if (!sourceFormId || targetFormIds.length === 0) {
+    throw new Error('Choose a source form and at least one target form');
   }
-  if (sourceFormId === targetFormId) {
+  if (targetFormIds.includes(sourceFormId)) {
     throw new Error('Source and target forms must be different');
+  }
+  if (targetFormIds.length > 20) {
+    throw new Error('Choose at most 20 target forms');
   }
   if (matchBy !== 'organization' && matchBy !== 'member') {
     throw new Error('Match by must be organisation or member');
   }
 
-  // Both forms must belong to this tenant — otherwise a crafted config
+  // All forms must belong to this tenant — otherwise a crafted config
   // could count another tenant's submissions.
+  const allFormIds = [sourceFormId, ...targetFormIds];
   const { data: forms, error: formErr } = await supabase
     .from('form')
     .select('id')
     .eq('tenant_id', tenantId)
-    .in('id', [sourceFormId, targetFormId]);
+    .in('id', allFormIds);
   if (formErr) {
     throw new Error(`Failed to verify forms: ${formErr.message}`);
   }
   const foundIds = new Set((forms || []).map(f => f.id));
-  if (!foundIds.has(sourceFormId) || !foundIds.has(targetFormId)) {
-    throw new Error('One or both selected forms no longer exist');
+  if (!allFormIds.every(id => foundIds.has(id))) {
+    throw new Error('One or more selected forms no longer exist');
   }
 
   const timestampField = source.timestampField || 'created_date';
@@ -1304,10 +1318,12 @@ async function runConversionWidgetConfig(config, tenantId, source) {
     f => f.fieldKind === 'system' && f.field === timestampField,
   );
 
-  const [sourceRows, targetRows] = await Promise.all([
+  const [sourceRows, ...targetRowsPerForm] = await Promise.all([
     fetchFormSubmissions(sourceFormId, tenantId),
-    fetchFormSubmissions(targetFormId, tenantId, dateFilters),
+    ...targetFormIds.map(id => fetchFormSubmissions(id, tenantId, dateFilters)),
   ]);
+  // Union of all target forms' submissions.
+  const targetRows = targetRowsPerForm.flat();
 
   // Rows without a usable match key (no organisation / blank email) can
   // never convert, so they're skipped when building the key sets — but

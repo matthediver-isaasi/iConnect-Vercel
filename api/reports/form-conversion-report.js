@@ -105,6 +105,7 @@ export default async function handler(req, res) {
     const {
       sourceFormId,
       targetFormId,
+      targetFormIds: targetFormIdsRaw,
       matchBy,
       comparison = 'all',
       dateFrom,
@@ -114,11 +115,26 @@ export default async function handler(req, res) {
       export: exportMode,
     } = req.query;
 
-    if (!sourceFormId || !targetFormId) {
-      return res.status(400).json({ error: 'Choose both a source form and a target form' });
+    // Multi-target: `targetFormIds` is a comma-separated list; the legacy
+    // single `targetFormId` param still works (treated as a one-item list).
+    // An entity converts when it submitted ANY of the target forms.
+    const targetFormIds = [
+      ...new Set(
+        String(targetFormIdsRaw || targetFormId || '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      ),
+    ];
+
+    if (!sourceFormId || targetFormIds.length === 0) {
+      return res.status(400).json({ error: 'Choose a source form and at least one target form' });
     }
-    if (sourceFormId === targetFormId) {
+    if (targetFormIds.includes(sourceFormId)) {
       return res.status(400).json({ error: 'Source and target forms must be different' });
+    }
+    if (targetFormIds.length > 20) {
+      return res.status(400).json({ error: 'Choose at most 20 target forms' });
     }
     if (matchBy !== 'organization' && matchBy !== 'member') {
       return res.status(400).json({ error: 'Match by must be organization or member' });
@@ -127,25 +143,29 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Invalid comparison filter' });
     }
 
-    // Both forms must belong to this tenant.
+    // All forms must belong to this tenant.
+    const allFormIds = [sourceFormId, ...targetFormIds];
     const { data: forms, error: formErr } = await supabase
       .from('form')
       .select('id')
       .eq('tenant_id', tenantId)
-      .in('id', [sourceFormId, targetFormId]);
+      .in('id', allFormIds);
     if (formErr) {
       console.error('[Form Conversion Report] Failed to verify forms:', formErr);
       return res.status(500).json({ error: 'Failed to verify forms' });
     }
     const foundIds = new Set((forms || []).map((f) => f.id));
-    if (!foundIds.has(sourceFormId) || !foundIds.has(targetFormId)) {
-      return res.status(400).json({ error: 'One or both selected forms no longer exist' });
+    if (!allFormIds.every((id) => foundIds.has(id))) {
+      return res.status(400).json({ error: 'One or more selected forms no longer exist' });
     }
 
-    const [sourceRows, targetRows] = await Promise.all([
+    const [sourceRows, ...targetRowsPerForm] = await Promise.all([
       fetchFormSubmissions(sourceFormId, tenantId),
-      fetchFormSubmissions(targetFormId, tenantId, { dateFrom, dateTo }),
+      ...targetFormIds.map((id) => fetchFormSubmissions(id, tenantId, { dateFrom, dateTo })),
     ]);
+    // Union of all target forms' submissions — a source entity converts when
+    // it submitted ANY of them.
+    const targetRows = targetRowsPerForm.flat();
 
     // Rows without a usable match key (no organisation / blank email) can
     // never convert, so they're skipped when building the key maps — but

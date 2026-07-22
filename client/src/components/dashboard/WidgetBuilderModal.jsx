@@ -19,11 +19,13 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { Loader2, Plus, Trash2 } from "lucide-react";
+import { ChevronsUpDown, Loader2, Plus, Trash2 } from "lucide-react";
 // Recharts + chart container primitives — used by the inline preview body.
 import {
   Bar,
@@ -149,6 +151,22 @@ function cloneDraft(draft) {
   return JSON.parse(JSON.stringify(draft));
 }
 
+// Old widgets stored a single conversion targetFormId; normalise either
+// shape to a `targetFormIds` list when seeding the draft.
+function normalizeConversion(conv) {
+  if (!conv) return null;
+  const targetFormIds = Array.isArray(conv.targetFormIds)
+    ? conv.targetFormIds.filter(Boolean)
+    : conv.targetFormId
+      ? [conv.targetFormId]
+      : [];
+  return {
+    sourceFormId: conv.sourceFormId || null,
+    targetFormIds,
+    matchBy: conv.matchBy === "member" ? "member" : "organization",
+  };
+}
+
 function buildFieldOptions(source) {
   if (!source) return [];
   const system = (source.systemFields || []).map(f => ({
@@ -219,7 +237,7 @@ export default function WidgetBuilderModal({
           timeBucket: seed.config?.timeBucket || null,
           cumulative: !!seed.config?.cumulative,
           transition: seed.config?.transition || null,
-          conversion: seed.config?.conversion || null,
+          conversion: normalizeConversion(seed.config?.conversion),
           numberFormat: seed.config?.numberFormat || null,
           filters: seed.config?.filters || [],
         },
@@ -415,14 +433,15 @@ export default function WidgetBuilderModal({
       // Conversion widgets validate their own picker set; the measure /
       // group-by / chart-type rules below don't apply.
       const conv = draft.config.conversion || {};
+      const convTargets = Array.isArray(conv.targetFormIds)
+        ? conv.targetFormIds
+        : conv.targetFormId
+          ? [conv.targetFormId]
+          : [];
       if (!conv.sourceFormId) errs.push("Choose a source form.");
-      if (!conv.targetFormId) errs.push("Choose a target form.");
-      if (
-        conv.sourceFormId &&
-        conv.targetFormId &&
-        conv.sourceFormId === conv.targetFormId
-      ) {
-        errs.push("Source and target forms must be different.");
+      if (convTargets.length === 0) errs.push("Choose at least one target form.");
+      if (conv.sourceFormId && convTargets.includes(conv.sourceFormId)) {
+        errs.push("The source form cannot also be a target form.");
       }
       (draft.config.filters || []).forEach((f, i) => {
         if (!f.field && !f.fieldId) errs.push(`Filter ${i + 1}: choose a field.`);
@@ -755,7 +774,7 @@ export default function WidgetBuilderModal({
                       timeBucket: null,
                       cumulative: false,
                       conversion: toConversion
-                        ? { sourceFormId: null, targetFormId: null, matchBy: "organization" }
+                        ? { sourceFormId: null, targetFormIds: [], matchBy: "organization" }
                         : null,
                       // Display-only settings survive a source change.
                       color: prev.config.color || "default",
@@ -784,8 +803,8 @@ export default function WidgetBuilderModal({
                   <Label>Form conversion</Label>
                   <p className="text-xs text-muted-foreground">
                     Counts how many distinct organisations or members submitted
-                    both forms. Date filters apply to the target form's
-                    submissions.
+                    the source form and any of the target forms. Date filters
+                    apply to the target forms' submissions.
                   </p>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -808,22 +827,60 @@ export default function WidgetBuilderModal({
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label>Target form</Label>
-                    <Select
-                      value={conversion?.targetFormId || ""}
-                      onValueChange={value => updateConversion({ targetFormId: value })}
-                    >
-                      <SelectTrigger data-testid="select-conversion-target-form">
-                        <SelectValue placeholder="Choose form" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {conversionForms.map(f => (
-                          <SelectItem key={f.value} value={f.value}>
-                            {f.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Label>Target forms</Label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          className="w-full justify-between font-normal"
+                          data-testid="select-conversion-target-forms"
+                        >
+                          <span className="truncate">
+                            {(() => {
+                              const ids = conversion?.targetFormIds || [];
+                              if (ids.length === 0) return "Choose forms";
+                              if (ids.length === 1) {
+                                return (
+                                  conversionForms.find(f => f.value === ids[0])?.label ||
+                                  "1 form"
+                                );
+                              }
+                              return `${ids.length} forms selected`;
+                            })()}
+                          </span>
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-64 max-h-72 overflow-y-auto p-2" align="start">
+                        {conversionForms.length === 0 ? (
+                          <p className="p-2 text-sm text-muted-foreground">No forms found.</p>
+                        ) : (
+                          conversionForms.map(f => {
+                            const ids = conversion?.targetFormIds || [];
+                            const checked = ids.includes(f.value);
+                            return (
+                              <label
+                                key={f.value}
+                                className="hover-elevate flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm"
+                                data-testid={`option-conversion-target-${f.value}`}
+                              >
+                                <Checkbox
+                                  checked={checked}
+                                  onCheckedChange={on =>
+                                    updateConversion({
+                                      targetFormIds: on
+                                        ? [...ids, f.value]
+                                        : ids.filter(id => id !== f.value),
+                                    })
+                                  }
+                                />
+                                <span className="truncate">{f.label}</span>
+                              </label>
+                            );
+                          })
+                        )}
+                      </PopoverContent>
+                    </Popover>
                   </div>
                 </div>
                 <div className="space-y-2">

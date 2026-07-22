@@ -77,13 +77,25 @@ const numberFormatSchema = z.object({
 });
 
 // Form-conversion widgets (source `form_conversion`): admin picks a source
-// form and a target form plus how submissions are matched — by the
-// submission's organisation, or by the submitter's (lowercased) email.
+// form and one or more target forms plus how submissions are matched — by
+// the submission's organisation, or by the submitter's (lowercased) email.
+// New configs send `targetFormIds` (array); legacy stored configs carry a
+// single `targetFormId` string — at least one of the two must be present.
 const conversionSchema = z.object({
   sourceFormId: z.string().min(1),
-  targetFormId: z.string().min(1),
+  targetFormIds: z.array(z.string().min(1)).max(20).optional(),
+  targetFormId: z.string().min(1).optional(),
   matchBy: z.enum(['organization', 'member']),
 });
+
+// Effective target list for a conversion config (new array shape wins,
+// legacy single id falls back). Mirrors the aggregator's normalisation.
+function conversionTargets(conv) {
+  if (Array.isArray(conv.targetFormIds) && conv.targetFormIds.length > 0) {
+    return conv.targetFormIds;
+  }
+  return conv.targetFormId ? [conv.targetFormId] : [];
+}
 
 export const widgetConfigSchema = z.object({
   source: z.string(),
@@ -114,11 +126,20 @@ export const widgetConfigSchema = z.object({
       });
       return;
     }
-    if (cfg.conversion.sourceFormId === cfg.conversion.targetFormId) {
+    const targets = conversionTargets(cfg.conversion);
+    if (targets.length === 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ['conversion', 'targetFormId'],
-        message: 'Source and target forms must be different.',
+        path: ['conversion', 'targetFormIds'],
+        message: 'Choose at least one target form.',
+      });
+      return;
+    }
+    if (targets.includes(cfg.conversion.sourceFormId)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['conversion', 'targetFormIds'],
+        message: 'The source form cannot also be a target form.',
       });
     }
   }

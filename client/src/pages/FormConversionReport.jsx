@@ -8,7 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeftRight, Building2, Users, ChevronLeft, ChevronRight, Loader2, FileText, Percent, CheckCircle2, XCircle, Download } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ArrowLeftRight, Building2, Users, ChevronLeft, ChevronRight, ChevronsUpDown, Loader2, FileText, Percent, CheckCircle2, XCircle, Download } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { base44 } from "@/api/base44Client";
 import { createPageUrl } from "@/utils";
@@ -69,7 +71,7 @@ export default function FormConversionReport() {
 
   // Report configuration
   const [sourceFormId, setSourceFormId] = useState("");
-  const [targetFormId, setTargetFormId] = useState("");
+  const [targetFormIds, setTargetFormIds] = useState([]);
   const [matchBy, setMatchBy] = useState("organization");
   const [comparison, setComparison] = useState("all");
   const [dateFrom, setDateFrom] = useState("");
@@ -84,7 +86,7 @@ export default function FormConversionReport() {
     try {
       const params = new URLSearchParams({
         sourceFormId,
-        targetFormId,
+        targetFormIds: targetFormIds.join(","),
         matchBy,
         comparison,
         export: "1",
@@ -127,7 +129,7 @@ export default function FormConversionReport() {
   // Reset to page 1 whenever the config changes
   useEffect(() => {
     setPage(1);
-  }, [sourceFormId, targetFormId, matchBy, comparison, dateFrom, dateTo]);
+  }, [sourceFormId, targetFormIds, matchBy, comparison, dateFrom, dateTo]);
 
   const { data: forms = [], isLoading: formsLoading } = useQuery({
     queryKey: ["forms-for-conversion-report"],
@@ -139,8 +141,9 @@ export default function FormConversionReport() {
     staleTime: 60 * 1000,
   });
 
-  const configValid = !!sourceFormId && !!targetFormId && sourceFormId !== targetFormId;
-  const sameFormSelected = !!sourceFormId && !!targetFormId && sourceFormId === targetFormId;
+  const configValid =
+    !!sourceFormId && targetFormIds.length > 0 && !targetFormIds.includes(sourceFormId);
+  const sameFormSelected = !!sourceFormId && targetFormIds.includes(sourceFormId);
 
   const {
     data: report,
@@ -151,7 +154,7 @@ export default function FormConversionReport() {
     queryKey: [
       "form-conversion-report",
       sourceFormId,
-      targetFormId,
+      targetFormIds.join(","),
       matchBy,
       comparison,
       dateFrom,
@@ -163,7 +166,7 @@ export default function FormConversionReport() {
     queryFn: async () => {
       const params = new URLSearchParams({
         sourceFormId,
-        targetFormId,
+        targetFormIds: targetFormIds.join(","),
         matchBy,
         comparison,
         page: String(page),
@@ -190,9 +193,16 @@ export default function FormConversionReport() {
   });
 
   const currentConfig = useMemo(
-    () => ({ sourceFormId, targetFormId, matchBy, comparison, dateFrom, dateTo }),
-    [sourceFormId, targetFormId, matchBy, comparison, dateFrom, dateTo]
+    () => ({ sourceFormId, targetFormIds, matchBy, comparison, dateFrom, dateTo }),
+    [sourceFormId, targetFormIds, matchBy, comparison, dateFrom, dateTo]
   );
+
+  // Old saved reports stored a single `targetFormId` string; read either
+  // shape as a list.
+  const targetsFromConfig = (c) => {
+    if (Array.isArray(c.targetFormIds)) return c.targetFormIds.filter(Boolean);
+    return c.targetFormId ? [c.targetFormId] : [];
+  };
 
   const isDirty = useMemo(() => {
     const active = savedReports.activeReport;
@@ -200,18 +210,18 @@ export default function FormConversionReport() {
     const c = active.config || {};
     return (
       (c.sourceFormId || "") !== sourceFormId ||
-      (c.targetFormId || "") !== targetFormId ||
+      targetsFromConfig(c).join(",") !== targetFormIds.join(",") ||
       (c.matchBy || "organization") !== matchBy ||
       (c.comparison || "all") !== comparison ||
       (c.dateFrom || "") !== dateFrom ||
       (c.dateTo || "") !== dateTo
     );
-  }, [savedReports.activeReport, sourceFormId, targetFormId, matchBy, comparison, dateFrom, dateTo]);
+  }, [savedReports.activeReport, sourceFormId, targetFormIds, matchBy, comparison, dateFrom, dateTo]);
 
   const applyReport = (r) => {
     const c = r.config || {};
     setSourceFormId(c.sourceFormId || "");
-    setTargetFormId(c.targetFormId || "");
+    setTargetFormIds(targetsFromConfig(c));
     setMatchBy(c.matchBy === "member" ? "member" : "organization");
     setComparison(["converted", "not_converted"].includes(c.comparison) ? c.comparison : "all");
     setDateFrom(c.dateFrom || "");
@@ -284,17 +294,53 @@ export default function FormConversionReport() {
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs">Target form</Label>
-            <Select value={targetFormId} onValueChange={setTargetFormId}>
-              <SelectTrigger data-testid="select-target-form">
-                <SelectValue placeholder={formsLoading ? "Loading..." : "Choose form"} />
-              </SelectTrigger>
-              <SelectContent>
-                {forms.map((f) => (
-                  <SelectItem key={f.id} value={f.id}>{f.name || "(Untitled form)"}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label className="text-xs">Target forms</Label>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="w-full justify-between font-normal"
+                  data-testid="select-target-forms"
+                >
+                  <span className="truncate">
+                    {formsLoading
+                      ? "Loading..."
+                      : targetFormIds.length === 0
+                        ? "Choose forms"
+                        : targetFormIds.length === 1
+                          ? forms.find((f) => f.id === targetFormIds[0])?.name || "1 form"
+                          : `${targetFormIds.length} forms selected`}
+                  </span>
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-64 p-2 max-h-72 overflow-y-auto" align="start">
+                {forms.length === 0 ? (
+                  <p className="p-2 text-sm text-muted-foreground">No forms found.</p>
+                ) : (
+                  forms.map((f) => {
+                    const checked = targetFormIds.includes(f.id);
+                    return (
+                      <label
+                        key={f.id}
+                        className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm cursor-pointer hover-elevate"
+                        data-testid={`option-target-form-${f.id}`}
+                      >
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={(on) =>
+                            setTargetFormIds((prev) =>
+                              on ? [...prev, f.id] : prev.filter((id) => id !== f.id)
+                            )
+                          }
+                        />
+                        <span className="truncate">{f.name || "(Untitled form)"}</span>
+                      </label>
+                    );
+                  })
+                )}
+              </PopoverContent>
+            </Popover>
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs">Match by</Label>
@@ -345,7 +391,7 @@ export default function FormConversionReport() {
       {sameFormSelected && (
         <Card>
           <CardContent className="p-4 text-sm text-warning" data-testid="text-same-form-warning">
-            Source and target forms must be different.
+            The source form cannot also be a target form. Untick it from the target forms list.
           </CardContent>
         </Card>
       )}
@@ -354,7 +400,7 @@ export default function FormConversionReport() {
         <Card>
           <CardContent className="p-10 text-center text-muted-foreground" data-testid="text-config-prompt">
             <FileText className="w-8 h-8 mx-auto mb-3 opacity-50" />
-            Choose a source form and a target form above to run the report.
+            Choose a source form and at least one target form above to run the report.
           </CardContent>
         </Card>
       ) : configValid ? (
