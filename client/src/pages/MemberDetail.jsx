@@ -13,6 +13,7 @@ import { format } from "date-fns";
 import { useMemberDetailLayout, mergeLayoutWithCustomFields, MEMBER_CORE_FIELDS } from "@/hooks/useMemberDetailLayout";
 import { CORE_FIELDS as ORG_CORE_FIELDS } from "@/hooks/useOrgDetailLayout";
 import MemberDetailLayoutEditor from "@/components/MemberDetailLayoutEditor";
+import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
 import { useMemberFieldVisibilityRules, evaluateVisibilityRules } from "@/hooks/useMemberFieldVisibilityRules";
 import MemberFieldVisibilityRulesEditor from "@/components/MemberFieldVisibilityRulesEditor";
 import {
@@ -144,6 +145,7 @@ export default function MemberDetail() {
   const { id } = useParams();
   const queryClient = useQueryClient();
   const { isAdmin, isAccessReady, isFeatureExcluded } = useMemberAccess();
+  const { memberLabel, listPath } = useMemberTerminology();
   const { formatDate } = useDateFormat();
 
   const {
@@ -531,11 +533,11 @@ export default function MemberDetail() {
       queryClient.invalidateQueries({ queryKey: ['members-paginated'] });
       setShowDeleteDialog(false);
       setDeleteConfirmText('');
-      toast.success('Member deleted successfully');
-      window.location.href = '/members';
+      toast.success(`${memberLabel} deleted successfully`);
+      window.location.href = listPath;
     },
     onError: (error) => {
-      toast.error(error.message || 'Could not delete member. Please try again.');
+      toast.error(error.message || `Could not delete ${memberLabel.toLowerCase()}. Please try again.`);
     }
   });
 
@@ -822,7 +824,7 @@ export default function MemberDetail() {
         console.error('Failed to save organisation fields:', error);
         toast.error('Failed to save organisation fields: ' + (error.message || 'Unknown error'));
       }
-      toast.success("Member updated successfully");
+      toast.success(`${memberLabel} updated successfully`);
       setIsEditing(false);
       queryClient.invalidateQueries({ queryKey: ['members-paginated'] });
       queryClient.invalidateQueries({ queryKey: ['member-detail', id] });
@@ -1488,7 +1490,7 @@ export default function MemberDetail() {
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <Link to="/members" data-testid="link-back-to-members">
+          <Link to={listPath} data-testid="link-back-to-members">
             <Button variant="ghost" size="icon">
               <ArrowLeft className="w-5 h-5" />
             </Button>
@@ -1502,7 +1504,7 @@ export default function MemberDetail() {
             </Avatar>
             <div>
               <h1 className="text-xl font-semibold text-slate-900">
-                {getMemberName(member) || 'Unknown Member'}
+                {getMemberName(member) || `Unknown ${memberLabel}`}
               </h1>
               <p className="text-sm text-slate-500 flex items-center gap-2">
                 {member?.job_title && <span>{member.job_title}</span>}
@@ -1677,7 +1679,7 @@ export default function MemberDetail() {
                         ) : (
                           <UserCheck className="w-4 h-4 mr-2" />
                         )}
-                        Masquerade as Member
+                        Masquerade as {memberLabel}
                       </Button>
                     )}
                   </CardContent>
@@ -1755,7 +1757,7 @@ export default function MemberDetail() {
                   <div className="flex items-center gap-3">
                     <CalendarDays className="w-4 h-4 text-slate-400" />
                     <div>
-                      <p className="text-xs text-slate-500">Member Since</p>
+                      <p className="text-xs text-slate-500">{memberLabel} Since</p>
                       <p className="text-sm font-medium">
                         {member.created_on ? formatDate(member.created_on) : '-'}
                       </p>
@@ -1985,7 +1987,7 @@ export default function MemberDetail() {
                     <CalendarDays className="w-5 h-5 text-purple-600" />
                   </div>
                   <div>
-                    <p className="text-xs text-slate-500">Member Since</p>
+                    <p className="text-xs text-slate-500">{memberLabel} Since</p>
                     <p className="font-medium text-sm" data-testid="text-member-created-date">
                       {formatDate(member.created_on)}
                     </p>
@@ -2526,9 +2528,9 @@ export default function MemberDetail() {
                 ) : memberFormSubmissions.length === 0 ? (
                   <div className="text-center py-12 text-slate-500">
                     <ClipboardCheck className="w-12 h-12 mx-auto mb-3 text-slate-300" />
-                    <p>No form submissions for this member</p>
+                    <p>No form submissions for this {memberLabel.toLowerCase()}</p>
                     <p className="text-sm text-slate-400 mt-1">
-                      Form submissions linked to this member will appear here
+                      Form submissions linked to this {memberLabel.toLowerCase()} will appear here
                     </p>
                   </div>
                 ) : (
@@ -2552,7 +2554,7 @@ export default function MemberDetail() {
                               </p>
                             </div>
                             <div className="flex items-center gap-2 flex-shrink-0">
-                              <Link to={`/FormSubmission/${submission.id}?back=${encodeURIComponent(`/members/${id}?tab=forms`)}`}>
+                              <Link to={`/FormSubmission/${submission.id}?back=${encodeURIComponent(`${listPath}/${id}?tab=forms`)}`}>
                                 <Button
                                   variant="outline"
                                   size="sm"
@@ -2645,7 +2647,7 @@ export default function MemberDetail() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-destructive">
               <AlertTriangle className="w-5 h-5" />
-              Delete Member
+              Delete {memberLabel}
             </DialogTitle>
             <DialogDescription className="text-left space-y-3 pt-2">
               <p>
@@ -2689,7 +2691,7 @@ export default function MemberDetail() {
               ) : (
                 <>
                   <Trash2 className="w-4 h-4 mr-2" />
-                  Delete Member
+                  Delete {memberLabel}
                 </>
               )}
             </Button>

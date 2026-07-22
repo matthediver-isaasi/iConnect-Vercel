@@ -1,5 +1,6 @@
 import Layout from "./Layout.jsx";
 import { BUILTIN_ARTICLE_ALIASES } from "@shared/articleAliases.js";
+import { BUILTIN_MEMBER_ALIASES } from "@shared/memberAliases.js";
 
 import CatchAllNotFound from "./CatchAllNotFound";
 
@@ -397,6 +398,8 @@ import { LayoutProvider } from '@/contexts/LayoutContext';
 import { MicrositeProvider } from '@/contexts/MicrositeContext';
 import PlanQuotaDialog from '@/components/PlanQuotaDialog';
 import { ArticleUrlProvider } from '@/contexts/ArticleUrlContext';
+import { MemberTerminologyProvider } from '@/contexts/MemberTerminologyContext';
+import { DynamicMemberRedirector } from '@/components/routing/DynamicMemberRedirector';
 import { useQuery } from '@tanstack/react-query';
 import { publicClient } from '@/api/publicClient';
 const CanvasPageRenderer = lazy(() => import('@/components/canvas/CanvasPageRenderer'));
@@ -765,10 +768,13 @@ function _getCurrentPage(url) {
         url = url.slice(0, -1);
     }
     
-    // Handle parameterized routes like /members/:id
+    // Handle parameterized routes like /members/:id (and member-list aliases)
     const urlParts = url.split('/').filter(Boolean);
-    if (urlParts.length >= 2 && urlParts[0].toLowerCase() === 'members') {
+    if (urlParts.length >= 2 && BUILTIN_MEMBER_ALIASES.includes(urlParts[0].toLowerCase())) {
         return 'MemberDetail';
+    }
+    if (urlParts.length === 1 && urlParts[0].toLowerCase() !== 'members' && BUILTIN_MEMBER_ALIASES.includes(urlParts[0].toLowerCase())) {
+        return 'MembersList';
     }
     
     if (urlParts.length >= 2 && urlParts[0].toLowerCase() === 'events') {
@@ -1001,8 +1007,14 @@ function PagesContent() {
                 <Route path="/organisations/:id" element={<OrganisationsList />} />
                 <Route path="/organisations" element={<OrganisationsList />} />
                 
-                <Route path="/members/:id" element={<MemberDetail />} />
-                <Route path="/members" element={<MembersList />} />
+                {/* Members list + detail, reachable at every built-in alias
+                    (see @shared/memberAliases.js). /members always works. */}
+                {BUILTIN_MEMBER_ALIASES.map((alias) => (
+                  <Route key={`${alias}-detail`} path={`/${alias}/:id`} element={<MemberDetail />} />
+                ))}
+                {BUILTIN_MEMBER_ALIASES.map((alias) => (
+                  <Route key={`${alias}-list`} path={`/${alias}`} element={<MembersList />} />
+                ))}
                 
                 <Route path="/FloaterManagement" element={<FloaterManagement />} />
                 
@@ -1346,9 +1358,13 @@ function AppRoutes() {
     
     return (
         <ArticleUrlProvider>
-            <MicrositeProvider>
-                <PagesContent />
-            </MicrositeProvider>
+            <MemberTerminologyProvider>
+                <MicrositeProvider>
+                    <DynamicMemberRedirector>
+                        <PagesContent />
+                    </DynamicMemberRedirector>
+                </MicrositeProvider>
+            </MemberTerminologyProvider>
         </ArticleUrlProvider>
     );
 }

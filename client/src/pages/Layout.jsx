@@ -5,6 +5,8 @@ import { createPageUrl } from "@/utils";
 import { Calendar, User, CreditCard, LogOut, Ticket, Wallet, Shield, Users, Settings, Sparkles, ShoppingCart, History, BarChart3, Briefcase, FileEdit, Image, FileText, AtSign, FolderTree, Square, Trophy, BookOpen, Mail, MousePointer2, Building, Download, Upload, HelpCircle, Menu, ChevronRight, ChevronLeft, Video, Bell, Newspaper, PenLine, Home, Globe, Folder, MessageSquare, Star, Heart, Eye, Link as LinkIcon, ExternalLink, Tag, Award, Bookmark, Clock, Search, Phone, MapPin, Music, Camera, Mic, Headphones, Tv, Radio, Rss, Share2, Gift, Zap, Target, Flag, Layers, Grid, List, Layout as LayoutIcon, Monitor, Smartphone, Tablet, Laptop, Server, Database, Cloud, Lock, Key, UserCheck, UserPlus, UserMinus, Users2, MessageCircle, Send, Inbox, Archive, Navigation, UserCog, Activity, XCircle, Handshake, Accessibility, QrCode } from "lucide-react";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
+import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
+import { BUILTIN_MEMBER_ALIASES } from "@shared/memberAliases.js";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { isResourceExcluded } from "@/lib/roleVisibility";
 import { migrateLegacyFeatureId } from "@/lib/roleAccessMap";
@@ -917,6 +919,7 @@ export default function Layout({ children, currentPageName }) {
   const location = useLocation();
   const navigate = useNavigate();
   const { getArticleListUrl, getMyArticlesUrl, articleDisplayName, isCustomSlug, urlSlug, publicSlug, viewSlug, editorSlug, mySlug } = useArticleUrl();
+  const { memberLabelPlural, isCustomSlug: isCustomMemberTerm, getMemberListUrl } = useMemberTerminology();
   // Task #939: BNMS tenant gets Urbanist + extra Poppins weights (admin shell, for InstalledFonts previews).
   const tenantBranding = useTenantBranding();
   const isBnmsTenant = tenantBranding?.branding?.id === 'ff2df806-b321-4254-b651-3af11fccf1db';
@@ -2005,6 +2008,13 @@ useEffect(() => {
              lower.includes('article') || lower.includes('blog');
     };
     
+    // Helper to detect the members-list URL (so tenant terminology can rename it)
+    const isMembersListUrl = (url) => {
+      if (!url) return false;
+      const lower = url.toLowerCase().replace(/^\//, '');
+      return lower === 'members' || lower === 'memberslist';
+    };
+    
     // Helper to get or generate feature_id for a menu item
     // This ensures filtering works even if feature_id wasn't set in the database
     const getFeatureId = (item, itemSection) => {
@@ -2051,7 +2061,8 @@ useEffect(() => {
             url: child.url ? createPageUrl(child.url) : '',
             featureId: getFeatureId(child, section),
             isDynamicMyArticles: child.url?.toLowerCase() === 'myarticles',
-            isDynamicArticles: child.url?.toLowerCase() === 'articles'
+            isDynamicArticles: child.url?.toLowerCase() === 'articles',
+            isDynamicMembersList: isMembersListUrl(child.url)
           }))
         };
       } else {
@@ -2061,9 +2072,34 @@ useEffect(() => {
           icon: IconComponent,
           featureId: getFeatureId(parent, section),
           isDynamicArticles: parent.url?.toLowerCase() === 'articles',
-          isDynamicMyArticles: parent.url?.toLowerCase() === 'myarticles'
+          isDynamicMyArticles: parent.url?.toLowerCase() === 'myarticles',
+          isDynamicMembersList: isMembersListUrl(parent.url)
         };
       }
+    });
+  };
+
+  // Apply tenant member terminology to nav items pointing at the members list
+  // (title + URL). No-op for default tenants (isCustomMemberTerm === false).
+  const applyMemberTerminology = (items) => {
+    if (!isCustomMemberTerm) return items;
+    return items.map(item => {
+      const processedItem = { ...item };
+      if (item.isDynamicMembersList) {
+        processedItem.url = getMemberListUrl();
+        if (item.title === 'Members') processedItem.title = memberLabelPlural;
+      }
+      if (item.subItems) {
+        processedItem.subItems = item.subItems.map(subItem => {
+          if (!subItem.isDynamicMembersList) return subItem;
+          return {
+            ...subItem,
+            url: getMemberListUrl(),
+            title: subItem.title === 'Members' ? memberLabelPlural : subItem.title
+          };
+        });
+      }
+      return processedItem;
     });
   };
 
@@ -2077,11 +2113,11 @@ useEffect(() => {
       : navigationItems;
     
     // Deep clone with icons preserved - NEVER mutate originals
-    const clonedItems = baseItems.map(item => ({
+    const clonedItems = applyMemberTerminology(baseItems.map(item => ({
       ...item,
       icon: item.icon,
       subItems: item.subItems ? item.subItems.map(sub => ({ ...sub })) : undefined
-    }));
+    })));
     
     // When NOT using custom slug, return cloned items with original createPageUrl() URLs
     if (!isCustomSlug) {
@@ -2122,7 +2158,7 @@ useEffect(() => {
       
       return processedItem;
     });
-  }, [dynamicNavItems, isCustomSlug, articleDisplayName, urlSlug, getArticleListUrl, getMyArticlesUrl]);
+  }, [dynamicNavItems, isCustomSlug, articleDisplayName, urlSlug, getArticleListUrl, getMyArticlesUrl, isCustomMemberTerm, memberLabelPlural, getMemberListUrl]);
   
   const adminNavigationItemsSource = useMemo(() => {
     // Get base items (from DB or hardcoded)
@@ -2131,11 +2167,11 @@ useEffect(() => {
       : adminNavigationItems;
     
     // Deep clone with icons preserved - NEVER mutate originals
-    const clonedItems = baseItems.map(item => ({
+    const clonedItems = applyMemberTerminology(baseItems.map(item => ({
       ...item,
       icon: item.icon,
       subItems: item.subItems ? item.subItems.map(sub => ({ ...sub })) : undefined
-    }));
+    })));
     
     // When NOT using custom slug, return cloned items with original createPageUrl() URLs
     if (!isCustomSlug) {
@@ -2176,7 +2212,7 @@ useEffect(() => {
       
       return processedItem;
     });
-  }, [dynamicNavItems, isCustomSlug, articleDisplayName, urlSlug, getArticleListUrl, getMyArticlesUrl]);
+  }, [dynamicNavItems, isCustomSlug, articleDisplayName, urlSlug, getArticleListUrl, getMyArticlesUrl, isCustomMemberTerm, memberLabelPlural, getMemberListUrl]);
 
   // Filter navigation items based on member's excluded features
   const filteredNavigationItems = navigationItemsSource

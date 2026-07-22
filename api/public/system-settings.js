@@ -19,6 +19,7 @@ const PUBLIC_SETTINGS_WHITELIST = [
   'newsletter_form_id',
   'floater_config',
   'article_display_name',
+  'member_display_name',
   'social_icons_config',
   'header_icons_config',
   'footer_config',

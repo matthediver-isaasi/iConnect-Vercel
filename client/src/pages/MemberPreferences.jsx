@@ -15,6 +15,8 @@ import { createPageUrl } from "@/utils";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import PermissionMatrix from "@/components/PermissionMatrix";
+import { slugifyMemberTerm, parseMemberDisplayNameSetting, DEFAULT_MEMBER_TERMS } from "@/contexts/MemberTerminologyContext";
+import { BUILTIN_MEMBER_ALIASES, isReservedMemberSlug } from "@shared/memberAliases.js";
 
 const HEADER_FIELDS = [
   { key: 'first_name', label: 'First Name', description: 'Member first name (shown in header)' },
@@ -61,6 +63,130 @@ function normalizeOption(opt) {
     return { value, label: String(opt.label ?? opt.value ?? value) };
   }
   return null;
+}
+
+function MemberTerminologyCard() {
+  const queryClient = useQueryClient();
+  const [singular, setSingular] = useState('');
+  const [plural, setPlural] = useState('');
+  const [initialised, setInitialised] = useState(false);
+
+  const { data: terminologySetting, isLoading } = useQuery({
+    queryKey: ['member-display-name-setting'],
+    queryFn: async () => {
+      const settings = await base44.entities.SystemSettings.list({
+        filter: { setting_key: 'member_display_name' }
+      });
+      return settings && settings.length > 0 ? settings[0] : null;
+    },
+  });
+
+  useEffect(() => {
+    if (isLoading || initialised) return;
+    const terms = parseMemberDisplayNameSetting(terminologySetting?.setting_value);
+    setSingular(terms.singular);
+    setPlural(terms.plural);
+    setInitialised(true);
+  }, [isLoading, initialised, terminologySetting]);
+
+  const trimmedSingular = singular.trim();
+  const trimmedPlural = plural.trim();
+  const slug = slugifyMemberTerm(trimmedPlural) || 'members';
+  const isBuiltInAlias = BUILTIN_MEMBER_ALIASES.includes(slug);
+  const isReservedSlug = isReservedMemberSlug(slug);
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const value = JSON.stringify({
+        singular: trimmedSingular || DEFAULT_MEMBER_TERMS.singular,
+        plural: trimmedPlural || DEFAULT_MEMBER_TERMS.plural,
+      });
+      if (terminologySetting?.id) {
+        await base44.entities.SystemSettings.update(terminologySetting.id, { setting_value: value });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'member_display_name',
+          setting_value: value,
+          description: 'Tenant-configurable display name for members (singular/plural)'
+        });
+      }
+    },
+    onSuccess: () => {
+      toast.success('Member terminology saved');
+      queryClient.invalidateQueries({ queryKey: ['member-display-name-setting'] });
+      queryClient.invalidateQueries({ queryKey: ['member-terminology-settings'] });
+    },
+    onError: (error) => {
+      toast.error(error?.message || 'Failed to save member terminology');
+    }
+  });
+
+  return (
+    <Card className="mb-6" data-testid="card-member-terminology">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Pencil className="w-5 h-5" />
+          Terminology
+        </CardTitle>
+        <CardDescription>
+          Choose what "members" are called across the admin area, e.g. Contacts, Individuals or People.
+          This only changes labels and the list page address — nothing else.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-wrap items-end gap-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="member-term-singular">Singular</Label>
+            <Input
+              id="member-term-singular"
+              value={singular}
+              onChange={(e) => setSingular(e.target.value)}
+              placeholder="Member"
+              className="w-48"
+              maxLength={40}
+              data-testid="input-member-term-singular"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="member-term-plural">Plural</Label>
+            <Input
+              id="member-term-plural"
+              value={plural}
+              onChange={(e) => setPlural(e.target.value)}
+              placeholder="Members"
+              className="w-48"
+              maxLength={40}
+              data-testid="input-member-term-plural"
+            />
+          </div>
+          <Button
+            onClick={() => saveMutation.mutate()}
+            disabled={isLoading || saveMutation.isPending || !trimmedSingular || !trimmedPlural || isReservedSlug}
+            data-testid="button-save-member-terminology"
+          >
+            {saveMutation.isPending ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <Save className="w-4 h-4 mr-2" />
+            )}
+            Save
+          </Button>
+        </div>
+        {isReservedSlug ? (
+          <p className="text-sm text-destructive mt-3" data-testid="text-member-slug-reserved">
+            "{trimmedPlural}" can't be used because <span className="font-mono">/{slug}</span> is
+            already a page in this app. Please pick a different plural name.
+          </p>
+        ) : (
+          <p className="text-sm text-slate-500 mt-3" data-testid="text-member-slug-preview">
+            The list page will be available at <span className="font-mono">/{slug}</span>
+            {slug !== 'members' && <> (and <span className="font-mono">/members</span> keeps working)</>}
+            {!isBuiltInAlias && slug !== 'members' && <>. Custom addresses redirect to <span className="font-mono">/members</span>.</>}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 export default function MemberPreferencesPage() {
@@ -634,6 +760,8 @@ export default function MemberPreferencesPage() {
             Configure field permissions across all roles and manage field display order for the About Me page.
           </p>
         </div>
+
+        <MemberTerminologyCard />
 
         <Tabs defaultValue="permissions" className="space-y-4">
           <TabsList data-testid="tabs-preferences">

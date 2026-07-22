@@ -90,6 +90,7 @@ import MemberDetailView from "@/components/MemberDetailView";
 import GuestAccessControl from "@/components/GuestAccessControl";
 import { useToast } from "@/components/ui/use-toast";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
+import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
 import { useNavigate } from "react-router-dom";
 
 const DEFAULT_COLUMNS = [
@@ -140,6 +141,9 @@ const getInitials = (name) => {
 
 export default function MembersListPage() {
   const { isAdmin, isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
+  const { memberLabel, memberLabelPlural, getMemberDetailUrl } = useMemberTerminology();
+  const memberLabelLower = memberLabel.toLowerCase();
+  const memberLabelPluralLower = memberLabelPlural.toLowerCase();
   const { tenantSlug } = useTenantBranding() || {};
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -565,14 +569,14 @@ export default function MembersListPage() {
       setDeleteConfirmText('');
       setSingleDeleteMember(null);
       toast({
-        title: "Members deleted",
-        description: `Successfully deleted ${result.deletedCount} member(s).`
+        title: `${memberLabelPlural} deleted`,
+        description: `Successfully deleted ${result.deletedCount} ${memberLabelPluralLower.replace(/s$/, '(s)')}.`
       });
     },
     onError: (error) => {
       toast({
         title: "Delete failed",
-        description: error.message || "Could not delete members. Please try again.",
+        description: error.message || `Could not delete ${memberLabelPluralLower}. Please try again.`,
         variant: "destructive"
       });
     }
@@ -1283,7 +1287,7 @@ export default function MembersListPage() {
         isNew={true}
         onCreated={(createdMember) => {
           setIsCreatingNew(false);
-          navigate(`/members/${createdMember.id}`);
+          navigate(getMemberDetailUrl(createdMember.id));
         }}
       />
     );
@@ -1347,7 +1351,7 @@ export default function MembersListPage() {
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <Input
-                placeholder="Search members..."
+                placeholder={`Search ${memberLabelPluralLower}...`}
                 value={searchQuery}
                 onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
                 className="pl-9"
@@ -1466,7 +1470,7 @@ export default function MembersListPage() {
 
           <div className="p-4 border-t border-slate-200 bg-slate-50 min-w-[288px]">
             <p className="text-xs text-slate-500">
-              Showing {filteredMembers.length} of {pagination.total} members
+              Showing {filteredMembers.length} of {pagination.total} {memberLabelPluralLower}
             </p>
           </div>
         </aside>
@@ -1488,10 +1492,10 @@ export default function MembersListPage() {
                 <div>
                   <h1 className="text-xl font-semibold text-slate-900 flex items-center gap-2">
                     <Users className="w-5 h-5 text-blue-600" />
-                    Members
+                    {memberLabelPlural}
                   </h1>
                   <p className="text-sm text-slate-500">
-                    {pagination.total} member{pagination.total !== 1 ? 's' : ''}
+                    {pagination.total} {pagination.total !== 1 ? memberLabelPluralLower : memberLabelLower}
                   </p>
                 </div>
               </div>
@@ -1545,7 +1549,7 @@ export default function MembersListPage() {
                                   )}
                                 </Button>
                                 <span className={`text-sm flex-1 ${col.visible ? 'text-slate-900' : 'text-slate-400'}`}>
-                                  {col.label}
+                                  {col.id === 'name' ? memberLabel : col.label}
                                 </span>
                                 {col.locked && (
                                   <Badge variant="secondary" className="text-xs h-5">Required</Badge>
@@ -1606,7 +1610,7 @@ export default function MembersListPage() {
                   data-testid="button-add-member"
                 >
                   <Users className="w-4 h-4" />
-                  Add Member
+                  Add {memberLabel}
                 </Button>
                 <div className="bg-slate-100 rounded-lg p-1 flex">
                   <Button
@@ -1638,7 +1642,7 @@ export default function MembersListPage() {
             <div className="bg-blue-50 border-b border-blue-200 px-6 py-2 text-sm text-blue-700 flex items-center justify-center gap-2" data-testid="banner-select-all-members">
               {selectAllFiltered ? (
                 <>
-                  All {pagination.total} members are selected.
+                  All {pagination.total} {memberLabelPluralLower} are selected.
                   <button 
                     className="font-semibold underline"
                     onClick={() => { setSelectAllFiltered(false); setSelectedMembers([]); }}
@@ -1655,7 +1659,7 @@ export default function MembersListPage() {
                     onClick={() => setSelectAllFiltered(true)}
                     data-testid="button-select-all-filtered-members"
                   >
-                    Select all {pagination.total} members
+                    Select all {pagination.total} {memberLabelPluralLower}
                   </button>
                 </>
               )}
@@ -1670,7 +1674,7 @@ export default function MembersListPage() {
             ) : paginatedMembers.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-20 text-slate-500">
                 <Users className="w-16 h-16 mb-4 text-slate-300" />
-                <p className="text-lg font-medium">No members found</p>
+                <p className="text-lg font-medium">No {memberLabelPluralLower} found</p>
                 <p className="text-sm">Try adjusting your filters</p>
               </div>
             ) : viewMode === 'list' ? (
@@ -1700,7 +1704,7 @@ export default function MembersListPage() {
                               onSort={handleSort}
                               sortable={!!sortKey}
                             >
-                              {col.label}
+                              {col.id === 'name' ? memberLabel : col.label}
                             </SortableHeader>
                           </TableHead>
                         );
@@ -1713,7 +1717,7 @@ export default function MembersListPage() {
                       <TableRow 
                         key={member.id} 
                         className={`cursor-pointer hover:bg-slate-50 ${selectedMembers.includes(member.id) ? 'bg-blue-50' : ''}`}
-                        onClick={() => navigate(`/members/${member.id}`)}
+                        onClick={() => navigate(getMemberDetailUrl(member.id))}
                         data-testid={`member-row-${member.id}`}
                       >
                         <TableCell onClick={(e) => e.stopPropagation()}>
@@ -1750,7 +1754,7 @@ export default function MembersListPage() {
                     <Card 
                       key={member.id} 
                       className="cursor-pointer hover:shadow-md transition-shadow"
-                      onClick={() => navigate(`/members/${member.id}`)}
+                      onClick={() => navigate(getMemberDetailUrl(member.id))}
                       data-testid={`member-card-${member.id}`}
                     >
                       <CardContent className="p-4">
@@ -1828,11 +1832,11 @@ export default function MembersListPage() {
                   {membersFetching && <Loader2 className="w-3 h-3 inline-block mr-1 animate-spin" />}
                   {pagination.total > 0 ? (
                     <>
-                      Showing {((currentPage - 1) * itemsPerPage) + 1}-{Math.min(currentPage * itemsPerPage, pagination.total)} of {pagination.total} members
+                      Showing {((currentPage - 1) * itemsPerPage) + 1}-{Math.min(currentPage * itemsPerPage, pagination.total)} of {pagination.total} {memberLabelPluralLower}
                       {totalPages > 1 && ` (Page ${currentPage} of ${totalPages})`}
                     </>
                   ) : (
-                    'No members found'
+                    `No ${memberLabelPluralLower} found`
                   )}
                 </p>
                 {totalPages > 1 && (
@@ -1877,7 +1881,7 @@ export default function MembersListPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-destructive">
               <AlertTriangle className="w-5 h-5" />
-              Delete Member{singleDeleteMember ? '' : 's'}
+              Delete {singleDeleteMember ? memberLabel : memberLabelPlural}
             </DialogTitle>
             <DialogDescription className="text-left space-y-3 pt-2">
               {singleDeleteMember ? (
@@ -1886,7 +1890,7 @@ export default function MembersListPage() {
                 </p>
               ) : (
                 <p>
-                  You are about to permanently delete <strong>{selectedMembers.length} member{selectedMembers.length !== 1 ? 's' : ''}</strong>.
+                  You are about to permanently delete <strong>{selectedMembers.length} {selectedMembers.length !== 1 ? memberLabelPluralLower : memberLabelLower}</strong>.
                 </p>
               )}
               <div className="bg-destructive/10 border border-destructive/20 rounded-md p-3 text-destructive text-sm">
@@ -1931,7 +1935,7 @@ export default function MembersListPage() {
               ) : (
                 <>
                   <Trash2 className="w-4 h-4 mr-2" />
-                  Delete {singleDeleteMember ? '1' : selectedMembers.length} Member{(singleDeleteMember || selectedMembers.length === 1) ? '' : 's'}
+                  Delete {singleDeleteMember ? '1' : selectedMembers.length} {(singleDeleteMember || selectedMembers.length === 1) ? memberLabel : memberLabelPlural}
                 </>
               )}
             </Button>
