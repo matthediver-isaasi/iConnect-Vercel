@@ -359,6 +359,44 @@ export default async function handler(req, res) {
   const needEventDate = referencesAny(['event_date']);
   const needEventLookup = needEventRef || needEventDate;
 
+  // The voucher table's `issued_at` (migration 20260515_add_voucher_issued_at)
+  // and even `created_at` columns may be absent in some environments. Track
+  // each column independently; on a 42703 ("column does not exist") error we
+  // disable only the column named in the error before retrying, so an
+  // environment with `issued_at` but no `created_at` (or vice versa) keeps
+  // whichever date column it does have.
+  const voucherColFlags = { issued_at: true, created_at: true };
+  const applyVoucherColFallback = (error) => {
+    if (!error || error.code !== '42703') return false;
+    const msg = String(error.message || '');
+    if (/\bissued_at\b/.test(msg) && voucherColFlags.issued_at) {
+      voucherColFlags.issued_at = false;
+      console.warn('[VoucherExportCSV] voucher.issued_at missing; retrying without it. Apply migration 20260515_add_voucher_issued_at to enable issued dates.');
+      return true;
+    }
+    if (/\bcreated_at\b/.test(msg) && voucherColFlags.created_at) {
+      voucherColFlags.created_at = false;
+      console.warn('[VoucherExportCSV] voucher.created_at missing; retrying without it.');
+      return true;
+    }
+    // 42703 that names neither column (unexpected): degrade conservatively,
+    // one optional column at a time, rather than fail outright.
+    if (voucherColFlags.issued_at) { voucherColFlags.issued_at = false; return true; }
+    if (voucherColFlags.created_at) { voucherColFlags.created_at = false; return true; }
+    return false;
+  };
+  // Runs a voucher query builder, retrying (bounded: each retry permanently
+  // disables one column) while the failure is a recoverable missing-column
+  // error. Builders must call voucherSelectCols()/flag-aware selects so the
+  // retry actually changes the query.
+  const runVoucherQuery = async (build) => {
+    let result = await build();
+    while (result.error && applyVoucherColFallback(result.error)) {
+      result = await build();
+    }
+    return result;
+  };
+
   try {
     // Resolve which vouchers are eligible under the voucher-level date
     // filter (null = no restriction).
@@ -396,26 +434,26 @@ export default async function handler(req, res) {
           vFrom += pageSize;
         }
       } else {
-        let hasIssuedAt = true;
         let vFrom = 0;
-        const buildQuery = () => supabase
-          .from('voucher')
-          .select(hasIssuedAt ? 'id, created_at, expires_at, issued_at' : 'id, created_at, expires_at')
-          .eq('tenant_id', tenantId)
-          .order('id', { ascending: true })
-          .range(vFrom, vFrom + pageSize - 1);
+        const buildQuery = () => {
+          const cols = ['id', 'expires_at'];
+          if (voucherColFlags.created_at) cols.push('created_at');
+          if (voucherColFlags.issued_at) cols.push('issued_at');
+          return supabase
+            .from('voucher')
+            .select(cols.join(', '))
+            .eq('tenant_id', tenantId)
+            .order('id', { ascending: true })
+            .range(vFrom, vFrom + pageSize - 1);
+        };
         while (true) {
-          let { data, error } = await buildQuery();
-          if (error && error.code === '42703' && hasIssuedAt) {
-            hasIssuedAt = false;
-            ({ data, error } = await buildQuery());
-          }
+          const { data, error } = await runVoucherQuery(buildQuery);
           if (error) {
             console.error('[VoucherExportCSV] Voucher date filter query error:', error);
             return res.status(500).json({ error: 'Failed to resolve voucher date filter' });
           }
           for (const v of (data || [])) {
-            const d = voucherDateField === 'expiry' ? v.expires_at : (v.issued_at || v.created_at);
+            const d = voucherDateField === 'expiry' ? v.expires_at : (v.issued_at ?? v.created_at ?? null);
             if (inVoucherWindow(d)) eligibleVoucherIds.add(v.id);
           }
           if (!data || data.length < pageSize) break;
@@ -468,16 +506,15 @@ export default async function handler(req, res) {
     (organizations || []).forEach(o => { orgMap[o.id] = o; });
 
     const voucherMap = {};
-    // Tracks whether the `voucher.issued_at` column exists in this
-    // environment. The migration adding it (20260515_add_voucher_issued_at)
-    // may not yet be applied. If a query fails with 42703 ("column does not
-    // exist") we retry without `issued_at` and disable it for subsequent
-    // queries in this request.
-    let voucherHasIssuedAt = true;
-    const voucherSelectCols = () =>
-      voucherHasIssuedAt
-        ? 'id, code, description, expires_at, value, organization_id, created_at, issued_at'
-        : 'id, code, description, expires_at, value, organization_id, created_at';
+    // Column list driven by voucherColFlags (see applyVoucherColFallback
+    // above): issued_at and/or created_at are dropped only after a 42703
+    // error names them, so environments with either column keep it.
+    const voucherSelectCols = () => {
+      const cols = ['id', 'code', 'description', 'expires_at', 'value', 'organization_id'];
+      if (voucherColFlags.created_at) cols.push('created_at');
+      if (voucherColFlags.issued_at) cols.push('issued_at');
+      return cols.join(', ');
+    };
     if (needVoucher) {
       const voucherIds = Array.from(new Set(
         allTransactions.map(t => t.voucher_id).filter(Boolean)
@@ -486,18 +523,10 @@ export default async function handler(req, res) {
         const batchSize = 200;
         for (let i = 0; i < voucherIds.length; i += batchSize) {
           const batch = voucherIds.slice(i, i + batchSize);
-          let { data: vouchers, error: vErr } = await supabase
+          const { data: vouchers, error: vErr } = await runVoucherQuery(() => supabase
             .from('voucher')
             .select(voucherSelectCols())
-            .in('id', batch);
-          if (vErr && vErr.code === '42703' && voucherHasIssuedAt) {
-            voucherHasIssuedAt = false;
-            console.warn('[VoucherExportCSV] voucher.issued_at missing; retrying without it. Apply migration 20260515_add_voucher_issued_at to enable date-filtered awarded rows.');
-            ({ data: vouchers, error: vErr } = await supabase
-              .from('voucher')
-              .select(voucherSelectCols())
-              .in('id', batch));
-          }
+            .in('id', batch));
           if (vErr) {
             console.error('[VoucherExportCSV] Voucher lookup error:', vErr);
             return res.status(500).json({ error: 'Failed to fetch vouchers' });
@@ -686,11 +715,7 @@ export default async function handler(req, res) {
             .range(allVoucherFrom, allVoucherFrom + allVoucherPageSize - 1);
         };
         while (true) {
-          let { data: tenantVouchers, error: allVoucherErr } = await buildAllVoucherQuery();
-          if (allVoucherErr && allVoucherErr.code === '42703' && voucherHasIssuedAt) {
-            voucherHasIssuedAt = false;
-            ({ data: tenantVouchers, error: allVoucherErr } = await buildAllVoucherQuery());
-          }
+          const { data: tenantVouchers, error: allVoucherErr } = await runVoucherQuery(buildAllVoucherQuery);
           if (allVoucherErr) {
             console.warn('[VoucherExportCSV] Full tenant voucher lookup error (non-blocking):', allVoucherErr.message);
             break;
@@ -764,7 +789,7 @@ export default async function handler(req, res) {
           balance_before: null,
           balance_after: originalValue,
           type: 'voucher_awarded',
-          created_at: v.issued_at || null,
+          created_at: v.issued_at ?? v.created_at ?? null,
         });
       }
       // Emit all synthetic awarded rows; the voucher-level / row-level date
@@ -830,7 +855,7 @@ export default async function handler(req, res) {
         const v = t.voucher_id ? voucherMap[t.voucher_id] : null;
         if (!v) return { has: false, match: false };
         if (field === 'issued') {
-          const d = v.issued_at || v.created_at;
+          const d = v.issued_at ?? v.created_at ?? null;
           return { has: !!d, match: d ? inRange(d) : false };
         }
         if (field === 'expiry') {
