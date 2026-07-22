@@ -62,9 +62,19 @@ const EXPORT_SORT_FIELD_TYPES = {
 };
 const DEFAULT_EXPORT_SORT_RULES = [{ field: 'organization', dir: 'asc', fallback: '' }];
 
-const EXPORT_DATE_FILTER_FIELDS = EXPORT_COLUMN_DEFS.filter(
-  c => EXPORT_SORT_FIELD_TYPES[c.key] === 'date'
-);
+// Date-range filter fields for the export dialog. Mirrors the page's
+// voucher-level filter options (Issued / Expiry / Used) plus Event date,
+// which filters individual transaction rows by the linked event's start date.
+const EXPORT_DATE_FILTER_FIELDS = [
+  { key: 'issued', label: 'Issued date' },
+  { key: 'expiry', label: 'Expiry date' },
+  { key: 'used', label: 'Used date' },
+  { key: 'event_date', label: 'Event date' },
+];
+// Old saved reports may reference the previous field keys; map them to the
+// nearest new option ("date" was the transaction date, closest to Used).
+const LEGACY_EXPORT_DATE_FIELD_MAP = { date: 'used', voucher_expiry_date: 'expiry' };
+const normalizeExportDateField = (v) => (v ? (LEGACY_EXPORT_DATE_FIELD_MAP[v] || v) : v);
 
 export default function VoucherManagementPage() {
   const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -97,7 +107,7 @@ export default function VoucherManagementPage() {
   const [exportOrgIds, setExportOrgIds] = useState(() => new Set());
   const [exportOrgSearch, setExportOrgSearch] = useState("");
   const [exportSortRules, setExportSortRules] = useState(() => DEFAULT_EXPORT_SORT_RULES.map(r => ({ ...r })));
-  const [exportDateField, setExportDateField] = useState('date');
+  const [exportDateField, setExportDateField] = useState('issued');
   const [exportDateFallbackField, setExportDateFallbackField] = useState('');
   const [exportExcludeExpired, setExportExcludeExpired] = useState(false);
   const [exportEmptyMessage, setExportEmptyMessage] = useState("");
@@ -385,7 +395,7 @@ export default function VoucherManagementPage() {
     setExportOrgIds(new Set());
     setExportOrgSearch("");
     setExportSortRules(DEFAULT_EXPORT_SORT_RULES.map(r => ({ ...r })));
-    setExportDateField('date');
+    setExportDateField('issued');
     setExportDateFallbackField('');
     setExportExcludeExpired(false);
     setExportEmptyMessage("");
@@ -511,15 +521,17 @@ export default function VoucherManagementPage() {
     setExportFromDate(parseIsoDateOnly(cfg.fromDate));
     setExportToDate(parseIsoDateOnly(cfg.toDate));
 
-    const dateField = EXPORT_DATE_FILTER_FIELDS.some(f => f.key === cfg.dateField)
-      ? cfg.dateField
-      : 'date';
+    const normalizedDateField = normalizeExportDateField(cfg.dateField);
+    const dateField = EXPORT_DATE_FILTER_FIELDS.some(f => f.key === normalizedDateField)
+      ? normalizedDateField
+      : 'issued';
     setExportDateField(dateField);
+    const normalizedFallback = normalizeExportDateField(cfg.dateFallbackField);
     const fallbackField =
-      cfg.dateFallbackField &&
-      cfg.dateFallbackField !== dateField &&
-      EXPORT_DATE_FILTER_FIELDS.some(f => f.key === cfg.dateFallbackField)
-        ? cfg.dateFallbackField
+      normalizedFallback &&
+      normalizedFallback !== dateField &&
+      EXPORT_DATE_FILTER_FIELDS.some(f => f.key === normalizedFallback)
+        ? normalizedFallback
         : '';
     setExportDateFallbackField(fallbackField);
 
@@ -580,8 +592,8 @@ export default function VoucherManagementPage() {
         : [],
       fromDate: typeof stored.fromDate === 'string' ? stored.fromDate : null,
       toDate: typeof stored.toDate === 'string' ? stored.toDate : null,
-      dateField: stored.dateField || 'date',
-      dateFallbackField: stored.dateFallbackField || null,
+      dateField: normalizeExportDateField(stored.dateField) || 'issued',
+      dateFallbackField: normalizeExportDateField(stored.dateFallbackField) || null,
       allOrgs: stored.allOrgs !== false,
       orgIds: Array.isArray(stored.orgIds) ? [...stored.orgIds].sort() : [],
       sortRules: (Array.isArray(stored.sortRules) ? stored.sortRules : []).map(r => ({
@@ -680,7 +692,14 @@ export default function VoucherManagementPage() {
       if (!exportAllOrgs) params.set('organization_ids', Array.from(exportOrgIds).join(','));
       // The page's active voucher date-range filter narrows the export to
       // the same vouchers shown in the list, like the other filters do.
-      if (dateFilterActive) {
+      // When the export dialog applies its own range on the SAME field,
+      // the dialog's range supersedes the page filter so the two never
+      // apply contradictory ranges to one field. Different fields combine
+      // (both must match).
+      const exportRangeActive = !!(exportFromDate || exportToDate);
+      const pageFilterSuperseded =
+        exportRangeActive && exportDateField === dateFilterField;
+      if (dateFilterActive && !pageFilterSuperseded) {
         params.set('voucher_date_field', dateFilterField);
         if (dateFilterFrom) params.set('voucher_from', dateFilterFrom);
         if (dateFilterTo) params.set('voucher_to', dateFilterTo);
@@ -1599,9 +1618,18 @@ export default function VoucherManagementPage() {
 
             {dateFilterActive && (
               <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800" data-testid="text-export-list-date-filter-note">
-                The page's active date filter ({dateFilterField === 'used' ? 'Used' : dateFilterField === 'expiry' ? 'Expiry' : 'Issued'} date
-                {dateFilterFrom ? `, from ${dateFilterFrom}` : ''}{dateFilterTo ? `, to ${dateFilterTo}` : ''}) will also be applied:
-                only transactions for vouchers matching that range are exported. Clear the date filter on the page to export everything.
+                {(exportFromDate || exportToDate) && exportDateField === dateFilterField ? (
+                  <>
+                    The page's active date filter uses the same field ({dateFilterField === 'used' ? 'Used' : dateFilterField === 'expiry' ? 'Expiry' : 'Issued'} date)
+                    as this export, so the export's From/To range below replaces it — no double filtering.
+                  </>
+                ) : (
+                  <>
+                    The page's active date filter ({dateFilterField === 'used' ? 'Used' : dateFilterField === 'expiry' ? 'Expiry' : 'Issued'} date
+                    {dateFilterFrom ? `, from ${dateFilterFrom}` : ''}{dateFilterTo ? `, to ${dateFilterTo}` : ''}) will also be applied:
+                    only transactions for vouchers matching that range are exported. Clear the date filter on the page to export everything.
+                  </>
+                )}
               </div>
             )}
 

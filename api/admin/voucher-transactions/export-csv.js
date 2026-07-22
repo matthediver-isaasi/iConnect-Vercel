@@ -125,9 +125,15 @@ const SORT_FIELD_TYPES = {
   member: 'text',
 };
 const SORT_FIELDS = new Set(Object.keys(SORT_FIELD_TYPES));
-const DATE_FILTER_FIELDS = new Set(
-  Object.keys(SORT_FIELD_TYPES).filter(k => SORT_FIELD_TYPES[k] === 'date')
-);
+// Date-range filter fields for the export. These mirror the Voucher
+// Management page filter (Issued / Expiry / Used at voucher level) plus
+// Event date (row level, from the linked event's start date).
+const EXPORT_DATE_FIELDS = new Set(['issued', 'expiry', 'used', 'event_date']);
+// Legacy field keys from older saved reports / clients, mapped to the
+// nearest new field. "date" (transaction date) maps to "used" because the
+// Used-date filter is driven by redemption transaction dates;
+// "voucher_expiry_date" maps directly to "expiry".
+const LEGACY_DATE_FIELD_MAP = { date: 'used', voucher_expiry_date: 'expiry' };
 const DEFAULT_DESC_SORT_FIELDS = new Set(['date', 'type', 'amount', 'balance_after']);
 
 function parseSortRules(rawSort) {
@@ -263,21 +269,30 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Invalid "to" date' });
   }
 
-  const dateField = q.date_field || 'date';
-  if (!DATE_FILTER_FIELDS.has(dateField)) {
+  const rawDateField = q.date_field || 'issued';
+  const dateField = LEGACY_DATE_FIELD_MAP[rawDateField] || rawDateField;
+  if (!EXPORT_DATE_FIELDS.has(dateField)) {
     return res.status(400).json({ error: 'Invalid date_field' });
   }
-  const dateFallbackField = q.date_fallback_field || null;
+  const rawFallback = q.date_fallback_field || null;
+  let dateFallbackField = rawFallback
+    ? (LEGACY_DATE_FIELD_MAP[rawFallback] || rawFallback)
+    : null;
   if (dateFallbackField !== null) {
-    if (!DATE_FILTER_FIELDS.has(dateFallbackField)) {
+    if (!EXPORT_DATE_FIELDS.has(dateFallbackField)) {
       return res.status(400).json({ error: 'Invalid date_fallback_field' });
     }
     if (dateFallbackField === dateField) {
-      return res.status(400).json({ error: 'date_fallback_field must differ from date_field' });
+      // Two distinct legacy fields can collapse onto the same new field;
+      // drop the fallback silently in that case instead of rejecting old
+      // saved reports. Reject only when the caller sent duplicates outright.
+      if (rawFallback === rawDateField) {
+        return res.status(400).json({ error: 'date_fallback_field must differ from date_field' });
+      }
+      dateFallbackField = null;
     }
   }
   const dateFilterActive = !!(fromIso || toIso);
-  const canUseDbDateFilter = dateField === 'date' && !dateFallbackField;
 
   const excludeExpiredRaw = q.exclude_expired_in_range;
   const excludeExpiredInRange = excludeExpiredRaw === 'true' || excludeExpiredRaw === '1';
@@ -327,8 +342,12 @@ export default async function handler(req, res) {
     if (r.fallback) sortFieldsReferenced.add(r.fallback);
   }
   if (dateFilterActive) {
-    sortFieldsReferenced.add(dateField);
-    if (dateFallbackField) sortFieldsReferenced.add(dateFallbackField);
+    // Event-date filtering needs the event lookup even when the column
+    // itself isn't exported. Voucher-level fields (issued/expiry/used)
+    // are resolved from the voucher map / redemption dates instead.
+    if (dateField === 'event_date' || dateFallbackField === 'event_date') {
+      sortFieldsReferenced.add('event_date');
+    }
   }
 
   const referencesAny = (keys) =>
@@ -413,8 +432,6 @@ export default async function handler(req, res) {
         .from('voucher_transaction')
         .select('id, voucher_id, organization_id, booking_reference, event_id, event_title, member_id, member_email, amount, balance_before, balance_after, type, created_at')
         .eq('tenant_id', tenantId);
-      if (canUseDbDateFilter && fromIso) query = query.gte('created_at', fromIso);
-      if (canUseDbDateFilter && toIso) query = query.lte('created_at', toIso);
       if (orgFilterActive) query = query.in('organization_id', requestedOrgIds);
       query = query.order('id', { ascending: true }).range(from, from + pageSize - 1);
 
@@ -459,8 +476,8 @@ export default async function handler(req, res) {
     let voucherHasIssuedAt = true;
     const voucherSelectCols = () =>
       voucherHasIssuedAt
-        ? 'id, code, description, expires_at, value, organization_id, issued_at'
-        : 'id, code, description, expires_at, value, organization_id';
+        ? 'id, code, description, expires_at, value, organization_id, created_at, issued_at'
+        : 'id, code, description, expires_at, value, organization_id, created_at';
     if (needVoucher) {
       const voucherIds = Array.from(new Set(
         allTransactions.map(t => t.voucher_id).filter(Boolean)
@@ -750,41 +767,91 @@ export default async function handler(req, res) {
           created_at: v.issued_at || null,
         });
       }
-      if (dateFilterActive && canUseDbDateFilter) {
-        // Per-row date filtering: include awarded rows whose voucher
-        // issue date (voucher.issued_at, surfaced as the synthetic row's
-        // created_at) falls inside the active window; omit rows with
-        // missing or out-of-range dates.
-        const fromMs = fromIso ? new Date(fromIso).getTime() : null;
-        const toMs = toIso ? new Date(toIso).getTime() : null;
-        for (const s of synthetic) {
-          if (!s.created_at) continue;
-          const ms = new Date(s.created_at).getTime();
-          if (isNaN(ms)) continue;
-          if (fromMs !== null && ms < fromMs) continue;
-          if (toMs !== null && ms > toMs) continue;
-          allTransactions.push(s);
-        }
-      } else {
-        // No date filter (or JS-side date filtering further down handles
-        // the window): emit all synthetic rows. The downstream JS date
-        // filter at line ~597 will drop any with a null/out-of-range
-        // creation date when a non-DB date filter is active.
-        allTransactions.push(...synthetic);
-      }
+      // Emit all synthetic awarded rows; the voucher-level / row-level date
+      // filter below applies to them exactly like real transaction rows.
+      allTransactions.push(...synthetic);
     }
 
-    if (!canUseDbDateFilter && dateFilterActive) {
-      const filtered = allTransactions.filter((t) => {
-        let v = rawValue(t, dateField);
-        if (v === null && dateFallbackField) {
-          v = rawValue(t, dateFallbackField);
-        }
-        if (v === null) return false;
-        const iso = String(v);
+    if (dateFilterActive) {
+      // Voucher-level date filtering mirroring the Voucher Management page
+      // filter: Issued (issued_at falling back to created_at), Expiry
+      // (expires_at) and Used (booking_usage redemption transaction dates)
+      // decide which VOUCHERS are eligible; all transactions of an eligible
+      // voucher are kept. Event date remains a row-level filter on the
+      // linked event's start date.
+      const normIso = (d) => {
+        if (!d) return null;
+        const t = new Date(d);
+        return isNaN(t.getTime()) ? null : t.toISOString();
+      };
+      const inRange = (d) => {
+        const iso = normIso(d);
+        if (!iso) return false;
         if (fromIso && iso < fromIso) return false;
         if (toIso && iso > toIso) return false;
         return true;
+      };
+
+      // Redemption dates per voucher, needed for the Used-date field.
+      let redemptionDatesByVoucher = null;
+      if (dateField === 'used' || dateFallbackField === 'used') {
+        redemptionDatesByVoucher = {};
+        const rdPageSize = 1000;
+        let rdFrom = 0;
+        while (true) {
+          const { data, error } = await supabase
+            .from('voucher_transaction')
+            .select('voucher_id, created_at')
+            .eq('tenant_id', tenantId)
+            .eq('type', 'booking_usage')
+            .order('id', { ascending: true })
+            .range(rdFrom, rdFrom + rdPageSize - 1);
+          if (error) {
+            console.error('[VoucherExportCSV] Redemption dates query error:', error);
+            return res.status(500).json({ error: 'Failed to resolve used-date filter' });
+          }
+          for (const row of (data || [])) {
+            if (!row.voucher_id || !row.created_at) continue;
+            if (!redemptionDatesByVoucher[row.voucher_id]) redemptionDatesByVoucher[row.voucher_id] = [];
+            redemptionDatesByVoucher[row.voucher_id].push(row.created_at);
+          }
+          if (!data || data.length < rdPageSize) break;
+          rdFrom += rdPageSize;
+        }
+      }
+
+      // Evaluate a field for a transaction row. Returns whether the row /
+      // its voucher HAS the date at all, and whether it matches the range.
+      const evalField = (t, field) => {
+        if (field === 'event_date') {
+          const d = t.event_id ? eventDateByEventId[t.event_id] : null;
+          return { has: !!d, match: d ? inRange(d) : false };
+        }
+        const v = t.voucher_id ? voucherMap[t.voucher_id] : null;
+        if (!v) return { has: false, match: false };
+        if (field === 'issued') {
+          const d = v.issued_at || v.created_at;
+          return { has: !!d, match: d ? inRange(d) : false };
+        }
+        if (field === 'expiry') {
+          const d = v.expires_at;
+          return { has: !!d, match: d ? inRange(d) : false };
+        }
+        if (field === 'used') {
+          const dates = (redemptionDatesByVoucher && redemptionDatesByVoucher[t.voucher_id]) || [];
+          return { has: dates.length > 0, match: dates.some(inRange) };
+        }
+        return { has: false, match: false };
+      };
+
+      const filtered = allTransactions.filter((t) => {
+        const primary = evalField(t, dateField);
+        if (primary.has) return primary.match;
+        if (dateFallbackField) {
+          const fb = evalField(t, dateFallbackField);
+          return fb.has && fb.match;
+        }
+        return false;
       });
       allTransactions.length = 0;
       allTransactions.push(...filtered);
