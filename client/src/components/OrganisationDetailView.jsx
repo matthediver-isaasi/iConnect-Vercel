@@ -99,6 +99,7 @@ import OrgFieldVisibilityRulesEditor from "@/components/OrgFieldVisibilityRulesE
 import MemberDetailView from "@/components/MemberDetailView";
 import CrmTagInput from "@/components/crm/CrmTagInput";
 import { useWorkflowConfirmation } from "@/hooks/useWorkflowConfirmation";
+import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
 import WorkflowConfirmationModal, { DryRunSimulationModal } from "@/components/WorkflowConfirmationModal";
 
 const getMemberName = (m) => {
@@ -267,6 +268,7 @@ export default function OrganisationDetailView({
   onCreated 
 }) {
   const { isAdmin, memberInfo, isAccessReady, isFeatureExcluded } = useMemberAccess();
+  const { memberLabel, memberLabelPlural } = useMemberTerminology();
   const hideTrainingFundCard = isFeatureExcluded('crm.organisations.fund');
   const { formatDate } = useDateFormat();
   const queryClient = useQueryClient();
@@ -1673,7 +1675,7 @@ export default function OrganisationDetailView({
                     <div className="flex items-center gap-2 mt-1">
                       <span className="text-sm text-slate-500 flex items-center gap-1">
                         <Users className="w-4 h-4" />
-                        {orgMembers.length} members
+                        {orgMembers.length} {orgMembers.length === 1 ? memberLabel.toLowerCase() : memberLabelPlural.toLowerCase()}
                       </span>
                     </div>
                   )}
@@ -1730,7 +1732,7 @@ export default function OrganisationDetailView({
                 Overview
               </TabsTrigger>
               <TabsTrigger value="members" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none" data-testid="tab-members">
-                Members
+                {memberLabelPlural}
               </TabsTrigger>
               <TabsTrigger value="activity" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none" data-testid="tab-activity">
                 Activity
@@ -1863,7 +1865,7 @@ export default function OrganisationDetailView({
                         className="flex items-center justify-between w-full text-left rounded-md p-2 -m-2 hover-elevate active-elevate-2 cursor-pointer"
                         data-testid="button-total-members"
                       >
-                        <span className="text-slate-500">Total Members</span>
+                        <span className="text-slate-500">Total {memberLabelPlural}</span>
                         <span className="font-medium">{orgMembers.length}</span>
                       </button>
                       <Separator />
@@ -1911,7 +1913,7 @@ export default function OrganisationDetailView({
                             className="text-xs text-slate-400 text-center pt-2 w-full rounded-md hover-elevate active-elevate-2 cursor-pointer"
                             data-testid="button-more-members"
                           >
-                            +{summaryMembers.length - 5} more members
+                            +{summaryMembers.length - 5} more {(summaryMembers.length - 5) === 1 ? memberLabel.toLowerCase() : memberLabelPlural.toLowerCase()}
                           </button>
                         )}
                       </div>
@@ -2017,7 +2019,7 @@ export default function OrganisationDetailView({
               <div className="flex items-center justify-between gap-2">
                 <CardTitle className="flex items-center gap-2">
                   <Users className="w-5 h-5 text-blue-600" />
-                  Organisation Members ({filteredOrgMembers.length}{memberRoleFilter !== 'all' ? ` of ${orgMembers.length}` : ''})
+                  Organisation {memberLabelPlural} ({filteredOrgMembers.length}{memberRoleFilter !== 'all' ? ` of ${orgMembers.length}` : ''})
                 </CardTitle>
                 <div className="flex items-center gap-2">
                   {availableRolesForFilter.length > 0 && (
@@ -2041,7 +2043,7 @@ export default function OrganisationDetailView({
                       data-testid="button-add-org-member"
                     >
                       <Plus className="w-4 h-4 mr-2" />
-                      Add Member
+                      Add {memberLabel}
                     </Button>
                   )}
                 </div>
@@ -2055,12 +2057,12 @@ export default function OrganisationDetailView({
               ) : orgMembers.length === 0 ? (
                 <div className="text-center py-12 text-slate-500">
                   <Users className="w-12 h-12 mx-auto mb-3 text-slate-300" />
-                  <p>No members in this organisation</p>
+                  <p>No {memberLabelPlural.toLowerCase()} in this organisation</p>
                 </div>
               ) : filteredOrgMembers.length === 0 ? (
                 <div className="text-center py-12 text-slate-500">
                   <Users className="w-12 h-12 mx-auto mb-3 text-slate-300" />
-                  <p>No members match the selected role filter</p>
+                  <p>No {memberLabelPlural.toLowerCase()} match the selected role filter</p>
                 </div>
               ) : (
                 <div className="overflow-x-auto">

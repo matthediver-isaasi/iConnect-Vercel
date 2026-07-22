@@ -79,6 +79,7 @@ import {
 import FilterOperatorMenu from "@/components/FilterOperatorMenu";
 import { useSavedListViews } from "@/hooks/useSavedListViews";
 import SavedViewSwitcher from "@/components/SavedViewSwitcher";
+import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
 
 function useDebounce(value, delay) {
   const [debouncedValue, setDebouncedValue] = useState(value);
@@ -197,6 +198,10 @@ function CountryFilterCombobox({ label, fieldId, selectedName, onChange, operato
 
 export default function OrganisationsListPage() {
   const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
+  const { memberLabel, memberLabelPlural } = useMemberTerminology();
+  // Column labels are persisted (localStorage/DB), so the "Members" column
+  // label is resolved at render time from the configured terminology.
+  const displayColumnLabel = (col) => (col.id === 'members' ? memberLabelPlural : col.label);
   const { tenantSlug } = useTenantBranding() || {};
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -658,7 +663,7 @@ export default function OrganisationsListPage() {
       setSingleDeleteOrg(null);
       toast({
         title: "Organisations deleted",
-        description: `Successfully deleted ${result.deletedOrgs} organisation(s) and ${result.deletedMembers} member(s).`
+        description: `Successfully deleted ${result.deletedOrgs} organisation(s) and ${result.deletedMembers} ${memberLabel.toLowerCase()}(s).`
       });
     },
     onError: (error) => {
@@ -1587,7 +1592,7 @@ export default function OrganisationsListPage() {
                                   )}
                                 </Button>
                                 <span className={`text-sm flex-1 ${col.visible ? 'text-slate-900' : 'text-slate-400'}`}>
-                                  {col.label}
+                                  {displayColumnLabel(col)}
                                 </span>
                                 {col.locked && (
                                   <Badge variant="secondary" className="text-xs h-5">Required</Badge>
@@ -1698,7 +1703,7 @@ export default function OrganisationsListPage() {
                               onSort={handleSort}
                               sortable={!!sortKey}
                             >
-                              {col.label}
+                              {displayColumnLabel(col)}
                             </SortableHeader>
                           </th>
                         );
@@ -1934,7 +1939,7 @@ export default function OrganisationsListPage() {
                       <div className="space-y-2 text-sm text-slate-600">
                         <div className="flex items-center gap-2">
                           <Users className="w-4 h-4 text-slate-400" />
-                          <span>{organizationMemberCounts[org.id] || 0} members</span>
+                          <span>{organizationMemberCounts[org.id] || 0} {(organizationMemberCounts[org.id] || 0) === 1 ? memberLabel.toLowerCase() : memberLabelPlural.toLowerCase()}</span>
                         </div>
                         {org.invoicing_email && (
                           <div className="flex items-center gap-2">
@@ -2056,7 +2061,7 @@ export default function OrganisationsListPage() {
                 </p>
               )}
               <div className="bg-destructive/10 border border-destructive/20 rounded-md p-3 text-destructive text-sm">
-                <strong>Warning:</strong> This will also delete <strong>{selectedMemberCount} member{selectedMemberCount !== 1 ? 's' : ''}</strong> belonging to {singleDeleteOrg ? 'this organisation' : 'these organisations'}. This action cannot be undone.
+                <strong>Warning:</strong> This will also delete <strong>{selectedMemberCount} {selectedMemberCount === 1 ? memberLabel.toLowerCase() : memberLabelPlural.toLowerCase()}</strong> belonging to {singleDeleteOrg ? 'this organisation' : 'these organisations'}. This action cannot be undone.
               </div>
               <p className="text-sm">
                 To confirm, please type <strong>DELETE</strong> below:

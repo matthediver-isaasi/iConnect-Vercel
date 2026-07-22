@@ -11,6 +11,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { AlertCircle, X, FileText, Download, Calendar, RotateCcw } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
+import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
 
 export default function OrganizationTransactionsModal({ 
   organizationId, 
@@ -20,6 +21,7 @@ export default function OrganizationTransactionsModal({
   onClose, 
   onTransactionUpdated 
 }) {
+  const { memberLabel } = useMemberTerminology();
   const [cancellingTransaction, setCancellingTransaction] = useState(null);
   const [reinstatingTransaction, setReinstatingTransaction] = useState(null);
   const [quantityToCancel, setQuantityToCancel] = useState("");
@@ -277,7 +279,7 @@ export default function OrganizationTransactionsModal({
 
                             {transaction.member_email && (
                               <div>
-                                <span className="text-slate-600">Member:</span>
+                                <span className="text-slate-600">{memberLabel}:</span>
                                 <span className="font-medium text-slate-900 ml-2">{transaction.member_email}</span>
                               </div>
                             )}

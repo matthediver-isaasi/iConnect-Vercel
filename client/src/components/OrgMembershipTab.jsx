@@ -35,6 +35,7 @@ import { createPageUrl } from "@/utils";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import MemberJoinLinkSection from "@/components/MemberJoinLinkSection";
+import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
 
 function PaymentStatusBadge({ paymentStatus }) {
   const status = paymentStatus || 'unpaid';
@@ -104,6 +105,7 @@ function YearCostSection({
   advanceInvoiceRecord,
 }) {
   const [poUnlocked, setPoUnlocked] = useState(false);
+  const { memberLabel } = useMemberTerminology();
   const isPoLocked = poSuppliedByMember && !poUnlocked;
 
   if (!yearData) return null;
@@ -127,7 +129,7 @@ function YearCostSection({
             {yearLabel}
           </p>
           {isNewOrg && testIdPrefix === 'current-year' && (
-            <Badge variant="outline" className="text-xs">New Member</Badge>
+            <Badge variant="outline" className="text-xs">New {memberLabel}</Badge>
           )}
           {approvalRequired && feesApproved && (
             <Badge variant="outline" className="text-xs text-green-700 border-green-300 dark:text-green-400 dark:border-green-700" data-testid={`badge-approved-${testIdPrefix}`}>
@@ -584,6 +586,7 @@ function YearCostSection({
 
 export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
   const queryClient = useQueryClient();
+  const { memberLabelPlural } = useMemberTerminology();
   const [editingFieldValue, setEditingFieldValue] = useState(null);
   const [isEditingField, setIsEditingField] = useState(false);
   const [overrideModalOpen, setOverrideModalOpen] = useState(false);
@@ -2376,7 +2379,7 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                             )}
                             {isSelected && roleEmails.length === 0 && (
                               <p className="ml-6 text-xs text-muted-foreground mt-1 mb-1">
-                                {roleMembersLoading ? 'Loading members...' : 'No members with this role in this organisation'}
+                                {roleMembersLoading ? `Loading ${memberLabelPlural.toLowerCase()}...` : `No ${memberLabelPlural.toLowerCase()} with this role in this organisation`}
                               </p>
                             )}
                           </div>
