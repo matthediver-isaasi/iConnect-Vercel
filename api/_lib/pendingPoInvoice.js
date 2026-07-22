@@ -84,6 +84,17 @@ export async function findInvoiceRowsForTenant(client, tenantId, invoiceKey) {
     return q.eq('xero_invoice_number', parsed.xeroInvoiceNumber);
   };
 
+  // Training fund purchases billed via QuickBooks store the invoice only in
+  // accounting_invoice_id / accounting_invoice_number (xero_* stays null), so
+  // the training-fund lookup matches EITHER column pair. Safe here because
+  // these are SELECT queries — PostgREST only rejects .or() on UPDATE.
+  const matchTrainingFundInvoice = (q) => {
+    if (parsed.xeroInvoiceId) {
+      return q.or(`xero_invoice_id.eq.${parsed.xeroInvoiceId},accounting_invoice_id.eq.${parsed.xeroInvoiceId}`);
+    }
+    return q.or(`xero_invoice_number.eq.${parsed.xeroInvoiceNumber},accounting_invoice_number.eq.${parsed.xeroInvoiceNumber}`);
+  };
+
   // 3. Bookings whose own organization_id is in the tenant.
   let bookingsOrgRows;
   try {
@@ -175,10 +186,10 @@ export async function findInvoiceRowsForTenant(client, tenantId, invoiceKey) {
   // 7. Training Fund purchases (invoice payment method) for tenant orgs.
   let trainingFundPurchases;
   try {
-    trainingFundPurchases = await fetchAllPages('training_fund_purchase', invoiceKey, () => matchInvoice(
+    trainingFundPurchases = await fetchAllPages('training_fund_purchase', invoiceKey, () => matchTrainingFundInvoice(
       client
         .from('training_fund_purchase')
-        .select('id, organization_id, created_by, amount, status, payment_method, xero_invoice_id, xero_invoice_number, created_date, purchase_order_number, po_to_follow')
+        .select('id, organization_id, created_by, amount, status, payment_method, xero_invoice_id, xero_invoice_number, accounting_invoice_id, accounting_invoice_number, created_date, purchase_order_number, po_to_follow')
         .in('organization_id', tenantOrgIds)
         .eq('payment_method', 'invoice')
         .neq('status', 'cancelled')
@@ -191,17 +202,34 @@ export async function findInvoiceRowsForTenant(client, tenantId, invoiceKey) {
   const firstWithId = bookings.find((b) => b.xero_invoice_id)
     || transactions.find((t) => t.xero_invoice_id)
     || trainingFundPurchases.find((p) => p.xero_invoice_id);
-  const xeroInvoiceId = parsed.xeroInvoiceId || firstWithId?.xero_invoice_id || null;
+  // Keep xeroInvoiceId strictly Xero-only when the rows themselves carry a
+  // xero_invoice_id — QBO-billed training fund purchases have none, and their
+  // id must not be sent to the Xero API. When the caller passed an `id:` key
+  // that only matched accounting_invoice_id, surface it separately.
+  const tfWithAccountingId = trainingFundPurchases.find((p) => p.accounting_invoice_id);
+  const rowsAreXero = Boolean(firstWithId);
+  const xeroInvoiceId = rowsAreXero
+    ? (parsed.xeroInvoiceId || firstWithId.xero_invoice_id)
+    : (bookings.length > 0 || transactions.length > 0 ? parsed.xeroInvoiceId || null : null);
+  const accountingInvoiceId = parsed.xeroInvoiceId
+    || firstWithId?.xero_invoice_id
+    || tfWithAccountingId?.accounting_invoice_id
+    || null;
   const firstWithNum = bookings.find((b) => b.xero_invoice_number)
     || transactions.find((t) => t.xero_invoice_number)
-    || trainingFundPurchases.find((p) => p.xero_invoice_number);
-  const xeroInvoiceNumber = parsed.xeroInvoiceNumber || firstWithNum?.xero_invoice_number || null;
+    || trainingFundPurchases.find((p) => p.xero_invoice_number)
+    || trainingFundPurchases.find((p) => p.accounting_invoice_number);
+  const xeroInvoiceNumber = parsed.xeroInvoiceNumber
+    || firstWithNum?.xero_invoice_number
+    || firstWithNum?.accounting_invoice_number
+    || null;
 
   return {
     bookings,
     transactions,
     trainingFundPurchases,
     xeroInvoiceId,
+    accountingInvoiceId,
     xeroInvoiceNumber,
     orgNameById,
   };
@@ -324,12 +352,17 @@ export async function applyInvoicePoUpdate({
 
   let xeroUpdated = false;
   let xeroError = null;
-  if (found.xeroInvoiceId) {
+  // Push the PO to the tenant's accounting provider. QuickBooks-billed
+  // training fund purchases have no xero_invoice_id — their invoice id lives
+  // in accountingInvoiceId, and the QBO provider accepts it as invoiceId.
+  const providerInvoiceId = found.xeroInvoiceId || found.accountingInvoiceId;
+  if (providerInvoiceId) {
     try {
       const provider = await getAccountingProvider(tenantId);
       const result = await provider.pushPurchaseOrder({
         appTenantId: tenantId,
-        xeroInvoiceId: found.xeroInvoiceId,
+        invoiceId: providerInvoiceId,
+        xeroInvoiceId: providerInvoiceId,
         purchaseOrderNumber: trimmedPO,
         contextLabel: contextLabel || `PendingPO invoice ${invoiceKey}`,
       });
@@ -339,7 +372,7 @@ export async function applyInvoicePoUpdate({
       xeroError = provErr.message;
     }
   } else {
-    xeroError = 'No Xero invoice ID on file — could not push PO to Xero';
+    xeroError = 'No invoice ID on file — could not push PO to the accounting provider';
   }
 
   return {
@@ -766,6 +799,11 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
   };
 
   const HAS_INVOICE_OR = 'xero_invoice_id.not.is.null,xero_invoice_number.not.is.null';
+  // Training fund purchases billed via QuickBooks store their invoice only in
+  // accounting_invoice_id / accounting_invoice_number (xero_* stays null — see
+  // api/_lib/membershipAddons.js), so the training-fund query must also accept
+  // those columns or QBO purchases never appear on the report.
+  const TF_HAS_INVOICE_OR = `${HAS_INVOICE_OR},accounting_invoice_id.not.is.null,accounting_invoice_number.not.is.null`;
   const MISSING_PO_OR = 'purchase_order_number.is.null,purchase_order_number.eq.';
 
   const transactions = await fetchAllPages('program_ticket_transaction', () => client
@@ -780,11 +818,11 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
 
   const trainingFundPurchases = await fetchAllPages('training_fund_purchase', () => client
     .from('training_fund_purchase')
-    .select('id, organization_id, created_by, amount, status, payment_method, xero_invoice_id, xero_invoice_number, created_date, purchase_order_number, po_to_follow')
+    .select('id, organization_id, created_by, amount, status, payment_method, xero_invoice_id, xero_invoice_number, accounting_invoice_id, accounting_invoice_number, created_date, purchase_order_number, po_to_follow')
     .in('organization_id', tenantOrgIds)
     .eq('payment_method', 'invoice')
     .neq('status', 'cancelled')
-    .or(HAS_INVOICE_OR)
+    .or(TF_HAS_INVOICE_OR)
     .or(MISSING_PO_OR)
     .order('id', { ascending: true }));
 
@@ -926,8 +964,12 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
   });
 
   (trainingFundPurchases || []).forEach((p) => {
+    // QuickBooks-billed purchases carry their invoice only in the
+    // accounting_* columns; xero_* stays null for provider !== 'xero'.
     const hasInvoice = (p.xero_invoice_id && p.xero_invoice_id.trim() !== '')
-      || (p.xero_invoice_number && p.xero_invoice_number.trim() !== '');
+      || (p.xero_invoice_number && p.xero_invoice_number.trim() !== '')
+      || (p.accounting_invoice_id && String(p.accounting_invoice_id).trim() !== '')
+      || (p.accounting_invoice_number && String(p.accounting_invoice_number).trim() !== '');
     const missingPO = !p.purchase_order_number || p.purchase_order_number.trim() === '';
     const isActive = p.status !== 'cancelled';
 
@@ -939,8 +981,13 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
         organization_id: p.organization_id,
         source_name: 'Training Fund top-up',
         source_type: 'Training Fund',
+        // xero_invoice_id stays strictly Xero — it is used to batch-query the
+        // Xero API below, so QBO ids must never be placed in it. The invoice
+        // NUMBER is display-only, so fall back to the accounting number.
         xero_invoice_id: p.xero_invoice_id,
-        xero_invoice_number: p.xero_invoice_number,
+        xero_invoice_number: p.xero_invoice_number || p.accounting_invoice_number || null,
+        accounting_invoice_id: p.accounting_invoice_id || null,
+        accounting_invoice_number: p.accounting_invoice_number || null,
         xero_invoice_pdf_uri: null,
         created_date: p.created_date,
         quantity: 1,
@@ -1115,7 +1162,12 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
 
   const invoiceKeyOf = (r) => {
     if (r.xero_invoice_id) return `id:${r.xero_invoice_id}`;
+    // QuickBooks-billed training fund purchases have no xero_invoice_id —
+    // key them by the accounting invoice id so PO submission can find them
+    // (findInvoiceRowsForTenant matches accounting_* columns too).
+    if (r.accounting_invoice_id) return `id:${r.accounting_invoice_id}`;
     if (r.xero_invoice_number) return `num:${r.xero_invoice_number}`;
+    if (r.accounting_invoice_number) return `num:${r.accounting_invoice_number}`;
     return `row:${r.entityType}-${r.id}`;
   };
 
