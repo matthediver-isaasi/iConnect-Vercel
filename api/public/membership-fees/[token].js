@@ -305,6 +305,25 @@ export default async function handler(req, res) {
           }
         }
 
+        // Downstream the submitted PO to any training fund purchases billed on
+        // the same Xero invoice (add-on flow) so they drop off the pending PO
+        // report. Non-fatal on error.
+        if (feeToken.xero_invoice_id) {
+          try {
+            const { error: tfpErr } = await supabase
+              .from('training_fund_purchase')
+              .update({ purchase_order_number: poNumber.trim(), po_to_follow: false })
+              .eq('tenant_id', feeToken.tenant_id)
+              .eq('xero_invoice_id', feeToken.xero_invoice_id)
+              .eq('payment_method', 'invoice');
+            if (tfpErr) {
+              console.warn('[Public Fee] Failed to apply PO to linked training fund purchases:', tfpErr.message || tfpErr);
+            }
+          } catch (tfpErr) {
+            console.warn('[Public Fee] Failed to apply PO to linked training fund purchases:', tfpErr?.message || tfpErr);
+          }
+        }
+
         try {
           await supabase.from('organization_note').insert({
             organization_id: feeToken.organization_id,
