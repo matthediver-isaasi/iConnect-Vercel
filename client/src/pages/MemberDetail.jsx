@@ -572,20 +572,27 @@ export default function MemberDetail() {
     },
   });
 
-  const { data: memberFormSubmissions = [], isLoading: formSubmissionsLoading } = useQuery({
-    queryKey: ['member-form-submissions', id],
-    enabled: !!id && activeTab === 'forms',
+  const { data: memberFormSubmissions = [], isLoading: formSubmissionsLoading, isError: formSubmissionsError, refetch: refetchFormSubmissions } = useQuery({
+    queryKey: ['member-form-submissions', id, member?.email],
+    enabled: !!id && !!member && activeTab === 'forms',
     queryFn: async () => {
-      try {
-        const submissions = await base44.entities.FormSubmission.list({
-          filter: { member_id: id }
-        });
-        return (submissions || []).sort((a, b) =>
-          new Date(b.created_date || 0) - new Date(a.created_date || 0)
-        );
-      } catch {
-        return [];
+      const memberEmail = (member?.email || '').trim().toLowerCase();
+      const [byEmail, byCreatedMember] = await Promise.all([
+        memberEmail
+          ? base44.entities.FormSubmission.list({ filter: { submitted_by_email: { ilike: memberEmail.replace(/([\\%_])/g, '\\$1') } } })
+          : Promise.resolve([]),
+        base44.entities.FormSubmission.list({ filter: { created_member_id: id } })
+      ]);
+      const seen = new Set();
+      const merged = [];
+      for (const sub of [...(byEmail || []), ...(byCreatedMember || [])]) {
+        if (!sub?.id || seen.has(sub.id)) continue;
+        seen.add(sub.id);
+        merged.push(sub);
       }
+      return merged.sort((a, b) =>
+        new Date(b.created_date || 0) - new Date(a.created_date || 0)
+      );
     }
   });
 
@@ -2524,6 +2531,15 @@ export default function MemberDetail() {
                 {formSubmissionsLoading ? (
                   <div className="flex items-center justify-center py-12">
                     <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                  </div>
+                ) : formSubmissionsError ? (
+                  <div className="text-center py-12 text-slate-500" data-testid="text-form-submissions-error">
+                    <ClipboardCheck className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+                    <p>Couldn't load form submissions</p>
+                    <p className="text-sm text-slate-400 mt-1">Something went wrong fetching this {memberLabel.toLowerCase()}'s submissions.</p>
+                    <Button variant="outline" size="sm" className="mt-3" onClick={() => refetchFormSubmissions()} data-testid="button-retry-form-submissions">
+                      Try again
+                    </Button>
                   </div>
                 ) : memberFormSubmissions.length === 0 ? (
                   <div className="text-center py-12 text-slate-500">
