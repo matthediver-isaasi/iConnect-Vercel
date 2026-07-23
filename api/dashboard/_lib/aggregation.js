@@ -155,6 +155,10 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
     let q = supabase.from(source.table).select(selectColumns);
     q = tenantFilter(q, tenantId);
     q = applySystemFilters(q, systemFilters, lmicCodes);
+    // Stable ordering is required for .range() pagination — without it
+    // PostgREST may skip or repeat rows across pages, silently under- or
+    // over-counting once the dataset exceeds one page.
+    q = q.order('id', { ascending: true });
     const { data: page, error } = await q.range(from, to);
     if (error) {
       throw new Error(`Source query failed: ${error.message}`);
@@ -561,27 +565,40 @@ function collectCustomFieldIds(config) {
   return ids;
 }
 
-async function loadPreferenceValues({ table, fkColumn, ids, fieldIds }) {
+// Exported for tests: `client` defaults to the real supabase client and can
+// be replaced with a stub that simulates PostgREST's 1000-row response cap.
+export async function loadPreferenceValues({ table, fkColumn, ids, fieldIds, client = supabase }) {
   const map = new Map();
   if (ids.length === 0 || fieldIds.length === 0) return map;
   // Chunk the ids list to avoid hitting URL length limits.
   const chunk = 500;
   for (let i = 0; i < ids.length; i += chunk) {
     const slice = ids.slice(i, i + chunk);
-    const { data, error } = await supabase
-      .from(table)
-      .select(`${fkColumn}, field_id, value`)
-      .in(fkColumn, slice)
-      .in('field_id', fieldIds);
-    if (error) {
-      console.error('[Dashboard Aggregation] Preference fetch failed:', error.message);
-      continue;
+    // A single chunk can hold more preference rows than PostgREST's
+    // 1000-row response cap (500 ids x several fields), so paginate each
+    // chunk explicitly with .range(). Stable ordering on the (fk, field)
+    // pair — unique per row — is required or pages may skip/repeat rows.
+    for (let from = 0; ; from += PAGE_SIZE) {
+      const { data, error } = await client
+        .from(table)
+        .select(`${fkColumn}, field_id, value`)
+        .in(fkColumn, slice)
+        .in('field_id', fieldIds)
+        .order(fkColumn, { ascending: true })
+        .order('field_id', { ascending: true })
+        .range(from, from + PAGE_SIZE - 1);
+      if (error) {
+        // Fail loudly: a silently-missing preference value makes custom
+        // filters wrongly exclude rows, i.e. an under-count.
+        throw new Error(`Preference value query failed: ${error.message}`);
+      }
+      (data || []).forEach(row => {
+        const ownerId = row[fkColumn];
+        if (!map.has(ownerId)) map.set(ownerId, {});
+        map.get(ownerId)[row.field_id] = parsePreferenceValue(row.value);
+      });
+      if (!data || data.length < PAGE_SIZE) break;
     }
-    (data || []).forEach(row => {
-      const ownerId = row[fkColumn];
-      if (!map.has(ownerId)) map.set(ownerId, {});
-      map.get(ownerId)[row.field_id] = parsePreferenceValue(row.value);
-    });
   }
   return map;
 }
@@ -1065,6 +1082,8 @@ async function runDdWidgetConfig(config, tenantId, source, maxGroups = MAX_GROUP
       `)
       .eq('tenant_id', tenantId)
       .is('archived_at', null)
+      // Stable ordering is required for .range() pagination.
+      .order('id', { ascending: true })
       .range(from, to);
     if (error) throw new Error(`DD source query failed: ${error.message}`);
     if (!page || page.length === 0) break;
@@ -1124,8 +1143,9 @@ async function runDdWidgetConfig(config, tenantId, source, maxGroups = MAX_GROUP
             .in('organization_id', slice)
             .eq('field_id', orgTypeField.id);
           if (prefErr) {
-            console.error('[Dashboard DD] org_type fetch failed:', prefErr.message);
-            continue;
+            // Fail loudly: silently-missing org_type values would mis-bucket
+            // rows as "Unspecified" (or drop them from org_type filters).
+            throw new Error(`org_type preference query failed: ${prefErr.message}`);
           }
           (prefs || []).forEach(p => {
             orgTypeMap.set(p.organization_id, extractPrimitive(parsePreferenceValue(p.value)));
