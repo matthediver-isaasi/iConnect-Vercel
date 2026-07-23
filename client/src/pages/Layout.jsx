@@ -1461,6 +1461,7 @@ useEffect(() => {
     'Support': 'page_user_Support',
     // Admin navigation pages use page_admin_* pattern  
     'AdminSetup': 'page_admin_AdminSetup',
+    'AdminDashboard': 'page_admin_AdminDashboard',
     'NewsSettings': 'page_admin_NewsSettings',
     'ArticlesSettings': 'page_admin_ArticlesSettings',
     'RoleManagement': 'page_admin_RoleManagement',

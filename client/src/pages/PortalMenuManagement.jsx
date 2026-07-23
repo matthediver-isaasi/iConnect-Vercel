@@ -54,6 +54,7 @@ const availableIcons = {
 
 const builtInPages = [
   { value: "AdminSetup", label: "Admin Setup" },
+  { value: "admin/dashboard", label: "Admin Dashboard" },
   { value: "Articles", label: "Articles" },
   { value: "ArticlesSettings", label: "Articles Settings" },
   { value: "ArticleEditor", label: "Article Editor" },
