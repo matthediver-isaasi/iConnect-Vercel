@@ -98,3 +98,20 @@ test('loadPreferenceValues throws on query error instead of silently continuing'
     /Preference value query failed: boom/,
   );
 });
+
+// ---------------------------------------------------------------------------
+// listGroupKeys: group-by on multi-pick (list-typed) fields must bucket a
+// row under EVERY element, not just its first — otherwise widgets like
+// "Unique countries of operation" under-count vs the list page.
+import { listGroupKeys } from './aggregation.js';
+
+test('listGroupKeys buckets a row under every list element', () => {
+  assert.deepEqual(listGroupKeys(['Kenya', 'India']), ['Kenya', 'India']);
+  // NOTE: stored JSON strings are parsed by parsePreferenceValue BEFORE
+  // reaching the group-by path, so listGroupKeys always receives real
+  // arrays (or scalars) — never raw JSON text.
+  assert.deepEqual(listGroupKeys(['India', 'India']), ['India'], 'duplicates collapse');
+  assert.deepEqual(listGroupKeys([]), ['Unspecified']);
+  assert.deepEqual(listGroupKeys(null), ['Unspecified']);
+  assert.deepEqual(listGroupKeys('India'), ['India'], 'scalar treated as one-element list');
+});

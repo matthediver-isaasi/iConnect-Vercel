@@ -190,11 +190,12 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
   }
 
   // Identify which of the custom fields touched by this widget are
-  // list-typed (multi-pick picklists). The measure and filter paths use
-  // this to apply list-aware semantics — count_distinct flattens every
-  // element across rows, and filters match when ANY element satisfies
-  // the predicate. Group-by deliberately keeps first-element semantics
-  // (see task #620 — out of scope here).
+  // list-typed (multi-pick picklists). The measure, filter AND group-by
+  // paths use this to apply list-aware semantics — count_distinct
+  // flattens every element across rows, filters match when ANY element
+  // satisfies the predicate, and group-by buckets a row under EVERY
+  // element (so "orgs per country" agrees with the list page, which
+  // matches any element — not just the first).
   const listFieldIds = await resolveListFieldIds(source, tenantId, customFieldsNeeded);
 
   // Apply custom-field filters in JS.
@@ -299,10 +300,23 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
         }
       }
     : (target, row) => target.push(measureValueOf(row));
-  const groupKeyOf = groupBy
+  // Group-by key(s) per row. For list-typed (multi-pick) custom fields a
+  // row contributes to EVERY element's bucket — an org operating in
+  // ["Kenya", "India"] must count under both countries, matching the
+  // any-element semantics of the list-page filters. Rows with an empty
+  // list keep the single "Unspecified" bucket. Elements are de-duplicated
+  // per row so a repeated value can't double-count one row in a bucket.
+  const isListGroupBy = !!(groupBy
+    && !regionGroupBy
+    && (groupBy.fieldKind === 'custom' || groupBy.kind === 'custom')
+    && groupBy.fieldId
+    && listFieldIds.has(groupBy.fieldId));
+  const groupKeysOf = groupBy
     ? (regionGroupBy
-        ? row => regionByRowId?.get(row.id) || REGION_UNKNOWN
-        : row => normaliseKey(valueFor(row, groupBy, prefMap)))
+        ? row => [regionByRowId?.get(row.id) || REGION_UNKNOWN]
+        : (isListGroupBy
+            ? row => listGroupKeys((prefMap.get(row.id) || {})[groupBy.fieldId])
+            : row => [normaliseKey(valueFor(row, groupBy, prefMap))]))
     : null;
   // timeBucket on a custom date field reads through the preference map; for
   // system date columns it reads the value directly off the base row.
@@ -332,9 +346,10 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
   if (groupBy) {
     const buckets = new Map();
     workingRows.forEach(row => {
-      const key = groupKeyOf(row);
-      if (!buckets.has(key)) buckets.set(key, []);
-      pushMeasureValues(buckets.get(key), row);
+      for (const key of groupKeysOf(row)) {
+        if (!buckets.has(key)) buckets.set(key, []);
+        pushMeasureValues(buckets.get(key), row);
+      }
     });
     const grouped = Array.from(buckets.entries())
       .map(([key, values]) => ({ key, value: aggregate(values, measure.aggregator) }))
@@ -674,6 +689,15 @@ async function resolveListFieldIds(source, tenantId, neededIds) {
     if (f.type === 'list' && neededIds.has(f.id)) out.add(f.id);
   }
   return out;
+}
+
+// Bucket keys for a row whose group-by field is list-typed (multi-pick):
+// one key per distinct element so the row counts under every value it
+// carries; empty/missing lists fall into the single "Unspecified" bucket.
+// Exported for tests.
+export function listGroupKeys(raw) {
+  const keys = [...new Set(toList(raw).map(normaliseKey))];
+  return keys.length > 0 ? keys : ['Unspecified'];
 }
 
 function normaliseKey(value) {
