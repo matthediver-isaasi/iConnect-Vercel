@@ -90,6 +90,13 @@ export default function VoucherManagementPage() {
   const [dateFilterTo, setDateFilterTo] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
 
+  // Bulk expiry adjustment: selection can span pages (ids persist across pagination)
+  const [selectedVoucherIds, setSelectedVoucherIds] = useState(() => new Set());
+  const [showBulkExpiryDialog, setShowBulkExpiryDialog] = useState(false);
+  const [bulkExpiryDays, setBulkExpiryDays] = useState("");
+  const [bulkExpiryDirection, setBulkExpiryDirection] = useState("extend");
+  const [isBulkAdjusting, setIsBulkAdjusting] = useState(false);
+
   const [showDialog, setShowDialog] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [voucherToDelete, setVoucherToDelete] = useState(null);
@@ -315,6 +322,130 @@ export default function VoucherManagementPage() {
     const start = (currentPage - 1) * ITEMS_PER_PAGE;
     return filteredVouchers.slice(start, start + ITEMS_PER_PAGE);
   }, [filteredVouchers, currentPage]);
+
+  // Prune selection when the underlying voucher list changes (e.g. deletions)
+  useEffect(() => {
+    if (selectedVoucherIds.size === 0 || vouchers.length === 0) return;
+    const validIds = new Set(vouchers.map(v => v.id));
+    const next = new Set([...selectedVoucherIds].filter(id => validIds.has(id)));
+    if (next.size !== selectedVoucherIds.size) setSelectedVoucherIds(next);
+  }, [vouchers]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const toggleVoucherSelected = (id) => {
+    setSelectedVoucherIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const allOnPageSelected = paginatedVouchers.length > 0 && paginatedVouchers.every(v => selectedVoucherIds.has(v.id));
+  const someOnPageSelected = paginatedVouchers.some(v => selectedVoucherIds.has(v.id));
+
+  const toggleSelectAllOnPage = () => {
+    setSelectedVoucherIds(prev => {
+      const next = new Set(prev);
+      if (allOnPageSelected) {
+        paginatedVouchers.forEach(v => next.delete(v.id));
+      } else {
+        paginatedVouchers.forEach(v => next.add(v.id));
+      }
+      return next;
+    });
+  };
+
+  const selectedVouchers = useMemo(
+    () => vouchers.filter(v => selectedVoucherIds.has(v.id)),
+    [vouchers, selectedVoucherIds]
+  );
+
+  // Preview of the bulk adjustment: which vouchers will shift, which will be
+  // skipped (no expiry date), and how many end up with a past expiry.
+  const bulkExpiryPreview = useMemo(() => {
+    const days = parseInt(bulkExpiryDays, 10);
+    const validDays = Number.isFinite(days) && days > 0 ? days : 0;
+    const signedDays = bulkExpiryDirection === 'reduce' ? -validDays : validDays;
+    const now = new Date();
+    const adjustable = [];
+    const skipped = [];
+    let movesIntoPast = 0;
+    for (const v of selectedVouchers) {
+      if (!v.expires_at) {
+        skipped.push(v);
+        continue;
+      }
+      const newDate = new Date(v.expires_at);
+      newDate.setDate(newDate.getDate() + signedDays);
+      if (validDays > 0 && newDate < now) movesIntoPast += 1;
+      adjustable.push({ voucher: v, newDate });
+    }
+    return { validDays, signedDays, adjustable, skipped, movesIntoPast };
+  }, [selectedVouchers, bulkExpiryDays, bulkExpiryDirection]);
+
+  const openBulkExpiryDialog = () => {
+    setBulkExpiryDays("");
+    setBulkExpiryDirection("extend");
+    setShowBulkExpiryDialog(true);
+  };
+
+  const handleBulkExpiryApply = async () => {
+    const { validDays, adjustable, skipped } = bulkExpiryPreview;
+    if (!validDays) {
+      toast.error('Enter a number of days greater than 0');
+      return;
+    }
+    if (adjustable.length === 0) {
+      toast.error('None of the selected vouchers have an expiry date to adjust');
+      return;
+    }
+    setIsBulkAdjusting(true);
+    const now = new Date();
+    let updated = 0;
+    const failures = [];
+    for (const { voucher, newDate } of adjustable) {
+      // Recompute status from the new expiry, consistent with how the rest of
+      // the voucher system derives expired/active from expires_at. 'used'
+      // vouchers keep their status.
+      const data = { expires_at: newDate.toISOString() };
+      if (voucher.status === 'expired' && newDate >= now) {
+        data.status = 'active';
+      } else if (voucher.status === 'active' && newDate < now) {
+        data.status = 'expired';
+      }
+      try {
+        await base44.entities.Voucher.update(voucher.id, data);
+        updated += 1;
+      } catch (err) {
+        failures.push({ code: voucher.code, error: err.message });
+      }
+    }
+    setIsBulkAdjusting(false);
+    queryClient.invalidateQueries({ queryKey: ['vouchers-admin'] });
+    queryClient.invalidateQueries({ queryKey: ['voucher-transactions'] });
+
+    const parts = [`${updated} voucher${updated === 1 ? '' : 's'} updated`];
+    if (skipped.length > 0) parts.push(`${skipped.length} skipped (no expiry date)`);
+    if (failures.length > 0) parts.push(`${failures.length} failed`);
+    const summary = parts.join(', ');
+    if (failures.length > 0) {
+      toast.error(`${summary}. First error: ${failures[0].error}`);
+    } else if (updated > 0) {
+      toast.success(summary);
+    } else {
+      toast.info(summary);
+    }
+    if (failures.length === 0) {
+      setSelectedVoucherIds(new Set());
+      setShowBulkExpiryDialog(false);
+    } else {
+      // Keep only failed vouchers selected so the admin can retry
+      const failedCodes = new Set(failures.map(f => f.code));
+      setSelectedVoucherIds(new Set(
+        adjustable.filter(a => failedCodes.has(a.voucher.code)).map(a => a.voucher.id)
+      ));
+      setShowBulkExpiryDialog(false);
+    }
+  };
 
   const orgSummary = useMemo(() => {
     const summaryMap = {};
@@ -1231,6 +1362,43 @@ export default function VoucherManagementPage() {
               </Card>
             ) : (
               <div className="space-y-4">
+                <div className="flex items-center justify-between gap-3 flex-wrap px-1">
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      checked={allOnPageSelected ? true : (someOnPageSelected ? 'indeterminate' : false)}
+                      onCheckedChange={toggleSelectAllOnPage}
+                      aria-label="Select all vouchers on this page"
+                      data-testid="checkbox-select-all-page"
+                    />
+                    <span className="text-sm text-slate-600">Select all on this page</span>
+                    {selectedVoucherIds.size > 0 && (
+                      <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200" data-testid="badge-selected-count">
+                        {selectedVoucherIds.size} selected
+                      </Badge>
+                    )}
+                  </div>
+                  {selectedVoucherIds.size > 0 && (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setSelectedVoucherIds(new Set())}
+                        data-testid="button-clear-selection"
+                      >
+                        Clear selection
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={openBulkExpiryDialog}
+                        className="bg-blue-600 hover:bg-blue-700"
+                        data-testid="button-bulk-adjust-expiry"
+                      >
+                        <CalendarIcon className="w-4 h-4 mr-2" />
+                        Adjust expiry dates
+                      </Button>
+                    </div>
+                  )}
+                </div>
                 {paginatedVouchers.map((voucher) => {
                   const org = organizations.find(o => o.id === voucher.organization_id);
                   const isExpired = voucher.expires_at && new Date(voucher.expires_at) < new Date();
@@ -1249,6 +1417,17 @@ export default function VoucherManagementPage() {
                     >
                       <CardContent className="p-4">
                         <div className="flex items-start justify-between gap-4">
+                          <div
+                            className="flex-shrink-0 pt-1"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <Checkbox
+                              checked={selectedVoucherIds.has(voucher.id)}
+                              onCheckedChange={() => toggleVoucherSelected(voucher.id)}
+                              aria-label={`Select voucher ${voucher.code}`}
+                              data-testid={`checkbox-select-voucher-${voucher.id}`}
+                            />
+                          </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-3 mb-2 flex-wrap">
                               <Ticket className="w-5 h-5 text-blue-600 flex-shrink-0" />
@@ -1602,6 +1781,88 @@ export default function VoucherManagementPage() {
                 data-testid="button-confirm-delete"
               >
                 {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={showBulkExpiryDialog} onOpenChange={(open) => { if (!isBulkAdjusting) setShowBulkExpiryDialog(open); }}>
+          <DialogContent className="max-w-md" data-testid="dialog-bulk-adjust-expiry">
+            <DialogHeader>
+              <DialogTitle>Adjust expiry dates</DialogTitle>
+              <DialogDescription>
+                Shift the expiry date of {selectedVoucherIds.size} selected voucher{selectedVoucherIds.size === 1 ? '' : 's'} forward or backward by a number of days.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="flex items-end gap-3">
+                <div className="flex-1">
+                  <Label htmlFor="bulk-expiry-days">Number of days</Label>
+                  <Input
+                    id="bulk-expiry-days"
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={bulkExpiryDays}
+                    onChange={(e) => setBulkExpiryDays(e.target.value)}
+                    placeholder="e.g. 7"
+                    data-testid="input-bulk-expiry-days"
+                  />
+                </div>
+                <div className="flex-1">
+                  <Label>Direction</Label>
+                  <Select value={bulkExpiryDirection} onValueChange={setBulkExpiryDirection}>
+                    <SelectTrigger data-testid="select-bulk-expiry-direction">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="extend">Extend (later)</SelectItem>
+                      <SelectItem value="reduce">Reduce (earlier)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {bulkExpiryPreview.validDays > 0 && (
+                <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800" data-testid="text-bulk-expiry-preview">
+                  Expiry will move {bulkExpiryPreview.validDays} day{bulkExpiryPreview.validDays === 1 ? '' : 's'} {bulkExpiryDirection === 'reduce' ? 'earlier' : 'later'} for {bulkExpiryPreview.adjustable.length} voucher{bulkExpiryPreview.adjustable.length === 1 ? '' : 's'}.
+                  {' '}Vouchers that become expired or active as a result will have their status updated.
+                </div>
+              )}
+
+              {bulkExpiryPreview.skipped.length > 0 && (
+                <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600" data-testid="text-bulk-expiry-skipped">
+                  {bulkExpiryPreview.skipped.length} selected voucher{bulkExpiryPreview.skipped.length === 1 ? ' has' : 's have'} no expiry date and will be skipped.
+                </div>
+              )}
+
+              {bulkExpiryPreview.validDays > 0 && bulkExpiryPreview.movesIntoPast > 0 && (
+                <div className="rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-warning flex items-start gap-2" data-testid="text-bulk-expiry-past-warning">
+                  <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                  <span>
+                    {bulkExpiryPreview.movesIntoPast} voucher{bulkExpiryPreview.movesIntoPast === 1 ? "'s" : "s'"} new expiry date will be in the past — {bulkExpiryPreview.movesIntoPast === 1 ? 'it' : 'they'} will become expired.
+                  </span>
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowBulkExpiryDialog(false)} disabled={isBulkAdjusting}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleBulkExpiryApply}
+                disabled={isBulkAdjusting || !bulkExpiryPreview.validDays || bulkExpiryPreview.adjustable.length === 0}
+                className="bg-blue-600 hover:bg-blue-700"
+                data-testid="button-confirm-bulk-expiry"
+              >
+                {isBulkAdjusting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Updating...
+                  </>
+                ) : (
+                  'Apply adjustment'
+                )}
               </Button>
             </DialogFooter>
           </DialogContent>
