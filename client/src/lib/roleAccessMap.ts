@@ -677,10 +677,6 @@ export const ROLE_ACCESS_MAP: Module[] = [
     icon: "Shield",
     pages: [
       {
-        id: "admin.dashboard",
-        label: "Admin Dashboard"
-      },
-      {
         id: "admin.role-management",
         label: "Role Management"
       },
@@ -997,10 +993,8 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_admin_OrganisationPreferences": "organisation.field-permissions",
   "page_admin_MemberPreferences": "membership.member-field-permissions",
   "page_Dashboard": "system.dashboard",
-  "page_AdminDashboard": "admin.dashboard",
-  "page_admin_AdminDashboard": "admin.dashboard",
-  "page_admin/dashboard": "admin.dashboard",
-  "page_admin_admin/dashboard": "admin.dashboard",
+  "page_user_Dashboard": "system.dashboard",
+  "page_admin_Dashboard": "system.dashboard",
   "page_ReportsDashboard": "dashboard.view",
   "page_admin_ReportsDashboard": "dashboard.view",
   "page_EventDetails": "events.event-details",

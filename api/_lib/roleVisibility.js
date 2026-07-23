@@ -70,6 +70,8 @@ const LEGACY_TO_NEW_MAPPING = {
   "page_admin_EventRegistrationReport": "events.event-report",
   "page_admin_OrganisationPreferences": "membership.organisation-preferences",
   "page_Dashboard": "system.dashboard",
+  "page_user_Dashboard": "system.dashboard",
+  "page_admin_Dashboard": "system.dashboard",
   "page_ReportsDashboard": "dashboard.view",
   "page_admin_ReportsDashboard": "dashboard.view",
   "page_EventDetails": "events.event-details",
