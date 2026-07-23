@@ -115,3 +115,20 @@ test('listGroupKeys buckets a row under every list element', () => {
   assert.deepEqual(listGroupKeys(null), ['Unspecified']);
   assert.deepEqual(listGroupKeys('India'), ['India'], 'scalar treated as one-element list');
 });
+
+// ---------------------------------------------------------------------------
+// mapFieldType: 'countries' custom fields store arrays (multi-pick) exactly
+// like 'list' fields, so they MUST map to 'list' — otherwise group-by,
+// filters, and count-distinct silently fall back to first-element semantics
+// and widgets under-count vs the list pages (the "47 vs 60 India" bug).
+import { mapFieldType } from './sources.js';
+
+test('mapFieldType treats multi-pick field types as list', () => {
+  assert.equal(mapFieldType('list'), 'list');
+  assert.equal(mapFieldType('countries'), 'list');
+  // Singular 'country' is single-pick and must stay text.
+  assert.equal(mapFieldType('country'), 'text');
+  assert.equal(mapFieldType('picklist'), 'enum');
+  assert.equal(mapFieldType('dropdown'), 'enum');
+  assert.equal(mapFieldType('number'), 'number');
+});

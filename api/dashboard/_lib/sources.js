@@ -316,7 +316,7 @@ export async function getCustomFieldsForSource(sourceOrDef, tenantId) {
   }
 }
 
-function mapFieldType(fieldType) {
+export function mapFieldType(fieldType) {
   switch (fieldType) {
     case 'number':
     case 'decimal':
@@ -328,7 +328,12 @@ function mapFieldType(fieldType) {
     case 'picklist':
     case 'dropdown':
       return 'enum';
+    // 'countries' is a multi-pick country selector — its stored values are
+    // arrays just like 'list', so the dashboard engine must apply
+    // any-element (list) semantics to group-by, filters and count-distinct.
+    // (Singular 'country' is single-pick and stays text.)
     case 'list':
+    case 'countries':
       return 'list';
     default:
       return 'text';
