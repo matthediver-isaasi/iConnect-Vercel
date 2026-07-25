@@ -117,6 +117,48 @@ test('listGroupKeys buckets a row under every list element', () => {
 });
 
 // ---------------------------------------------------------------------------
+// countryGroupKeys: country-shaped group-bys (system `country` column or
+// custom country/countries fields) must merge name/code storage variants into
+// one ISO-2 bucket even WITHOUT an LMIC filter — otherwise "Kenya" and "KE"
+// appear as two separate buckets. Unresolvable values keep their raw string
+// so no data is hidden.
+import { countryGroupKeys } from './aggregation.js';
+
+test('countryGroupKeys merges name and code storage into one ISO-2 bucket', () => {
+  assert.deepEqual(countryGroupKeys(['Kenya']), ['KE']);
+  assert.deepEqual(countryGroupKeys(['KE']), ['KE']);
+  assert.deepEqual(countryGroupKeys(['Kenya', 'KE']), ['KE'], 'variants dedupe');
+  assert.deepEqual(countryGroupKeys(['ke']), ['KE'], 'lowercase codes normalise');
+});
+
+test('countryGroupKeys buckets a row under every list element', () => {
+  assert.deepEqual(countryGroupKeys(['Kenya', 'India', 'United Kingdom']), ['KE', 'IN', 'GB']);
+});
+
+test('countryGroupKeys handles scalar values (system country column)', () => {
+  assert.deepEqual(countryGroupKeys('KE'), ['KE']);
+  assert.deepEqual(countryGroupKeys('Kenya'), ['KE']);
+});
+
+test('countryGroupKeys resolves World Bank-style name variants', () => {
+  assert.deepEqual(
+    countryGroupKeys(['Congo, Dem. Rep.', 'Egypt, Arab Rep.', 'Lao PDR', 'Côte d\u2019Ivoire']),
+    ['CD', 'EG', 'LA', 'CI'],
+  );
+});
+
+test('countryGroupKeys keeps unresolvable values as raw bucket keys', () => {
+  assert.deepEqual(countryGroupKeys(['Narnia']), ['Narnia'], 'no data hidden');
+  assert.deepEqual(countryGroupKeys(['Kenya', 'Narnia']), ['KE', 'Narnia']);
+});
+
+test('countryGroupKeys falls back to Unspecified for empty values', () => {
+  assert.deepEqual(countryGroupKeys([]), ['Unspecified']);
+  assert.deepEqual(countryGroupKeys(null), ['Unspecified']);
+  assert.deepEqual(countryGroupKeys(''), ['Unspecified']);
+});
+
+// ---------------------------------------------------------------------------
 // pruneLmicGroupKeys: when the group-by field is the SAME field carrying an
 // `lmic` filter, group keys must be pruned element-wise to LMIC-only ISO-2
 // codes — otherwise a row admitted by ANY LMIC element gets bucketed under

@@ -27,7 +27,10 @@ export const DASHBOARD_SOURCES = {
       // `country` is exposed so the LMIC filter operator and the
       // count_distinct(country) measure used by seeded widgets can be
       // configured from the builder against organization.country.
-      { name: 'country', label: 'Country', type: 'text' },
+      // `isCountry` tells the aggregation engine to normalise group-by
+      // buckets through the shared country resolver (ISO-2 bucketing,
+      // display names) even without an LMIC filter.
+      { name: 'country', label: 'Country', type: 'text', isCountry: true },
       {
         // Derived dimension: world region classified from the org's
         // "Countries of operation" multi-country preference field(s)

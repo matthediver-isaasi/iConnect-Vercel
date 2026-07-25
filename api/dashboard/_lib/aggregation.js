@@ -196,7 +196,7 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
   // satisfies the predicate, and group-by buckets a row under EVERY
   // element (so "orgs per country" agrees with the list page, which
   // matches any element — not just the first).
-  const listFieldIds = await resolveListFieldIds(source, tenantId, customFieldsNeeded);
+  const { listFieldIds, countryFieldIds } = await resolveListFieldIds(source, tenantId, customFieldsNeeded);
 
   // Apply custom-field filters in JS.
   const customFilters = (config.filters || []).filter(f => f.fieldKind === 'custom');
@@ -334,6 +334,19 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
       }));
   const lmicGroupCodeSet = lmicFilterOnGroupBy ? new Set(lmicCodes) : null;
   const lmicGroupKeys = raw => pruneLmicGroupKeys(raw, lmicGroupCodeSet);
+  // Country-shaped group-bys (system `country` column, or custom
+  // country/countries fields) are normalised through the shared country
+  // resolver even WITHOUT an LMIC filter: each element resolves to its
+  // ISO-2 code for bucketing (so "Kenya" and "KE" merge) and the code is
+  // mapped back to the display name in the response. Unresolvable values
+  // keep their raw string as the bucket key so no data is hidden.
+  const isCountryGroupBy = !!(groupBy
+    && !regionGroupBy
+    && ((groupBy.fieldKind === 'custom' || groupBy.kind === 'custom')
+        ? (!!groupBy.fieldId && countryFieldIds.has(groupBy.fieldId))
+        : !!(source.systemFields || []).find(
+            f => f.name === groupBy.field && f.isCountry,
+          )));
   const groupKeysOf = groupBy
     ? (regionGroupBy
         ? row => [regionByRowId?.get(row.id) || REGION_UNKNOWN]
@@ -341,9 +354,13 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
             ? ((groupBy.fieldKind === 'custom' || groupBy.kind === 'custom')
                 ? row => lmicGroupKeys((prefMap.get(row.id) || {})[groupBy.fieldId])
                 : row => lmicGroupKeys(row[groupBy.field]))
-            : (isListGroupBy
-                ? row => listGroupKeys((prefMap.get(row.id) || {})[groupBy.fieldId])
-                : row => [normaliseKey(valueFor(row, groupBy, prefMap))])))
+            : (isCountryGroupBy
+                ? ((groupBy.fieldKind === 'custom' || groupBy.kind === 'custom')
+                    ? row => countryGroupKeys((prefMap.get(row.id) || {})[groupBy.fieldId])
+                    : row => countryGroupKeys(row[groupBy.field]))
+                : (isListGroupBy
+                    ? row => listGroupKeys((prefMap.get(row.id) || {})[groupBy.fieldId])
+                    : row => [normaliseKey(valueFor(row, groupBy, prefMap))]))))
     : null;
   // timeBucket on a custom date field reads through the preference map; for
   // system date columns it reads the value directly off the base row.
@@ -380,9 +397,12 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
     });
     const grouped = Array.from(buckets.entries())
       .map(([key, values]) => ({
-        // LMIC-pruned bucket keys are normalised ISO-2 codes; map them
-        // back to human-readable country names for charts/tables.
-        key: lmicFilterOnGroupBy ? (getCountryByCode(key)?.name || key) : key,
+        // LMIC-pruned and country-normalised bucket keys are ISO-2 codes;
+        // map them back to human-readable country names for charts/tables.
+        // Unresolvable raw strings pass through untouched.
+        key: (lmicFilterOnGroupBy || isCountryGroupBy)
+          ? (getCountryByCode(key)?.name || key)
+          : key,
         value: aggregate(values, measure.aggregator),
       }))
       .sort((a, b) => b.value - a.value);
@@ -714,13 +734,20 @@ function toList(value) {
 // admins can flip a field's type and we want widgets to reflect that
 // without a server restart.
 async function resolveListFieldIds(source, tenantId, neededIds) {
-  if (!neededIds || neededIds.size === 0) return new Set();
+  const empty = { listFieldIds: new Set(), countryFieldIds: new Set() };
+  if (!neededIds || neededIds.size === 0) return empty;
   const fields = await getCustomFieldsForSource(source, tenantId);
-  const out = new Set();
+  const listFieldIds = new Set();
+  // Country-shaped custom fields (single-pick `country` or multi-pick
+  // `countries`): their group-by buckets are normalised through the
+  // shared country resolver so name/code storage variants merge.
+  const countryFieldIds = new Set();
   for (const f of fields) {
-    if (f.type === 'list' && neededIds.has(f.id)) out.add(f.id);
+    if (!neededIds.has(f.id)) continue;
+    if (f.type === 'list') listFieldIds.add(f.id);
+    if (f.fieldType === 'country' || f.fieldType === 'countries') countryFieldIds.add(f.id);
   }
-  return out;
+  return { listFieldIds, countryFieldIds };
 }
 
 // Bucket keys for a row whose group-by field is list-typed (multi-pick):
@@ -729,6 +756,26 @@ async function resolveListFieldIds(source, tenantId, neededIds) {
 // Exported for tests.
 export function listGroupKeys(raw) {
   const keys = [...new Set(toList(raw).map(normaliseKey))];
+  return keys.length > 0 ? keys : ['Unspecified'];
+}
+
+/**
+ * Bucket keys for a country-shaped group-by field (system `country`
+ * column or custom country/countries field) when NO LMIC filter is
+ * applied. Each element (list or scalar) is resolved to its ISO-2 code
+ * so mixed storage ("Kenya" vs "KE") merges into one bucket; the code is
+ * mapped back to a display name in the response. Values that don't
+ * resolve to a known country keep their raw string as the bucket key —
+ * no data is hidden. Empty/missing values fall into "Unspecified".
+ * Exported for tests.
+ */
+export function countryGroupKeys(raw) {
+  const keys = [];
+  for (const v of toList(raw)) {
+    const code = resolveCountryToIso2(v);
+    const key = code !== null ? code : normaliseKey(v);
+    if (!keys.includes(key)) keys.push(key);
+  }
   return keys.length > 0 ? keys : ['Unspecified'];
 }
 
