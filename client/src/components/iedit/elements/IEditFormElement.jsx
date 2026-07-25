@@ -5,6 +5,7 @@ import DOMPurify from 'dompurify';
 import FormRenderer from "../../forms/FormRenderer";
 import { base44 } from "@/api/base44Client";
 import { publicClient, getTenantSlugFromLocation } from "@/api/publicClient";
+import { useSubmissionIdempotencyKey } from "@/lib/useSubmissionIdempotencyKey";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Loader2, AlertCircle, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Upload, X, Image as ImageIcon, FolderOpen, Folder, Home, Search, FileText, CheckCircle2, Save, Copy, Check, AlertTriangle, LogIn, Lock } from "lucide-react";
@@ -1241,12 +1242,16 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     setFormValues(prev => ({ ...prev, [fieldId]: newValue }));
   }, []);
 
+  const { getIdempotencyKey, rotateIdempotencyKey } = useSubmissionIdempotencyKey();
+
   const submitFormMutation = useMutation({
     mutationFn: async (data) => {
       if (memberInfo) {
         return base44.entities.FormSubmission.create(data);
       } else {
-        return publicClient.submitForm(data);
+        // Public endpoint: include the per-session idempotency key so
+        // double-clicks/retries collapse to a single submission server-side.
+        return publicClient.submitForm({ ...data, idempotency_key: getIdempotencyKey() });
       }
     },
     onSuccess: async (submissionResult) => {
@@ -1372,6 +1377,9 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
         // Don't fail the submission if email fails
       }
       
+      // Successful submit: rotate the idempotency key so a legitimate NEW
+      // submission from this same page load isn't collapsed into this one.
+      rotateIdempotencyKey();
       setSubmitted(true);
       if (form?.redirect_url) {
         setTimeout(() => {

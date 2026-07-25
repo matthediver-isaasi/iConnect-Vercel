@@ -7,6 +7,7 @@ import { Loader2, ChevronLeft, ChevronRight, CheckCircle2 } from "lucide-react";
 import FormRenderer from "../components/forms/FormRenderer";
 import { toast, Toaster } from "sonner";
 import { publicClient } from "@/api/publicClient";
+import { useSubmissionIdempotencyKey } from "@/lib/useSubmissionIdempotencyKey";
 
 export default function EmbedFormPage() {
   const { slug } = useParams();
@@ -415,12 +416,16 @@ export default function EmbedFormPage() {
     }
   }, [form?.visibility_rules, formValues]);
 
+  const { getIdempotencyKey, rotateIdempotencyKey } = useSubmissionIdempotencyKey();
+
   const submitFormMutation = useMutation({
     mutationFn: (submissionData) => publicClient.submitForm({
       ...submissionData,
+      idempotency_key: getIdempotencyKey(),
       prefill_organization_id: prefillOrgId || null
     }),
     onSuccess: async () => {
+      rotateIdempotencyKey();
       setSubmitted(true);
       notifyParentResize();
       
