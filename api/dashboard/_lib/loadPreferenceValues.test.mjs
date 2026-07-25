@@ -117,6 +117,57 @@ test('listGroupKeys buckets a row under every list element', () => {
 });
 
 // ---------------------------------------------------------------------------
+// pruneLmicGroupKeys: when the group-by field is the SAME field carrying an
+// `lmic` filter, group keys must be pruned element-wise to LMIC-only ISO-2
+// codes — otherwise a row admitted by ANY LMIC element gets bucketed under
+// its non-LMIC countries too (e.g. "United Kingdom" appearing in an
+// LMIC-only country breakdown).
+import { pruneLmicGroupKeys } from './aggregation.js';
+
+test('pruneLmicGroupKeys keeps only LMIC elements as ISO-2 codes', () => {
+  const lmic = new Set(['KE', 'IN']);
+  assert.deepEqual(
+    pruneLmicGroupKeys(['Kenya', 'United Kingdom', 'India'], lmic),
+    ['KE', 'IN'],
+    'non-LMIC elements are pruned; keys are normalised codes',
+  );
+});
+
+test('pruneLmicGroupKeys merges name and code storage into one bucket', () => {
+  const lmic = new Set(['KE']);
+  assert.deepEqual(pruneLmicGroupKeys(['Kenya'], lmic), ['KE']);
+  assert.deepEqual(pruneLmicGroupKeys(['KE'], lmic), ['KE']);
+  assert.deepEqual(pruneLmicGroupKeys(['Kenya', 'KE'], lmic), ['KE'], 'variants dedupe');
+});
+
+test('pruneLmicGroupKeys yields no bucket (not Unspecified) when nothing survives', () => {
+  const lmic = new Set(['KE']);
+  assert.deepEqual(pruneLmicGroupKeys(['United Kingdom', 'France'], lmic), []);
+  assert.deepEqual(pruneLmicGroupKeys([], lmic), []);
+  assert.deepEqual(pruneLmicGroupKeys(null, lmic), []);
+});
+
+test('pruneLmicGroupKeys resolves World Bank-style name variants', () => {
+  const lmic = new Set(['CD', 'EG', 'LA', 'CI', 'KG']);
+  assert.deepEqual(
+    pruneLmicGroupKeys(
+      ['Congo, Dem. Rep.', 'Egypt, Arab Rep.', 'Lao PDR', 'Côte d\u2019Ivoire', 'Kyrgyz Republic'],
+      lmic,
+    ),
+    ['CD', 'EG', 'LA', 'CI', 'KG'],
+    'aliases and curly apostrophes resolve to ISO-2',
+  );
+});
+
+test('pruneLmicGroupKeys handles scalar values and empty LMIC sets', () => {
+  assert.deepEqual(pruneLmicGroupKeys('Kenya', new Set(['KE'])), ['KE'], 'scalar country field');
+  assert.deepEqual(pruneLmicGroupKeys('United Kingdom', new Set(['KE'])), []);
+  assert.deepEqual(pruneLmicGroupKeys(['Kenya'], new Set()), [], 'empty LMIC list yields no rows');
+  assert.deepEqual(pruneLmicGroupKeys(['Kenya'], null), []);
+  assert.deepEqual(pruneLmicGroupKeys(['Narnia'], new Set(['KE'])), [], 'unresolvable values do not bucket');
+});
+
+// ---------------------------------------------------------------------------
 // mapFieldType: 'countries' custom fields store arrays (multi-pick) exactly
 // like 'list' fields, so they MUST map to 'list' — otherwise group-by,
 // filters, and count-distinct silently fall back to first-element semantics

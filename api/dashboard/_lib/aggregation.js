@@ -1,7 +1,7 @@
 import { supabase } from '../../_lib/database.js';
 import { tenantFilter } from './permissions.js';
 import { getSourceDef, getCustomFieldsForSource } from './sources.js';
-import { resolveCountryToIso2 } from '../../../shared/countries.js';
+import { resolveCountryToIso2, getCountryByCode } from '../../../shared/countries.js';
 import { deriveRegionBucket, REGION_UNKNOWN } from '../../../shared/countryRegions.js';
 import {
   buildStageMaps,
@@ -311,12 +311,39 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
     && (groupBy.fieldKind === 'custom' || groupBy.kind === 'custom')
     && groupBy.fieldId
     && listFieldIds.has(groupBy.fieldId));
+  // When the SAME field carrying an `lmic` filter is also the group-by
+  // dimension, prune group keys element-wise: each element is resolved to
+  // its ISO-2 code and only tenant LMIC codes survive. The normalised code
+  // is used as the bucket key so mixed storage ("Kenya" vs "KE") collapses
+  // into one bucket; codes are mapped back to display names in the
+  // response. Rows whose list has no LMIC element create NO bucket (they
+  // still count toward the row-level total — the filter already admitted
+  // them because SOME element matched — but their non-LMIC countries must
+  // not appear as breakdown buckets, and they must not fall into
+  // "Unspecified" either).
+  const lmicFilterOnGroupBy = !!(groupBy
+    && !regionGroupBy
+    && Array.isArray(lmicCodes)
+    && lmicCodes.length > 0
+    && (config.filters || []).some(f => {
+        if (f.operator !== 'lmic') return false;
+        if (groupBy.fieldKind === 'custom' || groupBy.kind === 'custom') {
+          return f.fieldKind === 'custom' && !!groupBy.fieldId && f.fieldId === groupBy.fieldId;
+        }
+        return f.fieldKind === 'system' && !!groupBy.field && f.field === groupBy.field;
+      }));
+  const lmicGroupCodeSet = lmicFilterOnGroupBy ? new Set(lmicCodes) : null;
+  const lmicGroupKeys = raw => pruneLmicGroupKeys(raw, lmicGroupCodeSet);
   const groupKeysOf = groupBy
     ? (regionGroupBy
         ? row => [regionByRowId?.get(row.id) || REGION_UNKNOWN]
-        : (isListGroupBy
-            ? row => listGroupKeys((prefMap.get(row.id) || {})[groupBy.fieldId])
-            : row => [normaliseKey(valueFor(row, groupBy, prefMap))]))
+        : (lmicFilterOnGroupBy
+            ? ((groupBy.fieldKind === 'custom' || groupBy.kind === 'custom')
+                ? row => lmicGroupKeys((prefMap.get(row.id) || {})[groupBy.fieldId])
+                : row => lmicGroupKeys(row[groupBy.field]))
+            : (isListGroupBy
+                ? row => listGroupKeys((prefMap.get(row.id) || {})[groupBy.fieldId])
+                : row => [normaliseKey(valueFor(row, groupBy, prefMap))])))
     : null;
   // timeBucket on a custom date field reads through the preference map; for
   // system date columns it reads the value directly off the base row.
@@ -352,7 +379,12 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
       }
     });
     const grouped = Array.from(buckets.entries())
-      .map(([key, values]) => ({ key, value: aggregate(values, measure.aggregator) }))
+      .map(([key, values]) => ({
+        // LMIC-pruned bucket keys are normalised ISO-2 codes; map them
+        // back to human-readable country names for charts/tables.
+        key: lmicFilterOnGroupBy ? (getCountryByCode(key)?.name || key) : key,
+        value: aggregate(values, measure.aggregator),
+      }))
       .sort((a, b) => b.value - a.value);
     if (grouped.length > maxGroups) {
       throw new Error(
@@ -698,6 +730,28 @@ async function resolveListFieldIds(source, tenantId, neededIds) {
 export function listGroupKeys(raw) {
   const keys = [...new Set(toList(raw).map(normaliseKey))];
   return keys.length > 0 ? keys : ['Unspecified'];
+}
+
+/**
+ * Element-wise LMIC pruning for group-by keys. Used when the group-by
+ * field is the SAME field carrying an `lmic` filter: each element of the
+ * row's value (list or scalar) is resolved to its ISO-2 code and only
+ * codes present in the tenant's LMIC set survive. The normalised code is
+ * the bucket key, so mixed storage ("Kenya" vs "KE") merges into one
+ * bucket. Rows with no surviving element return [] — NO "Unspecified"
+ * bucket — because the row already passed the filter via some other
+ * element and its non-LMIC countries must not surface as buckets.
+ */
+export function pruneLmicGroupKeys(raw, lmicCodeSet) {
+  if (!lmicCodeSet || lmicCodeSet.size === 0) return [];
+  const codes = [];
+  for (const v of toList(raw)) {
+    const code = resolveCountryToIso2(v);
+    if (code !== null && lmicCodeSet.has(code) && !codes.includes(code)) {
+      codes.push(code);
+    }
+  }
+  return codes;
 }
 
 function normaliseKey(value) {

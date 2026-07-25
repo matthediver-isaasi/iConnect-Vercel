@@ -219,6 +219,65 @@ const NAME_TO_CODE = new Map(
   COUNTRIES.map(c => [c.name.trim().toUpperCase(), c.code]),
 );
 
+// Common alternative spellings seen in stored data that don't match the
+// canonical names above — notably World Bank publication style ("Congo,
+// Dem. Rep.", "Egypt, Arab Rep.", "Lao PDR") which tenants copy into
+// multi-country preference fields. Keys are uppercase; apostrophes are
+// normalised to straight quotes before lookup (see resolveCountryToIso2).
+const NAME_ALIASES = new Map(Object.entries({
+  'CONGO, DEM. REP.': 'CD',
+  'DEMOCRATIC REPUBLIC OF THE CONGO': 'CD',
+  'DR CONGO': 'CD',
+  'DRC': 'CD',
+  'CONGO, REP.': 'CG',
+  'REPUBLIC OF THE CONGO': 'CG',
+  'GAMBIA, THE': 'GM',
+  'THE GAMBIA': 'GM',
+  'BAHAMAS, THE': 'BS',
+  'THE BAHAMAS': 'BS',
+  'KYRGYZ REPUBLIC': 'KG',
+  'LAO PDR': 'LA',
+  "LAO PEOPLE'S DEMOCRATIC REPUBLIC": 'LA',
+  'EGYPT, ARAB REP.': 'EG',
+  'YEMEN, REP.': 'YE',
+  'VENEZUELA, RB': 'VE',
+  'IRAN, ISLAMIC REP.': 'IR',
+  "KOREA, DEM. PEOPLE'S REP.": 'KP',
+  'NORTH KOREA': 'KP',
+  'KOREA, REP.': 'KR',
+  'SOUTH KOREA': 'KR',
+  'RUSSIAN FEDERATION': 'RU',
+  'SYRIAN ARAB REPUBLIC': 'SY',
+  'TÜRKIYE': 'TR',
+  'TURKIYE': 'TR',
+  'VIET NAM': 'VN',
+  'MICRONESIA, FED. STS.': 'FM',
+  'ST. LUCIA': 'LC',
+  'ST. VINCENT AND THE GRENADINES': 'VC',
+  'ST. KITTS AND NEVIS': 'KN',
+  'SÃO TOMÉ AND PRÍNCIPE': 'ST',
+  'IVORY COAST': 'CI',
+  "COTE D'IVOIRE": 'CI',
+  'MYANMAR (BURMA)': 'MM',
+  'BURMA': 'MM',
+  'SWAZILAND': 'SZ',
+  'MACEDONIA': 'MK',
+  'TIMOR LESTE': 'TL',
+  'EAST TIMOR': 'TL',
+  'CZECH REPUBLIC': 'CZ',
+  'UNITED STATES OF AMERICA': 'US',
+  'USA': 'US',
+  'UNITED KINGDOM OF GREAT BRITAIN AND NORTHERN IRELAND': 'GB',
+  'UK': 'GB',
+  'BOLIVIA (PLURINATIONAL STATE OF)': 'BO',
+  'TANZANIA, UNITED REP.': 'TZ',
+  'UNITED REPUBLIC OF TANZANIA': 'TZ',
+  'MOLDOVA, REP.': 'MD',
+  'REPUBLIC OF MOLDOVA': 'MD',
+  'BRUNEI DARUSSALAM': 'BN',
+  'CAPE VERDE': 'CV',
+}));
+
 /**
  * Resolve an arbitrary stored country value to its uppercase ISO-3166-1
  * alpha-2 code, or `null` if it can't be matched.
@@ -236,7 +295,10 @@ export function resolveCountryToIso2(value) {
   const raw = typeof value === 'string' ? value : String(value);
   const trimmed = raw.trim();
   if (!trimmed) return null;
-  const upper = trimmed.toUpperCase();
+  // Normalise typographic apostrophes to straight quotes so values like
+  // "Côte d’Ivoire" (curly, as pasted from documents) match the canonical
+  // "Côte d'Ivoire" entry.
+  const upper = trimmed.toUpperCase().replace(/[\u2018\u2019\u02BC]/g, "'");
   if (/^[A-Z]{2}$/.test(upper) && CODE_SET.has(upper)) return upper;
-  return NAME_TO_CODE.get(upper) || null;
+  return NAME_TO_CODE.get(upper) || NAME_ALIASES.get(upper) || null;
 }
