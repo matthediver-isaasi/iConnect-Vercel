@@ -1420,7 +1420,10 @@ export default async function handler(req, res) {
             }
             if (existing) {
               console.log('[Entity POST] FormSubmission duplicate idempotency key — returning original row', existing.id);
-              return res.status(201).json(existing);
+              // `duplicate: true` marker lets the client skip re-running
+              // post-submit side effects (confirmation emails, entity
+              // pipelines) for the collapsed second attempt.
+              return res.status(201).json({ ...existing, duplicate: true });
             }
           }
         } else if ('idempotency_key' in sanitizedBody) {
@@ -1608,7 +1611,9 @@ export default async function handler(req, res) {
             const { data: winner, error: winnerErr } = await winnerLookup.maybeSingle();
             if (winner) {
               console.log('[Entity POST] FormSubmission concurrent duplicate (unique violation) — returning original row', winner.id);
-              return res.status(201).json(winner);
+              // Same `duplicate: true` marker as the pre-check branch so the
+              // client skips duplicate post-submit side effects.
+              return res.status(201).json({ ...winner, duplicate: true });
             }
             console.error('[Entity POST] FormSubmission unique violation but original row not found:', winnerErr);
             return res.status(500).json({ error: 'Failed to save submission' });

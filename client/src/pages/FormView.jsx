@@ -762,6 +762,14 @@ export default function FormViewPage({ slug: slugProp = null }) {
   // every attempt, rotated only after a successful submit).
   const { getIdempotencyKey, rotateIdempotencyKey } = useSubmissionIdempotencyKey();
 
+  // Per-submission side-effect runs (emails, field mappings), keyed by
+  // submission id. When the server collapses a double submission and returns
+  // the SAME row to both callbacks, only the first callback to claim the id
+  // runs the side effects; the other awaits that run before showing the
+  // success UI/redirect. Exactly-once: never twice (duplicate emails) and
+  // never zero times (duplicate response arriving before the original one).
+  const submissionSideEffectRunsRef = useRef(new Map());
+
   const submitFormMutation = useMutation({
     mutationFn: async (submissionData) => {
       // Use public API endpoint that doesn't require authentication
@@ -786,6 +794,43 @@ export default function FormViewPage({ slug: slugProp = null }) {
       return response.json();
     },
     onSuccess: async (submissionResult) => {
+      const submissionId = submissionResult?.id || null;
+
+      // Finalize the UI exactly once per callback: rotate the idempotency
+      // key so a legitimate NEW submission from this page load isn't
+      // collapsed into this one, then show success/redirect.
+      const finalize = () => {
+        queryClient.invalidateQueries({ queryKey: ['form-by-slug'] });
+        rotateIdempotencyKey();
+        setSubmitted(true);
+        const redirectTarget = resolveRedirectTarget(form, formValues);
+        if (redirectTarget) {
+          setTimeout(() => {
+            window.location.href = redirectTarget;
+          }, 2000);
+        }
+      };
+
+      // Exactly-once side effects: when the server collapses a double
+      // submission, both callbacks receive the SAME submission id (the
+      // second with a `duplicate: true` marker). Whichever callback claims
+      // the id first runs the side effects; the other awaits that run so
+      // the redirect can't fire while the email call is still in flight.
+      const existingRun = submissionId
+        ? submissionSideEffectRunsRef.current.get(submissionId)
+        : null;
+      if (existingRun) {
+        console.log('[FormView] Duplicate submission collapsed — awaiting original side effects for', submissionId);
+        try {
+          await existingRun;
+        } catch {
+          // Side-effect failures never block the success UI.
+        }
+        finalize();
+        return;
+      }
+
+      const runSideEffects = async () => {
       let createdMemberId = submissionResult?.created_member_id || null;
       let createdOrganizationId = submissionResult?.created_organization_id || null;
       
@@ -857,19 +902,20 @@ export default function FormViewPage({ slug: slugProp = null }) {
       } catch (error) {
         console.error('[FormView] Error sending submission email:', error);
       }
-      
-      queryClient.invalidateQueries({ queryKey: ['form-by-slug'] });
-      // Successful submit: rotate the idempotency key so a legitimate NEW
-      // submission from this same page load isn't collapsed into this one.
-      rotateIdempotencyKey();
-      setSubmitted(true);
-      
-      const redirectTarget = resolveRedirectTarget(form, formValues);
-      if (redirectTarget) {
-        setTimeout(() => {
-          window.location.href = redirectTarget;
-        }, 2000);
+      };
+
+      // Claim the submission id BEFORE awaiting so a concurrently-arriving
+      // duplicate callback finds the run and awaits it instead of re-running.
+      const run = runSideEffects();
+      if (submissionId) {
+        submissionSideEffectRunsRef.current.set(submissionId, run);
       }
+      try {
+        await run;
+      } catch (error) {
+        console.error('[FormView] Post-submit side effects failed:', error);
+      }
+      finalize();
     },
     onError: (error) => {
       console.error('[FormView] Submit error:', error);

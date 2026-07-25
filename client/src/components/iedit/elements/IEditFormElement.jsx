@@ -1244,6 +1244,15 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
 
   const { getIdempotencyKey, rotateIdempotencyKey } = useSubmissionIdempotencyKey();
 
+  // Per-submission side-effect runs (emails, entity pipelines, field
+  // mappings), keyed by submission id. When the server collapses a double
+  // submission and returns the SAME row to both callbacks, only the first
+  // callback to claim the id runs the side effects; the other awaits that
+  // run before showing the success UI/redirect. This guarantees the side
+  // effects run exactly once — never twice (duplicate emails) and never
+  // zero times (duplicate response arriving before the original one).
+  const submissionSideEffectRunsRef = useRef(new Map());
+
   const submitFormMutation = useMutation({
     mutationFn: async (data) => {
       if (memberInfo) {
@@ -1259,137 +1268,181 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       }
     },
     onSuccess: async (submissionResult) => {
-      // Track created member/org IDs from process-application for email placeholders
-      let createdMemberId = null;
-      let createdOrganizationId = null;
-      
-      // Process entity pipelines if configured (create/update member/org entities)
-      // Only for authenticated users - unauthenticated submissions are processed server-side by form-submission.js
-      const hasEntityPipelines = (form?.entity_pipelines?.members?.length > 0) || (form?.entity_pipelines?.organisations?.length > 0);
-      if (memberInfo && hasEntityPipelines) {
-        try {
-          const response = await fetch('/api/forms/process-application', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              form_id: form.id,
-              form_values: formValues,
-              fields: form.fields,
-              field_mappings: form.field_mappings || [],
-              application_level: form.application_level || 'member',
-              create_entity_type: form.create_entity_type || 'member',
-              submission_id: submissionResult?.id,
-              prefill_organization_id: effectiveOrganizationInfo?.id || null,
-              role_id: form.default_member_role_id || null,
-              // Pass entity pipelines configuration (unified structure)
-              entity_pipelines: form.entity_pipelines || { members: [], organisations: [] },
-              // Legacy fallback fields for backward compatibility
-              member_entity_action: form.member_entity_action || 'none',
-              organization_entity_action: form.organization_entity_action || 'none',
-              additional_member_creations: form.additional_member_creations || []
-            })
-          });
-          if (response.ok) {
-            const result = await response.json();
-            console.log('[IEditFormElement] Application processed:', result);
-            createdMemberId = result.created_member_id || null;
-            createdOrganizationId = result.created_organization_id || null;
-          } else {
-            const errorData = await response.json();
-            console.error('[IEditFormElement] Application processing failed:', errorData);
-            if (response.status === 409 && (errorData.code === 'UNIQUENESS_CONFLICT' || errorData.conflicts)) {
-              const conflictMessages = (errorData.conflicts || []).map(c => c.message || `${c.field_label}: Duplicate value`);
-              const errorMsg = conflictMessages.length > 0 ? conflictMessages : [errorData.error || 'A record with this information already exists'];
-              setValidationErrors(errorMsg);
-              toast.error(errorMsg.join('. '));
-              return;
-            }
-            if (errorData.code === 'ROLE_CAPACITY_EXCEEDED' || errorData.code === 'ROLE_CAPACITY_MISSING_ORG') {
-              toast.error(errorData.error || 'This role has reached its maximum capacity.');
-              return;
-            }
-          }
-        } catch (error) {
-          console.error('[IEditFormElement] Error processing application:', error);
+      const submissionId = submissionResult?.id || null;
+
+      // Finalize the UI exactly once per callback: rotate the idempotency
+      // key so a legitimate NEW submission from this page load isn't
+      // collapsed into this one, then show success/redirect.
+      const finalize = () => {
+        rotateIdempotencyKey();
+        setSubmitted(true);
+        if (form?.redirect_url) {
+          setTimeout(() => {
+            window.location.href = form.redirect_url;
+          }, 2000);
         }
+      };
+
+      // Exactly-once side effects: when the server collapses a double
+      // submission, both callbacks receive the SAME submission id (the
+      // second with a `duplicate: true` marker). Whichever callback claims
+      // the id first runs the side effects; the other awaits that run so
+      // the redirect can't fire while emails/pipelines are still in flight.
+      const existingRun = submissionId
+        ? submissionSideEffectRunsRef.current.get(submissionId)
+        : null;
+      if (existingRun) {
+        console.log('[IEditFormElement] Duplicate submission collapsed — awaiting original side effects for', submissionId);
+        let ok = true;
+        try {
+          ok = await existingRun;
+        } catch {
+          // Side-effect failures never block the success UI (matching the
+          // original inline behaviour).
+        }
+        if (ok !== false) finalize();
+        return;
       }
-      // For authenticated users with custom field mappings (non-application forms)
-      else if (memberInfo) {
-        const hasMappings = form?.fields?.some(f => f.custom_field_id);
-        if (hasMappings) {
+
+      const runSideEffects = async () => {
+        // Track created member/org IDs from process-application for email placeholders
+        let createdMemberId = null;
+        let createdOrganizationId = null;
+
+        // Process entity pipelines if configured (create/update member/org entities)
+        // Only for authenticated users - unauthenticated submissions are processed server-side by form-submission.js
+        const hasEntityPipelines = (form?.entity_pipelines?.members?.length > 0) || (form?.entity_pipelines?.organisations?.length > 0);
+        if (memberInfo && hasEntityPipelines) {
           try {
-            const response = await fetch('/api/forms/process-field-mappings', {
+            const response = await fetch('/api/forms/process-application', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
+                form_id: form.id,
                 form_values: formValues,
-                fields: form.fields
+                fields: form.fields,
+                field_mappings: form.field_mappings || [],
+                application_level: form.application_level || 'member',
+                create_entity_type: form.create_entity_type || 'member',
+                submission_id: submissionResult?.id,
+                prefill_organization_id: effectiveOrganizationInfo?.id || null,
+                role_id: form.default_member_role_id || null,
+                // Pass entity pipelines configuration (unified structure)
+                entity_pipelines: form.entity_pipelines || { members: [], organisations: [] },
+                // Legacy fallback fields for backward compatibility
+                member_entity_action: form.member_entity_action || 'none',
+                organization_entity_action: form.organization_entity_action || 'none',
+                additional_member_creations: form.additional_member_creations || []
               })
             });
             if (response.ok) {
-              console.log('[IEditFormElement] CRM field mappings processed');
-            } else if (response.status === 401) {
-              console.log('[IEditFormElement] Field mappings skipped - user not authenticated');
+              const result = await response.json();
+              console.log('[IEditFormElement] Application processed:', result);
+              createdMemberId = result.created_member_id || null;
+              createdOrganizationId = result.created_organization_id || null;
+            } else {
+              const errorData = await response.json();
+              console.error('[IEditFormElement] Application processing failed:', errorData);
+              if (response.status === 409 && (errorData.code === 'UNIQUENESS_CONFLICT' || errorData.conflicts)) {
+                const conflictMessages = (errorData.conflicts || []).map(c => c.message || `${c.field_label}: Duplicate value`);
+                const errorMsg = conflictMessages.length > 0 ? conflictMessages : [errorData.error || 'A record with this information already exists'];
+                setValidationErrors(errorMsg);
+                toast.error(errorMsg.join('. '));
+                return false;
+              }
+              if (errorData.code === 'ROLE_CAPACITY_EXCEEDED' || errorData.code === 'ROLE_CAPACITY_MISSING_ORG') {
+                toast.error(errorData.error || 'This role has reached its maximum capacity.');
+                return false;
+              }
             }
           } catch (error) {
-            console.error('[IEditFormElement] Error processing field mappings:', error);
+            console.error('[IEditFormElement] Error processing application:', error);
           }
         }
-      }
-      
-      if (!createdMemberId && submissionResult?.created_member_id) {
-        createdMemberId = submissionResult.created_member_id;
-      }
-      if (!createdOrganizationId && submissionResult?.created_organization_id) {
-        createdOrganizationId = submissionResult.created_organization_id;
-      }
-
-      // Send submission email if configured
-      // ALWAYS call the server endpoint for diagnostic logging (server decides if email is configured)
-      try {
-        console.log('[IEditFormElement] Calling email endpoint for form submission...');
-        console.log('[IEditFormElement] Passing createdMemberId:', createdMemberId, 'createdOrganizationId:', createdOrganizationId);
-        const emailPayload = {
-          form_id: form.id,
-          submission_id: submissionResult?.id,
-          form_values: formValues,
-          fields: form.fields,
-          // Pass created member/org IDs for placeholder resolution
-          created_member_id: createdMemberId,
-          created_organization_id: createdOrganizationId,
-          // Pass client-side form data for server-side diagnostic logging
-          _debug_form_email_config: {
-            hasSubmissionEmails: !!form?.submission_emails,
-            submissionEmailsCount: form?.submission_emails?.length || 0,
-            submissionEmailsValue: form?.submission_emails || null,
-            legacyTemplateId: form?.submission_email_template_id || null,
-            legacyRecipient: form?.submission_email_recipient || null
+        // For authenticated users with custom field mappings (non-application forms)
+        else if (memberInfo) {
+          const hasMappings = form?.fields?.some(f => f.custom_field_id);
+          if (hasMappings) {
+            try {
+              const response = await fetch('/api/forms/process-field-mappings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  form_values: formValues,
+                  fields: form.fields
+                })
+              });
+              if (response.ok) {
+                console.log('[IEditFormElement] CRM field mappings processed');
+              } else if (response.status === 401) {
+                console.log('[IEditFormElement] Field mappings skipped - user not authenticated');
+              }
+            } catch (error) {
+              console.error('[IEditFormElement] Error processing field mappings:', error);
+            }
           }
-        };
-        console.log('[IEditFormElement] Email payload:', JSON.stringify(emailPayload, null, 2));
-        
-        const emailResponse = await fetch('/api/forms/send-submission-email', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(emailPayload)
-        });
-        console.log('[IEditFormElement] Email response status:', emailResponse.status);
-        const emailResult = await emailResponse.json();
-        console.log('[IEditFormElement] Submission email result:', emailResult);
+        }
+
+        if (!createdMemberId && submissionResult?.created_member_id) {
+          createdMemberId = submissionResult.created_member_id;
+        }
+        if (!createdOrganizationId && submissionResult?.created_organization_id) {
+          createdOrganizationId = submissionResult.created_organization_id;
+        }
+
+        // Send submission email if configured
+        // ALWAYS call the server endpoint for diagnostic logging (server decides if email is configured)
+        try {
+          console.log('[IEditFormElement] Calling email endpoint for form submission...');
+          console.log('[IEditFormElement] Passing createdMemberId:', createdMemberId, 'createdOrganizationId:', createdOrganizationId);
+          const emailPayload = {
+            form_id: form.id,
+            submission_id: submissionResult?.id,
+            form_values: formValues,
+            fields: form.fields,
+            // Pass created member/org IDs for placeholder resolution
+            created_member_id: createdMemberId,
+            created_organization_id: createdOrganizationId,
+            // Pass client-side form data for server-side diagnostic logging
+            _debug_form_email_config: {
+              hasSubmissionEmails: !!form?.submission_emails,
+              submissionEmailsCount: form?.submission_emails?.length || 0,
+              submissionEmailsValue: form?.submission_emails || null,
+              legacyTemplateId: form?.submission_email_template_id || null,
+              legacyRecipient: form?.submission_email_recipient || null
+            }
+          };
+          console.log('[IEditFormElement] Email payload:', JSON.stringify(emailPayload, null, 2));
+
+          const emailResponse = await fetch('/api/forms/send-submission-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(emailPayload)
+          });
+          console.log('[IEditFormElement] Email response status:', emailResponse.status);
+          const emailResult = await emailResponse.json();
+          console.log('[IEditFormElement] Submission email result:', emailResult);
+        } catch (error) {
+          console.error('[IEditFormElement] Error sending submission email:', error);
+          // Don't fail the submission if email fails
+        }
+        return true;
+      };
+
+      // Claim the submission id BEFORE awaiting so a concurrently-arriving
+      // duplicate callback finds the run and awaits it instead of re-running.
+      const run = runSideEffects();
+      if (submissionId) {
+        submissionSideEffectRunsRef.current.set(submissionId, run);
+      }
+      let ok = true;
+      try {
+        ok = await run;
       } catch (error) {
-        console.error('[IEditFormElement] Error sending submission email:', error);
-        // Don't fail the submission if email fails
+        console.error('[IEditFormElement] Post-submit side effects failed:', error);
       }
-      
-      // Successful submit: rotate the idempotency key so a legitimate NEW
-      // submission from this same page load isn't collapsed into this one.
-      rotateIdempotencyKey();
-      setSubmitted(true);
-      if (form?.redirect_url) {
-        setTimeout(() => {
-          window.location.href = form.redirect_url;
-        }, 2000);
-      }
+      if (ok === false) return; // validation-style failure already surfaced to the user
+      finalize();
     },
     onError: (error) => {
       console.error("Form submission error:", error);
