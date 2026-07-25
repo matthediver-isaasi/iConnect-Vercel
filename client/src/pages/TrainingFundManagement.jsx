@@ -294,6 +294,8 @@ export default function TrainingFundManagementPage() {
       filtered = filtered.filter(org => (org.training_fund_balance || 0) > 0);
     } else if (balanceFilter === "zero_balance") {
       filtered = filtered.filter(org => (org.training_fund_balance || 0) === 0);
+    } else if (balanceFilter === "with_pending") {
+      filtered = filtered.filter(org => (org.training_fund_pending_balance || 0) > 0);
     }
     
     return filtered.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
@@ -803,6 +805,12 @@ export default function TrainingFundManagementPage() {
     const orgBalance = Number(
       orgTransactionsData?.current_balance ?? selectedOrg.training_fund_balance ?? 0
     );
+    const orgPending = Number(
+      orgTransactionsData?.pending_balance ?? selectedOrg.training_fund_pending_balance ?? 0
+    );
+    const pendingPurchases = Array.isArray(orgTransactionsData?.pending_purchases)
+      ? orgTransactionsData.pending_purchases
+      : [];
     
     return (
       <div className="min-h-screen p-4 md:p-8">
@@ -830,6 +838,12 @@ export default function TrainingFundManagementPage() {
                 <p className={`text-3xl font-bold ${orgBalance > 0 ? 'text-green-600' : 'text-slate-400'}`}>
                   £{orgBalance.toFixed(2)}
                 </p>
+                {orgPending > 0 && (
+                  <div className="flex items-center justify-end gap-1 text-sm text-amber-700 mt-1" data-testid="text-org-pending-balance">
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>£{orgPending.toFixed(2)} pending (not yet spendable)</span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -853,6 +867,70 @@ export default function TrainingFundManagementPage() {
               </div>
             </CardContent>
           </Card>
+
+          {pendingPurchases.length > 0 && (
+            <Card className="border-amber-200 shadow-sm mb-6" data-testid="card-pending-purchases">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2 text-amber-800">
+                  <Clock className="w-4 h-4" />
+                  Pending purchases — awaiting payment
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <p className="text-sm text-slate-500 mb-3">
+                  These purchases have been invoiced but not yet paid. The money is not spendable until the invoice is paid.
+                </p>
+                <div className="space-y-2">
+                  {pendingPurchases.map((p) => {
+                    const invoiceNumber = p.accounting_invoice_number || p.xero_invoice_number || null;
+                    const invoiceUrl = typeof p.online_invoice_url === 'string' && /^https?:\/\//i.test(p.online_invoice_url)
+                      ? p.online_invoice_url
+                      : null;
+                    return (
+                      <div
+                        key={p.id}
+                        className="flex items-start justify-between gap-4 rounded-md border border-slate-200 p-3 flex-wrap"
+                        data-testid={`row-pending-purchase-${p.id}`}
+                      >
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap mb-1">
+                            <Badge className="bg-amber-100 text-amber-800">
+                              {p.payment_method === 'invoice' ? 'Invoice' : 'Card'}
+                            </Badge>
+                            <span className="text-sm text-slate-500">
+                              {p.created_date ? format(new Date(p.created_date), 'dd MMM yyyy') : 'Unknown date'}
+                            </span>
+                          </div>
+                          <div className="text-sm text-slate-600 space-x-3">
+                            {invoiceNumber && (
+                              invoiceUrl ? (
+                                <a
+                                  href={invoiceUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-600 hover:underline"
+                                  data-testid={`link-pending-invoice-${p.id}`}
+                                >
+                                  Invoice {invoiceNumber}
+                                </a>
+                              ) : (
+                                <span>Invoice {invoiceNumber}</span>
+                              )
+                            )}
+                            {p.purchase_order_number && <span>PO: {p.purchase_order_number}</span>}
+                            {!p.purchase_order_number && p.po_to_follow && <span>PO to follow</span>}
+                          </div>
+                        </div>
+                        <p className="text-lg font-semibold text-amber-700 flex-shrink-0" data-testid={`text-pending-amount-${p.id}`}>
+                          £{(Number(p.amount) || 0).toFixed(2)}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {reconciliation && (
             <Card className="border-slate-200 shadow-sm mb-6" data-testid="card-reconciliation">
@@ -1193,7 +1271,13 @@ export default function TrainingFundManagementPage() {
             </CardContent>
           </Card>
 
-          <Card className="border-slate-200 shadow-sm">
+          <Card
+            className={`border-slate-200 shadow-sm cursor-pointer hover-elevate ${balanceFilter === 'with_pending' ? 'ring-2 ring-amber-400' : ''}`}
+            onClick={() => setBalanceFilter(prev => prev === 'with_pending' ? 'all' : 'with_pending')}
+            role="button"
+            aria-pressed={balanceFilter === 'with_pending'}
+            data-testid="card-pending-funds"
+          >
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-amber-100 rounded-lg">
@@ -1202,6 +1286,9 @@ export default function TrainingFundManagementPage() {
                 <div>
                   <p className="text-sm text-slate-500">Pending Funds</p>
                   <p className="text-2xl font-bold text-slate-900" data-testid="text-total-pending">£{totalPending.toFixed(2)}</p>
+                  <p className="text-xs text-slate-400">
+                    {balanceFilter === 'with_pending' ? 'Showing orgs with pending funds — click to clear' : 'Click to see which organisations'}
+                  </p>
                 </div>
               </div>
             </CardContent>
@@ -1258,6 +1345,7 @@ export default function TrainingFundManagementPage() {
                     <SelectItem value="all">All Organisations</SelectItem>
                     <SelectItem value="with_balance">With Balance</SelectItem>
                     <SelectItem value="zero_balance">Zero Balance</SelectItem>
+                    <SelectItem value="with_pending">With Pending Funds</SelectItem>
                   </SelectContent>
                 </Select>
                 <div className="text-sm text-slate-500">

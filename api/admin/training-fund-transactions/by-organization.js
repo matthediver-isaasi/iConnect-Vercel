@@ -33,7 +33,7 @@ export default async function handler(req, res) {
   try {
     const { data: org, error: orgErr } = await supabase
       .from('organization')
-      .select('id, tenant_id, training_fund_balance')
+      .select('id, tenant_id, training_fund_balance, training_fund_pending_balance')
       .eq('id', organizationId)
       .maybeSingle();
     if (orgErr) {
@@ -66,9 +66,26 @@ export default async function handler(req, res) {
       from += pageSize;
     }
 
+    // Purchases still awaiting payment (invoiced but not yet credited).
+    // These make up the org's pending balance and are not spendable yet.
+    const { data: pendingPurchases, error: pendingErr } = await supabase
+      .from('training_fund_purchase')
+      .select('id, organization_id, amount, payment_method, purchase_order_number, po_to_follow, accounting_provider, accounting_invoice_number, xero_invoice_number, online_invoice_url, created_date')
+      .eq('tenant_id', tenantId)
+      .eq('organization_id', organizationId)
+      .eq('status', 'pending')
+      .order('created_date', { ascending: false })
+      .limit(500);
+    if (pendingErr) {
+      console.error('[TrainingFundByOrg] Pending purchases query error:', pendingErr);
+      return res.status(500).json({ error: 'Failed to fetch pending purchases' });
+    }
+
     return res.status(200).json({
       organization_id: organizationId,
       current_balance: org.training_fund_balance || 0,
+      pending_balance: org.training_fund_pending_balance || 0,
+      pending_purchases: pendingPurchases || [],
       transactions
     });
   } catch (err) {
