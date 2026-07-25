@@ -134,10 +134,11 @@ export default function TicketConversation({
 
   const { data: responses = [], isLoading } = useQuery({
     queryKey: responsesKey,
-    queryFn: async () => {
-      const all = await base44.entities.SupportTicketResponse.list("created_date");
-      return all.filter((r) => r.ticket_id === ticketId);
-    },
+    queryFn: () =>
+      base44.entities.SupportTicketResponse.list({
+        filter: { ticket_id: ticketId },
+        sort: { created_date: "asc" },
+      }),
     enabled: !!ticketId,
   });
 

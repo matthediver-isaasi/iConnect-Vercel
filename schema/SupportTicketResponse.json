@@ -23,6 +23,11 @@
         "type": "string",
         "description": "Name of the person who responded"
       },
+      "created_date": {
+        "type": "string",
+        "format": "date-time",
+        "description": "Timestamp when the response was created (DB default now())"
+      },
       "attachments": {
         "type": "array",
         "items": {
