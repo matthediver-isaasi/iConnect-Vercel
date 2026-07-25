@@ -25,6 +25,7 @@ import { Bug, Lightbulb, HelpCircle, Mail, CheckCircle, AlertCircle, Upload, X, 
 import { toast } from "sonner";
 import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { format } from "date-fns";
+import TicketConversation from "@/components/support/TicketConversation";
 
 export const typeIcons = {
   bug: Bug,
@@ -298,9 +299,9 @@ export function NewSupportTicketDialog({
 }
 
 /**
- * View Support Ticket dialog: full ticket details, admin/user conversation
- * thread, and a reply box (hidden when the ticket is closed). Owns the
- * responses query and the reply mutation.
+ * View Support Ticket dialog: ticket details plus the shared chat-style
+ * conversation (TicketConversation). Members can always reply — replying to a
+ * resolved/closed ticket reopens it.
  */
 export function ViewSupportTicketDialog({
   ticket,
@@ -308,45 +309,13 @@ export function ViewSupportTicketDialog({
   memberInfo,
   supportLevels,
   supportAreas,
+  ticketQueryKeys,
+  onTicketUpdated,
 }) {
-  const queryClient = useQueryClient();
-  const [replyMessage, setReplyMessage] = useState("");
-
-  // Clear any drafted reply when switching tickets.
-  useEffect(() => {
-    setReplyMessage("");
-  }, [ticket?.id]);
-
-  const { data: responses = [] } = useQuery({
-    queryKey: ["support-responses", ticket?.id],
-    queryFn: async () => {
-      const allResponses = await base44.entities.SupportTicketResponse.list("created_date");
-      return allResponses.filter((r) => r.ticket_id === ticket?.id);
-    },
-    enabled: !!ticket,
-  });
-
-  const addResponseMutation = useMutation({
-    mutationFn: (responseData) => base44.entities.SupportTicketResponse.create(responseData),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["support-responses"] });
-      toast.success("Reply added");
-      setReplyMessage("");
-    },
-    onError: () => toast.error("Failed to add reply"),
-  });
-
-  const handleAddReply = () => {
-    if (!replyMessage.trim()) return;
-
-    addResponseMutation.mutate({
-      ticket_id: ticket.id,
-      message: replyMessage,
-      is_admin_response: false,
-      responder_email: memberInfo.email,
-      responder_name: `${memberInfo.first_name} ${memberInfo.last_name}`,
-    });
-  };
+  const resolvedTicketQueryKeys = useMemo(
+    () => ticketQueryKeys || [["support-tickets", memberInfo?.email]],
+    [ticketQueryKeys, memberInfo?.email]
+  );
 
   return (
     <Dialog open={!!ticket} onOpenChange={() => onClose()}>
@@ -390,34 +359,6 @@ export function ViewSupportTicketDialog({
             </DialogHeader>
 
             <div className="space-y-6">
-              {/* Original Description */}
-              <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
-                <p className="text-sm text-slate-700 whitespace-pre-wrap">{ticket.description}</p>
-              </div>
-
-              {/* Attachments */}
-              {ticket.attachments && ticket.attachments.length > 0 && (
-                <div className="space-y-2">
-                  <h3 className="font-semibold text-slate-900 text-sm">Attachments</h3>
-                  <div className="grid md:grid-cols-2 gap-2">
-                    {ticket.attachments.map((url, index) => (
-                      <a
-                        key={index}
-                        href={url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-2 p-3 bg-slate-50 rounded border border-slate-200 hover:bg-slate-100 transition-colors"
-                      >
-                        <Upload className="w-4 h-4 text-slate-400" />
-                        <span className="text-sm text-blue-600 hover:underline truncate">
-                          {url.split('/').pop()}
-                        </span>
-                      </a>
-                    ))}
-                  </div>
-                </div>
-              )}
-
               {/* Resolution Notes */}
               {ticket.resolution_notes && (
                 <div className="bg-green-50 rounded-lg p-4 border border-green-200">
@@ -429,64 +370,13 @@ export function ViewSupportTicketDialog({
                 </div>
               )}
 
-              {/* Conversation Thread */}
-              {responses.length > 0 && (
-                <div className="space-y-4">
-                  <h3 className="font-semibold text-slate-900">Conversation</h3>
-                  {responses.map((response) => (
-                    <div
-                      key={response.id}
-                      className={`rounded-lg p-4 ${
-                        response.is_admin_response
-                          ? 'bg-blue-50 border border-blue-200'
-                          : 'bg-slate-50 border border-slate-200'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="font-semibold text-sm text-slate-900">
-                          {response.responder_name}
-                          {response.is_admin_response && (
-                            <Badge className="ml-2 bg-blue-600 text-white">Developer</Badge>
-                          )}
-                        </span>
-                        <span className="text-xs text-slate-500">
-                          {format(new Date(response.created_date), 'MMM d, h:mm a')}
-                        </span>
-                      </div>
-                      <p className="text-sm text-slate-700 whitespace-pre-wrap">{response.message}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Reply Section (only if not closed) */}
-              {ticket.status !== 'closed' && (
-                <div className="space-y-2">
-                  <Label>Add Reply</Label>
-                  <Textarea
-                    placeholder="Type your reply..."
-                    rows={4}
-                    value={replyMessage}
-                    onChange={(e) => setReplyMessage(e.target.value)}
-                  />
-                  <div className="flex justify-end">
-                    <Button
-                      onClick={handleAddReply}
-                      disabled={addResponseMutation.isPending || !replyMessage.trim()}
-                      className="bg-blue-600 hover:bg-blue-700"
-                    >
-                      Send Reply
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {ticket.status === 'closed' && (
-                <div className="flex items-center gap-2 text-sm text-slate-600 bg-slate-100 p-3 rounded-lg">
-                  <AlertCircle className="w-4 h-4" />
-                  This ticket is closed. Contact support if you need to reopen it.
-                </div>
-              )}
+              {/* Conversation */}
+              <TicketConversation
+                ticket={ticket}
+                memberInfo={memberInfo}
+                ticketQueryKeys={resolvedTicketQueryKeys}
+                onTicketUpdated={onTicketUpdated}
+              />
             </div>
           </>
         )}

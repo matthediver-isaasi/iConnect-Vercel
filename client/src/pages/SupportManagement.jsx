@@ -17,6 +17,7 @@ import { toast } from "sonner";
 import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { format, formatDistanceToNow } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import TicketConversation from "@/components/support/TicketConversation";
 import {
   SUPPORT_LEVELS_KEY,
   SUPPORT_INSTRUCTIONS_KEY,
@@ -84,10 +85,7 @@ export default function SupportManagementPage() {
   const [severityFilter, setSeverityFilter] = useState("all");
   const [areaFilter, setAreaFilter] = useState("all");
   const [selectedTicket, setSelectedTicket] = useState(null);
-  const [replyMessage, setReplyMessage] = useState("");
   const [updateData, setUpdateData] = useState({});
-  const [uploadingImages, setUploadingImages] = useState(false);
-  const [responseAttachments, setResponseAttachments] = useState([]);
   const [inboxOpen, setInboxOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [levelsDraft, setLevelsDraft] = useState([]);
@@ -169,14 +167,16 @@ export default function SupportManagementPage() {
     enabled: hasAccess && isAccessReady
   });
 
-  const { data: responses = [] } = useQuery({
-    queryKey: ['support-responses', selectedTicket?.id],
-    queryFn: async () => {
-      const allResponses = await base44.entities.SupportTicketResponse.list("created_date");
-      return allResponses.filter(r => r.ticket_id === selectedTicket?.id);
-    },
-    enabled: !!selectedTicket
-  });
+  // Keep the open ticket dialog in sync with live ticket updates (realtime
+  // invalidations refresh the tickets list; mirror changes into selectedTicket).
+  React.useEffect(() => {
+    if (!selectedTicket) return;
+    const fresh = tickets.find((t) => t.id === selectedTicket.id);
+    if (fresh && fresh !== selectedTicket) {
+      setSelectedTicket((prev) => (prev && prev.id === fresh.id ? { ...prev, ...fresh } : prev));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tickets]);
 
   const { data: inboxData = { items: [], unread_count: 0 }, isLoading: inboxLoading } = useQuery({
     queryKey: ['support-inbox'],
@@ -212,17 +212,6 @@ export default function SupportManagementPage() {
       toast.success('Ticket updated');
     },
     onError: () => toast.error('Failed to update ticket')
-  });
-
-  const addResponseMutation = useMutation({
-    mutationFn: (responseData) => base44.entities.SupportTicketResponse.create(responseData),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['support-responses'] });
-      toast.success('Response added');
-      setReplyMessage("");
-      setResponseAttachments([]);
-    },
-    onError: () => toast.error('Failed to add response')
   });
 
   const upsertSetting = async (key, value) => {
@@ -355,43 +344,6 @@ export default function SupportManagementPage() {
       data: updates
     });
     setSelectedTicket({ ...selectedTicket, ...updates });
-  };
-
-  const handleAddResponse = () => {
-    if (!replyMessage.trim()) return;
-
-    addResponseMutation.mutate({
-      ticket_id: selectedTicket.id,
-      message: replyMessage,
-      is_admin_response: true,
-      responder_email: memberInfo.email,
-      responder_name: `${memberInfo.first_name} ${memberInfo.last_name}`,
-      attachments: responseAttachments
-    });
-  };
-
-  const handleImageUpload = async (files) => {
-    if (!files || files.length === 0) return;
-
-    setUploadingImages(true);
-    try {
-      const uploadPromises = Array.from(files).map(async (file) => {
-        const response = await base44.integrations.Core.UploadFile({ file });
-        return response.file_url;
-      });
-      
-      const urls = await Promise.all(uploadPromises);
-      setResponseAttachments(prev => [...prev, ...urls]);
-      toast.success(`Uploaded ${urls.length} image(s)`);
-    } catch (error) {
-      showUploadErrorToast(error, 'Failed to upload images');
-    } finally {
-      setUploadingImages(false);
-    }
-  };
-
-  const handleRemoveAttachment = (url) => {
-    setResponseAttachments(prev => prev.filter(u => u !== url));
   };
 
   const handleInboxItemClick = (item) => {
@@ -762,122 +714,13 @@ export default function SupportManagementPage() {
                     </div>
                   )}
 
-                  {/* Conversation Thread */}
-                  {responses.length > 0 && (
-                    <div className="space-y-4">
-                      <h3 className="font-semibold text-slate-900">Conversation</h3>
-                      {responses.map((response) => (
-                        <div
-                          key={response.id}
-                          className={`rounded-lg p-4 ${
-                            response.is_admin_response
-                              ? 'bg-blue-50 border border-blue-200'
-                              : 'bg-slate-50 border border-slate-200'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="font-semibold text-sm text-slate-900">
-                              {response.responder_name}
-                              {response.is_admin_response && (
-                                <Badge className="ml-2 bg-blue-600 text-white">Developer</Badge>
-                              )}
-                            </span>
-                            {response.created_date && (
-                              <span className="text-xs text-slate-500">
-                                {format(new Date(response.created_date), 'MMM d, h:mm a')}
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-sm text-slate-700 whitespace-pre-wrap">{response.message}</p>
-                          {response.attachments && response.attachments.length > 0 && (
-                            <div className="mt-3 grid grid-cols-2 gap-2">
-                              {response.attachments.map((url, idx) => (
-                                <a
-                                  key={idx}
-                                  href={url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="block"
-                                >
-                                  <img
-                                    src={url}
-                                    alt={`Attachment ${idx + 1}`}
-                                    className="w-full h-32 object-cover rounded border border-slate-200 hover:opacity-90 transition-opacity"
-                                  />
-                                </a>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Reply Section */}
-                  <div className="space-y-3">
-                    <Label>Add Response</Label>
-                    <Textarea
-                      placeholder="Type your response to the user..."
-                      rows={4}
-                      value={replyMessage}
-                      onChange={(e) => setReplyMessage(e.target.value)}
-                    />
-                    
-                    {/* Image Upload */}
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <Label htmlFor="response-images" className="cursor-pointer">
-                          <div className="flex items-center gap-2 px-4 py-2 border border-slate-300 rounded-md hover:bg-slate-50 transition-colors">
-                            <Upload className="w-4 h-4" />
-                            <span className="text-sm">
-                              {uploadingImages ? 'Uploading...' : 'Attach Images'}
-                            </span>
-                          </div>
-                        </Label>
-                        <input
-                          id="response-images"
-                          type="file"
-                          accept="image/*"
-                          multiple
-                          onChange={(e) => handleImageUpload(e.target.files)}
-                          className="hidden"
-                          disabled={uploadingImages}
-                        />
-                      </div>
-                      
-                      {responseAttachments.length > 0 && (
-                        <div className="grid grid-cols-3 gap-2">
-                          {responseAttachments.map((url, idx) => (
-                            <div key={idx} className="relative group">
-                              <img
-                                src={url}
-                                alt={`Upload ${idx + 1}`}
-                                className="w-full h-24 object-cover rounded border border-slate-200"
-                              />
-                              <button
-                                onClick={() => handleRemoveAttachment(url)}
-                                className="absolute top-1 right-1 bg-red-600 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                              >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex justify-end">
-                      <Button
-                        onClick={handleAddResponse}
-                        disabled={addResponseMutation.isPending || !replyMessage.trim() || uploadingImages}
-                        className="bg-blue-600 hover:bg-blue-700"
-                      >
-                        Send Response
-                      </Button>
-                    </div>
-                  </div>
+                  {/* Conversation */}
+                  <TicketConversation
+                    ticket={selectedTicket}
+                    memberInfo={memberInfo}
+                    isAdminView
+                    ticketQueryKeys={[['all-support-tickets']]}
+                  />
                 </div>
               </>
             )}

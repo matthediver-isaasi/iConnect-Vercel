@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
@@ -48,6 +48,16 @@ export default function GroupAdminSupportSection({ memberInfo }) {
     },
     enabled: !!memberInfo,
   });
+
+  // Keep the open ticket dialog in sync with live ticket updates.
+  useEffect(() => {
+    if (!selectedTicket) return;
+    const fresh = tickets.find((t) => t.id === selectedTicket.id);
+    if (fresh) {
+      setSelectedTicket((prev) => (prev && prev.id === fresh.id ? { ...prev, ...fresh } : prev));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tickets]);
 
   const totalPages = Math.max(1, Math.ceil(tickets.length / PAGE_SIZE));
   const safePage = Math.max(1, Math.min(page, totalPages));
@@ -204,6 +214,7 @@ export default function GroupAdminSupportSection({ memberInfo }) {
           memberInfo={memberInfo}
           supportLevels={supportLevels}
           supportAreas={supportAreas}
+          onTicketUpdated={(updated) => setSelectedTicket(updated)}
         />
       </CardContent>
     </Card>

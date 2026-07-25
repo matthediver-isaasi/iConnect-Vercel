@@ -66,6 +66,16 @@ export default function SupportPage() {
     enabled: !!memberInfo
   });
 
+  // Keep the open ticket dialog in sync with live ticket updates.
+  useEffect(() => {
+    if (!selectedTicket) return;
+    const fresh = tickets.find((t) => t.id === selectedTicket.id);
+    if (fresh) {
+      setSelectedTicket((prev) => (prev && prev.id === fresh.id ? { ...prev, ...fresh } : prev));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tickets]);
+
   // Inbox: admin_reply notifications for the submitter
   const { data: inboxData = { items: [], unread_count: 0 }, isLoading: inboxLoading } = useQuery({
     queryKey: ['support-inbox'],
@@ -515,6 +525,7 @@ export default function SupportPage() {
           memberInfo={memberInfo}
           supportLevels={supportLevels}
           supportAreas={supportAreas}
+          onTicketUpdated={(updated) => setSelectedTicket(updated)}
         />
 
         {/* Submitter Inbox — admin reply notifications */}
