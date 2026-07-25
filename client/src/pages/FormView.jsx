@@ -757,6 +757,22 @@ export default function FormViewPage({ slug: slugProp = null }) {
     }
   }, [form, prefillMember, effectiveOrgEntity, prefillMemberCustomValues, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId, orgCustomValuesLoading, memberCustomValuesLoading, draftToken, draftLoaded, prefillBooking, prefillBookingMember, prefillBookingOrg, prefillBookingMemberCustomValues, prefillBookingOrgCustomValues, bookingPrefillLoading]);
 
+  // Duplicate-submission guard: one idempotency key per form-filling session.
+  // Sent with every submit attempt so double-clicks, retries and second-tab
+  // resubmits of the SAME fill collapse server-side to a single row. It is
+  // regenerated only after a successful submit, so a genuine follow-up
+  // submission (after the success screen) gets a fresh key.
+  const idempotencyKeyRef = useRef(null);
+  const getIdempotencyKey = () => {
+    if (!idempotencyKeyRef.current) {
+      idempotencyKeyRef.current =
+        (typeof crypto !== 'undefined' && crypto.randomUUID)
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+    }
+    return idempotencyKeyRef.current;
+  };
+
   const submitFormMutation = useMutation({
     mutationFn: async (submissionData) => {
       // Use public API endpoint that doesn't require authentication
@@ -768,6 +784,7 @@ export default function FormViewPage({ slug: slugProp = null }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...submissionData,
+          idempotency_key: getIdempotencyKey(),
           tenant: tenantSlug
         })
       });
@@ -853,6 +870,9 @@ export default function FormViewPage({ slug: slugProp = null }) {
       }
       
       queryClient.invalidateQueries({ queryKey: ['form-by-slug'] });
+      // Successful submit: rotate the idempotency key so a legitimate NEW
+      // submission from this same page load isn't collapsed into this one.
+      idempotencyKeyRef.current = null;
       setSubmitted(true);
       
       const redirectTarget = resolveRedirectTarget(form, formValues);

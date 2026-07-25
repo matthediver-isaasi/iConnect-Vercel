@@ -19,7 +19,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { form_id, form_name, answers, submission_data, source, tenant, prefill_organization_id, contract_instance_id, role_id: clientRoleId, brief_id, vacancy_id, submitterCopyRequested, submitterCopyEmail } = req.body;
+  const { form_id, form_name, answers, submission_data, source, tenant, prefill_organization_id, contract_instance_id, role_id: clientRoleId, brief_id, vacancy_id, submitterCopyRequested, submitterCopyEmail, idempotency_key } = req.body;
   console.log('[Public Form Submission] form_id:', form_id, 'form_name:', form_name, 'brief_id:', brief_id || 'none', 'vacancy_id:', vacancy_id || 'none');
 
   if (!form_id) {
@@ -182,6 +182,85 @@ export default async function handler(req, res) {
       }
     }
 
+    // --- Duplicate-submission guard (Task: prevent duplicate public submissions) ---
+    // Builds the success payload for an already-existing submission row so a
+    // duplicate attempt gets the ORIGINAL submission's success response
+    // instead of creating a second row or surfacing an error.
+    const originalSuccessResponse = (row) => res.status(200).json({
+      success: true,
+      id: row.id,
+      message: 'Form submitted successfully',
+      created_member_id: row.created_member_id || null,
+      created_organization_id: row.organization_id || null,
+      duplicate: true,
+    });
+
+    // 1) Idempotency key: the public form generates one key per form-filling
+    //    session. If a submission with the same (form_id, key) already exists,
+    //    short-circuit with its success payload. A unique partial index on
+    //    (form_id, idempotency_key) makes this race-proof — see the 23505
+    //    handling on the insert below.
+    const idemKey = (typeof idempotency_key === 'string' && idempotency_key.trim().length >= 8 && idempotency_key.trim().length <= 128)
+      ? idempotency_key.trim()
+      : null;
+    if (idemKey) {
+      const { data: existing, error: idemErr } = await supabase
+        .from('form_submission')
+        .select('id, created_member_id, organization_id')
+        .eq('form_id', form_id)
+        .eq('tenant_id', tenantData.id)
+        .eq('idempotency_key', idemKey)
+        .maybeSingle();
+      if (idemErr && idemErr.code !== '42703') {
+        console.error('[Public Form Submission] Idempotency lookup failed:', idemErr);
+        return res.status(500).json({ error: 'Failed to validate submission' });
+      }
+      if (existing) {
+        console.log('[Public Form Submission] Duplicate idempotency key — returning original submission', existing.id);
+        return originalSuccessResponse(existing);
+      }
+    }
+
+    // 2) Short-window backstop for callers that don't send a key (curl,
+    //    automated integrations, old cached clients): the same form + the same
+    //    organisation or lowercased email within the last 10 seconds is treated
+    //    as a duplicate burst, matching the double-click / retry pattern seen
+    //    in production. Legitimate repeat submissions minutes apart are
+    //    unaffected. Anonymous submissions with no email AND no organisation
+    //    can't be matched and are allowed through unchanged.
+    if (!idemKey && (canonicalSubmitterEmail || prefill_organization_id)) {
+      try {
+        const windowStart = new Date(Date.now() - 10 * 1000).toISOString();
+        let windowQuery = supabase
+          .from('form_submission')
+          .select('id, created_member_id, organization_id, created_date')
+          .eq('form_id', form_id)
+          .eq('tenant_id', tenantData.id)
+          .gte('created_date', windowStart)
+          .order('created_date', { ascending: true })
+          .limit(1);
+        if (prefill_organization_id && canonicalSubmitterEmail) {
+          windowQuery = windowQuery.or(
+            `organization_id.eq.${prefill_organization_id},submitted_by_email.eq.${canonicalSubmitterEmail}`
+          );
+        } else if (prefill_organization_id) {
+          windowQuery = windowQuery.eq('organization_id', prefill_organization_id);
+        } else {
+          windowQuery = windowQuery.eq('submitted_by_email', canonicalSubmitterEmail);
+        }
+        const { data: recent, error: windowErr } = await windowQuery;
+        if (windowErr) {
+          // Backstop only — never block a legitimate submission on a guard failure.
+          console.warn('[Public Form Submission] Duplicate-window check failed (continuing):', windowErr.message);
+        } else if (recent && recent.length > 0) {
+          console.log('[Public Form Submission] Duplicate within 10s window — returning original submission', recent[0].id);
+          return originalSuccessResponse(recent[0]);
+        }
+      } catch (windowCheckErr) {
+        console.warn('[Public Form Submission] Duplicate-window check threw (continuing):', windowCheckErr?.message);
+      }
+    }
+
     // Create the form submission - match FormView structure exactly
     // SECURITY: Include tenant_id for proper multi-tenant isolation
     // Persist the resolved submitter email (lowercased) on the row so
@@ -209,14 +288,37 @@ export default async function handler(req, res) {
       // Task #1539: when the form was opened from a member-group vacancy
       // ("Express interest"), carry the vacancy association onto the row so the
       // group admin's submissions review modal can find it.
-      ...(vacancy_id && { vacancy_id })
+      ...(vacancy_id && { vacancy_id }),
+      // Duplicate-submission guard: persist the key so retries/second tabs
+      // hit the unique index instead of creating a second row.
+      ...(idemKey && { idempotency_key: idemKey })
     };
 
-    const { data: submission, error: insertError } = await supabase
+    let { data: submission, error: insertError } = await supabase
       .from('form_submission')
       .insert(submissionRecord)
       .select()
       .single();
+
+    // Race safety: two truly concurrent requests with the same idempotency
+    // key both pass the pre-check above; the unique partial index on
+    // (form_id, idempotency_key) rejects the loser with 23505. Return the
+    // winner's row as the original success payload.
+    if (insertError && insertError.code === '23505' && idemKey) {
+      console.log('[Public Form Submission] Concurrent duplicate (unique violation) — fetching original row');
+      const { data: winner, error: winnerErr } = await supabase
+        .from('form_submission')
+        .select('id, created_member_id, organization_id')
+        .eq('form_id', form_id)
+        .eq('tenant_id', tenantData.id)
+        .eq('idempotency_key', idemKey)
+        .maybeSingle();
+      if (winner) {
+        return originalSuccessResponse(winner);
+      }
+      console.error('[Public Form Submission] Unique violation but original row not found:', winnerErr);
+      return res.status(500).json({ error: 'Failed to save submission' });
+    }
 
     if (insertError) {
       console.error('[Public Form Submission] Insert error:', insertError);
