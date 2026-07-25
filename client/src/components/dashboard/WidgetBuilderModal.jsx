@@ -186,6 +186,10 @@ function buildFieldOptions(source) {
     // and are only valid as a Group-by — the measure and filter pickers
     // exclude them.
     groupOnly: !!f.groupOnly,
+    // Derived Region dimension: available classification schemes (app /
+    // World Bank), each with its own bucket list. Drives the scheme
+    // picker rendered under the Group-by select.
+    regionSchemes: Array.isArray(f.regionSchemes) ? f.regionSchemes : null,
   }));
   const custom = (source.customFields || []).map(f => ({
     value: `custom:${f.id}`,
@@ -1101,6 +1105,41 @@ export default function WidgetBuilderModal({
                   ))}
                 </SelectContent>
               </Select>
+              {(() => {
+                // Derived Region group-by: offer the classification-scheme
+                // picker. Absent scheme = app regions (legacy behaviour),
+                // so existing widgets prefill to "App regions".
+                const gb = draft.config.groupBy;
+                if (!gb) return null;
+                const selected = fieldOptions.find(
+                  o => o.value === `${gb.kind}:${gb.field || gb.fieldId}`,
+                );
+                if (!selected?.regionSchemes) return null;
+                return (
+                  <div className="space-y-2 pt-1">
+                    <Label>Region scheme</Label>
+                    <Select
+                      value={gb.regionScheme || "app"}
+                      onValueChange={value => {
+                        updateConfig({
+                          groupBy: { ...gb, regionScheme: value },
+                        });
+                      }}
+                    >
+                      <SelectTrigger data-testid="select-widget-region-scheme">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {selected.regionSchemes.map(s => (
+                          <SelectItem key={s.value} value={s.value}>
+                            {s.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                );
+              })()}
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">

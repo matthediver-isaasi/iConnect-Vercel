@@ -14,4 +14,6 @@ A dashboard dimension with no stored column (e.g. organisation **Region**, class
 
 Region↔country classification lives in `shared/countryRegions.js` and deliberately agrees with GSF's `gsf_map_country_lookup` (Middle East/Caucasus/Central Asia → Asia; Mexico+Caribbean → Latin America; North America = CA+US only). A unit suite pins this agreement.
 
+**Region schemes:** the Region dimension supports multiple classification schemes (`app` default, `world_bank` = the Bank's 7 analytical regions). The scheme id rides on the widget's `groupBy.regionScheme`; absent/unknown MUST normalise to `app` so legacy widgets reproduce output byte-for-byte. When an `lmic` filter sits on any `countries`-typed field feeding Region, the bucket is derived from LMIC-resolving countries only, and a row with none produces **no bucket at all** (null, not "Unknown") — mirroring `pruneLmicGroupKeys`. Scheme metadata for the builder picker is published as `regionSchemes` on the source's region systemField.
+
 **Workspace quirk:** running the aggregation engine locally against the pooler/REST with 500-UUID `.in()` lists trips Node's 16KB header limit (`UND_ERR_HEADERS_OVERFLOW`, surfaces as "TypeError: fetch failed" and silently yields empty preference maps because the fetch error is caught). Re-run with `NODE_OPTIONS=--max-http-header-size=131072`. Vercel is unaffected.

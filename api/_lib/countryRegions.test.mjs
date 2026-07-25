@@ -6,6 +6,12 @@ import {
   REGION_NAMES,
   REGION_MULTI,
   REGION_UNKNOWN,
+  WB_REGION_NAMES,
+  WB_REGION_BUCKETS,
+  REGION_SCHEME_APP,
+  REGION_SCHEME_WORLD_BANK,
+  normaliseRegionScheme,
+  regionBucketsForScheme,
   regionForIso2,
   regionForCountry,
   deriveRegionBucket,
@@ -105,4 +111,120 @@ test('deriveRegionBucket: empty or unresolvable → Unknown', () => {
 
 test('deriveRegionBucket: unresolvable entries ignored when others resolve', () => {
   assert.equal(deriveRegionBucket(['Atlantis', 'Kenya']), 'Africa');
+});
+
+// ---------------------------------------------------------------------------
+// World Bank scheme
+
+test('normaliseRegionScheme: absent/unknown falls back to app', () => {
+  assert.equal(normaliseRegionScheme(undefined), REGION_SCHEME_APP);
+  assert.equal(normaliseRegionScheme(null), REGION_SCHEME_APP);
+  assert.equal(normaliseRegionScheme(''), REGION_SCHEME_APP);
+  assert.equal(normaliseRegionScheme('nonsense'), REGION_SCHEME_APP);
+  assert.equal(normaliseRegionScheme('app'), REGION_SCHEME_APP);
+  assert.equal(normaliseRegionScheme('world_bank'), REGION_SCHEME_WORLD_BANK);
+});
+
+test('World Bank bucket list is the 7 regions plus Multi-region and Unknown', () => {
+  assert.deepEqual(WB_REGION_BUCKETS, [
+    'Sub-Saharan Africa', 'South Asia', 'East Asia & Pacific',
+    'Latin America & Caribbean', 'Middle East & North Africa',
+    'Europe & Central Asia', 'North America',
+    'Multi-region', 'Unknown',
+  ]);
+  assert.deepEqual(regionBucketsForScheme('world_bank'), WB_REGION_BUCKETS);
+  assert.deepEqual(regionBucketsForScheme('app'), REGION_BUCKETS);
+  assert.deepEqual(regionBucketsForScheme('bogus'), REGION_BUCKETS, 'unknown scheme = app');
+});
+
+test('every canonical country classifies to a World Bank region', () => {
+  assert.deepEqual(listUnmappedCountryCodes('world_bank'), []);
+  for (const { code } of COUNTRIES) {
+    const region = regionForIso2(code, 'world_bank');
+    assert.ok(WB_REGION_NAMES.includes(region), `${code} → ${region}`);
+  }
+});
+
+test('World Bank scheme spot checks (divergences from the app scheme)', () => {
+  // North Africa splits off from Sub-Saharan Africa...
+  assert.equal(regionForCountry('Egypt', 'world_bank'), 'Middle East & North Africa');
+  assert.equal(regionForCountry('Morocco', 'world_bank'), 'Middle East & North Africa');
+  // ...but Sudan stays Sub-Saharan per the Bank's table.
+  assert.equal(regionForCountry('Sudan', 'world_bank'), 'Sub-Saharan Africa');
+  assert.equal(regionForCountry('Djibouti', 'world_bank'), 'Middle East & North Africa');
+  assert.equal(regionForCountry('Malta', 'world_bank'), 'Middle East & North Africa');
+  // Turkey / Caucasus / Central Asia move from Asia to Europe & Central Asia.
+  assert.equal(regionForCountry('Turkey', 'world_bank'), 'Europe & Central Asia');
+  assert.equal(regionForCountry('Kazakhstan', 'world_bank'), 'Europe & Central Asia');
+  assert.equal(regionForCountry('Armenia', 'world_bank'), 'Europe & Central Asia');
+  // South Asia splits off from Asia.
+  assert.equal(regionForCountry('India', 'world_bank'), 'South Asia');
+  assert.equal(regionForCountry('Pakistan', 'world_bank'), 'South Asia');
+  // Oceania folds into East Asia & Pacific.
+  assert.equal(regionForCountry('Australia', 'world_bank'), 'East Asia & Pacific');
+  assert.equal(regionForCountry('Fiji', 'world_bank'), 'East Asia & Pacific');
+  assert.equal(regionForCountry('Vietnam', 'world_bank'), 'East Asia & Pacific');
+  // Mexico + Caribbean stay Latin America & Caribbean; NA unchanged.
+  assert.equal(regionForCountry('Mexico', 'world_bank'), 'Latin America & Caribbean');
+  assert.equal(regionForCountry('Canada', 'world_bank'), 'North America');
+  assert.equal(regionForCountry('United Kingdom', 'world_bank'), 'Europe & Central Asia');
+});
+
+test('deriveRegionBucket honours the scheme option', () => {
+  assert.equal(
+    deriveRegionBucket(['Kenya', 'Uganda'], { scheme: 'world_bank' }),
+    'Sub-Saharan Africa',
+  );
+  // Same-region under app, multi-region under World Bank (Africa splits).
+  assert.equal(deriveRegionBucket(['Kenya', 'Egypt']), 'Africa');
+  assert.equal(
+    deriveRegionBucket(['Kenya', 'Egypt'], { scheme: 'world_bank' }),
+    REGION_MULTI,
+  );
+  // Multi under app, single under World Bank (Asia + Oceania merge).
+  assert.equal(deriveRegionBucket(['Vietnam', 'Fiji']), REGION_MULTI);
+  assert.equal(
+    deriveRegionBucket(['Vietnam', 'Fiji'], { scheme: 'world_bank' }),
+    'East Asia & Pacific',
+  );
+  assert.equal(deriveRegionBucket([], { scheme: 'world_bank' }), REGION_UNKNOWN);
+});
+
+test('deriveRegionBucket default (no options) is unchanged — legacy regression', () => {
+  assert.equal(deriveRegionBucket(['Kenya']), 'Africa');
+  assert.equal(deriveRegionBucket(['Pakistan', 'United Kingdom']), REGION_MULTI);
+  assert.equal(deriveRegionBucket(null), REGION_UNKNOWN);
+});
+
+// ---------------------------------------------------------------------------
+// LMIC pruning: with lmicCodeSet, only countries resolving to an LMIC code
+// contribute to the region derivation; nothing surviving → null (the caller
+// creates NO bucket for the row — not "Unknown").
+
+test('deriveRegionBucket with lmicCodeSet derives region from LMIC countries only', () => {
+  const lmic = new Set(['KE', 'IN']);
+  assert.equal(
+    deriveRegionBucket(['Kenya', 'United Kingdom'], { lmicCodeSet: lmic }),
+    'Africa',
+    'non-LMIC UK must not push the row into Multi-region',
+  );
+  assert.equal(
+    deriveRegionBucket(['Kenya', 'India'], { lmicCodeSet: lmic }),
+    REGION_MULTI,
+    'two LMIC countries in different regions → Multi-region',
+  );
+  assert.equal(
+    deriveRegionBucket(['Kenya', 'United Kingdom'], { scheme: 'world_bank', lmicCodeSet: lmic }),
+    'Sub-Saharan Africa',
+    'scheme and pruning compose',
+  );
+});
+
+test('deriveRegionBucket with lmicCodeSet returns null when nothing survives', () => {
+  const lmic = new Set(['KE']);
+  assert.equal(deriveRegionBucket(['United Kingdom', 'France'], { lmicCodeSet: lmic }), null);
+  assert.equal(deriveRegionBucket([], { lmicCodeSet: lmic }), null);
+  assert.equal(deriveRegionBucket(null, { lmicCodeSet: lmic }), null);
+  assert.equal(deriveRegionBucket(['Narnia'], { lmicCodeSet: lmic }), null);
+  assert.equal(deriveRegionBucket(['Kenya'], { lmicCodeSet: new Set() }), null, 'empty LMIC list');
 });

@@ -210,6 +210,65 @@ test('pruneLmicGroupKeys handles scalar values and empty LMIC sets', () => {
 });
 
 // ---------------------------------------------------------------------------
+// sortGroupedRows: grouped rows keep the historical value-descending sort
+// UNLESS a region bucket order is supplied (region group-by with an explicit
+// scheme), in which case rows follow the scheme's stable display order —
+// regions first, then Multi-region, then Unknown — regardless of the data
+// distribution. Scheme-less region widgets must keep the legacy sort so
+// existing output is byte-for-byte unchanged.
+import { sortGroupedRows } from './aggregation.js';
+import { regionBucketsForScheme } from '../../../shared/countryRegions.js';
+
+test('sortGroupedRows without a bucket order keeps the legacy value-desc sort', () => {
+  const rows = [
+    { key: 'Asia', value: 2 },
+    { key: 'Africa', value: 9 },
+    { key: 'Unknown', value: 5 },
+  ];
+  sortGroupedRows(rows);
+  assert.deepEqual(rows.map(r => r.key), ['Africa', 'Unknown', 'Asia']);
+});
+
+test('sortGroupedRows orders app-scheme buckets in stable display order', () => {
+  const rows = [
+    { key: 'Unknown', value: 50 },
+    { key: 'Multi-region', value: 40 },
+    { key: 'Europe', value: 30 },
+    { key: 'Africa', value: 1 },
+  ];
+  sortGroupedRows(rows, regionBucketsForScheme('app'));
+  assert.deepEqual(
+    rows.map(r => r.key),
+    ['Africa', 'Europe', 'Multi-region', 'Unknown'],
+    'scheme order wins over value order',
+  );
+});
+
+test('sortGroupedRows orders World Bank buckets in stable display order', () => {
+  const rows = [
+    { key: 'Unknown', value: 99 },
+    { key: 'Europe & Central Asia', value: 3 },
+    { key: 'Sub-Saharan Africa', value: 1 },
+    { key: 'South Asia', value: 7 },
+  ];
+  sortGroupedRows(rows, regionBucketsForScheme('world_bank'));
+  assert.deepEqual(
+    rows.map(r => r.key),
+    ['Sub-Saharan Africa', 'South Asia', 'Europe & Central Asia', 'Unknown'],
+  );
+});
+
+test('sortGroupedRows puts unexpected keys last, value-desc among themselves', () => {
+  const rows = [
+    { key: 'Mystery B', value: 1 },
+    { key: 'Africa', value: 2 },
+    { key: 'Mystery A', value: 8 },
+  ];
+  sortGroupedRows(rows, regionBucketsForScheme('app'));
+  assert.deepEqual(rows.map(r => r.key), ['Africa', 'Mystery A', 'Mystery B']);
+});
+
+// ---------------------------------------------------------------------------
 // mapFieldType: 'countries' custom fields store arrays (multi-pick) exactly
 // like 'list' fields, so they MUST map to 'list' — otherwise group-by,
 // filters, and count-distinct silently fall back to first-element semantics

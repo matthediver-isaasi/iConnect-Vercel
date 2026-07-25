@@ -2,7 +2,12 @@ import { supabase } from '../../_lib/database.js';
 import { tenantFilter } from './permissions.js';
 import { getSourceDef, getCustomFieldsForSource } from './sources.js';
 import { resolveCountryToIso2, getCountryByCode } from '../../../shared/countries.js';
-import { deriveRegionBucket, REGION_UNKNOWN } from '../../../shared/countryRegions.js';
+import {
+  deriveRegionBucket,
+  normaliseRegionScheme,
+  regionBucketsForScheme,
+  REGION_UNKNOWN,
+} from '../../../shared/countryRegions.js';
 import {
   buildStageMaps,
   mkMatchers,
@@ -214,28 +219,50 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
   // deliberately bypassing the first-element semantics of valueFor /
   // extractPrimitive): one distinct region → its name, several →
   // "Multi-region", none / unresolvable → "Unknown".
+  // The scheme rides on the group-by config (`regionScheme`); absent or
+  // unrecognised values fall back to the app scheme so existing widgets
+  // reproduce today's output exactly.
+  const regionScheme = regionGroupBy ? normaliseRegionScheme(groupBy.regionScheme) : null;
   let regionByRowId = null;
   if (regionGroupBy && workingRows.length > 0) {
     const allCustomFields = await getCustomFieldsForSource(source, tenantId);
-    const countryFieldIds = allCustomFields
+    const regionCountryFieldIds = allCustomFields
       .filter(f => f.fieldType === 'countries')
       .map(f => f.id);
-    const regionPrefMap = countryFieldIds.length > 0
+    const regionPrefMap = regionCountryFieldIds.length > 0
       ? await loadPreferenceValues({
           table: source.preferenceTable,
           fkColumn: source.preferenceFkColumn,
           ids: workingRows.map(r => r.id),
-          fieldIds: countryFieldIds,
+          fieldIds: regionCountryFieldIds,
         })
       : new Map();
+    // When an `lmic` filter rides on any of the country fields feeding
+    // the region dimension, the region is derived ONLY from countries
+    // resolving to the tenant's LMIC list. Rows with no LMIC-resolving
+    // country produce NO bucket (deriveRegionBucket returns null) — they
+    // still count toward the row-level total, mirroring the element-wise
+    // pruning of pruneLmicGroupKeys.
+    const regionLmicSet = Array.isArray(lmicCodes)
+      && lmicCodes.length > 0
+      && (config.filters || []).some(
+          f => f.operator === 'lmic'
+            && f.fieldKind === 'custom'
+            && regionCountryFieldIds.includes(f.fieldId),
+        )
+      ? new Set(lmicCodes)
+      : null;
     regionByRowId = new Map();
     for (const row of workingRows) {
       const prefs = regionPrefMap.get(row.id) || {};
       const countries = [];
-      for (const fieldId of countryFieldIds) {
+      for (const fieldId of regionCountryFieldIds) {
         countries.push(...toList(prefs[fieldId]));
       }
-      regionByRowId.set(row.id, deriveRegionBucket(countries));
+      regionByRowId.set(
+        row.id,
+        deriveRegionBucket(countries, { scheme: regionScheme, lmicCodeSet: regionLmicSet }),
+      );
     }
   }
 
@@ -349,7 +376,15 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
           )));
   const groupKeysOf = groupBy
     ? (regionGroupBy
-        ? row => [regionByRowId?.get(row.id) || REGION_UNKNOWN]
+        ? row => {
+            // null = LMIC-pruned to nothing → the row creates NO bucket
+            // (it still counts toward the total). A missing map entry
+            // (never hydrated) keeps the legacy "Unknown" fallback.
+            const bucket = regionByRowId && regionByRowId.has(row.id)
+              ? regionByRowId.get(row.id)
+              : REGION_UNKNOWN;
+            return bucket === null ? [] : [bucket];
+          }
         : (lmicFilterOnGroupBy
             ? ((groupBy.fieldKind === 'custom' || groupBy.kind === 'custom')
                 ? row => lmicGroupKeys((prefMap.get(row.id) || {})[groupBy.fieldId])
@@ -404,8 +439,16 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
           ? (getCountryByCode(key)?.name || key)
           : key,
         value: aggregate(values, measure.aggregator),
-      }))
-      .sort((a, b) => b.value - a.value);
+      }));
+    // Region group-bys with an EXPLICIT scheme sort rows in the scheme's
+    // stable display order (regions, then Multi-region, then Unknown) so
+    // chart/legend order doesn't shuffle with the data. Scheme-less
+    // (legacy) configs — and every other group-by — keep the historical
+    // value-descending sort so existing widgets' output is unchanged.
+    const regionBucketOrder = regionGroupBy && groupBy.regionScheme
+      ? regionBucketsForScheme(regionScheme)
+      : null;
+    sortGroupedRows(grouped, regionBucketOrder);
     if (grouped.length > maxGroups) {
       throw new Error(
         `Group-by produced ${grouped.length} groups (max ${maxGroups}). ` +
@@ -443,6 +486,27 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
     rows: config.cumulative ? applyCumulative(timeRows) : timeRows,
     granularity: timeBucket.granularity,
   };
+}
+
+/**
+ * In-place sort for grouped widget rows. Without a `regionBucketOrder`
+ * this is the historical value-descending sort used by every group-by.
+ * With one (a scheme's bucket list from regionBucketsForScheme), rows
+ * sort by their bucket's position in that list — regions in stable
+ * display order, then Multi-region, then Unknown — with unexpected keys
+ * last (value-descending among themselves). Exported for tests.
+ */
+export function sortGroupedRows(rows, regionBucketOrder = null) {
+  if (!regionBucketOrder) {
+    return rows.sort((a, b) => b.value - a.value);
+  }
+  const indexOf = key => {
+    const i = regionBucketOrder.indexOf(key);
+    return i === -1 ? regionBucketOrder.length : i;
+  };
+  return rows.sort(
+    (a, b) => indexOf(a.key) - indexOf(b.key) || b.value - a.value,
+  );
 }
 
 // Transform sorted per-bucket rows into a running total: each row's value

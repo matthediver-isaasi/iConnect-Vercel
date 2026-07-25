@@ -1,5 +1,40 @@
 import { supabase } from '../../_lib/database.js';
 import { tenantFilter } from './permissions.js';
+import {
+  regionBucketsForScheme,
+  REGION_SCHEME_APP,
+  REGION_SCHEME_WORLD_BANK,
+} from '../../../shared/countryRegions.js';
+
+// Derived dimension: world region classified from the source's
+// `countries`-typed multi-country preference field(s). Not a stored
+// column — the aggregation engine computes each row's bucket at query
+// time via shared/countryRegions.js (one region → its name, several →
+// "Multi-region", none/unresolvable → "Unknown").
+// `derived` keeps it out of the SQL column selection; `groupOnly` tells
+// the builder to offer it exclusively as a Group-by option (it can't be
+// measured, filtered or time-bucketed). `regionSchemes` publishes the
+// available classification schemes (each with its own bucket list) so
+// the builder can render a scheme picker; `options` stays the app-scheme
+// bucket list for backwards compatibility.
+function buildRegionField() {
+  const schemes = [
+    { value: REGION_SCHEME_APP, label: 'App regions' },
+    { value: REGION_SCHEME_WORLD_BANK, label: 'World Bank regions' },
+  ].map(s => ({
+    ...s,
+    options: regionBucketsForScheme(s.value).map(b => ({ value: b, label: b })),
+  }));
+  return {
+    name: 'region',
+    label: 'Region',
+    type: 'enum',
+    derived: 'region',
+    groupOnly: true,
+    options: regionBucketsForScheme(REGION_SCHEME_APP).map(b => ({ value: b, label: b })),
+    regionSchemes: schemes,
+  };
+}
 
 /**
  * Source registry for the dashboard widget builder.
@@ -31,33 +66,7 @@ export const DASHBOARD_SOURCES = {
       // buckets through the shared country resolver (ISO-2 bucketing,
       // display names) even without an LMIC filter.
       { name: 'country', label: 'Country', type: 'text', isCountry: true },
-      {
-        // Derived dimension: world region classified from the org's
-        // "Countries of operation" multi-country preference field(s)
-        // (field_type `countries`). Not a stored column — the
-        // aggregation engine computes each row's bucket at query time
-        // via shared/countryRegions.js (one region → its name, several
-        // → "Multi-region", none/unresolvable → "Unknown").
-        // `derived` keeps it out of the SQL column selection;
-        // `groupOnly` tells the builder to offer it exclusively as a
-        // Group-by option (it can't be measured, filtered or
-        // time-bucketed).
-        name: 'region',
-        label: 'Region',
-        type: 'enum',
-        derived: 'region',
-        groupOnly: true,
-        options: [
-          { value: 'Africa', label: 'Africa' },
-          { value: 'Asia', label: 'Asia' },
-          { value: 'Europe', label: 'Europe' },
-          { value: 'Latin America', label: 'Latin America' },
-          { value: 'North America', label: 'North America' },
-          { value: 'Oceania', label: 'Oceania' },
-          { value: 'Multi-region', label: 'Multi-region' },
-          { value: 'Unknown', label: 'Unknown' },
-        ],
-      },
+      buildRegionField(),
       { name: 'created_at', label: 'Created at', type: 'date' },
       { name: 'last_synced', label: 'Last synced', type: 'date' },
       { name: 'training_fund_balance', label: 'Training fund balance', type: 'number', aggregatable: true },
@@ -154,6 +163,10 @@ export const DASHBOARD_SOURCES = {
       { name: 'email', label: 'Email', type: 'text' },
       { name: 'role_id', label: 'Role', type: 'reference', referenceTable: 'role' },
       { name: 'organization_id', label: 'Organisation', type: 'reference', referenceTable: 'organization' },
+      // Same derived Region dimension as the organisation source —
+      // classified from the member's `countries`-typed preference
+      // field(s) at query time.
+      buildRegionField(),
       { name: 'login_enabled', label: 'Login enabled', type: 'boolean' },
       { name: 'show_in_directory', label: 'Show in directory', type: 'boolean' },
       { name: 'created_on', label: 'Created on', type: 'date' },

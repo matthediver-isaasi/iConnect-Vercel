@@ -55,6 +55,9 @@ const groupBySchema = z.object({
   kind: z.enum(['system', 'custom']),
   field: z.string().nullable().optional(),
   fieldId: z.string().nullable().optional(),
+  // Region group-by only: which classification scheme buckets the derived
+  // Region dimension. Absent/null = app scheme (legacy behaviour).
+  regionScheme: z.enum(['app', 'world_bank']).nullable().optional(),
 });
 
 // DD stage-transition mode. When present (with a `mode`), the Due Diligence
