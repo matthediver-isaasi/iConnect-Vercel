@@ -279,7 +279,7 @@ export default function FormConversionReport() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Report configuration</CardTitle>
         </CardHeader>
-        <CardContent className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+        <CardContent className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
           <div className="space-y-1.5">
             <Label className="text-xs">Source form</Label>
             <Select value={sourceFormId} onValueChange={setSourceFormId}>
@@ -351,19 +351,6 @@ export default function FormConversionReport() {
               <SelectContent>
                 <SelectItem value="organization">Organisation</SelectItem>
                 <SelectItem value="member">Member (email)</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">Comparison</Label>
-            <Select value={comparison} onValueChange={setComparison}>
-              <SelectTrigger data-testid="select-comparison">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All</SelectItem>
-                <SelectItem value="converted">Has received (converted)</SelectItem>
-                <SelectItem value="not_converted">Has not received</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -467,6 +454,16 @@ export default function FormConversionReport() {
                 {reportFetching && !reportLoading && (
                   <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
                 )}
+                <Select value={comparison} onValueChange={setComparison}>
+                  <SelectTrigger className="w-44" data-testid="select-comparison">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All</SelectItem>
+                    <SelectItem value="converted">Converted</SelectItem>
+                    <SelectItem value="not_converted">Not converted</SelectItem>
+                  </SelectContent>
+                </Select>
                 <Button
                   variant="outline"
                   size="sm"
