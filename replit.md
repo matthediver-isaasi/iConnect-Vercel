@@ -5,6 +5,7 @@ A multi-tenant SaaS platform unifying member, event, booking, resource, and blog
 -   **Run Dev Server:** `npm run dev`
 -   **Build:** `npm run build`
 -   **Typecheck:** `npm run typecheck`
+-   **Pending-PO report tests:** `node --test api/_lib/pendingPoInvoice.test.mjs` — PO reference extraction/blacklist and cross-record membership PO propagation helpers.
 -   **AI assistant tests:** `node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/aiCompositionRender.test.mjs` — runs the member-AI visibility (security boundary), ranking, indexer, and help-chunker suites, plus the Canvas auto-height bake corruption-guard regression suite (pure decision logic), the `useAutoHeightBake` hook's runtime-gate suite (jsdom mount: settle gate + breakpoint re-arm, author-intent gate, content-ready re-check), and the Canvas auto reading-order helper suite (visual-order sort, no-op/idempotence, and zero-visual-change stacking preservation for `autoOrderChildren`). Registered as the `ai-assistant-tests` validation step, so it runs automatically on task completion.
 -   **Codegen:** `npm run codegen`
 -   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").

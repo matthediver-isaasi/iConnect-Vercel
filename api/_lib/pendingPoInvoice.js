@@ -4,6 +4,111 @@ import { getAccountingProvider } from './accountingProvider.js';
 
 const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
 
+// Placeholder / descriptive values that must never be treated as a real PO
+// number. Shared by the raw-reference heuristic and the `- PO: <value>`
+// extraction below.
+const PO_PLACEHOLDER_BLACKLIST = new Set([
+  'n/a', 'na', 'none', 'no po', 'no-po', 'nopo',
+  'tbc', 'tbd', 'pending', 'awaiting po', 'awaiting',
+  'po to follow', 'po-to-follow', 'tofollow', 'to follow',
+  '-', '--', '0',
+  // Descriptive references our own invoice-creation paths write when
+  // no PO exists yet — these are NOT purchase order numbers.
+  'training fund top-up', 'training fund topup', 'training fund',
+  'membership',
+]);
+
+export function isPlaceholderPoValue(raw) {
+  if (!raw) return true;
+  const s = String(raw).trim();
+  if (!s) return true;
+  return PO_PLACEHOLDER_BLACKLIST.has(s.toLowerCase());
+}
+
+// Does a raw Xero Reference / PurchaseOrderNumber look like an actual PO
+// number (as opposed to a descriptive reference our own invoicing writes)?
+export function looksLikePoReference(raw) {
+  if (!raw) return false;
+  const s = String(raw).trim();
+  if (!s) return false;
+  // "Membership 2026/27"-style references written by the membership
+  // invoice path are descriptions, not PO numbers.
+  if (/^membership\s/i.test(s)) return false;
+  if (isPlaceholderPoValue(s)) return false;
+  // Values embedding our own `PO: <value>` convention are references, not raw
+  // PO numbers — they must go through extractPoFromReference (which validates
+  // the embedded value) instead of being accepted wholesale.
+  if (/(?:^|[\s\-–—])PO:\s*/i.test(s)) return false;
+  return /[a-z0-9]/i.test(s);
+}
+
+// Our own membership invoicing paths write the Xero Reference as
+// `Membership <year> - PO: <po>` when a PO exists. Extract the embedded PO
+// from that convention; returns null when there is no `PO: <value>` suffix or
+// the extracted value is placeholder junk (TBC, N/A, pending, ...).
+export function extractPoFromReference(raw) {
+  if (!raw) return null;
+  const s = String(raw).trim();
+  if (!s) return null;
+  const match = s.match(/(?:^|[\s\-–—])PO:\s*(.+)$/i);
+  if (!match) return null;
+  const value = match[1].trim();
+  if (!value) return null;
+  if (isPlaceholderPoValue(value)) return null;
+  if (!/[a-z0-9]/i.test(value)) return null;
+  return value;
+}
+
+// Resolve the best PO candidate from a Xero invoice's PurchaseOrderNumber /
+// Reference pair: a value that already looks like a PO wins, otherwise try
+// extracting an embedded `- PO: <value>` from our own reference convention.
+export function resolvePoCandidate(purchaseOrderNumber, reference) {
+  for (const raw of [purchaseOrderNumber, reference]) {
+    if (!raw) continue;
+    const s = String(raw).trim();
+    if (!s) continue;
+    if (looksLikePoReference(s)) return s;
+    const extracted = extractPoFromReference(s);
+    if (extracted) return extracted;
+  }
+  return null;
+}
+
+// Pure helpers for cross-record membership PO propagation: when a membership
+// history row shares a Xero/accounting invoice with a booking / transaction /
+// training-fund row, the PO captured via the membership flow should hide the
+// sibling rows from the report too.
+export function buildMembershipPoMaps(historyRows) {
+  const idToPo = new Map();
+  const numToPo = new Map();
+  for (const row of historyRows || []) {
+    const po = row?.purchase_order_number && String(row.purchase_order_number).trim();
+    if (!po || isPlaceholderPoValue(po)) continue;
+    for (const idCol of ['xero_invoice_id', 'accounting_invoice_id']) {
+      const v = row[idCol] && String(row[idCol]).trim();
+      if (v && !idToPo.has(v)) idToPo.set(v, po);
+    }
+    for (const numCol of ['xero_invoice_number', 'accounting_invoice_number']) {
+      const v = row[numCol] && String(row[numCol]).trim();
+      if (v && !numToPo.has(v)) numToPo.set(v, po);
+    }
+  }
+  return { idToPo, numToPo };
+}
+
+export function findMembershipPoForRecord(record, { idToPo, numToPo }) {
+  if (!record) return null;
+  for (const idCol of ['xero_invoice_id', 'accounting_invoice_id']) {
+    const v = record[idCol] && String(record[idCol]).trim();
+    if (v && idToPo.has(v)) return idToPo.get(v);
+  }
+  for (const numCol of ['xero_invoice_number', 'accounting_invoice_number']) {
+    const v = record[numCol] && String(record[numCol]).trim();
+    if (v && numToPo.has(v)) return numToPo.get(v);
+  }
+  return null;
+}
+
 export function parseInvoiceKey(key) {
   if (typeof key !== 'string') return null;
   if (key.startsWith('id:')) return { xeroInvoiceId: key.slice(3) };
@@ -1003,6 +1108,125 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
   let voidedExcluded = 0;
   let xeroPoBackfilled = 0;
   let xeroPoExcluded = 0;
+  let membershipPoBackfilled = 0;
+  let membershipPoExcluded = 0;
+
+  // Shared guarded PO backfill. NOTE: PostgREST rejects `.or(...)` filters on
+  // UPDATE requests (42703 "column does not exist"), so the missing-PO guard
+  // is run as two separate updates: NULL rows and empty-string rows.
+  const runGuardedPoBackfill = async (table, rows, extraUpdate = {}) => {
+    let updatedCount = 0;
+    const byPo = new Map();
+    rows.forEach(({ id, po }) => {
+      if (!byPo.has(po)) byPo.set(po, []);
+      byPo.get(po).push(id);
+    });
+    for (const [po, ids] of byPo) {
+      const guards = [
+        (q) => q.is('purchase_order_number', null),
+        (q) => q.eq('purchase_order_number', ''),
+      ];
+      for (const applyGuard of guards) {
+        const { data: updated, error } = await applyGuard(
+          client
+            .from(table)
+            .update({ purchase_order_number: po, ...extraUpdate })
+            .in('id', ids),
+        ).select('id');
+        if (error) {
+          console.error(`[PendingPO] Backfill ${table} failed for ${ids.length} row(s):`, error.message);
+        } else {
+          updatedCount += (updated || []).length;
+        }
+      }
+    }
+    return updatedCount;
+  };
+
+  // Cross-record PO propagation: a combined invoice can be shared by a
+  // membership history row (org or member) and a booking / transaction /
+  // training-fund row. The membership flow stores the PO only on the
+  // membership row, so look it up here and propagate it onto sibling report
+  // rows, hiding them. Membership rows themselves are never report rows.
+  try {
+    const recordInvoiceIds = [...new Set(records
+      .flatMap((r) => [r.xero_invoice_id, r.accounting_invoice_id])
+      .map((v) => (v ? String(v).trim() : ''))
+      .filter(Boolean))];
+    const recordInvoiceNums = [...new Set(records
+      .flatMap((r) => [r.xero_invoice_number, r.accounting_invoice_number])
+      .map((v) => (v ? String(v).trim() : ''))
+      .filter(Boolean))];
+
+    const historyRows = [];
+    if (recordInvoiceIds.length > 0 || recordInvoiceNums.length > 0) {
+      const CHUNK = 200;
+      const historySelect = 'id, purchase_order_number, xero_invoice_id, xero_invoice_number, accounting_invoice_id, accounting_invoice_number';
+      const lookups = [];
+      for (const table of ['organisation_membership_history', 'member_membership_history']) {
+        for (const col of ['xero_invoice_id', 'accounting_invoice_id']) {
+          for (let i = 0; i < recordInvoiceIds.length; i += CHUNK) {
+            lookups.push({ table, col, values: recordInvoiceIds.slice(i, i + CHUNK) });
+          }
+        }
+        for (const col of ['xero_invoice_number', 'accounting_invoice_number']) {
+          for (let i = 0; i < recordInvoiceNums.length; i += CHUNK) {
+            lookups.push({ table, col, values: recordInvoiceNums.slice(i, i + CHUNK) });
+          }
+        }
+      }
+      for (const { table, col, values } of lookups) {
+        const { data, error } = await client
+          .from(table)
+          .select(historySelect)
+          .eq('tenant_id', tenantId)
+          .in(col, values)
+          .not('purchase_order_number', 'is', null)
+          .neq('purchase_order_number', '');
+        if (error) {
+          console.error(`[PendingPO] Membership PO lookup failed table=${table} col=${col}:`, error.message);
+        } else if (data && data.length > 0) {
+          historyRows.push(...data);
+        }
+      }
+    }
+
+    if (historyRows.length > 0) {
+      const poMaps = buildMembershipPoMaps(historyRows);
+      const membershipBackfills = {
+        booking: [],
+        program_ticket_transaction: [],
+        training_fund_purchase: [],
+      };
+      for (let i = records.length - 1; i >= 0; i--) {
+        const rec = records[i];
+        const po = findMembershipPoForRecord(rec, poMaps);
+        if (!po) continue;
+        if (rec.entityType === 'booking') {
+          membershipBackfills.booking.push({ id: rec.id, po });
+        } else if (rec.entityType === 'transaction') {
+          membershipBackfills.program_ticket_transaction.push({ id: rec.id, po });
+        } else if (rec.entityType === 'training_fund_purchase') {
+          membershipBackfills.training_fund_purchase.push({ id: rec.id, po });
+        } else {
+          continue;
+        }
+        records.splice(i, 1);
+        membershipPoExcluded += 1;
+      }
+      if (membershipBackfills.booking.length > 0) {
+        membershipPoBackfilled += await runGuardedPoBackfill('booking', membershipBackfills.booking, { po_to_follow: false });
+      }
+      if (membershipBackfills.program_ticket_transaction.length > 0) {
+        membershipPoBackfilled += await runGuardedPoBackfill('program_ticket_transaction', membershipBackfills.program_ticket_transaction);
+      }
+      if (membershipBackfills.training_fund_purchase.length > 0) {
+        membershipPoBackfilled += await runGuardedPoBackfill('training_fund_purchase', membershipBackfills.training_fund_purchase, { po_to_follow: false });
+      }
+    }
+  } catch (membershipErr) {
+    console.error('[PendingPO] Membership PO propagation error:', membershipErr.message);
+  }
 
   const invoiceIdsToCheck = [...new Set(records.map((r) => r.xero_invoice_id).filter(Boolean))];
 
@@ -1014,28 +1238,6 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
       const xeroStatusById = new Map();
       const xeroPoById = new Map();
       const batchSize = 50;
-
-      const looksLikePoReference = (raw) => {
-        if (!raw) return false;
-        const s = String(raw).trim();
-        if (!s) return false;
-        const lower = s.toLowerCase();
-        const blacklist = new Set([
-          'n/a', 'na', 'none', 'no po', 'no-po', 'nopo',
-          'tbc', 'tbd', 'pending', 'awaiting po', 'awaiting',
-          'po to follow', 'po-to-follow', 'tofollow', 'to follow',
-          '-', '--', '0',
-          // Descriptive references our own invoice-creation paths write when
-          // no PO exists yet — these are NOT purchase order numbers.
-          'training fund top-up', 'training fund topup', 'training fund',
-          'membership',
-        ]);
-        // "Membership 2026/27"-style references written by the membership
-        // invoice path are descriptions, not PO numbers.
-        if (/^membership\s/i.test(lower)) return false;
-        if (blacklist.has(lower)) return false;
-        return /[a-z0-9]/i.test(s);
-      };
 
       for (let i = 0; i < invoiceIdsToCheck.length; i += batchSize) {
         const batch = invoiceIdsToCheck.slice(i, i + batchSize);
@@ -1059,10 +1261,8 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
           invoices.forEach((inv) => {
             if (inv.InvoiceID) {
               xeroStatusById.set(inv.InvoiceID, inv.Status || null);
-              const candidate = (inv.PurchaseOrderNumber && String(inv.PurchaseOrderNumber).trim())
-                || (inv.Reference && String(inv.Reference).trim())
-                || null;
-              if (candidate && looksLikePoReference(candidate)) {
+              const candidate = resolvePoCandidate(inv.PurchaseOrderNumber, inv.Reference);
+              if (candidate) {
                 xeroPoById.set(inv.InvoiceID, candidate);
               }
             }
@@ -1107,44 +1307,14 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
         xeroPoExcluded += 1;
       }
 
-      const runBackfill = async (table, rows, extraUpdate = {}) => {
-        const byPo = new Map();
-        rows.forEach(({ id, po }) => {
-          if (!byPo.has(po)) byPo.set(po, []);
-          byPo.get(po).push(id);
-        });
-        for (const [po, ids] of byPo) {
-          // NOTE: PostgREST rejects `.or(...)` filters on UPDATE requests
-          // (42703 "column does not exist"), so the missing-PO guard is run
-          // as two separate updates: NULL rows and empty-string rows.
-          const guards = [
-            (q) => q.is('purchase_order_number', null),
-            (q) => q.eq('purchase_order_number', ''),
-          ];
-          for (const applyGuard of guards) {
-            const { data: updated, error } = await applyGuard(
-              client
-                .from(table)
-                .update({ purchase_order_number: po, ...extraUpdate })
-                .in('id', ids),
-            ).select('id');
-            if (error) {
-              console.error(`[PendingPO] Backfill ${table} failed for ${ids.length} row(s):`, error.message);
-            } else {
-              xeroPoBackfilled += (updated || []).length;
-            }
-          }
-        }
-      };
-
       if (bookingBackfills.length > 0) {
-        await runBackfill('booking', bookingBackfills);
+        xeroPoBackfilled += await runGuardedPoBackfill('booking', bookingBackfills);
       }
       if (transactionBackfills.length > 0) {
-        await runBackfill('program_ticket_transaction', transactionBackfills);
+        xeroPoBackfilled += await runGuardedPoBackfill('program_ticket_transaction', transactionBackfills);
       }
       if (trainingFundBackfills.length > 0) {
-        await runBackfill('training_fund_purchase', trainingFundBackfills, { po_to_follow: false });
+        xeroPoBackfilled += await runGuardedPoBackfill('training_fund_purchase', trainingFundBackfills, { po_to_follow: false });
       }
 
       records.forEach((r) => {
@@ -1250,6 +1420,8 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
     voidedExcluded,
     xeroPoExcluded,
     xeroPoBackfilled,
+    membershipPoExcluded,
+    membershipPoBackfilled,
     pagination: paginationStats,
   };
 }
