@@ -15,6 +15,9 @@ const filterSchema = z.object({
   // DD-only: when filtering on the synthetic "Date moved to stage …" field,
   // carries the canonical DD status whose entry timestamp is being scoped.
   stage: z.string().nullable().optional(),
+  // Region filter only: which classification scheme the filter's bucket
+  // value belongs to. Absent/null = app scheme (matches group-by default).
+  regionScheme: z.enum(['app', 'world_bank']).nullable().optional(),
 });
 
 // Optional secondary field references for additive measures. When the

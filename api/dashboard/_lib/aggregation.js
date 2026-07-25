@@ -89,19 +89,21 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
   // Derived "Region" dimension: classified at query time from the
   // tenant's `countries`-typed preference fields (e.g. "Countries of
   // operation"). There is no stored `region` column, so the field is
-  // only valid as a group-by — reject any other reference up front so a
-  // malformed config fails with a clear message instead of a SQL error.
+  // only valid as a group-by or a filter (both resolved in JS after
+  // per-row bucket derivation) — reject measure / time-bucket references
+  // up front so a malformed config fails with a clear message instead of
+  // a SQL error.
   const regionField = (source.systemFields || []).find(f => f.derived === 'region') || null;
   const isRegionRef = ref => !!regionField
     && !!ref
     && (ref.fieldKind === 'system' || ref.kind === 'system' || (!ref.fieldKind && !ref.kind))
     && ref.field === regionField.name;
   const regionGroupBy = !!(groupBy && groupBy.kind === 'system' && isRegionRef(groupBy));
+  const regionFilters = (config.filters || []).filter(isRegionRef);
   if (isRegionRef(measure)
     || (measure.additionalFields || []).some(isRegionRef)
-    || (config.filters || []).some(isRegionRef)
     || (timeBucket && isRegionRef(timeBucket))) {
-    throw new Error('Region is a derived dimension and can only be used for grouping');
+    throw new Error('Region is a derived dimension and can only be used for grouping or filtering');
   }
 
   // count and count_distinct accept any field type; numeric aggregators
@@ -138,7 +140,9 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
     systemColumns.add(timeBucket.field);
   }
   (config.filters || []).forEach(f => {
-    if (f.fieldKind === 'system' && f.field) systemColumns.add(f.field);
+    // Region filters are resolved in JS after bucket derivation — the
+    // derived field must never reach the SQL column selection.
+    if (f.fieldKind === 'system' && f.field && !isRegionRef(f)) systemColumns.add(f.field);
   });
 
   // Resolve any `lmic` operator filters into concrete IN-lists by loading
@@ -153,7 +157,11 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
   // exceeds MAX_TOTAL_ROWS we refuse the query so the user adds filters
   // rather than receiving silently-incomplete numbers.
   const selectColumns = Array.from(systemColumns).join(', ');
-  const systemFilters = (config.filters || []).filter(f => f.fieldKind === 'system');
+  // Region filters have no stored column, so they can't be pushed down to
+  // PostgREST — they're applied in JS after per-row bucket derivation.
+  const systemFilters = (config.filters || []).filter(
+    f => f.fieldKind === 'system' && !isRegionRef(f),
+  );
   let workingRows = [];
   for (let from = 0; from < MAX_TOTAL_ROWS; from += PAGE_SIZE) {
     const to = Math.min(from + PAGE_SIZE - 1, MAX_TOTAL_ROWS - 1);
@@ -219,12 +227,18 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
   // deliberately bypassing the first-element semantics of valueFor /
   // extractPrimitive): one distinct region → its name, several →
   // "Multi-region", none / unresolvable → "Unknown".
-  // The scheme rides on the group-by config (`regionScheme`); absent or
-  // unrecognised values fall back to the app scheme so existing widgets
-  // reproduce today's output exactly.
+  // The scheme rides on the referencing config (`regionScheme` on the
+  // group-by and/or each region filter); absent or unrecognised values
+  // fall back to the app scheme so existing widgets reproduce today's
+  // output exactly. A group-by and a filter may use different schemes,
+  // so buckets are derived once per distinct scheme in play.
   const regionScheme = regionGroupBy ? normaliseRegionScheme(groupBy.regionScheme) : null;
-  let regionByRowId = null;
-  if (regionGroupBy && workingRows.length > 0) {
+  const regionSchemesNeeded = new Set();
+  if (regionGroupBy) regionSchemesNeeded.add(regionScheme);
+  regionFilters.forEach(f => regionSchemesNeeded.add(normaliseRegionScheme(f.regionScheme)));
+  // scheme -> Map(rowId -> bucket|null)
+  const regionBucketsBySchemes = new Map();
+  if (regionSchemesNeeded.size > 0 && workingRows.length > 0) {
     const allCustomFields = await getCustomFieldsForSource(source, tenantId);
     const regionCountryFieldIds = allCustomFields
       .filter(f => f.fieldType === 'countries')
@@ -252,18 +266,38 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
         )
       ? new Set(lmicCodes)
       : null;
-    regionByRowId = new Map();
-    for (const row of workingRows) {
-      const prefs = regionPrefMap.get(row.id) || {};
-      const countries = [];
-      for (const fieldId of regionCountryFieldIds) {
-        countries.push(...toList(prefs[fieldId]));
+    for (const scheme of regionSchemesNeeded) {
+      const bucketByRow = new Map();
+      for (const row of workingRows) {
+        const prefs = regionPrefMap.get(row.id) || {};
+        const countries = [];
+        for (const fieldId of regionCountryFieldIds) {
+          countries.push(...toList(prefs[fieldId]));
+        }
+        bucketByRow.set(
+          row.id,
+          deriveRegionBucket(countries, { scheme, lmicCodeSet: regionLmicSet }),
+        );
       }
-      regionByRowId.set(
-        row.id,
-        deriveRegionBucket(countries, { scheme: regionScheme, lmicCodeSet: regionLmicSet }),
-      );
+      regionBucketsBySchemes.set(scheme, bucketByRow);
     }
+  }
+  const regionByRowId = regionGroupBy
+    ? (regionBucketsBySchemes.get(regionScheme) || null)
+    : null;
+
+  // Apply region filters in JS against each row's derived bucket (under
+  // the filter's own scheme). An LMIC-pruned row has a null bucket —
+  // treated as empty, so it fails `eq`/`in` and matches `is_null`,
+  // mirroring how such rows create no group-by bucket.
+  if (regionFilters.length > 0) {
+    workingRows = workingRows.filter(row =>
+      regionFilters.every(f => {
+        const bucketByRow = regionBucketsBySchemes.get(normaliseRegionScheme(f.regionScheme));
+        const bucket = bucketByRow ? (bucketByRow.get(row.id) ?? null) : null;
+        return matchFilter(bucket, f, null, false);
+      }),
+    );
   }
 
   // Resolve a value for each row. When measure.additionalFields is set

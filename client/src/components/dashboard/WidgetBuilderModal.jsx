@@ -183,9 +183,11 @@ function buildFieldOptions(source) {
     stageField: !!f.stageField,
     stageOptions: Array.isArray(f.stageOptions) ? f.stageOptions : null,
     // Derived dimensions (e.g. organisation Region) have no stored column
-    // and are only valid as a Group-by — the measure and filter pickers
-    // exclude them.
+    // and can't be measured or time-bucketed — the measure picker excludes
+    // them. `filterable` re-admits a derived dimension into the filter
+    // picker (the engine resolves such filters after bucket derivation).
     groupOnly: !!f.groupOnly,
+    filterable: !!f.filterable,
     // Derived Region dimension: available classification schemes (app /
     // World Bank), each with its own bucket list. Drives the scheme
     // picker rendered under the Group-by select.
@@ -1311,6 +1313,14 @@ export default function WidgetBuilderModal({
                       ? o.fieldKind === "system" && o.field === filter.field
                       : o.fieldKind === "custom" && o.fieldId === filter.fieldId,
                   );
+                  // Region filters offer the bucket list of the filter's
+                  // chosen scheme (not the field's static app-scheme
+                  // options); every other field keeps its own options.
+                  const valueOptions = opt?.regionSchemes
+                    ? (opt.regionSchemes.find(
+                        s => s.value === (filter.regionScheme || "app"),
+                      )?.options || opt.options || null)
+                    : (opt?.options || null);
                   return (
                     <div
                       key={idx}
@@ -1330,6 +1340,19 @@ export default function WidgetBuilderModal({
                             // Stage only applies to the synthetic DD stage
                             // field; drop it when switching to anything else.
                             stage: sel.stageField ? (filter.stage || null) : null,
+                            // Region scheme only applies to the derived
+                            // Region dimension; seed the default scheme when
+                            // switching onto it, drop it otherwise. The value
+                            // is cleared because region buckets differ from
+                            // any previously chosen field's values.
+                            ...(sel.regionSchemes
+                              ? {
+                                  regionScheme: filter.regionScheme || "app",
+                                  value: opt?.regionSchemes ? filter.value : null,
+                                }
+                              : opt?.regionSchemes
+                                ? { regionScheme: null, value: null }
+                                : { regionScheme: null }),
                           });
                         }}
                       >
@@ -1338,9 +1361,10 @@ export default function WidgetBuilderModal({
                         </SelectTrigger>
                         <SelectContent>
                           {fieldOptions
-                            // Derived group-only dimensions (e.g. Region)
-                            // can't be filtered — no stored column.
-                            .filter(o => !o.groupOnly)
+                            // Derived dimensions with no stored column are
+                            // excluded unless explicitly marked filterable
+                            // (e.g. Region — resolved in JS server-side).
+                            .filter(o => !o.groupOnly || o.filterable)
                             .map(o => (
                               <SelectItem key={o.value} value={o.value}>
                                 {o.label}
@@ -1380,7 +1404,7 @@ export default function WidgetBuilderModal({
                       </Select>
                       {["is_null", "is_not_null", "lmic"].includes(filter.operator) ? (
                         <div />
-                      ) : opt?.options?.length &&
+                      ) : valueOptions?.length &&
                         ["eq", "neq"].includes(filter.operator) ? (
                         <Select
                           value={
@@ -1394,7 +1418,7 @@ export default function WidgetBuilderModal({
                             <SelectValue placeholder="Choose value" />
                           </SelectTrigger>
                           <SelectContent>
-                            {opt.options.map(o => (
+                            {valueOptions.map(o => (
                               <SelectItem key={o.value} value={String(o.value)}>
                                 {o.label}
                               </SelectItem>
@@ -1430,6 +1454,28 @@ export default function WidgetBuilderModal({
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
+                    {opt?.regionSchemes && (
+                      <Select
+                        value={filter.regionScheme || "app"}
+                        onValueChange={value => {
+                          // Switching scheme invalidates a previously
+                          // chosen bucket value — buckets differ between
+                          // schemes — so clear it alongside.
+                          updateFilter(idx, { regionScheme: value, value: null });
+                        }}
+                      >
+                        <SelectTrigger data-testid={`select-filter-region-scheme-${idx}`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {opt.regionSchemes.map(s => (
+                            <SelectItem key={s.value} value={s.value}>
+                              {s.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
                     {opt?.stageField && (
                       <Select
                         value={filter.stage || ""}

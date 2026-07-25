@@ -12,11 +12,14 @@ import {
 // time via shared/countryRegions.js (one region → its name, several →
 // "Multi-region", none/unresolvable → "Unknown").
 // `derived` keeps it out of the SQL column selection; `groupOnly` tells
-// the builder to offer it exclusively as a Group-by option (it can't be
-// measured, filtered or time-bucketed). `regionSchemes` publishes the
-// available classification schemes (each with its own bucket list) so
-// the builder can render a scheme picker; `options` stays the app-scheme
-// bucket list for backwards compatibility.
+// the builder to exclude it from the measure and time-bucket pickers (it
+// can't be measured or time-bucketed — no stored column), while
+// `filterable` re-admits it into the filter picker: the engine applies
+// region filters in JS after per-row bucket derivation. `regionSchemes`
+// publishes the available classification schemes (each with its own
+// bucket list) so the builder can render a scheme picker for both the
+// group-by and filter surfaces; `options` stays the app-scheme bucket
+// list for backwards compatibility.
 function buildRegionField() {
   const schemes = [
     { value: REGION_SCHEME_APP, label: 'App regions' },
@@ -31,6 +34,7 @@ function buildRegionField() {
     type: 'enum',
     derived: 'region',
     groupOnly: true,
+    filterable: true,
     options: regionBucketsForScheme(REGION_SCHEME_APP).map(b => ({ value: b, label: b })),
     regionSchemes: schemes,
   };
