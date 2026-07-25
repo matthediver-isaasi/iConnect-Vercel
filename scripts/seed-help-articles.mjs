@@ -357,6 +357,83 @@ Two things to know:
 
 {{screenshot: Requesting a cancellation with terms}}`,
   },
+  {
+    slug: 'running-in-person-events-checkin',
+    title: 'Running in-person events: QR check-in, scanning and reports',
+    category: 'Events',
+    summary: 'Everything for the door on event day — QR codes, the scanner app, the check-in dashboard, walk-ins, badges and attendance reporting.',
+    status: 'published',
+    sort_order: 16,
+    required_feature: 'events.event-checkin',
+    body: `If you help run events, this article covers what's available for the day itself: getting attendees registered, checking them in at the door with QR codes or the dashboard, handling walk-ins, and reporting on who came.
+
+## Getting attendees registered
+Attendees usually book themselves through the normal booking flow — see "Browsing events and making a booking" and "Registering yourself, colleagues and guests". A booker can register colleagues and external guests in one booking, and events can offer member-only ticket types.
+
+Admins can also add attendees directly from the event's attendee management screen:
+
+- Import a CSV of attendees (name, email, organisation, job title) or paste a simple list of email addresses.
+- Each row is matched against your members by email. Recognised members are added as member bookings (their member record's details are used); everyone else is added as a guest booking.
+- For multi-session events you choose which ticket class imported attendees go into; if a guest is imported into a members-only ticket class you'll see a warning so you can double-check.
+- Duplicate emails within the file, and people who already have a booking, are skipped automatically — so re-importing the same file is safe.
+- Confirmation emails are sent to imported attendees by default; untick the option if you're adding people quietly (for example a walk-in you've already greeted).
+
+{{screenshot: Importing attendees from a CSV}}
+
+## QR codes on booking confirmations
+When someone books an in-person event, their confirmation email can include a personal QR code — this is what door staff scan to check them in.
+
+- The QR code is unique to each booking. For multi-session events, attendees get a separate QR code per session they're registered for.
+- The "Include QR code on confirmation" toggle when creating or editing an event controls this. It's on by default for in-person events; online events don't get check-in QR codes.
+
+{{screenshot: A confirmation email with a check-in QR code}}
+
+## Scanning at the door
+Door staff use the mobile scanner app to check people in:
+
+- Point the camera at the attendee's QR code. The app looks the booking up and shows the attendee's details — their name, email, designation, the session the ticket is for, and any dietary requirements, allergies or accessibility needs they gave when booking.
+- One tap marks them as arrived. If a code has already been used, staff see "Already checked in" with the time, so a duplicate scan can't count someone twice.
+- A live counter at the top shows how many people have arrived out of the total, updating as the team scans.
+- Check-ins can be undone — staff must enter a reason, so there's always a record of why.
+- Important form answers can be flagged so they appear as alert badges when that attendee is scanned — for example "Has ID" or a VIP marker — and speakers are highlighted so staff know to direct them appropriately.
+
+{{screenshot: The scanner app with an attendee's details}}
+
+## The Event Check-In Dashboard
+The Event Check-In page gives you the full picture from a laptop or tablet:
+
+- See live counts of arrived vs. expected, updating in real time as staff scan.
+- Search attendees by name or email, and filter by check-in status, ticket type, track or session, and other markers such as speaker or badge.
+- Check anyone in manually — useful when someone arrives without their QR code — and undo a check-in with a reason if needed.
+- Each attendee row shows their profile photo (where one is on file) alongside their key markers — designation, speaker, badge and any flagged form answers — so the team knows who they're greeting.
+- Dietary, allergy and accessibility needs appear on the scanner when the attendee is scanned in, and in the Event Registration Report for planning ahead of the day.
+
+{{screenshot: The Event Check-In Dashboard}}
+
+## Badges and walk-ins
+- Each attendee has a "badge" marker (on by default) that you can switch on or off from the event's attendee list — handy for tracking who needs a name badge printed. The marker also shows on the check-in dashboard and in the registration report.
+- For walk-ins, either check the person in manually from the dashboard, or add them on the spot via the attendee import (a single row with their email is enough) and then check them in.
+
+## Multi-session events
+For larger events with multiple sessions and tracks:
+
+- Check-in works per session — each attendee has a separate QR code for each session, and the scanner and dashboard count arrivals session by session.
+- Ticket classes can be limited to particular tracks, so an attendee's ticket only covers the sessions they're entitled to attend.
+
+{{feature: events.event-report}}
+## Reporting after the event
+The Event Registration Report pulls everything together:
+
+- A full attendee list for one event or several, grouped by booking, showing who booked whom — including each attendee's dietary requirements, allergies and accessibility needs.
+- A financial summary covering revenue and how it was paid — including vouchers, training funds, discount codes, account payments and card payments.
+- For events with Zoom sessions, online attendance is matched against registrations so you can see who joined, for how long, and who didn't show. (In-person arrivals are tracked live on the Event Check-In Dashboard.)
+- Export the report to CSV for spreadsheets or your own analysis.
+
+{{screenshot: The Event Registration Report}}
+{{/feature}}
+
+For cancellations, transfers and refunds, see "Managing, transferring and cancelling tickets".`,
+  },
 
   // ------------------------------------------------------------ Your account
   {
