@@ -11,6 +11,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { isFieldValueFilled, parseCustomFieldValue } from "@/lib/formFieldPrefill";
 import { getFormPagination } from "@/lib/formPagination";
+import { useSubmissionIdempotencyKey } from "@/lib/useSubmissionIdempotencyKey";
 
 // A `redirect_url` beginning with this prefix means the redirect target is driven
 // by the value the respondent submitted for the field whose id follows the prefix.
@@ -757,21 +758,9 @@ export default function FormViewPage({ slug: slugProp = null }) {
     }
   }, [form, prefillMember, effectiveOrgEntity, prefillMemberCustomValues, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId, orgCustomValuesLoading, memberCustomValuesLoading, draftToken, draftLoaded, prefillBooking, prefillBookingMember, prefillBookingOrg, prefillBookingMemberCustomValues, prefillBookingOrgCustomValues, bookingPrefillLoading]);
 
-  // Duplicate-submission guard: one idempotency key per form-filling session.
-  // Sent with every submit attempt so double-clicks, retries and second-tab
-  // resubmits of the SAME fill collapse server-side to a single row. It is
-  // regenerated only after a successful submit, so a genuine follow-up
-  // submission (after the success screen) gets a fresh key.
-  const idempotencyKeyRef = useRef(null);
-  const getIdempotencyKey = () => {
-    if (!idempotencyKeyRef.current) {
-      idempotencyKeyRef.current =
-        (typeof crypto !== 'undefined' && crypto.randomUUID)
-          ? crypto.randomUUID()
-          : `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
-    }
-    return idempotencyKeyRef.current;
-  };
+  // Duplicate-submission guard: shared per-session idempotency key (sent on
+  // every attempt, rotated only after a successful submit).
+  const { getIdempotencyKey, rotateIdempotencyKey } = useSubmissionIdempotencyKey();
 
   const submitFormMutation = useMutation({
     mutationFn: async (submissionData) => {
@@ -872,7 +861,7 @@ export default function FormViewPage({ slug: slugProp = null }) {
       queryClient.invalidateQueries({ queryKey: ['form-by-slug'] });
       // Successful submit: rotate the idempotency key so a legitimate NEW
       // submission from this same page load isn't collapsed into this one.
-      idempotencyKeyRef.current = null;
+      rotateIdempotencyKey();
       setSubmitted(true);
       
       const redirectTarget = resolveRedirectTarget(form, formValues);
