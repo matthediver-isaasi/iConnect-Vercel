@@ -226,6 +226,7 @@ const NAME_TO_CODE = new Map(
 // normalised to straight quotes before lookup (see resolveCountryToIso2).
 const NAME_ALIASES = new Map(Object.entries({
   'CONGO, DEM. REP.': 'CD',
+  'CONGO, THE DEMOCRATIC REPUBLIC OF THE': 'CD',
   'DEMOCRATIC REPUBLIC OF THE CONGO': 'CD',
   'DR CONGO': 'CD',
   'DRC': 'CD',
