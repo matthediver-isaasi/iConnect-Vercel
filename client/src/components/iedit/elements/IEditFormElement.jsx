@@ -1247,7 +1247,11 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   const submitFormMutation = useMutation({
     mutationFn: async (data) => {
       if (memberInfo) {
-        return base44.entities.FormSubmission.create(data);
+        // Authenticated entity API: include the same per-session idempotency
+        // key so double-clicks/slow-network retries collapse to a single
+        // submission server-side (enforced by the unique index on
+        // (form_id, idempotency_key) in the entity POST handler).
+        return base44.entities.FormSubmission.create({ ...data, idempotency_key: getIdempotencyKey() });
       } else {
         // Public endpoint: include the per-session idempotency key so
         // double-clicks/retries collapse to a single submission server-side.

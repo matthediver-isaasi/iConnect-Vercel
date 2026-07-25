@@ -1388,6 +1388,47 @@ export default async function handler(req, res) {
         }
       }
       
+      // FormSubmission duplicate guard (Task: stop double authenticated
+      // submissions): the canvas/iEdit form block sends the same per-session
+      // idempotency_key the public endpoint uses. If a submission with the
+      // same (form_id, idempotency_key) already exists, return the ORIGINAL
+      // row as a normal success (201) instead of creating a second one — the
+      // unique partial index on (form_id, idempotency_key) makes this
+      // race-proof via the 23505 handling on the insert below.
+      let formSubmissionIdemKey = null;
+      if (entityNorm === 'formsubmission') {
+        const rawKey = sanitizedBody.idempotency_key;
+        formSubmissionIdemKey =
+          (typeof rawKey === 'string' && rawKey.trim().length >= 8 && rawKey.trim().length <= 128)
+            ? rawKey.trim()
+            : null;
+        if (formSubmissionIdemKey) {
+          sanitizedBody.idempotency_key = formSubmissionIdemKey;
+          if (sanitizedBody.form_id) {
+            let idemLookup = supabase
+              .from('form_submission')
+              .select('*')
+              .eq('form_id', sanitizedBody.form_id)
+              .eq('idempotency_key', formSubmissionIdemKey);
+            if (sanitizedBody.tenant_id) {
+              idemLookup = idemLookup.eq('tenant_id', sanitizedBody.tenant_id);
+            }
+            const { data: existing, error: idemErr } = await idemLookup.maybeSingle();
+            if (idemErr && idemErr.code !== '42703') {
+              console.error('[Entity POST] FormSubmission idempotency lookup failed:', idemErr);
+              return res.status(500).json({ error: 'Failed to validate submission' });
+            }
+            if (existing) {
+              console.log('[Entity POST] FormSubmission duplicate idempotency key — returning original row', existing.id);
+              return res.status(201).json(existing);
+            }
+          }
+        } else if ('idempotency_key' in sanitizedBody) {
+          // Malformed key: drop it rather than persisting junk.
+          delete sanitizedBody.idempotency_key;
+        }
+      }
+
       // Normalize email to lowercase for member, team_member, and magic_link entities
       // Use normalized entity name to handle both PascalCase and slug-case variants
       if ((entityNorm === 'member' || entityNorm === 'teammember' || entityNorm === 'magiclink' || entityNorm === 'externalwriter') && sanitizedBody.email) {
@@ -1550,6 +1591,28 @@ export default async function handler(req, res) {
         
         // Handle unique constraint violations with user-friendly messages
         if (error.code === '23505') {
+          // Race-safe FormSubmission idempotency backstop: two concurrent
+          // requests with the same key both pass the pre-check above; the
+          // unique partial index on (form_id, idempotency_key) rejects the
+          // loser here. Return the winner's row as a normal success so the
+          // client's submit flow completes cleanly.
+          if (tableName === 'form_submission' && formSubmissionIdemKey && sanitizedBody.form_id) {
+            let winnerLookup = supabase
+              .from('form_submission')
+              .select('*')
+              .eq('form_id', sanitizedBody.form_id)
+              .eq('idempotency_key', formSubmissionIdemKey);
+            if (sanitizedBody.tenant_id) {
+              winnerLookup = winnerLookup.eq('tenant_id', sanitizedBody.tenant_id);
+            }
+            const { data: winner, error: winnerErr } = await winnerLookup.maybeSingle();
+            if (winner) {
+              console.log('[Entity POST] FormSubmission concurrent duplicate (unique violation) — returning original row', winner.id);
+              return res.status(201).json(winner);
+            }
+            console.error('[Entity POST] FormSubmission unique violation but original row not found:', winnerErr);
+            return res.status(500).json({ error: 'Failed to save submission' });
+          }
           // Race-safe backstop: two concurrent admin assigns beat the app-level
           // duplicate check; the DB partial unique indexes catch it here.
           if (

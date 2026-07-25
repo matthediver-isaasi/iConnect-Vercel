@@ -3,6 +3,8 @@ name: Public form submission idempotency
 description: How duplicate public form submissions are prevented and how to test the public endpoint from this workspace
 ---
 
+Duplicate guard covers BOTH submission paths: the public endpoint AND the authenticated entity-API create (canvas/iEdit block, logged-in members) — the entity POST handler accepts the same `idempotency_key`, pre-checks (form_id, key, tenant) and returns the original row as a 201 on duplicate/23505, so client success flows never see an error.
+
 Duplicate guard on the public form-submission endpoint has three layers:
 1. Client sends an `idempotency_key` (one UUID per fill session, rotated after success).
 2. Server pre-check + unique partial index on (form_id, idempotency_key); 23505 handler returns the winner's original success payload (200, `duplicate: true`) — never an error, so retrying clients behave.
