@@ -898,7 +898,7 @@ export default function VoucherManagementPage() {
   };
 
   const handleExportCurrentView = () => {
-    if (paginatedVouchers.length === 0) {
+    if (filteredVouchers.length === 0) {
       toast.error('No vouchers to export in the current view');
       return;
     }
@@ -919,7 +919,7 @@ export default function VoucherManagementPage() {
       return isNaN(dt.getTime()) ? '' : format(dt, 'yyyy-MM-dd');
     };
     const header = ['Code', 'Organisation', 'Description', 'Status', 'Value (£)', 'Awarded', 'Expires', 'Used On'];
-    const rows = paginatedVouchers.map(v => [
+    const rows = filteredVouchers.map(v => [
       v.code || '',
       organizations.find(o => o.id === v.organization_id)?.name || 'Unknown Organisation',
       v.description || '',
@@ -1281,7 +1281,7 @@ export default function VoucherManagementPage() {
               <Button
                 variant="outline"
                 onClick={handleExportCurrentView}
-                disabled={paginatedVouchers.length === 0}
+                disabled={filteredVouchers.length === 0}
                 className="gap-2"
                 data-testid="button-export-current-view-csv"
               >
