@@ -28,7 +28,8 @@ import {
   History, AlertCircle, Wallet, ArrowRight, Pencil, X,
   FileText, Send, PlayCircle, ShieldAlert, CheckCircle2,
   XCircle, Info, AlertTriangle, CreditCard,
-  Lock, LockOpen, ShieldCheck, Mail, RefreshCw
+  Lock, LockOpen, ShieldCheck, Mail, RefreshCw,
+  Eye, Download
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -464,6 +465,96 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
   const [simulationDialogOpen, setSimulationDialogOpen] = useState(false);
   const [simulatingYear, setSimulatingYear] = useState(null);
   const [reconcilingRecordId, setReconcilingRecordId] = useState(null);
+  const [retryingInvoiceRecordId, setRetryingInvoiceRecordId] = useState(null);
+  const [loadingInvoiceRecordId, setLoadingInvoiceRecordId] = useState(null);
+  const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
+  const [currentInvoiceUrl, setCurrentInvoiceUrl] = useState(null);
+  const [currentInvoiceNumber, setCurrentInvoiceNumber] = useState(null);
+
+  const handleRetryInvoice = async (recordId) => {
+    setRetryingInvoiceRecordId(recordId);
+    try {
+      const response = await fetch('/api/admin/membership-invoice-retry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ recordId, table: 'member_membership_history' }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) {
+        throw new Error(data?.error || 'Invoice retry failed');
+      }
+      toast.success(`Invoice ${data.invoice_number || ''} created`);
+      queryClient.invalidateQueries({ queryKey: ['member-membership', memberId] });
+    } catch (err) {
+      console.error('[MemberMembershipTab] retry invoice failed:', err);
+      toast.error(err.message || 'Could not create invoice');
+    } finally {
+      setRetryingInvoiceRecordId(null);
+    }
+  };
+
+  const handleViewInvoice = async (recordId, invoiceNumber) => {
+    setLoadingInvoiceRecordId(recordId);
+    try {
+      const response = await fetch(`/api/membership-invoice/${encodeURIComponent(recordId)}?inline=true`, {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ error: 'Failed to load invoice' }));
+        throw new Error(err.error || 'Failed to load invoice');
+      }
+      const pdfBlob = await response.blob();
+      const blobUrl = URL.createObjectURL(pdfBlob);
+      const pdfUrl = `${blobUrl}#view=Fit&navpanes=0&toolbar=0`;
+      setCurrentInvoiceUrl(pdfUrl);
+      setCurrentInvoiceNumber(invoiceNumber || null);
+      setInvoiceModalOpen(true);
+    } catch (error) {
+      console.error('Error loading membership invoice:', error);
+      toast.error(error.message || 'Failed to load invoice');
+    } finally {
+      setLoadingInvoiceRecordId(null);
+    }
+  };
+
+  const handleDownloadInvoice = async (recordId, invoiceNumber) => {
+    setLoadingInvoiceRecordId(recordId);
+    try {
+      const response = await fetch(`/api/membership-invoice/${encodeURIComponent(recordId)}`, {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ error: 'Failed to download invoice' }));
+        throw new Error(err.error || 'Failed to download invoice');
+      }
+      const pdfBlob = await response.blob();
+      const blobUrl = URL.createObjectURL(pdfBlob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = `membership-invoice-${invoiceNumber || recordId}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
+      toast.success('Downloading invoice...');
+    } catch (error) {
+      console.error('Error downloading membership invoice:', error);
+      toast.error(error.message || 'Failed to download invoice');
+    } finally {
+      setLoadingInvoiceRecordId(null);
+    }
+  };
+
+  const handleInvoiceModalClose = (open) => {
+    if (!open && currentInvoiceUrl) {
+      const baseBlobUrl = currentInvoiceUrl.split('#')[0];
+      URL.revokeObjectURL(baseBlobUrl);
+      setCurrentInvoiceUrl(null);
+      setCurrentInvoiceNumber(null);
+    }
+    setInvoiceModalOpen(open);
+  };
 
   const handleReconcilePayment = async (recordId) => {
     setReconcilingRecordId(recordId);
@@ -1017,11 +1108,14 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                     <th className="text-right p-3 font-medium">Net Cost</th>
                     <th className="text-right p-3 font-medium">Gross Cost</th>
                     <th className="text-left p-3 font-medium">Status</th>
+                    <th className="text-center p-3 font-medium">Invoice</th>
                   </tr>
                 </thead>
                 <tbody>
                   {history.map((record) => {
                     const hasAdjustments = (record.free_period_discount > 0) || (record.prorata_cost !== null) || (record.rollover_discount > 0);
+                    const invoiceId = record.accounting_invoice_id || record.xero_invoice_id;
+                    const invoiceNumber = record.accounting_invoice_number || record.xero_invoice_number;
                     return (
                       <tr key={record.id} className="border-b last:border-0" data-testid={`row-member-history-${record.id}`}>
                         <td className="p-3 font-medium">{record.membership_year}</td>
@@ -1059,23 +1153,76 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                               {record.status || 'active'}
                             </Badge>
                             <PaymentStatusBadge paymentStatus={record.payment_status} />
-                            {(record.accounting_invoice_id || record.xero_invoice_id) && (
+                          </div>
+                        </td>
+                        <td className="p-3">
+                          {!invoiceId && record.accounting_sync_status === 'failed' ? (
+                            <div className="flex items-center justify-center gap-2" data-testid={`cell-invoice-failed-${record.id}`}>
+                              <Badge variant="warning" title={record.accounting_sync_error || 'Invoice creation failed'}>
+                                <AlertTriangle className="w-3 h-3 mr-1" />
+                                Invoice failed
+                              </Badge>
                               <Button
-                                size="icon"
-                                variant="ghost"
-                                onClick={() => handleReconcilePayment(record.id)}
-                                disabled={reconcilingRecordId === record.id}
-                                title="Check payment status now"
-                                data-testid={`button-reconcile-payment-${record.id}`}
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleRetryInvoice(record.id)}
+                                disabled={retryingInvoiceRecordId === record.id}
+                                data-testid={`button-retry-invoice-${record.id}`}
                               >
-                                {reconcilingRecordId === record.id ? (
-                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                {retryingInvoiceRecordId === record.id ? (
+                                  <Loader2 className="w-3 h-3 animate-spin" />
                                 ) : (
-                                  <RefreshCw className="w-4 h-4" />
+                                  'Retry'
                                 )}
                               </Button>
-                            )}
-                          </div>
+                            </div>
+                          ) : invoiceId ? (
+                            <div className="flex items-center justify-center gap-1">
+                              {loadingInvoiceRecordId === record.id ? (
+                                <Loader2
+                                  className="w-4 h-4 animate-spin text-muted-foreground"
+                                  data-testid={`spinner-invoice-${record.id}`}
+                                />
+                              ) : (
+                                <>
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    onClick={() => handleViewInvoice(record.id, invoiceNumber)}
+                                    title={`View invoice ${invoiceNumber || ''}`.trim()}
+                                    data-testid={`button-view-invoice-${record.id}`}
+                                  >
+                                    <Eye className="w-4 h-4" />
+                                  </Button>
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    onClick={() => handleDownloadInvoice(record.id, invoiceNumber)}
+                                    title={`Download invoice ${invoiceNumber || ''}`.trim()}
+                                    data-testid={`button-download-invoice-${record.id}`}
+                                  >
+                                    <Download className="w-4 h-4" />
+                                  </Button>
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    onClick={() => handleReconcilePayment(record.id)}
+                                    disabled={reconcilingRecordId === record.id}
+                                    title="Check payment status now"
+                                    data-testid={`button-reconcile-payment-${record.id}`}
+                                  >
+                                    {reconcilingRecordId === record.id ? (
+                                      <Loader2 className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                      <RefreshCw className="w-4 h-4" />
+                                    )}
+                                  </Button>
+                                </>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="text-center text-muted-foreground" data-testid={`cell-no-invoice-${record.id}`}>-</div>
+                          )}
                         </td>
                       </tr>
                     );
@@ -1086,6 +1233,30 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={invoiceModalOpen} onOpenChange={handleInvoiceModalClose}>
+        <DialogContent className="max-w-4xl h-[90vh] p-0 flex flex-col">
+          <DialogHeader className="p-6 pb-4 border-b shrink-0">
+            <DialogTitle data-testid="text-invoice-modal-title">
+              Invoice {currentInvoiceNumber || 'Preview'}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 min-h-0">
+            {currentInvoiceUrl ? (
+              <iframe
+                src={currentInvoiceUrl}
+                className="w-full h-full border-0"
+                title="Invoice PDF"
+                data-testid="iframe-invoice-pdf"
+              />
+            ) : (
+              <div className="flex items-center justify-center h-full">
+                <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={overrideModalOpen} onOpenChange={setOverrideModalOpen}>
         <DialogContent className="sm:max-w-lg">
