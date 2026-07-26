@@ -242,6 +242,15 @@ export default async function handler(req, res) {
 
   const q = req.query || {};
 
+  // Vouchers-only mode: one row per voucher with a fixed voucher-level
+  // column set, no transaction rows and no synthetic "Voucher awarded"
+  // rows. Columns/sort params are ignored in this mode.
+  const vouchersOnlyRaw = q.vouchers_only;
+  const vouchersOnly = vouchersOnlyRaw === 'true' || vouchersOnlyRaw === '1';
+  if (vouchersOnlyRaw !== undefined && !vouchersOnly && vouchersOnlyRaw !== 'false' && vouchersOnlyRaw !== '0') {
+    return res.status(400).json({ error: 'Invalid vouchers_only value' });
+  }
+
   const columnsParamProvided = Object.prototype.hasOwnProperty.call(q, 'columns');
   const requestedColumns = parseList(q.columns);
   let columnKeys;
@@ -460,6 +469,297 @@ export default async function handler(req, res) {
           vFrom += pageSize;
         }
       }
+    }
+
+    if (vouchersOnly) {
+      // ---- Vouchers-only export: one row per voucher ----
+      const vouchersAll = [];
+      {
+        const pageSize = 1000;
+        let vFrom = 0;
+        const buildQuery = () => {
+          const cols = ['id', 'code', 'description', 'expires_at', 'value', 'organization_id'];
+          if (voucherColFlags.created_at) cols.push('created_at');
+          if (voucherColFlags.issued_at) cols.push('issued_at');
+          let query = supabase
+            .from('voucher')
+            .select(cols.join(', '))
+            .eq('tenant_id', tenantId);
+          if (orgFilterActive) query = query.in('organization_id', requestedOrgIds);
+          return query.order('id', { ascending: true }).range(vFrom, vFrom + pageSize - 1);
+        };
+        while (true) {
+          const { data, error } = await runVoucherQuery(buildQuery);
+          if (error) {
+            console.error('[VoucherExportCSV] Vouchers-only voucher query error:', error);
+            return res.status(500).json({ error: 'Failed to fetch vouchers' });
+          }
+          if (data && data.length > 0) vouchersAll.push(...data);
+          if (!data || data.length < pageSize) break;
+          vFrom += pageSize;
+        }
+      }
+
+      let eligible = eligibleVoucherIds
+        ? vouchersAll.filter(v => eligibleVoucherIds.has(v.id))
+        : vouchersAll;
+
+      // Dialog date-range filter, applied at voucher level. Used-date and
+      // event-date need per-voucher lookups from the transaction table.
+      if (dateFilterActive) {
+        const inRange = (d) => {
+          if (!d) return false;
+          const t = new Date(d);
+          if (isNaN(t.getTime())) return false;
+          const iso = t.toISOString();
+          if (fromIso && iso < fromIso) return false;
+          if (toIso && iso > toIso) return false;
+          return true;
+        };
+
+        const needsUsed = dateField === 'used' || dateFallbackField === 'used';
+        const needsEventDate = dateField === 'event_date' || dateFallbackField === 'event_date';
+
+        let redemptionDatesByVoucher = null;
+        if (needsUsed) {
+          redemptionDatesByVoucher = {};
+          const pageSize = 1000;
+          let rdFrom = 0;
+          while (true) {
+            const { data, error } = await supabase
+              .from('voucher_transaction')
+              .select('voucher_id, created_at')
+              .eq('tenant_id', tenantId)
+              .eq('type', 'booking_usage')
+              .order('id', { ascending: true })
+              .range(rdFrom, rdFrom + pageSize - 1);
+            if (error) {
+              console.error('[VoucherExportCSV] Vouchers-only redemption dates query error:', error);
+              return res.status(500).json({ error: 'Failed to resolve used-date filter' });
+            }
+            for (const row of (data || [])) {
+              if (!row.voucher_id || !row.created_at) continue;
+              if (!redemptionDatesByVoucher[row.voucher_id]) redemptionDatesByVoucher[row.voucher_id] = [];
+              redemptionDatesByVoucher[row.voucher_id].push(row.created_at);
+            }
+            if (!data || data.length < pageSize) break;
+            rdFrom += pageSize;
+          }
+        }
+
+        let eventDatesByVoucher = null;
+        if (needsEventDate) {
+          eventDatesByVoucher = {};
+          const eventIdsByVoucher = {};
+          const allEventIds = new Set();
+          const pageSize = 1000;
+          let tFrom = 0;
+          while (true) {
+            const { data, error } = await supabase
+              .from('voucher_transaction')
+              .select('voucher_id, event_id')
+              .eq('tenant_id', tenantId)
+              .order('id', { ascending: true })
+              .range(tFrom, tFrom + pageSize - 1);
+            if (error) {
+              console.error('[VoucherExportCSV] Vouchers-only event lookup query error:', error);
+              return res.status(500).json({ error: 'Failed to resolve event-date filter' });
+            }
+            for (const row of (data || [])) {
+              if (!row.voucher_id || !row.event_id) continue;
+              if (!eventIdsByVoucher[row.voucher_id]) eventIdsByVoucher[row.voucher_id] = new Set();
+              eventIdsByVoucher[row.voucher_id].add(row.event_id);
+              allEventIds.add(row.event_id);
+            }
+            if (!data || data.length < pageSize) break;
+            tFrom += pageSize;
+          }
+          const startDateByEventId = {};
+          const eventIdList = Array.from(allEventIds);
+          const batchSize = 100;
+          const resolvedAsEvent = new Set();
+          for (let i = 0; i < eventIdList.length; i += batchSize) {
+            const batch = eventIdList.slice(i, i + batchSize);
+            const { data, error } = await supabase
+              .from('event')
+              .select('id, start_date, tenant_id')
+              .in('id', batch);
+            if (error) {
+              console.warn('[VoucherExportCSV] Vouchers-only events lookup error (non-blocking):', error.message);
+              continue;
+            }
+            (data || [])
+              .filter(e => !e.tenant_id || e.tenant_id === tenantId)
+              .forEach(e => {
+                resolvedAsEvent.add(e.id);
+                if (e.start_date) startDateByEventId[e.id] = e.start_date;
+              });
+          }
+          const unresolvedIds = eventIdList.filter(id => !resolvedAsEvent.has(id));
+          for (let i = 0; i < unresolvedIds.length; i += batchSize) {
+            const batch = unresolvedIds.slice(i, i + batchSize);
+            const { data, error } = await supabase
+              .from('complex_event')
+              .select('id, start_date, tenant_id')
+              .in('id', batch);
+            if (error) {
+              if (error.code !== '42703') {
+                console.warn('[VoucherExportCSV] Vouchers-only complex events lookup error (non-blocking):', error.message);
+              }
+              continue;
+            }
+            (data || [])
+              .filter(e => !e.tenant_id || e.tenant_id === tenantId)
+              .forEach(e => {
+                if (e.start_date) startDateByEventId[e.id] = e.start_date;
+              });
+          }
+          for (const [vid, ids] of Object.entries(eventIdsByVoucher)) {
+            const dates = Array.from(ids).map(id => startDateByEventId[id]).filter(Boolean);
+            if (dates.length > 0) eventDatesByVoucher[vid] = dates;
+          }
+        }
+
+        const evalVoucherField = (v, field) => {
+          if (field === 'issued') {
+            const d = v.issued_at ?? v.created_at ?? null;
+            return { has: !!d, match: d ? inRange(d) : false };
+          }
+          if (field === 'expiry') {
+            const d = v.expires_at;
+            return { has: !!d, match: d ? inRange(d) : false };
+          }
+          if (field === 'used') {
+            const dates = (redemptionDatesByVoucher && redemptionDatesByVoucher[v.id]) || [];
+            return { has: dates.length > 0, match: dates.some(inRange) };
+          }
+          if (field === 'event_date') {
+            const dates = (eventDatesByVoucher && eventDatesByVoucher[v.id]) || [];
+            return { has: dates.length > 0, match: dates.some(inRange) };
+          }
+          return { has: false, match: false };
+        };
+
+        eligible = eligible.filter((v) => {
+          const primary = evalVoucherField(v, dateField);
+          if (primary.has) return primary.match;
+          if (dateFallbackField) {
+            const fb = evalVoucherField(v, dateFallbackField);
+            return fb.has && fb.match;
+          }
+          return false;
+        });
+      }
+
+      if (excludeExpiredInRange && dateFilterActive) {
+        const fromMs = fromIso ? new Date(fromIso).getTime() : null;
+        const toMs = toIso ? new Date(toIso).getTime() : null;
+        eligible = eligible.filter((v) => {
+          if (!v.expires_at) return true;
+          const ms = new Date(v.expires_at).getTime();
+          if (isNaN(ms)) return true;
+          if (fromMs !== null && ms < fromMs) return true;
+          if (toMs !== null && ms > toMs) return true;
+          return false;
+        });
+      }
+
+      // Initial balance = current value minus the net effect of every
+      // transaction on the voucher (mirrors the synthetic awarded-row math).
+      const netByVoucher = {};
+      {
+        const voucherIdList = eligible.map(v => v.id);
+        const batchSize = 200;
+        const pageSize = 1000;
+        for (let i = 0; i < voucherIdList.length; i += batchSize) {
+          const batch = voucherIdList.slice(i, i + batchSize);
+          let netFrom = 0;
+          while (true) {
+            const { data, error } = await supabase
+              .from('voucher_transaction')
+              .select('id, voucher_id, amount, type')
+              .eq('tenant_id', tenantId)
+              .in('voucher_id', batch)
+              .order('id', { ascending: true })
+              .range(netFrom, netFrom + pageSize - 1);
+            if (error) {
+              console.warn('[VoucherExportCSV] Vouchers-only net lookup error (non-blocking):', error.message);
+              break;
+            }
+            for (const t of (data || [])) {
+              if (!t.voucher_id) continue;
+              const amt = Math.abs(parseFloat(t.amount || 0));
+              if (isNaN(amt)) continue;
+              let signed = 0;
+              if (NEGATIVE_TYPES.has(t.type)) signed = -amt;
+              else if (POSITIVE_TYPES.has(t.type)) signed = amt;
+              else {
+                const raw = parseFloat(t.amount || 0);
+                signed = isNaN(raw) ? 0 : raw;
+              }
+              netByVoucher[t.voucher_id] = (netByVoucher[t.voucher_id] || 0) + signed;
+            }
+            if (!data || data.length < pageSize) break;
+            netFrom += pageSize;
+          }
+        }
+      }
+
+      const { data: orgs, error: orgErr } = await supabase
+        .from('organization')
+        .select('id, name')
+        .eq('tenant_id', tenantId);
+      if (orgErr) {
+        console.error('[VoucherExportCSV] Organizations query error:', orgErr);
+        return res.status(500).json({ error: 'Failed to fetch organisations' });
+      }
+      const orgNameById = {};
+      (orgs || []).forEach(o => { orgNameById[o.id] = o.name || ''; });
+
+      eligible.sort((a, b) => {
+        const an = (orgNameById[a.organization_id] || '').toLowerCase();
+        const bn = (orgNameById[b.organization_id] || '').toLowerCase();
+        if (an !== bn) return an < bn ? -1 : 1;
+        const ac = (a.code || '').toLowerCase();
+        const bc = (b.code || '').toLowerCase();
+        if (ac !== bc) return ac < bc ? -1 : 1;
+        const aId = String(a.id || '');
+        const bId = String(b.id || '');
+        if (aId === bId) return 0;
+        return aId < bId ? -1 : 1;
+      });
+
+      const headerRow = [
+        'Organisation',
+        'Voucher Code',
+        'Voucher Description',
+        'Issued Date',
+        'Expiry Date',
+        'Initial Balance',
+        'Current Balance',
+      ].map(escapeCSV).join(',');
+      const dataRows = eligible.map((v) => {
+        const currentValue = parseFloat(v.value);
+        const hasValue = !isNaN(currentValue);
+        const initialValue = hasValue ? currentValue - (netByVoucher[v.id] || 0) : NaN;
+        return [
+          escapeCSV(orgNameById[v.organization_id] || ''),
+          escapeCSV(v.code || ''),
+          escapeCSV(v.description || ''),
+          escapeCSV(formatDateOnly(v.issued_at ?? v.created_at ?? null)),
+          escapeCSV(formatDateOnly(v.expires_at)),
+          escapeCSV(hasValue ? initialValue.toFixed(2) : ''),
+          escapeCSV(hasValue ? currentValue.toFixed(2) : ''),
+        ].join(',');
+      });
+      const csv = [headerRow, ...dataRows].join('\n');
+
+      const today = new Date().toISOString().split('T')[0];
+      const filename = `training_vouchers_${today}.csv`;
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('X-Export-Row-Count', String(eligible.length));
+      return res.status(200).send(csv);
     }
 
     const allTransactions = [];

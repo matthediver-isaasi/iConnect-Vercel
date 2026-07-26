@@ -117,6 +117,7 @@ export default function VoucherManagementPage() {
   const [exportDateField, setExportDateField] = useState('issued');
   const [exportDateFallbackField, setExportDateFallbackField] = useState('');
   const [exportExcludeExpired, setExportExcludeExpired] = useState(false);
+  const [exportSuppressTransactions, setExportSuppressTransactions] = useState(false);
   const [exportEmptyMessage, setExportEmptyMessage] = useState("");
 
   // Tenant-shared saved export reports: one SystemSettings row per tenant
@@ -637,6 +638,7 @@ export default function VoucherManagementPage() {
       dir: r.dir === 'desc' ? 'desc' : 'asc',
       fallback: r.fallback || null,
     })),
+    suppressTransactions: exportSuppressTransactions,
   });
 
   // Hydrate the export dialog state from a saved report config, gracefully
@@ -708,6 +710,8 @@ export default function VoucherManagementPage() {
       sortRules.length > 0 ? sortRules : DEFAULT_EXPORT_SORT_RULES.map(r => ({ ...r }))
     );
 
+    setExportSuppressTransactions(cfg.suppressTransactions === true);
+
     setExportEmptyMessage("");
     setActiveExportReportId(report.id);
   };
@@ -732,6 +736,7 @@ export default function VoucherManagementPage() {
         dir: r?.dir === 'desc' ? 'desc' : 'asc',
         fallback: r?.fallback || null,
       })),
+      suppressTransactions: stored.suppressTransactions === true,
     };
     return JSON.stringify(serializeExportConfig()) !== JSON.stringify(normalizedStored);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -745,11 +750,12 @@ export default function VoucherManagementPage() {
     exportAllOrgs,
     exportOrgIds,
     exportSortRules,
+    exportSuppressTransactions,
   ]);
 
   const handleConfirmExport = async () => {
     setExportEmptyMessage("");
-    if (exportColumns.size === 0) {
+    if (!exportSuppressTransactions && exportColumns.size === 0) {
       toast.error('Select at least one column to export');
       return;
     }
@@ -775,11 +781,11 @@ export default function VoucherManagementPage() {
         return;
       }
     }
-    if (exportSortRules.length === 0) {
+    if (!exportSuppressTransactions && exportSortRules.length === 0) {
       toast.error('Add at least one sort rule');
       return;
     }
-    {
+    if (!exportSuppressTransactions) {
       const seen = new Set();
       for (const rule of exportSortRules) {
         if (!rule.field || !EXPORT_SORT_FIELD_TYPES[rule.field]) {
@@ -807,8 +813,14 @@ export default function VoucherManagementPage() {
     setIsExporting(true);
     try {
       const params = new URLSearchParams();
-      const orderedCols = ALL_EXPORT_COLUMN_KEYS.filter(k => exportColumns.has(k));
-      params.set('columns', orderedCols.join(','));
+      if (exportSuppressTransactions) {
+        // Vouchers-only mode: fixed voucher-level columns and sort on the
+        // server; the column selector and sort rules don't apply.
+        params.set('vouchers_only', 'true');
+      } else {
+        const orderedCols = ALL_EXPORT_COLUMN_KEYS.filter(k => exportColumns.has(k));
+        params.set('columns', orderedCols.join(','));
+      }
       if (exportFromDate) params.set('from', toIsoDateOnly(exportFromDate));
       if (exportToDate) params.set('to', toIsoDateOnly(exportToDate));
       if (exportFromDate || exportToDate) {
@@ -835,10 +847,12 @@ export default function VoucherManagementPage() {
         if (dateFilterFrom) params.set('voucher_from', dateFilterFrom);
         if (dateFilterTo) params.set('voucher_to', dateFilterTo);
       }
-      for (const rule of exportSortRules) {
-        const parts = [rule.field, rule.dir];
-        if (rule.fallback) parts.push(rule.fallback);
-        params.append('sort', parts.join(':'));
+      if (!exportSuppressTransactions) {
+        for (const rule of exportSortRules) {
+          const parts = [rule.field, rule.dir];
+          if (rule.fallback) parts.push(rule.fallback);
+          params.append('sort', parts.join(':'));
+        }
       }
 
       const response = await fetch(`/api/admin/voucher-transactions/export-csv?${params.toString()}`, {
@@ -856,7 +870,9 @@ export default function VoucherManagementPage() {
       const rowCountHeader = response.headers.get('X-Export-Row-Count');
       const rowCount = rowCountHeader != null ? parseInt(rowCountHeader, 10) : null;
       if (rowCount === 0) {
-        setExportEmptyMessage('No transactions match the selected filters. Adjust your filters and try again.');
+        setExportEmptyMessage(exportSuppressTransactions
+          ? 'No vouchers match the selected filters. Adjust your filters and try again.'
+          : 'No transactions match the selected filters. Adjust your filters and try again.');
         return;
       }
 
@@ -865,7 +881,9 @@ export default function VoucherManagementPage() {
       const link = document.createElement('a');
       link.href = url;
       const today = new Date().toISOString().split('T')[0];
-      link.download = `training_voucher_transactions_${today}.csv`;
+      link.download = exportSuppressTransactions
+        ? `training_vouchers_${today}.csv`
+        : `training_voucher_transactions_${today}.csv`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -1918,6 +1936,24 @@ export default function VoucherManagementPage() {
               </div>
 
               <div>
+                <label
+                  className="flex items-center gap-2 text-sm cursor-pointer"
+                  data-testid="label-export-voucher-suppress-transactions"
+                >
+                  <Checkbox
+                    checked={exportSuppressTransactions}
+                    onCheckedChange={(v) => setExportSuppressTransactions(v === true)}
+                    data-testid="checkbox-export-voucher-suppress-transactions"
+                  />
+                  <span>Suppress transactions</span>
+                </label>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Export one row per voucher (organisation, code, description, issued and expiry dates, initial and current balance) instead of one row per transaction. Date and organisation filters still apply.
+                </p>
+              </div>
+
+              {!exportSuppressTransactions && (
+              <div>
                 <div className="flex items-center justify-between mb-2">
                   <Label className="text-sm font-medium">Columns</Label>
                   <div className="flex gap-2">
@@ -1960,6 +1996,7 @@ export default function VoucherManagementPage() {
                   ))}
                 </div>
               </div>
+              )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
@@ -2154,6 +2191,7 @@ export default function VoucherManagementPage() {
                 </div>
               </div>
 
+              {!exportSuppressTransactions && (
               <div>
                 <Label className="text-sm font-medium">Sort by</Label>
                 <p className="text-xs text-muted-foreground mt-1">
@@ -2290,6 +2328,7 @@ export default function VoucherManagementPage() {
                   Add sort rule
                 </Button>
               </div>
+              )}
 
               {exportEmptyMessage && (
                 <div
@@ -2312,7 +2351,7 @@ export default function VoucherManagementPage() {
               </Button>
               <Button
                 onClick={handleConfirmExport}
-                disabled={isExporting || exportColumns.size === 0}
+                disabled={isExporting || (!exportSuppressTransactions && exportColumns.size === 0)}
                 className="gap-2"
                 data-testid="button-export-voucher-confirm"
               >
