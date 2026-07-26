@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import SEOSettings from "@/components/blog/SEOSettings";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
+import { getDirectoryFilterOptions } from "@/utils/directorySettings";
 
 const ENTITY_TYPES = [
   { value: 'member', label: 'Member', icon: User },
@@ -88,7 +89,7 @@ export default function DynamicDirectoryManagementPage() {
           filter: { entity_scope: entityType, is_active: true },
           sort: { display_order: 'asc' }
         });
-        return (fields || []).filter(f => f.field_type === 'picklist' || f.field_type === 'dropdown');
+        return (fields || []).filter(f => f.field_type === 'picklist' || f.field_type === 'dropdown' || f.field_type === 'boolean');
       } catch (error) {
         console.error('Failed to fetch preference fields:', error);
         return [];
@@ -106,7 +107,7 @@ export default function DynamicDirectoryManagementPage() {
           sort: { display_order: 'asc' }
         });
         return (fields || []).filter(f => 
-          (f.field_type === 'picklist' || f.field_type === 'dropdown') && f.is_filterable
+          (f.field_type === 'picklist' || f.field_type === 'dropdown' || f.field_type === 'boolean') && f.is_filterable
         );
       } catch (error) {
         console.error('Failed to fetch filterable fields:', error);
@@ -464,7 +465,7 @@ export default function DynamicDirectoryManagementPage() {
               <ul className="list-disc pl-5 space-y-1">
                 <li>Dynamic directories create filtered views of members or organisations based on custom field values</li>
                 <li>Each directory has a unique URL slug (e.g., /directory/my-directory-slug)</li>
-                <li>Only picklist and dropdown custom fields can be used as filters</li>
+                <li>Only picklist, dropdown and boolean custom fields can be used as filters</li>
               </ul>
             </div>
           </CardContent>
@@ -540,7 +541,7 @@ export default function DynamicDirectoryManagementPage() {
                 <SelectContent>
                   {preferenceFields.length === 0 ? (
                     <SelectItem value="_none" disabled>
-                      No picklist/dropdown fields available
+                      No picklist/dropdown/boolean fields available
                     </SelectItem>
                   ) : (
                     preferenceFields.map((field) => (
@@ -551,7 +552,7 @@ export default function DynamicDirectoryManagementPage() {
                   )}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-slate-500">Only picklist and dropdown fields are available</p>
+              <p className="text-xs text-slate-500">Only picklist, dropdown and boolean fields are available</p>
             </div>
 
             <div className="space-y-2">
@@ -565,7 +566,7 @@ export default function DynamicDirectoryManagementPage() {
                   <SelectValue placeholder={!selectedField ? "Select a field first" : "Select filter value"} />
                 </SelectTrigger>
                 <SelectContent>
-                  {selectedField?.options?.map((option) => (
+                  {getDirectoryFilterOptions(selectedField).map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
                     </SelectItem>
@@ -582,7 +583,7 @@ export default function DynamicDirectoryManagementPage() {
               {availableFilterFields.length === 0 ? (
                 <p className="text-xs text-slate-500">
                   No additional filterable fields available. To add filter options, create custom fields 
-                  (picklist or dropdown type) with "Is Filterable" enabled in Preference Fields settings.
+                  (picklist, dropdown or boolean type) with "Is Filterable" enabled in Preference Fields settings.
                   The primary filter field selected above is excluded from this list.
                 </p>
               ) : (
