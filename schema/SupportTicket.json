@@ -80,6 +80,36 @@
       "area": {
         "type": "string",
         "description": "Support area this ticket belongs to (tenant-configured)"
+      },
+      "resolved_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "When the ticket was last marked resolved (cleared on reopen)"
+      },
+      "closed_reason": {
+        "type": "string",
+        "enum": ["manual", "auto"],
+        "description": "Whether the ticket was closed manually or auto-closed by the cron"
+      },
+      "auto_close_warning_sent_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "When the auto-close warning email was sent (cleared on reopen)"
+      },
+      "satisfaction_rating": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 5,
+        "description": "Submitter's 1-5 satisfaction rating"
+      },
+      "satisfaction_comment": {
+        "type": "string",
+        "description": "Optional free-text feedback from the submitter"
+      },
+      "satisfaction_rated_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "When the satisfaction rating was last submitted/updated"
       }
     },
     "required": [

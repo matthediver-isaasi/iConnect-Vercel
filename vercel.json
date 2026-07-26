@@ -101,6 +101,10 @@
     {
       "path": "/api/cron/backup-database-to-r2",
       "schedule": "5-59/10 2-7 * * *"
+    },
+    {
+      "path": "/api/cron/support-auto-close",
+      "schedule": "0 4 * * *"
     }
   ],
   "rewrites": [

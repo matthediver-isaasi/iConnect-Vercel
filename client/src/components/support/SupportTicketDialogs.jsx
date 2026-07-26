@@ -21,7 +21,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Bug, Lightbulb, HelpCircle, Mail, CheckCircle, AlertCircle, Upload, X, Loader2 } from "lucide-react";
+import { Bug, Lightbulb, HelpCircle, Mail, CheckCircle, AlertCircle, Upload, X, Loader2, Star } from "lucide-react";
 import { toast } from "sonner";
 import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { format } from "date-fns";
@@ -299,6 +299,99 @@ export function NewSupportTicketDialog({
 }
 
 /**
+ * In-app satisfaction rating for the member's own resolved/closed ticket.
+ * Mirrors the no-login email rating links: one rating per ticket, updatable.
+ */
+function TicketSatisfactionRating({ ticket, ticketQueryKeys }) {
+  const queryClient = useQueryClient();
+  const [hovered, setHovered] = useState(0);
+  const [comment, setComment] = useState(ticket.satisfaction_comment || "");
+
+  useEffect(() => {
+    setComment(ticket.satisfaction_comment || "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ticket.id]);
+
+  const rateMutation = useMutation({
+    mutationFn: (data) => base44.entities.SupportTicket.update(ticket.id, data),
+    onSuccess: () => {
+      (ticketQueryKeys || []).forEach((key) => queryClient.invalidateQueries({ queryKey: key }));
+      toast.success("Thanks for your feedback!");
+    },
+    onError: () => toast.error("Failed to save your rating"),
+  });
+
+  const currentScore = Number.isInteger(ticket.satisfaction_rating) ? ticket.satisfaction_rating : 0;
+
+  const handleRate = (score) => {
+    rateMutation.mutate({
+      satisfaction_rating: score,
+      satisfaction_rated_at: new Date().toISOString(),
+    });
+  };
+
+  const handleSaveComment = () => {
+    rateMutation.mutate({ satisfaction_comment: comment.trim() || null });
+  };
+
+  return (
+    <div className="bg-amber-50 rounded-lg p-4 border border-amber-200" data-testid="section-ticket-rating">
+      <p className="font-semibold text-slate-900 text-sm mb-2">
+        {currentScore ? "Your satisfaction rating" : "How satisfied are you with the support you received?"}
+      </p>
+      <div className="flex items-center gap-1 mb-2">
+        {[1, 2, 3, 4, 5].map((score) => (
+          <button
+            key={score}
+            type="button"
+            onClick={() => handleRate(score)}
+            onMouseEnter={() => setHovered(score)}
+            onMouseLeave={() => setHovered(0)}
+            disabled={rateMutation.isPending}
+            className="p-0.5"
+            aria-label={`Rate ${score} out of 5`}
+            data-testid={`button-rate-${score}`}
+          >
+            <Star
+              className={`w-6 h-6 transition-colors ${
+                score <= (hovered || currentScore)
+                  ? "fill-amber-400 text-amber-400"
+                  : "text-slate-300"
+              }`}
+            />
+          </button>
+        ))}
+        {currentScore > 0 && (
+          <span className="text-sm text-slate-600 ml-2" data-testid="text-my-rating">{currentScore}/5</span>
+        )}
+      </div>
+      {currentScore > 0 && (
+        <div className="space-y-2">
+          <Textarea
+            rows={2}
+            placeholder="Anything you'd like to add? (optional)"
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            maxLength={2000}
+            data-testid="input-rating-comment"
+          />
+          {comment.trim() !== (ticket.satisfaction_comment || "").trim() && (
+            <Button
+              size="sm"
+              onClick={handleSaveComment}
+              disabled={rateMutation.isPending}
+              data-testid="button-save-rating-comment"
+            >
+              Save comment
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * View Support Ticket dialog: ticket details plus the shared chat-style
  * conversation (TicketConversation). Members can always reply — replying to a
  * resolved/closed ticket reopens it.
@@ -368,6 +461,14 @@ export function ViewSupportTicketDialog({
                   </div>
                   <p className="text-sm text-green-700">{ticket.resolution_notes}</p>
                 </div>
+              )}
+
+              {/* Satisfaction rating (own resolved/closed tickets only) */}
+              {(ticket.status === 'resolved' || ticket.status === 'closed')
+                && memberInfo?.email
+                && ticket.submitter_email
+                && memberInfo.email.toLowerCase() === ticket.submitter_email.toLowerCase() && (
+                <TicketSatisfactionRating ticket={ticket} ticketQueryKeys={resolvedTicketQueryKeys} />
               )}
 
               {/* Conversation */}

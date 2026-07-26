@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { sendEmail } from '../_lib/emailService.js';
 import { isResourceExcluded } from '../_lib/roleVisibility.js';
+import { buildRatingUrls } from '../_lib/supportCsat.js';
 
 const SUPPORT_AREAS_KEY = 'support_areas';
 
@@ -206,7 +207,7 @@ async function resolveTicketSubmitter(tenantId, ticket) {
  * @param {object} opts
  * @param {string} opts.tenantId
  * @param {string} opts.ticketId
- * @param {string} opts.eventType  'new_ticket' | 'user_reply' | 'admin_reply'
+ * @param {string} opts.eventType  'new_ticket' | 'user_reply' | 'admin_reply' | 'ticket_resolved' | 'auto_close_warning'
  * @param {string|null} opts.performedByMemberId  Exclude this member from the fan-out
  * @param {object} opts.metadata  Extra data stored in the inbox item and used in emails
  */
@@ -218,7 +219,7 @@ export async function sendSupportNotification({ tenantId, ticketId, eventType, p
   try {
     const { data: ticket, error: ticketErr } = await supabase
       .from('support_ticket')
-      .select('id, subject, description, type, severity, area, status, submitter_name, submitter_email')
+      .select('id, subject, description, type, severity, area, status, submitter_name, submitter_email, resolution_notes')
       .eq('id', ticketId)
       .maybeSingle();
 
@@ -229,7 +230,7 @@ export async function sendSupportNotification({ tenantId, ticketId, eventType, p
 
     let recipients = [];
 
-    if (eventType === 'admin_reply') {
+    if (eventType === 'admin_reply' || eventType === 'ticket_resolved' || eventType === 'auto_close_warning') {
       // Notify the ticket submitter only
       const submitter = await resolveTicketSubmitter(tenantId, ticket);
       if (submitter) {
@@ -244,7 +245,7 @@ export async function sendSupportNotification({ tenantId, ticketId, eventType, p
         }];
         const failures = await fanOutNotifications({ tenantId, ticket, eventType, recipients: emailOnly, performedByMemberId, metadata });
         if (failures.length > 0) {
-          console.error(`[SupportNotify] ${failures.length} email failure(s) for admin_reply on ticket ${ticketId}:`, failures);
+          console.error(`[SupportNotify] ${failures.length} email failure(s) for ${eventType} on ticket ${ticketId}:`, failures);
         }
         return;
       }
@@ -451,6 +452,47 @@ function buildEmailContent({ eventType, ticket, recipient, appUrl, metadata }) {
       ctaUrl = submitterPageUrl;
       ctaLabel = 'View your support tickets';
       break;
+    case 'ticket_resolved': {
+      emailSubject = `Your support ticket has been resolved: ${ticket.subject}`;
+      intro = `Your support ticket <em>${safeSubject}</em> has been marked as resolved.`;
+      const notes = escapeHtml((ticket.resolution_notes || '').substring(0, 1000));
+      const notesSection = notes
+        ? `<p style="color:#334155;font-size:14px;margin-bottom:4px;"><strong>Resolution notes:</strong></p>
+           <blockquote style="color:#555;font-size:14px;border-left:3px solid #22c55e;padding-left:12px;margin:8px 0 16px;white-space:pre-wrap;">${notes}</blockquote>`
+        : '';
+      // One-click rating links (no login required). Signed + expiring.
+      const ratingUrls = buildRatingUrls(appUrl, ticket.id);
+      let ratingSection = '';
+      if (ratingUrls) {
+        const buttons = [1, 2, 3, 4, 5]
+          .map((score) =>
+            `<a href="${ratingUrls[score]}" style="display:inline-block;width:40px;height:40px;line-height:40px;text-align:center;background:#f1f5f9;border:1px solid #cbd5e1;border-radius:6px;color:#1e293b;font-size:16px;font-weight:bold;text-decoration:none;margin-right:8px;">${score}</a>`
+          )
+          .join('');
+        ratingSection = `
+          <p style="color:#334155;font-size:15px;line-height:1.6;margin-top:24px;">How satisfied are you with the support you received? Click a score below (1&nbsp;=&nbsp;very dissatisfied, 5&nbsp;=&nbsp;very satisfied) — no login needed:</p>
+          <p style="margin:12px 0;">${buttons}</p>`;
+      }
+      bodyDetail = `${notesSection}${ratingSection}
+        <p style="color:#64748b;font-size:13px;margin-top:16px;">If your issue is not fully resolved, just reply on the ticket and it will be reopened.</p>`;
+      ctaUrl = submitterPageUrl;
+      ctaLabel = 'View your support tickets';
+      break;
+    }
+    case 'auto_close_warning': {
+      const daysUntilClose = Number(metadata.days_until_close) || null;
+      emailSubject = `Your support ticket will be closed soon: ${ticket.subject}`;
+      intro = `Your support ticket <em>${safeSubject}</em> was marked as resolved and has had no activity since.`;
+      bodyDetail = `
+        <p style="color:#334155;font-size:15px;line-height:1.6;">${
+          daysUntilClose
+            ? `It will be closed automatically in <strong>${daysUntilClose} day${daysUntilClose === 1 ? '' : 's'}</strong> unless you reply.`
+            : 'It will be closed automatically soon unless you reply.'
+        } If your issue is not fully resolved, simply reply on the ticket and it will be reopened.</p>`;
+      ctaUrl = submitterPageUrl;
+      ctaLabel = 'View your support tickets';
+      break;
+    }
     default:
       emailSubject = `Support ticket update: ${ticket.subject}`;
       intro = `There has been an update on a support ticket.`;

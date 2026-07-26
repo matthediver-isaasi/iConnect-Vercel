@@ -12,7 +12,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Bug, Lightbulb, HelpCircle, Mail, Search, Clock, CheckCircle, Upload, Loader2, Bell, MessageSquare, AlertCircle, Settings, Plus, Trash2, ArrowUp, ArrowDown } from "lucide-react";
+import { Bug, Lightbulb, HelpCircle, Mail, Search, Clock, CheckCircle, Upload, Loader2, Bell, MessageSquare, AlertCircle, Settings, Plus, Trash2, ArrowUp, ArrowDown, Star } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { format, formatDistanceToNow } from "date-fns";
@@ -42,6 +43,11 @@ import {
   QUEUE_RESOLVED,
   QUEUE_CLOSED,
 } from "../../../api/_lib/supportTicketQueues.js";
+import {
+  SUPPORT_AUTO_CLOSE_KEY,
+  AUTO_CLOSE_DEFAULTS,
+  resolveAutoCloseSettings,
+} from "@/lib/supportAutoClose";
 
 const QUEUE_TABS = [
   { value: QUEUE_NEEDS_ATTENTION, label: "Needs attention" },
@@ -106,6 +112,7 @@ export default function SupportManagementPage() {
   const [levelsDraft, setLevelsDraft] = useState([]);
   const [instructionsDraft, setInstructionsDraft] = useState("");
   const [areasDraft, setAreasDraft] = useState([]);
+  const [autoCloseDraft, setAutoCloseDraft] = useState({ ...AUTO_CLOSE_DEFAULTS });
 
   const queryClient = useQueryClient();
 
@@ -258,10 +265,11 @@ export default function SupportManagementPage() {
   };
 
   const saveSettingsMutation = useMutation({
-    mutationFn: async ({ levels, instructions, areas }) => {
+    mutationFn: async ({ levels, instructions, areas, autoClose }) => {
       await upsertSetting(SUPPORT_LEVELS_KEY, JSON.stringify(levels));
       await upsertSetting(SUPPORT_INSTRUCTIONS_KEY, instructions);
       await upsertSetting(SUPPORT_AREAS_KEY, JSON.stringify(areas));
+      await upsertSetting(SUPPORT_AUTO_CLOSE_KEY, JSON.stringify(autoClose));
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['support-system-settings'] });
@@ -276,6 +284,7 @@ export default function SupportManagementPage() {
     setLevelsDraft(resolveSupportLevels(settings).map((lvl) => ({ ...lvl })));
     setInstructionsDraft(resolveSupportInstructions(settings));
     setAreasDraft(resolveSupportAreas(settings).map((a) => ({ ...a, memberIds: [...(a.memberIds || [])] })));
+    setAutoCloseDraft(resolveAutoCloseSettings(settings));
     setSettingsOpen(true);
   };
 
@@ -362,7 +371,28 @@ export default function SupportManagementPage() {
       return;
     }
 
-    saveSettingsMutation.mutate({ levels: cleaned, instructions: instructionsDraft.trim(), areas: cleanedAreas });
+    const warnDays = parseInt(autoCloseDraft.warnDays, 10);
+    const closeDays = parseInt(autoCloseDraft.closeDays, 10);
+    if (autoCloseDraft.enabled) {
+      if (!Number.isInteger(warnDays) || warnDays < 1) {
+        toast.error('Warning days must be at least 1');
+        return;
+      }
+      if (!Number.isInteger(closeDays) || closeDays <= warnDays) {
+        toast.error('Auto-close days must be greater than warning days');
+        return;
+      }
+    }
+    const cleanedAutoClose = {
+      enabled: !!autoCloseDraft.enabled,
+      warnDays: Number.isInteger(warnDays) && warnDays >= 1 ? warnDays : AUTO_CLOSE_DEFAULTS.warnDays,
+      closeDays: Number.isInteger(closeDays) && closeDays >= 1 ? closeDays : AUTO_CLOSE_DEFAULTS.closeDays,
+    };
+    if (cleanedAutoClose.closeDays <= cleanedAutoClose.warnDays) {
+      cleanedAutoClose.closeDays = cleanedAutoClose.warnDays + 1;
+    }
+
+    saveSettingsMutation.mutate({ levels: cleaned, instructions: instructionsDraft.trim(), areas: cleanedAreas, autoClose: cleanedAutoClose });
   };
 
   if (!isAccessReady) {
@@ -467,6 +497,11 @@ export default function SupportManagementPage() {
   const unreadCount = inboxData.unread_count || 0;
   const inboxItems = inboxData.items || [];
 
+  const ratedTickets = tickets.filter((t) => Number.isInteger(t.satisfaction_rating));
+  const avgSatisfaction = ratedTickets.length > 0
+    ? (ratedTickets.reduce((sum, t) => sum + t.satisfaction_rating, 0) / ratedTickets.length)
+    : null;
+
   return (
     <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
@@ -515,7 +550,7 @@ export default function SupportManagementPage() {
         )}
 
         {/* Stats */}
-        <div className="grid md:grid-cols-4 gap-4 mb-6">
+        <div className="grid md:grid-cols-5 gap-4 mb-6">
           <Card className="border-blue-200">
             <CardContent className="p-4">
               <div className="text-2xl font-bold text-blue-600">{getTicketCounts('open')}</div>
@@ -538,6 +573,23 @@ export default function SupportManagementPage() {
             <CardContent className="p-4">
               <div className="text-2xl font-bold text-slate-600">{getTicketCounts('closed')}</div>
               <div className="text-sm text-slate-600">Closed</div>
+            </CardContent>
+          </Card>
+          <Card className="border-amber-200">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-1 text-2xl font-bold text-amber-500" data-testid="text-avg-satisfaction">
+                {avgSatisfaction !== null ? (
+                  <>
+                    {avgSatisfaction.toFixed(1)}
+                    <Star className="w-5 h-5 fill-amber-400 text-amber-400" />
+                  </>
+                ) : (
+                  <span className="text-slate-400">—</span>
+                )}
+              </div>
+              <div className="text-sm text-slate-600">
+                Avg satisfaction{ratedTickets.length > 0 ? ` (${ratedTickets.length})` : ''}
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -816,6 +868,43 @@ export default function SupportManagementPage() {
                     </div>
                   )}
 
+                  {/* Satisfaction rating from the submitter */}
+                  {Number.isInteger(selectedTicket.satisfaction_rating) && (
+                    <div className="bg-amber-50 rounded-lg p-4 border border-amber-200" data-testid="section-satisfaction">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <span className="font-semibold text-slate-900 text-sm">Member satisfaction:</span>
+                        <span className="flex items-center gap-0.5" data-testid="text-satisfaction-rating">
+                          {[1, 2, 3, 4, 5].map((s) => (
+                            <Star
+                              key={s}
+                              className={`w-4 h-4 ${s <= selectedTicket.satisfaction_rating ? 'fill-amber-400 text-amber-400' : 'text-slate-300'}`}
+                            />
+                          ))}
+                        </span>
+                        <span className="text-sm text-slate-600">{selectedTicket.satisfaction_rating}/5</span>
+                        {selectedTicket.satisfaction_rated_at && (
+                          <span className="text-xs text-slate-500">
+                            {format(new Date(selectedTicket.satisfaction_rated_at), 'MMM d, yyyy')}
+                          </span>
+                        )}
+                      </div>
+                      {selectedTicket.satisfaction_comment && (
+                        <p className="text-sm text-slate-700 whitespace-pre-wrap mt-2" data-testid="text-satisfaction-comment">
+                          “{selectedTicket.satisfaction_comment}”
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Auto-close lifecycle info */}
+                  {selectedTicket.status === 'closed' && selectedTicket.closed_reason && (
+                    <p className="text-xs text-slate-500" data-testid="text-closed-reason">
+                      {selectedTicket.closed_reason === 'auto'
+                        ? 'Closed automatically after the resolution grace period.'
+                        : 'Closed manually.'}
+                    </p>
+                  )}
+
                   {/* Conversation */}
                   <TicketConversation
                     ticket={selectedTicket}
@@ -1029,6 +1118,47 @@ export default function SupportManagementPage() {
                   <Plus className="w-4 h-4 mr-2" />
                   Add area
                 </Button>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Auto-close resolved tickets</Label>
+                <p className="text-sm text-slate-500">
+                  When enabled, members are warned after a resolved ticket has been inactive for the warning period, and the ticket is closed automatically after the grace period. Replying always reopens the ticket and cancels the countdown.
+                </p>
+                <div className="flex items-center gap-2">
+                  <Switch
+                    checked={autoCloseDraft.enabled}
+                    onCheckedChange={(checked) => setAutoCloseDraft((prev) => ({ ...prev, enabled: checked }))}
+                    data-testid="switch-auto-close-enabled"
+                  />
+                  <span className="text-sm text-slate-700">
+                    {autoCloseDraft.enabled ? 'Enabled' : 'Disabled'}
+                  </span>
+                </div>
+                {autoCloseDraft.enabled && (
+                  <div className="grid grid-cols-2 gap-4 pt-2">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Warn after (days)</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={autoCloseDraft.warnDays}
+                        onChange={(e) => setAutoCloseDraft((prev) => ({ ...prev, warnDays: e.target.value === '' ? '' : parseInt(e.target.value, 10) }))}
+                        data-testid="input-auto-close-warn-days"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Close after (days)</Label>
+                      <Input
+                        type="number"
+                        min={2}
+                        value={autoCloseDraft.closeDays}
+                        onChange={(e) => setAutoCloseDraft((prev) => ({ ...prev, closeDays: e.target.value === '' ? '' : parseInt(e.target.value, 10) }))}
+                        data-testid="input-auto-close-close-days"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
             <DialogFooter>

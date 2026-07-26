@@ -16,6 +16,7 @@ import { rebuildSearchTextForEntity } from '../../_lib/searchTextBuilder.js';
 import { reindexMemberContentEntitySafe, deleteMemberContentEntitySafe } from '../../_lib/memberContentReindexHook.js';
 import { syncBlogPostAuthors } from '../../_lib/blogPostAuthors.js';
 import { sendBriefNotification } from '../../article-briefs/notify.js';
+import { sendSupportNotification } from '../../support/notify.js';
 import { getAccountingProvider } from '../../_lib/accountingProvider.js';
 import { pruneSpeakerIdsFromReferences } from '../../_lib/speakerReferences.js';
 import { assessAiCodePagePublishGate } from '../../_lib/aiCodeActions.js';
@@ -405,8 +406,9 @@ export default async function handler(req, res) {
       }
 
       const isMemberGroupProjectsEntity = entityNormalized === 'membergroup' || entityNormalized === 'membergroupassignment';
+      const isSupportTicketEntity = entityNormalized === 'supportticket';
 
-      if (isWorkflowEntity || isArticleBrief || isMemberGroupProjectsEntity) {
+      if (isWorkflowEntity || isArticleBrief || isMemberGroupProjectsEntity || isSupportTicketEntity) {
         try {
           let beforeQuery = supabase
             .from(tableName)
@@ -755,6 +757,24 @@ export default async function handler(req, res) {
         }
       }
 
+      // Support ticket CSAT + auto-close lifecycle fields: keep resolved_at /
+      // closed_reason / warning tracking consistent with status transitions.
+      // (Satisfaction rating fields are set by the rating endpoints, not here.)
+      if (isSupportTicketEntity && beforeData && typeof sanitizedBody.status === 'string' && sanitizedBody.status !== beforeData.status) {
+        if (sanitizedBody.status === 'resolved') {
+          sanitizedBody.resolved_at = new Date().toISOString();
+          sanitizedBody.auto_close_warning_sent_at = null;
+          sanitizedBody.closed_reason = null;
+        } else if (sanitizedBody.status === 'closed') {
+          if (!sanitizedBody.closed_reason) sanitizedBody.closed_reason = 'manual';
+        } else {
+          // Reopened (open / in_progress): clear resolution lifecycle state
+          sanitizedBody.resolved_at = null;
+          sanitizedBody.auto_close_warning_sent_at = null;
+          sanitizedBody.closed_reason = null;
+        }
+      }
+
       // Build PATCH query with tenant isolation
       let patchQuery = supabase
         .from(tableName)
@@ -1077,6 +1097,24 @@ export default async function handler(req, res) {
       // Task #2363: keep the Member AI Knowledge Assistant index fresh on edit.
       if (['BlogPost', 'NewsPost', 'Event', 'Resource', 'ComplexEvent'].includes(entity) && (responseData || data) && supabase) {
         reindexMemberContentEntitySafe(entity, responseData || data).catch(() => {});
+      }
+
+      // Support ticket resolved: notify the submitter with resolution notes +
+      // one-click satisfaction rating links (fire-and-forget, never blocks the response).
+      if (isSupportTicketEntity && data && beforeData
+        && beforeData.status !== 'resolved' && data.status === 'resolved') {
+        const supportTenantId = data.tenant_id || tenantCtx.tenantId;
+        if (supportTenantId) {
+          sendSupportNotification({
+            tenantId: supportTenantId,
+            ticketId: id,
+            eventType: 'ticket_resolved',
+            performedByMemberId: tenantCtx.memberId || null,
+            metadata: { resolution_notes_present: !!data.resolution_notes },
+          }).catch(err => {
+            console.error('[Entity PATCH] SupportTicket resolved notification error:', err);
+          });
+        }
       }
 
       if (isArticleBrief && data && beforeData && tenantCtx.tenantId) {
