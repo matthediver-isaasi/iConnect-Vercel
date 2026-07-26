@@ -430,6 +430,11 @@ async function sendMemberInvoiceEmail({
 
     // Fallback to public PDF token if no provider-hosted invoice link exists.
     let viewInvoiceUrl = onlineInvoiceUrl || null;
+    const { data: tenantBrand } = await supabase
+      .from('tenant')
+      .select('name, slug, logo_url, primary_color')
+      .eq('id', tenantId)
+      .maybeSingle();
     if (!viewInvoiceUrl && historyRecordId) {
       const { getOrCreateInvoicePdfToken, buildInvoicePdfUrl } = await import('../_lib/invoicePdfToken.js');
       const pdfToken = await getOrCreateInvoicePdfToken({
@@ -439,8 +444,7 @@ async function sendMemberInvoiceEmail({
         recordId: historyRecordId,
       });
       if (pdfToken) {
-        const { data: t } = await supabase.from('tenant').select('slug').eq('id', tenantId).maybeSingle();
-        viewInvoiceUrl = buildInvoicePdfUrl(pdfToken, t?.slug || null);
+        viewInvoiceUrl = buildInvoicePdfUrl(pdfToken, tenantBrand?.slug || null);
       }
     }
 
@@ -458,20 +462,22 @@ async function sendMemberInvoiceEmail({
         .replace(/\{totalWithVat\}/gi, formattedTotal)
         .replace(/\{onlineInvoiceUrl\}/gi, viewInvoiceUrl || '');
     } else {
-      body = `
-        <p>Dear ${memberName},</p>
-        <p>Your membership invoice for ${membershipYear} has been generated.</p>
-        <table style="border-collapse: collapse; margin: 16px 0;">
-          ${hasInvoiceNumber ? `<tr><td style="padding: 4px 12px; font-weight: bold;">Invoice Number</td><td style="padding: 4px 12px;">${xeroInvoiceNumber}</td></tr>` : ''}
-          <tr><td style="padding: 4px 12px; font-weight: bold;">Membership Year</td><td style="padding: 4px 12px;">${membershipYear}</td></tr>
-          <tr><td style="padding: 4px 12px; font-weight: bold;">Tier</td><td style="padding: 4px 12px;">${tierLabel || 'Standard'}</td></tr>
-          <tr><td style="padding: 4px 12px; font-weight: bold;">Fee</td><td style="padding: 4px 12px;">${currency} ${formattedCost}</td></tr>
-          ${vatAmount > 0 ? `<tr><td style="padding: 4px 12px; font-weight: bold;">VAT</td><td style="padding: 4px 12px;">${currency} ${formattedVat}</td></tr>` : ''}
-          ${vatAmount > 0 ? `<tr><td style="padding: 4px 12px; font-weight: bold;">Total (incl. VAT)</td><td style="padding: 4px 12px;">${currency} ${formattedTotal}</td></tr>` : ''}
-        </table>
-        ${viewInvoiceUrl ? `<p><a href="${viewInvoiceUrl}">View and pay your invoice online</a></p>` : ''}
-        <p>Thank you for your membership.</p>
-      `;
+      // Shared layout with the org membership invoice email (fee table + CTA).
+      const { buildMembershipInvoiceEmailHtml } = await import('../_lib/membershipInvoiceEmail.js');
+      body = buildMembershipInvoiceEmailHtml({
+        recipientName: memberName,
+        tenantName: tenantBrand?.name || null,
+        logoUrl: tenantBrand?.logo_url || null,
+        primaryColor: tenantBrand?.primary_color || null,
+        membershipYear,
+        finalCost,
+        currency,
+        tierLabel,
+        invoiceNumber: hasInvoiceNumber ? xeroInvoiceNumber : null,
+        vatAmount: vatAmount || 0,
+        totalWithVat: totalWithVat || finalCost,
+        viewInvoiceUrl,
+      });
     }
 
     const inboxDelivery = await buildInboxDelivery({

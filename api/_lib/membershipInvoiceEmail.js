@@ -4,6 +4,85 @@ import { buildInboxDelivery } from './transactionalInbox.js';
 import { resolveTierRecipients } from './membershipRecipientResolver.js';
 import { getOrCreateInvoicePdfToken, buildInvoicePdfUrl } from './invoicePdfToken.js';
 
+// Shared fee-table + CTA layout used by BOTH the org invoice email and the
+// member invoice emails (manual endpoint + cron renewal path). Keep this the
+// single source of truth so the two never drift apart again.
+export function buildMembershipInvoiceEmailHtml({
+  recipientName,
+  tenantName,
+  logoUrl,
+  primaryColor,
+  membershipYear,
+  finalCost,
+  currency,
+  tierLabel,
+  invoiceNumber,
+  vatAmount,
+  totalWithVat,
+  viewInvoiceUrl,
+}) {
+  const brandColor = primaryColor || '#5C0085';
+  const displayName = tenantName || 'Organisation';
+  const currencySymbol = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' }[currency] || currency;
+  const hasInvoiceNumber = !!invoiceNumber;
+  const hasVat = vatAmount && vatAmount > 0;
+  const displayTotal = totalWithVat && totalWithVat > finalCost ? totalWithVat : finalCost;
+
+  return `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        ${logoUrl ? `<div style="text-align: center; padding: 20px 0;"><img src="${logoUrl}" alt="${displayName}" style="max-height: 60px;" /></div>` : ''}
+        <div style="padding: 20px; border: 1px solid #e5e5e5; border-radius: 8px;">
+          <h2 style="color: ${brandColor}; margin-top: 0;">Membership Invoice - ${membershipYear}</h2>
+          <p>Dear ${recipientName},</p>
+          <p>Your membership invoice for the period <strong>${membershipYear}</strong> has been generated.</p>
+          <div style="background: #f9f9f9; padding: 16px; border-radius: 6px; margin: 16px 0;">
+            <table style="width: 100%; border-collapse: collapse;">
+              ${hasInvoiceNumber ? `
+              <tr>
+                <td style="padding: 4px 0; color: #666;">Invoice Number</td>
+                <td style="padding: 4px 0; text-align: right; font-weight: 600;">${invoiceNumber}</td>
+              </tr>
+              ` : ''}
+              <tr>
+                <td style="padding: 4px 0; color: #666;">Membership Year</td>
+                <td style="padding: 4px 0; text-align: right; font-weight: 600;">${membershipYear}</td>
+              </tr>
+              <tr>
+                <td style="padding: 4px 0; color: #666;">Tier</td>
+                <td style="padding: 4px 0; text-align: right; font-weight: 600;">${tierLabel || 'Standard'}</td>
+              </tr>
+              ${hasVat ? `
+              <tr>
+                <td style="padding: 4px 0; color: #666;">Net Amount</td>
+                <td style="padding: 4px 0; text-align: right; font-weight: 600;">${currencySymbol}${parseFloat(finalCost).toFixed(2)}</td>
+              </tr>
+              <tr>
+                <td style="padding: 4px 0; color: #666;">VAT</td>
+                <td style="padding: 4px 0; text-align: right; font-weight: 600;">${currencySymbol}${parseFloat(vatAmount).toFixed(2)}</td>
+              </tr>
+              ` : ''}
+              <tr>
+                <td colspan="2" style="padding: 8px 0 4px 0; border-top: 1px solid #ddd;"></td>
+              </tr>
+              <tr>
+                <td style="padding: 4px 0; color: #333; font-weight: 600;">Total${hasVat ? ' (incl. VAT)' : ''}</td>
+                <td style="padding: 4px 0; text-align: right; font-weight: 700; font-size: 18px;">${currencySymbol}${parseFloat(displayTotal).toFixed(2)}</td>
+              </tr>
+            </table>
+          </div>
+          ${viewInvoiceUrl ? `
+          <p>You can view and download your invoice using the link below:</p>
+          <div style="text-align: center; margin: 24px 0;">
+            <a href="${viewInvoiceUrl}" style="display: inline-block; background: ${brandColor}; color: white; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 600;">View Invoice</a>
+          </div>
+          ` : ''}
+          <p style="color: #666; font-size: 13px;">If you have any questions about this invoice, please contact us.</p>
+        </div>
+        <p style="color: #999; font-size: 11px; text-align: center; margin-top: 16px;">${displayName}</p>
+      </div>
+    `;
+}
+
 export async function sendMembershipInvoiceEmail({
   tenantId,
   organizationId,
@@ -80,65 +159,21 @@ export async function sendMembershipInvoiceEmail({
     }
 
     const tenantName = tenant?.name || 'Organisation';
-    const primaryColor = tenant?.primary_color || '#5C0085';
-    const currencySymbol = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' }[currency] || currency;
 
-    const displayTotal = totalWithVat && totalWithVat > finalCost ? totalWithVat : finalCost;
-    const hasVat = vatAmount && vatAmount > 0;
-
-    const emailHtml = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        ${tenant?.logo_url ? `<div style="text-align: center; padding: 20px 0;"><img src="${tenant.logo_url}" alt="${tenantName}" style="max-height: 60px;" /></div>` : ''}
-        <div style="padding: 20px; border: 1px solid #e5e5e5; border-radius: 8px;">
-          <h2 style="color: ${primaryColor}; margin-top: 0;">Membership Invoice - ${membershipYear}</h2>
-          <p>Dear ${organizationName},</p>
-          <p>Your membership invoice for the period <strong>${membershipYear}</strong> has been generated.</p>
-          <div style="background: #f9f9f9; padding: 16px; border-radius: 6px; margin: 16px 0;">
-            <table style="width: 100%; border-collapse: collapse;">
-              ${hasInvoiceNumber ? `
-              <tr>
-                <td style="padding: 4px 0; color: #666;">Invoice Number</td>
-                <td style="padding: 4px 0; text-align: right; font-weight: 600;">${xeroInvoiceNumber}</td>
-              </tr>
-              ` : ''}
-              <tr>
-                <td style="padding: 4px 0; color: #666;">Membership Year</td>
-                <td style="padding: 4px 0; text-align: right; font-weight: 600;">${membershipYear}</td>
-              </tr>
-              <tr>
-                <td style="padding: 4px 0; color: #666;">Tier</td>
-                <td style="padding: 4px 0; text-align: right; font-weight: 600;">${tierLabel || 'Standard'}</td>
-              </tr>
-              ${hasVat ? `
-              <tr>
-                <td style="padding: 4px 0; color: #666;">Net Amount</td>
-                <td style="padding: 4px 0; text-align: right; font-weight: 600;">${currencySymbol}${parseFloat(finalCost).toFixed(2)}</td>
-              </tr>
-              <tr>
-                <td style="padding: 4px 0; color: #666;">VAT</td>
-                <td style="padding: 4px 0; text-align: right; font-weight: 600;">${currencySymbol}${parseFloat(vatAmount).toFixed(2)}</td>
-              </tr>
-              ` : ''}
-              <tr>
-                <td colspan="2" style="padding: 8px 0 4px 0; border-top: 1px solid #ddd;"></td>
-              </tr>
-              <tr>
-                <td style="padding: 4px 0; color: #333; font-weight: 600;">Total${hasVat ? ' (incl. VAT)' : ''}</td>
-                <td style="padding: 4px 0; text-align: right; font-weight: 700; font-size: 18px;">${currencySymbol}${parseFloat(displayTotal).toFixed(2)}</td>
-              </tr>
-            </table>
-          </div>
-          ${viewInvoiceUrl ? `
-          <p>You can view and download your invoice using the link below:</p>
-          <div style="text-align: center; margin: 24px 0;">
-            <a href="${viewInvoiceUrl}" style="display: inline-block; background: ${primaryColor}; color: white; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 600;">View Invoice</a>
-          </div>
-          ` : ''}
-          <p style="color: #666; font-size: 13px;">If you have any questions about this invoice, please contact us.</p>
-        </div>
-        <p style="color: #999; font-size: 11px; text-align: center; margin-top: 16px;">${tenantName}</p>
-      </div>
-    `;
+    const emailHtml = buildMembershipInvoiceEmailHtml({
+      recipientName: organizationName,
+      tenantName,
+      logoUrl: tenant?.logo_url || null,
+      primaryColor: tenant?.primary_color || null,
+      membershipYear,
+      finalCost,
+      currency,
+      tierLabel,
+      invoiceNumber: hasInvoiceNumber ? xeroInvoiceNumber : null,
+      vatAmount,
+      totalWithVat,
+      viewInvoiceUrl,
+    });
 
     const subject = hasInvoiceNumber
       ? `Membership Invoice ${xeroInvoiceNumber} - ${membershipYear} - ${tenantName}`

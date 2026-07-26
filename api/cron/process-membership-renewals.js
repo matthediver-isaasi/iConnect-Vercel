@@ -1169,6 +1169,8 @@ async function processMemberRenewal(tenantId, memberId, simResult, mode, createI
         xeroInvoiceNumber: xeroInvoice.invoice_number,
         xeroInvoiceId: xeroInvoice.invoice_id,
         historyRecordId: record.id,
+        vatAmount: simResult.vatAmount || 0,
+        totalWithVat: simResult.totalWithVat || finalCost,
         onlineInvoiceUrl: xeroInvoice.online_invoice_url || null,
       });
     } catch (emailErr) {
@@ -1307,6 +1309,8 @@ async function invoiceExistingMemberRecord(tenantId, memberId, simResult, result
         xeroInvoiceNumber: xeroInvoice.invoice_number,
         xeroInvoiceId: xeroInvoice.invoice_id,
         historyRecordId: existingRecord.id,
+        vatAmount: parseFloat(record.vat_amount || 0),
+        totalWithVat: parseFloat(record.total_with_vat || record.final_cost),
         onlineInvoiceUrl: xeroInvoice.online_invoice_url || null,
       });
     } catch (emailErr) {
@@ -1358,12 +1362,23 @@ async function sendMemberInvoiceEmailFromCron({
   xeroInvoiceNumber,
   xeroInvoiceId,
   historyRecordId,
+  vatAmount,
+  totalWithVat,
   onlineInvoiceUrl,
 }) {
   if (!xeroInvoiceId || !memberEmail) return;
 
   // Fallback to public PDF token when no provider-hosted invoice link exists.
   let viewInvoiceUrl = onlineInvoiceUrl || null;
+  let tenantBrand = null;
+  try {
+    const { data: t } = await supabase
+      .from('tenant')
+      .select('name, slug, logo_url, primary_color')
+      .eq('id', tenantId)
+      .maybeSingle();
+    tenantBrand = t || null;
+  } catch {}
   if (!viewInvoiceUrl && historyRecordId) {
     try {
       const { getOrCreateInvoicePdfToken, buildInvoicePdfUrl } = await import('../_lib/invoicePdfToken.js');
@@ -1374,8 +1389,7 @@ async function sendMemberInvoiceEmailFromCron({
         recordId: historyRecordId,
       });
       if (pdfToken) {
-        const { data: t } = await supabase.from('tenant').select('slug').eq('id', tenantId).maybeSingle();
-        viewInvoiceUrl = buildInvoicePdfUrl(pdfToken, t?.slug || null);
+        viewInvoiceUrl = buildInvoicePdfUrl(pdfToken, tenantBrand?.slug || null);
       }
     } catch (tokenErr) {
       console.warn('[cron/process-membership-renewals] Member PDF token fallback failed (non-fatal):', tokenErr.message);
@@ -1417,18 +1431,22 @@ async function sendMemberInvoiceEmailFromCron({
         .replace(/\{invoiceNumber\}/gi, xeroInvoiceNumber || '')
         .replace(/\{onlineInvoiceUrl\}/gi, viewInvoiceUrl || '');
     } else {
-      body = `
-        <p>Dear ${memberName},</p>
-        <p>Your membership invoice for ${membershipYear} has been generated.</p>
-        <table style="border-collapse: collapse; margin: 16px 0;">
-          ${hasInvoiceNumber ? `<tr><td style="padding: 4px 12px; font-weight: bold;">Invoice Number</td><td style="padding: 4px 12px;">${xeroInvoiceNumber}</td></tr>` : ''}
-          <tr><td style="padding: 4px 12px; font-weight: bold;">Membership Year</td><td style="padding: 4px 12px;">${membershipYear}</td></tr>
-          <tr><td style="padding: 4px 12px; font-weight: bold;">Tier</td><td style="padding: 4px 12px;">${tierLabel || 'Standard'}</td></tr>
-          <tr><td style="padding: 4px 12px; font-weight: bold;">Fee</td><td style="padding: 4px 12px;">${currency} ${formattedCost}</td></tr>
-        </table>
-        ${viewInvoiceUrl ? `<p><a href="${viewInvoiceUrl}">View and pay your invoice online</a></p>` : ''}
-        <p>Thank you for your membership.</p>
-      `;
+      // Shared layout with the org membership invoice email (fee table + CTA).
+      const { buildMembershipInvoiceEmailHtml } = await import('../_lib/membershipInvoiceEmail.js');
+      body = buildMembershipInvoiceEmailHtml({
+        recipientName: memberName,
+        tenantName: tenantBrand?.name || null,
+        logoUrl: tenantBrand?.logo_url || null,
+        primaryColor: tenantBrand?.primary_color || null,
+        membershipYear,
+        finalCost,
+        currency,
+        tierLabel,
+        invoiceNumber: hasInvoiceNumber ? xeroInvoiceNumber : null,
+        vatAmount: vatAmount || 0,
+        totalWithVat: totalWithVat || finalCost,
+        viewInvoiceUrl,
+      });
     }
 
     await sendTenantEmail({
