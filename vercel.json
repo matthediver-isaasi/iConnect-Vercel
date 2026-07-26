@@ -117,6 +117,10 @@
     {
       "path": "/api/cron/reconcile-gocardless",
       "schedule": "15 */6 * * *"
+    },
+    {
+      "path": "/api/cron/gocardless-arrears",
+      "schedule": "45 */6 * * *"
     }
   ],
   "rewrites": [

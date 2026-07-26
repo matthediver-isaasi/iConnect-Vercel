@@ -308,6 +308,60 @@ export function createGocardlessClient(creds) {
       const json = await request('GET', '/payments', { query });
       return json.payments || [];
     },
+
+    // --- Refunds (Phase 4) ---
+
+    async createRefund({ paymentId, amountMinor, totalAmountConfirmationMinor, reference = null, metadata = {}, idempotencyKey }) {
+      if (!Number.isInteger(amountMinor) || amountMinor <= 0) {
+        throw new Error('amountMinor must be a positive integer (minor units)');
+      }
+      if (!idempotencyKey) throw new Error('idempotencyKey is required for createRefund');
+      const refunds = {
+        amount: amountMinor,
+        total_amount_confirmation: totalAmountConfirmationMinor ?? amountMinor,
+        links: { payment: paymentId },
+        metadata,
+      };
+      if (reference) refunds.reference = reference;
+      const json = await request('POST', '/refunds', { body: { refunds }, idempotencyKey });
+      logGc(`created refund ${json.refunds?.id} on payment ${paymentId}`);
+      return json.refunds;
+    },
+
+    async getRefund(refundId) {
+      const json = await request('GET', `/refunds/${refundId}`);
+      return json.refunds;
+    },
+
+    async listRefunds({ paymentId, limit = 50 } = {}) {
+      const query = { limit };
+      if (paymentId) query.payment = paymentId;
+      const json = await request('GET', '/refunds', { query });
+      return json.refunds || [];
+    },
+
+    // --- Payouts (Phase 4 — finance/reconciliation) ---
+
+    async getPayout(payoutId) {
+      const json = await request('GET', `/payouts/${payoutId}`);
+      return json.payouts;
+    },
+
+    async listPayoutItems({ payoutId, limit = 500 } = {}) {
+      if (!payoutId) throw new Error('payoutId is required for listPayoutItems');
+      const items = [];
+      let after = null;
+      for (let page = 0; page < 20; page++) {
+        const query = { payout: payoutId, limit: Math.min(limit, 500) };
+        if (after) query.after = after;
+        const json = await request('GET', '/payout_items', { query });
+        const batch = json.payout_items || [];
+        items.push(...batch);
+        after = json.meta?.cursors?.after || null;
+        if (!after || batch.length === 0 || items.length >= limit) break;
+      }
+      return items;
+    },
   };
 }
 
@@ -344,6 +398,11 @@ export const getCustomer = (id) => envClient().getCustomer(id);
 export const getPayment = (id) => envClient().getPayment(id);
 export const retryPayment = (id, opts) => envClient().retryPayment(id, opts);
 export const listPayments = (opts) => envClient().listPayments(opts);
+export const createRefund = (args) => envClient().createRefund(args);
+export const getRefund = (id) => envClient().getRefund(id);
+export const listRefunds = (opts) => envClient().listRefunds(opts);
+export const getPayout = (id) => envClient().getPayout(id);
+export const listPayoutItems = (opts) => envClient().listPayoutItems(opts);
 
 // ---------------------------------------------------------------------------
 // Webhook signature verification

@@ -227,7 +227,11 @@ async function resolveMembershipItemId(appTenantId) {
   return String(itemId);
 }
 
-async function resolveStripeBankAccountId(appTenantId) {
+async function resolveStripeBankAccountId(appTenantId, settingKey = null) {
+  if (settingKey) {
+    const dedicated = await getTenantSetting(appTenantId, settingKey);
+    if (dedicated) return dedicated;
+  }
   return (
     (await getTenantSetting(appTenantId, 'quickbooks_stripe_bank_account_id')) ||
     (await getTenantSetting(appTenantId, 'accounting_stripe_bank_account_id')) ||
@@ -618,6 +622,8 @@ export async function applyStripePaymentToQuickBooksInvoice({
   stripePaymentIntentId,
   amount,
   paidAt,
+  reference = null,
+  bankAccountSettingKey = null,
 }) {
   if (!appTenantId) throw new Error('appTenantId is required');
   const qboInvoiceId = invoiceId || xeroInvoiceId;
@@ -644,15 +650,17 @@ export async function applyStripePaymentToQuickBooksInvoice({
   let paymentId = null;
 
   try {
-    const bankAccountId = await resolveStripeBankAccountId(appTenantId);
+    const bankAccountId = await resolveStripeBankAccountId(appTenantId, bankAccountSettingKey);
     if (bankAccountId) {
       const paymentPayload = {
         CustomerRef: { value: customerId },
         TotalAmt: payAmount,
         TxnDate: (paidAt ? new Date(paidAt) : new Date()).toISOString().split('T')[0],
         DepositToAccountRef: { value: String(bankAccountId) },
-        PaymentRefNum: stripePaymentIntentId ? `Stripe: ${stripePaymentIntentId}`.substring(0, 21) : undefined,
-        PrivateNote: stripePaymentIntentId ? `Stripe charge: ${stripePaymentIntentId}` : 'Stripe payment',
+        PaymentRefNum: reference
+          ? reference.substring(0, 21)
+          : (stripePaymentIntentId ? `Stripe: ${stripePaymentIntentId}`.substring(0, 21) : undefined),
+        PrivateNote: reference || (stripePaymentIntentId ? `Stripe charge: ${stripePaymentIntentId}` : 'Stripe payment'),
         Line: [
           {
             Amount: payAmount,

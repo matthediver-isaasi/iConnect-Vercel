@@ -325,7 +325,7 @@ test('payment confirmed: plan + agreement -> active, retry count reset, payment 
   assert.equal(db.tables.gocardless_payments[0].status, 'confirmed');
 });
 
-test('payment failures escalate: grace period first, overdue on repeat', async () => {
+test('payment failures escalate: grace period first (time-based), overdue when grace expired', async () => {
   const db = makeFakeDb({
     membership_payment_plans: [{
       id: 'plan-1', tenant_id: TENANT, status: STATUS.ACTIVE,
@@ -338,14 +338,29 @@ test('payment failures escalate: grace period first, overdue on repeat', async (
     { id: 'EV_F1', resource_type: 'payments', action: 'failed', links: { payment: 'PM1', subscription: 'SB1' } },
     { db, gc: gcStub() },
   );
-  assert.equal(db.tables.membership_payment_plans[0].status, STATUS.PAYMENT_GRACE_PERIOD);
-  assert.equal(db.tables.membership_payment_plans[0].retry_count, 1);
+  const plan = db.tables.membership_payment_plans[0];
+  assert.equal(plan.status, STATUS.PAYMENT_GRACE_PERIOD);
+  assert.equal(plan.retry_count, 1);
+  // Grace window opened using snapshot default (7 days).
+  assert.ok(plan.grace_expires_at, 'grace_expires_at set');
+  assert.ok(new Date(plan.grace_expires_at) > new Date(), 'grace expiry is in the future');
+
+  // Second failure WITHIN the grace window stays in grace (time-based, not count-based).
   await processGocardlessEvent(
     { id: 'EV_F2', resource_type: 'payments', action: 'failed', links: { payment: 'PM2', subscription: 'SB1' } },
     { db, gc: gcStub() },
   );
-  assert.equal(db.tables.membership_payment_plans[0].status, STATUS.PAYMENT_OVERDUE);
-  assert.equal(db.tables.membership_payment_plans[0].retry_count, 2);
+  assert.equal(plan.status, STATUS.PAYMENT_GRACE_PERIOD);
+  assert.equal(plan.retry_count, 2);
+
+  // Failure after the grace window has expired escalates to overdue.
+  plan.grace_expires_at = new Date(Date.now() - 60_000).toISOString();
+  await processGocardlessEvent(
+    { id: 'EV_F3B', resource_type: 'payments', action: 'failed', links: { payment: 'PM2B', subscription: 'SB1' } },
+    { db, gc: gcStub() },
+  );
+  assert.equal(plan.status, STATUS.PAYMENT_OVERDUE);
+  assert.equal(plan.retry_count, 3);
 });
 
 test('late out-of-order payment failed after recovery cannot regress active plan below grace', async () => {
@@ -388,4 +403,62 @@ test('unknown resource types are ignored, not errors', async () => {
     { db, gc: gcStub() },
   );
   assert.equal(out.handled, false);
+});
+
+test('refund rollup counts only non-failed refunds (mixed statuses)', async () => {
+  const db = makeFakeDb({
+    gocardless_payments: [{
+      id: 'gp-1', tenant_id: TENANT, gocardless_payment_id: 'PM9',
+      amount_minor: 5000, amount_refunded_minor: 0, paid_out_at: null,
+    }],
+    gocardless_refunds: [],
+  });
+  const gc = gcStub({
+    getRefund: async () => ({ id: 'RF2', amount: 1000, currency: 'GBP', links: { payment: 'PM9' } }),
+    listRefunds: async () => ([
+      { id: 'RF1', amount: 2000, status: 'refund_settled' },
+      { id: 'RF2', amount: 1000, status: 'created' },
+      { id: 'RF3', amount: 5000, status: 'failed' },      // must NOT count
+      { id: 'RF4', amount: 300, status: 'cancelled' },    // must NOT count
+    ]),
+  });
+  const out = await processGocardlessEvent(
+    { id: 'EV_RF2', resource_type: 'refunds', action: 'created', links: { refund: 'RF2', payment: 'PM9' } },
+    { db, gc },
+  );
+  assert.equal(out.handled, true);
+  const pay = db.tables.gocardless_payments[0];
+  assert.equal(pay.amount_refunded_minor, 3000); // 2000 + 1000 only
+  assert.equal(pay.refund_status, 'partially_refunded'); // not 'refunded' (failed excluded)
+});
+
+test('refund failed event immediately removes it from the rollup', async () => {
+  const db = makeFakeDb({
+    gocardless_payments: [{
+      id: 'gp-1', tenant_id: TENANT, gocardless_payment_id: 'PM9',
+      amount_minor: 5000, amount_refunded_minor: 0, paid_out_at: null,
+    }],
+    gocardless_refunds: [],
+  });
+  const refunds = [{ id: 'RF1', amount: 2000, status: 'created' }];
+  const gc = gcStub({
+    getRefund: async () => ({ id: 'RF1', amount: 2000, currency: 'GBP', links: { payment: 'PM9' } }),
+    listRefunds: async () => refunds,
+  });
+  // 1) refund created — counted.
+  await processGocardlessEvent(
+    { id: 'EV_RF_A', resource_type: 'refunds', action: 'created', links: { refund: 'RF1', payment: 'PM9' } },
+    { db, gc },
+  );
+  assert.equal(db.tables.gocardless_payments[0].amount_refunded_minor, 2000);
+  assert.equal(db.tables.gocardless_payments[0].refund_status, 'partially_refunded');
+  // 2) same refund fails — rollup recomputed on the failed event itself.
+  refunds[0].status = 'failed';
+  const out = await processGocardlessEvent(
+    { id: 'EV_RF_B', resource_type: 'refunds', action: 'failed', links: { refund: 'RF1', payment: 'PM9' } },
+    { db, gc },
+  );
+  assert.equal(out.handled, true);
+  assert.equal(db.tables.gocardless_payments[0].amount_refunded_minor, 0);
+  assert.equal(db.tables.gocardless_payments[0].refund_status, null);
 });

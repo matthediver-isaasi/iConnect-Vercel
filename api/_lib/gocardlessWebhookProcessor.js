@@ -28,6 +28,12 @@ import {
 } from './gocardlessDirectDebit.js';
 import { markInvitationCompletedForAgreement } from './gocardlessDdInvitations.js';
 import { sendDdLifecycleEmail } from './gocardlessDdEmails.js';
+import {
+  handlePaymentFailure,
+  recoveryPlanUpdate,
+  clearAgreementArrearsFlag,
+} from './gocardlessArrears.js';
+import { postDdInstalmentToAccounting } from './gocardlessAccounting.js';
 
 // Emails are best-effort: they must never fail the event (which would mark
 // it 'failed' and trigger redelivery/reprocessing of a correct state change).
@@ -120,7 +126,11 @@ export async function processGocardlessEvent(event, deps = {}) {
     case 'subscriptions':
       return processSubscriptionEvent({ event, action, links, db, gc });
     case 'payments':
-      return processPaymentEvent({ event, action, links, db, gc });
+      return processPaymentEvent({ event, action, links, db, gc, deps });
+    case 'refunds':
+      return processRefundEvent({ event, action, links, db, gc });
+    case 'payouts':
+      return processPayoutEvent({ event, action, links, db, gc });
     default:
       return { handled: false, detail: `ignored resource_type=${resourceType}` };
   }
@@ -309,7 +319,9 @@ async function processMandateEvent({ event, action, links, db, gc }) {
         }, { db });
         details.push(`agreement: ${JSON.stringify(result)}`);
         if (result.applied && agreement.metadata?.dd?.kind === 'monthly_direct_debit') {
-          await safeDdEmail('plan_cancelled', agreement, { db });
+          // Mandate cancellation ≠ membership cancellation: tell the payer
+          // the mandate is gone and a replacement can be set up.
+          await safeDdEmail('mandate_cancelled', agreement, { db });
         }
       }
       const plans = await findPlansByMandate(db, mandateId);
@@ -419,7 +431,7 @@ async function processSubscriptionEvent({ event, action, links, db, gc }) {
 
 // ---------------------------------------------------------------------------
 
-async function processPaymentEvent({ event, action, links, db, gc }) {
+async function processPaymentEvent({ event, action, links, db, gc, deps = {} }) {
   const paymentId = links.payment;
   if (!paymentId) return { handled: false, detail: 'no payment link' };
 
@@ -447,7 +459,7 @@ async function processPaymentEvent({ event, action, links, db, gc }) {
     tenantId = agreementMandate?.tenant_id || null;
   }
   if (tenantId && mappedStatus) {
-    await checkedUpsert(db, 'gocardless_payments', {
+    const mirror = {
       tenant_id: tenantId,
       plan_id: plan?.id || null,
       gocardless_payment_id: paymentId,
@@ -455,7 +467,16 @@ async function processPaymentEvent({ event, action, links, db, gc }) {
       gocardless_mandate_id: links.mandate || null,
       status: mappedStatus,
       updated_at: new Date().toISOString(),
-    }, 'gocardless_payment_id');
+    };
+    if (action === 'confirmed') mirror.confirmed_at = new Date().toISOString();
+    if (action === 'paid_out') {
+      mirror.paid_out_at = new Date().toISOString();
+      if (links.payout) mirror.gocardless_payout_id = links.payout;
+    }
+    if (action === 'charged_back' || action === 'chargeback_settled') {
+      mirror.charged_back_at = new Date().toISOString();
+    }
+    await checkedUpsert(db, 'gocardless_payments', mirror, 'gocardless_payment_id');
   }
 
   if (!plan) {
@@ -476,8 +497,42 @@ async function processPaymentEvent({ event, action, links, db, gc }) {
       reason: `payment ${action}`,
       source: 'webhook',
       eventId: event.id,
-      extraUpdate: { ...planUpdate, retry_count: 0 },
+      extraUpdate: { ...planUpdate, ...recoveryPlanUpdate() },
     }, { db });
+
+    // Recovery bookkeeping even when the plan was already ACTIVE
+    // (subsequent instalments): clear any stale arrears columns.
+    if (!result.applied && (plan.retry_count || plan.grace_expires_at || plan.arrears_policy_applied)) {
+      const { error: clrErr } = await db
+        .from('membership_payment_plans')
+        .update({ ...recoveryPlanUpdate(), updated_at: new Date().toISOString() })
+        .eq('id', plan.id);
+      if (clrErr) console.error('[GC Webhook] clear arrears bookkeeping failed:', clrErr.message);
+    }
+
+    // Finance mirror enrichment: fetch amount/description from the API
+    // (best-effort — mirror already has status).
+    let paymentRowForAccounting = null;
+    try {
+      const current = await gc.getPayment(paymentId);
+      if (current?.amount != null) {
+        const { data: updatedRows, error: amtErr } = await db
+          .from('gocardless_payments')
+          .update({
+            amount_minor: current.amount,
+            currency: current.currency || null,
+            description: current.description || null,
+            charge_date: current.charge_date || null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('gocardless_payment_id', paymentId)
+          .select('*');
+        if (amtErr) console.error('[GC Webhook] enrich payment mirror failed:', amtErr.message);
+        paymentRowForAccounting = updatedRows?.[0] || null;
+      }
+    } catch (err) {
+      console.error('[GC Webhook] fetch payment for enrichment failed:', err.message);
+    }
     // Reflect on the agreement too (first successful collection activates it).
     if (plan.billing_agreement_id) {
       await applyStatusTransition({
@@ -496,6 +551,20 @@ async function processPaymentEvent({ event, action, links, db, gc }) {
       if (agreement?.metadata?.dd?.kind === 'monthly_direct_debit') {
         const actResult = await activateMembershipForAgreement(agreement, { trigger: 'first_payment_confirmed', db });
         await recordDdPaymentProgress(agreement, { db });
+        // Recovery: clear any arrears flag stamped on the agreement.
+        if (agreement.metadata?.dd?.arrears_state) {
+          await clearAgreementArrearsFlag(agreement, { db });
+        }
+        // Post the confirmed instalment to accounting (best-effort; records
+        // its own posted/failed/skipped status on the payment row).
+        if (action === 'confirmed' && paymentRowForAccounting) {
+          const postFn = deps.postToAccounting || postDdInstalmentToAccounting;
+          try {
+            await postFn({ agreement, paymentRow: paymentRowForAccounting }, { db });
+          } catch (err) {
+            console.error('[GC Webhook] accounting posting threw:', err.message);
+          }
+        }
         if (actResult.activated) {
           await safeDdEmail('membership_activated', agreement, { db });
         }
@@ -514,24 +583,19 @@ async function processPaymentEvent({ event, action, links, db, gc }) {
   }
 
   if (action === 'failed' || action === 'late_failure_settled') {
-    const retryCount = (plan.retry_count || 0) + 1;
-    const toStatus = retryCount >= 2 ? STATUS.PAYMENT_OVERDUE : STATUS.PAYMENT_GRACE_PERIOD;
-    const result = await applyStatusTransition({
-      entityType: 'payment_plan',
-      entityId: plan.id,
-      toStatus,
-      reason: `payment ${action} (failure #${retryCount})`,
-      source: 'webhook',
-      eventId: event.id,
-      extraUpdate: { ...planUpdate, retry_count: retryCount },
-    }, { db });
-    if (result.applied && plan.billing_agreement_id) {
-      const agreement = await findAgreementById(db, plan.billing_agreement_id);
-      if (agreement?.metadata?.dd?.kind === 'monthly_direct_debit') {
-        await safeDdEmail(toStatus === STATUS.PAYMENT_OVERDUE ? 'payment_overdue' : 'payment_failed', agreement, { db });
-      }
+    // Arrears state machine: grace window from the SNAPSHOT grace days on
+    // the agreement (metadata.dd), never live tier config.
+    const agreement = plan.billing_agreement_id ? await findAgreementById(db, plan.billing_agreement_id) : null;
+    const planUpdateErr = await db
+      .from('membership_payment_plans')
+      .update({ ...planUpdate, updated_at: new Date().toISOString() })
+      .eq('id', plan.id);
+    if (planUpdateErr.error) console.error('[GC Webhook] failure last-payment update failed:', planUpdateErr.error.message);
+    const { toStatus, result, graceExpiresAt } = await handlePaymentFailure({ plan, agreement, event, action, db });
+    if (result.applied && agreement?.metadata?.dd?.kind === 'monthly_direct_debit') {
+      await safeDdEmail(toStatus === STATUS.PAYMENT_OVERDUE ? 'payment_overdue' : 'payment_failed', agreement, { db });
     }
-    return { handled: true, detail: `payment ${action}: ${JSON.stringify(result)}` };
+    return { handled: true, detail: `payment ${action}: ${JSON.stringify(result)} (grace expires ${graceExpiresAt})` };
   }
 
   if (action === 'charged_back' || action === 'chargeback_settled') {
@@ -544,16 +608,29 @@ async function processPaymentEvent({ event, action, links, db, gc }) {
       confirmed = false;
     }
     if (!confirmed) return { handled: true, detail: 'API does not confirm chargeback; deferring' };
-    const result = await applyStatusTransition({
-      entityType: 'payment_plan',
-      entityId: plan.id,
-      toStatus: STATUS.PAYMENT_OVERDUE,
-      reason: `payment ${action}`,
-      source: 'webhook',
-      eventId: event.id,
-      extraUpdate: planUpdate,
-    }, { db });
-    return { handled: true, detail: `payment ${action}: ${JSON.stringify(result)}` };
+
+    // Post-payout reversal: money already paid out is being clawed back —
+    // flag the payment row so finance surfaces can reconcile.
+    const { data: payRow } = await db
+      .from('gocardless_payments')
+      .select('id, paid_out_at')
+      .eq('gocardless_payment_id', paymentId)
+      .maybeSingle();
+    if (payRow?.paid_out_at) {
+      const { error: cbErr } = await db
+        .from('gocardless_payments')
+        .update({ chargeback_reversed_after_payout: true, updated_at: new Date().toISOString() })
+        .eq('id', payRow.id);
+      if (cbErr) console.error('[GC Webhook] chargeback reversal flag failed:', cbErr.message);
+    }
+
+    // A chargeback reopens arrears via the same snapshot-grace machinery.
+    const agreement = plan.billing_agreement_id ? await findAgreementById(db, plan.billing_agreement_id) : null;
+    const { result } = await handlePaymentFailure({ plan, agreement, event, action, db });
+    if (result.applied && agreement?.metadata?.dd?.kind === 'monthly_direct_debit') {
+      await safeDdEmail('payment_overdue', agreement, { db });
+    }
+    return { handled: true, detail: `payment ${action}: ${JSON.stringify(result)}${payRow?.paid_out_at ? ' (post-payout reversal)' : ''}` };
   }
 
   if (mappedStatus) {
@@ -567,4 +644,169 @@ async function processPaymentEvent({ event, action, links, db, gc }) {
   }
 
   return { handled: false, detail: `ignored payments action=${action}` };
+}
+
+// ---------------------------------------------------------------------------
+// Refunds (Phase 4) — mirror refund lifecycle onto gocardless_refunds and
+// keep the payment row's refund rollup (amount_refunded_minor/refund_status)
+// current. Webhook-mirrored refunds and admin-initiated ones share the same
+// row via the gocardless_refund_id unique index.
+
+async function processRefundEvent({ event, action, links, db, gc }) {
+  const refundId = links.refund;
+  if (!refundId) return { handled: false, detail: 'no refund link' };
+
+  // Authoritative state from the API (webhook payloads are thin).
+  let refund = null;
+  try {
+    refund = await gc.getRefund(refundId);
+  } catch (err) {
+    console.error('[GC Webhook] getRefund failed:', err.message);
+  }
+  const paymentId = refund?.links?.payment || links.payment || null;
+
+  // Find the mirrored payment row for tenant attribution.
+  let payRow = null;
+  if (paymentId) {
+    const { data } = await db
+      .from('gocardless_payments')
+      .select('id, tenant_id, amount_minor, paid_out_at')
+      .eq('gocardless_payment_id', paymentId)
+      .maybeSingle();
+    payRow = data || null;
+  }
+  if (!payRow?.tenant_id) {
+    return { handled: false, detail: `no mirrored payment for refund ${refundId}` };
+  }
+
+  const statusByAction = {
+    created: 'created',
+    funds_returned: 'funds_returned',
+    paid: 'paid',
+    refund_settled: 'refund_settled',
+    failed: 'failed',
+  };
+  const status = statusByAction[action] || action;
+
+  await checkedUpsert(db, 'gocardless_refunds', {
+    tenant_id: payRow.tenant_id,
+    gocardless_refund_id: refundId,
+    gocardless_payment_id: paymentId,
+    payment_row_id: payRow.id,
+    amount_minor: refund?.amount ?? null,
+    currency: refund?.currency || null,
+    status,
+    metadata: refund?.metadata || null,
+    updated_at: new Date().toISOString(),
+  }, 'gocardless_refund_id');
+
+  // Roll up total refunded onto the payment. Recompute on EVERY lifecycle
+  // change — including 'failed' — so a previously-counted refund that later
+  // fails is removed from the rollup immediately (not on the next unrelated
+  // event). Failed/cancelled refunds never left the account and must not
+  // inflate the rollup or block later admin refunds.
+  {
+    let totalRefunded = null;
+    try {
+      const all = await gc.listRefunds({ paymentId });
+      const counted = all.filter((r) => !['failed', 'cancelled'].includes(r.status));
+      totalRefunded = counted.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+    } catch (err) {
+      console.error('[GC Webhook] listRefunds rollup failed:', err.message);
+    }
+    if (totalRefunded != null) {
+      const gross = payRow.amount_minor || 0;
+      const refundStatus = totalRefunded <= 0
+        ? null
+        : (gross > 0 && totalRefunded >= gross ? 'refunded' : 'partially_refunded');
+      const { error } = await db
+        .from('gocardless_payments')
+        .update({
+          amount_refunded_minor: totalRefunded,
+          refund_status: refundStatus,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', payRow.id);
+      if (error) console.error('[GC Webhook] refund rollup update failed:', error.message);
+    }
+  }
+
+  return { handled: true, detail: `refund ${action} mirrored (${refundId})` };
+}
+
+// ---------------------------------------------------------------------------
+// Payouts (Phase 4 — finance/reconciliation). Mirrors the payout row and
+// stamps gross/fee/net + payout linkage onto each included payment via
+// payout_items.
+
+async function processPayoutEvent({ event, action, links, db, gc }) {
+  const payoutId = links.payout;
+  if (!payoutId) return { handled: false, detail: 'no payout link' };
+
+  let payout = null;
+  try {
+    payout = await gc.getPayout(payoutId);
+  } catch (err) {
+    console.error('[GC Webhook] getPayout failed:', err.message);
+  }
+
+  // Stamp finance data onto each included payment.
+  let itemsDetail = 'no items fetched';
+  let tenantId = null;
+  try {
+    const items = await gc.listPayoutItems({ payoutId });
+    // gross/fee per payment: type 'payment_paid_out' carries gross, fee types are negative amounts.
+    const perPayment = new Map();
+    for (const item of items) {
+      const pid = item?.links?.payment;
+      if (!pid) continue;
+      const entry = perPayment.get(pid) || { gross: 0, fees: 0 };
+      // payout_items amounts are strings already in minor units (pence).
+      const minor = Math.round(Number(item.amount)) || 0;
+      if (item.type === 'payment_paid_out') entry.gross += minor;
+      else entry.fees += minor; // fees are negative amounts
+      perPayment.set(pid, entry);
+    }
+    let stamped = 0;
+    for (const [pid, entry] of perPayment) {
+      const feeMinor = Math.abs(entry.fees);
+      const { data: updated, error } = await db
+        .from('gocardless_payments')
+        .update({
+          gocardless_payout_id: payoutId,
+          payout_reference: payout?.reference || null,
+          payout_date: payout?.arrival_date || null,
+          paid_out_at: new Date().toISOString(),
+          fee_minor: feeMinor,
+          net_minor: entry.gross - feeMinor,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('gocardless_payment_id', pid)
+        .select('tenant_id');
+      if (error) console.error('[GC Webhook] payout stamp failed:', error.message);
+      else if (updated?.length) {
+        stamped += 1;
+        tenantId = tenantId || updated[0].tenant_id;
+      }
+    }
+    itemsDetail = `${stamped}/${perPayment.size} payments stamped`;
+  } catch (err) {
+    console.error('[GC Webhook] listPayoutItems failed:', err.message);
+    itemsDetail = `payout items fetch failed: ${err.message}`;
+  }
+
+  await checkedUpsert(db, 'gocardless_payouts', {
+    tenant_id: tenantId,
+    gocardless_payout_id: payoutId,
+    reference: payout?.reference || null,
+    amount_minor: payout?.amount ?? null,
+    deducted_fees_minor: payout?.deducted_fees ?? null,
+    currency: payout?.currency || null,
+    status: payout?.status || action,
+    arrival_date: payout?.arrival_date || null,
+    metadata: payout?.metadata || null,
+    updated_at: new Date().toISOString(),
+  }, 'gocardless_payout_id');
+
+  return { handled: true, detail: `payout ${action} mirrored (${itemsDetail})` };
 }

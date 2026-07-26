@@ -637,6 +637,9 @@ export async function applyStripePaymentToXeroInvoice({
   appTenantId,
   xeroInvoiceId,
   stripePaymentIntentId,
+  amount = null,
+  reference = null,
+  bankAccountSettingKey = 'xero_stripe_bank_account_code',
 }) {
   if (!appTenantId) throw new Error('appTenantId is required');
   if (!xeroInvoiceId) throw new Error('xeroInvoiceId is required');
@@ -675,12 +678,22 @@ export async function applyStripePaymentToXeroInvoice({
     const { data: stripeBankCodeSetting } = await supabase
       .from('system_settings')
       .select('setting_value')
-      .eq('setting_key', 'xero_stripe_bank_account_code')
+      .eq('setting_key', bankAccountSettingKey)
       .eq('tenant_id', appTenantId)
       .maybeSingle();
-    const stripeBankAccountCode = stripeBankCodeSetting?.setting_value;
-    if (stripeBankAccountCode) {
-      const accountsResp = await fetch(`https://api.xero.com/api.xro/2.0/Accounts?where=Code=="${stripeBankAccountCode}"`, {
+    let bankCode = stripeBankCodeSetting?.setting_value;
+    if (!bankCode && bankAccountSettingKey !== 'xero_stripe_bank_account_code') {
+      // Fall back to the Stripe bank code when a dedicated one isn't set.
+      const { data: fallbackSetting } = await supabase
+        .from('system_settings')
+        .select('setting_value')
+        .eq('setting_key', 'xero_stripe_bank_account_code')
+        .eq('tenant_id', appTenantId)
+        .maybeSingle();
+      bankCode = fallbackSetting?.setting_value;
+    }
+    if (bankCode) {
+      const accountsResp = await fetch(`https://api.xero.com/api.xro/2.0/Accounts?where=Code=="${bankCode}"`, {
         method: 'GET',
         headers: { 'Authorization': `Bearer ${accessToken}`, 'xero-tenant-id': xeroTenantId, 'Accept': 'application/json' },
       });
@@ -691,8 +704,8 @@ export async function applyStripePaymentToXeroInvoice({
           Invoice: { InvoiceID: xeroInvoiceId },
           Account: { AccountID: bankAccount.AccountID },
           Date: new Date().toISOString().split('T')[0],
-          Amount: parseFloat(invoice.Total),
-          Reference: stripePaymentIntentId ? `Stripe: ${stripePaymentIntentId}` : 'Stripe payment',
+          Amount: amount != null ? Number(parseFloat(amount).toFixed(2)) : parseFloat(invoice.Total),
+          Reference: reference || (stripePaymentIntentId ? `Stripe: ${stripePaymentIntentId}` : 'Stripe payment'),
         };
         const payResp = await fetch('https://api.xero.com/api.xro/2.0/Payments', {
           method: 'POST',
@@ -711,7 +724,7 @@ export async function applyStripePaymentToXeroInvoice({
           console.log(`[Xero] Payment recorded against existing invoice ${invoice.InvoiceNumber} - PaymentID: ${paymentId}`);
         }
       } else {
-        console.warn(`[Xero] Bank account not found for code ${stripeBankAccountCode} - invoice authorised but payment not recorded`);
+        console.warn(`[Xero] Bank account not found for code ${bankCode} - invoice authorised but payment not recorded`);
       }
     } else {
       console.log(`[Xero] xero_stripe_bank_account_code not configured - invoice authorised but payment not recorded`);

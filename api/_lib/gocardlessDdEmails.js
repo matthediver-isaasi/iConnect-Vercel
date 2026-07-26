@@ -86,6 +86,35 @@ const EVENTS = {
       <p>We have been unable to collect your monthly membership payments, and your payment plan is now overdue.</p>
       <p>Please contact us to bring your membership up to date.</p>`,
   },
+  retry_scheduled: {
+    subject: (c) => `Membership payment retry scheduled`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>A retry of your monthly membership payment of ${c.currency} ${c.monthlyAmount} has been scheduled.</p>
+      <p>Please make sure funds are available in your account. You'll receive advance notice from GoCardless before the collection.</p>`,
+  },
+  new_mandate_required: {
+    subject: (c) => `New Direct Debit set-up needed for your membership`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>Your Direct Debit mandate for the ${c.yearLabel} membership is no longer usable, so we can't collect your monthly payments.</p>
+      <p>To keep your membership payments on track, please set up a new Direct Debit${c.setupUrl ? ` using this secure link: <a href="${c.setupUrl}">${c.setupUrl}</a>` : ' from your membership payment page'}.</p>
+      <p>No payment is taken until the new mandate is active, and you will never be charged twice for the same instalment.</p>`,
+  },
+  mandate_cancelled: {
+    subject: (c) => `Your membership Direct Debit mandate was cancelled`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>The Direct Debit mandate for your ${c.yearLabel} membership has been cancelled, so no further payments can be collected.</p>
+      <p>Your membership itself has NOT been cancelled. To continue paying monthly, please set up a new Direct Debit, or contact us to arrange a different payment method.</p>`,
+  },
+  at_risk_of_suspension: {
+    subject: (c) => `Action needed — membership at risk`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>We still haven't been able to collect your monthly membership payments and the grace period has now ended.</p>
+      <p>Your membership benefits may be restricted or suspended until payments are brought up to date. Please contact us or resolve the payment problem from your membership page as soon as possible.</p>`,
+  },
   plan_cancelled: {
     subject: (c) => `Your membership Direct Debit has been cancelled`,
     body: (c) => `
