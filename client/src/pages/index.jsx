@@ -55,6 +55,8 @@ import DiscountCodeManagement from "./DiscountCodeManagement";
 
 import VoucherManagement from "./VoucherManagement";
 
+import MonthlyFinanceReport from "./MonthlyFinanceReport";
+
 import TrainingFundManagement from "./TrainingFundManagement";
 
 import WorkflowManagement from "./WorkflowManagement";
@@ -501,6 +503,8 @@ const PAGES = {
     
     VoucherManagement: VoucherManagement,
     
+    MonthlyFinanceReport: MonthlyFinanceReport,
+    
     TrainingFundManagement: TrainingFundManagement,
     
     WorkflowManagement: WorkflowManagement,
@@ -891,6 +895,8 @@ function PagesContent() {
                 <Route path="/DiscountCodeManagement" element={<DiscountCodeManagement />} />
                 
                 <Route path="/VoucherManagement" element={<VoucherManagement />} />
+                
+                <Route path="/MonthlyFinanceReport" element={<MonthlyFinanceReport />} />
                 
                 <Route path="/TrainingFundManagement" element={<TrainingFundManagement />} />
                 

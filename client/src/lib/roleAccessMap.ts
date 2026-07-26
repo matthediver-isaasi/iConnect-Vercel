@@ -166,6 +166,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
         label: "Voucher Management"
       },
       {
+        id: "commerce.monthly-finance-report",
+        label: "Monthly Finance Report"
+      },
+      {
         id: "commerce.training-fund-management",
         label: "Training Fund Management"
       },
@@ -1073,6 +1077,8 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_SponsorManagement": "events.sponsors",
   "page_ArticlesSettings": "content.articles-settings",
   "page_VoucherManagement": "commerce.voucher-management",
+  "page_MonthlyFinanceReport": "commerce.monthly-finance-report",
+  "page_admin_MonthlyFinanceReport": "commerce.monthly-finance-report",
   "page_MembershipFees": "commerce.membership",
   "page_MembershipTierManagement": "commerce.membership-setup",
   "page_MembershipSettings": "commerce.membership-settings",
