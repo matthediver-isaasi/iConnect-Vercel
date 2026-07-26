@@ -34,6 +34,21 @@ import {
   AREA_BADGE_CLASS,
 } from "@/lib/supportAreas";
 import { isResourceExcluded } from "@/lib/roleVisibility";
+import {
+  classifyTicketQueue,
+  getTicketLastActivity,
+  QUEUE_NEEDS_ATTENTION,
+  QUEUE_WAITING_ON_MEMBER,
+  QUEUE_RESOLVED,
+  QUEUE_CLOSED,
+} from "../../../api/_lib/supportTicketQueues.js";
+
+const QUEUE_TABS = [
+  { value: QUEUE_NEEDS_ATTENTION, label: "Needs attention" },
+  { value: QUEUE_WAITING_ON_MEMBER, label: "Waiting on member" },
+  { value: QUEUE_RESOLVED, label: "Resolved" },
+  { value: QUEUE_CLOSED, label: "Closed" },
+];
 
 const typeIcons = {
   bug: Bug,
@@ -80,7 +95,7 @@ function formatRelative(dateString) {
 export default function SupportManagementPage() {
   const { isAdmin, memberInfo, isAccessReady, isFeatureExcluded } = useMemberAccess();
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [activeQueue, setActiveQueue] = useState(QUEUE_NEEDS_ATTENTION);
   const [typeFilter, setTypeFilter] = useState("all");
   const [severityFilter, setSeverityFilter] = useState("all");
   const [areaFilter, setAreaFilter] = useState("all");
@@ -166,6 +181,26 @@ export default function SupportManagementPage() {
     queryFn: () => base44.entities.SupportTicket.list("-created_date"),
     enabled: hasAccess && isAccessReady
   });
+
+  // All conversation entries for queue classification (staff view — the
+  // server returns internal notes to support staff; classification ignores
+  // them via classifyTicketQueue).
+  const { data: allResponses = [] } = useQuery({
+    queryKey: ['all-support-ticket-responses'],
+    queryFn: () => base44.entities.SupportTicketResponse.list(),
+    enabled: hasAccess && isAccessReady,
+    refetchInterval: 60000,
+  });
+
+  const responsesByTicket = useMemo(() => {
+    const map = new Map();
+    for (const r of allResponses) {
+      if (!r?.ticket_id) continue;
+      if (!map.has(r.ticket_id)) map.set(r.ticket_id, []);
+      map.get(r.ticket_id).push(r);
+    }
+    return map;
+  }, [allResponses]);
 
   // Keep the open ticket dialog in sync with live ticket updates (realtime
   // invalidations refresh the tickets list; mirror changes into selectedTicket).
@@ -359,6 +394,24 @@ export default function SupportManagementPage() {
     }
   };
 
+  // Per-admin unread state: unread inbox items about member activity, keyed
+  // by ticket id. Opening a ticket marks its items read (clears the dot).
+  const unreadItemIdsByTicket = new Map();
+  for (const item of (inboxData.items || [])) {
+    if (item.read_at || !item.ticket_id) continue;
+    if (item.event_type !== 'user_reply' && item.event_type !== 'new_ticket') continue;
+    if (!unreadItemIdsByTicket.has(item.ticket_id)) unreadItemIdsByTicket.set(item.ticket_id, []);
+    unreadItemIdsByTicket.get(item.ticket_id).push(item.id);
+  }
+
+  const handleOpenTicket = (ticket) => {
+    setSelectedTicket(ticket);
+    const ids = unreadItemIdsByTicket.get(ticket.id);
+    if (ids && ids.length > 0) {
+      markReadMutation.mutate({ item_ids: ids });
+    }
+  };
+
   if (!hasAccess) {
     return (
       <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
@@ -371,16 +424,34 @@ export default function SupportManagementPage() {
     );
   }
 
-  const filteredTickets = tickets.filter(ticket => {
-    const matchesSearch = ticket.subject.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         ticket.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         ticket.submitter_name.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === "all" || ticket.status === statusFilter;
+  // Search/type/severity/area filters apply across all queues; queue counts
+  // reflect the filtered set so the tab badges match what you'd see.
+  const baseFilteredTickets = tickets.filter(ticket => {
+    const q = searchQuery.toLowerCase();
+    const matchesSearch = (ticket.subject || '').toLowerCase().includes(q) ||
+                         (ticket.description || '').toLowerCase().includes(q) ||
+                         (ticket.submitter_name || '').toLowerCase().includes(q);
     const matchesType = typeFilter === "all" || ticket.type === typeFilter;
     const matchesSeverity = severityFilter === "all" || ticket.severity === severityFilter;
     const matchesArea = areaFilter === "all" || ticket.area === areaFilter;
-    return matchesSearch && matchesStatus && matchesType && matchesSeverity && matchesArea;
+    return matchesSearch && matchesType && matchesSeverity && matchesArea;
   });
+
+  const queueCounts = { [QUEUE_NEEDS_ATTENTION]: 0, [QUEUE_WAITING_ON_MEMBER]: 0, [QUEUE_RESOLVED]: 0, [QUEUE_CLOSED]: 0 };
+  const ticketQueueMap = new Map();
+  for (const ticket of baseFilteredTickets) {
+    const queue = classifyTicketQueue(ticket, responsesByTicket.get(ticket.id));
+    ticketQueueMap.set(ticket.id, queue);
+    queueCounts[queue] = (queueCounts[queue] || 0) + 1;
+  }
+
+  const filteredTickets = baseFilteredTickets
+    .filter((t) => ticketQueueMap.get(t.id) === activeQueue)
+    .sort(
+      (a, b) =>
+        getTicketLastActivity(b, responsesByTicket.get(b.id)) -
+        getTicketLastActivity(a, responsesByTicket.get(a.id))
+    );
 
   // Per-member ticket indicator (plain derivation — no hook, safe after early return)
   const myMemberId = memberInfo?.id;
@@ -484,18 +555,6 @@ export default function SupportManagementPage() {
                   className="pl-10"
                 />
               </div>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-full md:w-48">
-                  <SelectValue placeholder="All Statuses" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Statuses</SelectItem>
-                  <SelectItem value="open">Open</SelectItem>
-                  <SelectItem value="in_progress">In Progress</SelectItem>
-                  <SelectItem value="resolved">Resolved</SelectItem>
-                  <SelectItem value="closed">Closed</SelectItem>
-                </SelectContent>
-              </Select>
               <Select value={typeFilter} onValueChange={setTypeFilter}>
                 <SelectTrigger className="w-full md:w-48">
                   <SelectValue placeholder="All Types" />
@@ -536,30 +595,73 @@ export default function SupportManagementPage() {
           </CardContent>
         </Card>
 
+        {/* Queue tabs */}
+        <div className="flex items-center gap-1 flex-wrap mb-4" data-testid="queue-tabs">
+          {QUEUE_TABS.map((tab) => {
+            const isActive = activeQueue === tab.value;
+            const showCount = tab.value === QUEUE_NEEDS_ATTENTION && queueCounts[QUEUE_NEEDS_ATTENTION] > 0;
+            return (
+              <Button
+                key={tab.value}
+                type="button"
+                size="sm"
+                variant="ghost"
+                className={isActive ? "toggle-elevate toggle-elevated font-semibold" : ""}
+                onClick={() => setActiveQueue(tab.value)}
+                data-testid={`tab-queue-${tab.value}`}
+              >
+                {tab.label}
+                {showCount && (
+                  <Badge
+                    className="ml-2 bg-blue-600 text-white no-default-active-elevate"
+                    data-testid="badge-needs-attention-count"
+                  >
+                    {queueCounts[QUEUE_NEEDS_ATTENTION]}
+                  </Badge>
+                )}
+              </Button>
+            );
+          })}
+        </div>
+
         {/* Tickets List */}
         {isLoading ? (
           <div className="text-center py-12">Loading tickets...</div>
         ) : filteredTickets.length === 0 ? (
           <Card className="border-slate-200">
             <CardContent className="p-12 text-center">
-              <p className="text-slate-600">No tickets found</p>
+              <p className="text-slate-600">
+                {activeQueue === QUEUE_NEEDS_ATTENTION
+                  ? "Nothing needs attention — you're all caught up"
+                  : "No tickets in this queue"}
+              </p>
             </CardContent>
           </Card>
         ) : (
           <div className="space-y-4">
             {filteredTickets.map((ticket) => {
               const TypeIcon = typeIcons[ticket.type];
+              const isUnreadTicket = unreadItemIdsByTicket.has(ticket.id);
               return (
                 <Card
                   key={ticket.id}
-                  className="border-slate-200 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
-                  onClick={() => setSelectedTicket(ticket)}
+                  className={`shadow-sm hover:shadow-md transition-shadow cursor-pointer ${
+                    isUnreadTicket ? "border-blue-300 bg-blue-50/40" : "border-slate-200"
+                  }`}
+                  onClick={() => handleOpenTicket(ticket)}
                   data-testid={`card-ticket-${ticket.id}`}
                 >
                   <CardContent className="p-4">
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-2 flex-wrap">
+                          {isUnreadTicket && (
+                            <span
+                              className="inline-block w-2 h-2 rounded-full bg-blue-600 flex-shrink-0"
+                              aria-label="Unread activity"
+                              data-testid={`dot-unread-${ticket.id}`}
+                            />
+                          )}
                           <TypeIcon className="w-5 h-5 text-blue-600" />
                           <Badge variant="outline" className="text-xs">{typeLabels[ticket.type]}</Badge>
                           <Badge className={statusColors[ticket.status]}>{ticket.status.replace('_', ' ')}</Badge>

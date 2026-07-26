@@ -19,6 +19,21 @@ import { rebuildSearchTextForEntity } from '../../_lib/searchTextBuilder.js';
 import { reindexMemberContentEntitySafe } from '../../_lib/memberContentReindexHook.js';
 import { syncBlogPostAuthors } from '../../_lib/blogPostAuthors.js';
 import { checkMemberQuota, checkEventQuota } from '../../_lib/planQuota.js';
+import { filterInternalNotesForViewer } from '../../_lib/supportTicketQueues.js';
+
+/**
+ * Task #3100: support staff = tenant users (admin dashboard), tenant admins,
+ * or members whose role grants `support.management`. Mirrors the recipient
+ * eligibility logic in api/support/notify.js. Used to gate internal notes.
+ */
+async function isSupportStaff(tenantCtx) {
+  if (tenantCtx.tenantUserId) return true;
+  if (await hasAdminAccess(tenantCtx)) return true;
+  if (tenantCtx.roleId) {
+    return await hasFeatureAccess(tenantCtx.roleId, 'support.management');
+  }
+  return false;
+}
 
 // Send email on form submission if configured
 async function sendFormSubmissionEmail(submissionData) {
@@ -1093,6 +1108,18 @@ export default async function handler(req, res) {
         return res.json(filtered || []);
       }
 
+      // SECURITY (Task #3100): internal notes on support ticket conversations
+      // are staff-only. Filter them out server-side for non-staff callers so
+      // members never receive them, regardless of client behaviour.
+      if (entityNorm === 'supportticketresponse') {
+        const staff = await isSupportStaff(tenantCtx);
+        const visibleRows = filterInternalNotesForViewer(data || [], staff);
+        if (wantsCount) {
+          return res.json({ data: visibleRows, count: visibleRows.length });
+        }
+        return res.json(visibleRows);
+      }
+
       if (wantsCount) {
         return res.json({ data: data || [], count: count ?? 0 });
       }
@@ -1119,6 +1146,17 @@ export default async function handler(req, res) {
       // so the card on SupportManagement never shows "Date not recorded".
       if (entityNorm === 'supportticket' && !sanitizedBody.created_date) {
         sanitizedBody.created_date = new Date().toISOString();
+      }
+
+      // SECURITY (Task #3100): only support staff may create internal notes.
+      // Internal notes are always admin responses; non-staff callers are
+      // rejected outright rather than silently downgraded.
+      if (entityNorm === 'supportticketresponse' && sanitizedBody.is_internal_note === true) {
+        const staff = await isSupportStaff(tenantCtx);
+        if (!staff) {
+          return res.status(403).json({ error: 'Only support staff can create internal notes' });
+        }
+        sanitizedBody.is_admin_response = true;
       }
 
       // Resource (Task #1701): auto-tag a group-created resource with its
@@ -1800,7 +1838,9 @@ export default async function handler(req, res) {
         });
       }
 
-      if (entityNorm === 'supportticketresponse' && data && data.ticket_id) {
+      // Task #3100: internal notes are staff-only context — they must never
+      // trigger member notifications (no email, no member inbox item).
+      if (entityNorm === 'supportticketresponse' && data && data.ticket_id && data.is_internal_note !== true) {
         // Resolve tenant_id for the response (stored on the ticket, not the response row)
         const resolveAndNotify = async () => {
           let responseTenantId = data.tenant_id || null;

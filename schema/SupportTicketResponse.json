@@ -28,6 +28,11 @@
         "format": "date-time",
         "description": "Timestamp when the response was created (DB default now())"
       },
+      "is_internal_note": {
+        "type": "boolean",
+        "default": false,
+        "description": "Staff-only internal note: never returned to members, never triggers member notifications"
+      },
       "attachments": {
         "type": "array",
         "items": {

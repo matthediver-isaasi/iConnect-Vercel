@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Paperclip, Send, X, Loader2, RotateCcw, FileText } from "lucide-react";
+import { Paperclip, Send, X, Loader2, RotateCcw, FileText, StickyNote, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { format } from "date-fns";
@@ -63,6 +63,7 @@ function AttachmentList({ attachments, align }) {
 }
 
 function MessageBubble({ message, isOwn }) {
+  const isNote = message.is_internal_note === true;
   return (
     <div
       className={`flex ${isOwn ? "justify-end" : "justify-start"}`}
@@ -73,10 +74,20 @@ function MessageBubble({ message, isOwn }) {
           <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
             {message.responder_name || "Unknown"}
           </span>
-          {message.is_admin_response && (
-            <Badge className="bg-blue-600 text-white text-[10px] px-1.5 py-0 no-default-active-elevate">
-              Staff
+          {isNote ? (
+            <Badge
+              variant="warning"
+              className="text-[10px] px-1.5 py-0 no-default-active-elevate"
+              data-testid={`badge-internal-${message.id}`}
+            >
+              Internal
             </Badge>
+          ) : (
+            message.is_admin_response && (
+              <Badge className="bg-blue-600 text-white text-[10px] px-1.5 py-0 no-default-active-elevate">
+                Staff
+              </Badge>
+            )
           )}
           <span className="text-[11px] text-slate-400" data-testid={`text-time-${message.id}`}>
             {formatMessageTime(message.created_date)}
@@ -87,7 +98,9 @@ function MessageBubble({ message, isOwn }) {
         </div>
         <div
           className={`rounded-lg px-3 py-2 text-sm whitespace-pre-wrap break-words ${
-            isOwn
+            isNote
+              ? "bg-warning/10 text-slate-800 dark:text-slate-200 border border-warning/40"
+              : isOwn
               ? "bg-blue-600 text-white"
               : message.is_admin_response
                 ? "bg-blue-50 dark:bg-blue-950/40 text-slate-800 dark:text-slate-200 border border-blue-200 dark:border-blue-900"
@@ -121,6 +134,7 @@ export default function TicketConversation({
   const [replyMessage, setReplyMessage] = useState("");
   const [attachments, setAttachments] = useState([]);
   const [uploading, setUploading] = useState(false);
+  const [internalNoteMode, setInternalNoteMode] = useState(false);
   const bottomRef = useRef(null);
   const fileInputRef = useRef(null);
   const ticketId = ticket?.id;
@@ -128,6 +142,7 @@ export default function TicketConversation({
   useEffect(() => {
     setReplyMessage("");
     setAttachments([]);
+    setInternalNoteMode(false);
   }, [ticketId]);
 
   const responsesKey = ["support-responses", ticketId];
@@ -190,7 +205,7 @@ export default function TicketConversation({
   };
 
   const sendMutation = useMutation({
-    mutationFn: async ({ message, attachments: files }) => {
+    mutationFn: async ({ message, attachments: files, isInternalNote }) => {
       const payload = {
         ticket_id: ticketId,
         message,
@@ -201,6 +216,7 @@ export default function TicketConversation({
           memberInfo?.email ||
           "Unknown",
       };
+      if (isInternalNote) payload.is_internal_note = true;
       if (files && files.length > 0) payload.attachments = files;
       const created = await base44.entities.SupportTicketResponse.create(payload);
       // Member replying to a resolved/closed ticket reopens it
@@ -209,7 +225,7 @@ export default function TicketConversation({
       }
       return created;
     },
-    onMutate: async ({ message, attachments: files }) => {
+    onMutate: async ({ message, attachments: files, isInternalNote }) => {
       await queryClient.cancelQueries({ queryKey: responsesKey });
       const previous = queryClient.getQueryData(responsesKey);
       const optimistic = {
@@ -217,6 +233,7 @@ export default function TicketConversation({
         ticket_id: ticketId,
         message,
         is_admin_response: isAdminView,
+        is_internal_note: isInternalNote === true,
         responder_name:
           `${memberInfo?.first_name || ""} ${memberInfo?.last_name || ""}`.trim() ||
           memberInfo?.email ||
@@ -252,7 +269,11 @@ export default function TicketConversation({
   const handleSend = () => {
     const message = replyMessage.trim();
     if (!message || sendMutation.isPending) return;
-    sendMutation.mutate({ message, attachments });
+    sendMutation.mutate({
+      message,
+      attachments,
+      isInternalNote: isAdminView && internalNoteMode,
+    });
   };
 
   const handleKeyDown = (e) => {
@@ -348,6 +369,44 @@ export default function TicketConversation({
         </div>
       )}
 
+      {/* Admin reply / internal note toggle */}
+      {isAdminView && (
+        <div className="flex items-center gap-1" data-testid="toggle-compose-mode">
+          <Button
+            type="button"
+            size="sm"
+            variant={internalNoteMode ? "ghost" : "secondary"}
+            onClick={() => setInternalNoteMode(false)}
+            data-testid="button-mode-reply"
+          >
+            <MessageSquare className="w-3.5 h-3.5 mr-1.5" />
+            Reply to member
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className={internalNoteMode ? "toggle-elevate toggle-elevated text-warning" : ""}
+            onClick={() => setInternalNoteMode(true)}
+            data-testid="button-mode-internal-note"
+          >
+            <StickyNote className="w-3.5 h-3.5 mr-1.5" />
+            Internal note
+          </Button>
+        </div>
+      )}
+
+      {/* Internal note notice */}
+      {isAdminView && internalNoteMode && (
+        <div
+          className="flex items-center gap-2 text-sm text-warning bg-warning/10 border border-warning/40 p-2.5 rounded-lg"
+          data-testid="text-internal-note-notice"
+        >
+          <StickyNote className="w-4 h-4 shrink-0" />
+          Internal note — only visible to support staff. The member will not be notified.
+        </div>
+      )}
+
       {/* Composer */}
       <div className="flex items-end gap-2">
         <input
@@ -370,12 +429,20 @@ export default function TicketConversation({
           {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4" />}
         </Button>
         <Textarea
-          placeholder={isAdminView ? "Type your response…" : "Type your message…"}
+          placeholder={
+            isAdminView
+              ? internalNoteMode
+                ? "Write an internal note…"
+                : "Type your response…"
+              : "Type your message…"
+          }
           rows={2}
           value={replyMessage}
           onChange={(e) => setReplyMessage(e.target.value)}
           onKeyDown={handleKeyDown}
-          className="flex-1 resize-none"
+          className={`flex-1 resize-none ${
+            isAdminView && internalNoteMode ? "border-warning/60 bg-warning/5" : ""
+          }`}
           data-testid="input-conversation-message"
         />
         <Button
@@ -383,7 +450,11 @@ export default function TicketConversation({
           size="icon"
           onClick={handleSend}
           disabled={!replyMessage.trim() || sendMutation.isPending || uploading}
-          className="bg-blue-600 hover:bg-blue-700"
+          className={
+            isAdminView && internalNoteMode
+              ? "bg-warning text-warning-foreground hover:bg-warning"
+              : "bg-blue-600 hover:bg-blue-700"
+          }
           data-testid="button-send-message"
         >
           <Send className="w-4 h-4" />

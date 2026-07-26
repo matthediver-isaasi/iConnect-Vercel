@@ -363,6 +363,18 @@ export default async function handler(req, res) {
         });
         if (!allowed) return res.status(404).json({ error: 'Not found' });
       }
+
+      // SECURITY (Task #3100): internal notes on support ticket conversations
+      // are staff-only. Non-staff by-id reads get a 404, mirroring the
+      // list-endpoint filter in index.js.
+      if (entityNorm === 'supportticketresponse' && data && data.is_internal_note === true) {
+        const isStaff = !!tenantCtx.tenantUserId
+          || await hasAdminAccess(tenantCtx)
+          || (tenantCtx.roleId
+            ? await hasFeatureAccess(tenantCtx.roleId, 'support.management')
+            : false);
+        if (!isStaff) return res.status(404).json({ error: 'Not found' });
+      }
       return res.json(data);
 
     } else if (req.method === 'PATCH') {
