@@ -425,6 +425,11 @@ async function handlePost(req, res, resolvedTenantId) {
     }
 
     let recordCreated = false;
+    // True only when THIS request inserted the history row — gates the
+    // membership-paid workflow so a retried/concurrent confirm (idempotent
+    // return above, or 23505 duplicate below) never fires it twice.
+    let newlyCreated = false;
+    const paidAtIso = new Date().toISOString();
     if (simResult.success && !simResult.existingRecord) {
       const invoiceTable = isMemberScoped ? 'member_membership_invoicing' : 'organisation_membership_invoicing';
 
@@ -465,6 +470,11 @@ async function handlePost(req, res, resolvedTenantId) {
         payment_method: 'stripe',
         stripe_payment_intent_id: paymentIntentId,
         status: 'active',
+        // Card payments are settled immediately — mark the row paid at
+        // creation so the reconciliation cron never re-processes it (and
+        // never double-fires the membership-paid workflow).
+        payment_status: 'paid',
+        paid_at: paidAtIso,
         notes: `Payment received via Stripe (form). PI: ${paymentIntentId}. Member: ${member.id}`,
       };
 
@@ -474,6 +484,7 @@ async function handlePost(req, res, resolvedTenantId) {
 
       if (!insertError) {
         recordCreated = true;
+        newlyCreated = true;
       } else if (insertError.code === '23505') {
         console.log(`[FormPayment] Duplicate constraint hit for PI ${paymentIntentId} - already processed`);
         recordCreated = true;
@@ -564,6 +575,39 @@ async function handlePost(req, res, resolvedTenantId) {
         } catch (flagErr) {
           console.error('[FormPayment] Failed to flag accounting_sync_status on history row:', flagErr.message);
         }
+      }
+    }
+
+    // Task #3110 — fire admin-configured "membership paid" workflows
+    // (field_change on payment_status unpaid->paid) for card payments.
+    // Fired on Stripe success regardless of accounting-sync outcome, gated
+    // on newlyCreated so retries/concurrent confirms never double-fire.
+    // Never allowed to break the payment response.
+    if (newlyCreated) {
+      try {
+        const { fireWorkflowForPaidRow } = await import('../_lib/membershipPaymentReconciliation.js');
+        const { data: historyRow } = await supabase
+          .from(historyTable)
+          .select('*')
+          .eq('stripe_payment_intent_id', paymentIntentId)
+          .eq('tenant_id', tenantId)
+          .maybeSingle();
+        if (historyRow) {
+          const baseUrl = req.headers.host
+            ? `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}`
+            : '';
+          await fireWorkflowForPaidRow({
+            table: historyTable,
+            row: historyRow,
+            snapshot: { paidAt: historyRow.paid_at || paidAtIso },
+            baseUrl,
+            source: 'membership_card_payment_confirm',
+          });
+        } else {
+          console.warn(`[FormPayment] Could not reload history row for PI ${paymentIntentId}; membership-paid workflow not fired`);
+        }
+      } catch (wfErr) {
+        console.error(`[FormPayment] Membership-paid workflow trigger failed for PI ${paymentIntentId} (non-fatal):`, wfErr.message);
       }
     }
 

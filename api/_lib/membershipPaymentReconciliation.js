@@ -147,19 +147,38 @@ function skipped(table, recordId, reason) {
  * the new payment_status plus a few helper fields (invoice number, paid
  * timestamp, membership year, currency) so admin-authored workflows can
  * reference them in conditions and email templates.
+ *
+ * Exported so other "invoice settled as paid" paths (e.g. the individual
+ * card-payment confirm endpoint, Task #3110) fire the exact same payload
+ * shape and cannot drift from the reconciliation path.
+ *
+ * @param {Object} args
+ * @param {string} args.table - history table name (org or member)
+ * @param {Object} args.row - the membership history row
+ * @param {Object} args.snapshot - `{ paidAt }` (paid timestamp, defaults to now)
+ * @param {string} [args.baseUrl]
+ * @param {string} [args.source] - context.source passed to triggerWorkflows
+ * @param {Object} [deps] - test injection: `{ db, trigger }`
+ * @returns {Promise<{ fired: boolean, skippedReason?: string }>}
  */
-async function fireWorkflowForPaidRow({ table, row, snapshot, baseUrl }) {
+export async function fireWorkflowForPaidRow(
+  { table, row, snapshot, baseUrl = '', source = 'membership_payment_reconciliation' },
+  deps = {},
+) {
+  const db = deps.db || supabase;
+  const trigger = deps.trigger || triggerWorkflows;
+
   const isOrg = table === ORG_TABLE;
   const entityType = isOrg ? 'organization' : 'member';
   const entityId = isOrg ? row.organization_id : row.member_id;
   if (!entityId) {
     console.warn(`[membershipPaymentReconciliation] ${table}#${row.id} has no ${isOrg ? 'organization_id' : 'member_id'}; skipping workflow trigger`);
-    return;
+    return { fired: false, skippedReason: 'no-entity-id' };
   }
 
   // Hydrate the entity record so workflow conditions referencing other
   // fields (status, name, etc.) evaluate correctly.
-  const { data: entity } = await supabase
+  const { data: entity } = await db
     .from(isOrg ? 'organization' : 'member')
     .select('*')
     .eq('id', entityId)
@@ -167,7 +186,7 @@ async function fireWorkflowForPaidRow({ table, row, snapshot, baseUrl }) {
 
   if (!entity) {
     console.warn(`[membershipPaymentReconciliation] entity ${entityType}#${entityId} not found; skipping workflow trigger`);
-    return;
+    return { fired: false, skippedReason: 'entity-not-found' };
   }
 
   const invoiceNumber = row.accounting_invoice_number || row.xero_invoice_number || null;
@@ -196,14 +215,15 @@ async function fireWorkflowForPaidRow({ table, row, snapshot, baseUrl }) {
     currency: row.currency,
   };
 
-  console.log(`[membershipPaymentReconciliation] Firing workflow for ${entityType}#${entityId} (payment_status unpaid->paid)`);
-  await triggerWorkflows(
+  console.log(`[membershipPaymentReconciliation] Firing workflow for ${entityType}#${entityId} (payment_status unpaid->paid, source=${source})`);
+  await trigger(
     entityType,
     entityId,
     beforeData,
     afterData,
     'field_change',
     baseUrl,
-    { source: 'membership_payment_reconciliation', historyTable: table, historyRecordId: row.id },
+    { source, historyTable: table, historyRecordId: row.id },
   );
+  return { fired: true };
 }
