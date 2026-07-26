@@ -1,6 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { getAccountingProvider, buildInvoiceColumnUpdate } from '../_lib/accountingProvider.js';
-import { loadAddonLines, computeAddonTotals, buildExtraLineItems, processTrainingFundAddons } from '../_lib/membershipAddons.js';
+import { loadAddonLines, computeAddonTotals, buildExtraLineItems, buildAddonDisplayLines, processTrainingFundAddons } from '../_lib/membershipAddons.js';
 import { simulateMembershipForOrg, simulateMembershipForMember } from '../_lib/membershipSimulation.js';
 import { sendMembershipInvoiceEmail } from '../_lib/membershipInvoiceEmail.js';
 import { sendTenantEmail } from '../_lib/tenantEmailService.js';
@@ -491,6 +491,10 @@ async function invoiceExistingRecord(tenantId, orgId, simResult, results) {
         // a duplicate. (Task #990)
         const { sendMembershipFeeTokenEmail } = await import('../_lib/membershipFeeTokenEmail.js');
         const stripeEnabled = !!simResult.config?.online_card_payment;
+        // Token totals are membership fee + add-ons, matching the invoice
+        // just created (membershipFeeCost is the membership-only figure
+        // regardless of whether the stored record had add-ons baked in).
+        const tokenFinalCost = Math.round((membershipFeeCost + addonTotals.subtotal) * 100) / 100;
         const costBreakdown = {
           annualCost: simResult.annualCost,
           annualCostBeforeDiscounts: simResult.annualCostBeforeDiscounts,
@@ -508,9 +512,10 @@ async function invoiceExistingRecord(tenantId, orgId, simResult, results) {
           proRataEnabled: simResult.proRataEnabled,
           overrideType: simResult.overrideType || null,
           vatRatePercent: simResult.vatRatePercent || null,
-          vatAmount: simResult.vatAmount || 0,
-          totalWithVat: simResult.totalWithVat || parseFloat(record.final_cost),
+          vatAmount: Math.round(((simResult.vatAmount || 0) + addonTotals.vat) * 100) / 100,
+          totalWithVat: Math.round(((simResult.totalWithVat || membershipFeeCost) + addonTotals.total) * 100) / 100,
           taxLabel: simResult.taxLabel || null,
+          ...(addonLines.length > 0 ? { addonLines: buildAddonDisplayLines(addonLines) } : {}),
         };
         await sendMembershipFeeTokenEmail({
           client: supabase,
@@ -518,7 +523,7 @@ async function invoiceExistingRecord(tenantId, orgId, simResult, results) {
           organizationId: orgId,
           organizationName: org.name,
           membershipYear: record.membership_year,
-          finalCost: parseFloat(record.final_cost),
+          finalCost: tokenFinalCost,
           currency: record.currency || 'GBP',
           tierLabel: record.tier_label,
           costBreakdown,
@@ -758,6 +763,9 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
         // (Task #990)
         const { sendMembershipFeeTokenEmail } = await import('../_lib/membershipFeeTokenEmail.js');
         const stripeEnabled = !!simResult.config?.online_card_payment;
+        // Token totals include add-on lines so the email/PO page matches the
+        // invoice just created (record.final_cost is stored addon-inclusive).
+        const tokenFinalCost = Math.round((finalCost + addonTotals.subtotal) * 100) / 100;
         const costBreakdown = {
           annualCost: simResult.annualCost,
           annualCostBeforeDiscounts: simResult.annualCostBeforeDiscounts,
@@ -775,9 +783,10 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
           proRataEnabled: simResult.proRataEnabled,
           overrideType: simResult.overrideType || null,
           vatRatePercent: simResult.vatRatePercent || null,
-          vatAmount: simResult.vatAmount || 0,
-          totalWithVat: simResult.totalWithVat || finalCost,
+          vatAmount: Math.round(((simResult.vatAmount || 0) + addonTotals.vat) * 100) / 100,
+          totalWithVat: Math.round(((simResult.totalWithVat || finalCost) + addonTotals.total) * 100) / 100,
           taxLabel: simResult.taxLabel || null,
+          ...(addonLines.length > 0 ? { addonLines: buildAddonDisplayLines(addonLines) } : {}),
         };
         const sendResult = await sendMembershipFeeTokenEmail({
           client: supabase,
@@ -785,7 +794,7 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
           organizationId: orgId,
           organizationName: org.name,
           membershipYear: membershipYear.label,
-          finalCost,
+          finalCost: tokenFinalCost,
           currency,
           tierLabel,
           costBreakdown,

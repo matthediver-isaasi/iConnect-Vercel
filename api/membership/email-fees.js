@@ -2,6 +2,7 @@ import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { simulateMembershipForOrg } from '../_lib/membershipSimulation.js';
 import { sendMembershipFeeTokenEmail } from '../_lib/membershipFeeTokenEmail.js';
+import { loadAddonLines, computeAddonTotals, buildAddonDisplayLines } from '../_lib/membershipAddons.js';
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -37,7 +38,14 @@ export default async function handler(req, res) {
 
     const org = simResult.org;
     const yearLabel = simResult.membershipYear?.label;
-    const finalCost = simResult.finalCost;
+
+    // Approved add-on lines (Training Fund top-ups, freeform) are invoiced
+    // alongside the membership fee, so the fee email / PO page must show
+    // and total them too.
+    const addonLines = await loadAddonLines(tenantId, organizationId, yearLabel);
+    const addonTotals = computeAddonTotals(addonLines);
+
+    const finalCost = Math.round(((simResult.finalCost || 0) + addonTotals.subtotal) * 100) / 100;
     const currency = simResult.currency || 'GBP';
     const tierLabel = simResult.tierLabel;
     const stripeEnabled = !!simResult.config?.online_card_payment;
@@ -80,9 +88,10 @@ export default async function handler(req, res) {
       overrideDiscountType: simResult.overrideDiscountType || null,
       overrideDiscountValue: simResult.overrideDiscountValue || null,
       vatRatePercent: simResult.vatRatePercent || null,
-      vatAmount: simResult.vatAmount || 0,
-      totalWithVat: simResult.totalWithVat || finalCost,
+      vatAmount: Math.round(((simResult.vatAmount || 0) + addonTotals.vat) * 100) / 100,
+      totalWithVat: Math.round(((simResult.totalWithVat || simResult.finalCost || 0) + addonTotals.total) * 100) / 100,
       taxLabel: simResult.taxLabel || null,
+      ...(addonLines.length > 0 ? { addonLines: buildAddonDisplayLines(addonLines) } : {}),
     };
 
     const result = await sendMembershipFeeTokenEmail({

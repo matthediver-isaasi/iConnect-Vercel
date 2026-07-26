@@ -198,6 +198,23 @@ export function computeAddonTotals(lines) {
 }
 
 /**
+ * Map stored lines to a display-safe shape for the fee-token email breakdown
+ * and the public /membership-fees/:token page (no nominal codes or internal
+ * config — description + amounts only).
+ */
+export function buildAddonDisplayLines(lines) {
+  return (lines || []).map((line) => ({
+    description: String(line.description || 'Add-on'),
+    quantity: Number(line.quantity) || 1,
+    unit_cost: Number(line.unit_cost) || 0,
+    line_total: Number(line.line_total) || 0,
+    vat_rate_percent: Number.isFinite(Number(line.vat_rate?.effectiveRate))
+      ? Number(line.vat_rate.effectiveRate)
+      : null,
+  }));
+}
+
+/**
  * Map stored lines to the provider-agnostic extraLineItems shape accepted by
  * createMembershipInvoice (Xero + QBO).
  */

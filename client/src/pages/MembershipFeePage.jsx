@@ -414,7 +414,16 @@ export default function MembershipFeePage() {
               </div>
             )}
 
-            {data?.vatRatePercent > 0 && data?.vatAmount > 0 && (
+            {Array.isArray(data?.addonLines) && data.addonLines.map((line, idx) => (
+              <div key={idx} className="flex items-center justify-between gap-2 text-sm">
+                <span className="text-gray-500" data-testid={`text-addon-label-${idx}`}>
+                  {line.description}{(Number(line.quantity) || 1) > 1 ? ` (\u00d7${line.quantity})` : ''}
+                </span>
+                <span data-testid={`text-addon-amount-${idx}`}>{formatCurrency(line.line_total, data?.currency)}</span>
+              </div>
+            ))}
+
+            {data?.vatAmount > 0 && (
               <>
                 <Separator className="my-3" />
                 <div className="flex items-center justify-between text-sm">
@@ -422,7 +431,7 @@ export default function MembershipFeePage() {
                   <span>{formatCurrency(data?.finalCost, data?.currency)}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-500">VAT ({data.vatRatePercent}%)</span>
+                  <span className="text-gray-500">VAT{data?.vatRatePercent > 0 ? ` (${data.vatRatePercent}%)` : ''}</span>
                   <span data-testid="text-vat">{formatCurrency(data.vatAmount, data?.currency)}</span>
                 </div>
               </>
@@ -431,7 +440,7 @@ export default function MembershipFeePage() {
             <Separator className="my-3" />
 
             <div className="flex items-center justify-between">
-              <span className="font-medium">Total Due{data?.vatRatePercent > 0 ? ' (incl. VAT)' : ''}</span>
+              <span className="font-medium">Total Due{data?.vatAmount > 0 ? ' (incl. VAT)' : ''}</span>
               <span className="text-2xl font-bold" style={{ color: primaryColor }} data-testid="text-total">
                 {formatCurrency(data?.totalWithVat || data?.finalCost, data?.currency)}
               </span>

@@ -138,6 +138,16 @@ function buildBreakdownRows(currencySymbol, costBreakdown, finalCost) {
   } else if (costBreakdown.overrideType === 'structure') {
     rows.push({ label: 'Structure Override', value: 'Applied', isNote: true });
   }
+  if (Array.isArray(costBreakdown.addonLines)) {
+    const escapeHtml = (s) => String(s || '')
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    costBreakdown.addonLines.forEach((line) => {
+      const qty = Number(line.quantity) || 1;
+      const desc = escapeHtml(line.description || 'Add-on');
+      const label = qty > 1 ? `${desc} (\u00d7${qty})` : desc;
+      rows.push({ label, value: `${currencySymbol}${(Number(line.line_total) || 0).toFixed(2)}` });
+    });
+  }
   return rows;
 }
 
@@ -336,11 +346,12 @@ export async function sendMembershipFeeTokenEmail({
 
   const cb = costBreakdown || {};
   const rows = buildBreakdownRows(currencySymbol, cb, finalCost);
-  const hasVat = cb.vatRatePercent && cb.vatAmount > 0;
+  const hasVat = cb.vatAmount > 0;
   const displayTotal = hasVat ? cb.totalWithVat : finalCost;
   if (hasVat) {
     rows.push({ label: 'Net Amount', value: `${currencySymbol}${parseFloat(finalCost).toFixed(2)}`, isSubtotal: true });
-    rows.push({ label: `VAT (${cb.vatRatePercent}%)`, value: `${currencySymbol}${parseFloat(cb.vatAmount).toFixed(2)}` });
+    const vatLabel = cb.vatRatePercent ? `VAT (${cb.vatRatePercent}%)` : 'VAT';
+    rows.push({ label: vatLabel, value: `${currencySymbol}${parseFloat(cb.vatAmount).toFixed(2)}` });
   }
 
   const breakdownHtml = rows.map((row) => `

@@ -102,6 +102,30 @@ export default async function handler(req, res) {
       const tokenVatAmount = breakdown.vatAmount || 0;
       const tokenTotalWithVat = breakdown.totalWithVat || parseFloat(feeToken.final_cost);
 
+      // Add-on lines (Training Fund top-ups, freeform) shown on the fee
+      // summary. New tokens carry a display-ready list in the stored
+      // breakdown. Older tokens don't — for those, resolve the invoicing
+      // record's add-on lines server-side, but ONLY when the linked history
+      // record confirms the add-ons are baked into its totals (otherwise the
+      // rows wouldn't reconcile to the token's total).
+      let addonLines = Array.isArray(breakdown.addonLines) ? breakdown.addonLines : null;
+      if (!addonLines && feeToken.history_record_id) {
+        try {
+          const { data: hist } = await supabase
+            .from('organisation_membership_history')
+            .select('notes, final_cost')
+            .eq('id', feeToken.history_record_id)
+            .maybeSingle();
+          if (hist && /add-on line\(s\) included/.test(hist.notes || '')
+            && Math.abs(parseFloat(hist.final_cost) - parseFloat(feeToken.final_cost)) < 0.005) {
+            const { loadAddonLines, buildAddonDisplayLines } = await import('../../_lib/membershipAddons.js');
+            const stored = await loadAddonLines(feeToken.tenant_id, feeToken.organization_id, feeToken.membership_year);
+            if (stored.length > 0) addonLines = buildAddonDisplayLines(stored);
+          }
+        } catch {}
+      }
+      if (addonLines && addonLines.length > 0) breakdown.addonLines = addonLines;
+
       // If the token carries a pre-created Xero invoice id but no online URL
       // yet (e.g. the cron created the invoice but the URL fetch failed at
       // the time, or the invoice was in DRAFT and has since been authorised),
@@ -137,6 +161,7 @@ export default async function handler(req, res) {
         currency: feeToken.currency || 'GBP',
         tierLabel: feeToken.tier_label,
         costBreakdown: breakdown,
+        addonLines: addonLines && addonLines.length > 0 ? addonLines : [],
         poNumber: feeToken.po_number || null,
         stripeEnabled: !!stripePublishableKey,
         stripePublishableKey,
@@ -636,6 +661,12 @@ export default async function handler(req, res) {
           }
         }
         if (simResult.success && !simResult.existingRecord) {
+          // If the token snapshot includes add-on lines, its final_cost /
+          // totals are addon-inclusive — store the record with the token's
+          // totals and the "add-on line(s) included." marker so any later
+          // invoicing path knows not to add them again.
+          const cbForRecord = feeToken.cost_breakdown || {};
+          const tokenAddons = Array.isArray(cbForRecord.addonLines) ? cbForRecord.addonLines : [];
           const { data: insertedRecord, error: insertError } = await supabase
             .from('organisation_membership_history')
             .insert({
@@ -657,8 +688,12 @@ export default async function handler(req, res) {
               billing_period: simResult.billingPeriod || 'annual',
               purchase_order_number: feeToken.po_number || null,
               vat_rate_percent: simResult.vatRatePercent || null,
-              vat_amount: simResult.vatAmount || 0,
-              total_with_vat: simResult.totalWithVat || parseFloat(feeToken.final_cost),
+              vat_amount: tokenAddons.length > 0
+                ? (cbForRecord.vatAmount || 0)
+                : (simResult.vatAmount || 0),
+              total_with_vat: tokenAddons.length > 0
+                ? (cbForRecord.totalWithVat || parseFloat(feeToken.final_cost))
+                : (simResult.totalWithVat || parseFloat(feeToken.final_cost)),
               year_number: simResult.yearNumber || null,
               prorata_days: simResult.prorataDays || null,
               free_period_days_applied: simResult.freePeriodDaysApplied || 0,
@@ -667,7 +702,7 @@ export default async function handler(req, res) {
               payment_method: 'stripe',
               stripe_payment_intent_id: paymentIntentId,
               status: 'active',
-              notes: `Payment received via Stripe (${paymentIntentId}). Fee link: ${token.substring(0, 8)}...`,
+              notes: `Payment received via Stripe (${paymentIntentId}). Fee link: ${token.substring(0, 8)}...${tokenAddons.length > 0 ? ` ${tokenAddons.length} add-on line(s) included.` : ''}`,
             })
             .select()
             .single();
@@ -767,7 +802,25 @@ export default async function handler(req, res) {
                 ? `Membership ${feeToken.membership_year} - PO: ${feeToken.po_number}`
                 : `Membership ${feeToken.membership_year}`;
 
+              // If the token's totals include add-on lines, the invoice must
+              // itemise them: membership fee line = final_cost minus the
+              // add-on subtotal, add-ons as their own extra line items.
+              let invoiceAddonLines = [];
+              let invoiceMembershipCost = parseFloat(feeToken.final_cost);
+              if (Array.isArray(feeToken.cost_breakdown?.addonLines) && feeToken.cost_breakdown.addonLines.length > 0) {
+                try {
+                  const { loadAddonLines, computeAddonTotals } = await import('../../_lib/membershipAddons.js');
+                  const storedAddons = await loadAddonLines(feeToken.tenant_id, feeToken.organization_id, feeToken.membership_year);
+                  if (storedAddons.length > 0) {
+                    const storedTotals = computeAddonTotals(storedAddons);
+                    invoiceAddonLines = storedAddons;
+                    invoiceMembershipCost = Math.max(0, Math.round((invoiceMembershipCost - storedTotals.subtotal) * 100) / 100);
+                  }
+                } catch {}
+              }
+
               const _provider = await getAccountingProvider(feeToken.tenant_id);
+              const { buildExtraLineItems: _buildExtra } = await import('../../_lib/membershipAddons.js');
               xeroInvoice = await _provider.createMembershipInvoice({
                 appTenantId: feeToken.tenant_id,
                 organizationName: org?.name || 'Organisation',
@@ -775,14 +828,28 @@ export default async function handler(req, res) {
                 invoicingAddress: org?.invoicing_address,
                 membershipYear: feeToken.membership_year,
                 tierLabel: feeToken.tier_label,
-                finalCost: parseFloat(feeToken.final_cost),
+                finalCost: invoiceMembershipCost,
                 currency: feeToken.currency || 'GBP',
                 reference,
                 vatRate: simResult.taxType || simResult.matchedBand?.vat_rate || null,
                 markAsPaid: true,
                 stripePaymentIntentId: paymentIntentId,
                 invoiceDescription: simResult.config?.invoice_description || null,
+                extraLineItems: _buildExtra(invoiceAddonLines),
               });
+              if (xeroInvoice && invoiceAddonLines.length > 0) {
+                try {
+                  const { processTrainingFundAddons } = await import('../../_lib/membershipAddons.js');
+                  await processTrainingFundAddons({
+                    tenantId: feeToken.tenant_id,
+                    organizationId: feeToken.organization_id,
+                    invoice: xeroInvoice,
+                    addonLines: invoiceAddonLines,
+                  });
+                } catch (tfErr) {
+                  console.error('[Public Fee] Training fund add-on processing failed (non-fatal):', tfErr.message);
+                }
+              }
               // Task #1017 — persist invoice id/number on the history row so
               // the inline reconciliation below (and the cron, if it falls
               // through) can locate it.
