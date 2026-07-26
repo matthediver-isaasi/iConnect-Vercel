@@ -19,7 +19,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { toast } from "sonner";
 import { isDeletedMember } from "@/utils";
-import { isVisibleOnFront, isVisibleOnBack, isCustomFieldVisibleOnFront, isCustomFieldVisibleOnBack, getOrderedCustomFields } from "@/utils/directorySettings";
+import { isVisibleOnFront, isVisibleOnBack, isFieldVisibleOnBackFor, getDirectoryOrderedFields, enrichFieldForDirectory, isFieldInDirectory, hasDirectoryFieldValue } from "@/utils/directorySettings";
 import { DirectoryMemberCard, DirectoryOrganizationCard } from "@/components/directory/DirectoryCards";
 
 export default function DynamicDirectoryView() {
@@ -283,45 +283,20 @@ export default function DynamicDirectoryView() {
     queryKey: ['/api/entities/PreferenceField', 'organization', directory?.id],
     queryFn: async () => {
       const dirId = directory?.id;
-      const parseDirVis = (field) => {
-        if (!field.directory_visibility) return null;
-        let vis = field.directory_visibility;
-        if (typeof vis === 'string') {
-          try { vis = JSON.parse(vis); } catch { return null; }
-        }
-        if (Array.isArray(vis)) return { ids: vis, labels: {} };
-        if (vis && typeof vis === 'object') {
-          return {
-            ids: Array.isArray(vis.ids) ? vis.ids : [],
-            labels: (vis.labels && typeof vis.labels === 'object' && !Array.isArray(vis.labels)) ? vis.labels : {}
-          };
-        }
-        return null;
-      };
-      const isVisibleInDirectory = (field) => {
-        const parsed = parseDirVis(field);
-        return parsed ? parsed.ids.includes(dirId) : false;
-      };
-      const enrich = (field) => {
-        const override = parseDirVis(field)?.labels?.[dirId];
-        return {
-          ...field,
-          _displayLabel: (typeof override === 'string' && override.trim()) ? override.trim() : field.label
-        };
-      };
+      const enrich = (field) => enrichFieldForDirectory(field, dirId);
       try {
         const fields = await base44.entities.PreferenceField.list({
           filter: { is_active: true, entity_scope: 'organization' },
           sort: { display_order: 'asc' }
         });
-        return (fields || []).filter(f => f.entity_scope === 'organization' && isVisibleInDirectory(f)).map(enrich);
+        return (fields || []).filter(f => f.entity_scope === 'organization' && isFieldInDirectory(f, dirId)).map(enrich);
       } catch {
         try {
           const allFields = await base44.entities.PreferenceField.list({
             filter: { is_active: true },
             sort: { display_order: 'asc' }
           });
-          return (allFields || []).filter(f => f.entity_scope === 'organization' && isVisibleInDirectory(f)).map(enrich);
+          return (allFields || []).filter(f => f.entity_scope === 'organization' && isFieldInDirectory(f, dirId)).map(enrich);
         } catch {
           return [];
         }
@@ -334,28 +309,7 @@ export default function DynamicDirectoryView() {
     queryKey: ['member-filterable-fields', directory?.id],
     queryFn: async () => {
       const dirId = directory?.id;
-      const parseDirVis = (field) => {
-        if (!field.directory_visibility) return null;
-        let vis = field.directory_visibility;
-        if (typeof vis === 'string') {
-          try { vis = JSON.parse(vis); } catch { return null; }
-        }
-        if (Array.isArray(vis)) return { ids: vis, labels: {} };
-        if (vis && typeof vis === 'object') {
-          return {
-            ids: Array.isArray(vis.ids) ? vis.ids : [],
-            labels: (vis.labels && typeof vis.labels === 'object' && !Array.isArray(vis.labels)) ? vis.labels : {}
-          };
-        }
-        return null;
-      };
-      const enrich = (field) => {
-        const override = parseDirVis(field)?.labels?.[dirId];
-        return {
-          ...field,
-          _displayLabel: (typeof override === 'string' && override.trim()) ? override.trim() : field.label
-        };
-      };
+      const enrich = (field) => enrichFieldForDirectory(field, dirId);
       try {
         const fields = await base44.entities.PreferenceField.list({
           filter: { is_active: true, entity_scope: 'member', is_filterable: true },
@@ -382,38 +336,13 @@ export default function DynamicDirectoryView() {
     queryKey: ['member-directory-custom-fields', directory?.id],
     queryFn: async () => {
       const dirId = directory?.id;
-      const parseDirVis = (field) => {
-        if (!field.directory_visibility) return null;
-        let vis = field.directory_visibility;
-        if (typeof vis === 'string') {
-          try { vis = JSON.parse(vis); } catch { return null; }
-        }
-        if (Array.isArray(vis)) return { ids: vis, labels: {} };
-        if (vis && typeof vis === 'object') {
-          return {
-            ids: Array.isArray(vis.ids) ? vis.ids : [],
-            labels: (vis.labels && typeof vis.labels === 'object' && !Array.isArray(vis.labels)) ? vis.labels : {}
-          };
-        }
-        return null;
-      };
-      const isVisibleInDirectory = (field) => {
-        const parsed = parseDirVis(field);
-        return parsed ? parsed.ids.includes(dirId) : false;
-      };
-      const enrich = (field) => {
-        const override = parseDirVis(field)?.labels?.[dirId];
-        return {
-          ...field,
-          _displayLabel: (typeof override === 'string' && override.trim()) ? override.trim() : field.label
-        };
-      };
+      const enrich = (field) => enrichFieldForDirectory(field, dirId);
       try {
         const fields = await base44.entities.PreferenceField.list({
           filter: { is_active: true, entity_scope: 'member' },
           sort: { display_order: 'asc' }
         });
-        return (fields || []).filter(f => f.entity_scope === 'member' && isVisibleInDirectory(f)).map(enrich);
+        return (fields || []).filter(f => f.entity_scope === 'member' && isFieldInDirectory(f, dirId)).map(enrich);
       } catch {
         try {
           const allFields = await base44.entities.PreferenceField.list({
@@ -421,7 +350,7 @@ export default function DynamicDirectoryView() {
             sort: { display_order: 'asc' }
           });
           return (allFields || []).filter(f =>
-            (!f.entity_scope || f.entity_scope === 'member') && isVisibleInDirectory(f)
+            (!f.entity_scope || f.entity_scope === 'member') && isFieldInDirectory(f, dirId)
           ).map(enrich);
         } catch {
           return [];
@@ -1198,7 +1127,7 @@ export default function DynamicDirectoryView() {
                   </div>
                 </div>
               )}
-              {orgCustomFields.length > 0 && (
+              {orgCustomFields.some(f => f._visBack !== false) && (
                 <div className="space-y-3 pt-2 border-t">
                   <div className="flex items-center gap-2">
                     <ClipboardList className="w-4 h-4 text-blue-600" />
@@ -1210,7 +1139,7 @@ export default function DynamicDirectoryView() {
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      {orgCustomFields.map((field) => {
+                      {getDirectoryOrderedFields(orgCustomFields, null).filter(f => f._visBack !== false).map((field) => {
                         const valueRecord = selectedOrgValues.find(v => v.field_id === field.id);
                         let displayValue = valueRecord?.value || '';
                         if (field.field_type === 'picklist' && displayValue) {
@@ -1603,16 +1532,13 @@ export default function DynamicDirectoryView() {
               </div>
 
               {(() => {
-                const orderedFields = getOrderedCustomFields(directoryCustomFields, memberDisplaySettings);
+                const orderedFields = getDirectoryOrderedFields(directoryCustomFields, memberDisplaySettings);
                 const enabledFields = orderedFields.filter(f =>
-                  isCustomFieldVisibleOnBack(memberDisplaySettings, f.id)
+                  isFieldVisibleOnBackFor(f, memberDisplaySettings)
                 );
                 if (enabledFields.length === 0) return null;
                 const memberValues = memberPreferenceMap[viewingMember.id] || {};
-                const fieldsWithValues = enabledFields.filter(f => {
-                  const val = memberValues[f.id];
-                  return val !== undefined && val !== null && val !== '';
-                });
+                const fieldsWithValues = enabledFields.filter(f => hasDirectoryFieldValue(f, memberValues[f.id]));
                 if (fieldsWithValues.length === 0) return null;
                 return (
                   <div className="space-y-3 pt-4 border-t border-slate-200">

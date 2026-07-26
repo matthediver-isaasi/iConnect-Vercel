@@ -10,7 +10,7 @@ import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
-import { CORE_FIELDS, normalizeFieldVisibility } from "@/utils/directorySettings";
+import { CORE_FIELDS, normalizeFieldVisibility, reorderCoreFieldOrder } from "@/utils/directorySettings";
 
 function migrateSettings(raw) {
   const migrated = { field_order: raw.field_order || [], custom_fields: {}, visible_role_ids: raw.visible_role_ids || [] };
@@ -33,12 +33,8 @@ function migrateSettings(raw) {
   return migrated;
 }
 
-function buildDefaultFieldOrder(directoryFields) {
-  const order = CORE_FIELDS.map(f => f.key);
-  for (const f of directoryFields) {
-    order.push(`custom:${f.id}`);
-  }
-  return order;
+function buildDefaultFieldOrder() {
+  return CORE_FIELDS.map(f => f.key);
 }
 
 export default function MemberDirectorySettingsPage() {
@@ -88,52 +84,6 @@ export default function MemberDirectorySettingsPage() {
     staleTime: 5 * 60 * 1000,
   });
 
-  const { data: directoryFields = [], isLoading: isLoadingFields } = useQuery({
-    queryKey: ['member-directory-fields'],
-    queryFn: async () => {
-      try {
-        const fields = await base44.entities.PreferenceField.list({
-          filter: { is_active: true, entity_scope: 'member' },
-          sort: { display_order: 'asc' }
-        });
-        const isVisibleInMain = (field) => {
-          if (field.directory_visibility) {
-            let vis = field.directory_visibility;
-            if (typeof vis === 'string') {
-              try { vis = JSON.parse(vis); } catch { vis = []; }
-            }
-            if (Array.isArray(vis)) return vis.includes('main');
-          }
-          return field.show_in_member_directory !== false;
-        };
-        return (fields || []).filter(f => f.entity_scope === 'member' && isVisibleInMain(f));
-      } catch {
-        try {
-          const allFields = await base44.entities.PreferenceField.list({
-            filter: { is_active: true },
-            sort: { display_order: 'asc' }
-          });
-          const isVisibleInMain = (field) => {
-            if (field.directory_visibility) {
-              let vis = field.directory_visibility;
-              if (typeof vis === 'string') {
-                try { vis = JSON.parse(vis); } catch { vis = []; }
-              }
-              if (Array.isArray(vis)) return vis.includes('main');
-            }
-            return field.show_in_member_directory !== false;
-          };
-          return (allFields || []).filter(f =>
-            (!f.entity_scope || f.entity_scope === 'member') && isVisibleInMain(f)
-          );
-        } catch {
-          return [];
-        }
-      }
-    },
-    staleTime: 5 * 60 * 1000,
-  });
-
   useEffect(() => {
     if (isAccessReady) {
       if (isFeatureExcluded('page_MemberDirectorySettings')) {
@@ -145,10 +95,10 @@ export default function MemberDirectorySettingsPage() {
   }, [isFeatureExcluded, isAccessReady]);
 
   useEffect(() => {
-    if (displaySettings && directoryFields !== undefined) {
+    if (displaySettings) {
       const migrated = migrateSettings(displaySettings);
       if (!migrated.field_order || migrated.field_order.length === 0) {
-        migrated.field_order = buildDefaultFieldOrder(directoryFields);
+        migrated.field_order = buildDefaultFieldOrder();
       } else {
         const existingSet = new Set(migrated.field_order);
         for (const cf of CORE_FIELDS) {
@@ -156,23 +106,11 @@ export default function MemberDirectorySettingsPage() {
             migrated.field_order.push(cf.key);
           }
         }
-        for (const f of directoryFields) {
-          const customKey = `custom:${f.id}`;
-          if (!existingSet.has(customKey)) {
-            migrated.field_order.push(customKey);
-          }
-        }
-        migrated.field_order = migrated.field_order.filter(k => {
-          if (k.startsWith('custom:')) {
-            return directoryFields.some(f => f.id === k.replace('custom:', ''));
-          }
-          return CORE_FIELDS.some(cf => cf.key === k);
-        });
       }
       migrated.id = displaySettings.id;
       setSettings(migrated);
     }
-  }, [displaySettings, directoryFields]);
+  }, [displaySettings]);
 
   const saveSettingsMutation = useMutation({
     mutationFn: async (newSettings) => {
@@ -211,34 +149,18 @@ export default function MemberDirectorySettingsPage() {
     }));
   }, []);
 
-  const handleCustomFieldToggle = useCallback((fieldId, side) => {
-    setSettings(prev => {
-      const current = prev.custom_fields[fieldId] || { front: true, back: true };
-      return {
-        ...prev,
-        custom_fields: {
-          ...prev.custom_fields,
-          [fieldId]: {
-            ...current,
-            [side]: !current[side]
-          }
-        }
-      };
-    });
-  }, []);
-
   const handleDragEnd = useCallback((result) => {
     if (!result.destination) return;
     const srcIdx = result.source.index;
     const destIdx = result.destination.index;
     if (srcIdx === destIdx) return;
 
-    setSettings(prev => {
-      const newOrder = [...prev.field_order];
-      const [moved] = newOrder.splice(srcIdx, 1);
-      newOrder.splice(destIdx, 0, moved);
-      return { ...prev, field_order: newOrder };
-    });
+    setSettings(prev => ({
+      ...prev,
+      // Indices come from the rendered CORE-only list; legacy `custom:*`
+      // keys are preserved in field_order but hidden.
+      field_order: reorderCoreFieldOrder(prev.field_order, srcIdx, destIdx),
+    }));
   }, []);
 
   const handleSave = () => {
@@ -255,7 +177,7 @@ export default function MemberDirectorySettingsPage() {
     });
   }, []);
 
-  if (!accessChecked || isLoading || isLoadingFields || isLoadingRoles || !settings) {
+  if (!accessChecked || isLoading || isLoadingRoles || !settings) {
     return (
       <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
@@ -264,16 +186,6 @@ export default function MemberDirectorySettingsPage() {
   }
 
   const coreFieldMap = Object.fromEntries(CORE_FIELDS.map(f => [f.key, f]));
-  const customFieldMap = Object.fromEntries(directoryFields.map(f => [`custom:${f.id}`, f]));
-
-  function getFieldTypeLabel(field) {
-    const typeMap = {
-      dropdown: 'Dropdown', picklist: 'Picklist', number: 'Number',
-      date: 'Date', boolean: 'Yes/No', text: 'Text', email: 'Email',
-      url: 'URL', multiline_text: 'Multi-line Text'
-    };
-    return typeMap[field.field_type] || 'Text';
-  }
 
   return (
     <div className="min-h-screen p-4 md:p-8">
@@ -333,7 +245,12 @@ export default function MemberDirectorySettingsPage() {
           <CardHeader>
             <CardTitle>Field Visibility & Order</CardTitle>
             <CardDescription>
-              Choose which fields appear on the member card (front) and the detail popup (back). Drag rows to reorder.
+              Choose which built-in fields appear on the member card (front) and the detail popup (back). Drag rows to reorder.
+              Custom fields are now configured per directory on the{' '}
+              <a href={createPageUrl('CustomFieldsAdmin')} className="text-blue-600 underline" data-testid="link-custom-fields-admin">
+                Custom Fields
+              </a>{' '}
+              page (edit a field to set its front/back placement and order for each directory).
             </CardDescription>
             <div className="flex items-center gap-6 pt-3 text-xs font-medium text-slate-500 uppercase tracking-wide">
               <div className="flex-1 pl-10">Field</div>
@@ -356,29 +273,16 @@ export default function MemberDirectorySettingsPage() {
                     {...provided.droppableProps}
                     className="space-y-2"
                   >
-                    {settings.field_order.map((fieldKey, index) => {
-                      const isCustom = fieldKey.startsWith('custom:');
+                    {settings.field_order.filter(k => coreFieldMap[k]).map((fieldKey, index) => {
                       const coreField = coreFieldMap[fieldKey];
-                      const customField = customFieldMap[fieldKey];
 
-                      if (!coreField && !customField) return null;
-
-                      const label = coreField ? coreField.label : customField.label;
-                      const description = coreField
-                        ? coreField.description
-                        : `${getFieldTypeLabel(customField)} field`;
+                      const label = coreField.label;
+                      const description = coreField.description;
                       const isBackOnly = coreField?.backOnly;
 
-                      let frontChecked, backChecked;
-                      if (isCustom) {
-                        const vis = settings.custom_fields[customField.id] || { front: true, back: true };
-                        frontChecked = vis.front !== false;
-                        backChecked = vis.back !== false;
-                      } else {
-                        const vis = settings[fieldKey] || { front: true, back: true };
-                        frontChecked = isBackOnly ? false : vis.front !== false;
-                        backChecked = vis.back !== false;
-                      }
+                      const vis = settings[fieldKey] || { front: true, back: true };
+                      const frontChecked = isBackOnly ? false : vis.front !== false;
+                      const backChecked = vis.back !== false;
 
                       return (
                         <Draggable key={fieldKey} draggableId={fieldKey} index={index}>
@@ -390,7 +294,7 @@ export default function MemberDirectorySettingsPage() {
                                 snapshot.isDragging
                                   ? 'border-blue-400 bg-blue-50 shadow-lg'
                                   : 'border-slate-200 bg-slate-50'
-                              } ${isCustom ? '' : ''}`}
+                              }`}
                               data-testid={`row-field-${fieldKey}`}
                             >
                               <div
@@ -404,9 +308,6 @@ export default function MemberDirectorySettingsPage() {
                               <div className="flex-1 min-w-0">
                                 <div className="font-medium text-sm text-slate-800 truncate">
                                   {label}
-                                  {isCustom && (
-                                    <span className="ml-2 text-xs text-blue-600 font-normal">Custom</span>
-                                  )}
                                 </div>
                                 <p className="text-xs text-slate-500 truncate">{description}</p>
                               </div>
@@ -417,11 +318,7 @@ export default function MemberDirectorySettingsPage() {
                                 ) : (
                                   <Switch
                                     checked={frontChecked}
-                                    onCheckedChange={() =>
-                                      isCustom
-                                        ? handleCustomFieldToggle(customField.id, 'front')
-                                        : handleToggle(fieldKey, 'front')
-                                    }
+                                    onCheckedChange={() => handleToggle(fieldKey, 'front')}
                                     data-testid={`switch-front-${fieldKey}`}
                                   />
                                 )}
@@ -430,11 +327,7 @@ export default function MemberDirectorySettingsPage() {
                               <div className="w-20 flex justify-center">
                                 <Switch
                                   checked={backChecked}
-                                  onCheckedChange={() =>
-                                    isCustom
-                                      ? handleCustomFieldToggle(customField.id, 'back')
-                                      : handleToggle(fieldKey, 'back')
-                                  }
+                                  onCheckedChange={() => handleToggle(fieldKey, 'back')}
                                   data-testid={`switch-back-${fieldKey}`}
                                 />
                               </div>

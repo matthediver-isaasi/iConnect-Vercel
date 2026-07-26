@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
-import { isVisibleOnBack, isCustomFieldVisibleOnBack, getOrderedCustomFields, hasDirectoryFieldValue } from "@/utils/directorySettings";
+import { isVisibleOnBack, isFieldVisibleOnBackFor, getDirectoryOrderedFields, enrichFieldForDirectory, isFieldInDirectory, hasDirectoryFieldValue } from "@/utils/directorySettings";
 
 export default function MemberProfileModal({ memberId, open, onOpenChange }) {
   const { isFeatureExcluded } = useMemberAccess();
@@ -110,33 +110,8 @@ export default function MemberProfileModal({ memberId, open, onOpenChange }) {
     queryKey: ['member-directory-custom-fields'],
     enabled: open,
     queryFn: async () => {
-      const parseDirVis = (field) => {
-        if (!field.directory_visibility) return null;
-        let vis = field.directory_visibility;
-        if (typeof vis === 'string') {
-          try { vis = JSON.parse(vis); } catch { return null; }
-        }
-        if (Array.isArray(vis)) return { ids: vis, labels: {} };
-        if (vis && typeof vis === 'object') {
-          return {
-            ids: Array.isArray(vis.ids) ? vis.ids : [],
-            labels: (vis.labels && typeof vis.labels === 'object' && !Array.isArray(vis.labels)) ? vis.labels : {}
-          };
-        }
-        return null;
-      };
-      const isVisibleInMain = (field) => {
-        const parsed = parseDirVis(field);
-        if (parsed) return parsed.ids.includes('main');
-        return field.show_in_member_directory !== false;
-      };
-      const enrich = (field) => {
-        const override = parseDirVis(field)?.labels?.main;
-        return {
-          ...field,
-          _displayLabel: (typeof override === 'string' && override.trim()) ? override.trim() : field.label
-        };
-      };
+      const isVisibleInMain = (field) => isFieldInDirectory(field, 'main', 'show_in_member_directory');
+      const enrich = (field) => enrichFieldForDirectory(field, 'main');
       try {
         const fields = await base44.entities.PreferenceField.list({
           filter: { is_active: true, entity_scope: 'member' },
@@ -405,9 +380,9 @@ export default function MemberProfileModal({ memberId, open, onOpenChange }) {
             )}
 
             {(() => {
-              const orderedFields = getOrderedCustomFields(directoryCustomFields, displaySettings);
+              const orderedFields = getDirectoryOrderedFields(directoryCustomFields, displaySettings);
               const enabledFields = orderedFields.filter(f =>
-                isCustomFieldVisibleOnBack(displaySettings, f.id)
+                isFieldVisibleOnBackFor(f, displaySettings)
               );
               if (enabledFields.length === 0) return null;
               const memberValues = memberPreferenceMap[member.id] || {};

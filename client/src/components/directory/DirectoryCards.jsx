@@ -5,7 +5,7 @@ import RoleBadge from "@/components/RoleBadge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Building2, User, Users, FileText, Calendar, Trophy, Linkedin, Pencil, Trash2 } from "lucide-react";
 import { safeLogoSrc } from "@/lib/safeLogoSrc";
-import { isVisibleOnFront, isCustomFieldVisibleOnFront, getOrderedCustomFields } from "@/utils/directorySettings";
+import { isVisibleOnFront, isFieldVisibleOnFrontFor, getDirectoryOrderedFields, hasDirectoryFieldValue } from "@/utils/directorySettings";
 
 /**
  * Shared directory card "atoms".
@@ -156,16 +156,13 @@ export function DirectoryMemberCard({
           </div>
         )}
         {(() => {
-          const orderedFields = getOrderedCustomFields(directoryCustomFields, displaySettings);
+          const orderedFields = getDirectoryOrderedFields(directoryCustomFields, displaySettings);
           const enabledFields = orderedFields.filter(f =>
-            isCustomFieldVisibleOnFront(displaySettings, f.id)
+            isFieldVisibleOnFrontFor(f, displaySettings)
           );
           if (enabledFields.length === 0) return null;
           const values = memberValues || {};
-          const fieldsWithValues = enabledFields.filter(f => {
-            const val = values[f.id];
-            return val !== undefined && val !== null && val !== '';
-          });
+          const fieldsWithValues = enabledFields.filter(f => hasDirectoryFieldValue(f, values[f.id]));
           if (fieldsWithValues.length === 0) return null;
           const displayFields = fieldsWithValues.slice(0, 3);
           const remaining = fieldsWithValues.length - 3;

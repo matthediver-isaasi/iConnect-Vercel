@@ -45,6 +45,115 @@ export function isCustomFieldVisibleOnBack(settings, fieldId) {
   return vis.back;
 }
 
+/**
+ * Parse a preference field's directory_visibility JSON into its canonical
+ * shape: { ids, labels, display }. Supports all legacy forms:
+ *  - array of directory ids                  -> { ids, labels: {}, display: {} }
+ *  - { ids, labels }                         -> display: {}
+ *  - { ids, labels, display }                -> full per-directory config
+ * Returns null when unset/invalid (caller should fall back to the legacy
+ * show_in_member_directory / show_in_directory_card booleans).
+ */
+export function parseDirectoryVisibilityConfig(field) {
+  if (!field?.directory_visibility) return null;
+  let vis = field.directory_visibility;
+  if (typeof vis === 'string') {
+    try { vis = JSON.parse(vis); } catch { return null; }
+  }
+  if (Array.isArray(vis)) return { ids: vis, labels: {}, display: {} };
+  if (vis && typeof vis === 'object') {
+    return {
+      ids: Array.isArray(vis.ids) ? vis.ids : [],
+      labels: (vis.labels && typeof vis.labels === 'object' && !Array.isArray(vis.labels)) ? vis.labels : {},
+      display: (vis.display && typeof vis.display === 'object' && !Array.isArray(vis.display)) ? vis.display : {},
+    };
+  }
+  return null;
+}
+
+/**
+ * Whether a field is assigned to a directory ('main' = built-in directory).
+ * Falls back to the legacy boolean when no directory_visibility JSON exists.
+ */
+export function isFieldInDirectory(field, dirId, legacyFlagKey) {
+  const parsed = parseDirectoryVisibilityConfig(field);
+  if (parsed) return parsed.ids.includes(dirId);
+  if (dirId === 'main' && legacyFlagKey) return field?.[legacyFlagKey] !== false;
+  return false;
+}
+
+/**
+ * Enrich a field with per-directory display metadata:
+ *  _displayLabel — label override for this directory (or the base label)
+ *  _visFront / _visBack — per-directory front/back flags, or undefined when
+ *    this field has no per-directory display entry (callers then fall back
+ *    to the global member_directory_display custom_fields toggles)
+ *  _visOrder — per-directory sort position (number) or null
+ */
+export function enrichFieldForDirectory(field, dirId) {
+  const parsed = parseDirectoryVisibilityConfig(field);
+  const override = parsed?.labels?.[dirId];
+  const disp = parsed?.display?.[dirId];
+  const hasDisp = disp && typeof disp === 'object' && !Array.isArray(disp);
+  const order = hasDisp && Number.isFinite(Number(disp.order)) && disp.order !== null && disp.order !== ''
+    ? Number(disp.order) : null;
+  return {
+    ...field,
+    _displayLabel: (typeof override === 'string' && override.trim()) ? override.trim() : field.label,
+    _visFront: hasDisp && typeof disp.front === 'boolean' ? disp.front : undefined,
+    _visBack: hasDisp && typeof disp.back === 'boolean' ? disp.back : undefined,
+    _visOrder: order,
+  };
+}
+
+/** Per-directory front visibility with fallback to the global settings. */
+export function isFieldVisibleOnFrontFor(field, settings) {
+  if (typeof field?._visFront === 'boolean') return field._visFront;
+  return isCustomFieldVisibleOnFront(settings, field?.id);
+}
+
+/** Per-directory back visibility with fallback to the global settings. */
+export function isFieldVisibleOnBackFor(field, settings) {
+  if (typeof field?._visBack === 'boolean') return field._visBack;
+  return isCustomFieldVisibleOnBack(settings, field?.id);
+}
+
+/**
+ * Order fields for a directory card. Fields with a per-directory _visOrder
+ * sort first (ascending); the rest keep the legacy global field_order (then
+ * display_order) sequence after them.
+ */
+export function getDirectoryOrderedFields(fields, settings) {
+  const base = getOrderedCustomFields(fields || [], settings);
+  const baseIndex = new Map(base.map((f, i) => [f.id, i]));
+  return [...base].sort((a, b) => {
+    const ao = typeof a._visOrder === 'number' ? a._visOrder : null;
+    const bo = typeof b._visOrder === 'number' ? b._visOrder : null;
+    if (ao !== null && bo !== null && ao !== bo) return ao - bo;
+    if (ao !== null && bo === null) return -1;
+    if (ao === null && bo !== null) return 1;
+    return baseIndex.get(a.id) - baseIndex.get(b.id);
+  });
+}
+
+/**
+ * Reorder the CORE-field subsequence of a field_order array by visible-list
+ * indices, leaving any other keys (legacy 'custom:*') at their positions.
+ * The Member Directory Settings page renders only core rows, so drag indices
+ * refer to the core-only list, not the raw array.
+ */
+export function reorderCoreFieldOrder(fieldOrder, srcIdx, destIdx) {
+  const isCore = (k) => CORE_FIELDS.some(cf => cf.key === k);
+  const coreKeys = (fieldOrder || []).filter(isCore);
+  if (srcIdx < 0 || srcIdx >= coreKeys.length || destIdx < 0 || destIdx >= coreKeys.length) {
+    return fieldOrder;
+  }
+  const [moved] = coreKeys.splice(srcIdx, 1);
+  coreKeys.splice(destIdx, 0, moved);
+  let i = 0;
+  return (fieldOrder || []).map(k => (isCore(k) ? coreKeys[i++] : k));
+}
+
 export function hasDirectoryFieldValue(field, rawValue) {
   if (rawValue === undefined || rawValue === null) return false;
 

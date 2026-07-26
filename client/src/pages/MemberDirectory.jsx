@@ -17,7 +17,7 @@ import { Loader2, User, Mail, FileText, Trophy, Search, Users, Shield, Calendar,
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { isDeletedMember } from "@/utils";
-import { isVisibleOnFront, isVisibleOnBack } from "@/utils/directorySettings";
+import { isVisibleOnFront, isVisibleOnBack, enrichFieldForDirectory, isFieldInDirectory } from "@/utils/directorySettings";
 
 export default function MemberDirectoryPage() {
   const { memberInfo, isFeatureExcluded } = useMemberAccess();
@@ -161,33 +161,8 @@ export default function MemberDirectoryPage() {
   const { data: filterableFields = [] } = useQuery({
     queryKey: ['member-filterable-fields'],
     queryFn: async () => {
-      const parseDirVis = (field) => {
-        if (!field.directory_visibility) return null;
-        let vis = field.directory_visibility;
-        if (typeof vis === 'string') {
-          try { vis = JSON.parse(vis); } catch { return null; }
-        }
-        if (Array.isArray(vis)) return { ids: vis, labels: {} };
-        if (vis && typeof vis === 'object') {
-          return {
-            ids: Array.isArray(vis.ids) ? vis.ids : [],
-            labels: (vis.labels && typeof vis.labels === 'object' && !Array.isArray(vis.labels)) ? vis.labels : {}
-          };
-        }
-        return null;
-      };
-      const isVisibleInMain = (field) => {
-        const parsed = parseDirVis(field);
-        if (parsed) return parsed.ids.includes('main');
-        return field.show_in_member_directory !== false;
-      };
-      const enrich = (field) => {
-        const override = parseDirVis(field)?.labels?.main;
-        return {
-          ...field,
-          _displayLabel: (typeof override === 'string' && override.trim()) ? override.trim() : field.label
-        };
-      };
+      const isVisibleInMain = (field) => isFieldInDirectory(field, 'main', 'show_in_member_directory');
+      const enrich = (field) => enrichFieldForDirectory(field, 'main');
       try {
         const fields = await base44.entities.PreferenceField.list({
           filter: { is_active: true, entity_scope: 'member', is_filterable: true },
@@ -214,33 +189,8 @@ export default function MemberDirectoryPage() {
   const { data: directoryCustomFields = [] } = useQuery({
     queryKey: ['member-directory-custom-fields'],
     queryFn: async () => {
-      const parseDirVis = (field) => {
-        if (!field.directory_visibility) return null;
-        let vis = field.directory_visibility;
-        if (typeof vis === 'string') {
-          try { vis = JSON.parse(vis); } catch { return null; }
-        }
-        if (Array.isArray(vis)) return { ids: vis, labels: {} };
-        if (vis && typeof vis === 'object') {
-          return {
-            ids: Array.isArray(vis.ids) ? vis.ids : [],
-            labels: (vis.labels && typeof vis.labels === 'object' && !Array.isArray(vis.labels)) ? vis.labels : {}
-          };
-        }
-        return null;
-      };
-      const isVisibleInMain = (field) => {
-        const parsed = parseDirVis(field);
-        if (parsed) return parsed.ids.includes('main');
-        return field.show_in_member_directory !== false;
-      };
-      const enrich = (field) => {
-        const override = parseDirVis(field)?.labels?.main;
-        return {
-          ...field,
-          _displayLabel: (typeof override === 'string' && override.trim()) ? override.trim() : field.label
-        };
-      };
+      const isVisibleInMain = (field) => isFieldInDirectory(field, 'main', 'show_in_member_directory');
+      const enrich = (field) => enrichFieldForDirectory(field, 'main');
       try {
         const fields = await base44.entities.PreferenceField.list({
           filter: { is_active: true, entity_scope: 'member' },

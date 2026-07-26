@@ -22,11 +22,12 @@ export function parseDirVis(field) {
   if (typeof vis === 'string') {
     try { vis = JSON.parse(vis); } catch { return null; }
   }
-  if (Array.isArray(vis)) return { ids: vis, labels: {} };
+  if (Array.isArray(vis)) return { ids: vis, labels: {}, display: {} };
   if (vis && typeof vis === 'object') {
     return {
       ids: Array.isArray(vis.ids) ? vis.ids : [],
       labels: (vis.labels && typeof vis.labels === 'object' && !Array.isArray(vis.labels)) ? vis.labels : {},
+      display: (vis.display && typeof vis.display === 'object' && !Array.isArray(vis.display)) ? vis.display : {},
     };
   }
   return null;
@@ -37,12 +38,47 @@ export function isVisibleInDirectory(field, dirId) {
   return parsed ? parsed.ids.includes(dirId) : false;
 }
 
+/**
+ * Enrich a field with per-directory display metadata (mirrors
+ * client/src/utils/directorySettings.js enrichFieldForDirectory):
+ *  _displayLabel — per-directory label override or the base label
+ *  _visFront/_visBack — per-directory front/back flags, undefined when this
+ *    field has no per-directory display entry (clients fall back to the
+ *    global member_directory_display custom_fields toggles)
+ *  _visOrder — per-directory sort position or null
+ */
 export function enrichField(field, dirId) {
-  const override = parseDirVis(field)?.labels?.[dirId];
+  const parsed = parseDirVis(field);
+  const override = parsed?.labels?.[dirId];
+  const disp = parsed?.display?.[dirId];
+  const hasDisp = disp && typeof disp === 'object' && !Array.isArray(disp);
+  const order = hasDisp && disp.order !== null && disp.order !== '' && Number.isFinite(Number(disp.order))
+    ? Number(disp.order) : null;
   return {
     ...field,
     _displayLabel: (typeof override === 'string' && override.trim()) ? override.trim() : field.label,
+    _visFront: hasDisp && typeof disp.front === 'boolean' ? disp.front : undefined,
+    _visBack: hasDisp && typeof disp.back === 'boolean' ? disp.back : undefined,
+    _visOrder: order,
   };
+}
+
+/**
+ * Sort enriched fields for a directory: per-directory _visOrder first
+ * (ascending), then the incoming (display_order) sequence.
+ */
+export function sortFieldsForDirectory(fields) {
+  return (fields || [])
+    .map((f, i) => [f, i])
+    .sort(([a, ai], [b, bi]) => {
+      const ao = typeof a._visOrder === 'number' ? a._visOrder : null;
+      const bo = typeof b._visOrder === 'number' ? b._visOrder : null;
+      if (ao !== null && bo !== null && ao !== bo) return ao - bo;
+      if (ao !== null && bo === null) return -1;
+      if (ao === null && bo !== null) return 1;
+      return ai - bi;
+    })
+    .map(([f]) => f);
 }
 
 // --- roles ------------------------------------------------------------------
@@ -90,9 +126,11 @@ export async function fetchMemberFields(supabase, tenantId, dirId) {
     .filter((f) => f.is_filterable)
     .map((f) => enrichField(f, dirId));
 
-  const directoryCustomFields = memberFields
-    .filter((f) => isVisibleInDirectory(f, dirId))
-    .map((f) => enrichField(f, dirId));
+  const directoryCustomFields = sortFieldsForDirectory(
+    memberFields
+      .filter((f) => isVisibleInDirectory(f, dirId))
+      .map((f) => enrichField(f, dirId))
+  );
 
   return { memberCustomFields, directoryCustomFields };
 }

@@ -3,6 +3,7 @@ import { supabase } from '../_lib/database.js';
 import {
   isVisibleInDirectory,
   enrichField,
+  sortFieldsForDirectory,
   fetchRoles,
   fetchMemberDisplaySettings,
   fetchMemberFields,
@@ -129,9 +130,11 @@ async function buildOrgConfig({ res, tenantId, directory, dirId, roles, filterFi
     .eq('is_active', true)
     .eq('entity_scope', 'organization')
     .order('display_order', { ascending: true });
-  const orgCustomFields = (fieldRows || [])
-    .filter((f) => isVisibleInDirectory(f, dirId))
-    .map((f) => enrichField(f, dirId));
+  const orgCustomFields = sortFieldsForDirectory(
+    (fieldRows || [])
+      .filter((f) => isVisibleInDirectory(f, dirId))
+      .map((f) => enrichField(f, dirId))
+  );
 
   // organization_preference_value has no tenant_id column; scope via org ids.
   const orgIds = organizations.map((o) => o.id);

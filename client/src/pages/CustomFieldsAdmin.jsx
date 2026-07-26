@@ -189,14 +189,30 @@ function parseDirectoryConfig(field) {
   if (typeof vis === 'string') {
     try { vis = JSON.parse(vis); } catch { return null; }
   }
-  if (Array.isArray(vis)) return { ids: vis, labels: {} };
+  if (Array.isArray(vis)) return { ids: vis, labels: {}, display: {} };
   if (vis && typeof vis === 'object') {
     return {
       ids: Array.isArray(vis.ids) ? vis.ids : [],
-      labels: (vis.labels && typeof vis.labels === 'object' && !Array.isArray(vis.labels)) ? vis.labels : {}
+      labels: (vis.labels && typeof vis.labels === 'object' && !Array.isArray(vis.labels)) ? vis.labels : {},
+      display: (vis.display && typeof vis.display === 'object' && !Array.isArray(vis.display)) ? vis.display : {}
     };
   }
   return null;
+}
+
+function parseDirectoryDisplayConfig(field) {
+  const parsed = parseDirectoryConfig(field);
+  const raw = parsed?.display || {};
+  const out = {};
+  for (const [dirId, entry] of Object.entries(raw)) {
+    if (!entry || typeof entry !== 'object') continue;
+    out[dirId] = {
+      front: entry.front !== false,
+      back: entry.back !== false,
+      order: (typeof entry.order === 'number' && Number.isFinite(entry.order)) ? String(entry.order) : ''
+    };
+  }
+  return out;
 }
 
 function parseDirectoryVisibility(field, scope) {
@@ -247,6 +263,8 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
   const [directoryVisibility, setDirectoryVisibility] = useState(['main']);
   // Per-directory display label overrides (keyed by directory id, 'main' for the built-in directory)
   const [directoryLabelOverrides, setDirectoryLabelOverrides] = useState({});
+  // Per-directory front/back/order display config (keyed by directory id)
+  const [directoryDisplayConfig, setDirectoryDisplayConfig] = useState({});
 
   const { data: preferenceFields = [], isLoading } = useQuery({
     queryKey: ['/api/entities/PreferenceField', entityScope],
@@ -392,6 +410,7 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
     setShowInMemberAdminFilter(true);
     setDirectoryVisibility(['main']);
     setDirectoryLabelOverrides({});
+    setDirectoryDisplayConfig({});
   };
 
   const handleOpenCreateDialog = () => {
@@ -449,6 +468,7 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
     setShowInMemberAdminFilter(isMemberAdminFilterVisible(field));
     setDirectoryVisibility(parseDirectoryVisibility(field, entityScope));
     setDirectoryLabelOverrides(parseDirectoryLabelOverrides(field));
+    setDirectoryDisplayConfig(parseDirectoryDisplayConfig(field));
     setIsDialogOpen(true);
   };
 
@@ -550,6 +570,18 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
               val.trim().length > 0
             )
             .map(([dirId, val]) => [dirId, val.trim()])
+        ),
+        display: Object.fromEntries(
+          directoryVisibility.map((dirId) => {
+            const entry = directoryDisplayConfig[dirId] || {};
+            const orderNum = entry.order !== '' && entry.order != null ? parseInt(entry.order, 10) : NaN;
+            const out = {
+              front: entityScope === 'organization' ? false : entry.front !== false,
+              back: entry.back !== false
+            };
+            if (Number.isFinite(orderNum)) out.order = orderNum;
+            return [dirId, out];
+          })
         )
       })
     };
@@ -569,6 +601,96 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
   };
 
   const ScopeIcon = entityScope === 'member' ? User : Building2;
+
+  const setDisplayEntry = (dirId, patch) => {
+    setDirectoryDisplayConfig(prev => ({
+      ...prev,
+      [dirId]: { front: true, back: true, order: '', ...(prev[dirId] || {}), ...patch }
+    }));
+  };
+
+  const renderDirectoryRow = (dirId, dirName, testSuffix) => {
+    const checked = directoryVisibility.includes(dirId);
+    const entry = directoryDisplayConfig[dirId] || { front: true, back: true, order: '' };
+    return (
+      <div key={dirId} className={`rounded-lg border p-3 space-y-2 ${checked ? 'border-blue-200 bg-white' : 'border-slate-200 bg-slate-50'}`}>
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id={`dir-vis-${testSuffix}`}
+            checked={checked}
+            onCheckedChange={(isChecked) => {
+              if (isChecked) {
+                setDirectoryVisibility(prev => [...prev, dirId]);
+              } else {
+                setDirectoryVisibility(prev => prev.filter(id => id !== dirId));
+                setDirectoryLabelOverrides(prev => {
+                  const next = { ...prev };
+                  delete next[dirId];
+                  return next;
+                });
+                setDirectoryDisplayConfig(prev => {
+                  const next = { ...prev };
+                  delete next[dirId];
+                  return next;
+                });
+              }
+            }}
+            data-testid={`checkbox-dir-vis-${testSuffix}`}
+          />
+          <Label htmlFor={`dir-vis-${testSuffix}`} className="cursor-pointer text-sm font-medium flex-1 min-w-0">
+            {dirName}
+          </Label>
+        </div>
+        {checked && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pl-6">
+            <Input
+              type="text"
+              placeholder="Display label override (optional)"
+              value={directoryLabelOverrides[dirId] || ''}
+              onChange={(e) => setDirectoryLabelOverrides(prev => ({ ...prev, [dirId]: e.target.value }))}
+              className="h-8 w-56 text-sm"
+              data-testid={`input-dir-label-${testSuffix}`}
+            />
+            {entityScope === 'member' && (
+              <div className="flex items-center gap-2">
+                <Switch
+                  id={`dir-front-${testSuffix}`}
+                  checked={entry.front !== false}
+                  onCheckedChange={(v) => setDisplayEntry(dirId, { front: v })}
+                  data-testid={`switch-dir-front-${testSuffix}`}
+                />
+                <Label htmlFor={`dir-front-${testSuffix}`} className="cursor-pointer text-xs text-slate-600">Card front</Label>
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <Switch
+                id={`dir-back-${testSuffix}`}
+                checked={entry.back !== false}
+                onCheckedChange={(v) => setDisplayEntry(dirId, { back: v })}
+                data-testid={`switch-dir-back-${testSuffix}`}
+              />
+              <Label htmlFor={`dir-back-${testSuffix}`} className="cursor-pointer text-xs text-slate-600">
+                {entityScope === 'member' ? 'Card back (profile)' : 'Detail popup'}
+              </Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <Label htmlFor={`dir-order-${testSuffix}`} className="text-xs text-slate-600">Order</Label>
+              <Input
+                id={`dir-order-${testSuffix}`}
+                type="number"
+                min="0"
+                placeholder="—"
+                value={entry.order ?? ''}
+                onChange={(e) => setDisplayEntry(dirId, { order: e.target.value })}
+                className="h-8 w-20 text-sm"
+                data-testid={`input-dir-order-${testSuffix}`}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <Card>
@@ -785,7 +907,7 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
       </CardContent>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="sm:max-w-[500px] max-h-[90vh] flex flex-col">
+        <DialogContent className="sm:max-w-[760px] max-h-[90vh] flex flex-col">
           <DialogHeader className="flex-shrink-0">
             <DialogTitle>
               {editingField ? 'Edit Custom Field' : 'Create Custom Field'}
@@ -1324,69 +1446,8 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                     Select which directories should display this field on their cards
                   </p>
                   <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <Checkbox
-                        id="dir-vis-main"
-                        checked={directoryVisibility.includes('main')}
-                        onCheckedChange={(checked) => {
-                          if (checked) {
-                            setDirectoryVisibility(prev => [...prev, 'main']);
-                          } else {
-                            setDirectoryVisibility(prev => prev.filter(id => id !== 'main'));
-                            setDirectoryLabelOverrides(prev => {
-                              const { main: _, ...rest } = prev;
-                              return rest;
-                            });
-                          }
-                        }}
-                        data-testid="checkbox-dir-vis-main"
-                      />
-                      <Label htmlFor="dir-vis-main" className="cursor-pointer text-sm flex-1 min-w-0">
-                        Main Organisation Directory
-                      </Label>
-                      <Input
-                        type="text"
-                        placeholder="Display label override (optional)"
-                        value={directoryLabelOverrides.main || ''}
-                        onChange={(e) => setDirectoryLabelOverrides(prev => ({ ...prev, main: e.target.value }))}
-                        disabled={!directoryVisibility.includes('main')}
-                        className="h-8 w-64 text-sm"
-                        data-testid="input-dir-label-main"
-                      />
-                    </div>
-                    {dynamicDirectories.map(dir => (
-                      <div key={dir.id} className="flex items-center gap-2">
-                        <Checkbox
-                          id={`dir-vis-${dir.id}`}
-                          checked={directoryVisibility.includes(dir.id)}
-                          onCheckedChange={(checked) => {
-                            if (checked) {
-                              setDirectoryVisibility(prev => [...prev, dir.id]);
-                            } else {
-                              setDirectoryVisibility(prev => prev.filter(id => id !== dir.id));
-                              setDirectoryLabelOverrides(prev => {
-                                const next = { ...prev };
-                                delete next[dir.id];
-                                return next;
-                              });
-                            }
-                          }}
-                          data-testid={`checkbox-dir-vis-${dir.id}`}
-                        />
-                        <Label htmlFor={`dir-vis-${dir.id}`} className="cursor-pointer text-sm flex-1 min-w-0">
-                          {dir.name}
-                        </Label>
-                        <Input
-                          type="text"
-                          placeholder="Display label override (optional)"
-                          value={directoryLabelOverrides[dir.id] || ''}
-                          onChange={(e) => setDirectoryLabelOverrides(prev => ({ ...prev, [dir.id]: e.target.value }))}
-                          disabled={!directoryVisibility.includes(dir.id)}
-                          className="h-8 w-64 text-sm"
-                          data-testid={`input-dir-label-${dir.id}`}
-                        />
-                      </div>
-                    ))}
+                    {renderDirectoryRow('main', 'Main Organisation Directory', 'main')}
+                    {dynamicDirectories.map(dir => renderDirectoryRow(dir.id, dir.name, dir.id))}
                     {dynamicDirectories.length === 0 && (
                       <p className="text-xs text-slate-400 italic">No dynamic directories configured for organisations</p>
                     )}
@@ -1445,69 +1506,8 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                     Select which directories should display this field on their cards
                   </p>
                   <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <Checkbox
-                        id="dir-vis-main-member"
-                        checked={directoryVisibility.includes('main')}
-                        onCheckedChange={(checked) => {
-                          if (checked) {
-                            setDirectoryVisibility(prev => [...prev, 'main']);
-                          } else {
-                            setDirectoryVisibility(prev => prev.filter(id => id !== 'main'));
-                            setDirectoryLabelOverrides(prev => {
-                              const { main: _, ...rest } = prev;
-                              return rest;
-                            });
-                          }
-                        }}
-                        data-testid="checkbox-dir-vis-main-member"
-                      />
-                      <Label htmlFor="dir-vis-main-member" className="cursor-pointer text-sm flex-1 min-w-0">
-                        Main Member Directory
-                      </Label>
-                      <Input
-                        type="text"
-                        placeholder="Display label override (optional)"
-                        value={directoryLabelOverrides.main || ''}
-                        onChange={(e) => setDirectoryLabelOverrides(prev => ({ ...prev, main: e.target.value }))}
-                        disabled={!directoryVisibility.includes('main')}
-                        className="h-8 w-64 text-sm"
-                        data-testid="input-dir-label-main-member"
-                      />
-                    </div>
-                    {dynamicDirectories.map(dir => (
-                      <div key={dir.id} className="flex items-center gap-2">
-                        <Checkbox
-                          id={`dir-vis-member-${dir.id}`}
-                          checked={directoryVisibility.includes(dir.id)}
-                          onCheckedChange={(checked) => {
-                            if (checked) {
-                              setDirectoryVisibility(prev => [...prev, dir.id]);
-                            } else {
-                              setDirectoryVisibility(prev => prev.filter(id => id !== dir.id));
-                              setDirectoryLabelOverrides(prev => {
-                                const next = { ...prev };
-                                delete next[dir.id];
-                                return next;
-                              });
-                            }
-                          }}
-                          data-testid={`checkbox-dir-vis-member-${dir.id}`}
-                        />
-                        <Label htmlFor={`dir-vis-member-${dir.id}`} className="cursor-pointer text-sm flex-1 min-w-0">
-                          {dir.name}
-                        </Label>
-                        <Input
-                          type="text"
-                          placeholder="Display label override (optional)"
-                          value={directoryLabelOverrides[dir.id] || ''}
-                          onChange={(e) => setDirectoryLabelOverrides(prev => ({ ...prev, [dir.id]: e.target.value }))}
-                          disabled={!directoryVisibility.includes(dir.id)}
-                          className="h-8 w-64 text-sm"
-                          data-testid={`input-dir-label-member-${dir.id}`}
-                        />
-                      </div>
-                    ))}
+                    {renderDirectoryRow('main', 'Main Member Directory', 'main-member')}
+                    {dynamicDirectories.map(dir => renderDirectoryRow(dir.id, dir.name, `member-${dir.id}`))}
                     {dynamicDirectories.length === 0 && (
                       <p className="text-xs text-slate-400 italic">No dynamic directories configured for members</p>
                     )}

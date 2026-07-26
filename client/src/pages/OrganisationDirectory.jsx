@@ -14,7 +14,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { toast } from "sonner";
 import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { isDeletedMember } from "@/utils";
-import { hasDirectoryFieldValue } from "@/utils/directorySettings";
+import { hasDirectoryFieldValue, enrichFieldForDirectory, isFieldInDirectory, getDirectoryOrderedFields } from "@/utils/directorySettings";
 
 // Helper to add cache-busting for JPG images which have loading issues
 const getLogoUrl = (url, orgId) => {
@@ -225,34 +225,8 @@ export default function OrganisationDirectoryPage() {
   const { data: orgCustomFields = [] } = useQuery({
     queryKey: ['/api/entities/PreferenceField', 'organization', 'directory'],
     queryFn: async () => {
-      const parseDirVis = (field) => {
-        if (!field.directory_visibility) return null;
-        let vis = field.directory_visibility;
-        if (typeof vis === 'string') {
-          try { vis = JSON.parse(vis); } catch { return null; }
-        }
-        if (Array.isArray(vis)) return { ids: vis, labels: {} };
-        if (vis && typeof vis === 'object') {
-          return {
-            ids: Array.isArray(vis.ids) ? vis.ids : [],
-            labels: (vis.labels && typeof vis.labels === 'object' && !Array.isArray(vis.labels)) ? vis.labels : {}
-          };
-        }
-        return null;
-      };
-      const parseVisibility = (field) => {
-        const parsed = parseDirVis(field);
-        if (parsed) return parsed.ids.includes('main');
-        return field.show_in_directory_card !== false;
-      };
-      const enrich = (field) => {
-        const parsed = parseDirVis(field);
-        const override = parsed?.labels?.main;
-        return {
-          ...field,
-          _displayLabel: (typeof override === 'string' && override.trim()) ? override.trim() : field.label
-        };
-      };
+      const parseVisibility = (field) => isFieldInDirectory(field, 'main', 'show_in_directory_card');
+      const enrich = (field) => enrichFieldForDirectory(field, 'main');
       try {
         const fields = await base44.entities.PreferenceField.list({
           filter: { is_active: true, entity_scope: 'organization' },
@@ -987,7 +961,7 @@ export default function OrganisationDirectoryPage() {
             )}
 
             {/* Custom Fields Section */}
-            {orgCustomFields.length > 0 && (() => {
+            {orgCustomFields.some(f => f._visBack !== false) && (() => {
               if (isLoadingOrgValues) {
                 return (
                   <div className="space-y-3 pt-2 border-t">
@@ -1002,7 +976,8 @@ export default function OrganisationDirectoryPage() {
                 );
               }
 
-              const populatedFields = orgCustomFields
+              const populatedFields = getDirectoryOrderedFields(orgCustomFields, null)
+                .filter(f => f._visBack !== false)
                 .map((field) => {
                   const valueRecord = selectedOrgValues.find(v => v.field_id === field.id);
                   const rawValue = valueRecord?.value;
