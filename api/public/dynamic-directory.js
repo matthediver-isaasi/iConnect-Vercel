@@ -71,7 +71,7 @@ async function renderMembers({ supabase, tenantId, directory, pageNum, pageSize,
     filterFields.push({ fieldId: directory.filter_field_id, value: directory.filter_value });
   }
   for (const [fieldId, value] of Object.entries(customFilters || {})) {
-    if (value && value !== 'all') filterFields.push({ fieldId, value });
+    if (Array.isArray(value) ? value.length > 0 : (value && value !== 'all')) filterFields.push({ fieldId, value });
   }
   let memberIds = null;
   if (filterFields.length > 0) {
@@ -174,7 +174,7 @@ async function renderOrganizations({ supabase, tenantId, directory, pageNum, pag
     filterFields.push({ fieldId: directory.filter_field_id, value: directory.filter_value });
   }
   for (const [fieldId, value] of Object.entries(customFilters || {})) {
-    if (value && value !== 'all') filterFields.push({ fieldId, value });
+    if (Array.isArray(value) ? value.length > 0 : (value && value !== 'all')) filterFields.push({ fieldId, value });
   }
   let orgIds = null;
   if (filterFields.length > 0) {
@@ -257,6 +257,13 @@ async function getIdsForFieldValue(supabase, table, idColumn, fieldId, filterVal
 }
 
 function matchesValue(storedValue, filterValue) {
+  if (Array.isArray(filterValue)) {
+    return filterValue.some((v) => matchesSingleValue(storedValue, v));
+  }
+  return matchesSingleValue(storedValue, filterValue);
+}
+
+function matchesSingleValue(storedValue, filterValue) {
   if (storedValue === filterValue) return true;
   if (Array.isArray(storedValue)) return storedValue.includes(filterValue);
   if (typeof storedValue === 'string') {
@@ -265,5 +272,22 @@ function matchesValue(storedValue, filterValue) {
       try { const arr = JSON.parse(t); if (Array.isArray(arr) && arr.includes(filterValue)) return true; } catch {}
     }
   }
+  // Boolean fields: stored values may be true/false, 'true'/'false', 'yes'/'no', '1'/'0'
+  const storedBool = toBoolCanonical(storedValue);
+  if (storedBool !== null) {
+    return toBoolCanonical(filterValue) === storedBool;
+  }
   return false;
+}
+
+const BOOL_TRUE = new Set(['true', 'yes', '1']);
+const BOOL_FALSE = new Set(['false', 'no', '0']);
+
+function toBoolCanonical(v) {
+  if (typeof v === 'boolean') return v ? 'true' : 'false';
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim().toLowerCase();
+  if (BOOL_TRUE.has(s)) return 'true';
+  if (BOOL_FALSE.has(s)) return 'false';
+  return null;
 }

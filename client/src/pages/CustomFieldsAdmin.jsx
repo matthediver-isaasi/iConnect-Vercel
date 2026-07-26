@@ -533,7 +533,7 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
       display_order: editingField ? editingField.display_order : preferenceFields.length,
       is_active: true,
       entity_scope: entityScope,
-      is_filterable: (fieldType === 'picklist' || fieldType === 'dropdown' || fieldType === 'country' || fieldType === 'countries') ? fieldFilterable : false,
+      is_filterable: (fieldType === 'picklist' || fieldType === 'dropdown' || fieldType === 'country' || fieldType === 'countries' || fieldType === 'boolean') ? fieldFilterable : false,
       filter_multi_select: (
         (fieldType === 'picklist' || fieldType === 'dropdown' || fieldType === 'country' || fieldType === 'countries')
         && fieldFilterable
@@ -1353,7 +1353,7 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
               </div>
             )}
 
-            {(fieldType === 'picklist' || fieldType === 'dropdown' || fieldType === 'country' || fieldType === 'countries') && (
+            {(fieldType === 'picklist' || fieldType === 'dropdown' || fieldType === 'country' || fieldType === 'countries' || fieldType === 'boolean') && (
               <div className="p-3 bg-purple-50 rounded-lg border border-purple-200 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
@@ -1375,7 +1375,7 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                     data-testid="switch-field-filterable"
                   />
                 </div>
-                {fieldFilterable && (
+                {fieldFilterable && fieldType !== 'boolean' && (
                   <div className="flex items-center justify-between pt-3 border-t border-purple-200">
                     <div>
                       <Label htmlFor="fieldFilterMultiSelect" className="cursor-pointer">

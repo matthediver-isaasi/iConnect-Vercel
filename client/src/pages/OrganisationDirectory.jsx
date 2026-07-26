@@ -14,7 +14,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { toast } from "sonner";
 import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { isDeletedMember } from "@/utils";
-import { hasDirectoryFieldValue, enrichFieldForDirectory, isFieldInDirectory, getDirectoryOrderedFields } from "@/utils/directorySettings";
+import { hasDirectoryFieldValue, enrichFieldForDirectory, isFieldInDirectory, getDirectoryOrderedFields, getDirectoryFilterOptions, directoryFilterValueMatches } from "@/utils/directorySettings";
 
 // Helper to add cache-busting for JPG images which have loading issues
 const getLogoUrl = (url, orgId) => {
@@ -407,11 +407,7 @@ export default function OrganisationDirectoryPage() {
         return activeFilters.every(([fieldId, filterValue]) => {
           const orgValue = orgValues[fieldId];
           if (orgValue === undefined || orgValue === null || orgValue === '') return false;
-          const selected = Array.isArray(filterValue) ? filterValue : [filterValue];
-          if (Array.isArray(orgValue)) {
-            return selected.some(v => orgValue.includes(v));
-          }
-          return selected.includes(orgValue);
+          return directoryFilterValueMatches(orgValue, filterValue);
         });
       });
     }
@@ -565,13 +561,13 @@ export default function OrganisationDirectoryPage() {
                 <div className="flex flex-wrap items-center gap-4 pt-3 border-t border-slate-200">
                   {filterableFields.map(field => {
                     const label = field._displayLabel || field.label;
-                    if (field.filter_multi_select) {
+                    if (field.filter_multi_select && field.field_type !== 'boolean') {
                       const current = Array.isArray(customFieldFilters[field.id]) ? customFieldFilters[field.id] : [];
                       return (
                         <div key={field.id} className="flex items-center gap-2">
                           <span className="text-sm text-slate-700">{label}:</span>
                           <MultiSelectFilter
-                            options={field.options || []}
+                            options={getDirectoryFilterOptions(field)}
                             selected={current}
                             onChange={(vals) => {
                               setCustomFieldFilters(prev => ({ ...prev, [field.id]: vals }));
@@ -605,7 +601,7 @@ export default function OrganisationDirectoryPage() {
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="all">All</SelectItem>
-                            {(field.options || []).map(option => (
+                            {getDirectoryFilterOptions(field).map(option => (
                               <SelectItem key={option.value} value={option.value}>
                                 {option.label}
                               </SelectItem>

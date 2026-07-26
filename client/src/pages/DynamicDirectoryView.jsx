@@ -19,7 +19,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { toast } from "sonner";
 import { isDeletedMember } from "@/utils";
-import { isVisibleOnFront, isVisibleOnBack, isFieldVisibleOnBackFor, getDirectoryOrderedFields, enrichFieldForDirectory, isFieldInDirectory, hasDirectoryFieldValue } from "@/utils/directorySettings";
+import { isVisibleOnFront, isVisibleOnBack, isFieldVisibleOnBackFor, getDirectoryOrderedFields, enrichFieldForDirectory, isFieldInDirectory, hasDirectoryFieldValue, getDirectoryFilterOptions, directoryFilterValueMatches } from "@/utils/directorySettings";
 import { DirectoryMemberCard, DirectoryOrganizationCard } from "@/components/directory/DirectoryCards";
 
 export default function DynamicDirectoryView() {
@@ -630,9 +630,7 @@ export default function DynamicDirectoryView() {
         return activeFilters.every(([fieldId, filterValue]) => {
           const orgValue = orgValues[fieldId];
           if (orgValue === undefined || orgValue === null || orgValue === '') return false;
-          const selected = Array.isArray(filterValue) ? filterValue : [filterValue];
-          if (Array.isArray(orgValue)) return selected.some(v => orgValue.includes(v));
-          return selected.includes(orgValue);
+          return directoryFilterValueMatches(orgValue, filterValue);
         });
       });
     }
@@ -839,13 +837,13 @@ export default function DynamicDirectoryView() {
                   <div className="flex flex-wrap items-center gap-4 pt-3 border-t border-slate-200">
                     {filterableOrgFields.map(field => {
                       const label = field._displayLabel || field.label;
-                      if (field.filter_multi_select) {
+                      if (field.filter_multi_select && field.field_type !== 'boolean') {
                         const current = Array.isArray(customFieldFilters[field.id]) ? customFieldFilters[field.id] : [];
                         return (
                           <div key={field.id} className="flex items-center gap-2">
                             <span className="text-sm text-slate-700">{label}:</span>
                             <MultiSelectFilter
-                              options={field.options || []}
+                              options={getDirectoryFilterOptions(field)}
                               selected={current}
                               onChange={(vals) => {
                                 setCustomFieldFilters(prev => ({ ...prev, [field.id]: vals }));
@@ -879,7 +877,7 @@ export default function DynamicDirectoryView() {
                             </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="all">All</SelectItem>
-                              {(field.options || []).map(option => (
+                              {getDirectoryFilterOptions(field).map(option => (
                                 <SelectItem key={option.value} value={option.value}>
                                   {option.label}
                                 </SelectItem>
@@ -1284,13 +1282,13 @@ export default function DynamicDirectoryView() {
                   <div className="flex flex-wrap items-center gap-4 pt-3 border-t border-slate-200">
                     {filterableMemberFields.map(field => {
                       const label = field._displayLabel || field.label;
-                      if (field.filter_multi_select) {
+                      if (field.filter_multi_select && field.field_type !== 'boolean') {
                         const current = Array.isArray(customFieldFilters[field.id]) ? customFieldFilters[field.id] : [];
                         return (
                           <div key={field.id} className="flex items-center gap-2">
                             <Label className="text-sm text-slate-700">{label}:</Label>
                             <MultiSelectFilter
-                              options={field.options || []}
+                              options={getDirectoryFilterOptions(field)}
                               selected={current}
                               onChange={(vals) => setCustomFieldFilters(prev => ({ ...prev, [field.id]: vals }))}
                               placeholder={`All ${label}`}
@@ -1320,7 +1318,7 @@ export default function DynamicDirectoryView() {
                             </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="all">All</SelectItem>
-                              {(field.options || []).map(option => (
+                              {getDirectoryFilterOptions(field).map(option => (
                                 <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
                               ))}
                             </SelectContent>

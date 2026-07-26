@@ -106,3 +106,46 @@ test('reorderCoreFieldOrder: core-only array behaves like a plain move', () => {
     ['show_job_title', 'show_profile_photo', 'show_organization']
   );
 });
+
+// --- boolean directory filter helpers ---------------------------------------
+
+const { getDirectoryFilterOptions, directoryFilterValueMatches } =
+  await import('../../client/src/utils/directorySettings.js');
+
+test('getDirectoryFilterOptions: boolean fields get Yes/No options', () => {
+  assert.deepEqual(getDirectoryFilterOptions({ field_type: 'boolean' }), [
+    { value: 'true', label: 'Yes' },
+    { value: 'false', label: 'No' },
+  ]);
+});
+
+test('getDirectoryFilterOptions: non-boolean fields use stored options', () => {
+  const opts = [{ value: 'a', label: 'A' }];
+  assert.deepEqual(getDirectoryFilterOptions({ field_type: 'dropdown', options: opts }), opts);
+  assert.deepEqual(getDirectoryFilterOptions({ field_type: 'dropdown' }), []);
+});
+
+test('directoryFilterValueMatches: exact string match (existing behaviour)', () => {
+  assert.equal(directoryFilterValueMatches('red', ['red', 'blue']), true);
+  assert.equal(directoryFilterValueMatches('green', ['red', 'blue']), false);
+});
+
+test('directoryFilterValueMatches: array stored value (existing behaviour)', () => {
+  assert.equal(directoryFilterValueMatches(['red', 'green'], ['green']), true);
+  assert.equal(directoryFilterValueMatches(['red'], ['blue']), false);
+});
+
+test('directoryFilterValueMatches: boolean stored values match "true"/"false" filters', () => {
+  assert.equal(directoryFilterValueMatches(true, ['true']), true);
+  assert.equal(directoryFilterValueMatches(false, ['false']), true);
+  assert.equal(directoryFilterValueMatches(true, ['false']), false);
+  assert.equal(directoryFilterValueMatches('yes', ['true']), true);
+  assert.equal(directoryFilterValueMatches('No', ['false']), true);
+  assert.equal(directoryFilterValueMatches('1', ['true']), true);
+  assert.equal(directoryFilterValueMatches('0', ['false']), true);
+  assert.equal(directoryFilterValueMatches('true', ['false']), false);
+});
+
+test('directoryFilterValueMatches: non-boolean strings never coerce', () => {
+  assert.equal(directoryFilterValueMatches('maybe', ['true']), false);
+});

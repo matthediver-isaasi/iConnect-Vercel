@@ -17,7 +17,7 @@ import { Loader2, User, Mail, FileText, Trophy, Search, Users, Shield, Calendar,
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { isDeletedMember } from "@/utils";
-import { isVisibleOnFront, isVisibleOnBack, enrichFieldForDirectory, isFieldInDirectory } from "@/utils/directorySettings";
+import { isVisibleOnFront, isVisibleOnBack, enrichFieldForDirectory, isFieldInDirectory, getDirectoryFilterOptions, directoryFilterValueMatches } from "@/utils/directorySettings";
 
 export default function MemberDirectoryPage() {
   const { memberInfo, isFeatureExcluded } = useMemberAccess();
@@ -358,11 +358,7 @@ export default function MemberDirectoryPage() {
         return activeFilters.every(([fieldId, filterValue]) => {
           const memberValue = memberValues[fieldId];
           if (memberValue === undefined || memberValue === null || memberValue === '') return false;
-          const selected = Array.isArray(filterValue) ? filterValue : [filterValue];
-          if (Array.isArray(memberValue)) {
-            return selected.some(v => memberValue.includes(v));
-          }
-          return selected.includes(memberValue);
+          return directoryFilterValueMatches(memberValue, filterValue);
         });
       });
     }
@@ -527,13 +523,13 @@ export default function MemberDirectoryPage() {
                   <div className="flex flex-wrap items-center gap-4 pt-3 border-t border-slate-200">
                     {filterableFields.map(field => {
                       const label = field._displayLabel || field.label;
-                      if (field.filter_multi_select) {
+                      if (field.filter_multi_select && field.field_type !== 'boolean') {
                         const current = Array.isArray(customFieldFilters[field.id]) ? customFieldFilters[field.id] : [];
                         return (
                           <div key={field.id} className="flex items-center gap-2">
                             <Label className="text-sm text-slate-700">{label}:</Label>
                             <MultiSelectFilter
-                              options={field.options || []}
+                              options={getDirectoryFilterOptions(field)}
                               selected={current}
                               onChange={(vals) => setCustomFieldFilters(prev => ({ ...prev, [field.id]: vals }))}
                               placeholder={`All ${label}`}
@@ -563,7 +559,7 @@ export default function MemberDirectoryPage() {
                             </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="all">All</SelectItem>
-                              {(field.options || []).map(option => (
+                              {getDirectoryFilterOptions(field).map(option => (
                                 <SelectItem key={option.value} value={option.value}>
                                   {option.label}
                                 </SelectItem>

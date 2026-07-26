@@ -200,3 +200,49 @@ export function getOrderedCustomFields(fields, settings) {
   }
   return ordered;
 }
+
+// ---- Boolean-aware directory filter helpers (shared by directory pages) ----
+
+const BOOL_TRUE = new Set(['true', 'yes', '1']);
+const BOOL_FALSE = new Set(['false', 'no', '0']);
+
+function toBoolCanonical(v) {
+  if (typeof v === 'boolean') return v ? 'true' : 'false';
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim().toLowerCase();
+  if (BOOL_TRUE.has(s)) return 'true';
+  if (BOOL_FALSE.has(s)) return 'false';
+  return null;
+}
+
+/**
+ * Options to render in a directory filter dropdown for a field.
+ * Boolean fields have no stored options, so provide Yes/No.
+ */
+export function getDirectoryFilterOptions(field) {
+  if (field?.field_type === 'boolean') {
+    return [
+      { value: 'true', label: 'Yes' },
+      { value: 'false', label: 'No' },
+    ];
+  }
+  return field?.options || [];
+}
+
+/**
+ * Whether a stored preference value matches any of the selected filter values.
+ * Handles arrays and normalises boolean-ish values (true/'true'/'yes'/'1', etc.)
+ * so boolean custom fields filter correctly regardless of how they were stored.
+ */
+export function directoryFilterValueMatches(storedValue, selectedValues) {
+  const selected = Array.isArray(selectedValues) ? selectedValues : [selectedValues];
+  if (Array.isArray(storedValue)) {
+    return selected.some((v) => storedValue.includes(v));
+  }
+  if (selected.includes(storedValue)) return true;
+  const storedBool = toBoolCanonical(storedValue);
+  if (storedBool !== null) {
+    return selected.some((v) => toBoolCanonical(v) === storedBool);
+  }
+  return false;
+}

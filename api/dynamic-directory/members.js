@@ -246,5 +246,23 @@ function matchesSingleValue(storedValue, filterValue) {
     }
   }
 
+  // Boolean fields: stored values may be true/false, 'true'/'false', 'yes'/'no', '1'/'0'
+  const storedBool = toBoolCanonical(storedValue);
+  if (storedBool !== null) {
+    return toBoolCanonical(filterValue) === storedBool;
+  }
+
   return false;
+}
+
+const BOOL_TRUE = new Set(['true', 'yes', '1']);
+const BOOL_FALSE = new Set(['false', 'no', '0']);
+
+function toBoolCanonical(v) {
+  if (typeof v === 'boolean') return v ? 'true' : 'false';
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim().toLowerCase();
+  if (BOOL_TRUE.has(s)) return 'true';
+  if (BOOL_FALSE.has(s)) return 'false';
+  return null;
 }
