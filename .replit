@@ -74,6 +74,8 @@ args = "node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs client/src
 [userenv.shared]
 ZOHO_CRM_API_DOMAIN = "https://www.zohoapis.eu"
 INTERNAL_API_SECRET = "f922dda6e15928142cdc288d4c68414eb879de814fafbcc7bd1ef79fa809299f"
+GOCARDLESS_ENVIRONMENT = "sandbox"
+GOCARDLESS_REDIRECT_BASE_URL = "https://dev.iconn.app"
 
 [userenv.development]
 VITE_DEFAULT_TENANT = "gsf"

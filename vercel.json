@@ -113,6 +113,10 @@
     {
       "path": "/api/cron/close-voucher-month",
       "schedule": "15 2 1-3 * *"
+    },
+    {
+      "path": "/api/cron/reconcile-gocardless",
+      "schedule": "15 */6 * * *"
     }
   ],
   "rewrites": [
