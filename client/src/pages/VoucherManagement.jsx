@@ -897,6 +897,52 @@ export default function VoucherManagementPage() {
     }
   };
 
+  const handleExportCurrentView = () => {
+    if (paginatedVouchers.length === 0) {
+      toast.error('No vouchers to export in the current view');
+      return;
+    }
+    const escapeCsv = (val) => {
+      const s = val == null ? '' : String(val);
+      return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const deriveStatus = (v) => {
+      if (v.status === 'used') return 'Used';
+      const isExpired = v.expires_at && new Date(v.expires_at) < new Date();
+      if (isExpired || v.status === 'expired') return 'Expired';
+      if (v.status === 'active') return 'Active';
+      return v.status || '';
+    };
+    const fmtDate = (d) => {
+      if (!d) return '';
+      const dt = new Date(d);
+      return isNaN(dt.getTime()) ? '' : format(dt, 'yyyy-MM-dd');
+    };
+    const header = ['Code', 'Organisation', 'Description', 'Status', 'Value (£)', 'Awarded', 'Expires', 'Used On'];
+    const rows = paginatedVouchers.map(v => [
+      v.code || '',
+      organizations.find(o => o.id === v.organization_id)?.name || 'Unknown Organisation',
+      v.description || '',
+      deriveStatus(v),
+      (v.value || 0).toFixed(2),
+      fmtDate(v.issued_at || v.created_at),
+      fmtDate(v.expires_at),
+      fmtDate(v.used_at)
+    ]);
+    const csv = [header, ...rows].map(r => r.map(escapeCsv).join(',')).join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const today = new Date().toISOString().split('T')[0];
+    link.download = `training_vouchers_current_view_${today}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast.success('CSV file downloaded successfully');
+  };
+
   const handleCreateNew = () => {
     setEditingVoucher({
       organization_id: "",
@@ -1228,7 +1274,19 @@ export default function VoucherManagementPage() {
                 ) : (
                   <Download className="w-4 h-4" />
                 )}
-                Export CSV
+                Report Generator
+              </Button>
+            )}
+            {isAdmin && (
+              <Button
+                variant="outline"
+                onClick={handleExportCurrentView}
+                disabled={paginatedVouchers.length === 0}
+                className="gap-2"
+                data-testid="button-export-current-view-csv"
+              >
+                <Download className="w-4 h-4" />
+                Export current view
               </Button>
             )}
             <Button onClick={handleCreateNew} className="bg-blue-600 hover:bg-blue-700" data-testid="button-create-voucher">
