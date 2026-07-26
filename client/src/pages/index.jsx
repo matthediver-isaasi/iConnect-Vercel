@@ -390,6 +390,8 @@ import ExternalWriters from "./ExternalWriters";
 
 import MemberDemo from "./MemberDemo";
 
+import BnmsMemberDemo from "./BnmsMemberDemo";
+
 import PhotoGalleries from "./PhotoGalleries";
 
 import { useEffect, useRef, lazy, Suspense } from 'react';
@@ -745,6 +747,8 @@ const PAGES = {
 
     MemberDemo: MemberDemo,
 
+    BnmsMemberDemo: BnmsMemberDemo,
+
     PhotoGalleries: PhotoGalleries,
     
     Forum: Forum,
@@ -853,6 +857,8 @@ function PagesContent() {
                 <Route path="/Dashboard" element={<Dashboard />} />
                 
                 <Route path="/MemberDemo" element={<MemberDemo />} />
+                
+                <Route path="/BnmsMemberDemo" element={<BnmsMemberDemo />} />
                 
                 <Route path="/UnpackedInternationalEmployability" element={<UnpackedInternationalEmployability />} />
                 

@@ -125,6 +125,9 @@ export default function LoginForm({ className }) {
     if (slug && slug.toLowerCase() === 'gsf') {
       landingPage = 'MemberDemo';
     }
+    if (slug && slug.toLowerCase() === 'bnms') {
+      landingPage = 'BnmsMemberDemo';
+    }
     window.location.href = createPageUrl(landingPage);
   };
 
