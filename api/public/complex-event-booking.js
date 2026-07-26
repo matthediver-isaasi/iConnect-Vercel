@@ -18,6 +18,7 @@ import {
 } from '../_lib/ticketAccess.js';
 import { getAccountingProvider } from '../_lib/accountingProvider.js';
 import { getAllowVoucherUseAfterExpiry, isVoucherUsableForEventDate } from '../_lib/voucherExpiryPolicy.js';
+import { orderVoucherIdsForRedemption } from '../_lib/voucherOrdering.js';
 import { sendConfirmationEmailsFromTemplate } from '../_lib/eventConfirmationEmail.js';
 
 function generateBookingReference() {
@@ -56,6 +57,7 @@ export default async function handler(req, res) {
       discount_code: legacyDiscountCode,
       items,
       selected_voucher_ids,
+      voucher_order_manual: voucherOrderManual,
       training_fund_amount: requestedTrainingFundAmount,
       purchase_order_number: purchaseOrderNumber,
       po_to_follow: poToFollow,
@@ -506,7 +508,32 @@ export default async function handler(req, res) {
           voucherPolicyEventStart = earliestSession?.start_time || null;
         }
 
-        for (const voucherId of voucherIds) {
+        // First-expiry-first-used: by default, apply vouchers in earliest-
+        // expiry order (then earliest allocation date). If the caller
+        // explicitly requested a manual order (voucher_order_manual),
+        // preserve the client-sent order and record the override in the
+        // transaction notes/audit trail. Shared logic: api/_lib/voucherOrdering.js.
+        let orderedVoucherIds = [...voucherIds];
+        let voucherOrderOverrideNote = null;
+        {
+          let byId = null;
+          if (voucherOrderManual !== true && voucherIds.length > 1) {
+            const { data: selVouchers, error: selErr } = await supabase
+              .from('voucher')
+              .select('id, expires_at, issued_at')
+              .in('id', voucherIds)
+              .eq('organization_id', org.id);
+            if (!selErr && Array.isArray(selVouchers) && selVouchers.length > 0) {
+              byId = {};
+              selVouchers.forEach(v => { byId[v.id] = v; });
+            }
+          }
+          const ordered = orderVoucherIdsForRedemption(voucherIds, byId, voucherOrderManual === true);
+          orderedVoucherIds = ordered.orderedIds;
+          voucherOrderOverrideNote = ordered.overrideNote;
+        }
+
+        for (const voucherId of orderedVoucherIds) {
           const { data: voucher } = await supabase
             .from('voucher')
             .select('*')
@@ -903,6 +930,7 @@ export default async function handler(req, res) {
               balance_before: v.originalValue,
               balance_after: updatedVoucher.value,
               type: 'booking_usage',
+              notes: voucherOrderOverrideNote,
               created_at: new Date().toISOString(),
               tenant_id: tenant.id
             });

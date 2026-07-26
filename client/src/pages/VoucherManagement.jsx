@@ -39,6 +39,11 @@ const EXPORT_COLUMN_DEFS = [
   { key: 'event_date', label: 'Event Date' },
   { key: 'event_title', label: 'Event Title' },
   { key: 'member', label: 'Member' },
+  { key: 'voucher_valid_from', label: 'Voucher Valid From' },
+  { key: 'funding_source', label: 'Funding Source' },
+  { key: 'created_by', label: 'Created By' },
+  { key: 'voucher_notes', label: 'Voucher Notes' },
+  { key: 'notes', label: 'Transaction Notes' },
 ];
 const ALL_EXPORT_COLUMN_KEYS = EXPORT_COLUMN_DEFS.map(c => c.key);
 
@@ -59,6 +64,11 @@ const EXPORT_SORT_FIELD_TYPES = {
   event_date: 'date',
   event_title: 'text',
   member: 'text',
+  voucher_valid_from: 'date',
+  funding_source: 'text',
+  created_by: 'text',
+  voucher_notes: 'text',
+  notes: 'text',
 };
 const DEFAULT_EXPORT_SORT_RULES = [{ field: 'organization', dir: 'asc', fallback: '' }];
 
@@ -77,7 +87,7 @@ const LEGACY_EXPORT_DATE_FIELD_MAP = { date: 'used', voucher_expiry_date: 'expir
 const normalizeExportDateField = (v) => (v ? (LEGACY_EXPORT_DATE_FIELD_MAP[v] || v) : v);
 
 export default function VoucherManagementPage() {
-  const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isAdmin, isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [editingVoucher, setEditingVoucher] = useState(null);
   
@@ -951,7 +961,10 @@ export default function VoucherManagementPage() {
       description: "",
       issued_at: format(new Date(), "yyyy-MM-dd"),
       expires_at: "",
-      status: "active"
+      status: "active",
+      valid_from: "",
+      funding_source: "",
+      notes: ""
     });
     setShowDialog(true);
   };
@@ -962,6 +975,9 @@ export default function VoucherManagementPage() {
       ...voucher,
       issued_at: issuedSource ? format(new Date(issuedSource), "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd"),
       expires_at: voucher.expires_at ? format(new Date(voucher.expires_at), "yyyy-MM-dd") : "",
+      valid_from: voucher.valid_from ? format(new Date(voucher.valid_from), "yyyy-MM-dd") : "",
+      funding_source: voucher.funding_source || "",
+      notes: voucher.notes || "",
       _originalValue: voucher.value
     });
     setShowDialog(true);
@@ -1006,8 +1022,15 @@ export default function VoucherManagementPage() {
       description: editingVoucher.description || "",
       issued_at: new Date(editingVoucher.issued_at).toISOString(),
       expires_at: new Date(editingVoucher.expires_at).toISOString(),
-      status: editingVoucher.status
+      status: editingVoucher.status,
+      valid_from: editingVoucher.valid_from ? new Date(editingVoucher.valid_from).toISOString() : null,
+      funding_source: editingVoucher.funding_source || "",
+      notes: editingVoucher.notes || ""
     };
+
+    if (!editingVoucher.id && memberInfo?.email) {
+      data.created_by = memberInfo.email;
+    }
 
     if (editingVoucher.id) {
       const originalValue = editingVoucher._originalValue || 0;
@@ -1068,6 +1091,7 @@ export default function VoucherManagementPage() {
       case 'credit_adjustment': return { label: 'Credit', color: 'bg-green-100 text-green-800' };
       case 'debit_adjustment': return { label: 'Debit', color: 'bg-warning/10 text-warning' };
       case 'adjustment': return { label: 'Adjustment', color: 'bg-warning/10 text-warning' };
+      case 'expiry': return { label: 'Expired', color: 'bg-red-100 text-red-800' };
       default: return { label: type, color: 'bg-slate-100 text-slate-800' };
     }
   };
@@ -1196,6 +1220,12 @@ export default function VoucherManagementPage() {
                           {transaction.booking_reference && (
                             <p className="text-sm text-slate-500 mb-2">
                               Booking: {transaction.booking_reference}
+                            </p>
+                          )}
+
+                          {transaction.notes && (
+                            <p className="text-sm text-slate-500 mb-2" data-testid={`text-txn-notes-${transaction.id}`}>
+                              Notes: {transaction.notes}
                             </p>
                           )}
                           
@@ -1815,6 +1845,47 @@ export default function VoucherManagementPage() {
                     data-testid="input-voucher-description"
                   />
                 </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="valid_from">Valid From</Label>
+                    <Input
+                      id="valid_from"
+                      type="date"
+                      value={editingVoucher.valid_from || ""}
+                      onChange={(e) => setEditingVoucher({ ...editingVoucher, valid_from: e.target.value })}
+                      data-testid="input-voucher-valid-from"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="funding_source">Funding Source / Reason</Label>
+                    <Input
+                      id="funding_source"
+                      value={editingVoucher.funding_source || ""}
+                      onChange={(e) => setEditingVoucher({ ...editingVoucher, funding_source: e.target.value })}
+                      placeholder="e.g., Regional training grant"
+                      data-testid="input-voucher-funding-source"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="voucher_notes">Notes</Label>
+                  <Input
+                    id="voucher_notes"
+                    value={editingVoucher.notes || ""}
+                    onChange={(e) => setEditingVoucher({ ...editingVoucher, notes: e.target.value })}
+                    placeholder="Optional notes about this allocation"
+                    data-testid="input-voucher-notes"
+                  />
+                </div>
+
+                {editingVoucher.id && editingVoucher.created_by && (
+                  <p className="text-xs text-slate-500" data-testid="text-voucher-created-by">
+                    Created by: {editingVoucher.created_by}
+                  </p>
+                )}
               </div>
             )}
             

@@ -120,3 +120,4 @@
 - [Vercel env access](vercel-env-access.md) — workspace VERCEL_API_TOKEN is invalid (403); prod env vars like CRON_SECRET must be set via Vercel dashboard; cron guard fails open when unset.
 - [Country name resolution & LMIC surfaces](country-name-resolution.md) — stored countries include WB-style names; always resolve via resolveCountryToIso2 (+aliases); LMIC needs element-level pruning on measure AND group-by paths.
 - [Membership-paid workflow paths](membership-paid-workflow-paths.md) — any path settling a membership invoice as paid must insert the row paid AND fire the shared fireWorkflowForPaidRow helper (on payment success, exactly once).
+- [Voucher ledger expiry & new columns](voucher-ledger-expiry.md) — a new voucher txn type needs 4 sign/label surfaces; new voucher columns need 42703 drop-and-retry selects; FEFU sort duplicated in both booking paths.

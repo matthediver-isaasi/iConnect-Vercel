@@ -14,6 +14,7 @@ import { getStripeCredentials, findOrCreateStripeCustomer } from '../_lib/stripe
 import { sendConfirmationEmailsFromTemplate as sharedSendConfirmationEmailsFromTemplate } from '../_lib/eventConfirmationEmail.js';
 import { sanitizeOptionSelections } from '../_lib/eventOptionSelections.js';
 import { getAllowVoucherUseAfterExpiry, isVoucherUsableForEventDate } from '../_lib/voucherExpiryPolicy.js';
+import { orderVoucherIdsForRedemption } from '../_lib/voucherOrdering.js';
 import {
   ticketHasAccessRestrictions,
   isTicketAccessibleToMember,
@@ -1861,6 +1862,7 @@ const functionHandlers = {
       totalCost,
       pricingDetails,
       selectedVoucherIds = [],
+      voucherOrderManual = false,
       trainingFundAmount = 0,
       accountAmount = 0,
       purchaseOrderNumber = null,
@@ -2384,7 +2386,33 @@ const functionHandlers = {
       if (selectedVoucherIds && selectedVoucherIds.length > 0) {
         console.log('[createOneOffEventBooking] Processing vouchers:', selectedVoucherIds);
         const allowVoucherAfterExpiry = await getAllowVoucherUseAfterExpiry(supabase, event.tenant_id || org.tenant_id);
-        for (const voucherId of selectedVoucherIds) {
+
+        // First-expiry-first-used: by default, apply vouchers in earliest-
+        // expiry order (then earliest allocation date). If the caller
+        // explicitly requested a manual order (voucherOrderManual), preserve
+        // the client-sent order and record the override in the transaction
+        // notes/audit trail. Shared logic: api/_lib/voucherOrdering.js.
+        let orderedVoucherIds = [...selectedVoucherIds];
+        let voucherOrderOverrideNote = null;
+        {
+          let byId = null;
+          if (voucherOrderManual !== true && selectedVoucherIds.length > 1) {
+            const { data: selVouchers, error: selErr } = await supabase
+              .from('voucher')
+              .select('id, expires_at, issued_at')
+              .in('id', selectedVoucherIds)
+              .eq('organization_id', org.id);
+            if (!selErr && Array.isArray(selVouchers) && selVouchers.length > 0) {
+              byId = {};
+              selVouchers.forEach(v => { byId[v.id] = v; });
+            }
+          }
+          const ordered = orderVoucherIdsForRedemption(selectedVoucherIds, byId, voucherOrderManual === true);
+          orderedVoucherIds = ordered.orderedIds;
+          voucherOrderOverrideNote = ordered.overrideNote;
+        }
+
+        for (const voucherId of orderedVoucherIds) {
           console.log('[createOneOffEventBooking] Looking up voucher:', voucherId, 'for org:', org.id);
           // Fetch voucher from the voucher table and validate it belongs to the member's organization
           const { data: voucher, error: voucherError } = await supabase
@@ -2453,6 +2481,7 @@ const functionHandlers = {
                     balance_before: voucher.value,
                     balance_after: newValue,
                     type: 'booking_usage',
+                    notes: voucherOrderOverrideNote,
                     created_at: new Date().toISOString(),
                     tenant_id: vtxTenantId
                   });

@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Ticket, Calendar, AlertCircle, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 
-export default function VoucherSelector({ organizationId, selectedVouchers, onVoucherToggle, maxAmount, eventStartDate = null, restrictToEventDate = false }) {
+export default function VoucherSelector({ organizationId, selectedVouchers, onVoucherToggle, maxAmount, eventStartDate = null, restrictToEventDate = false, manualOrder = false, onManualOrderChange = null }) {
   // When the tenant disallows using vouchers past their expiry for a later event,
   // a voucher is only eligible if it expires AFTER the event's start date.
   const eventStart = restrictToEventDate && eventStartDate ? new Date(eventStartDate) : null;
@@ -59,9 +59,8 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
       expiryTimestamp: new Date(v.expires_at).getTime()
     })));
     
-    // Sort intelligently:
-    // 1. Primary sort: By expiry date (soonest first)
-    // 2. Secondary sort: By value (smallest first) for same expiry date
+    // First-expiry-first-used ordering (mirrors the server-side booking
+    // paths): earliest expiry first, then earliest allocation date.
     const sortedVouchers = [...rawVouchers].sort((a, b) => {
       const dateA = new Date(a.expires_at).getTime();
       const dateB = new Date(b.expires_at).getTime();
@@ -71,7 +70,12 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
         return dateA - dateB;
       }
       
-      // Secondary sort: by value (ascending - smallest first)
+      // Secondary sort: by allocation date (ascending - earliest first)
+      const issuedA = new Date(a.issued_at || a.created_at || 0).getTime();
+      const issuedB = new Date(b.issued_at || b.created_at || 0).getTime();
+      if (issuedA !== issuedB) {
+        return issuedA - issuedB;
+      }
       return a.value - b.value;
     });
     
@@ -93,20 +97,29 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
       return usageMap;
     }
 
-    // Get selected vouchers in the correct sorted order
-    const selectedVoucherObjects = selectedVouchers
+    // Simulate in the order vouchers will actually be applied: the user's
+    // selection order when manual ordering is on, otherwise
+    // first-expiry-first-used (mirrors the server).
+    let selectedVoucherObjects = selectedVouchers
       .map(id => vouchers.find(v => v.id === id))
-      .filter(v => v !== undefined)
-      .sort((a, b) => {
+      .filter(v => v !== undefined);
+    if (!manualOrder) {
+      selectedVoucherObjects = selectedVoucherObjects.sort((a, b) => {
         const dateA = new Date(a.expires_at).getTime();
         const dateB = new Date(b.expires_at).getTime();
-        
+
         if (dateA !== dateB) {
           return dateA - dateB;
         }
-        
+
+        const issuedA = new Date(a.issued_at || a.created_at || 0).getTime();
+        const issuedB = new Date(b.issued_at || b.created_at || 0).getTime();
+        if (issuedA !== issuedB) {
+          return issuedA - issuedB;
+        }
         return a.value - b.value;
       });
+    }
 
     let remainingCost = maxAmount;
 
@@ -129,7 +142,7 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
     }
 
     return usageMap;
-  }, [vouchers, selectedVouchers, maxAmount]);
+  }, [vouchers, selectedVouchers, maxAmount, manualOrder]);
 
   const handleToggle = (voucherId, checked) => {
     if (checked) {
@@ -208,6 +221,25 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
         <p className="text-xs text-slate-500">
           Sorted by expiry date - vouchers expiring soonest are listed first
         </p>
+      )}
+
+      {onManualOrderChange && selectedVouchers.length > 1 && (
+        <div className="flex items-start justify-between gap-3 p-3 rounded-lg border border-slate-200 bg-slate-50" data-testid="voucher-manual-order-toggle">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-slate-900">Use my selection order</p>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {manualOrder
+                ? 'Vouchers will be applied in the order you selected them. This override is recorded in the transaction notes.'
+                : 'By default, vouchers expiring soonest are used first.'}
+            </p>
+          </div>
+          <Switch
+            checked={manualOrder}
+            onCheckedChange={onManualOrderChange}
+            className="shrink-0"
+            data-testid="switch-voucher-manual-order"
+          />
+        </div>
       )}
 
       <div className="space-y-2 max-h-64 overflow-y-auto">

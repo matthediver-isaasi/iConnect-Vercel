@@ -39,6 +39,8 @@ function buildUsageDescription(txn) {
       return eventTitle ? `Balance adjustment: ${eventTitle}` : 'Manual balance adjustment (debit)';
     case 'voucher_awarded':
       return 'Voucher awarded to organisation';
+    case 'expiry':
+      return 'Voucher expired — unused value removed';
     default:
       return eventTitle ? `Voucher activity: ${eventTitle}` : 'Voucher balance change';
   }
@@ -124,7 +126,7 @@ export default async function handler(req, res) {
 
     const { data: transactions, error: txErr } = await supabase
       .from('voucher_transaction')
-      .select('id, voucher_id, organization_id, booking_reference, event_id, event_title, member_id, member_email, amount, balance_before, balance_after, type, created_at')
+      .select('id, voucher_id, organization_id, booking_reference, event_id, event_title, member_id, member_email, amount, balance_before, balance_after, type, notes, created_at')
       .eq('voucher_id', voucherId)
       .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false });

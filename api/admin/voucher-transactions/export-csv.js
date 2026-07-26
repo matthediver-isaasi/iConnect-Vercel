@@ -47,12 +47,13 @@ function formatTransactionTypeLabel(type) {
     case 'credit_adjustment': return 'Credit Adjustment';
     case 'debit_adjustment': return 'Debit Adjustment';
     case 'voucher_awarded': return 'Voucher awarded';
+    case 'expiry': return 'Expiry';
     default: return type || '';
   }
 }
 
 const POSITIVE_TYPES = new Set(['cancellation_refund', 'credit_adjustment', 'voucher_awarded']);
-const NEGATIVE_TYPES = new Set(['booking_usage', 'debit_adjustment']);
+const NEGATIVE_TYPES = new Set(['booking_usage', 'debit_adjustment', 'expiry']);
 
 function formatSignedAmount(txn) {
   const amt = Math.abs(parseFloat(txn.amount || 0));
@@ -105,6 +106,11 @@ const COLUMN_DEFS = [
   { key: 'event_date', header: 'Event Date' },
   { key: 'event_title', header: 'Event Title' },
   { key: 'member', header: 'Member' },
+  { key: 'voucher_valid_from', header: 'Voucher Valid From' },
+  { key: 'funding_source', header: 'Funding Source' },
+  { key: 'created_by', header: 'Created By' },
+  { key: 'voucher_notes', header: 'Voucher Notes' },
+  { key: 'notes', header: 'Transaction Notes' },
 ];
 const ALL_COLUMN_KEYS = COLUMN_DEFS.map(c => c.key);
 
@@ -123,6 +129,11 @@ const SORT_FIELD_TYPES = {
   event_date: 'date',
   event_title: 'text',
   member: 'text',
+  voucher_valid_from: 'date',
+  funding_source: 'text',
+  created_by: 'text',
+  voucher_notes: 'text',
+  notes: 'text',
 };
 const SORT_FIELDS = new Set(Object.keys(SORT_FIELD_TYPES));
 // Date-range filter fields for the export. These mirror the Voucher
@@ -374,24 +385,32 @@ export default async function handler(req, res) {
   // disable only the column named in the error before retrying, so an
   // environment with `issued_at` but no `created_at` (or vice versa) keeps
   // whichever date column it does have.
-  const voucherColFlags = { issued_at: true, created_at: true };
+  const voucherColFlags = {
+    issued_at: true,
+    created_at: true,
+    // Task #3116 allocation metadata columns (migration
+    // 20260726_add_voucher_expiry_ledger_fields); may be absent in
+    // environments where that migration has not been applied yet.
+    valid_from: true,
+    funding_source: true,
+    notes: true,
+    created_by: true,
+  };
   const applyVoucherColFallback = (error) => {
     if (!error || error.code !== '42703') return false;
     const msg = String(error.message || '');
-    if (/\bissued_at\b/.test(msg) && voucherColFlags.issued_at) {
-      voucherColFlags.issued_at = false;
-      console.warn('[VoucherExportCSV] voucher.issued_at missing; retrying without it. Apply migration 20260515_add_voucher_issued_at to enable issued dates.');
-      return true;
+    for (const col of Object.keys(voucherColFlags)) {
+      if (voucherColFlags[col] && new RegExp(`\\b${col}\\b`).test(msg)) {
+        voucherColFlags[col] = false;
+        console.warn(`[VoucherExportCSV] voucher.${col} missing; retrying without it.`);
+        return true;
+      }
     }
-    if (/\bcreated_at\b/.test(msg) && voucherColFlags.created_at) {
-      voucherColFlags.created_at = false;
-      console.warn('[VoucherExportCSV] voucher.created_at missing; retrying without it.');
-      return true;
-    }
-    // 42703 that names neither column (unexpected): degrade conservatively,
+    // 42703 that names no known column (unexpected): degrade conservatively,
     // one optional column at a time, rather than fail outright.
-    if (voucherColFlags.issued_at) { voucherColFlags.issued_at = false; return true; }
-    if (voucherColFlags.created_at) { voucherColFlags.created_at = false; return true; }
+    for (const col of Object.keys(voucherColFlags)) {
+      if (voucherColFlags[col]) { voucherColFlags[col] = false; return true; }
+    }
     return false;
   };
   // Runs a voucher query builder, retrying (bounded: each retry permanently
@@ -765,15 +784,28 @@ export default async function handler(req, res) {
     const allTransactions = [];
     const pageSize = 1000;
     let from = 0;
+    // voucher_transaction.notes (Task #3116) may be absent in environments
+    // where migration 20260726_add_voucher_expiry_ledger_fields has not been
+    // applied; drop it on a 42703 and retry.
+    let txnNotesCol = true;
     while (true) {
-      let query = supabase
-        .from('voucher_transaction')
-        .select('id, voucher_id, organization_id, booking_reference, event_id, event_title, member_id, member_email, amount, balance_before, balance_after, type, created_at')
-        .eq('tenant_id', tenantId);
-      if (orgFilterActive) query = query.in('organization_id', requestedOrgIds);
-      query = query.order('id', { ascending: true }).range(from, from + pageSize - 1);
+      const buildTxnQuery = () => {
+        const cols = ['id', 'voucher_id', 'organization_id', 'booking_reference', 'event_id', 'event_title', 'member_id', 'member_email', 'amount', 'balance_before', 'balance_after', 'type', 'created_at'];
+        if (txnNotesCol) cols.push('notes');
+        let query = supabase
+          .from('voucher_transaction')
+          .select(cols.join(', '))
+          .eq('tenant_id', tenantId);
+        if (orgFilterActive) query = query.in('organization_id', requestedOrgIds);
+        return query.order('id', { ascending: true }).range(from, from + pageSize - 1);
+      };
 
-      const { data, error } = await query;
+      let { data, error } = await buildTxnQuery();
+      if (error && error.code === '42703' && txnNotesCol && /\bnotes\b/.test(String(error.message || ''))) {
+        txnNotesCol = false;
+        console.warn('[VoucherExportCSV] voucher_transaction.notes missing; retrying without it.');
+        ({ data, error } = await buildTxnQuery());
+      }
       if (error) {
         console.error('[VoucherExportCSV] Transactions query error:', error);
         return res.status(500).json({ error: 'Failed to fetch transactions' });
@@ -813,6 +845,10 @@ export default async function handler(req, res) {
       const cols = ['id', 'code', 'description', 'expires_at', 'value', 'organization_id'];
       if (voucherColFlags.created_at) cols.push('created_at');
       if (voucherColFlags.issued_at) cols.push('issued_at');
+      if (voucherColFlags.valid_from) cols.push('valid_from');
+      if (voucherColFlags.funding_source) cols.push('funding_source');
+      if (voucherColFlags.notes) cols.push('notes');
+      if (voucherColFlags.created_by) cols.push('created_by');
       return cols.join(', ');
     };
     if (needVoucher) {
@@ -957,6 +993,23 @@ export default async function handler(req, res) {
           const n = parseFloat(t.balance_after);
           return isNaN(n) ? null : n;
         }
+        case 'voucher_valid_from': {
+          const v = t.voucher_id ? (voucherMap[t.voucher_id]?.valid_from || '') : '';
+          return v ? v : null;
+        }
+        case 'funding_source': {
+          const v = t.voucher_id ? (voucherMap[t.voucher_id]?.funding_source || '') : '';
+          return v ? v : null;
+        }
+        case 'created_by': {
+          const v = t.voucher_id ? (voucherMap[t.voucher_id]?.created_by || '') : '';
+          return v ? v : null;
+        }
+        case 'voucher_notes': {
+          const v = t.voucher_id ? (voucherMap[t.voucher_id]?.notes || '') : '';
+          return v ? v : null;
+        }
+        case 'notes': return t.notes ? t.notes : null;
         case 'booking_reference': return t.booking_reference ? t.booking_reference : null;
         case 'event_internal_reference': {
           if (!t.event_id) return null;
@@ -1263,6 +1316,11 @@ export default async function handler(req, res) {
           const memberName = memberDisplayName(t.member_id ? memberMap[t.member_id] : null) || t.member_email || '';
           return escapeCSV(memberName);
         }
+        case 'voucher_valid_from': return escapeCSV(formatDateOnly(t.voucher_id ? voucherMap[t.voucher_id]?.valid_from : ''));
+        case 'funding_source': return escapeCSV(t.voucher_id ? (voucherMap[t.voucher_id]?.funding_source || '') : '');
+        case 'created_by': return escapeCSV(t.voucher_id ? (voucherMap[t.voucher_id]?.created_by || '') : '');
+        case 'voucher_notes': return escapeCSV(t.voucher_id ? (voucherMap[t.voucher_id]?.notes || '') : '');
+        case 'notes': return escapeCSV(t.notes || '');
         default: return '';
       }
     };

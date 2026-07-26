@@ -46,6 +46,23 @@
       "used_for_transaction_id": {
         "type": "string",
         "description": "Reference to ProgramTicketTransaction where this was used"
+      },
+      "valid_from": {
+        "type": "string",
+        "format": "date-time",
+        "description": "Date from which this voucher is valid/usable (finance metadata)"
+      },
+      "funding_source": {
+        "type": "string",
+        "description": "Funding source or reason for the allocation"
+      },
+      "notes": {
+        "type": "string",
+        "description": "Free-text notes about the allocation"
+      },
+      "created_by": {
+        "type": "string",
+        "description": "Email of the admin who created the allocation"
       }
     },
     "required": [

@@ -450,6 +450,7 @@ export default function PaymentOptions({
   const doSetSubmitting = setSubmitting || setInternalSubmitting;
 
   const [selectedVouchers, setSelectedVouchers] = useState([]);
+  const [voucherOrderManual, setVoucherOrderManual] = useState(false);
   const [trainingFundAmount, setTrainingFundAmount] = useState(0);
   const [remainingBalancePaymentMethod, setRemainingBalancePaymentMethod] = useState(
     isComplexEvent ? 'card' : (memberInfo ? 'account' : 'card')
@@ -1117,6 +1118,7 @@ export default function PaymentOptions({
       if (!isGuestCheckout && !isComplexEvent) {
         savedPayload.memberEmail = memberInfo?.email;
         savedPayload.selectedVoucherIds = (isFeatureExcluded('element_EventUseVouchers') || !isVoucherRoleAllowed) ? [] : selectedVouchers;
+        savedPayload.voucherOrderManual = voucherOrderManual && savedPayload.selectedVoucherIds.length > 1;
         savedPayload.trainingFundAmount = (isFeatureExcluded('element_EventUseTrainingFund') || !isTrainingFundRoleAllowed) ? 0 : trainingFundAmount;
         savedPayload.accountAmount = remainingBalancePaymentMethod === 'account' ? remainingBalance : 0;
         savedPayload.purchaseOrderNumber = remainingBalancePaymentMethod === 'account' ? purchaseOrderNumber.trim() : null;
@@ -1236,6 +1238,7 @@ export default function PaymentOptions({
         if (!isGuestCheckout) {
           bookingPayload.memberEmail = memberInfo.email;
           bookingPayload.selectedVoucherIds = (isFeatureExcluded('element_EventUseVouchers') || !isVoucherRoleAllowed) ? [] : selectedVouchers;
+          bookingPayload.voucherOrderManual = voucherOrderManual && bookingPayload.selectedVoucherIds.length > 1;
           bookingPayload.trainingFundAmount = (isFeatureExcluded('element_EventUseTrainingFund') || !isTrainingFundRoleAllowed) ? 0 : trainingFundAmount;
           bookingPayload.accountAmount = remainingBalancePaymentMethod === 'account' ? remainingBalance : 0;
           bookingPayload.purchaseOrderNumber = remainingBalancePaymentMethod === 'account' ? purchaseOrderNumber.trim() : null;
@@ -1496,6 +1499,8 @@ export default function PaymentOptions({
                       maxAmount={costAfterDiscount}
                       eventStartDate={event?.start_date || null}
                       restrictToEventDate={restrictVouchersToEventDate}
+                      manualOrder={voucherOrderManual}
+                      onManualOrderChange={setVoucherOrderManual}
                     />
                     {voucherAmount > 0 && (
                       <div className="mt-3 pt-3 border-t border-blue-200">
