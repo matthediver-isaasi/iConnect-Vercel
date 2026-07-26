@@ -128,6 +128,32 @@ const EVENTS = {
       <p>Hi ${c.firstName},</p>
       <p>All ${c.instalmentCount} monthly payments for your ${c.yearLabel} membership have now been collected. Your membership is fully paid — thank you!</p>`,
   },
+  // Phase 5 — renewals & migration -----------------------------------------
+  renewal_notice: {
+    subject: (c) => `Your membership renews soon — ${c.renewalYear || 'next year'}`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>Your ${c.yearLabel} membership is coming to an end, and your monthly Direct Debit is set to renew automatically for ${c.renewalYear || 'the next membership year'}.</p>
+      <p>The renewal plan will be <strong>${c.newInstalmentCount || c.instalmentCount} monthly payments of ${c.newCurrency || c.currency} ${c.newMonthlyAmount || c.monthlyAmount}</strong>${c.newPlanTotal ? ` (total ${c.newCurrency || c.currency} ${c.newPlanTotal})` : ''}, collected using your existing Direct Debit mandate — no action is needed.</p>
+      <p>If you do not wish to renew, or your details have changed, please contact us before the new membership year begins.</p>`,
+  },
+  renewal_confirmation_required: {
+    subject: (c) => `Action needed — confirm your membership renewal for ${c.renewalYear || 'next year'}`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>Your ${c.yearLabel} membership is coming to an end. To continue paying by monthly Direct Debit for ${c.renewalYear || 'the next membership year'}, please confirm your renewal.</p>
+      <p>The new plan will be <strong>${c.newInstalmentCount || c.instalmentCount} monthly payments of ${c.newCurrency || c.currency} ${c.newMonthlyAmount || c.monthlyAmount}</strong>${c.newPlanTotal ? ` (total ${c.newCurrency || c.currency} ${c.newPlanTotal})` : ''}.</p>
+      <p>Confirm from your membership payment page once the new membership year opens — your existing Direct Debit mandate will be reused, so there is no need to re-enter bank details.</p>
+      <p>If you do nothing, no payment will be taken for the new year.</p>`,
+  },
+  renewal_confirmed: {
+    subject: (c) => `Membership renewal confirmed — ${c.yearLabel}`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>Your membership has been renewed for ${c.yearLabel}: ${c.instalmentCount} monthly payments of ${c.currency} ${c.monthlyAmount} by Direct Debit, using your existing mandate.</p>
+      ${c.firstChargeDate ? `<p>Your first collection for the new year is expected on or around <strong>${c.firstChargeDate}</strong>.</p>` : ''}
+      <p>You'll receive advance notice from GoCardless before each collection.</p>`,
+  },
 };
 
 export const DD_EMAIL_EVENTS = Object.freeze(Object.keys(EVENTS));
@@ -226,6 +252,47 @@ export async function sendDdLifecycleEmail(eventKey, agreement, { db = supabase,
     return sentAny ? { sent: true } : { sent: false, reason: lastError || 'send failed' };
   } catch (err) {
     console.error(`[DD Emails] ${eventKey} failed for agreement ${agreement?.id}:`, err.message);
+    return { sent: false, reason: err.message };
+  }
+}
+
+/**
+ * Phase 5 — migration invitation email (tenant -> member): invite an
+ * existing Stripe/invoice-paying member to switch to monthly Direct Debit
+ * from a given membership year. No agreement exists yet, so this takes the
+ * offer terms directly. Never throws — returns { sent: boolean }.
+ */
+export async function sendDdMigrationInviteEmail({ tenantId, member, invite, offer, setupUrl, send = sendTenantEmail } = {}) {
+  try {
+    if (!tenantId || !member?.email || !invite?.token || !offer || !setupUrl) {
+      return { sent: false, reason: 'missing tenantId/member/invite/offer/setupUrl' };
+    }
+    const firstName = member.first_name || 'Member';
+    const currency = offer.currency || 'GBP';
+    const monthly = Number(offer.monthlyAmount).toFixed(2);
+    const total = offer.planTotal != null ? Number(offer.planTotal).toFixed(2) : '';
+    const expiry = invite.expires_at
+      ? new Date(invite.expires_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+      : null;
+    const result = await send({
+      tenantId,
+      to: member.email,
+      subject: `Switch your membership to monthly Direct Debit`,
+      html: `
+        <p>Hi ${firstName},</p>
+        <p>You can now pay your membership by monthly Direct Debit, starting from the <strong>${invite.switch_from_year}</strong> membership year.</p>
+        <p>The plan is ${offer.instalmentCount} monthly payments of ${currency} ${monthly}${total ? ` (total ${currency} ${total})` : ''}. Your current membership and payment method are not affected — the switch only applies from ${invite.switch_from_year}.</p>
+        <p><a href="${setupUrl}">Review the details and set up your Direct Debit</a></p>
+        ${expiry ? `<p>This link expires on <strong>${expiry}</strong>.</p>` : ''}
+        <p>Payments are protected by the Direct Debit Guarantee. If you'd rather keep paying as you do now, you can simply ignore this email or decline from the link above.</p>`,
+    });
+    if (result && result.success === false) {
+      console.error(`[DD Emails] migration invite send failed (member ${member.id}):`, result.error);
+      return { sent: false, reason: result.error };
+    }
+    return { sent: true };
+  } catch (err) {
+    console.error('[DD Emails] migration invite failed:', err.message);
     return { sent: false, reason: err.message };
   }
 }

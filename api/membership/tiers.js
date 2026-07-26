@@ -961,6 +961,7 @@ function ddConfigFields(config) {
       dd_auto_renew: null,
       dd_grace_days: null,
       dd_terms_version: null,
+      dd_migration_enabled: false,
     };
   }
   const instalments = Math.min(12, Math.max(1, parseInt(config.dd_instalment_count, 10) || 12));
@@ -985,6 +986,7 @@ function ddConfigFields(config) {
     dd_grace_days: Number.isInteger(parseInt(config.dd_grace_days, 10))
       ? Math.max(0, parseInt(config.dd_grace_days, 10)) : 7,
     dd_terms_version: config.dd_terms_version || 'v1',
+    dd_migration_enabled: config.dd_migration_enabled === true,
   };
 }
 

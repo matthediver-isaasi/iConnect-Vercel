@@ -352,6 +352,7 @@ import GroupBookingPage from "./GroupBookingPage";
 import GuestApprovalPage from "./GuestApprovalPage";
 import MemberGroupRoleInvitePage from "./MemberGroupRoleInvitePage";
 import DirectDebitInvitationPage from "./DirectDebitInvitationPage";
+import DirectDebitMigrationPage from "./DirectDebitMigrationPage";
 
 import MembershipFees from "./MembershipFees";
 
@@ -1260,6 +1261,7 @@ function StandaloneRoutes() {
             <Route path="/guest-approval/:token" element={<GuestApprovalPage />} />
             <Route path="/group-role-invite/:token" element={<MemberGroupRoleInvitePage />} />
             <Route path="/dd-setup/:token" element={<DirectDebitInvitationPage />} />
+            <Route path="/dd-migrate/:token" element={<DirectDebitMigrationPage />} />
             <Route path="/EventDetails" element={<EventDetails />} />
             <Route path="/events/:eventSlug" element={<EventDetails />} />
             <Route path="/ComplexEventDetail" element={<ComplexEventDetail />} />
@@ -1367,7 +1369,8 @@ function AppRoutes() {
     const isGroupBookingPage = location.pathname.toLowerCase().startsWith('/group-booking/');
     const isGuestApprovalPage = location.pathname.toLowerCase().startsWith('/guest-approval/');
     const isGroupRoleInvitePage = location.pathname.toLowerCase().startsWith('/group-role-invite/');
-    const isDdSetupPage = location.pathname.toLowerCase().startsWith('/dd-setup/');
+    const isDdSetupPage = location.pathname.toLowerCase().startsWith('/dd-setup/')
+        || location.pathname.toLowerCase().startsWith('/dd-migrate/');
     const isCampaignsPage = location.pathname.toLowerCase() === '/campaigns';
     
     // Use window.location.search to reliably detect embed param (works even before routing)

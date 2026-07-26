@@ -30,6 +30,10 @@ import {
 } from '../_lib/gocardlessArrears.js';
 import { sendDdLifecycleEmail } from '../_lib/gocardlessDdEmails.js';
 import { createInvitation } from '../_lib/gocardlessDdInvitations.js';
+import { createMigrationInvite, buildMigrationFunnel } from '../_lib/gocardlessDdMigration.js';
+import { sendDdMigrationInviteEmail } from '../_lib/gocardlessDdEmails.js';
+import { simulateMembershipForMember } from '../_lib/membershipSimulation.js';
+import { resolveDdOffer } from '../_lib/gocardlessDirectDebit.js';
 import { postDdInstalmentToAccounting } from '../_lib/gocardlessAccounting.js';
 
 export default async function handler(req, res) {
@@ -78,7 +82,40 @@ async function handleGet(req, res, tenantId) {
   if (view === 'plan') return res.json(await planDetail(tenantId, req.query.planId, res));
   if (view === 'reconciliation') return res.json(await reconciliationView(tenantId, req.query));
   if (view === 'export') return exportReconciliationCsv(res, tenantId, req.query);
+  if (view === 'migration') return res.json(await buildMigrationFunnel(tenantId));
+  if (view === 'renewals') return res.json(await listRenewals(tenantId, req.query));
   return res.status(400).json({ error: `Unknown view '${view}'` });
+}
+
+// Phase 5 — renewal ledger view (membership_dd_renewals rows + member names).
+async function listRenewals(tenantId, query = {}) {
+  let q = supabase
+    .from('membership_dd_renewals')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .order('created_at', { ascending: false })
+    .limit(200);
+  if (query.status) q = q.eq('status', query.status);
+  const { data: renewals, error } = await q;
+  if (error) throw new Error(`load renewals failed: ${error.message}`);
+  const rows = renewals || [];
+  const memberIds = [...new Set(rows.map((r) => r.member_id).filter(Boolean))];
+  let membersById = new Map();
+  if (memberIds.length) {
+    const { data: members } = await supabase
+      .from('member').select('id, first_name, last_name, email').in('id', memberIds);
+    membersById = new Map((members || []).map((m) => [m.id, m]));
+  }
+  return {
+    renewals: rows.map((r) => {
+      const m = membersById.get(r.member_id);
+      return {
+        ...r,
+        memberName: m ? `${m.first_name || ''} ${m.last_name || ''}`.trim() : null,
+        memberEmail: m?.email || null,
+      };
+    }),
+  };
 }
 
 async function buildSummary(tenantId) {
@@ -301,6 +338,92 @@ async function handlePost(req, res, tenantId, actorEmail) {
   if (action === 'note') {
     if (!planId || !req.body.note) return res.status(400).json({ error: 'planId and note required' });
     await recordAdminAction(tenantId, { planId, action: 'note', actorEmail, details: { note: req.body.note } });
+    return res.json({ ok: true });
+  }
+
+  // ---- Phase 5: migration actions (no planId — keyed by member/invite) ----
+  if (action === 'migration_invite') {
+    const memberId = req.body.memberId;
+    if (!memberId) return res.status(400).json({ error: 'memberId required' });
+    const { data: member } = await supabase
+      .from('member')
+      .select('id, first_name, last_name, email, tenant_id')
+      .eq('id', memberId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    if (!member) return res.status(404).json({ error: 'Member not found' });
+    if (!member.email) return res.status(400).json({ error: 'Member has no email address' });
+
+    // Eligibility: tier must have DD enabled + migration opted in, and an
+    // offer must exist for the switch year (defaults to the NEXT membership
+    // year via source 'simulate' — the current paid year is never touched).
+    const simResult = await simulateMembershipForMember(tenantId, member.id, {
+      source: 'simulate',
+      mode: 'manual',
+      targetYear: req.body.switchFromYear || null,
+    });
+    if (!simResult?.success) {
+      return res.status(400).json({ error: simResult?.error || 'Could not calculate membership fees for this member' });
+    }
+    if (simResult.config?.dd_migration_enabled !== true) {
+      return res.status(400).json({ error: 'Direct Debit migration is not enabled for this member\'s tier' });
+    }
+    const offer = resolveDdOffer(simResult);
+    if (!offer) return res.status(400).json({ error: 'Monthly Direct Debit is not available for this membership' });
+
+    const switchFromYear = simResult.membershipYear?.label;
+    if (!switchFromYear) return res.status(400).json({ error: 'Could not resolve the membership year to switch from' });
+
+    // Already paying by DD for that year? Nothing to migrate.
+    const { data: existingHistory } = await supabase
+      .from('member_membership_history')
+      .select('id, payment_method')
+      .eq('tenant_id', tenantId)
+      .eq('member_id', member.id)
+      .eq('membership_year', switchFromYear)
+      .maybeSingle();
+    if (existingHistory?.payment_method === 'direct_debit') {
+      return res.status(400).json({ error: `This member is already on Direct Debit for ${switchFromYear}` });
+    }
+
+    const invite = await createMigrationInvite({
+      tenantId,
+      memberId: member.id,
+      invitedEmail: member.email,
+      invitedBy: actorEmail,
+      switchFromYear,
+    });
+    const origin = req.headers.origin || (req.headers.host ? `https://${req.headers.host}` : '');
+    const setupUrl = `${origin}/dd-migrate/${invite.token}`;
+    const emailResult = await sendDdMigrationInviteEmail({ tenantId, member, invite, offer, setupUrl });
+    await recordAdminAction(tenantId, {
+      action: 'migration_invite', actorEmail,
+      details: { inviteId: invite.id, memberId: member.id, switchFromYear, emailSent: !!emailResult.sent },
+    });
+    return res.json({ ok: true, invite: { ...invite, token: undefined }, emailSent: !!emailResult.sent, emailError: emailResult.sent ? null : emailResult.reason });
+  }
+
+  if (action === 'migration_revoke') {
+    const inviteId = req.body.inviteId;
+    if (!inviteId) return res.status(400).json({ error: 'inviteId required' });
+    const { data: revoked, error: revokeErr } = await supabase
+      .from('membership_dd_migration_invites')
+      .update({ status: 'revoked', updated_at: new Date().toISOString() })
+      .eq('id', inviteId)
+      .eq('tenant_id', tenantId)
+      .eq('status', 'invited')
+      .select()
+      .maybeSingle();
+    if (revokeErr) return res.status(500).json({ error: 'Failed to revoke invitation' });
+    if (!revoked) return res.status(409).json({ error: 'Invitation is not live (already used, expired, or revoked)' });
+    await recordAdminAction(tenantId, { action: 'migration_revoke', actorEmail, details: { inviteId } });
+    return res.json({ ok: true });
+  }
+
+  if (action === 'migration_note') {
+    const { inviteId, note } = req.body;
+    if (!inviteId || !note) return res.status(400).json({ error: 'inviteId and note required' });
+    await recordAdminAction(tenantId, { action: 'migration_note', actorEmail, details: { inviteId, note } });
     return res.json({ ok: true });
   }
 

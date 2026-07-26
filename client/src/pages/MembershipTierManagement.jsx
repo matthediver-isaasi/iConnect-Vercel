@@ -293,6 +293,7 @@ export default function MembershipTierManagement() {
     dd_auto_renew: true,
     dd_grace_days: 7,
     dd_terms_version: 'v1',
+    dd_migration_enabled: false,
   });
 
   const [selectedActiveConfigId, setSelectedActiveConfigId] = useState(null);
@@ -930,6 +931,7 @@ export default function MembershipTierManagement() {
     dd_auto_renew: c?.dd_auto_renew ?? true,
     dd_grace_days: c?.dd_grace_days ?? 7,
     dd_terms_version: c?.dd_terms_version || 'v1',
+    dd_migration_enabled: c?.dd_migration_enabled === true,
   });
 
   const handleCreateNew = () => {
@@ -1626,6 +1628,18 @@ export default function MembershipTierManagement() {
                         onCheckedChange={(v) => handleConfigChange('dd_auto_renew', v)}
                         disabled={!isEditable}
                         data-testid="switch-dd-auto-renew"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <Label>Allow migration of existing members</Label>
+                        <p className="text-sm text-muted-foreground mt-0.5">Let admins invite members who pay by card or invoice to switch to monthly Direct Debit from next year.</p>
+                      </div>
+                      <Switch
+                        checked={config.dd_migration_enabled === true}
+                        onCheckedChange={(v) => handleConfigChange('dd_migration_enabled', v)}
+                        disabled={!isEditable}
+                        data-testid="switch-dd-migration-enabled"
                       />
                     </div>
                     {ddTotalMismatch && (

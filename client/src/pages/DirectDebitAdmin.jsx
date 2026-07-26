@@ -548,6 +548,183 @@ function Reconciliation() {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 5 — Migration funnel tab
+
+const STAGE_VARIANTS = {
+  invited: "secondary",
+  accepted: "default",
+  mandate_active: "default",
+  subscription_active: "default",
+  declined: "outline",
+  expired: "outline",
+  revoked: "outline",
+  superseded: "outline",
+  failed: "destructive",
+};
+
+function MigrationTab() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [memberId, setMemberId] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["/api/admin/gocardless-dd", "migration"],
+    queryFn: () => api("/api/admin/gocardless-dd?view=migration"),
+  });
+
+  const post = async (body, okMsg) => {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/admin/gocardless-dd", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Request failed");
+      toast({ title: okMsg });
+      if (json.emailSent === false) {
+        toast({ title: "Invitation saved but the email could not be sent", description: json.emailError || "", variant: "destructive" });
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/gocardless-dd", "migration"] });
+      return true;
+    } catch (err) {
+      toast({ title: err.message, variant: "destructive" });
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const counts = data?.counts || {};
+  const invites = data?.invites || [];
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          ["invited", "Invited"],
+          ["accepted", "Accepted (set-up started)"],
+          ["mandate_active", "Mandate active"],
+          ["subscription_active", "Subscription active"],
+        ].map(([key, label]) => (
+          <Card key={key}><CardContent className="pt-4">
+            <p className="text-2xl font-semibold" data-testid={`stat-migration-${key}`}>{counts[key] || 0}</p>
+            <p className="text-xs text-muted-foreground">{label}</p>
+          </CardContent></Card>
+        ))}
+      </div>
+      <p className="text-xs text-muted-foreground" data-testid="text-migration-dropoff">
+        Declined {counts.declined || 0} · Expired {counts.expired || 0} · Revoked {counts.revoked || 0} · Failed {counts.failed || 0}
+      </p>
+
+      <Card>
+        <CardHeader><CardTitle className="text-base">Invite a member to switch to Direct Debit</CardTitle></CardHeader>
+        <CardContent className="flex gap-2 flex-wrap items-end">
+          <div className="space-y-1">
+            <Label htmlFor="migration-member-id">Member ID</Label>
+            <Input id="migration-member-id" className="w-80" placeholder="Member UUID" value={memberId}
+              onChange={(e) => setMemberId(e.target.value)} data-testid="input-migration-member-id" />
+          </div>
+          <Button
+            disabled={busy || !memberId.trim()}
+            onClick={async () => {
+              const ok = await post({ action: "migration_invite", memberId: memberId.trim() }, "Invitation sent");
+              if (ok) setMemberId("");
+            }}
+            data-testid="button-migration-invite"
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Send invitation"}
+          </Button>
+          <p className="text-xs text-muted-foreground w-full">
+            The member's tier must have Direct Debit and migration enabled. The switch applies from the next membership year — their current payment is never affected.
+          </p>
+        </CardContent>
+      </Card>
+
+      {isLoading ? <Skeleton className="h-40 w-full" /> : invites.length === 0 ? (
+        <p className="text-sm text-muted-foreground py-6" data-testid="text-no-invites">No migration invitations yet.</p>
+      ) : invites.map((inv) => (
+        <Card key={inv.id} data-testid={`card-invite-${inv.id}`}>
+          <CardContent className="py-3 flex items-center justify-between gap-2 flex-wrap text-sm">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-medium" data-testid={`text-invite-member-${inv.id}`}>{inv.memberName || inv.invited_email || "Unknown member"}</span>
+                <Badge variant={STAGE_VARIANTS[inv.stage] || "outline"} data-testid={`badge-invite-stage-${inv.id}`}>
+                  {String(inv.stage || "").replace(/_/g, " ")}
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Switch from {inv.switch_from_year} · invited {fmtDate(inv.created_at)}
+                {inv.expires_at ? ` · expires ${fmtDate(inv.expires_at)}` : ""}
+                {inv.memberEmail ? ` · ${inv.memberEmail}` : ""}
+              </p>
+            </div>
+            {inv.status === "invited" && (
+              <Button variant="outline" size="sm" disabled={busy}
+                onClick={() => post({ action: "migration_revoke", inviteId: inv.id }, "Invitation revoked")}
+                data-testid={`button-revoke-invite-${inv.id}`}>
+                Revoke
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+// Phase 5 — Renewals tab (membership_dd_renewals ledger)
+const RENEWAL_STATUS_VARIANTS = {
+  notice_sent: "secondary",
+  awaiting_confirmation: "warning",
+  confirmed: "default",
+  auto_renewed: "default",
+  completed: "default",
+  skipped: "outline",
+  failed: "destructive",
+};
+
+function RenewalsTab() {
+  const { data, isLoading } = useQuery({
+    queryKey: ["/api/admin/gocardless-dd", "renewals"],
+    queryFn: () => api("/api/admin/gocardless-dd?view=renewals"),
+  });
+  const renewals = data?.renewals || [];
+  if (isLoading) return <Skeleton className="h-40 w-full" />;
+  if (renewals.length === 0) {
+    return <p className="text-sm text-muted-foreground py-6" data-testid="text-no-renewals">No Direct Debit renewals recorded yet.</p>;
+  }
+  return (
+    <div className="space-y-2">
+      {renewals.map((r) => (
+        <Card key={r.id} data-testid={`card-renewal-${r.id}`}>
+          <CardContent className="py-3 flex items-center justify-between gap-2 flex-wrap text-sm">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-medium" data-testid={`text-renewal-member-${r.id}`}>{r.memberName || "Unknown member"}</span>
+                <Badge variant={RENEWAL_STATUS_VARIANTS[r.status] || "outline"} data-testid={`badge-renewal-status-${r.id}`}>
+                  {String(r.status || "").replace(/_/g, " ")}
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {r.renewal_year} · {r.renewal_mode === "auto" ? "automatic" : "confirmation required"}
+                {r.notice_sent_at ? ` · notice ${fmtDate(r.notice_sent_at)}` : ""}
+                {r.confirmed_at ? ` · confirmed ${fmtDate(r.confirmed_at)}` : ""}
+                {r.memberEmail ? ` · ${r.memberEmail}` : ""}
+              </p>
+              {r.failure_reason && <p className="text-xs text-destructive" data-testid={`text-renewal-failure-${r.id}`}>{r.failure_reason}</p>}
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main page
 
 export default function DirectDebitAdmin() {
@@ -638,6 +815,8 @@ export default function DirectDebitAdmin() {
               <TabsTrigger value="plans" data-testid="tab-plans">Plans</TabsTrigger>
               <TabsTrigger value="requests" data-testid="tab-requests">Cancellation requests{summary?.pendingCancellations ? ` (${summary.pendingCancellations})` : ""}</TabsTrigger>
               <TabsTrigger value="reconciliation" data-testid="tab-reconciliation">Payments & payouts</TabsTrigger>
+              <TabsTrigger value="renewals" data-testid="tab-renewals">Renewals</TabsTrigger>
+              <TabsTrigger value="migration" data-testid="tab-migration">Migration</TabsTrigger>
             </TabsList>
 
             <TabsContent value="plans" className="space-y-3">
@@ -681,6 +860,8 @@ export default function DirectDebitAdmin() {
 
             <TabsContent value="requests"><CancellationRequests /></TabsContent>
             <TabsContent value="reconciliation"><Reconciliation /></TabsContent>
+            <TabsContent value="renewals"><RenewalsTab /></TabsContent>
+            <TabsContent value="migration"><MigrationTab /></TabsContent>
           </Tabs>
         </>
       )}

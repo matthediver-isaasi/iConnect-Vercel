@@ -6,6 +6,7 @@ import { sendMembershipInvoiceEmail } from '../_lib/membershipInvoiceEmail.js';
 import { sendTenantEmail } from '../_lib/tenantEmailService.js';
 import { resolveInvoiceAddress } from '../_lib/invoiceAddressResolver.js';
 import { processTenantReminders } from '../_lib/membershipReminders.js';
+import { processTenantDdRenewals } from '../_lib/gocardlessDdRenewals.js';
 
 export default async function handler(req, res) {
   const authHeader = req.headers.authorization;
@@ -83,6 +84,14 @@ export default async function handler(req, res) {
           console.error(`[cron/process-membership-renewals] Error processing member renewals for tenant ${tenantId}:`, memberErr);
           results.errors++;
           results.details.push({ tenantId, error: `Member renewals: ${memberErr.message}` });
+        }
+
+        try {
+          await processTenantDdRenewals(tenantId, results);
+        } catch (ddErr) {
+          console.error(`[cron/process-membership-renewals] Error processing DD renewals for tenant ${tenantId}:`, ddErr);
+          results.errors++;
+          results.details.push({ tenantId, error: `DD renewals: ${ddErr.message}` });
         }
 
         try {

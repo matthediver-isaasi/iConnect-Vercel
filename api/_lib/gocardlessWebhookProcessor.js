@@ -398,6 +398,9 @@ async function processSubscriptionEvent({ event, action, links, db, gc }) {
       reason: 'subscription finished',
       source: 'webhook',
       eventId: event.id,
+      // Phase 5: stamp completion so the renewal cron can detect finished
+      // plans (mandate stays active; membership stays valid).
+      extraUpdate: { completed_at: new Date().toISOString() },
     }, { db });
     if (result.applied && plan.billing_agreement_id) {
       const agreement = await findAgreementById(db, plan.billing_agreement_id);

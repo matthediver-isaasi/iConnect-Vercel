@@ -27,6 +27,7 @@ import {
   activateMembershipForAgreement,
 } from '../_lib/gocardlessDirectDebit.js';
 import { sendDdLifecycleEmail } from '../_lib/gocardlessDdEmails.js';
+import { markRenewalConfirmed } from '../_lib/gocardlessDdRenewals.js';
 import { STATUS } from '../_lib/gocardlessState.js';
 import { authorizeMemberAccess } from './payment-plan.js';
 
@@ -289,6 +290,10 @@ async function handlePost(req, res, resolvedTenantId) {
   }
 
   await sendDdLifecycleEmail('setup_started', agreement, { db: supabase });
+
+  // Phase 5: if a confirmation-required renewal notice is pending for this
+  // year, this start IS the member's confirmation. Best-effort, never throws.
+  await markRenewalConfirmed({ tenantId, memberId: member.id, yearLabel, newAgreementId: agreement.id });
 
   if (reusable) {
     // Mandate is already active: create the subscription now and apply the
