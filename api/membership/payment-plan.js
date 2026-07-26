@@ -115,11 +115,11 @@ async function handleAdminList(req, res) {
     return res.status(403).json({ error: 'Admin access required' });
   }
 
+  // Both individual (member) and organisational plans.
   const { data: plans, error } = await supabase
     .from('membership_payment_plans')
-    .select('*, member!member_id(id, first_name, last_name, email)')
+    .select('*, member!member_id(id, first_name, last_name, email), organization!organization_id(id, name), membership_billing_agreements!billing_agreement_id(id, dd_payer, billing_contact_name, billing_contact_email, mandate_completed_by)')
     .eq('tenant_id', context.tenantId)
-    .not('member_id', 'is', null)
     .order('created_at', { ascending: false })
     .limit(200);
   if (error) return res.status(500).json({ error: 'Failed to load payment plans' });
@@ -127,11 +127,22 @@ async function handleAdminList(req, res) {
   return res.json({
     plans: (plans || []).map((plan) => ({
       ...shapePlan(plan),
+      planType: plan.organization_id ? 'organization' : 'member',
       member: plan.member ? {
         id: plan.member.id,
         name: [plan.member.first_name, plan.member.last_name].filter(Boolean).join(' '),
         email: plan.member.email,
       } : null,
+      organization: plan.organization ? {
+        id: plan.organization.id,
+        name: plan.organization.name,
+      } : null,
+      ddPayer: plan.membership_billing_agreements?.dd_payer || null,
+      billingContact: plan.membership_billing_agreements?.billing_contact_email ? {
+        name: plan.membership_billing_agreements.billing_contact_name || null,
+        email: plan.membership_billing_agreements.billing_contact_email,
+      } : null,
+      mandateCompletedBy: plan.membership_billing_agreements?.mandate_completed_by || null,
     })),
   });
 }

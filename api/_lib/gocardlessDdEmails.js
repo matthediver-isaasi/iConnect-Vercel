@@ -106,7 +106,7 @@ export const DD_EMAIL_EVENTS = Object.freeze(Object.keys(EVENTS));
 function contextFromAgreement(agreement, member) {
   const snap = agreement?.metadata?.dd || {};
   return {
-    firstName: member?.first_name || 'Member',
+    firstName: member?.first_name || (agreement?.organization_id ? 'there' : 'Member'),
     yearLabel: snap.membership_year || 'this year',
     instalmentCount: snap.instalment_count || 12,
     monthlyAmount: snap.monthly_amount != null ? Number(snap.monthly_amount).toFixed(2) : '',
@@ -116,36 +116,131 @@ function contextFromAgreement(agreement, member) {
 }
 
 /**
- * Send one lifecycle email for a DD agreement. Loads the member itself.
+ * Resolve lifecycle-email recipients for an agreement.
+ *   member agreement       -> the member's email
+ *   organisation agreement -> billing contact email (if payer) + the primary
+ *                             contact member's email, de-duplicated.
+ * Returns { recipients: [{ email, firstName }], reason? }.
+ */
+export async function resolveDdEmailRecipients(agreement, { db = supabase } = {}) {
+  if (agreement?.member_id) {
+    const { data: member, error } = await db
+      .from('member')
+      .select('id, email, first_name, last_name')
+      .eq('id', agreement.member_id)
+      .maybeSingle();
+    if (error || !member?.email) return { recipients: [], reason: 'member email not found' };
+    return { recipients: [{ email: member.email, firstName: member.first_name || 'Member' }] };
+  }
+
+  if (agreement?.organization_id) {
+    const recipients = [];
+    if (agreement.dd_payer === 'billing_contact' && agreement.billing_contact_email) {
+      recipients.push({
+        email: agreement.billing_contact_email,
+        firstName: (agreement.billing_contact_name || '').trim().split(/\s+/)[0] || 'there',
+      });
+    }
+    if (agreement.primary_contact_member_id) {
+      const { data: member } = await db
+        .from('member')
+        .select('id, email, first_name')
+        .eq('id', agreement.primary_contact_member_id)
+        .maybeSingle();
+      if (member?.email) {
+        recipients.push({ email: member.email, firstName: member.first_name || 'there' });
+      }
+    }
+    const seen = new Set();
+    const deduped = recipients.filter((r) => {
+      const key = r.email.trim().toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    return deduped.length ? { recipients: deduped } : { recipients: [], reason: 'no organisation recipients' };
+  }
+
+  return { recipients: [], reason: 'no member or organisation on agreement' };
+}
+
+/**
+ * Send one lifecycle email for a DD agreement. Resolves recipients itself
+ * (member, or org billing contact + primary contact).
  * Never throws — logs and returns { sent: boolean }.
  */
 export async function sendDdLifecycleEmail(eventKey, agreement, { db = supabase, send = sendTenantEmail, extraContext = {} } = {}) {
   try {
     const tpl = EVENTS[eventKey];
     if (!tpl) return { sent: false, reason: `unknown event ${eventKey}` };
-    if (!agreement?.member_id) return { sent: false, reason: 'no member on agreement' };
 
-    const { data: member, error } = await db
-      .from('member')
-      .select('id, email, first_name, last_name')
-      .eq('id', agreement.member_id)
-      .maybeSingle();
-    if (error || !member?.email) return { sent: false, reason: 'member email not found' };
+    const { recipients, reason } = await resolveDdEmailRecipients(agreement, { db });
+    if (!recipients.length) return { sent: false, reason: reason || 'no recipients' };
 
-    const ctx = { ...contextFromAgreement(agreement, member), ...extraContext };
+    let sentAny = false;
+    let lastError = null;
+    for (const recipient of recipients) {
+      const ctx = { ...contextFromAgreement(agreement, { first_name: recipient.firstName }), ...extraContext };
+      const result = await send({
+        tenantId: agreement.tenant_id,
+        to: recipient.email,
+        subject: tpl.subject(ctx),
+        html: tpl.body(ctx),
+      });
+      if (result && result.success === false) {
+        console.error(`[DD Emails] ${eventKey} send failed for agreement ${agreement.id} (${recipient.email}):`, result.error);
+        lastError = result.error;
+      } else {
+        sentAny = true;
+      }
+    }
+    return sentAny ? { sent: true } : { sent: false, reason: lastError || 'send failed' };
+  } catch (err) {
+    console.error(`[DD Emails] ${eventKey} failed for agreement ${agreement?.id}:`, err.message);
+    return { sent: false, reason: err.message };
+  }
+}
+
+/**
+ * Phase 3 — billing-contact invitation email. Carries the secure set-up
+ * link; states org, category, monthly amount, instalments, total, expiry.
+ * Never throws — returns { sent: boolean }.
+ */
+export async function sendDdInvitationEmail({ agreement, invitation, organizationName, setupUrl, db = supabase, send = sendTenantEmail } = {}) {
+  try {
+    if (!agreement || !invitation?.invited_email || !setupUrl) {
+      return { sent: false, reason: 'missing agreement/invitation/setupUrl' };
+    }
+    const snap = agreement.metadata?.dd || {};
+    const firstName = (invitation.invited_name || '').trim().split(/\s+/)[0] || 'there';
+    const currency = snap.currency || 'GBP';
+    const monthly = snap.monthly_amount != null ? Number(snap.monthly_amount).toFixed(2) : '';
+    const total = snap.plan_total != null ? Number(snap.plan_total).toFixed(2) : '';
+    const expiry = invitation.expires_at
+      ? new Date(invitation.expires_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+      : null;
+
     const result = await send({
       tenantId: agreement.tenant_id,
-      to: member.email,
-      subject: tpl.subject(ctx),
-      html: tpl.body(ctx),
+      to: invitation.invited_email,
+      subject: `Direct Debit set-up requested for ${organizationName || 'your organisation'}`,
+      html: `
+        <p>Hi ${firstName},</p>
+        <p>You've been asked to set up the Direct Debit for <strong>${organizationName || 'your organisation'}</strong>'s
+        ${snap.membership_year || ''} membership${snap.tier_label ? ` (${snap.tier_label})` : ''}.</p>
+        <p>The plan is ${snap.instalment_count || 12} monthly payments of ${currency} ${monthly}${total ? ` (total ${currency} ${total})` : ''}.</p>
+        <p><a href="${setupUrl}">Review the details and set up the Direct Debit</a></p>
+        ${expiry ? `<p>This link expires on <strong>${expiry}</strong>.</p>` : ''}
+        <p>You'll be asked to confirm that you are authorised to set up Direct Debits on the organisation's bank account.
+        Payments are protected by the Direct Debit Guarantee.</p>`,
     });
     if (result && result.success === false) {
-      console.error(`[DD Emails] ${eventKey} send failed for agreement ${agreement.id}:`, result.error);
+      console.error(`[DD Emails] invitation send failed for agreement ${agreement.id}:`, result.error);
       return { sent: false, reason: result.error };
     }
     return { sent: true };
   } catch (err) {
-    console.error(`[DD Emails] ${eventKey} failed for agreement ${agreement?.id}:`, err.message);
+    console.error(`[DD Emails] invitation failed for agreement ${agreement?.id}:`, err.message);
     return { sent: false, reason: err.message };
   }
 }

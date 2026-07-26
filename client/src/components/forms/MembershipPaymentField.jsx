@@ -41,6 +41,10 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
   const [startingDd, setStartingDd] = useState(false);
   const [ddStarted, setDdStarted] = useState(false);
   const [hasDdPlan, setHasDdPlan] = useState(false);
+  const [ddPayerChoice, setDdPayerChoice] = useState('self');
+  const [billingContactEmail, setBillingContactEmail] = useState('');
+  const [billingContactName, setBillingContactName] = useState('');
+  const [ddInviteSent, setDdInviteSent] = useState(false);
 
   const cardRef = useRef(null);
   const stripeRef = useRef(null);
@@ -391,19 +395,45 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
   };
 
   const startDirectDebit = async () => {
+    const isOrgDd = data?.directDebit?.scope === 'organization';
+    if (isOrgDd && ddPayerChoice === 'billing_contact' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(billingContactEmail.trim())) {
+      setPaymentError('Please enter a valid billing contact email address.');
+      return;
+    }
     setStartingDd(true);
     setPaymentError(null);
     try {
-      const res = await fetch('/api/membership/direct-debit', {
+      const endpoint = isOrgDd ? '/api/membership/org-direct-debit' : '/api/membership/direct-debit';
+      const body = isOrgDd
+        ? {
+            action: 'start',
+            memberId,
+            payerChoice: ddPayerChoice,
+            ...(ddPayerChoice === 'billing_contact' ? {
+              billingContactEmail: billingContactEmail.trim(),
+              billingContactName: billingContactName.trim(),
+            } : {}),
+          }
+        : { action: 'start', memberId };
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ action: 'start', memberId }),
+        body: JSON.stringify(body),
       });
       const result = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(result.error || 'Failed to start Direct Debit set-up');
       if (result.authorisationUrl) {
         window.location.href = result.authorisationUrl;
+        return;
+      }
+      if (isOrgDd && (result.invitationSent || result.warning)) {
+        setDdInviteSent(true);
+        setDdStarted(true);
+        if (result.warning) setPaymentError(result.warning);
+        if (onChange) {
+          onChange({ status: 'direct_debit_invitation_sent', membershipYear: data?.membershipYear, agreementId: result.agreementId });
+        }
         return;
       }
       setDdStarted(true);
@@ -648,6 +678,65 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
                       {firstCollectionText}
                     </p>
                   )}
+                  {dd.scope === 'organization' && (
+                    <div className="space-y-2 pt-1" data-testid={`dd-payer-choice-${field.id}`}>
+                      <p className="text-xs font-medium">Who will set up the Direct Debit?</p>
+                      <label className="flex items-start gap-2 text-sm cursor-pointer">
+                        <input
+                          type="radio"
+                          name={`dd-payer-${field.id}`}
+                          value="self"
+                          checked={ddPayerChoice === 'self'}
+                          onChange={() => setDdPayerChoice('self')}
+                          className="mt-0.5"
+                          disabled={disabled || startingDd}
+                          data-testid={`radio-dd-payer-self-${field.id}`}
+                        />
+                        <span>
+                          I will set it up now
+                          <span className="block text-xs text-muted-foreground">You must be authorised to set up Direct Debits on the organisation's bank account.</span>
+                        </span>
+                      </label>
+                      <label className="flex items-start gap-2 text-sm cursor-pointer">
+                        <input
+                          type="radio"
+                          name={`dd-payer-${field.id}`}
+                          value="billing_contact"
+                          checked={ddPayerChoice === 'billing_contact'}
+                          onChange={() => setDdPayerChoice('billing_contact')}
+                          className="mt-0.5"
+                          disabled={disabled || startingDd}
+                          data-testid={`radio-dd-payer-billing-${field.id}`}
+                        />
+                        <span>
+                          Send a secure set-up link to our billing contact
+                          <span className="block text-xs text-muted-foreground">They'll receive an email with the plan details and a link to complete the set-up.</span>
+                        </span>
+                      </label>
+                      {ddPayerChoice === 'billing_contact' && (
+                        <div className="space-y-2 pl-6">
+                          <input
+                            type="text"
+                            value={billingContactName}
+                            onChange={(e) => setBillingContactName(e.target.value)}
+                            placeholder="Billing contact name (optional)"
+                            className="w-full border rounded-md px-3 py-2 text-sm bg-background"
+                            disabled={disabled || startingDd}
+                            data-testid={`input-billing-contact-name-${field.id}`}
+                          />
+                          <input
+                            type="email"
+                            value={billingContactEmail}
+                            onChange={(e) => setBillingContactEmail(e.target.value)}
+                            placeholder="Billing contact email"
+                            className="w-full border rounded-md px-3 py-2 text-sm bg-background"
+                            disabled={disabled || startingDd}
+                            data-testid={`input-billing-contact-email-${field.id}`}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <Button
                     variant="outline"
                     onClick={startDirectDebit}
@@ -658,12 +747,12 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
                     {startingDd ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Setting up Direct Debit...
+                        {dd.scope === 'organization' && ddPayerChoice === 'billing_contact' ? 'Sending set-up link...' : 'Setting up Direct Debit...'}
                       </>
                     ) : (
                       <>
                         <Landmark className="mr-2 h-4 w-4" />
-                        Set up monthly Direct Debit
+                        {dd.scope === 'organization' && ddPayerChoice === 'billing_contact' ? 'Send Direct Debit set-up link' : 'Set up monthly Direct Debit'}
                       </>
                     )}
                   </Button>
@@ -689,7 +778,9 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
           <div className="flex items-start gap-2 p-3 bg-muted rounded-md" data-testid={`dd-started-${field.id}`}>
             <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0 mt-0.5" />
             <p className="text-sm text-muted-foreground">
-              Your monthly Direct Debit has been set up using your existing bank mandate. You will receive a confirmation email shortly.
+              {ddInviteSent
+                ? `A secure Direct Debit set-up link has been emailed to ${billingContactEmail.trim() || 'your billing contact'}. Your membership will be confirmed once they complete the set-up.`
+                : 'Your monthly Direct Debit has been set up using your existing bank mandate. You will receive a confirmation email shortly.'}
             </p>
           </div>
         )}

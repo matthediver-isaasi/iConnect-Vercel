@@ -305,13 +305,20 @@ export async function ensureSubscriptionForAgreement(agreement, deps = {}) {
  * this flips it to 'active' (auto rules) or 'pending_activation' (manual).
  * Idempotent — no-op when already active.
  */
+export function membershipHistoryTableForAgreement(agreement) {
+  if (agreement?.member_id) return 'member_membership_history';
+  if (agreement?.organization_id) return 'organisation_membership_history';
+  return null;
+}
+
 export async function activateMembershipForAgreement(agreement, { trigger, db: dbArg } = {}) {
   const db = dbArg || supabase;
   const snapshot = agreement?.metadata?.dd;
-  if (!snapshot || !agreement.member_id) return { updated: false, detail: 'no DD snapshot or member' };
+  const table = membershipHistoryTableForAgreement(agreement);
+  if (!snapshot || !table) return { updated: false, detail: 'no DD snapshot or member/organisation' };
 
   const { data: row, error } = await db
-    .from('member_membership_history')
+    .from(table)
     .select('id, status')
     .eq('billing_agreement_id', agreement.id)
     .maybeSingle();
@@ -326,7 +333,7 @@ export async function activateMembershipForAgreement(agreement, { trigger, db: d
   }
 
   const { error: upErr } = await db
-    .from('member_membership_history')
+    .from(table)
     .update({ status: nextStatus })
     .eq('id', row.id)
     .eq('status', row.status);
@@ -342,9 +349,10 @@ export async function activateMembershipForAgreement(agreement, { trigger, db: d
  */
 export async function recordDdPaymentProgress(agreement, { db: dbArg } = {}) {
   const db = dbArg || supabase;
-  if (!agreement?.member_id) return { updated: false };
+  const table = membershipHistoryTableForAgreement(agreement);
+  if (!table) return { updated: false };
   const { data: row } = await db
-    .from('member_membership_history')
+    .from(table)
     .select('id, payment_status')
     .eq('billing_agreement_id', agreement.id)
     .maybeSingle();
@@ -352,7 +360,7 @@ export async function recordDdPaymentProgress(agreement, { db: dbArg } = {}) {
     return { updated: false };
   }
   const { error } = await db
-    .from('member_membership_history')
+    .from(table)
     .update({ payment_status: 'partial' })
     .eq('id', row.id);
   if (error) throw new Error(`update payment_status failed: ${error.message}`);
@@ -363,13 +371,14 @@ export async function recordDdPaymentProgress(agreement, { db: dbArg } = {}) {
  * Find a reusable active mandate for a member (renewal path). Returns
  * { mandateId, customerId } or null.
  */
-export async function findReusableMandate({ tenantId, memberId, db: dbArg } = {}) {
+export async function findReusableMandate({ tenantId, memberId = null, organizationId = null, db: dbArg } = {}) {
   const db = dbArg || supabase;
-  const { data: customers, error } = await db
+  let query = db
     .from('gocardless_customers')
     .select('gocardless_customer_id')
-    .eq('tenant_id', tenantId)
-    .eq('member_id', memberId);
+    .eq('tenant_id', tenantId);
+  query = organizationId ? query.eq('organization_id', organizationId) : query.eq('member_id', memberId);
+  const { data: customers, error } = await query;
   if (error || !customers?.length) return null;
   const customerIds = customers.map((c) => c.gocardless_customer_id);
   const { data: mandates, error: mErr } = await db

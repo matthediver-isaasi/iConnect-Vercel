@@ -349,6 +349,7 @@ import SubmitPOPage from "./SubmitPOPage";
 import GroupBookingPage from "./GroupBookingPage";
 import GuestApprovalPage from "./GuestApprovalPage";
 import MemberGroupRoleInvitePage from "./MemberGroupRoleInvitePage";
+import DirectDebitInvitationPage from "./DirectDebitInvitationPage";
 
 import MembershipFees from "./MembershipFees";
 
@@ -1252,6 +1253,7 @@ function StandaloneRoutes() {
             <Route path="/group-booking/:token" element={<GroupBookingPage />} />
             <Route path="/guest-approval/:token" element={<GuestApprovalPage />} />
             <Route path="/group-role-invite/:token" element={<MemberGroupRoleInvitePage />} />
+            <Route path="/dd-setup/:token" element={<DirectDebitInvitationPage />} />
             <Route path="/EventDetails" element={<EventDetails />} />
             <Route path="/events/:eventSlug" element={<EventDetails />} />
             <Route path="/ComplexEventDetail" element={<ComplexEventDetail />} />
@@ -1359,6 +1361,7 @@ function AppRoutes() {
     const isGroupBookingPage = location.pathname.toLowerCase().startsWith('/group-booking/');
     const isGuestApprovalPage = location.pathname.toLowerCase().startsWith('/guest-approval/');
     const isGroupRoleInvitePage = location.pathname.toLowerCase().startsWith('/group-role-invite/');
+    const isDdSetupPage = location.pathname.toLowerCase().startsWith('/dd-setup/');
     const isCampaignsPage = location.pathname.toLowerCase() === '/campaigns';
     
     // Use window.location.search to reliably detect embed param (works even before routing)
@@ -1367,7 +1370,7 @@ function AppRoutes() {
     const isAdminPage = location.pathname.toLowerCase().startsWith('/admin');
     const isPlatformPage = location.pathname.toLowerCase().startsWith('/platform');
     
-    if (isStandalonePage || isEmbedPage || isBookingPage || isDonatePage || isFundraisePage || isFundraiserPage || isMembershipFeePage || isSubmitPoPage || isGroupBookingPage || isGuestApprovalPage || isGroupRoleInvitePage || isCampaignsPage || hasEmbedParam) {
+    if (isStandalonePage || isEmbedPage || isBookingPage || isDonatePage || isFundraisePage || isFundraiserPage || isMembershipFeePage || isSubmitPoPage || isGroupBookingPage || isGuestApprovalPage || isGroupRoleInvitePage || isDdSetupPage || isCampaignsPage || hasEmbedParam) {
         return <StandaloneRoutes />;
     }
     

@@ -248,11 +248,12 @@ async function handleGet(req, res, resolvedTenantId) {
   });
 }
 
-// Phase 2: monthly Direct Debit is offered only to individual (member-scoped)
-// memberships, when the tier config enables it AND the tenant has usable
-// GoCardless credentials. Returns the offer object or null.
+// Phase 2 offered monthly Direct Debit to individual memberships; Phase 3
+// extends it to organisational memberships (with a payer choice on the
+// frontend). Offered when the tier config enables it AND the tenant has
+// usable GoCardless credentials. Returns the offer object (tagged with
+// scope) or null.
 async function resolveDirectDebitOption(isMemberScoped, tenantId, simResult) {
-  if (!isMemberScoped) return null;
   const offer = resolveDdOffer(simResult);
   if (!offer) return null;
   try {
@@ -261,7 +262,7 @@ async function resolveDirectDebitOption(isMemberScoped, tenantId, simResult) {
   } catch {
     return null;
   }
-  return offer;
+  return { ...offer, scope: isMemberScoped ? 'member' : 'organization' };
 }
 
 const STRIPE_MIN_CENTS = { gbp: 30, usd: 50, eur: 50, aud: 50, nzd: 50 };

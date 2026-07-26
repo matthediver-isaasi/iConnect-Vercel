@@ -24,7 +24,9 @@ import {
   ensureSubscriptionForAgreement,
   activateMembershipForAgreement,
   recordDdPaymentProgress,
+  membershipHistoryTableForAgreement,
 } from './gocardlessDirectDebit.js';
+import { markInvitationCompletedForAgreement } from './gocardlessDdInvitations.js';
 import { sendDdLifecycleEmail } from './gocardlessDdEmails.js';
 
 // Emails are best-effort: they must never fail the event (which would mark
@@ -176,6 +178,16 @@ async function processBillingRequestEvent({ event, action, links, db, gc }) {
       eventId: event.id,
       extraUpdate,
     }, { db });
+
+    // Phase 3: a billing-contact invitation link becomes single-use once the
+    // mandate flow completes. Best-effort — never fails the event.
+    if (agreement.organization_id) {
+      try {
+        await markInvitationCompletedForAgreement(agreement.id, { db });
+      } catch (err) {
+        console.error('[GC Webhook] mark DD invitation completed failed:', err.message);
+      }
+    }
     return { handled: true, detail: `billing request fulfilled: ${JSON.stringify(result)}` };
   }
 
@@ -379,12 +391,17 @@ async function processSubscriptionEvent({ event, action, links, db, gc }) {
       const agreement = await findAgreementById(db, plan.billing_agreement_id);
       if (agreement?.metadata?.dd?.kind === 'monthly_direct_debit') {
         // All instalments collected — the membership year is fully settled.
-        const { error: payErr } = await db
-          .from('member_membership_history')
-          .update({ payment_status: 'paid', paid_at: new Date().toISOString() })
-          .eq('billing_agreement_id', agreement.id)
-          .neq('payment_status', 'paid');
-        if (payErr) console.error('[GC Webhook] mark DD membership paid failed:', payErr.message);
+        // Member agreements settle member_membership_history; organisational
+        // agreements settle organisation_membership_history.
+        const historyTable = membershipHistoryTableForAgreement(agreement);
+        if (historyTable) {
+          const { error: payErr } = await db
+            .from(historyTable)
+            .update({ payment_status: 'paid', paid_at: new Date().toISOString() })
+            .eq('billing_agreement_id', agreement.id)
+            .neq('payment_status', 'paid');
+          if (payErr) console.error('[GC Webhook] mark DD membership paid failed:', payErr.message);
+        }
         await safeDdEmail('plan_completed', agreement, { db });
       }
     }
