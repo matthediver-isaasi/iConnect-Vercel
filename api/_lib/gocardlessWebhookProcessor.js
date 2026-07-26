@@ -20,6 +20,23 @@
 import { supabase } from './database.js';
 import * as gocardless from './gocardless.js';
 import { applyStatusTransition, STATUS } from './gocardlessState.js';
+import {
+  ensureSubscriptionForAgreement,
+  activateMembershipForAgreement,
+  recordDdPaymentProgress,
+} from './gocardlessDirectDebit.js';
+import { sendDdLifecycleEmail } from './gocardlessDdEmails.js';
+
+// Emails are best-effort: they must never fail the event (which would mark
+// it 'failed' and trigger redelivery/reprocessing of a correct state change).
+async function safeDdEmail(eventKey, agreement, opts) {
+  try {
+    return await sendDdLifecycleEmail(eventKey, agreement, opts);
+  } catch (err) {
+    console.error(`[GC Webhook] DD email ${eventKey} failed:`, err.message);
+    return { sent: false };
+  }
+}
 
 function defaultDeps(deps) {
   return {
@@ -40,6 +57,16 @@ async function findAgreementByBillingRequest(db, billingRequestId) {
     .eq('gocardless_billing_request_id', billingRequestId)
     .maybeSingle();
   if (error) throw new Error(`load agreement by billing request failed: ${error.message}`);
+  return data || null;
+}
+
+async function findAgreementById(db, agreementId) {
+  const { data, error } = await db
+    .from('membership_billing_agreements')
+    .select('*')
+    .eq('id', agreementId)
+    .maybeSingle();
+  if (error) throw new Error(`load agreement by id failed: ${error.message}`);
   return data || null;
 }
 
@@ -161,6 +188,9 @@ async function processBillingRequestEvent({ event, action, links, db, gc }) {
       source: 'webhook',
       eventId: event.id,
     }, { db });
+    if (result.applied && agreement.metadata?.dd?.kind === 'monthly_direct_debit') {
+      await safeDdEmail('setup_incomplete', agreement, { db });
+    }
     return { handled: true, detail: `billing request ${action}: ${JSON.stringify(result)}` };
   }
 
@@ -217,6 +247,26 @@ async function processMandateEvent({ event, action, links, db, gc }) {
         eventId: event.id,
       }, { db });
       details.push(`agreement: ${JSON.stringify(result)}`);
+
+      // Phase 2: a monthly-DD agreement now has an active mandate — create
+      // the subscription from the stored snapshot and apply the tier's
+      // activation rule. Both are idempotent, so re-delivered events are safe.
+      if (agreement.metadata?.dd?.kind === 'monthly_direct_debit') {
+        const subResult = await ensureSubscriptionForAgreement(agreement, { db, gc });
+        details.push(`dd subscription: ${subResult.detail}`);
+        const actResult = await activateMembershipForAgreement(agreement, { trigger: 'mandate_active', db });
+        details.push(`dd activation: ${actResult.detail}`);
+        const firstChargeDate = subResult.plan?.next_charge_date || subResult.plan?.start_date || null;
+        if (result.applied) {
+          await safeDdEmail('mandate_active', agreement, { db, extraContext: { firstChargeDate } });
+        }
+        if (subResult.created) {
+          await safeDdEmail('first_collection_scheduled', agreement, { db, extraContext: { firstChargeDate } });
+        }
+        if (actResult.activated) {
+          await safeDdEmail('membership_activated', agreement, { db });
+        }
+      }
     }
     return { handled: true, detail: details.join('; ') || 'mandate active (no local rows)' };
   }
@@ -246,6 +296,9 @@ async function processMandateEvent({ event, action, links, db, gc }) {
           eventId: event.id,
         }, { db });
         details.push(`agreement: ${JSON.stringify(result)}`);
+        if (result.applied && agreement.metadata?.dd?.kind === 'monthly_direct_debit') {
+          await safeDdEmail('plan_cancelled', agreement, { db });
+        }
       }
       const plans = await findPlansByMandate(db, mandateId);
       for (const plan of plans) {
@@ -304,6 +357,12 @@ async function processSubscriptionEvent({ event, action, links, db, gc }) {
       source: 'webhook',
       eventId: event.id,
     }, { db });
+    if (result.applied && plan.billing_agreement_id) {
+      const agreement = await findAgreementById(db, plan.billing_agreement_id);
+      if (agreement?.metadata?.dd?.kind === 'monthly_direct_debit') {
+        await safeDdEmail('plan_cancelled', agreement, { db });
+      }
+    }
     return { handled: true, detail: `subscription cancelled: ${JSON.stringify(result)}` };
   }
 
@@ -316,6 +375,19 @@ async function processSubscriptionEvent({ event, action, links, db, gc }) {
       source: 'webhook',
       eventId: event.id,
     }, { db });
+    if (result.applied && plan.billing_agreement_id) {
+      const agreement = await findAgreementById(db, plan.billing_agreement_id);
+      if (agreement?.metadata?.dd?.kind === 'monthly_direct_debit') {
+        // All instalments collected — the membership year is fully settled.
+        const { error: payErr } = await db
+          .from('member_membership_history')
+          .update({ payment_status: 'paid', paid_at: new Date().toISOString() })
+          .eq('billing_agreement_id', agreement.id)
+          .neq('payment_status', 'paid');
+        if (payErr) console.error('[GC Webhook] mark DD membership paid failed:', payErr.message);
+        await safeDdEmail('plan_completed', agreement, { db });
+      }
+    }
     return { handled: true, detail: `subscription finished: ${JSON.stringify(result)}` };
   }
 
@@ -399,6 +471,27 @@ async function processPaymentEvent({ event, action, links, db, gc }) {
         source: 'webhook',
         eventId: event.id,
       }, { db });
+
+      // Phase 2: first confirmed collection — apply the tier's activation
+      // rule, mark the membership row's payment progress, and send the
+      // first-payment email exactly once (on the actual state transition).
+      const agreement = await findAgreementById(db, plan.billing_agreement_id);
+      if (agreement?.metadata?.dd?.kind === 'monthly_direct_debit') {
+        const actResult = await activateMembershipForAgreement(agreement, { trigger: 'first_payment_confirmed', db });
+        await recordDdPaymentProgress(agreement, { db });
+        if (actResult.activated) {
+          await safeDdEmail('membership_activated', agreement, { db });
+        }
+        if (result.applied && result.fromStatus === STATUS.FIRST_PAYMENT_PENDING) {
+          await safeDdEmail('first_payment', agreement, { db });
+        } else if (action === 'confirmed') {
+          // Subsequent instalment confirmed — 'confirmed' only, so the later
+          // paid_out event for the same payment doesn't send a duplicate
+          // (event-level idempotency also guards webhook redelivery).
+          await safeDdEmail('payment_confirmed', agreement, { db });
+        }
+        return { handled: true, detail: `payment ${action}: ${JSON.stringify(result)}; dd activation: ${actResult.detail}` };
+      }
     }
     return { handled: true, detail: `payment ${action}: ${JSON.stringify(result)}` };
   }
@@ -415,6 +508,12 @@ async function processPaymentEvent({ event, action, links, db, gc }) {
       eventId: event.id,
       extraUpdate: { ...planUpdate, retry_count: retryCount },
     }, { db });
+    if (result.applied && plan.billing_agreement_id) {
+      const agreement = await findAgreementById(db, plan.billing_agreement_id);
+      if (agreement?.metadata?.dd?.kind === 'monthly_direct_debit') {
+        await safeDdEmail(toStatus === STATUS.PAYMENT_OVERDUE ? 'payment_overdue' : 'payment_failed', agreement, { db });
+      }
+    }
     return { handled: true, detail: `payment ${action}: ${JSON.stringify(result)}` };
   }
 

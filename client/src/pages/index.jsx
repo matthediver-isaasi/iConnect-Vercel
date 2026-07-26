@@ -103,6 +103,8 @@ import PostJob from "./PostJob";
 
 import JobPostSuccess from "./JobPostSuccess";
 
+import DirectDebitReturn from "./DirectDebitReturn";
+
 import JobBoardSettings from "./JobBoardSettings";
 
 import JobPostingManagement from "./JobPostingManagement";
@@ -558,6 +560,8 @@ const PAGES = {
     
     JobPostSuccess: JobPostSuccess,
     
+    DirectDebitReturn: DirectDebitReturn,
+    
     JobBoardSettings: JobBoardSettings,
     
     JobPostingManagement: JobPostingManagement,
@@ -801,6 +805,10 @@ function _getCurrentPage(url) {
         return 'HelpArticleView';
     }
     
+    if (urlParts.length >= 2 && urlParts[0].toLowerCase() === 'membership' && urlParts[1].toLowerCase() === 'direct-debit') {
+        return 'DirectDebitReturn';
+    }
+    
     let urlLastPart = url.split('/').pop();
     if (urlLastPart.includes('?')) {
         urlLastPart = urlLastPart.split('?')[0];
@@ -953,6 +961,9 @@ function PagesContent() {
                 <Route path="/PostJob" element={<PostJob />} />
                 
                 <Route path="/JobPostSuccess" element={<JobPostSuccess />} />
+                
+                <Route path="/membership/direct-debit/complete" element={<DirectDebitReturn outcome="complete" />} />
+                <Route path="/membership/direct-debit/cancelled" element={<DirectDebitReturn outcome="cancelled" />} />
                 
                 <Route path="/JobBoardSettings" element={<JobBoardSettings />} />
                 

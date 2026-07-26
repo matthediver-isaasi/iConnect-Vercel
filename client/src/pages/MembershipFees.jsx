@@ -9,6 +9,7 @@ import {
   AlertCircle, Building2, FileText, RefreshCw, ShieldAlert, Send
 } from "lucide-react";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import DirectDebitPlanCard from "@/components/membership/DirectDebitPlanCard";
 
 function formatCurrency(amount, currency) {
   const symbols = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' };
@@ -356,6 +357,8 @@ export default function MembershipFees() {
         <Building2 className="w-5 h-5 text-muted-foreground" />
         <h1 className="text-xl font-semibold" data-testid="text-page-title">Membership Fees</h1>
       </div>
+
+      {memberInfo?.id && <DirectDebitPlanCard memberId={memberInfo.id} />}
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">

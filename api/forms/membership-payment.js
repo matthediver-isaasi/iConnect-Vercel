@@ -3,6 +3,8 @@ import { simulateMembershipForOrg, simulateMembershipForMember } from '../_lib/m
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { resolveInvoiceAddress } from '../_lib/invoiceAddressResolver.js';
 import { buildInvoiceColumnUpdate } from '../_lib/accountingProvider.js';
+import { resolveDdOffer } from '../_lib/gocardlessDirectDebit.js';
+import { getGocardlessCredentials } from '../_lib/gocardlessCredentials.js';
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -235,6 +237,7 @@ async function handleGet(req, res, resolvedTenantId) {
     costBreakdown,
     stripeEnabled: !!stripePublishableKey,
     stripePublishableKey,
+    directDebit: await resolveDirectDebitOption(isMemberScoped, tenantId, simResult),
     existingRecord: existingRecord ? {
       id: existingRecord.id,
       status: existingRecord.status,
@@ -243,6 +246,22 @@ async function handleGet(req, res, resolvedTenantId) {
     approvalPending: approvalInfo.blocked || false,
     approvalMessage: approvalInfo.blocked ? approvalInfo.message : null,
   });
+}
+
+// Phase 2: monthly Direct Debit is offered only to individual (member-scoped)
+// memberships, when the tier config enables it AND the tenant has usable
+// GoCardless credentials. Returns the offer object or null.
+async function resolveDirectDebitOption(isMemberScoped, tenantId, simResult) {
+  if (!isMemberScoped) return null;
+  const offer = resolveDdOffer(simResult);
+  if (!offer) return null;
+  try {
+    const creds = await getGocardlessCredentials(tenantId);
+    if (!creds?.accessToken) return null;
+  } catch {
+    return null;
+  }
+  return offer;
 }
 
 const STRIPE_MIN_CENTS = { gbp: 30, usd: 50, eur: 50, aud: 50, nzd: 50 };

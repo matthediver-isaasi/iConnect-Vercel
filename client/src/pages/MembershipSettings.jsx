@@ -8,11 +8,109 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Settings, Save, Loader2, ShieldCheck, MessageSquare, Clock, BookOpen, PackagePlus } from "lucide-react";
+import { Settings, Save, Loader2, ShieldCheck, MessageSquare, Clock, BookOpen, PackagePlus, Landmark } from "lucide-react";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { base44 } from "@/api/base44Client";
+
+const CURRENCY_SYMBOLS = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' };
+
+function fmtMoney(amount, currency) {
+  if (amount == null) return '-';
+  const symbol = CURRENCY_SYMBOLS[currency] || `${currency || ''} `;
+  return `${symbol}${parseFloat(amount).toFixed(2)}`;
+}
+
+function fmtDate(d) {
+  if (!d) return '-';
+  try {
+    return new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  } catch {
+    return d;
+  }
+}
+
+const DD_STATUS_VARIANTS = {
+  active: 'default',
+  pending: 'secondary',
+  completed: 'secondary',
+  paused: 'warning',
+  payment_failed: 'destructive',
+  cancelled: 'outline',
+};
+
+function DirectDebitPlansAdminCard() {
+  const [plans, setPlans] = useState(null);
+  const [loadError, setLoadError] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/membership/payment-plan?admin=1', { credentials: 'include' })
+      .then(async (res) => {
+        if (!res.ok) throw new Error('Failed to load Direct Debit plans');
+        return res.json();
+      })
+      .then((json) => { if (!cancelled) setPlans(json.plans || []); })
+      .catch((err) => { if (!cancelled) setLoadError(err.message); });
+    return () => { cancelled = true; };
+  }, []);
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Landmark className="w-4 h-4" />
+          Monthly Direct Debit Plans
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {loadError ? (
+          <p className="text-sm text-muted-foreground" data-testid="text-dd-plans-error">{loadError}</p>
+        ) : plans === null ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="loading-dd-plans">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Loading plans...
+          </div>
+        ) : plans.length === 0 ? (
+          <p className="text-sm text-muted-foreground" data-testid="text-dd-plans-empty">
+            No members are paying by monthly Direct Debit yet.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {plans.map((plan) => (
+              <div
+                key={plan.id}
+                className="flex items-center justify-between gap-2 flex-wrap rounded-md border p-3"
+                data-testid={`row-dd-plan-${plan.id}`}
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate">
+                    {plan.member?.name || plan.member?.email || 'Unknown member'}
+                  </p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {plan.member?.email}{plan.membershipYear ? ` \u00b7 ${plan.membershipYear}` : ''}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <span className="text-sm" data-testid={`text-dd-plan-amount-${plan.id}`}>
+                    {fmtMoney(plan.monthlyAmount, plan.currency)}/mo
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    Next: {fmtDate(plan.nextChargeDate)}
+                  </span>
+                  <Badge variant={DD_STATUS_VARIANTS[plan.status] || 'outline'} data-testid={`badge-dd-plan-status-${plan.id}`}>
+                    {(plan.status || 'pending').replace(/_/g, ' ')}
+                  </Badge>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function MembershipSettings() {
   const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -351,6 +449,8 @@ export default function MembershipSettings() {
           )}
         </CardContent>
       </Card>
+
+      <DirectDebitPlansAdminCard />
 
       <div className="flex justify-end">
         <Button

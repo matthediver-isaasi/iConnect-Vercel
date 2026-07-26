@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { Loader2, CheckCircle2, CreditCard, AlertCircle, Info } from "lucide-react";
+import { Loader2, CheckCircle2, CreditCard, AlertCircle, Info, Landmark } from "lucide-react";
+import DirectDebitPlanCard from "@/components/membership/DirectDebitPlanCard";
 
 const CURRENCY_SYMBOLS = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' };
 const STRIPE_MINIMUMS = { GBP: 0.30, USD: 0.50, EUR: 0.50, AUD: 0.50, NZD: 0.50 };
@@ -37,6 +38,9 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
   const [paymentComplete, setPaymentComplete] = useState(false);
   const [paymentError, setPaymentError] = useState(null);
   const [paymentYear, setPaymentYear] = useState(null);
+  const [startingDd, setStartingDd] = useState(false);
+  const [ddStarted, setDdStarted] = useState(false);
+  const [hasDdPlan, setHasDdPlan] = useState(false);
 
   const cardRef = useRef(null);
   const stripeRef = useRef(null);
@@ -91,6 +95,20 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
     }
     fetchFees();
   }, [memberId]);
+
+  useEffect(() => {
+    if (!memberId) return;
+    let cancelled = false;
+    fetch(`/api/membership/payment-plan?memberId=${encodeURIComponent(memberId)}`, { credentials: 'include' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => {
+        if (cancelled) return;
+        const plan = json?.currentPlan;
+        if (plan && !['cancelled', 'completed'].includes(plan.status)) setHasDdPlan(true);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [memberId, ddStarted]);
 
   useEffect(() => {
     if (!memberId || paymentComplete || paymentMode) return;
@@ -372,6 +390,33 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
     }
   };
 
+  const startDirectDebit = async () => {
+    setStartingDd(true);
+    setPaymentError(null);
+    try {
+      const res = await fetch('/api/membership/direct-debit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ action: 'start', memberId }),
+      });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(result.error || 'Failed to start Direct Debit set-up');
+      if (result.authorisationUrl) {
+        window.location.href = result.authorisationUrl;
+        return;
+      }
+      setDdStarted(true);
+      if (onChange) {
+        onChange({ status: 'direct_debit_started', membershipYear: data?.membershipYear, agreementId: result.agreementId });
+      }
+    } catch (err) {
+      setPaymentError(err.message);
+    } finally {
+      setStartingDd(false);
+    }
+  };
+
   if (!memberId) {
     return (
       <Card data-testid={`membership-payment-no-member-${field.id}`}>
@@ -539,28 +584,119 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
           </div>
         )}
 
-        {!data.approvalPending && !belowMinimum && data.stripeEnabled && !paymentMode && (
-          <Button
-            onClick={initStripe}
-            disabled={disabled || creatingPayment}
-            className="w-full"
-            data-testid={`button-pay-membership-${field.id}`}
-          >
-            {creatingPayment ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Preparing payment...
-              </>
-            ) : (
-              <>
-                <CreditCard className="mr-2 h-4 w-4" />
-                Pay {formatCurrency(payableAmount, data.currency)}
-              </>
-            )}
-          </Button>
+        {(() => {
+          const showStripeOption = !data.approvalPending && !belowMinimum && data.stripeEnabled && !paymentMode;
+          const showDdOption = !data.approvalPending && !ddStarted && !hasDdPlan && data.directDebit && !paymentMode;
+          if (!showStripeOption && !showDdOption) return null;
+          const dd = data.directDebit;
+          const ddCurrency = dd?.currency || data.currency;
+          const firstCollectionText = (() => {
+            if (!dd) return null;
+            if (dd.firstCollectionRule === 'nominated_day' && dd.collectionDay) {
+              const day = dd.collectionDay;
+              const suffix = day % 10 === 1 && day !== 11 ? 'st' : day % 10 === 2 && day !== 12 ? 'nd' : day % 10 === 3 && day !== 13 ? 'rd' : 'th';
+              return `Your first payment will be collected on the next ${day}${suffix} of the month after your bank confirms the Direct Debit.`;
+            }
+            if (dd.firstCollectionRule === 'anniversary') {
+              return 'Your first payment will be collected on your membership anniversary date once your bank confirms the Direct Debit.';
+            }
+            return 'Your first payment will be collected as soon as your bank confirms the Direct Debit (usually within a few working days).';
+          })();
+          return (
+            <div className="space-y-3">
+              {showStripeOption && showDdOption && (
+                <p className="text-sm font-medium">Choose how to pay</p>
+              )}
+              {showStripeOption && (
+                <div className="border rounded-md p-3 space-y-2" data-testid={`option-pay-annual-${field.id}`}>
+                  <div className="flex items-center justify-between flex-wrap gap-1">
+                    <span className="text-sm font-medium">Pay in full</span>
+                    <span className="text-sm font-semibold">{formatCurrency(payableAmount, data.currency)}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">One card payment covering the full membership year.</p>
+                  <Button
+                    onClick={initStripe}
+                    disabled={disabled || creatingPayment}
+                    className="w-full"
+                    data-testid={`button-pay-membership-${field.id}`}
+                  >
+                    {creatingPayment ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Preparing payment...
+                      </>
+                    ) : (
+                      <>
+                        <CreditCard className="mr-2 h-4 w-4" />
+                        Pay {formatCurrency(payableAmount, data.currency)}
+                      </>
+                    )}
+                  </Button>
+                </div>
+              )}
+              {showDdOption && (
+                <div className="border rounded-md p-3 space-y-2" data-testid={`option-pay-monthly-${field.id}`}>
+                  <div className="flex items-center justify-between flex-wrap gap-1">
+                    <span className="text-sm font-medium">Pay monthly by Direct Debit</span>
+                    <span className="text-sm font-semibold">{formatCurrency(dd.monthlyAmount, ddCurrency)}/month</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Your annual membership paid in {dd.instalmentCount} monthly instalments of {formatCurrency(dd.monthlyAmount, ddCurrency)} — {formatCurrency(dd.planTotal, ddCurrency)} in total over {dd.instalmentCount} months.
+                  </p>
+                  {firstCollectionText && (
+                    <p className="text-xs text-muted-foreground" data-testid={`text-dd-first-collection-${field.id}`}>
+                      {firstCollectionText}
+                    </p>
+                  )}
+                  <Button
+                    variant="outline"
+                    onClick={startDirectDebit}
+                    disabled={disabled || startingDd}
+                    className="w-full"
+                    data-testid={`button-direct-debit-${field.id}`}
+                  >
+                    {startingDd ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Setting up Direct Debit...
+                      </>
+                    ) : (
+                      <>
+                        <Landmark className="mr-2 h-4 w-4" />
+                        Set up monthly Direct Debit
+                      </>
+                    )}
+                  </Button>
+                  <p className="text-xs text-muted-foreground" data-testid={`text-dd-total-${field.id}`}>
+                    Payments are protected by the{' '}
+                    <a
+                      href="https://gocardless.com/direct-debit/guarantee/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline"
+                      data-testid={`link-dd-guarantee-${field.id}`}
+                    >
+                      Direct Debit Guarantee
+                    </a>.
+                  </p>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
+        {ddStarted && (
+          <div className="flex items-start gap-2 p-3 bg-muted rounded-md" data-testid={`dd-started-${field.id}`}>
+            <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0 mt-0.5" />
+            <p className="text-sm text-muted-foreground">
+              Your monthly Direct Debit has been set up using your existing bank mandate. You will receive a confirmation email shortly.
+            </p>
+          </div>
         )}
 
-        {!data.stripeEnabled && !data.approvalPending && (
+        {hasDdPlan && <DirectDebitPlanCard memberId={memberId} />}
+
+        {!data.stripeEnabled && !data.directDebit && !data.approvalPending && (
           <div className="flex items-start gap-2 p-3 bg-muted rounded-md">
             <Info className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
             <p className="text-sm text-muted-foreground">

@@ -10,10 +10,11 @@ import { Switch } from "@/components/ui/switch";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Layers, Plus, Trash2, Save, Building2, AlertCircle,
   Search, Download, History, CalendarDays, ChevronRight, ChevronDown, Eye, PlusCircle, Percent, Tag,
-  CheckCircle2, Check, ChevronsUpDown, Copy, Bell, Mail
+  CheckCircle2, Check, ChevronsUpDown, Copy, Bell, Mail, Landmark
 } from "lucide-react";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { toast } from "sonner";
@@ -283,6 +284,15 @@ export default function MembershipTierManagement() {
     flat_vat_rate: null,
     auto_approve_fees: false,
     online_card_payment: false,
+    dd_enabled: false,
+    dd_instalment_count: 12,
+    dd_monthly_amount: null,
+    dd_first_collection_rule: 'earliest',
+    dd_collection_day: 1,
+    dd_activation_rule: 'first_payment',
+    dd_auto_renew: true,
+    dd_grace_days: 7,
+    dd_terms_version: 'v1',
   });
 
   const [selectedActiveConfigId, setSelectedActiveConfigId] = useState(null);
@@ -298,6 +308,7 @@ export default function MembershipTierManagement() {
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [wizardStep, setWizardStep] = useState(7);
   const [fieldErrors, setFieldErrors] = useState({});
+  const [ddTotalConfirmed, setDdTotalConfirmed] = useState(false);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -454,6 +465,7 @@ export default function MembershipTierManagement() {
         invoice_description: c.invoice_description || null,
         auto_approve_fees: c.auto_approve_fees ?? false,
         online_card_payment: c.online_card_payment ?? false,
+        ...ddFieldsFromConfig(c),
         invoice_address_field: c.invoice_address_field_id || (c.invoice_address_field_name ? `core:${c.invoice_address_field_name}` : null),
         invoice_recipients: deriveInvoiceRecipients(c),
         fee_link_email_template_id: c.fee_link_email_template_id || null,
@@ -463,6 +475,7 @@ export default function MembershipTierManagement() {
         min_value: b.min_value?.toString() || '0',
         max_value: b.max_value?.toString() || '',
         annual_cost: b.annual_cost?.toString() || '0',
+        dd_monthly_amount: b.dd_monthly_amount != null ? b.dd_monthly_amount.toString() : '',
       })));
       setDiscounts((historicalData.discounts || []).map(d => ({
         ...d,
@@ -511,6 +524,7 @@ export default function MembershipTierManagement() {
       invoice_description: c.invoice_description || null,
       auto_approve_fees: c.auto_approve_fees ?? false,
       online_card_payment: c.online_card_payment ?? false,
+      ...ddFieldsFromConfig(c),
       invoice_address_field: c.invoice_address_field_id || (c.invoice_address_field_name ? `core:${c.invoice_address_field_name}` : null),
       invoice_recipients: deriveInvoiceRecipients(c),
       fee_link_email_template_id: c.fee_link_email_template_id || null,
@@ -522,6 +536,7 @@ export default function MembershipTierManagement() {
         max_value: b.max_value != null ? b.max_value.toString() : '',
         annual_cost: b.annual_cost?.toString() || '0',
         match_value: b.match_value ?? '',
+        dd_monthly_amount: b.dd_monthly_amount != null ? b.dd_monthly_amount.toString() : '',
       })));
     } else {
       setBands([]);
@@ -783,14 +798,39 @@ export default function MembershipTierManagement() {
     }
   };
 
+  // Spec: when the Direct Debit plan total differs from the annual cost the
+  // admin must EXPLICITLY confirm the difference before saving (not just see
+  // a warning). Flat pricing only — banded DD amounts are validated per band.
+  const ddTotalMismatch = (() => {
+    if (!isMemberScoped || !config.dd_enabled || config.pricing_model !== 'flat') return null;
+    const annual = parseFloat(config.flat_cost);
+    const monthly = parseFloat(config.dd_monthly_amount);
+    const count = parseInt(config.dd_instalment_count, 10) || 12;
+    if (isNaN(annual) || isNaN(monthly)) return null;
+    const planTotal = Math.round(monthly * count * 100) / 100;
+    if (Math.abs(planTotal - annual) < 0.005) return null;
+    return { annual, monthly, count, planTotal };
+  })();
+
   const handleSave = () => {
     const isFlat = config.pricing_model === 'flat';
     const isImmediate = config.start_mode === 'immediate';
 
+    if (ddTotalMismatch && !ddTotalConfirmed) {
+      toast.error('The Direct Debit plan total differs from the annual cost. Tick the confirmation box in the Direct Debit settings to save.');
+      return;
+    }
+
     const { free_period_enabled: _fpe, ...configWithoutUiFlags } = config;
+    const ddEnabled = isMemberScoped && !!config.dd_enabled;
     const payload = {
       config: {
         ...configWithoutUiFlags,
+        dd_enabled: ddEnabled,
+        dd_instalment_count: ddEnabled ? (parseInt(config.dd_instalment_count, 10) || 12) : (config.dd_instalment_count ?? 12),
+        dd_monthly_amount: ddEnabled && isFlat && config.dd_monthly_amount !== '' && config.dd_monthly_amount != null ? parseFloat(config.dd_monthly_amount) : null,
+        dd_collection_day: parseInt(config.dd_collection_day, 10) || 1,
+        dd_grace_days: parseInt(config.dd_grace_days, 10) || 0,
         id: isCreatingNew ? undefined : config.id,
         prorata_enabled: isImmediate ? false : config.prorata_enabled,
         rollover_enabled: isImmediate ? false : config.rollover_enabled,
@@ -808,6 +848,7 @@ export default function MembershipTierManagement() {
           match_value: matchValue,
           annual_cost: parseFloat(b.annual_cost) || 0,
           vat_rate: b.vat_rate || null,
+          dd_monthly_amount: b.dd_monthly_amount !== '' && b.dd_monthly_amount != null && !isNaN(parseFloat(b.dd_monthly_amount)) ? parseFloat(b.dd_monthly_amount) : null,
         };
       }),
       discounts: discounts.map(d => ({
@@ -877,6 +918,20 @@ export default function MembershipTierManagement() {
     setHasChanges(true);
   };
 
+  const ddFieldsFromConfig = (c) => ({
+    dd_enabled: c?.dd_enabled ?? false,
+    dd_instalment_count: c?.dd_instalment_count ?? 12,
+    dd_monthly_amount: c?.dd_monthly_amount ?? null,
+    dd_first_collection_rule: ['earliest', 'nominated_day', 'anniversary'].includes(c?.dd_first_collection_rule)
+      ? c.dd_first_collection_rule : 'earliest',
+    dd_collection_day: c?.dd_collection_day ?? 1,
+    dd_activation_rule: ['mandate', 'first_payment', 'manual'].includes(c?.dd_activation_rule)
+      ? c.dd_activation_rule : 'first_payment',
+    dd_auto_renew: c?.dd_auto_renew ?? true,
+    dd_grace_days: c?.dd_grace_days ?? 7,
+    dd_terms_version: c?.dd_terms_version || 'v1',
+  });
+
   const handleCreateNew = () => {
     const currentConfig = tierData?.config;
     setIsCreatingNew(true);
@@ -907,6 +962,7 @@ export default function MembershipTierManagement() {
       invoice_description: currentConfig?.invoice_description || null,
       auto_approve_fees: false,
       online_card_payment: false,
+      ...ddFieldsFromConfig(null),
       invoice_address_field: null,
       invoice_recipients: { invoicing_email: true, primary_contact: true, role_ids: [] },
       fee_link_email_template_id: null,
@@ -919,6 +975,7 @@ export default function MembershipTierManagement() {
         max_value: b.max_value != null ? b.max_value.toString() : '',
         annual_cost: b.annual_cost?.toString() || '0',
         match_value: b.match_value ?? '',
+        dd_monthly_amount: b.dd_monthly_amount != null ? b.dd_monthly_amount.toString() : '',
       })));
     } else {
       setBands([]);
@@ -1163,6 +1220,10 @@ export default function MembershipTierManagement() {
   const currencySymbol = getCurrencySymbol(config.currency);
   const isHistoricalView = viewingHistorical && historicalData?.isHistorical;
   const isEditable = !isHistoricalView;
+  const showDdBandColumn = isMemberScoped && !!config.dd_enabled && config.pricing_model === 'tiered';
+  const bandGridClass = isTextBasisField
+    ? (showDdBandColumn ? 'md:grid-cols-[1fr_1fr_130px_130px_150px_40px]' : 'md:grid-cols-[1fr_1fr_130px_150px_40px]')
+    : (showDdBandColumn ? 'md:grid-cols-[1fr_100px_100px_130px_130px_150px_40px]' : 'md:grid-cols-[1fr_100px_100px_130px_150px_40px]');
   const historyItems = tierData?.history || [];
   const currentConfigId = tierData?.config?.id;
   const periodLabel = config.billing_period === 'annual' ? 'Annual' : config.billing_period === 'monthly' ? 'Monthly' : 'Quarterly';
@@ -1448,6 +1509,151 @@ export default function MembershipTierManagement() {
                 data-testid="switch-online-card-payment"
               />
             </div>
+            {isMemberScoped && (
+              <div className="space-y-4 border-t pt-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <Label className="flex items-center gap-2"><Landmark className="w-4 h-4" /> Monthly Direct Debit</Label>
+                    <p className="text-sm text-muted-foreground mt-0.5">
+                      Let members pay their annual membership in monthly instalments by Direct Debit (GoCardless).
+                    </p>
+                  </div>
+                  <Switch
+                    checked={!!config.dd_enabled}
+                    onCheckedChange={(v) => handleConfigChange('dd_enabled', v)}
+                    disabled={!isEditable}
+                    data-testid="switch-dd-enabled"
+                  />
+                </div>
+                {config.dd_enabled && (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="space-y-2">
+                        <Label>Instalments</Label>
+                        <Input
+                          type="number"
+                          min="1"
+                          max="12"
+                          value={config.dd_instalment_count ?? 12}
+                          onChange={(e) => handleConfigChange('dd_instalment_count', e.target.value)}
+                          disabled={!isEditable}
+                          data-testid="input-dd-instalment-count"
+                        />
+                      </div>
+                      {config.pricing_model === 'flat' && (
+                        <div className="space-y-2">
+                          <Label>Monthly amount ({currencySymbol})</Label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={config.dd_monthly_amount ?? ''}
+                            onChange={(e) => handleConfigChange('dd_monthly_amount', e.target.value)}
+                            placeholder="0.00"
+                            disabled={!isEditable}
+                            data-testid="input-dd-monthly-amount"
+                          />
+                        </div>
+                      )}
+                      <div className="space-y-2">
+                        <Label>Grace period (days)</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          value={config.dd_grace_days ?? 7}
+                          onChange={(e) => handleConfigChange('dd_grace_days', e.target.value)}
+                          disabled={!isEditable}
+                          data-testid="input-dd-grace-days"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="space-y-2">
+                        <Label>First collection</Label>
+                        <Select
+                          value={config.dd_first_collection_rule || 'earliest'}
+                          onValueChange={(v) => handleConfigChange('dd_first_collection_rule', v)}
+                          disabled={!isEditable}
+                        >
+                          <SelectTrigger data-testid="select-dd-first-collection">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="earliest">Earliest possible</SelectItem>
+                            <SelectItem value="nominated_day">Nominated day of month</SelectItem>
+                            <SelectItem value="anniversary">Membership anniversary</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {config.dd_first_collection_rule === 'nominated_day' && (
+                        <div className="space-y-2">
+                          <Label>Collection day</Label>
+                          <Input
+                            type="number"
+                            min="1"
+                            max="28"
+                            value={config.dd_collection_day ?? 1}
+                            onChange={(e) => handleConfigChange('dd_collection_day', e.target.value)}
+                            disabled={!isEditable}
+                            data-testid="input-dd-collection-day"
+                          />
+                        </div>
+                      )}
+                      <div className="space-y-2">
+                        <Label>Membership activates</Label>
+                        <Select
+                          value={config.dd_activation_rule || 'first_payment'}
+                          onValueChange={(v) => handleConfigChange('dd_activation_rule', v)}
+                          disabled={!isEditable}
+                        >
+                          <SelectTrigger data-testid="select-dd-activation-rule">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="mandate">When mandate becomes active</SelectItem>
+                            <SelectItem value="first_payment">On first successful payment</SelectItem>
+                            <SelectItem value="manual">Manual approval by an admin</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <Label>Auto-renew by Direct Debit</Label>
+                        <p className="text-sm text-muted-foreground mt-0.5">Offer mandate reuse when the member renews next year.</p>
+                      </div>
+                      <Switch
+                        checked={config.dd_auto_renew !== false}
+                        onCheckedChange={(v) => handleConfigChange('dd_auto_renew', v)}
+                        disabled={!isEditable}
+                        data-testid="switch-dd-auto-renew"
+                      />
+                    </div>
+                    {ddTotalMismatch && (
+                      <Alert variant="warning" data-testid="alert-dd-total-mismatch">
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertDescription>
+                          <p>
+                            The Direct Debit plan total ({currencySymbol}{ddTotalMismatch.planTotal.toFixed(2)} = {ddTotalMismatch.count} x {currencySymbol}{ddTotalMismatch.monthly.toFixed(2)}) differs from the annual cost ({currencySymbol}{ddTotalMismatch.annual.toFixed(2)}). Members paying monthly will pay {ddTotalMismatch.planTotal > ddTotalMismatch.annual ? 'more' : 'less'} than the annual price.
+                          </p>
+                          <div className="flex items-start gap-2 mt-2">
+                            <Checkbox
+                              id="dd-total-confirm"
+                              checked={ddTotalConfirmed}
+                              onCheckedChange={(c) => setDdTotalConfirmed(!!c)}
+                              disabled={!isEditable}
+                              data-testid="checkbox-dd-total-confirm"
+                            />
+                            <label htmlFor="dd-total-confirm" className="text-sm cursor-pointer">
+                              I confirm the monthly plan total is intentionally different from the annual cost. Save is blocked until confirmed.
+                            </label>
+                          </div>
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
       </CardContent>
     </Card>
@@ -2299,7 +2505,7 @@ export default function MembershipTierManagement() {
               </div>
             ) : (
               <div className="space-y-3">
-                <div className={`hidden md:grid ${isTextBasisField ? 'md:grid-cols-[1fr_1fr_130px_150px_40px]' : 'md:grid-cols-[1fr_100px_100px_130px_150px_40px]'} gap-2 text-sm font-medium text-muted-foreground px-2`}>
+                <div className={`hidden md:grid ${bandGridClass} gap-2 text-sm font-medium text-muted-foreground px-2`}>
                   <span>Label</span>
                   {isTextBasisField ? (
                     <span>Match Value</span>
@@ -2310,6 +2516,7 @@ export default function MembershipTierManagement() {
                     </>
                   )}
                   <span>{periodLabel} Cost ({currencySymbol})</span>
+                  {showDdBandColumn && <span>DD Monthly ({currencySymbol})</span>}
                   <span>VAT Rate</span>
                   <span></span>
                 </div>
@@ -2319,7 +2526,7 @@ export default function MembershipTierManagement() {
                   return (
                     <div
                       key={band.id || index}
-                      className={`grid grid-cols-1 ${isTextBasisField ? 'md:grid-cols-[1fr_1fr_130px_150px_40px]' : 'md:grid-cols-[1fr_100px_100px_130px_150px_40px]'} gap-2 items-center p-2 rounded-md border`}
+                      className={`grid grid-cols-1 ${bandGridClass} gap-2 items-center p-2 rounded-md border`}
                       data-testid={`row-band-${index}`}
                     >
                       <Input
@@ -2387,6 +2594,21 @@ export default function MembershipTierManagement() {
                           data-testid={`input-band-cost-${index}`}
                         />
                       </div>
+                      {showDdBandColumn && (
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">{currencySymbol}</span>
+                          <Input
+                            type="number"
+                            value={band.dd_monthly_amount || ''}
+                            onChange={(e) => updateBand(index, 'dd_monthly_amount', e.target.value)}
+                            placeholder="0.00"
+                            className="pl-7"
+                            step="0.01"
+                            disabled={!isEditable}
+                            data-testid={`input-band-dd-monthly-${index}`}
+                          />
+                        </div>
+                      )}
                       <Select
                         value={vatSelectValue}
                         onValueChange={(value) => {

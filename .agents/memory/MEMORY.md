@@ -123,3 +123,4 @@
 - [Voucher monthly rollup recognition rules](voucher-monthly-rollup.md) — allocations are synthetic (no ledger row); usage → event month; refund timing decides netting vs reinstatement; closed months never rewritten.
 - [Voucher ledger expiry & new columns](voucher-ledger-expiry.md) — a new voucher txn type needs 4 sign/label surfaces; new voucher columns need 42703 drop-and-retry selects; FEFU sort duplicated in both booking paths.
 - [GoCardless per-tenant credentials](gocardless-per-tenant-credentials.md) — GC creds live per tenant in tenant_integrations (env vars are fallback only); tenant webhooks use ?tenant=<uuid> with the tenant's own secret.
+- [GoCardless DD membership plans](gocardless-dd-membership-plans.md) — DD offer derives from the sim result (band amount never falls back to config); terms snapshot at consent drives webhooks/activation, not tier config.

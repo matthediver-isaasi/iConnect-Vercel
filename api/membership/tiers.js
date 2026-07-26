@@ -747,6 +747,7 @@ async function handlePost(req, res, tenantId) {
         invoice_address_field_name: parseInvoiceAddressFieldName(config.invoice_address_field),
         invoice_recipients: normalizedRecipients,
         fee_link_email_template_id: config.fee_link_email_template_id || null,
+        ...ddConfigFields(config),
         updated_at: new Date().toISOString()
       })
       .eq('id', configId)
@@ -889,6 +890,7 @@ async function handlePost(req, res, tenantId) {
       invoice_address_field_name: parseInvoiceAddressFieldName(config.invoice_address_field),
       invoice_recipients: normalizedRecipients,
       fee_link_email_template_id: config.fee_link_email_template_id || null,
+      ...ddConfigFields(config),
     })
     .select()
     .single();
@@ -944,6 +946,56 @@ async function handlePost(req, res, tenantId) {
   });
 }
 
+// Phase 2 (GoCardless monthly Direct Debit) tier-level settings. Shared by
+// the update and insert paths so the whitelists can't drift apart.
+function ddConfigFields(config) {
+  const enabled = config.dd_enabled === true;
+  if (!enabled) {
+    return {
+      dd_enabled: false,
+      dd_instalment_count: null,
+      dd_monthly_amount: null,
+      dd_first_collection_rule: null,
+      dd_collection_day: null,
+      dd_activation_rule: null,
+      dd_auto_renew: null,
+      dd_grace_days: null,
+      dd_terms_version: null,
+    };
+  }
+  const instalments = Math.min(12, Math.max(1, parseInt(config.dd_instalment_count, 10) || 12));
+  const rule = ['earliest', 'nominated_day', 'anniversary'].includes(config.dd_first_collection_rule)
+    ? config.dd_first_collection_rule : 'earliest';
+  const activation = ['mandate', 'first_payment', 'manual'].includes(config.dd_activation_rule)
+    ? config.dd_activation_rule : 'first_payment';
+  const day = rule === 'nominated_day'
+    ? Math.min(28, Math.max(1, parseInt(config.dd_collection_day, 10) || 1))
+    : null;
+  const monthly = config.pricing_model === 'flat'
+    ? (parseFloat(config.dd_monthly_amount) > 0 ? parseFloat(config.dd_monthly_amount) : null)
+    : null;
+  return {
+    dd_enabled: true,
+    dd_instalment_count: instalments,
+    dd_monthly_amount: monthly,
+    dd_first_collection_rule: rule,
+    dd_collection_day: day,
+    dd_activation_rule: activation,
+    dd_auto_renew: config.dd_auto_renew !== false,
+    dd_grace_days: Number.isInteger(parseInt(config.dd_grace_days, 10))
+      ? Math.max(0, parseInt(config.dd_grace_days, 10)) : 7,
+    dd_terms_version: config.dd_terms_version || 'v1',
+  };
+}
+
+async function checkDdBandColumnExists() {
+  const { error } = await supabase
+    .from('membership_tier_band')
+    .select('dd_monthly_amount')
+    .limit(0);
+  return !error;
+}
+
 async function checkVatRateColumnExists() {
   const { data, error } = await supabase
     .from('membership_tier_band')
@@ -975,6 +1027,7 @@ async function saveBandsForConfig(configId, tenantId, bands) {
 
   const hasVatColumn = await checkVatRateColumnExists();
   const hasMatchValueColumn = await checkMatchValueColumnExists();
+  const hasDdColumn = await checkDdBandColumnExists();
 
   const bandsToInsert = bands.map((band, index) => {
     const hasMatchValue = band.match_value != null && String(band.match_value).trim() !== '';
@@ -992,6 +1045,10 @@ async function saveBandsForConfig(configId, tenantId, bands) {
     }
     if (hasMatchValueColumn) {
       row.match_value = hasMatchValue ? String(band.match_value).trim() : null;
+    }
+    if (hasDdColumn) {
+      const dd = parseFloat(band.dd_monthly_amount);
+      row.dd_monthly_amount = Number.isFinite(dd) && dd > 0 ? dd : null;
     }
     return row;
   });
