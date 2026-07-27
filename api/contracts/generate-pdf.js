@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { jsPDF } from 'jspdf';
 import { getSessionTenantUser } from '../_lib/session.js';
 import { addTenantStorageBytes } from '../_lib/tenantStorageUsage.js';
+import { toWinAnsi } from '../_lib/pdfWinAnsi.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -68,8 +69,9 @@ export default async function handler(req, res) {
 
     doc.setFontSize(18);
     doc.setFont('helvetica', 'bold');
-    doc.text(form.name || 'Contract', margin, yPos);
-    yPos += 12;
+    const titleLines = doc.splitTextToSize(toWinAnsi(form.name || 'Contract'), contentWidth);
+    doc.text(titleLines, margin, yPos);
+    yPos += titleLines.length * 8 + 4;
 
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
@@ -79,7 +81,7 @@ export default async function handler(req, res) {
       month: 'long',
       year: 'numeric'
     });
-    doc.text(`Signed: ${signedDate}`, margin, yPos);
+    doc.text(toWinAnsi(`Signed: ${signedDate}`), margin, yPos);
     yPos += 15;
 
     doc.setTextColor(0);
@@ -103,8 +105,9 @@ export default async function handler(req, res) {
 
       doc.setFontSize(10);
       doc.setFont('helvetica', 'bold');
-      doc.text(field.label || field.id, margin, yPos);
-      yPos += 5;
+      const labelLines = doc.splitTextToSize(toWinAnsi(field.label || field.id), contentWidth);
+      doc.text(labelLines, margin, yPos);
+      yPos += labelLines.length * 5;
 
       doc.setFont('helvetica', 'normal');
 
@@ -127,7 +130,7 @@ export default async function handler(req, res) {
               if (value.mode === 'typed' && value.typedName) {
                 doc.setFontSize(8);
                 doc.setTextColor(100);
-                doc.text(`(Typed: ${value.typedName})`, margin, yPos);
+                doc.text(toWinAnsi(`(Typed: ${value.typedName})`), margin, yPos);
                 doc.setTextColor(0);
                 yPos += 4;
               }
@@ -136,7 +139,7 @@ export default async function handler(req, res) {
                 doc.setFontSize(8);
                 doc.setTextColor(100);
                 const signedAt = new Date(value.signed_at).toLocaleString('en-GB');
-                doc.text(`Signed at: ${signedAt}`, margin, yPos);
+                doc.text(toWinAnsi(`Signed at: ${signedAt}`), margin, yPos);
                 doc.setTextColor(0);
                 yPos += 4;
               }
@@ -156,7 +159,7 @@ export default async function handler(req, res) {
           if (value.firstName) contactParts.push(value.firstName);
           if (value.lastName) contactParts.push(value.lastName);
           if (value.email) contactParts.push(`<${value.email}>`);
-          doc.text(contactParts.join(' ') || '-', margin, yPos);
+          doc.text(toWinAnsi(contactParts.join(' ') || '-'), margin, yPos);
         } else {
           doc.text('-', margin, yPos);
         }
@@ -167,23 +170,23 @@ export default async function handler(req, res) {
       } else if (field.type === 'file_upload' || field.type === 'file') {
         if (value) {
           const fileInfo = typeof value === 'string' ? value : (value.name || value.filename || '[File attached]');
-          doc.text(`[Uploaded: ${fileInfo}]`, margin, yPos);
+          doc.text(toWinAnsi(`[Uploaded: ${fileInfo}]`), margin, yPos);
         } else {
           doc.text('[No file uploaded]', margin, yPos);
         }
         yPos += 6;
       } else if (Array.isArray(value)) {
-        const arrayText = value.join(', ') || '-';
+        const arrayText = toWinAnsi(value.join(', ') || '-');
         const lines = doc.splitTextToSize(arrayText, contentWidth);
         doc.text(lines, margin, yPos);
         yPos += lines.length * 5 + 3;
       } else if (typeof value === 'object' && value !== null) {
-        const objText = JSON.stringify(value, null, 2);
+        const objText = toWinAnsi(JSON.stringify(value, null, 2));
         const lines = doc.splitTextToSize(objText, contentWidth);
         doc.text(lines, margin, yPos);
         yPos += lines.length * 5 + 3;
       } else {
-        const textValue = value?.toString() || '-';
+        const textValue = toWinAnsi(value?.toString() || '-');
         const lines = doc.splitTextToSize(textValue, contentWidth);
         doc.text(lines, margin, yPos);
         yPos += lines.length * 5 + 3;
