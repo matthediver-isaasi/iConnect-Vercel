@@ -1455,6 +1455,16 @@ export default function WidgetBuilderModal({
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
+                    {TENANT_LIST_OPERATORS.some(o => o.value === filter.operator) && (
+                      <p
+                        className="text-xs text-muted-foreground"
+                        data-testid={`text-lmic-help-${idx}`}
+                      >
+                        {filter.operator === "lmic"
+                          ? "Matches records whose country is on your tenant's LMIC list. Country values that can't be recognised (typos, free text) never match. If your LMIC list is empty, this filter matches nothing."
+                          : "Matches records whose country is recognised but not on your tenant's LMIC list. Values that can't be recognised as a country never match. If your LMIC list is empty, every recognised country matches."}
+                      </p>
+                    )}
                     {opt?.regionSchemes && (
                       <Select
                         value={filter.regionScheme || "app"}
