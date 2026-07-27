@@ -45,6 +45,8 @@ import {
   ChartTooltipContent,
 } from "@/components/ui/chart";
 import { formatNumber } from "@/components/dashboard/WidgetCard";
+import { Textarea } from "@/components/ui/textarea";
+import { describeWidgetConfig } from "@shared/widgetDescriber.js";
 
 const CHART_COLOURS = [
   "hsl(var(--chart-1))",
@@ -145,6 +147,8 @@ const DEFAULT_DRAFT = {
     // Stat/KPI-only number format; null = legacy compact style (1.5M).
     numberFormat: null,
     filters: [],
+    // Optional plain-text helper shown behind the ⓘ icon on the widget card.
+    helperText: "",
   },
 };
 
@@ -247,6 +251,7 @@ export default function WidgetBuilderModal({
           conversion: normalizeConversion(seed.config?.conversion),
           numberFormat: seed.config?.numberFormat || null,
           filters: seed.config?.filters || [],
+          helperText: seed.config?.helperText || "",
         },
       });
     } else {
@@ -536,8 +541,48 @@ export default function WidgetBuilderModal({
       widget_type: draft.widget_type,
       width: draft.width,
       scope: draft.scope,
-      config: { ...draft.config, filters: normalisedFilters },
+      config: {
+        ...draft.config,
+        filters: normalisedFilters,
+        helperText: (draft.config.helperText || "").trim().slice(0, 1000) || null,
+      },
     });
+  };
+
+  // Fill the helper-text box from the deterministic config describer —
+  // same wording the backfill script generates for existing widgets.
+  const handleSuggestHelperText = () => {
+    const fieldLabel = ref => {
+      if (!ref) return null;
+      const match = fieldOptions.find(o =>
+        ref.fieldKind === "custom" || ref.kind === "custom"
+          ? o.fieldKind === "custom" && o.fieldId === ref.fieldId
+          : o.fieldKind === "system" && o.field === ref.field,
+      );
+      return match ? match.label.replace(/ \(custom\)$/, "") : null;
+    };
+    // Turn opaque stored filter values (e.g. a DD form's UUID) into their
+    // human names using the field's option list, when one exists.
+    const valueLabel = (ref, value) => {
+      const match = fieldOptions.find(o =>
+        ref.fieldKind === "custom"
+          ? o.fieldKind === "custom" && o.fieldId === ref.fieldId
+          : o.fieldKind === "system" && o.field === ref.field,
+      );
+      const opt = (match?.options || []).find(o =>
+        typeof o === "object" ? o.value === value : o === value,
+      );
+      return typeof opt === "object" ? opt.label : null;
+    };
+    const text = describeWidgetConfig(draft.config, {
+      widgetType: draft.widget_type,
+      sourceLabel: currentSource?.label || "records",
+      fieldLabel,
+      valueLabel,
+    });
+    if (text) {
+      setDraft(prev => ({ ...prev, config: { ...prev.config, helperText: text } }));
+    }
   };
 
   const previewWidget = useMemo(
@@ -575,6 +620,35 @@ export default function WidgetBuilderModal({
                 onChange={e => setDraft(prev => ({ ...prev, title: e.target.value }))}
                 placeholder="My new chart"
                 data-testid="input-widget-title"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Label htmlFor="widget-helper-text">
+                  Helper text{" "}
+                  <span className="font-normal text-muted-foreground">
+                    (optional — shown when someone clicks the ⓘ on the widget)
+                  </span>
+                </Label>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={handleSuggestHelperText}
+                  data-testid="button-suggest-helper-text"
+                >
+                  Suggest text
+                </Button>
+              </div>
+              <Textarea
+                id="widget-helper-text"
+                value={draft.config.helperText || ""}
+                onChange={e => updateConfig({ helperText: e.target.value })}
+                maxLength={1000}
+                rows={3}
+                placeholder="Explain what this widget shows and how to read it"
+                data-testid="input-widget-helper-text"
               />
             </div>
 

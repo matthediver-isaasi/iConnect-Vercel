@@ -122,6 +122,16 @@ export const widgetConfigSchema = z.object({
   // Form-conversion only: required when source === 'form_conversion',
   // ignored (should be null/absent) for every other source.
   conversion: conversionSchema.nullable().optional(),
+  // Optional plain-text helper shown behind the ⓘ icon on the widget
+  // card. Authored in the builder or auto-generated (widgetDescriber).
+  helperText: z
+    .string()
+    .max(1000)
+    .nullable()
+    .optional()
+    // Normalise server-side so non-UI API callers behave the same as the
+    // builder: trimmed text, and whitespace-only strings collapse to null.
+    .transform(v => (typeof v === 'string' ? v.trim() || null : v ?? null)),
 }).passthrough().superRefine((cfg, ctx) => {
   if (cfg.source === 'form_conversion') {
     if (!cfg.conversion) {

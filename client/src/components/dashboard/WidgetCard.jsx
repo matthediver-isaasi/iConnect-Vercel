@@ -33,11 +33,17 @@ import {
   Copy,
   Download,
   GripVertical,
+  Info,
   MoreVertical,
   PencilLine,
   Trash2,
   Maximize2,
 } from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Tooltip,
   TooltipContent,
@@ -219,6 +225,31 @@ export default function WidgetCard({
           >
             {widget.title}
           </CardTitle>
+          {!!widget.config?.helperText && (
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={`About "${widget.title}"`}
+                  data-testid={`button-widget-info-${widget.id}`}
+                  className="shrink-0 rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <Info className="h-4 w-4" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="start"
+                className="max-w-xs text-sm"
+              >
+                <p
+                  className="whitespace-pre-wrap"
+                  data-testid={`text-widget-help-${widget.id}`}
+                >
+                  {widget.config.helperText}
+                </p>
+              </PopoverContent>
+            </Popover>
+          )}
         </div>
         {canEdit && onResize && (
           <TooltipProvider delayDuration={200}>
