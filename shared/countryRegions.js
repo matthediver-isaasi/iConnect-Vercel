@@ -222,15 +222,19 @@ export function regionForCountry(value, scheme = REGION_SCHEME_APP) {
  *     feeding the region dimension). When NO value survives the pruning
  *     the function returns null — the caller must create NO bucket for
  *     the row (not "Unknown"), mirroring pruneLmicGroupKeys semantics.
+ *   - `lmicInvert`: when true (with `lmicCodeSet` provided), membership
+ *     is inverted — ONLY country values resolving to a code OUTSIDE the
+ *     set contribute (used for the `not_lmic` filter operator). The set
+ *     may be empty in this mode (every resolvable country contributes).
  */
 export function deriveRegionBucket(countries, options = {}) {
-  const { scheme = REGION_SCHEME_APP, lmicCodeSet = null } = options || {};
+  const { scheme = REGION_SCHEME_APP, lmicCodeSet = null, lmicInvert = false } = options || {};
   const list = Array.isArray(countries) ? countries : [];
   const regions = new Set();
   for (const value of list) {
     if (lmicCodeSet) {
       const code = resolveCountryToIso2(value);
-      if (code === null || !lmicCodeSet.has(code)) continue;
+      if (code === null || (lmicInvert ? lmicCodeSet.has(code) : !lmicCodeSet.has(code))) continue;
       const region = regionForIso2(code, scheme);
       if (region) regions.add(region);
     } else {

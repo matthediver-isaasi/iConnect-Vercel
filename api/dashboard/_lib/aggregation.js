@@ -257,15 +257,20 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
     // country produce NO bucket (deriveRegionBucket returns null) — they
     // still count toward the row-level total, mirroring the element-wise
     // pruning of pruneLmicGroupKeys.
-    const regionLmicSet = Array.isArray(lmicCodes)
-      && lmicCodes.length > 0
+    // `not_lmic` inverts this: the region derives ONLY from countries
+    // resolving OUTSIDE the tenant LMIC list. Same emptiness rules as
+    // elsewhere: `lmic` needs a non-empty list, `not_lmic` doesn't.
+    const regionFilterMatches = op => Array.isArray(lmicCodes)
       && (config.filters || []).some(
-          f => f.operator === 'lmic'
+          f => f.operator === op
             && f.fieldKind === 'custom'
             && regionCountryFieldIds.includes(f.fieldId),
-        )
-      ? new Set(lmicCodes)
-      : null;
+        );
+    const regionTenantListMode = (regionFilterMatches('lmic') && lmicCodes.length > 0)
+      ? 'lmic'
+      : (regionFilterMatches('not_lmic') ? 'not_lmic' : null);
+    const regionLmicSet = regionTenantListMode ? new Set(lmicCodes) : null;
+    const regionLmicInvert = regionTenantListMode === 'not_lmic';
     for (const scheme of regionSchemesNeeded) {
       const bucketByRow = new Map();
       for (const row of workingRows) {
@@ -276,7 +281,11 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
         }
         bucketByRow.set(
           row.id,
-          deriveRegionBucket(countries, { scheme, lmicCodeSet: regionLmicSet }),
+          deriveRegionBucket(countries, {
+            scheme,
+            lmicCodeSet: regionLmicSet,
+            lmicInvert: regionLmicInvert,
+          }),
         );
       }
       regionBucketsBySchemes.set(scheme, bucketByRow);
@@ -339,22 +348,37 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
   //     OTHER element matched) don't get counted; and
   //   - mixed storage like `["Kenya"]` and `["KE"]` across rows collapses
   //     to one distinct entry instead of two.
-  const lmicFilterOnMeasure = isListMeasureCD
-    && Array.isArray(lmicCodes)
-    && lmicCodes.length > 0
-    && (config.filters || []).some(
-        f => f.operator === 'lmic'
-          && f.fieldKind === 'custom'
-          && f.fieldId === measure.fieldId,
-      );
-  const lmicCodeSet = lmicFilterOnMeasure ? new Set(lmicCodes) : null;
+  // `not_lmic` mirrors this with inverted membership: only elements
+  // resolving to a code OUTSIDE the tenant list are counted. Note the
+  // `lmic` mode requires a non-empty list (empty = match nothing) while
+  // `not_lmic` works with an empty list too (empty = everything is
+  // non-LMIC).
+  const measureTenantListMode = !isListMeasureCD || !Array.isArray(lmicCodes)
+    ? null
+    : ((config.filters || []).some(
+          f => f.operator === 'lmic'
+            && f.fieldKind === 'custom'
+            && f.fieldId === measure.fieldId,
+        ) && lmicCodes.length > 0
+        ? 'lmic'
+        : ((config.filters || []).some(
+              f => f.operator === 'not_lmic'
+                && f.fieldKind === 'custom'
+                && f.fieldId === measure.fieldId,
+            )
+            ? 'not_lmic'
+            : null));
+  const lmicCodeSet = measureTenantListMode ? new Set(lmicCodes) : null;
   const pushMeasureValues = isListMeasureCD
     ? (target, row) => {
         const raw = (prefMap.get(row.id) || {})[measure.fieldId];
         for (const v of toList(raw)) {
           if (lmicCodeSet) {
             const code = resolveCountryToIso2(v);
-            if (code !== null && lmicCodeSet.has(code)) target.push(code);
+            const inSet = code !== null && lmicCodeSet.has(code);
+            const keep = code !== null
+              && (measureTenantListMode === 'lmic' ? inSet : !inSet);
+            if (keep) target.push(code);
           } else {
             target.push(v);
           }
@@ -382,19 +406,27 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
   // them because SOME element matched — but their non-LMIC countries must
   // not appear as breakdown buckets, and they must not fall into
   // "Unspecified" either).
-  const lmicFilterOnGroupBy = !!(groupBy
+  // `not_lmic` on the group-by field applies the same element-wise
+  // pruning with inverted membership (only non-LMIC codes survive as
+  // bucket keys). Same list-emptiness rules as the measure path above.
+  const groupByFilterMatches = op => !!(groupBy
     && !regionGroupBy
     && Array.isArray(lmicCodes)
-    && lmicCodes.length > 0
     && (config.filters || []).some(f => {
-        if (f.operator !== 'lmic') return false;
+        if (f.operator !== op) return false;
         if (groupBy.fieldKind === 'custom' || groupBy.kind === 'custom') {
           return f.fieldKind === 'custom' && !!groupBy.fieldId && f.fieldId === groupBy.fieldId;
         }
         return f.fieldKind === 'system' && !!groupBy.field && f.field === groupBy.field;
       }));
+  const groupByTenantListMode = (groupByFilterMatches('lmic') && lmicCodes.length > 0)
+    ? 'lmic'
+    : (groupByFilterMatches('not_lmic') ? 'not_lmic' : null);
+  const lmicFilterOnGroupBy = !!groupByTenantListMode;
   const lmicGroupCodeSet = lmicFilterOnGroupBy ? new Set(lmicCodes) : null;
-  const lmicGroupKeys = raw => pruneLmicGroupKeys(raw, lmicGroupCodeSet);
+  const lmicGroupKeys = raw => pruneLmicGroupKeys(raw, lmicGroupCodeSet, {
+    invert: groupByTenantListMode === 'not_lmic',
+  });
   // Country-shaped group-bys (system `country` column, or custom
   // country/countries fields) are normalised through the shared country
   // resolver even WITHOUT an LMIC filter: each element resolves to its
@@ -556,7 +588,7 @@ function applyCumulative(rows) {
 }
 
 function needsLmicResolution(config) {
-  return (config.filters || []).some(f => f.operator === 'lmic');
+  return (config.filters || []).some(f => f.operator === 'lmic' || f.operator === 'not_lmic');
 }
 
 async function loadTenantLmicCodes(tenantId) {
@@ -668,6 +700,18 @@ function applySystemFilters(query, filters, lmicCodes) {
         // surprising no-op when the tenant has cleared their LMIC list.
         const codes = Array.isArray(lmicCodes) ? lmicCodes : [];
         query = query.in(f.field, codes.length > 0 ? codes : ['__never__']);
+        break;
+      }
+      case 'not_lmic': {
+        // Inverse of `lmic`: "field NOT IN (tenant codes)". SQL NOT IN
+        // already excludes NULLs, but we also exclude them explicitly so
+        // "no country recorded" never counts as a non-LMIC country. An
+        // empty tenant list means every recorded country is non-LMIC.
+        const codes = Array.isArray(lmicCodes) ? lmicCodes : [];
+        if (codes.length > 0) {
+          query = query.not(f.field, 'in', `(${codes.map(c => `"${c}"`).join(',')})`);
+        }
+        query = query.not(f.field, 'is', null);
         break;
       }
       case 'eq':
@@ -887,12 +931,15 @@ export function countryGroupKeys(raw) {
  * bucket — because the row already passed the filter via some other
  * element and its non-LMIC countries must not surface as buckets.
  */
-export function pruneLmicGroupKeys(raw, lmicCodeSet) {
-  if (!lmicCodeSet || lmicCodeSet.size === 0) return [];
+export function pruneLmicGroupKeys(raw, lmicCodeSet, options = {}) {
+  const { invert = false } = options || {};
+  if (!lmicCodeSet || (!invert && lmicCodeSet.size === 0)) return [];
   const codes = [];
   for (const v of toList(raw)) {
     const code = resolveCountryToIso2(v);
-    if (code !== null && lmicCodeSet.has(code) && !codes.includes(code)) {
+    if (code === null) continue;
+    const inSet = lmicCodeSet.has(code);
+    if ((invert ? !inSet : inSet) && !codes.includes(code)) {
       codes.push(code);
     }
   }
@@ -971,7 +1018,7 @@ function compare(value, filterValue, op) {
   }
 }
 
-function matchFilter(rawValue, filter, lmicCodes, isList = false) {
+export function matchFilter(rawValue, filter, lmicCodes, isList = false) {
   // List-typed (multi-pick) custom fields: a row qualifies when ANY
   // element of the list satisfies the predicate (for `lmic`, `eq`,
   // `neq`, `in`, `contains`). `is_null` becomes "list is missing or
@@ -993,6 +1040,19 @@ function matchFilter(rawValue, filter, lmicCodes, isList = false) {
         return elements.some(v => {
           const code = resolveCountryToIso2(v);
           return code !== null && codes.includes(code);
+        });
+      }
+      case 'not_lmic': {
+        // Inverse of `lmic`: matches when ANY element resolves to a
+        // country OUTSIDE the tenant list. Unresolvable values don't
+        // match (symmetric with `lmic`, which also drops them) — a value
+        // we can't identify as a country is never silently counted as
+        // non-LMIC. An empty tenant list means every resolvable country
+        // is non-LMIC.
+        const codes = Array.isArray(lmicCodes) ? lmicCodes : [];
+        return elements.some(v => {
+          const code = resolveCountryToIso2(v);
+          return code !== null && !codes.includes(code);
         });
       }
       case 'eq':
@@ -1025,6 +1085,14 @@ function matchFilter(rawValue, filter, lmicCodes, isList = false) {
       // that don't resolve to a known country don't match.
       const code = resolveCountryToIso2(value);
       return code !== null && codes.includes(code);
+    }
+    case 'not_lmic': {
+      // Inverse of `lmic` on scalar values: the resolved code must fall
+      // OUTSIDE the tenant list. Unresolvable values never match (same
+      // as `lmic`) so junk strings aren't counted as non-LMIC countries.
+      const codes = Array.isArray(lmicCodes) ? lmicCodes : [];
+      const code = resolveCountryToIso2(value);
+      return code !== null && !codes.includes(code);
     }
     case 'eq': return String(value ?? '') === String(filter.value ?? '');
     case 'neq': return String(value ?? '') !== String(filter.value ?? '');

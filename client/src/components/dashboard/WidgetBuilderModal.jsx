@@ -105,6 +105,7 @@ const FILTER_OPERATORS = [
 // query time to `country IN (tenant LMIC list)`.
 const TENANT_LIST_OPERATORS = [
   { value: "lmic", label: "LMIC only (tenant list)" },
+  { value: "not_lmic", label: "Not LMIC (tenant list)" },
 ];
 
 // A field is considered country-shaped (and so eligible for the LMIC
@@ -452,7 +453,7 @@ export default function WidgetBuilderModal({
       (draft.config.filters || []).forEach((f, i) => {
         if (!f.field && !f.fieldId) errs.push(`Filter ${i + 1}: choose a field.`);
         if (
-          !["is_null", "is_not_null", "lmic"].includes(f.operator) &&
+          !["is_null", "is_not_null", "lmic", "not_lmic"].includes(f.operator) &&
           (f.value === null || f.value === undefined || f.value === "")
         ) {
           errs.push(`Filter ${i + 1}: enter a value.`);
@@ -507,7 +508,7 @@ export default function WidgetBuilderModal({
           : String(f.value || "").split(",").map(s => s.trim()).filter(Boolean);
         if (list.length === 0) errs.push(`Filter ${i + 1}: list cannot be empty.`);
       } else if (
-        !["is_null", "is_not_null", "lmic"].includes(f.operator) &&
+        !["is_null", "is_not_null", "lmic", "not_lmic"].includes(f.operator) &&
         (f.value === null || f.value === undefined || f.value === "")
       ) {
         errs.push(`Filter ${i + 1}: enter a value.`);
@@ -1402,7 +1403,7 @@ export default function WidgetBuilderModal({
                             ))}
                         </SelectContent>
                       </Select>
-                      {["is_null", "is_not_null", "lmic"].includes(filter.operator) ? (
+                      {["is_null", "is_not_null", "lmic", "not_lmic"].includes(filter.operator) ? (
                         <div />
                       ) : valueOptions?.length &&
                         ["eq", "neq"].includes(filter.operator) ? (

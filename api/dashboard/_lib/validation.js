@@ -10,7 +10,7 @@ const filterSchema = z.object({
   field: z.string().nullable().optional(),
   fieldKind: z.enum(['system', 'custom']),
   fieldId: z.string().nullable().optional(),
-  operator: z.enum(['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'in', 'contains', 'is_null', 'is_not_null', 'lmic']),
+  operator: z.enum(['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'in', 'contains', 'is_null', 'is_not_null', 'lmic', 'not_lmic']),
   value: z.any().optional(),
   // DD-only: when filtering on the synthetic "Date moved to stage …" field,
   // carries the canonical DD status whose entry timestamp is being scoped.
