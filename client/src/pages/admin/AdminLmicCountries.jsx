@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/use-toast";
 import { setActiveTenantId } from "@/api/base44Client";
 import { adminFetch } from "@/lib/adminFetch";
-import { ArrowLeft, Loader2, Save, RotateCcw, Globe, ExternalLink } from "lucide-react";
+import { ArrowLeft, Loader2, Save, RotateCcw, Globe, ExternalLink, AlertTriangle, RefreshCw, CheckCircle2 } from "lucide-react";
 import { COUNTRIES } from "@/data/countries";
 import { WORLD_BANK_LMIC_SOURCE } from "@shared/lmicCountries.js";
 
@@ -29,6 +29,26 @@ export default function AdminLmicCountries() {
   const [resetting, setResetting] = useState(false);
   const [selected, setSelected] = useState(() => new Set());
   const [search, setSearch] = useState("");
+  const [dq, setDq] = useState(null);
+  const [dqLoading, setDqLoading] = useState(true);
+  const [dqError, setDqError] = useState(null);
+
+  const loadDataQuality = async () => {
+    setDqLoading(true);
+    setDqError(null);
+    try {
+      const res = await adminFetch("/api/admin/settings/country-data-quality");
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Check failed (${res.status})`);
+      }
+      setDq(await res.json());
+    } catch (err) {
+      setDqError(err.message);
+    } finally {
+      setDqLoading(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -50,6 +70,7 @@ export default function AdminLmicCountries() {
         const data = await res.json();
         if (cancelled) return;
         setSelected(new Set((data.codes || []).map(c => c.toUpperCase())));
+        loadDataQuality();
       } catch (err) {
         if (!cancelled) {
           toast({
@@ -261,6 +282,87 @@ export default function AdminLmicCountries() {
               </p>
             )}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="space-y-1.5">
+              <CardTitle className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4" /> Unrecognised country values
+              </CardTitle>
+              <CardDescription>
+                Stored country values the dashboard cannot match to a real
+                country. Records with these values are invisible to BOTH the
+                LMIC and non-LMIC widgets — fix the value on the record, or
+                contact support to add it as a recognised spelling.
+              </CardDescription>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={loadDataQuality}
+              disabled={dqLoading}
+              data-testid="button-refresh-country-check"
+            >
+              {dqLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+              Re-run check
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {dqLoading && (
+            <p className="text-sm text-muted-foreground" data-testid="text-country-check-loading">
+              Checking stored country values…
+            </p>
+          )}
+          {!dqLoading && dqError && (
+            <p className="text-sm text-destructive" data-testid="text-country-check-error">
+              Could not run the check: {dqError}
+            </p>
+          )}
+          {!dqLoading && !dqError && dq && dq.issues.length === 0 && (
+            <p className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="text-country-check-clean">
+              <CheckCircle2 className="h-4 w-4" />
+              All stored country values were recognised
+              ({dq.scannedOrganizations} organisations and {dq.scannedMembers} members checked).
+            </p>
+          )}
+          {!dqLoading && !dqError && dq && dq.issues.length > 0 && (
+            <div className="space-y-3" data-testid="list-country-issues">
+              <p className="text-sm text-muted-foreground">
+                {dq.issues.length} unrecognised value{dq.issues.length === 1 ? "" : "s"} found
+                across {dq.scannedOrganizations} organisations and {dq.scannedMembers} members.
+              </p>
+              <div className="space-y-2 max-h-[420px] overflow-auto pr-1">
+                {dq.issues.map((issue, idx) => (
+                  <div
+                    key={`${issue.source}-${issue.fieldKey}-${issue.value}`}
+                    className="rounded-md border p-3 space-y-1.5"
+                    data-testid={`row-country-issue-${idx}`}
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-sm font-medium" data-testid={`text-issue-value-${idx}`}>
+                        "{issue.value}"
+                      </span>
+                      <Badge variant="secondary">{issue.fieldLabel}</Badge>
+                      <Badge variant="outline" data-testid={`badge-issue-count-${idx}`}>
+                        {issue.recordCount} record{issue.recordCount === 1 ? "" : "s"}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {issue.records.map(r => r.label).join(", ")}
+                      {issue.recordCount > issue.records.length
+                        ? ` … and ${issue.recordCount - issue.records.length} more`
+                        : ""}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 

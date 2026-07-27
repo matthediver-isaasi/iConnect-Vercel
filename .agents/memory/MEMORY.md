@@ -125,4 +125,5 @@
 - [GoCardless per-tenant credentials](gocardless-per-tenant-credentials.md) — GC creds live per tenant in tenant_integrations (env vars are fallback only); tenant webhooks use ?tenant=<uuid> with the tenant's own secret.
 - [GoCardless DD membership plans](gocardless-dd-membership-plans.md) — DD offer derives from the sim result (band amount never falls back to config); terms snapshot at consent drives webhooks/activation, not tier config.
 - [GoCardless org DD invitations](gocardless-org-dd-invitations.md) — billing-contact route defers GC flow creation to invite-accept; token single-use/supersede/expiry is the whole security model.
+- [Dashboard registry column drift](dashboard-country-column-drift.md) — sources registry declares organization.country but the column doesn't exist in DEST; select it with a 42703 drop-and-retry.
 - [GoCardless arrears & DD console](gocardless-arrears-phase4.md) — grace is a non-rolling snapshot; retry guard must throw fail-closed; arrears policy applies once; money-moving admin actions need server-side finance RBAC.
