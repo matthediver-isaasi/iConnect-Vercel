@@ -61,6 +61,11 @@ const groupBySchema = z.object({
   // Region group-by only: which classification scheme buckets the derived
   // Region dimension. Absent/null = app scheme (legacy behaviour).
   regionScheme: z.enum(['app', 'world_bank']).nullable().optional(),
+  // Region group-by only: absent/null/true keeps the single "Multi-region"
+  // bucket for records spanning several regions (legacy behaviour). When
+  // explicitly false, such a record is counted once under EACH of its
+  // regions instead.
+  multiRegion: z.boolean().nullable().optional(),
 });
 
 // DD stage-transition mode. When present (with a `mode`), the Due Diligence
@@ -122,6 +127,10 @@ export const widgetConfigSchema = z.object({
   // Form-conversion only: required when source === 'form_conversion',
   // ignored (should be null/absent) for every other source.
   conversion: conversionSchema.nullable().optional(),
+  // When true (organisation / member sources with a group-by only),
+  // clicking a bar / slice / legend / list row on the widget card opens
+  // the CRM list filtered to the records that make up that bucket.
+  clickThrough: z.boolean().nullable().optional(),
   // Optional plain-text helper shown behind the ⓘ icon on the widget
   // card. Authored in the builder or auto-generated (widgetDescriber).
   helperText: z

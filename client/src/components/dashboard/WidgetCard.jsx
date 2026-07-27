@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -103,6 +104,23 @@ export function formatNumber(value, numberFormat = null) {
   return Number(value).toFixed(2);
 }
 
+// Widget click-through: sources whose grouped buckets can open a CRM list
+// page filtered to the bucket's records.
+const DRILL_ROUTES = {
+  organization: "/organisations",
+  member: "/members",
+};
+
+// Recharts click payload shapes vary: Bar/Pie handlers may receive the row
+// itself, or a wrapper carrying the row under `payload` (and the nameKey
+// value under `name`). Resolve the bucket key defensively across all three.
+function drillKeyFromChartEntry(entry) {
+  if (entry?.key != null) return entry.key;
+  if (entry?.payload?.key != null) return entry.payload.key;
+  if (entry?.name != null) return entry.name;
+  return null;
+}
+
 const NEXT_WIDTH = { fifth: "third", third: "half", half: "full", full: "fifth" };
 const WIDTH_LABEL = { fifth: "1/5", third: "1/3", half: "1/2", full: "Full" };
 
@@ -170,6 +188,8 @@ export default function WidgetCard({
   onResize,
 }) {
   const { toast } = useToast();
+  const navigate = useNavigate();
+  const [drillingKey, setDrillingKey] = useState(null);
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["/api/dashboard/widgets", widget.id, "data"],
     queryFn: async () => {
@@ -186,6 +206,52 @@ export default function WidgetCard({
       return res.json();
     },
   });
+
+  // Click-through: enabled by the widget's clickThrough flag for
+  // organisation / member sourced group-by widgets. Clicking a bar,
+  // slice, legend entry or list row fetches the ids behind that bucket
+  // and opens the CRM list filtered to exactly those records.
+  const drillRoute = DRILL_ROUTES[widget.config?.source] || null;
+  const drillEnabled =
+    !!widget.config?.clickThrough &&
+    !!drillRoute &&
+    !!widget.config?.groupBy &&
+    data?.data?.type === "group";
+  const handleDrill = async (key) => {
+    if (!drillEnabled || drillingKey) return;
+    setDrillingKey(key);
+    try {
+      const res = await fetch(`/api/dashboard/widgets/${widget.id}/drilldown`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body.error || `Request failed (${res.status})`);
+      }
+      const nonce = `wd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      sessionStorage.setItem(
+        `widget-drill:${nonce}`,
+        JSON.stringify({
+          ids: body.ids || [],
+          label: `${widget.title} · ${key}`,
+          total: body.total ?? (body.ids || []).length,
+          truncated: !!body.truncated,
+        }),
+      );
+      navigate(`${drillRoute}?widgetDrill=${nonce}`);
+    } catch (err) {
+      toast({
+        title: "Couldn't open records",
+        description: err.message,
+        variant: "destructive",
+      });
+    } finally {
+      setDrillingKey(null);
+    }
+  };
 
   const canExport = !isLoading && !isError && !!data;
   const handleExportCsv = () => {
@@ -352,14 +418,18 @@ export default function WidgetCard({
           </div>
         )}
         {!isLoading && !isError && data && (
-          <WidgetBody widget={widget} payload={data.data} />
+          <WidgetBody
+            widget={widget}
+            payload={data.data}
+            onDrill={drillEnabled ? handleDrill : null}
+          />
         )}
       </CardContent>
     </Card>
   );
 }
 
-function WidgetBody({ widget, payload }) {
+function WidgetBody({ widget, payload, onDrill = null }) {
   if (!payload) return null;
   if (payload.type === "conversion") {
     return <ConversionBody widget={widget} payload={payload} />;
@@ -368,15 +438,15 @@ function WidgetBody({ widget, payload }) {
     case "stat":
       return <StatBody widget={widget} payload={payload} />;
     case "bar":
-      return <BarBody payload={payload} widget={widget} />;
+      return <BarBody payload={payload} widget={widget} onDrill={onDrill} />;
     case "pie":
-      return <PieBody payload={payload} donut={false} widget={widget} />;
+      return <PieBody payload={payload} donut={false} widget={widget} onDrill={onDrill} />;
     case "donut":
-      return <PieBody payload={payload} donut={true} widget={widget} />;
+      return <PieBody payload={payload} donut={true} widget={widget} onDrill={onDrill} />;
     case "line":
       return <LineBody payload={payload} widget={widget} />;
     case "list":
-      return <ListBody payload={payload} widget={widget} />;
+      return <ListBody payload={payload} widget={widget} onDrill={onDrill} />;
     default:
       return (
         <p className="text-sm text-muted-foreground">
@@ -449,7 +519,7 @@ function chartConfig() {
   return { value: { label: "Value", color: CHART_COLOURS[0] } };
 }
 
-function BarBody({ payload, widget }) {
+function BarBody({ payload, widget, onDrill = null }) {
   const rows = payload.rows || [];
   const colour = pickColour(widget);
   const config = useMemo(() => ({ value: { label: "Value", color: colour } }), [colour]);
@@ -476,7 +546,16 @@ function BarBody({ payload, widget }) {
           />
           <YAxis tickLine={false} axisLine={false} width={40} />
           <ChartTooltip content={<ChartTooltipContent />} />
-          <Bar dataKey="value" fill={colour} radius={[4, 4, 0, 0]}>
+          <Bar
+            dataKey="value"
+            fill={colour}
+            radius={[4, 4, 0, 0]}
+            cursor={onDrill ? "pointer" : undefined}
+            onClick={onDrill ? (entry) => {
+              const key = drillKeyFromChartEntry(entry);
+              if (key != null) onDrill(key);
+            } : undefined}
+          >
             <LabelList
               dataKey="value"
               position="top"
@@ -521,7 +600,7 @@ function LineBody({ payload, widget }) {
   );
 }
 
-function PieBody({ payload, donut, widget }) {
+function PieBody({ payload, donut, widget, onDrill = null }) {
   const rows = payload.rows || [];
   const config = useMemo(() => {
     const built = {};
@@ -550,6 +629,11 @@ function PieBody({ payload, donut, widget }) {
             innerRadius={donut ? 50 : 0}
             outerRadius={80}
             paddingAngle={donut ? 2 : 0}
+            cursor={onDrill ? "pointer" : undefined}
+            onClick={onDrill ? (entry) => {
+              const key = drillKeyFromChartEntry(entry);
+              if (key != null) onDrill(key);
+            } : undefined}
           >
             {rows.map((row, idx) => (
               <Cell
@@ -574,8 +658,24 @@ function PieBody({ payload, donut, widget }) {
           return (
             <div
               key={row.key}
-              className="flex min-w-0 items-center gap-2 text-xs"
+              className={cn(
+                "flex min-w-0 items-center gap-2 text-xs",
+                onDrill && "cursor-pointer rounded-sm hover-elevate",
+              )}
               title={row.key}
+              role={onDrill ? "button" : undefined}
+              tabIndex={onDrill ? 0 : undefined}
+              onClick={onDrill ? () => onDrill(row.key) : undefined}
+              onKeyDown={
+                onDrill
+                  ? (e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        onDrill(row.key);
+                      }
+                    }
+                  : undefined
+              }
             >
               <span
                 className="h-2.5 w-2.5 shrink-0 rounded-sm"
@@ -604,7 +704,7 @@ function PieBody({ payload, donut, widget }) {
   );
 }
 
-function ListBody({ payload, widget }) {
+function ListBody({ payload, widget, onDrill = null }) {
   const rows = payload.rows || [];
   const total = useMemo(
     () => rows.reduce((acc, r) => acc + (Number(r.value) || 0), 0),
@@ -623,8 +723,22 @@ function ListBody({ payload, widget }) {
             className={cn(
               "flex items-center justify-between gap-3 px-3 py-1.5 text-sm",
               idx > 0 && "border-t",
+              onDrill && "cursor-pointer hover-elevate",
             )}
             data-testid={`widget-list-row-${widget.id}-${idx}`}
+            role={onDrill ? "button" : undefined}
+            tabIndex={onDrill ? 0 : undefined}
+            onClick={onDrill ? () => onDrill(row.key) : undefined}
+            onKeyDown={
+              onDrill
+                ? (e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onDrill(row.key);
+                    }
+                  }
+                : undefined
+            }
           >
             <span className="min-w-0 flex-1 truncate" title={row.key}>
               {row.key}

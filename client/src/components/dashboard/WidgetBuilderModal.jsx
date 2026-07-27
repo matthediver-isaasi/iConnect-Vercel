@@ -1214,6 +1214,28 @@ export default function WidgetBuilderModal({
                         ))}
                       </SelectContent>
                     </Select>
+                    <div className="flex items-center justify-between gap-4 rounded-md border p-3">
+                      <div className="space-y-1">
+                        <Label htmlFor="switch-widget-multi-region">
+                          Group multi-region records together
+                        </Label>
+                        <p className="text-xs text-muted-foreground">
+                          On: records spanning several regions appear once
+                          under "Multi-region". Off: they are counted once
+                          under each of their regions.
+                        </p>
+                      </div>
+                      <Switch
+                        id="switch-widget-multi-region"
+                        data-testid="switch-widget-multi-region"
+                        checked={gb.multiRegion !== false}
+                        onCheckedChange={checked =>
+                          updateConfig({
+                            groupBy: { ...gb, multiRegion: checked ? null : false },
+                          })
+                        }
+                      />
+                    </div>
                   </div>
                 );
               })()}
@@ -1356,6 +1378,30 @@ export default function WidgetBuilderModal({
                   checked={!!draft.config.cumulative}
                   onCheckedChange={checked =>
                     updateConfig({ cumulative: checked })
+                  }
+                />
+              </div>
+            )}
+
+            {["organization", "member"].includes(draft.config.source) &&
+              !!draft.config.groupBy && (
+              <div className="flex items-center justify-between gap-4 rounded-md border p-3">
+                <div className="space-y-1">
+                  <Label htmlFor="switch-widget-click-through">
+                    Click through to CRM
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Clicking a bar, slice or row opens the{" "}
+                    {draft.config.source === "member" ? "members" : "organisations"}{" "}
+                    list filtered to that group's records.
+                  </p>
+                </div>
+                <Switch
+                  id="switch-widget-click-through"
+                  data-testid="switch-widget-click-through"
+                  checked={!!draft.config.clickThrough}
+                  onCheckedChange={checked =>
+                    updateConfig({ clickThrough: checked })
                   }
                 />
               </div>

@@ -4,6 +4,7 @@ import { getSourceDef, getCustomFieldsForSource } from './sources.js';
 import { resolveCountryToIso2, getCountryByCode } from '../../../shared/countries.js';
 import {
   deriveRegionBucket,
+  deriveRegionBucketList,
   normaliseRegionScheme,
   regionBucketsForScheme,
   REGION_UNKNOWN,
@@ -233,11 +234,21 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
   // output exactly. A group-by and a filter may use different schemes,
   // so buckets are derived once per distinct scheme in play.
   const regionScheme = regionGroupBy ? normaliseRegionScheme(groupBy.regionScheme) : null;
+  // "Multi-region" toggle on the region group-by. Default (absent / true)
+  // keeps the historical single-bucket behaviour. When explicitly false,
+  // an organisation whose countries span several regions is counted once
+  // under EACH of those regions instead of once under "Multi-region".
+  // Filters are unaffected — they always match the single-bucket value.
+  const regionMultiOff = regionGroupBy && groupBy.multiRegion === false;
   const regionSchemesNeeded = new Set();
   if (regionGroupBy) regionSchemesNeeded.add(regionScheme);
   regionFilters.forEach(f => regionSchemesNeeded.add(normaliseRegionScheme(f.regionScheme)));
   // scheme -> Map(rowId -> bucket|null)
   const regionBucketsBySchemes = new Map();
+  // Multi-region OFF only: rowId -> array of region keys under the
+  // group-by scheme ([] = LMIC-pruned; missing entry = never hydrated,
+  // falls back to ["Unknown"] like the single-bucket path).
+  let regionKeyListByRow = null;
   if (regionSchemesNeeded.size > 0 && workingRows.length > 0) {
     const allCustomFields = await getCustomFieldsForSource(source, tenantId);
     const regionCountryFieldIds = allCustomFields
@@ -273,6 +284,8 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
     const regionLmicInvert = regionTenantListMode === 'not_lmic';
     for (const scheme of regionSchemesNeeded) {
       const bucketByRow = new Map();
+      const collectLists = regionMultiOff && scheme === regionScheme;
+      const listByRow = collectLists ? new Map() : null;
       for (const row of workingRows) {
         const prefs = regionPrefMap.get(row.id) || {};
         const countries = [];
@@ -287,8 +300,23 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
             lmicInvert: regionLmicInvert,
           }),
         );
+        if (listByRow) {
+          // Multi-region OFF: the group-by counts this row once under
+          // EVERY region its countries touch. [] = LMIC-pruned to
+          // nothing (no bucket); filters still use the single-bucket
+          // map above.
+          listByRow.set(
+            row.id,
+            deriveRegionBucketList(countries, {
+              scheme,
+              lmicCodeSet: regionLmicSet,
+              lmicInvert: regionLmicInvert,
+            }),
+          );
+        }
       }
       regionBucketsBySchemes.set(scheme, bucketByRow);
+      if (listByRow) regionKeyListByRow = listByRow;
     }
   }
   const regionByRowId = regionGroupBy
@@ -443,6 +471,13 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
   const groupKeysOf = groupBy
     ? (regionGroupBy
         ? row => {
+            // Multi-region OFF: the row buckets once under every region
+            // its countries touch ([] = LMIC-pruned to nothing).
+            if (regionMultiOff) {
+              return regionKeyListByRow && regionKeyListByRow.has(row.id)
+                ? regionKeyListByRow.get(row.id)
+                : [REGION_UNKNOWN];
+            }
             // null = LMIC-pruned to nothing → the row creates NO bucket
             // (it still counts toward the total). A missing map entry
             // (never hydrated) keeps the legacy "Unknown" fallback.
@@ -490,10 +525,19 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
   // Group-by aggregation.
   if (groupBy) {
     const buckets = new Map();
+    // Drill-down support: when the caller asks for it, remember which
+    // base-row ids fed each bucket so a widget click can open the CRM
+    // list filtered to exactly those records. Ids are de-duplicated per
+    // bucket (a list-typed group-by can yield repeated keys per row).
+    const bucketRowIds = options.collectRowIds ? new Map() : null;
     workingRows.forEach(row => {
       for (const key of groupKeysOf(row)) {
         if (!buckets.has(key)) buckets.set(key, []);
         pushMeasureValues(buckets.get(key), row);
+        if (bucketRowIds) {
+          if (!bucketRowIds.has(key)) bucketRowIds.set(key, new Set());
+          bucketRowIds.get(key).add(row.id);
+        }
       }
     });
     const grouped = Array.from(buckets.entries())
@@ -505,6 +549,9 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
           ? (getCountryByCode(key)?.name || key)
           : key,
         value: aggregate(values, measure.aggregator),
+        ...(bucketRowIds
+          ? { rowIds: Array.from(bucketRowIds.get(key) || []) }
+          : {}),
       }));
     // Region group-bys with an EXPLICIT scheme sort rows in the scheme's
     // stable display order (regions, then Multi-region, then Unknown) so

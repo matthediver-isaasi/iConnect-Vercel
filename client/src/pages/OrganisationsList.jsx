@@ -80,6 +80,7 @@ import FilterOperatorMenu from "@/components/FilterOperatorMenu";
 import { useSavedListViews } from "@/hooks/useSavedListViews";
 import SavedViewSwitcher from "@/components/SavedViewSwitcher";
 import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
+import { useWidgetDrill, WidgetDrillChip } from "@/components/dashboard/widgetDrill";
 
 function useDebounce(value, delay) {
   const [debouncedValue, setDebouncedValue] = useState(value);
@@ -401,8 +402,12 @@ export default function OrganisationsListPage() {
     return Object.keys(obj).length > 0 ? JSON.stringify(obj) : '';
   }, [coreFieldFilters, filterOps]);
 
+  // Dashboard widget click-through: restrict the list to the ids stored
+  // by the clicked widget bucket (see components/dashboard/widgetDrill.jsx).
+  const { drill: widgetDrill, drillIdsParam, clearDrill } = useWidgetDrill(searchParams, setSearchParams);
+
   const { data: orgsData, isLoading: orgsLoading } = useQuery({
-    queryKey: ['organizations-crm-paginated', currentPage, itemsPerPage, debouncedSearch, coreFiltersParam, customFiltersParam, customFieldIdsParam, sortField, sortDir],
+    queryKey: ['organizations-crm-paginated', currentPage, itemsPerPage, debouncedSearch, coreFiltersParam, customFiltersParam, customFieldIdsParam, sortField, sortDir, drillIdsParam],
     enabled: accessChecked && filtersReady,
     keepPreviousData: true,
     queryFn: async () => {
@@ -422,8 +427,17 @@ export default function OrganisationsListPage() {
       if (customFieldIdsParam) {
         params.set('fields', customFieldIdsParam);
       }
+      // A drill id list can be thousands of UUIDs — too long for a URL, so
+      // it travels in a POST body while the other params stay in the query.
       const response = await fetch(`/api/admin/organizations/paginated?${params}`, {
-        credentials: 'include'
+        credentials: 'include',
+        ...(drillIdsParam
+          ? {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ids: drillIdsParam }),
+            }
+          : {}),
       });
       if (!response.ok) throw new Error('Failed to fetch organisations');
       return response.json();
@@ -1663,6 +1677,11 @@ export default function OrganisationsListPage() {
           )}
 
           <div className="flex-1 overflow-auto p-6">
+            {widgetDrill && (
+              <div className="mb-4">
+                <WidgetDrillChip drill={widgetDrill} onClear={clearDrill} />
+              </div>
+            )}
             {orgsLoading ? (
               <div className="flex items-center justify-center py-20">
                 <Loader2 className="w-8 h-8 animate-spin text-blue-600" />

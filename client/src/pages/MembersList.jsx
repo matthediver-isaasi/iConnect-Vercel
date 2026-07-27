@@ -91,7 +91,8 @@ import GuestAccessControl from "@/components/GuestAccessControl";
 import { useToast } from "@/components/ui/use-toast";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { useWidgetDrill, WidgetDrillChip } from "@/components/dashboard/widgetDrill";
 
 const DEFAULT_COLUMNS = [
   { id: 'name', label: 'Member', visible: true, locked: true },
@@ -357,8 +358,13 @@ export default function MembersListPage() {
   const effectiveOrgParam = (filterOps['organisation'] || 'any_of') === 'any_of' ? orgFilter : 'all';
   const effectiveRoleParam = (filterOps['role'] || 'any_of') === 'any_of' ? roleFilter : 'all';
 
+  // Dashboard widget click-through: restrict the list to the ids stored
+  // by the clicked widget bucket (see components/dashboard/widgetDrill.jsx).
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { drill: widgetDrill, drillIdsParam, clearDrill } = useWidgetDrill(searchParams, setSearchParams);
+
   const { data: membersData, isLoading: membersLoading, isFetching: membersFetching } = useQuery({
-    queryKey: ['members-paginated', currentPage, itemsPerPage, debouncedSearch, effectiveOrgParam, effectiveRoleParam, statusFilter, sortField, sortDir, customFiltersParam, coreFiltersParam, customFieldIdsParam],
+    queryKey: ['members-paginated', currentPage, itemsPerPage, debouncedSearch, effectiveOrgParam, effectiveRoleParam, statusFilter, sortField, sortDir, customFiltersParam, coreFiltersParam, customFieldIdsParam, drillIdsParam],
     enabled: accessChecked && filtersReady,
     keepPreviousData: true,
     queryFn: async () => {
@@ -381,8 +387,17 @@ export default function MembersListPage() {
       if (customFieldIdsParam) {
         params.set('fields', customFieldIdsParam);
       }
+      // A drill id list can be thousands of UUIDs — too long for a URL, so
+      // it travels in a POST body while the other params stay in the query.
       const response = await fetch(`/api/admin/members/paginated?${params}`, {
-        credentials: 'include'
+        credentials: 'include',
+        ...(drillIdsParam
+          ? {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ids: drillIdsParam }),
+            }
+          : {}),
       });
       if (!response.ok) throw new Error('Failed to fetch members');
       return response.json();
@@ -1667,6 +1682,11 @@ export default function MembersListPage() {
           )}
 
           <div className="flex-1 overflow-auto p-6">
+            {widgetDrill && (
+              <div className="mb-4">
+                <WidgetDrillChip drill={widgetDrill} onClear={clearDrill} />
+              </div>
+            )}
             {membersLoading ? (
               <div className="flex items-center justify-center py-20">
                 <Loader2 className="w-8 h-8 animate-spin text-blue-600" />

@@ -248,6 +248,36 @@ export function deriveRegionBucket(countries, options = {}) {
 }
 
 /**
+ * List-variant of deriveRegionBucket, used when a widget's region
+ * group-by has "Multi-region" turned OFF: instead of collapsing an
+ * organisation spanning several regions into one "Multi-region" bucket,
+ * it returns EVERY distinct region its countries touch (so the row is
+ * counted once per region). Same options and pruning semantics as
+ * deriveRegionBucket:
+ *   - no values, or none resolvable → ["Unknown"]
+ *   - with `lmicCodeSet` and nothing surviving the pruning → [] (the
+ *     caller must create NO bucket for the row).
+ */
+export function deriveRegionBucketList(countries, options = {}) {
+  const { scheme = REGION_SCHEME_APP, lmicCodeSet = null, lmicInvert = false } = options || {};
+  const list = Array.isArray(countries) ? countries : [];
+  const regions = new Set();
+  for (const value of list) {
+    if (lmicCodeSet) {
+      const code = resolveCountryToIso2(value);
+      if (code === null || (lmicInvert ? lmicCodeSet.has(code) : !lmicCodeSet.has(code))) continue;
+      const region = regionForIso2(code, scheme);
+      if (region) regions.add(region);
+    } else {
+      const region = regionForCountry(value, scheme);
+      if (region) regions.add(region);
+    }
+  }
+  if (regions.size === 0) return lmicCodeSet ? [] : [REGION_UNKNOWN];
+  return Array.from(regions);
+}
+
+/**
  * Guard used by tests: every canonical country must classify to a region
  * in the given scheme. Returns the list of unmapped ISO-2 codes (empty
  * when fully covered).

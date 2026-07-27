@@ -161,9 +161,15 @@ export function describeWidgetConfig(config, options = {}) {
     if ((groupBy.field || '').toLowerCase() === 'region') {
       const scheme =
         groupBy.regionScheme === 'world_bank' ? 'World Bank regions' : 'world regions';
-      sentences.push(
-        `Results are grouped by ${scheme}: each organisation is placed in ONE region bucket based on its countries — organisations working across several regions appear once under "Multi-region", and countries that can't be recognised fall under "Unknown".`,
-      );
+      if (groupBy.multiRegion === false) {
+        sentences.push(
+          `Results are grouped by ${scheme}: an organisation working across several regions is counted once under EACH of its regions, so the total across bars can be higher than the number of organisations. Countries that can't be recognised fall under "Unknown".`,
+        );
+      } else {
+        sentences.push(
+          `Results are grouped by ${scheme}: each organisation is placed in ONE region bucket based on its countries — organisations working across several regions appear once under "Multi-region", and countries that can't be recognised fall under "Unknown".`,
+        );
+      }
     } else if (isCountryLabel(groupLabel)) {
       sentences.push(
         `Results are broken down by ${lowerFirst(groupLabel)}. An organisation working in several countries is counted once under each of its countries, so the total across rows can be higher than the number of organisations.`,

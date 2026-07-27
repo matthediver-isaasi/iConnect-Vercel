@@ -49,7 +49,10 @@ const DIRECT_SORT_FIELDS = {
 };
 
 export default async function handler(req, res) {
-  if (req.method !== 'GET') {
+  // POST is accepted only so a widget click-through can send a large ids
+  // list in the request body (thousands of UUIDs overflow URL limits);
+  // all other params still come from the query string.
+  if (req.method !== 'GET' && req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
@@ -76,8 +79,22 @@ export default async function handler(req, res) {
       sortDir = 'asc',
       customFilters = '',
       coreFilters = '',
-      fields = ''
+      fields = '',
+      // Dashboard widget click-through: comma-separated org ids limiting
+      // the list to the records behind one widget bucket. On POST the ids
+      // travel in the JSON body instead (URL length limits).
+      ids = ''
     } = req.query;
+    const rawIds = req.method === 'POST'
+      ? (Array.isArray(req.body?.ids) ? req.body.ids.join(',') : String(req.body?.ids || ''))
+      : ids;
+
+    // Parse + cap the drill-down id list (uuid-shaped values only).
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const drillIds = (rawIds ? String(rawIds).split(',') : [])
+      .map(s => s.trim())
+      .filter(s => UUID_RE.test(s))
+      .slice(0, 2000);
 
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
@@ -126,6 +143,9 @@ export default async function handler(req, res) {
 
     const applyFilters = (query) => {
       query = query.eq('tenant_id', tenantId);
+      if (drillIds.length > 0) {
+        query = query.in('id', drillIds);
+      }
       customFilterEntries.forEach(([fieldId, entry], idx) => {
         const alias = `cf${idx}`;
         query = applyPrefFilterEntry(query, alias, fieldId, entry, {
