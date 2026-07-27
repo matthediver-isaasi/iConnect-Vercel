@@ -815,6 +815,27 @@ export function useTenantTypographyStyles() {
   return useTenantTypographyStylesState().styles;
 }
 
+// Task #3144: typography styles offered by inspector pickers, scoped to the
+// edited page's microsite context — mirroring useCustomButtonStyleEntries. A
+// microsite page offers only styles assigned to that microsite; a main-site
+// page offers only main-site styles (microsite_id null). This affects picker
+// OPTIONS only — the render path resolves a block's stored typographyStyleId
+// against the full unscoped list, so already-built pages keep rendering an
+// out-of-scope style even though the picker no longer offers it.
+export function useScopedTypographyStyleOptions() {
+  const styles = useTenantTypographyStyles();
+  const { micrositeId } = useCanvasEditorPage();
+  return useMemo(
+    () =>
+      styles.filter((s) =>
+        micrositeId
+          ? s.microsite_id && String(s.microsite_id) === String(micrositeId)
+          : !s.microsite_id,
+      ),
+    [styles, micrositeId],
+  );
+}
+
 // When the chosen tenant style maps to a real heading level, derive the
 // matching `headingAs` so that if the style is later deleted or made
 // inactive the block still degrades to the correct legacy H1–H6 render
@@ -980,21 +1001,43 @@ function buildTiptapFontSizeResponsiveCss(blockId, html, breakpoint) {
 // `picked` is the resolved style object (or null) so callers can also persist
 // a graceful-degradation fallback (e.g. mirror `headingLevel`).
 export function TypographyStyleField({ label, value, onChange, testId, noneLabel }) {
-  const tenantStyles = useTenantTypographyStyles();
-  const sorted = useMemo(() => sortTypographyStyles(tenantStyles), [tenantStyles]);
-  if (sorted.length === 0) return null;
+  // Task #3144: options are scoped to the edited page's microsite context;
+  // the full unscoped list is only used to label an already-selected style
+  // that falls outside the current page's scope.
+  const allStyles = useTenantTypographyStyles();
+  const scopedStyles = useScopedTypographyStyleOptions();
+  const sorted = useMemo(() => sortTypographyStyles(scopedStyles), [scopedStyles]);
+  // A block with an out-of-scope selection must keep showing its current
+  // value (and keep the field visible) — it just isn't offered alongside
+  // other out-of-scope styles.
+  const outOfScopeCurrent =
+    value && !sorted.some((s) => s.id === value)
+      ? resolveTenantStyle(value, allStyles)
+      : null;
+  const hasOutOfScopeValue = !!value && !sorted.some((s) => s.id === value);
+  if (sorted.length === 0 && !hasOutOfScopeValue) return null;
   const options = [
     { value: '__none__', label: noneLabel || 'Default (no tenant style)' },
     ...sorted.map((s) => ({
       value: s.id,
       label: `${s.name || 'Untitled style'} (${String(s.style_type || '').toUpperCase() || '—'})`,
     })),
+    ...(hasOutOfScopeValue
+      ? [{
+          value,
+          label: outOfScopeCurrent
+            ? `${outOfScopeCurrent.name || 'Untitled style'} (${String(outOfScopeCurrent.style_type || '').toUpperCase() || '—'}) — other site`
+            : 'Current style (not available on this site)',
+        }]
+      : []),
   ];
   const handleChange = (v) => {
     if (v === '__none__') {
       onChange('', null);
     } else {
-      const picked = sorted.find((s) => s.id === v) || null;
+      // Resolve against the full list so re-selecting the block's existing
+      // out-of-scope style still passes the resolved style object through.
+      const picked = sorted.find((s) => s.id === v) || resolveTenantStyle(v, allStyles);
       onChange(v, picked);
     }
   };
@@ -1965,10 +2008,14 @@ function TextInspector({ block, update, breakpoint }) {
   const c = block.content || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
-  const tenantStyles = useTenantTypographyStyles();
+  // Task #3144: the "Render as" picker offers only styles in the edited
+  // page's microsite scope; the full list is kept for resolving an
+  // already-selected out-of-scope style (label + heading fallback).
+  const allTenantStyles = useTenantTypographyStyles();
+  const scopedTenantStyles = useScopedTypographyStyleOptions();
   const sortedTenantStyles = useMemo(
-    () => sortTypographyStyles(tenantStyles),
-    [tenantStyles],
+    () => sortTypographyStyles(scopedTenantStyles),
+    [scopedTenantStyles],
   );
   // Build the options list: tenant styles first (so authors see their
   // brand styles up top), then the generic Paragraph + H1–H6 fallbacks
@@ -1978,6 +2025,18 @@ function TextInspector({ block, update, breakpoint }) {
       value: `style:${s.id}`,
       label: `${s.name || 'Untitled style'} (${String(s.style_type || '').toUpperCase() || '—'})`,
     }));
+    // Keep an already-selected out-of-scope style visible as the current
+    // value without offering the rest of the other scope's styles.
+    const selectedId = c.typographyStyleId || '';
+    if (selectedId && !sortedTenantStyles.some((s) => s.id === selectedId)) {
+      const cur = resolveTenantStyle(selectedId, allTenantStyles);
+      tenantOptions.push({
+        value: `style:${selectedId}`,
+        label: cur
+          ? `${cur.name || 'Untitled style'} (${String(cur.style_type || '').toUpperCase() || '—'}) — other site`
+          : 'Current style (not available on this site)',
+      });
+    }
     const genericOptions = [
       { value: 'p', label: 'Paragraph / rich text' },
       { value: '1', label: 'Heading 1 (H1)' },
@@ -1988,7 +2047,7 @@ function TextInspector({ block, update, breakpoint }) {
       { value: '6', label: 'Heading 6 (H6)' },
     ];
     return [...tenantOptions, ...genericOptions];
-  }, [sortedTenantStyles]);
+  }, [sortedTenantStyles, allTenantStyles, c.typographyStyleId]);
   // Compute the current selected value. Tenant style id wins; otherwise
   // we fall back to the legacy `headingAs` level.
   const currentValue = c.typographyStyleId
@@ -2002,7 +2061,9 @@ function TextInspector({ block, update, breakpoint }) {
       // heading level via the legacy path instead of collapsing to a
       // plain <div>.
       const id = v.slice('style:'.length);
-      const picked = sortedTenantStyles.find((s) => s.id === id);
+      const picked =
+        sortedTenantStyles.find((s) => s.id === id) ||
+        resolveTenantStyle(id, allTenantStyles);
       const fallback = fallbackHeadingAsForStyleType(picked && picked.style_type);
       set({ typographyStyleId: id, headingAs: fallback });
     } else {
