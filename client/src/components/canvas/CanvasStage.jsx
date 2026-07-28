@@ -2,7 +2,7 @@ import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import useEdgeAutoScroll from './useEdgeAutoScroll';
 import { Group as GroupIcon, Ungroup as UngroupIcon, EyeOff as EyeOffIcon } from 'lucide-react';
-import { resolveBlockAtBreakpoint, blockIsFullWidthLike, clampGeomToStage, BLOCK_TYPES, resolveBoxShadowCss, resolveBleedBorderRadius } from '@/lib/canvasDesign';
+import { resolveBlockAtBreakpoint, blockIsFullWidthLike, clampGeomToStage, BLOCK_TYPES, resolveBoxShadowCss, resolveBleedBorderRadius, resolveWrapperBackground } from '@/lib/canvasDesign';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -255,7 +255,9 @@ function CanvasBlockView({
         // grow with the pointer. The resize handler clamps this to the natural
         // content height, so dragging down snaps to content instead of clipping.
         ...(Number.isFinite(liveHeight) ? { minHeight: liveHeight } : null),
-        background: style.background,
+        // Task #3181: gradient/image sections must not paint the wrapper fill
+        // (shared resolver — keeps editor, public and symbol preview in sync).
+        background: resolveWrapperBackground(block),
         borderColor: style.borderColor,
         borderWidth: style.borderWidth,
         borderStyle: style.borderStyle,

@@ -407,6 +407,37 @@ export function resolveBoxShadowCss(style) {
   return SHADOW_CSS_BY_LEVEL[level] || 'none';
 }
 
+// Task #3181 — wrapper background for a block. Sections whose background is
+// gradient or image paint on a dedicated inset bleed layer inside the section
+// renderer; the block WRAPPER must not also paint `style.background` (which
+// defaults to a near-white '#f8fafc') or gradients fading to transparent
+// would expose the wrapper fill instead of whatever lies behind the section
+// (e.g. an image below it).
+//
+// Author intent: switching the inspector's background type to Gradient/Image
+// means that mode wins — any stored base colour is deliberately suppressed
+// (it re-applies if they switch back to Color). Solid-colour and legacy
+// sections (no bgType, or bgType === 'color') keep painting style.background
+// exactly as before, and a legacy gradient section still looks correct where
+// the gradient is opaque.
+//
+// One shared resolver used by every wrapper-rendering surface (editor stage,
+// public page renderer, symbol child preview) so they can't drift — mirroring
+// resolveBoxShadowCss / resolveBleedBorderRadius above.
+export function resolveWrapperBackground(block) {
+  const style = block?.style || {};
+  if (block?.type === BLOCK_TYPES.SECTION) {
+    const c = block.content || {};
+    // Match SectionRender's own gating: image mode needs a URL to activate;
+    // gradient mode always emits a gradient (the builder falls back to
+    // default from/to colours), so it always suppresses the wrapper fill.
+    if (c.bgType === 'gradient' || (c.bgType === 'image' && !!c.bgImageUrl)) {
+      return 'transparent';
+    }
+  }
+  return style.background;
+}
+
 // Block types that expose the drop-shadow control. Restricted to the
 // container/media surfaces where a shadow makes sense (Task #2692).
 export const SHADOW_BLOCK_TYPES = new Set([

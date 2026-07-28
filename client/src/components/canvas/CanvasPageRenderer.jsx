@@ -17,6 +17,7 @@ import {
   resolveBlockHeightCss,
   resolveAspectSizingStyle,
   resolveBoxShadowCss,
+  resolveWrapperBackground,
   isFlowDesign,
 } from "@/lib/canvasDesign";
 import { buildFlowCanvasCss } from "@/lib/canvasFlowLayout";
@@ -282,7 +283,9 @@ function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint, windowBp, pinS
       style={{
         ...(forcedStyle || null),
         ...cssReflowOverride,
-        background: style.background,
+        // Task #3181: gradient/image sections must not paint the wrapper fill
+        // (shared resolver — keeps editor, public and symbol preview in sync).
+        background: resolveWrapperBackground(block),
         borderColor: style.borderColor,
         borderWidth: style.borderWidth,
         borderStyle: style.borderStyle,

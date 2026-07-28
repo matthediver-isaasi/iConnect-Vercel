@@ -95,6 +95,7 @@ import {
   getBlockBleed,
   resolveBleedBorderRadius,
   resolveBoxShadowCss,
+  resolveWrapperBackground,
 } from '@/lib/canvasDesign';
 import ImageSelector from '@/components/ImageSelector';
 import { FocalPointPicker, getFocalPointStyle } from '@/components/FocalPointPicker';
@@ -8056,7 +8057,10 @@ function SymbolChildPreview({ block, breakpoint, hostWidth }) {
         top: geom.y,
         width: geom.w,
         height: geom.h,
-        background: style.background,
+        // Task #3181: gradient/image sections must not paint the wrapper fill
+        // (shared resolver — keeps this preview in sync with the editor stage
+        // and the public renderer).
+        background: resolveWrapperBackground(block),
         borderColor: style.borderColor,
         borderWidth: style.borderWidth,
         borderStyle: style.borderStyle,
