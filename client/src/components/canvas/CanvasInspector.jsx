@@ -16,6 +16,8 @@ import {
   BLOCK_TYPES,
   blockSupportsFullBleed,
   setBlockContentFullBleed,
+  setBlockContentBleed,
+  getBlockBleed,
   blockSupportsShadow,
   SHADOW_LEVELS,
   blockSupportsAriaLabelInput,
@@ -309,11 +311,18 @@ function SingleBlockInspector({ block, breakpoint, blockIssues, onUpdate, onTogg
   // disable the X/Width inputs and offer a visible escape hatch instead of
   // leaving dead-looking controls. Turning it off snapshots the currently
   // rendered x/w into the active breakpoint first (shared helper).
-  const isFullBleed = blockSupportsFullBleed(block.type) && !!block.content?.fullBleed;
+  // Task #3154: sections resolve to a bleed DIRECTION ('full'|'left'|
+  // 'right'|null); other full-bleed-capable types stay boolean. Any non-off
+  // bleed pins x/w exactly like fullWidth.
+  const bleedDir = getBlockBleed(block);
+  const isFullBleed = !!bleedDir;
   const horizontallyPinned = block.fullWidth || isFullBleed;
 
   const toggleFullBleed = () => {
-    onUpdate((b) => setBlockContentFullBleed(b, breakpoint, !(b.content && b.content.fullBleed)));
+    onUpdate((b) => setBlockContentFullBleed(b, breakpoint, !getBlockBleed(b)));
+  };
+  const setBleedDir = (dir) => {
+    onUpdate((b) => setBlockContentBleed(b, breakpoint, dir));
   };
 
   // Ratio lock (editor-session UI only; never persisted). When engaged, editing
@@ -446,7 +455,47 @@ function SingleBlockInspector({ block, breakpoint, blockIssues, onUpdate, onTogg
             </Button>
           </div>
         )}
-        {blockSupportsFullBleed(block.type) && !def?.noResize && (
+        {block.type === BLOCK_TYPES.SECTION && !def?.noResize && (
+          // Task #3154: sections get a directional bleed selector instead of
+          // the boolean Full-bleed toggle. All changes route through the
+          // shared snapshot-on-release helper.
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <div className="flex items-center gap-1.5 text-xs text-slate-600">
+              <Maximize2 className="w-3.5 h-3.5" />
+              <span>Bleed</span>
+            </div>
+            <div className="flex items-center gap-1" data-testid="group-section-bleed">
+              {[
+                { value: 'off', label: 'Off' },
+                { value: 'full', label: 'Full' },
+                { value: 'left', label: 'Left' },
+                { value: 'right', label: 'Right' },
+              ].map((opt) => {
+                const active = (bleedDir || 'off') === opt.value;
+                return (
+                  <Button
+                    key={opt.value}
+                    size="sm"
+                    variant={active ? 'default' : 'outline'}
+                    onClick={() => { if (!active) setBleedDir(opt.value); }}
+                    className="toggle-elevate px-2"
+                    data-testid={`button-section-bleed-${opt.value}`}
+                    data-state={active ? 'on' : 'off'}
+                    title={{
+                      off: 'No bleed (X and Width editable)',
+                      full: 'Bleed to both screen edges',
+                      left: 'Bleed to the left screen edge only',
+                      right: 'Bleed to the right screen edge only',
+                    }[opt.value]}
+                  >
+                    {opt.label}
+                  </Button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        {block.type !== BLOCK_TYPES.SECTION && blockSupportsFullBleed(block.type) && !def?.noResize && (
           <div className="flex items-center justify-between gap-2 mb-2">
             <div className="flex items-center gap-1.5 text-xs text-slate-600">
               <Maximize2 className="w-3.5 h-3.5" />
@@ -470,7 +519,9 @@ function SingleBlockInspector({ block, breakpoint, blockIssues, onUpdate, onTogg
         {horizontallyPinned && !def?.noResize && (
           <p className="text-xs text-slate-500 mb-2" data-testid="text-full-width-hint">
             {isFullBleed && !block.fullWidth
-              ? 'Full-bleed pins X and Width to the canvas edge at every breakpoint. Turn it off above to edit horizontally.'
+              ? (bleedDir === 'left' || bleedDir === 'right'
+                  ? `Bleed (${bleedDir}) pins X and Width to the canvas edge at every breakpoint. Set Bleed to Off above to edit horizontally.`
+                  : 'Full-bleed pins X and Width to the canvas edge at every breakpoint. Turn it off above to edit horizontally.')
               : 'X and Width are pinned to the canvas at each breakpoint. Disable to edit horizontally.'}
           </p>
         )}

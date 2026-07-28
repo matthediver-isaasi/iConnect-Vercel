@@ -284,6 +284,27 @@ export function blockSupportsFullBleed(type) {
   return FULL_BLEED_BLOCK_TYPES.has(type);
 }
 
+// Task #3154: directional bleed. Sections can bleed to only ONE viewport
+// edge (left or right) while the other side stays at the centered page
+// column. The direction lives on `content.bleed` ('off'|'full'|'left'|
+// 'right'); legacy docs carry only the boolean `content.fullBleed`, which
+// maps to 'full'. This resolver is the ONE place that precedence lives —
+// every consumer (geomRule, CanvasPageRenderer forced path, editor pinning,
+// inspectors, SectionRender) must go through it. Returns null when the
+// block has no bleed (or doesn't support it). Directional values are only
+// honoured on Sections; on any other full-bleed-capable type a stray
+// 'left'/'right' degrades to 'full' so geometry never desyncs.
+export function getBlockBleed(block) {
+  if (!block || !blockSupportsFullBleed(block.type)) return null;
+  const c = block.content || {};
+  if (c.bleed === 'left' || c.bleed === 'right') {
+    return block.type === BLOCK_TYPES.SECTION ? c.bleed : 'full';
+  }
+  if (c.bleed === 'full') return 'full';
+  if (c.bleed === 'off') return null;
+  return c.fullBleed ? 'full' : null;
+}
+
 // True when a block should behave like a full-width block for *editor*
 // geometry purposes: either the generic `fullWidth` flag is set, or the
 // block opts into `fullBleed` (a viewport-edge breakout that the editor
@@ -293,7 +314,7 @@ export function blockSupportsFullBleed(type) {
 export function blockIsFullWidthLike(block) {
   if (!block) return false;
   if (block.fullWidth) return true;
-  return blockSupportsFullBleed(block.type) && !!(block.content && block.content.fullBleed);
+  return !!getBlockBleed(block);
 }
 
 // Task #2506: toggle `content.fullBleed` with snapshot-on-release semantics,
@@ -307,12 +328,32 @@ export function blockIsFullWidthLike(block) {
 // control and block content inspectors (e.g. the Hero's toggle) so the two
 // entry points can't drift.
 export function setBlockContentFullBleed(block, breakpoint, on) {
-  if (on) {
-    return { ...block, content: { ...block.content, fullBleed: true } };
+  return setBlockContentBleed(block, breakpoint, on ? 'full' : 'off');
+}
+
+// Task #3154: directional variant of the toggle above. `dir` is one of
+// 'off'|'full'|'left'|'right'. Any non-off direction pins the editor frame
+// exactly like full bleed (blockIsFullWidthLike), so switching BETWEEN
+// non-off directions just rewrites the flags; only 'off' snapshots the
+// currently rendered x/w into the active breakpoint frame first.
+// `content.fullBleed` is kept mirrored (true only for 'full') so legacy
+// consumers and old app bundles keep working, and `content.bleed` is only
+// written when the doc departs from plain boolean full-bleed semantics —
+// keeping docs that never use directional bleed byte-identical.
+export function setBlockContentBleed(block, breakpoint, dir) {
+  const d = dir === 'full' || dir === 'left' || dir === 'right' ? dir : 'off';
+  const hadBleedKey = !!(block.content && 'bleed' in block.content);
+  const writeBleed = d === 'left' || d === 'right' || hadBleedKey;
+  const flags = {
+    fullBleed: d === 'full',
+    ...(writeBleed ? { bleed: d } : {}),
+  };
+  if (d !== 'off') {
+    return { ...block, content: { ...block.content, ...flags } };
   }
   const cw = BREAKPOINT_WIDTHS[breakpoint] || BREAKPOINT_WIDTHS.desktop;
   const withGeom = setBlockBp(block, breakpoint, { x: 0, w: cw });
-  return { ...withGeom, content: { ...withGeom.content, fullBleed: false } };
+  return { ...withGeom, content: { ...withGeom.content, ...flags } };
 }
 
 const DEFAULT_STYLE = {
@@ -3275,19 +3316,46 @@ export function resolveBlockHeightCss(block) {
   return null;
 }
 
-function geomRule(geom, { fullBleed, fullWidth, heightCss, aspectCss } = {}) {
+function geomRule(geom, { fullBleed, bleed, fullWidth, heightCss, aspectCss } = {}) {
   if (geom.hidden) return 'display:none;';
   // Aspect-mode carousels (Task #2829) replace the fixed height with
   // height:auto + aspect-ratio + clamps so the wrapper itself tracks the
   // viewport width; every other block keeps its fixed geometry height.
   const heightDecl = aspectCss || `height:${heightCss || fmtPx(geom.h)};`;
-  if (fullBleed) {
+  if (fullBleed || bleed === 'full') {
     return [
       'display:block;',
       'position:absolute;',
       'left:50%;',
       'transform:translateX(-50%);',
       'width:100vw;',
+      `top:${fmtPx(geom.y)};`,
+      heightDecl,
+    ].join('');
+  }
+  // Task #3154: directional bleed — one edge at the viewport, the other at
+  // the stage edge. The rule is emitted relative to the centered
+  // `.canvas-stage` (width = stage width), so `50%` is half the stage and
+  // `50vw` is half the viewport: `calc(50% - 50vw)` lands exactly on the
+  // viewport's left edge, and `calc(50% + 50vw)` spans from one viewport
+  // edge to the opposite stage edge. Same 100vw-includes-scrollbar caveat
+  // as full bleed (the forced-breakpoint preview path compensates).
+  if (bleed === 'left') {
+    return [
+      'display:block;',
+      'position:absolute;',
+      'left:calc(50% - 50vw);',
+      'width:calc(50% + 50vw);',
+      `top:${fmtPx(geom.y)};`,
+      heightDecl,
+    ].join('');
+  }
+  if (bleed === 'right') {
+    return [
+      'display:block;',
+      'position:absolute;',
+      'left:0;',
+      'width:calc(50% + 50vw);',
       `top:${fmtPx(geom.y)};`,
       heightDecl,
     ].join('');
@@ -3426,12 +3494,12 @@ export function buildCanvasCss(blocks, scope) {
   for (const b of blocks) {
     const id = escapeCssIdent(b.id);
     const sel = `${sc} [data-cb="${id}"]`;
-    const fullBleed = blockSupportsFullBleed(b.type) && !!(b.content && b.content.fullBleed);
+    const bleed = getBlockBleed(b);
     const fullWidth = !!b.fullWidth;
     const heightCss = resolveBlockHeightCss(b);
     const aspectCss = resolveAspectSizingCss(b);
     const dG = resolveBlockAtBreakpoint(b, 'desktop');
-    lines.push(`${sel}{${geomRule(dG, { fullBleed, fullWidth, heightCss, aspectCss })}}`);
+    lines.push(`${sel}{${geomRule(dG, { bleed, fullWidth, heightCss, aspectCss })}}`);
   }
 
   // Task #972: per-block CSS variables for per-device text/icon sizes
@@ -3453,7 +3521,7 @@ export function buildCanvasCss(blocks, scope) {
   for (const b of blocks) {
     const id = escapeCssIdent(b.id);
     const sel = `${sc} [data-cb="${id}"]`;
-    const fullBleed = blockSupportsFullBleed(b.type) && !!(b.content && b.content.fullBleed);
+    const bleed = getBlockBleed(b);
     const fullWidth = !!b.fullWidth;
     const heightCss = resolveBlockHeightCss(b);
     const dG = resolveBlockAtBreakpoint(b, 'desktop');
@@ -3471,12 +3539,12 @@ export function buildCanvasCss(blocks, scope) {
     // (100% or 100vw), so per-breakpoint x/w differences (which only come
     // from the breakpoint stage width) must not trigger a redundant
     // override — compare y/h/hidden only for those.
-    const fwLike = fullWidth || fullBleed;
+    const fwLike = fullWidth || !!bleed;
     const geomDiffers = fwLike
       ? (tG.y !== dG.y || tG.h !== dG.h || !!tG.hidden !== !!dG.hidden)
       : (tG.x !== dG.x || tG.y !== dG.y || tG.w !== dG.w || tG.h !== dG.h || !!tG.hidden !== !!dG.hidden);
     if (geomDiffers) {
-      tabletRules.push(`${sel}{${geomRule(tG, { fullBleed, fullWidth, heightCss, aspectCss: resolveAspectSizingCss(b) })}}`);
+      tabletRules.push(`${sel}{${geomRule(tG, { bleed, fullWidth, heightCss, aspectCss: resolveAspectSizingCss(b) })}}`);
     }
   }
   // Task #972: tablet var diffs — only emit keys that differ from the
@@ -3507,7 +3575,7 @@ export function buildCanvasCss(blocks, scope) {
   for (const b of blocks) {
     const id = escapeCssIdent(b.id);
     const sel = `${sc} [data-cb="${id}"]`;
-    const fullBleed = blockSupportsFullBleed(b.type) && !!(b.content && b.content.fullBleed);
+    const bleed = getBlockBleed(b);
     const fullWidth = !!b.fullWidth;
     const heightCss = resolveBlockHeightCss(b);
     // Task #2460: compare the clamped mobile geometry against the clamped
@@ -3524,12 +3592,12 @@ export function buildCanvasCss(blocks, scope) {
       'mobile',
       BREAKPOINT_WIDTHS.mobile,
     );
-    const fwLike = fullWidth || fullBleed;
+    const fwLike = fullWidth || !!bleed;
     const geomDiffers = fwLike
       ? (mG.y !== tG.y || mG.h !== tG.h || !!mG.hidden !== !!tG.hidden)
       : (mG.x !== tG.x || mG.y !== tG.y || mG.w !== tG.w || mG.h !== tG.h || !!mG.hidden !== !!tG.hidden);
     if (geomDiffers) {
-      mobileRules.push(`${sel}{${geomRule(mG, { fullBleed, fullWidth, heightCss, aspectCss: resolveAspectSizingCss(b) })}}`);
+      mobileRules.push(`${sel}{${geomRule(mG, { bleed, fullWidth, heightCss, aspectCss: resolveAspectSizingCss(b) })}}`);
     }
   }
   // Task #972: mobile var diffs — compare against tablet (which already

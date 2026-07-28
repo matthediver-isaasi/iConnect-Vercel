@@ -12,6 +12,7 @@ import {
   BLOCK_TYPES,
   BREAKPOINT_WIDTHS,
   blockSupportsFullBleed,
+  getBlockBleed,
   resolveBlockHeightCss,
   resolveAspectSizingStyle,
   resolveBoxShadowCss,
@@ -186,7 +187,8 @@ function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint, windowBp, pinS
   if (forcedBreakpoint) {
     const g = storedGeom;
     if (g.hidden) return null;
-    const fullBleed = blockSupportsFullBleed(block.type) && !!(block.content && block.content.fullBleed);
+    const bleed = getBlockBleed(block);
+    const fullBleed = bleed === 'full';
     const fullWidth = !!block.fullWidth;
     const top = g.y + topOffset;
     const heightOverride = resolveBlockHeightCss(block);
@@ -213,6 +215,21 @@ function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint, windowBp, pinS
       forcedStyle = (pinStageWidth || forcedBreakpoint !== 'desktop')
         ? { position: 'absolute', left: 0, right: 'auto', transform: 'none', width: '100%', top, height }
         : { position: 'absolute', left: '50%', transform: 'translateX(-50%)', width: '100vw', top, height };
+    } else if (bleed === 'left' || bleed === 'right') {
+      // Task #3154: directional bleed — mirror geomRule's asymmetric
+      // breakout. In pinned-width / forced tablet-mobile previews the stage
+      // already spans the full iframe width (and 100vw would include the
+      // scrollbar), so the stage-filling branch applies exactly as it does
+      // for full bleed.
+      forcedStyle = (pinStageWidth || forcedBreakpoint !== 'desktop')
+        ? { position: 'absolute', left: 0, right: 'auto', transform: 'none', width: '100%', top, height }
+        : {
+            position: 'absolute',
+            left: bleed === 'left' ? 'calc(50% - 50vw)' : 0,
+            width: 'calc(50% + 50vw)',
+            top,
+            height,
+          };
     } else if (fullWidth) {
       forcedStyle = { position: 'absolute', left: 0, top, width: '100%', height };
     } else {
@@ -259,7 +276,8 @@ function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint, windowBp, pinS
       data-cb={block.id}
       data-block-id={block.id}
       data-block-type={block.type}
-      data-full-bleed={blockSupportsFullBleed(block.type) && block.content?.fullBleed ? 'true' : undefined}
+      data-full-bleed={getBlockBleed(block) === 'full' ? 'true' : undefined}
+      data-bleed={(() => { const d = getBlockBleed(block); return d === 'left' || d === 'right' ? d : undefined; })()}
       style={{
         ...(forcedStyle || null),
         ...cssReflowOverride,

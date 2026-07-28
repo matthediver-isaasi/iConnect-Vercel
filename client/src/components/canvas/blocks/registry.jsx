@@ -91,6 +91,8 @@ import {
   normalizeCanvasDesign,
   getRootChildren,
   setBlockContentFullBleed,
+  setBlockContentBleed,
+  getBlockBleed,
   resolveBoxShadowCss,
 } from '@/lib/canvasDesign';
 import ImageSelector from '@/components/ImageSelector';
@@ -7030,12 +7032,21 @@ export const SECTION_BLEND_MODES = [
 function SectionRender({ block, asEditor, priority }) {
   const c = block.content || {};
   const s = block.style || {};
+  // Task #3154: bleed direction — 'full' | 'left' | 'right' | null,
+  // resolved via the shared helper (legacy `fullBleed: true` → 'full').
+  const bleed = getBlockBleed(block);
   // Full-bleed: stretch the section across the full viewport width even
   // when the surrounding canvas has a constrained max-width. We use the
   // classic centered 100vw trick so the section escapes its container in
   // the public renderer; in the editor we just flag it visually because
   // the canvas always renders at its design width.
-  const fullBleedStyle = c.fullBleed && !asEditor
+  //
+  // Directional bleed (left/right) does NOT apply this inner breakout: the
+  // outer block wrapper already gets the asymmetric breakout from geomRule
+  // (static stylesheet) / CanvasPageRenderer (forced-breakpoint path), so
+  // the inner div just fills it (100%) — colour paints on the outer
+  // wrapper and gradient on this wrapper, both covering the bleed box.
+  const fullBleedStyle = bleed === 'full' && !asEditor
     ? {
         width: '100vw',
         position: 'relative',
@@ -7110,7 +7121,8 @@ function SectionRender({ block, asEditor, priority }) {
       className="w-full h-full relative"
       style={wrapperStyle || undefined}
       data-section-id={block.id}
-      data-full-bleed={c.fullBleed ? 'true' : 'false'}
+      data-full-bleed={bleed === 'full' ? 'true' : 'false'}
+      data-bleed={bleed === 'left' || bleed === 'right' ? bleed : undefined}
       {...(isImageBg ? { 'data-bg-type': 'image' } : isGradientBg ? { 'data-bg-type': 'gradient' } : null)}
     >
       {isImageBg && (() => {
@@ -7150,20 +7162,36 @@ function SectionRender({ block, asEditor, priority }) {
         />
       )}
       <div style={railStyle} />
+      {asEditor && (bleed === 'left' || bleed === 'right') && (
+        // Task #3154: the editor stage pins bleeding sections to the full
+        // canvas width (an approximation — the real breakout only exists on
+        // the published page / ?_bp= preview), so mark which side bleeds
+        // with a dashed edge strip on the bleeding side.
+        <div
+          aria-hidden="true"
+          className="absolute inset-y-0 w-0 pointer-events-none border-dashed border-slate-500/70"
+          style={{
+            [bleed === 'left' ? 'left' : 'right']: 0,
+            borderLeftWidth: bleed === 'left' ? 3 : 0,
+            borderRightWidth: bleed === 'right' ? 3 : 0,
+            zIndex: 3,
+          }}
+        />
+      )}
       {asEditor && (
         <span
           className="absolute top-1 left-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wide rounded bg-slate-900/70 text-white pointer-events-none"
           aria-hidden="true"
           style={isImageBg ? { zIndex: 3 } : undefined}
         >
-          Section{c.fullBleed ? ' · full-bleed' : ''}{isImageBg ? ' · image' : isGradientBg ? ' · gradient' : ''}
+          Section{bleed === 'full' ? ' · full-bleed' : bleed === 'left' ? ' · bleed left' : bleed === 'right' ? ' · bleed right' : ''}{isImageBg ? ' · image' : isGradientBg ? ' · gradient' : ''}
         </span>
       )}
     </div>
   );
 }
 
-function SectionInspector({ block, update }) {
+function SectionInspector({ block, update, breakpoint }) {
   const c = block.content || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
   const bgType = c.bgType || 'color';
@@ -7180,7 +7208,22 @@ function SectionInspector({ block, update }) {
         onChange={(v) => set({ maxWidth: Math.max(0, Number(v) || 0) })}
         testId="input-section-max-width"
       />
-      <ToggleField label="Full-bleed" value={!!c.fullBleed} onChange={(v) => set({ fullBleed: v })} testId="toggle-section-full-bleed" />
+      {/* Task #3154: bleed direction. Routed through the shared
+          snapshot-on-release helper so turning bleed OFF captures the
+          currently rendered x/w into the active breakpoint frame (same as
+          the legacy full-bleed toggle) instead of snapping to a stale one. */}
+      <SelectField
+        label="Bleed to screen edge"
+        value={getBlockBleed(block) || 'off'}
+        onChange={(v) => update((b) => setBlockContentBleed(b, breakpoint || 'desktop', v))}
+        options={[
+          { value: 'off', label: 'Off' },
+          { value: 'full', label: 'Full (both sides)' },
+          { value: 'left', label: 'Left only' },
+          { value: 'right', label: 'Right only' },
+        ]}
+        testId="select-section-bleed"
+      />
       <SelectField
         label="Background"
         value={bgType}
