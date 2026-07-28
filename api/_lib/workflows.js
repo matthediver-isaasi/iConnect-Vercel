@@ -1714,12 +1714,16 @@ async function executeRoleBasedEmail(action, workflow, entityType, entityId, ent
 async function checkOncePerRecord(workflow, entityType, entityId) {
   if (workflow.trigger_mode !== 'once_per_record') return false;
   
+  // 'skipped' rows record conditions-not-met runs where NOTHING executed —
+  // they must not count as "already ran" or a once_per_record workflow whose
+  // conditions were false on first trigger could never execute later.
   const { data: existingLogs } = await supabase
     .from('workflow_log')
     .select('id')
     .eq('workflow_id', workflow.id)
     .eq('entity_type', entityType)
     .eq('entity_id', entityId)
+    .neq('status', 'skipped')
     .limit(1);
   
   return existingLogs && existingLogs.length > 0;
@@ -1980,6 +1984,29 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
       
       if (!allConditionsMet) {
         console.log(`[Workflows] Conditions not met for workflow: ${workflow.name} - SKIPPING`);
+
+        // Task 3196: record a skipped run so admins can see WHY nothing was
+        // sent (per-condition expected vs actual), instead of the skip being
+        // visible only in server logs. Never let logging failures break the
+        // trigger path.
+        try {
+          await supabase.from('workflow_log').insert({
+            tenant_id: workflow.tenant_id,
+            workflow_id: workflow.id,
+            entity_type: entityType,
+            entity_id: entityId,
+            trigger_data: {
+              trigger_type: triggerType,
+              condition_results: conditionResults,
+              reason: 'conditions_not_met',
+            },
+            actions_executed: [],
+            status: 'skipped',
+          });
+          console.log(`[Workflows] Logged skipped run for ${workflow.name} (conditions not met)`);
+        } catch (skipLogErr) {
+          console.error(`[Workflows] Failed to log skipped run for ${workflow.name}:`, skipLogErr);
+        }
         
         if (workflow.revert_trigger_on_condition_fail && workflow.trigger_type === 'field_change' && workflow.trigger_config?.field_id) {
           const revertFieldId = workflow.trigger_config.field_id;

@@ -1518,6 +1518,7 @@ export default async function handler(req, res) {
     let createdOrganizationId = null;
     let newlyCreatedOrgData = null; // Track org data for workflow trigger after custom fields saved
     let createdMemberId = null;
+    let newlyCreatedMemberData = null; // Track member data for workflow trigger after custom fields saved (task 3196)
 
     // Process organization based on orgAction (none/create/update/upsert)
     if (shouldProcessOrganization) {
@@ -2162,17 +2163,14 @@ export default async function handler(req, res) {
 
           createdMemberId = newMember.id;
           console.log('[AppProcessor] Created member:', createdMemberId);
-          
-          // Trigger workflows for new member creation
-          // Must await to ensure completion before Vercel terminates the function
-          const baseUrl = process.env.APP_URL || `https://${req.headers.host}`;
-          try {
-            await triggerWorkflows('member', createdMemberId, null, newMember, 'record_create', baseUrl, { formSubmissionId: submission_id });
-            console.log('[AppProcessor] Workflow evaluation completed for member:', createdMemberId);
-          } catch (err) {
-            console.error('[AppProcessor] Workflow error:', err);
-          }
-          console.log('[AppProcessor] Triggered workflows for new member:', createdMemberId);
+
+          // Task 3196: record_create workflows are triggered AFTER the
+          // member's custom-field preference values are persisted (below),
+          // so workflows whose conditions reference custom fields see the
+          // values captured in this same form submission. Triggering here
+          // raced the member_preference_value writes and silently skipped
+          // those workflows.
+          newlyCreatedMemberData = newMember;
 
           // Guest signup approval alerts: when this member was stamped as a
           // guest (domain mismatch + guest access enabled), email the tenant
@@ -2224,6 +2222,20 @@ export default async function handler(req, res) {
             entityScope: 'member',
             prefField: prefFieldMap.get(fieldId),
           });
+        }
+      }
+
+      // Task 3196: trigger record_create workflows for the newly created
+      // member AFTER its custom-field values are saved, so member_custom
+      // conditions evaluate against this submission's values.
+      // Must await to ensure completion before Vercel terminates the function.
+      if (newlyCreatedMemberData) {
+        const baseUrl = process.env.APP_URL || `https://${req.headers.host}`;
+        try {
+          await triggerWorkflows('member', newlyCreatedMemberData.id, null, newlyCreatedMemberData, 'record_create', baseUrl, { formSubmissionId: submission_id });
+          console.log('[AppProcessor] Workflow evaluation completed for member:', newlyCreatedMemberData.id);
+        } catch (err) {
+          console.error('[AppProcessor] Workflow error:', err);
         }
       }
 
@@ -2802,6 +2814,7 @@ export default async function handler(req, res) {
         // processedEmails stores {id, role_id, organization_id} for in-memory context
         const processedEntry = processedEmails.get(normalizedEmail);
         let existingMemberId = processedEntry?.id || null;
+        let newlyCreatedAdditionalMember = null; // Task 3196: trigger workflows after custom fields saved
         
         // Use in-memory context if available, otherwise fetch from DB
         let existingMemberRecord = processedEntry ? { 
@@ -3049,16 +3062,11 @@ export default async function handler(req, res) {
             organization_id: newMember.organization_id 
           });
           console.log('[AppProcessor] Created additional member:', newMember.id, 'tracking:', { role_id: newMember.role_id, organization_id: newMember.organization_id });
-          
-          // Trigger workflows for new additional member creation
-          // Must await to ensure completion before Vercel terminates the function
-          const addlBaseUrl = process.env.APP_URL || `https://${req.headers.host}`;
-          try {
-            await triggerWorkflows('member', newMember.id, null, newMember, 'record_create', addlBaseUrl, { formSubmissionId: submission_id });
-            console.log('[AppProcessor] Workflow evaluation completed for additional member:', newMember.id);
-          } catch (err) {
-            console.error('[AppProcessor] Additional member workflow error:', err);
-          }
+
+          // Task 3196: record_create workflows fire AFTER this member's
+          // custom-field values are saved (below), so member_custom
+          // conditions evaluate against this submission's values.
+          newlyCreatedAdditionalMember = newMember;
         }
         
         // Process custom field mappings (upsert logic)
@@ -3140,6 +3148,20 @@ export default async function handler(req, res) {
                 }
               }
             }
+          }
+        }
+
+        // Task 3196: trigger record_create workflows for a newly created
+        // additional member AFTER its custom-field values are saved, so
+        // member_custom conditions evaluate against this submission's values.
+        // Must await to ensure completion before Vercel terminates the function.
+        if (newlyCreatedAdditionalMember) {
+          const addlBaseUrl = process.env.APP_URL || `https://${req.headers.host}`;
+          try {
+            await triggerWorkflows('member', newlyCreatedAdditionalMember.id, null, newlyCreatedAdditionalMember, 'record_create', addlBaseUrl, { formSubmissionId: submission_id });
+            console.log('[AppProcessor] Workflow evaluation completed for additional member:', newlyCreatedAdditionalMember.id);
+          } catch (err) {
+            console.error('[AppProcessor] Additional member workflow error:', err);
           }
         }
       }

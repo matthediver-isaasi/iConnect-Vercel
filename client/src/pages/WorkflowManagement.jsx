@@ -967,6 +967,8 @@ export default function WorkflowManagementPage() {
                             <CheckCircle2 className="h-5 w-5 text-green-500 mt-0.5" />
                           ) : log.status === 'partial' ? (
                             <AlertCircle className="h-5 w-5 text-warning mt-0.5" />
+                          ) : log.status === 'skipped' ? (
+                            <Pause className="h-5 w-5 text-muted-foreground mt-0.5" />
                           ) : (
                             <XCircle className="h-5 w-5 text-red-500 mt-0.5" />
                           )}
@@ -979,12 +981,26 @@ export default function WorkflowManagementPage() {
                                   Manual run
                                 </Badge>
                               )}
+                              {log.status === 'skipped' && (
+                                <Badge variant="secondary" data-testid={`badge-skipped-${log.id}`}>
+                                  Skipped — conditions not met
+                                </Badge>
+                              )}
                             </div>
                             <p className="text-sm text-muted-foreground">
                               {log.entity_type} #{log.entity_id}
                             </p>
                             {log.error_message && (
                               <p className="text-sm text-red-500 mt-1">{log.error_message}</p>
+                            )}
+                            {log.status === 'skipped' && Array.isArray(log.trigger_data?.condition_results) && log.trigger_data.condition_results.length > 0 && (
+                              <div className="mt-1 space-y-0.5" data-testid={`skip-conditions-${log.id}`}>
+                                {log.trigger_data.condition_results.map((cr, idx) => (
+                                  <p key={idx} className={`text-xs ${cr.met ? 'text-muted-foreground' : 'text-warning'}`}>
+                                    {cr.met ? '✓' : '✗'} {cr.field_id} {cr.operator} “{String(cr.expected ?? '')}” — actual: “{String(cr.actual ?? '')}”
+                                  </p>
+                                ))}
+                              </div>
                             )}
                           </div>
                         </div>

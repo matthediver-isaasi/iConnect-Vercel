@@ -1599,6 +1599,16 @@ export default async function handler(req, res) {
       }));
 
       // Trigger workflow evaluation for new Organization/Member/JobPosting (non-blocking)
+      //
+      // KNOWN LIMITATION (task 3196): custom-field values do NOT arrive in this
+      // request. The admin UI creates the member/organization here, then saves
+      // each custom field with separate MemberPreferenceValue /
+      // OrganizationPreferenceValue POSTs afterwards. So record_create
+      // workflows whose conditions reference custom fields will evaluate
+      // against empty values on this path and be logged as 'skipped'.
+      // (The form application processor was fixed to trigger after custom
+      // fields persist; this path cannot be, because the values are simply
+      // not in this request.)
       // Holds the in-flight Zoho CRM sync Promise (if any) so we can
       // await its outcome at the end and surface the result in the
       // response — same toast-debugging pattern as the PATCH handler.
