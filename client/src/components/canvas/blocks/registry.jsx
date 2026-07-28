@@ -7045,7 +7045,8 @@ function SectionRender({ block, asEditor, priority }) {
   // outer block wrapper already gets the asymmetric breakout from geomRule
   // (static stylesheet) / CanvasPageRenderer (forced-breakpoint path), so
   // the inner div just fills it (100%) — colour paints on the outer
-  // wrapper and gradient on this wrapper, both covering the bleed box.
+  // wrapper and gradient on an inset bleed layer, both covering the bleed
+  // box (padding included).
   const fullBleedStyle = bleed === 'full' && !asEditor
     ? {
         width: '100vw',
@@ -7075,7 +7076,11 @@ function SectionRender({ block, asEditor, priority }) {
   const pr = s.paddingRight || 0;
   const pb = s.paddingBottom || 0;
   const pl = s.paddingLeft || 0;
-  const layerInset = isImageBg ? {
+  // Task #3157: gradient sections paint on an inset bleed layer too (like
+  // image mode) so the visible gradient covers the section's full border box
+  // — padding included — instead of only the inner content box.
+  const isBleedBg = isImageBg || (isGradientBg && !!gradientBg);
+  const layerInset = isBleedBg ? {
     position: 'absolute',
     top: -pt,
     right: -pr,
@@ -7091,7 +7096,7 @@ function SectionRender({ block, asEditor, priority }) {
   const railStyle = c.maxWidth
     ? { maxWidth: c.maxWidth, marginInline: 'auto', width: '100%', height: '100%' }
     : { width: '100%', height: '100%' };
-  if (isImageBg) {
+  if (isBleedBg) {
     railStyle.position = 'relative';
     railStyle.zIndex = 2;
   }
@@ -7106,15 +7111,16 @@ function SectionRender({ block, asEditor, priority }) {
   // The layers' negative-padding insets (`layerInset` + calc widths)
   // already extend them to cover the wrapper's full border box, so the
   // image spans edge-to-edge in both full-bleed and full-width modes
-  // without any inner breakout. Colour/gradient sections keep the legacy
-  // inner breakout untouched (their background paints on the outer
-  // wrapper / inner div exactly as before — byte-identical output).
-  let wrapperStyle = isImageBg
+  // without any inner breakout. Colour sections keep the legacy inner
+  // breakout untouched (their background paints on the outer wrapper
+  // exactly as before — byte-identical output).
+  // Task #3157: gradient mode follows the same rule — the gradient now paints
+  // on an inset bleed layer (covering the wrapper's border box), so the inner
+  // 100vw breakout must NOT apply either, for exactly the same half-padding
+  // shift reason. Colour sections keep the legacy inner breakout untouched.
+  const wrapperStyle = isImageBg
     ? { isolation: 'isolate' }
-    : fullBleedStyle;
-  if (isGradientBg && gradientBg) {
-    wrapperStyle = { ...(wrapperStyle || {}), background: gradientBg };
-  }
+    : (isBleedBg ? null : fullBleedStyle);
 
   return (
     <div
@@ -7150,6 +7156,16 @@ function SectionRender({ block, asEditor, priority }) {
           />
         );
       })()}
+      {isGradientBg && gradientBg && (
+        <div
+          aria-hidden="true"
+          style={{
+            ...layerInset,
+            background: gradientBg,
+            zIndex: 0,
+          }}
+        />
+      )}
       {hasOverlay && (
         <div
           aria-hidden="true"
