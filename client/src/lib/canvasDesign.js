@@ -823,6 +823,14 @@ export const BLOCK_DEFAULTS = {
       labelColor: '',
       valueFontSize: 30,
       labelFontSize: 14,
+      // Horizontal alignment inside the block box ('left' | 'center' |
+      // 'right'). Absent/'center' keeps the legacy centered layout.
+      align: 'center',
+      // Optional tenant typography styles for the value and label. Empty =
+      // legacy manual px/colour fields (which the inspector hides while a
+      // style is selected, matching the Card heading/body convention).
+      valueTypographyStyleId: '',
+      labelTypographyStyleId: '',
       // Counter animation: when `animate` is true the value's numeric
       // portion counts up from zero to the target on first scroll into
       // view. Non-numeric prefix/suffix (e.g. "$", "+", "K") are

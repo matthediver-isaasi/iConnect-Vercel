@@ -4802,7 +4802,7 @@ function formatStatNumber(value, { decimals, separator }) {
   return fracPart != null ? `${withSep}.${fracPart}` : withSep;
 }
 
-function StatRender({ block, asEditor }) {
+function StatRender({ block, asEditor, breakpoint }) {
   const c = block.content || {};
   const parsed = useMemo(() => parseStatValue(c.value), [c.value]);
   const animate = !!c.animate && parsed.target != null && parsed.target !== 0;
@@ -4892,6 +4892,63 @@ function StatRender({ block, asEditor }) {
     ? `${c.labelFontSize}px`
     : undefined;
 
+  // Optional tenant typography styles for value/label (Task #3176). When a
+  // style is chosen it drives family/size/weight/colour (the inspector hides
+  // the manual px/colour fields, mirroring the Card heading/body convention);
+  // absent style ids keep the legacy inline styling byte-identical.
+  const { styles: tenantStyles, resolved: stylesResolved } = useTenantTypographyStylesState();
+  const valueStyleObj = resolveTenantStyle(c.valueTypographyStyleId, tenantStyles);
+  const awaitingValue = isAwaitingTypographyStyle(c.valueTypographyStyleId, valueStyleObj, stylesResolved);
+  const labelStyleObj = resolveTenantStyle(c.labelTypographyStyleId, tenantStyles);
+  const awaitingLabel = isAwaitingTypographyStyle(c.labelTypographyStyleId, labelStyleObj, stylesResolved);
+  const isPreview = breakpoint === 'desktop' || breakpoint === 'tablet' || breakpoint === 'mobile';
+  const bpForInline = isPreview ? breakpoint : 'desktop';
+  const safeBlockId = String(block.id || '').replace(/["\\]/g, '');
+  const statResponsiveCss = !isPreview
+    ? [
+        valueStyleObj && hasResponsiveTypographyOverride(valueStyleObj)
+          ? buildTenantTypographyResponsiveCss(`[data-cb="${safeBlockId}"] [data-tg-r="stat-value"]`, valueStyleObj)
+          : null,
+        labelStyleObj && hasResponsiveTypographyOverride(labelStyleObj)
+          ? buildTenantTypographyResponsiveCss(`[data-cb="${safeBlockId}"] [data-tg-r="stat-label"]`, labelStyleObj)
+          : null,
+      ].filter(Boolean).join('') || null
+    : null;
+
+  // Alignment: absent/'center' keeps the legacy centered classes verbatim.
+  const align = c.align === 'left' ? 'left' : c.align === 'right' ? 'right' : 'center';
+  const alignClasses = align === 'left'
+    ? 'items-start justify-center text-left'
+    : align === 'right'
+      ? 'items-end justify-center text-right'
+      : 'items-center justify-center text-center';
+
+  const valueInline = valueStyleObj
+    ? {
+        lineHeight: 1,
+        marginBottom: 4,
+        ...buildTypographyInlineStyle(valueStyleObj, { breakpoint: bpForInline, omitMarginBottom: true }),
+        ...(awaitingValue ? { visibility: 'hidden' } : null),
+      }
+    : {
+        color: c.color || '#0f172a',
+        fontSize: valueFontSize,
+        fontWeight: 700,
+        lineHeight: 1,
+        marginBottom: 4,
+        ...(awaitingValue ? { visibility: 'hidden' } : null),
+      };
+  const labelInline = labelStyleObj
+    ? {
+        ...buildTypographyInlineStyle(labelStyleObj, { breakpoint: bpForInline, omitMarginBottom: true }),
+        ...(awaitingLabel ? { visibility: 'hidden' } : null),
+      }
+    : {
+        color: c.labelColor || undefined,
+        fontSize: labelFontSize,
+        ...(awaitingLabel ? { visibility: 'hidden' } : null),
+      };
+
   // While animating we show `display`; otherwise we render the saved
   // string verbatim so prefixes/suffixes like "+" or "K" survive.
   const valueText = display != null
@@ -4901,27 +4958,23 @@ function StatRender({ block, asEditor }) {
   return (
     <div
       ref={containerRef}
-      className="w-full h-full flex flex-col items-center justify-center text-center"
+      className={`w-full h-full flex flex-col ${alignClasses}`}
     >
+      {statResponsiveCss && (
+        <style dangerouslySetInnerHTML={{ __html: statResponsiveCss }} />
+      )}
       <div
         data-testid="text-stat-value"
-        style={{
-          color: c.color || '#0f172a',
-          fontSize: valueFontSize,
-          fontWeight: 700,
-          lineHeight: 1,
-          marginBottom: 4,
-        }}
+        data-tg-r="stat-value"
+        style={valueInline}
       >
         {valueText}
       </div>
       <div
         data-testid="text-stat-label"
-        className={c.labelColor ? '' : 'text-slate-600'}
-        style={{
-          color: c.labelColor || undefined,
-          fontSize: labelFontSize,
-        }}
+        data-tg-r="stat-label"
+        className={!labelStyleObj && !c.labelColor ? 'text-slate-600' : ''}
+        style={labelInline}
       >
         {c.label}
       </div>
@@ -4936,24 +4989,55 @@ function StatInspector({ block, update }) {
     <>
       <TextField label="Value" value={c.value} onChange={(v) => set({ value: v })} testId="input-stat-value" />
       <TextField label="Label" value={c.label} onChange={(v) => set({ label: v })} testId="input-stat-label" />
-      <ColorField label="Value colour" value={c.color} onChange={(v) => set({ color: v })} testId="input-stat-color" />
-      <ColorField label="Label colour" value={c.labelColor} onChange={(v) => set({ labelColor: v })} testId="input-stat-label-color" />
-      <NumberField
-        label="Value size (px)"
-        min={8}
-        max={200}
-        value={Number.isFinite(c.valueFontSize) ? c.valueFontSize : ''}
-        onChange={(v) => set({ valueFontSize: v === '' || v == null ? null : Math.max(8, Math.min(200, Number(v) || 0)) })}
-        testId="input-stat-value-size"
+      <SelectField
+        label="Alignment"
+        value={c.align === 'left' || c.align === 'right' ? c.align : 'center'}
+        onChange={(v) => set({ align: v })}
+        options={[
+          { value: 'left', label: 'Left' },
+          { value: 'center', label: 'Center' },
+          { value: 'right', label: 'Right' },
+        ]}
+        testId="select-stat-align"
       />
-      <NumberField
-        label="Label size (px)"
-        min={8}
-        max={80}
-        value={Number.isFinite(c.labelFontSize) ? c.labelFontSize : ''}
-        onChange={(v) => set({ labelFontSize: v === '' || v == null ? null : Math.max(8, Math.min(80, Number(v) || 0)) })}
-        testId="input-stat-label-size"
+      <TypographyStyleField
+        label="Value style"
+        value={c.valueTypographyStyleId}
+        onChange={(id) => set({ valueTypographyStyleId: id })}
+        testId="select-stat-value-typography"
       />
+      <TypographyStyleField
+        label="Label style"
+        value={c.labelTypographyStyleId}
+        onChange={(id) => set({ labelTypographyStyleId: id })}
+        testId="select-stat-label-typography"
+      />
+      {!c.valueTypographyStyleId && (
+        <>
+          <ColorField label="Value colour" value={c.color} onChange={(v) => set({ color: v })} testId="input-stat-color" />
+          <NumberField
+            label="Value size (px)"
+            min={8}
+            max={200}
+            value={Number.isFinite(c.valueFontSize) ? c.valueFontSize : ''}
+            onChange={(v) => set({ valueFontSize: v === '' || v == null ? null : Math.max(8, Math.min(200, Number(v) || 0)) })}
+            testId="input-stat-value-size"
+          />
+        </>
+      )}
+      {!c.labelTypographyStyleId && (
+        <>
+          <ColorField label="Label colour" value={c.labelColor} onChange={(v) => set({ labelColor: v })} testId="input-stat-label-color" />
+          <NumberField
+            label="Label size (px)"
+            min={8}
+            max={80}
+            value={Number.isFinite(c.labelFontSize) ? c.labelFontSize : ''}
+            onChange={(v) => set({ labelFontSize: v === '' || v == null ? null : Math.max(8, Math.min(80, Number(v) || 0)) })}
+            testId="input-stat-label-size"
+          />
+        </>
+      )}
       <ToggleField
         label="Animate as counter"
         value={!!c.animate}
