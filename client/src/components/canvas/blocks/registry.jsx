@@ -2391,7 +2391,7 @@ function ImageRender({ block, asEditor, priority }) {
         loading={priority ? 'eager' : 'lazy'}
         decoding="async"
         fetchpriority={priority ? 'high' : undefined}
-        style={{ ...buildFixedCropImgStyle(50), display: 'block' }}
+        style={{ ...buildFixedCropImgStyle(c.focalPoint?.x), display: 'block' }}
       />
     </div>
   ) : (
@@ -2407,6 +2407,11 @@ function ImageRender({ block, asEditor, priority }) {
         width: '100%',
         height: '100%',
         objectFit: c.objectFit || 'cover',
+        // Task #3180: focal point decides which part stays visible when the
+        // image is cropped (cover). Missing/partial values resolve to 50/50
+        // inside the helper, so legacy blocks emit the browser-default
+        // '50% 50%' and render identically.
+        ...((c.objectFit || 'cover') === 'cover' ? getFocalPointStyle(c.focalPoint) : {}),
         display: 'block',
         borderRadius: block.style.borderRadius || 0,
       }}
@@ -2638,6 +2643,38 @@ function ImageInspector({ block, update }) {
           ]}
           testId="select-image-fit"
         />
+      )}
+      {/* Task #3180: focal point — only meaningful when the fit mode crops
+          (cover or fixed-crop; contain/fill/none/scale-down never crop).
+          Mirrors the Section background focal point UX: visual picker plus
+          manual X/Y inputs. Fixed-crop only uses the X axis at render time,
+          but both inputs stay editable so the value survives fit switches. */}
+      {!iconName && c.src && ((c.objectFit || 'cover') === 'cover' || isFixedCropFit(c.objectFit)) && (
+        <>
+          <FocalPointPicker
+            imageUrl={c.src}
+            focalPoint={c.focalPoint || { x: 50, y: 50 }}
+            onChange={(fp) => set({ focalPoint: fp })}
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <NumberField
+              label="Focal X (%)"
+              value={c.focalPoint?.x ?? 50}
+              onChange={(v) => set({ focalPoint: { x: Math.max(0, Math.min(100, Number(v) || 0)), y: c.focalPoint?.y ?? 50 } })}
+              min={0}
+              max={100}
+              testId="input-image-focal-x"
+            />
+            <NumberField
+              label="Focal Y (%)"
+              value={c.focalPoint?.y ?? 50}
+              onChange={(v) => set({ focalPoint: { x: c.focalPoint?.x ?? 50, y: Math.max(0, Math.min(100, Number(v) || 0)) } })}
+              min={0}
+              max={100}
+              testId="input-image-focal-y"
+            />
+          </div>
+        </>
       )}
       {!iconName && isFixedCropFit(c.objectFit) && (
         <p className="text-[11px] text-slate-500 leading-snug">

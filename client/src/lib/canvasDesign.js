@@ -572,6 +572,13 @@ export const BLOCK_DEFAULTS = {
       alt: '',
       href: '',
       objectFit: 'cover', // cover | contain | fill | none | scale-down | fixed-crop (fixed height / horizontal crop)
+      // Focal point (Task #3180): { x, y } percentages deciding which part of
+      // the image stays visible when the fit mode crops (cover / fixed-crop).
+      // Mirrors the Section's bgFocalPoint: deliberately NOT seeded with a
+      // { x: 50, y: 50 } object — normalizeBlock would backfill it onto every
+      // legacy image and churn saved designs. All render paths treat a
+      // missing/partial focal point as centre (50/50), so existing images
+      // render byte-identically.
       fullBleed: false,
       // When full-bleed is on the block spans 100vw; heightMode controls how
       // its height is resolved on published pages:
@@ -2937,6 +2944,17 @@ export function validateBlock(block) {
       if (!c.src && !hasIcon) errors.push('Image source or icon is required.');
       if (c.src && (!c.alt || !String(c.alt).trim())) {
         errors.push('Image requires alt text for accessibility.');
+      }
+      // Task #3180: focal point is optional (absent = centre), but when
+      // present each axis must be a finite 0–100 percentage so the
+      // objectPosition / fixed-crop maths stay valid (mirrors the Section
+      // bgFocalPoint validation above).
+      if (c.focalPoint != null) {
+        const fp = c.focalPoint;
+        const badAxis = (v) => v != null && (!Number.isFinite(Number(v)) || Number(v) < 0 || Number(v) > 100);
+        if (typeof fp !== 'object' || badAxis(fp.x) || badAxis(fp.y)) {
+          errors.push('Image focal point must use 0–100 percentages.');
+        }
       }
       break;
     }
