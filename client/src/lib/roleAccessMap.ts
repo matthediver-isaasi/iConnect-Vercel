@@ -872,7 +872,68 @@ export function getAllResourceIds(): string[] {
   return ids;
 }
 
+// ---------------------------------------------------------------------------
+// Map-driven parent resolution.
+//
+// Several resource ids are nested under a parent whose id does NOT match their
+// dot-prefix (e.g. page "admin.canvas-links-manager" lives under module
+// "site-builder", page "dashboard.view" and the dashboard.* widget features
+// live under module "system"). Deriving parents by splitting on dots
+// therefore disagrees with
+// how exclusions are WRITTEN (which walks the real nested map). All parent
+// lookups must come from the actual ROLE_ACCESS_MAP nesting; dot-prefix
+// splitting is only a fallback for ids that are not present in the map.
+// ---------------------------------------------------------------------------
+
+export interface RoleAccessHierarchy {
+  moduleIds: Set<string>;
+  pageIds: Set<string>;
+  featureIds: Set<string>;
+  /** featureId -> containing page id */
+  featureToPage: Map<string, string>;
+  /** pageId or featureId -> containing module id */
+  resourceToModule: Map<string, string>;
+}
+
+export function buildRoleAccessHierarchy(map: Module[]): RoleAccessHierarchy {
+  const moduleIds = new Set<string>();
+  const pageIds = new Set<string>();
+  const featureIds = new Set<string>();
+  const featureToPage = new Map<string, string>();
+  const resourceToModule = new Map<string, string>();
+
+  for (const module of map) {
+    moduleIds.add(module.id);
+    for (const page of module.pages) {
+      pageIds.add(page.id);
+      resourceToModule.set(page.id, module.id);
+      if (page.features) {
+        for (const feature of page.features) {
+          featureIds.add(feature.id);
+          featureToPage.set(feature.id, page.id);
+          resourceToModule.set(feature.id, module.id);
+        }
+      }
+    }
+  }
+
+  return { moduleIds, pageIds, featureIds, featureToPage, resourceToModule };
+}
+
+let cachedHierarchy: RoleAccessHierarchy | null = null;
+export function getRoleAccessHierarchy(): RoleAccessHierarchy {
+  if (!cachedHierarchy) {
+    cachedHierarchy = buildRoleAccessHierarchy(ROLE_ACCESS_MAP);
+  }
+  return cachedHierarchy;
+}
+
 export function getModuleForResource(resourceId: string): string | null {
+  const h = getRoleAccessHierarchy();
+  if (h.moduleIds.has(resourceId)) return resourceId;
+  const fromMap = h.resourceToModule.get(resourceId);
+  if (fromMap) return fromMap;
+  // Fallback for ids not present in the map (e.g. dynamic/legacy keys)
   const parts = resourceId.split('.');
   if (parts.length > 0) {
     return parts[0];
@@ -881,6 +942,12 @@ export function getModuleForResource(resourceId: string): string | null {
 }
 
 export function getPageForResource(resourceId: string): string | null {
+  const h = getRoleAccessHierarchy();
+  if (h.pageIds.has(resourceId)) return resourceId;
+  const fromMap = h.featureToPage.get(resourceId);
+  if (fromMap) return fromMap;
+  if (h.moduleIds.has(resourceId)) return null;
+  // Fallback for ids not present in the map (e.g. dynamic/legacy keys)
   const parts = resourceId.split('.');
   if (parts.length >= 2) {
     return `${parts[0]}.${parts[1]}`;
@@ -889,15 +956,24 @@ export function getPageForResource(resourceId: string): string | null {
 }
 
 export function isModuleId(resourceId: string): boolean {
+  const h = getRoleAccessHierarchy();
+  if (h.moduleIds.has(resourceId)) return true;
+  if (h.pageIds.has(resourceId) || h.featureIds.has(resourceId)) return false;
   return !resourceId.includes('.');
 }
 
 export function isPageId(resourceId: string): boolean {
+  const h = getRoleAccessHierarchy();
+  if (h.pageIds.has(resourceId)) return true;
+  if (h.moduleIds.has(resourceId) || h.featureIds.has(resourceId)) return false;
   const parts = resourceId.split('.');
   return parts.length === 2;
 }
 
 export function isFeatureId(resourceId: string): boolean {
+  const h = getRoleAccessHierarchy();
+  if (h.featureIds.has(resourceId)) return true;
+  if (h.moduleIds.has(resourceId) || h.pageIds.has(resourceId)) return false;
   const parts = resourceId.split('.');
   return parts.length === 3;
 }

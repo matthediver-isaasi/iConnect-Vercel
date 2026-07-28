@@ -1,5 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
+import { isResourceExcluded } from '../_lib/roleVisibility.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -75,19 +76,7 @@ export default async function handler(req, res) {
         memberExcluded,
         error: roleError?.message
       });
-      const isExcluded = (featureKey) => {
-        if (excluded.includes(featureKey)) return true;
-        const parts = featureKey.split('.');
-        if (parts.length >= 2) {
-          const pageId = parts.slice(0, 2).join('.');
-          if (excluded.includes(pageId)) return true;
-        }
-        if (parts.length >= 1) {
-          const moduleId = parts[0];
-          if (excluded.includes(moduleId)) return true;
-        }
-        return false;
-      };
+      const isExcluded = (featureKey) => isResourceExcluded(excluded, featureKey);
       if (!isExcluded('forum.threads.delete-any')) canDeleteAny = true;
       if (!isExcluded('forum.threads.delete-own')) canDeleteOwn = true;
     } else {

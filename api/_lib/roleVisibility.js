@@ -1,3 +1,5 @@
+import { MODULE_IDS, PAGE_IDS, FEATURE_TO_PAGE, RESOURCE_TO_MODULE } from './roleAccessHierarchy.generated.js';
+
 const LEGACY_TO_NEW_MAPPING = {
   "page_user_BuyProgramTickets": "commerce.buy-tickets",
   "page_user_Events": "events.browse-events",
@@ -194,7 +196,19 @@ function migrateLegacyFeatureId(legacyId) {
   return LEGACY_TO_NEW_MAPPING[legacyId] || legacyId;
 }
 
+// Map-driven parent resolution derived from the client ROLE_ACCESS_MAP
+// nesting (generated file — see scripts/generate-role-access-hierarchy.mjs).
+// Several ids are nested under parents that do not match their dot-prefix
+// (e.g. "admin.canvas-links-manager" under module "site-builder",
+// "dashboard.view" under module "system"), so prefix splitting is only a
+// fallback for ids not present in the map.
+const MODULE_ID_SET = new Set(MODULE_IDS);
+const PAGE_ID_SET = new Set(PAGE_IDS);
+
 function getModuleForResource(resourceId) {
+  if (MODULE_ID_SET.has(resourceId)) return resourceId;
+  const fromMap = RESOURCE_TO_MODULE[resourceId];
+  if (fromMap) return fromMap;
   const parts = resourceId.split('.');
   if (parts.length > 0) {
     return parts[0];
@@ -203,6 +217,10 @@ function getModuleForResource(resourceId) {
 }
 
 function getPageForResource(resourceId) {
+  if (PAGE_ID_SET.has(resourceId)) return resourceId;
+  const fromMap = FEATURE_TO_PAGE[resourceId];
+  if (fromMap) return fromMap;
+  if (MODULE_ID_SET.has(resourceId)) return null;
   const parts = resourceId.split('.');
   if (parts.length >= 2) {
     return `${parts[0]}.${parts[1]}`;
