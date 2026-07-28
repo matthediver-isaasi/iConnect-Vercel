@@ -4047,6 +4047,20 @@ function CardRender({ block, asEditor, priority, breakpoint }) {
     ? { margin: 0, ...buildTypographyInlineStyle(headingStyleObj, { breakpoint: bpForInline }) }
     : { margin: 0, fontSize: '1.125rem', fontWeight: 600 };
   if (awaitingHeading) headingInline.visibility = 'hidden';
+  // Optional tenant typography style for the body rich text. Applied as an
+  // inline style on the prose wrapper so it overrides the wrapper-level prose
+  // defaults (font-family/size/weight/colour) and cascades into paragraphs,
+  // while keeping prose's list/margin rhythm. Unset = legacy prose styling.
+  const bodyStyleObj = resolveTenantStyle(c.bodyTypographyStyleId, tenantStyles);
+  const awaitingBody = isAwaitingTypographyStyle(c.bodyTypographyStyleId, bodyStyleObj, stylesResolved);
+  // Awaiting gate mirrors the heading: hide the body until the chosen style
+  // resolves so there's no flash of unstyled prose.
+  const bodyInline = bodyStyleObj
+    ? {
+        ...buildTypographyInlineStyle(bodyStyleObj, { breakpoint: bpForInline, omitMarginBottom: true }),
+        ...(awaitingBody ? { visibility: 'hidden' } : null),
+      }
+    : (awaitingBody ? { visibility: 'hidden' } : null);
   // Inner padding applied to the text/CTA area only — the image stays
   // full-bleed against the card edges. Defaults to 16; an explicit 0 is
   // honoured so authors can opt back into a flush layout.
@@ -4055,8 +4069,15 @@ function CardRender({ block, asEditor, priority, breakpoint }) {
     ? 'center'
     : c.ctaAlign === 'right' ? 'flex-end' : 'flex-start';
   const safeBlockId = String(block.id || '').replace(/["\\]/g, '');
-  const cardResponsiveCss = !isPreview && headingStyleObj && hasResponsiveTypographyOverride(headingStyleObj)
-    ? buildTenantTypographyResponsiveCss(`[data-cb="${safeBlockId}"] [data-tg-r="card-heading"]`, headingStyleObj)
+  const cardResponsiveCss = !isPreview
+    ? [
+        headingStyleObj && hasResponsiveTypographyOverride(headingStyleObj)
+          ? buildTenantTypographyResponsiveCss(`[data-cb="${safeBlockId}"] [data-tg-r="card-heading"]`, headingStyleObj)
+          : null,
+        bodyStyleObj && hasResponsiveTypographyOverride(bodyStyleObj)
+          ? buildTenantTypographyResponsiveCss(`[data-cb="${safeBlockId}"] [data-tg-r="card-body"]`, bodyStyleObj)
+          : null,
+      ].filter(Boolean).join('') || null
     : null;
 
   // Branding + hover state drive the optional tenant-styled CTA (mirrors
@@ -4082,6 +4103,15 @@ function CardRender({ block, asEditor, priority, breakpoint }) {
   // (mb-2 for icon/inline image, no margin for full-bleed).
   const headerSpacingPx = (c.headerSpacing != null && Number.isFinite(Number(c.headerSpacing)))
     ? Number(c.headerSpacing)
+    : null;
+  // Heading → body and body → CTA gaps. null = "not set by author" → fall
+  // back to the legacy hardcoded Tailwind gaps (mt-1 / mt-2) so existing
+  // cards render pixel-identical.
+  const headingBodyGapPx = (c.headingBodySpacing != null && Number.isFinite(Number(c.headingBodySpacing)))
+    ? Number(c.headingBodySpacing)
+    : null;
+  const bodyCtaGapPx = (c.bodyCtaSpacing != null && Number.isFinite(Number(c.bodyCtaSpacing)))
+    ? Number(c.bodyCtaSpacing)
     : null;
 
   // Auto-height + vertical growth + row auto-equalisation. The CARD registry
@@ -4180,7 +4210,12 @@ function CardRender({ block, asEditor, priority, breakpoint }) {
           {c.heading}
         </Heading>
         <div
-          className="prose prose-sm max-w-none mt-1 [&_p:last-child]:mb-0"
+          className={`prose prose-sm max-w-none${headingBodyGapPx == null ? ' mt-1' : ''} [&_p:last-child]:mb-0`}
+          data-tg-r="card-body"
+          style={{
+            ...(headingBodyGapPx != null ? { marginTop: headingBodyGapPx } : null),
+            ...(bodyInline || null),
+          }}
           dangerouslySetInnerHTML={{ __html: sanitizeRichText(stripTrailingEmptyParagraphs(c.body || '')) }}
         />
         {/* Flex spacer: absorbs any height beyond natural content (pushing the
@@ -4221,7 +4256,10 @@ function CardRender({ block, asEditor, priority, breakpoint }) {
               transition: 'background-color 0.2s ease, color 0.2s ease, background 0.2s ease',
             };
             return (
-              <div className="mt-2 flex" style={{ justifyContent: ctaJustify }}>
+              <div
+                className={`${bodyCtaGapPx == null ? 'mt-2 ' : ''}flex`}
+                style={{ justifyContent: ctaJustify, ...(bodyCtaGapPx != null ? { marginTop: bodyCtaGapPx } : null) }}
+              >
                 <a
                   href={asEditor ? undefined : (c.ctaHref || '#')}
                   target={!asEditor && resolveNewTab(c) ? '_blank' : undefined}
@@ -4243,7 +4281,10 @@ function CardRender({ block, asEditor, priority, breakpoint }) {
           // CTA still looks sensible.
           const fallbackVariant = isTenantVariant ? 'outline' : ctaVariant;
           return (
-            <div className="mt-2 flex" style={{ justifyContent: ctaJustify }}>
+            <div
+              className={`${bodyCtaGapPx == null ? 'mt-2 ' : ''}flex`}
+              style={{ justifyContent: ctaJustify, ...(bodyCtaGapPx != null ? { marginTop: bodyCtaGapPx } : null) }}
+            >
               <a
                 href={asEditor ? undefined : (c.ctaHref || '#')}
                 target={!asEditor && resolveNewTab(c) ? '_blank' : undefined}
@@ -4424,22 +4465,47 @@ function CardInspector({ block, update }) {
         testId="select-card-heading-typography"
       />
       <RichTextField label="Body" value={c.body} onChange={(v) => set({ body: v })} testId="input-card-body" />
-      <NumberField
-        label="Content padding (px)"
-        value={c.contentPadding == null ? 16 : c.contentPadding}
-        onChange={(v) => set({ contentPadding: v })}
-        min={0}
-        max={64}
-        testId="input-card-content-padding"
+      <TypographyStyleField
+        label="Body style"
+        value={c.bodyTypographyStyleId}
+        onChange={(id) => set({ bodyTypographyStyleId: id })}
+        testId="select-card-body-typography"
       />
-      <NumberField
-        label="Image / icon spacing (px)"
-        value={c.headerSpacing == null ? 8 : c.headerSpacing}
-        onChange={(v) => set({ headerSpacing: v })}
-        min={0}
-        max={120}
-        testId="input-card-header-spacing"
-      />
+      <div className="pt-1 border-t border-slate-100 space-y-2">
+        <Label className="text-xs font-medium text-slate-600">Spacing</Label>
+        <NumberField
+          label="Content padding (px)"
+          value={c.contentPadding == null ? 16 : c.contentPadding}
+          onChange={(v) => set({ contentPadding: v })}
+          min={0}
+          max={64}
+          testId="input-card-content-padding"
+        />
+        <NumberField
+          label="Image / icon → heading (px)"
+          value={c.headerSpacing == null ? 8 : c.headerSpacing}
+          onChange={(v) => set({ headerSpacing: v })}
+          min={0}
+          max={120}
+          testId="input-card-header-spacing"
+        />
+        <NumberField
+          label="Heading → body (px)"
+          value={c.headingBodySpacing == null ? 4 : c.headingBodySpacing}
+          onChange={(v) => set({ headingBodySpacing: v })}
+          min={0}
+          max={120}
+          testId="input-card-heading-body-spacing"
+        />
+        <NumberField
+          label="Body → CTA (px)"
+          value={c.bodyCtaSpacing == null ? 8 : c.bodyCtaSpacing}
+          onChange={(v) => set({ bodyCtaSpacing: v })}
+          min={0}
+          max={120}
+          testId="input-card-body-cta-spacing"
+        />
+      </div>
       <ToggleField
         label="Show CTA"
         value={ctaEnabled}

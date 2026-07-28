@@ -768,9 +768,18 @@ export const BLOCK_DEFAULTS = {
       // null = "not set by author"; renderer falls back to the legacy
       // per-element defaults (mb-2 for icon/inline, no margin for full-bleed).
       headerSpacing: null,
+      // Vertical gaps (px) between heading → body and body → CTA.
+      // null = "not set by author"; renderer falls back to the legacy
+      // hardcoded Tailwind gaps (mt-1 = 4px and mt-2 = 8px respectively)
+      // so existing cards render pixel-identical.
+      headingBodySpacing: null,
+      bodyCtaSpacing: null,
       heading: 'Card heading',
       headingLevel: 3,
       body: '<p>A short description for this card.</p>',
+      // Optional tenant typography style for the body rich text. Empty =
+      // legacy prose styling (matches headingTypographyStyleId semantics).
+      bodyTypographyStyleId: '',
       contentPadding: 16,
       // CTA is shown by default so existing cards (which always rendered the
       // CTA when a label was present) are unchanged.
