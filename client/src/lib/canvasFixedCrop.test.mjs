@@ -10,6 +10,7 @@ import {
   IMAGE_FIT_FIXED_CROP,
   isFixedCropFit,
   buildFixedCropImgStyle,
+  buildBgMirrorTransform,
 } from './canvasBackground.js';
 
 test('isFixedCropFit: only the fixed-crop token matches', () => {
@@ -46,4 +47,52 @@ test('buildFixedCropImgStyle: focal x anchors via matching left/translate pair',
   // Out-of-range values clamp.
   assert.equal(buildFixedCropImgStyle(150).left, '100%');
   assert.equal(buildFixedCropImgStyle(-20).left, '0%');
+});
+
+// --- Mirror flips (Task #3164) -------------------------------------------
+
+test('buildBgMirrorTransform: all four flip combinations, strict-true only', () => {
+  assert.equal(buildBgMirrorTransform(false, false), '');
+  assert.equal(buildBgMirrorTransform(true, false), 'scaleX(-1)');
+  assert.equal(buildBgMirrorTransform(false, true), 'scaleY(-1)');
+  assert.equal(buildBgMirrorTransform(true, true), 'scaleX(-1) scaleY(-1)');
+  // Truthy-but-not-true values (legacy/garbage data) must NOT flip.
+  assert.equal(buildBgMirrorTransform(1, 'yes'), '');
+  assert.equal(buildBgMirrorTransform(undefined, null), '');
+});
+
+test('buildFixedCropImgStyle: no opts / empty opts stay byte-identical to legacy', () => {
+  const legacy = buildFixedCropImgStyle(30);
+  assert.deepEqual(buildFixedCropImgStyle(30, {}), legacy);
+  assert.deepEqual(buildFixedCropImgStyle(30, { mirrorX: false, mirrorY: false }), legacy);
+  assert.equal(legacy.transform, 'translateX(-30%)');
+  assert.equal(legacy.left, '30%');
+});
+
+test('buildFixedCropImgStyle: mirrorX flips the anchor so the framed slice is preserved', () => {
+  // Focal 30 on the original image sits at 70% of the flipped image, so the
+  // anchor must become 70% or the crop would slide to the wrong side.
+  const s = buildFixedCropImgStyle(30, { mirrorX: true });
+  assert.equal(s.left, '70%');
+  assert.equal(s.transform, 'translateX(-70%) scaleX(-1)');
+  // Centre stays centre when flipped.
+  const c = buildFixedCropImgStyle(undefined, { mirrorX: true });
+  assert.equal(c.left, '50%');
+  assert.equal(c.transform, 'translateX(-50%) scaleX(-1)');
+});
+
+test('buildFixedCropImgStyle: mirrorY never touches the horizontal anchor', () => {
+  const s = buildFixedCropImgStyle(30, { mirrorY: true });
+  assert.equal(s.left, '30%');
+  assert.equal(s.transform, 'translateX(-30%) scaleY(-1)');
+});
+
+test('buildFixedCropImgStyle: both mirrors compose translate → scaleX → scaleY', () => {
+  const s = buildFixedCropImgStyle(20, { mirrorX: true, mirrorY: true });
+  assert.equal(s.left, '80%');
+  assert.equal(s.transform, 'translateX(-80%) scaleX(-1) scaleY(-1)');
+  // Height-driven sizing contract is unchanged by mirroring.
+  assert.equal(s.height, '100%');
+  assert.equal(s.width, 'auto');
+  assert.equal(s.maxWidth, 'none');
 });

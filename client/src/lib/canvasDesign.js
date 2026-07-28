@@ -458,6 +458,11 @@ export const BLOCK_DEFAULTS = {
       // '' = legacy cover behaviour; 'fixed-crop' = Fixed Height / Horizontal
       // Crop (image scales by section height only, sides clip when narrow).
       bgImageFit: '',
+      // Mirror flips for the background image (Task #3164). Both default off;
+      // render paths read them as `=== true`, so legacy sections without the
+      // keys render byte-identically.
+      bgMirrorX: false,
+      bgMirrorY: false,
       // Background focal point (Task #3162): { x, y } percentages mirroring
       // the Hero block's bgFocalPoint. Like Hero, it is deliberately NOT
       // seeded with a { x: 50, y: 50 } object — normalizeBlock would backfill

@@ -57,14 +57,34 @@ export function isFixedCropFit(fit) {
   return fit === IMAGE_FIT_FIXED_CROP;
 }
 
+// Mirror flips for background images (Task #3164). Returns the CSS transform
+// suffix for horizontal/vertical mirroring, or '' when neither is on — so
+// callers with no mirror settings emit byte-identical styles to before.
+export function buildBgMirrorTransform(mirrorX, mirrorY) {
+  const parts = [];
+  if (mirrorX === true) parts.push('scaleX(-1)');
+  if (mirrorY === true) parts.push('scaleY(-1)');
+  return parts.join(' ');
+}
+
 // Style for the <img> inside an overflow-hidden clipping box. `focalX` is the
 // horizontal focal point in percent (0 = left edge stays visible, 100 = right
 // edge stays visible, 50 = centre crop).
-export function buildFixedCropImgStyle(focalX) {
+//
+// `opts.mirrorX` / `opts.mirrorY` (Task #3164) flip the image while keeping
+// the SAME slice of the original picture in frame: a horizontal flip moves
+// the original fx% point to (100-fx)% of the flipped image, so the anchor
+// must flip with it or the crop would slide to the opposite side of the
+// photo. The scale*() terms are appended AFTER the translate so the flip
+// happens about the element's own centre and never moves its occupied box.
+export function buildFixedCropImgStyle(focalX, opts) {
   // NB: Number(null) === 0, so nullish/empty must be checked explicitly or a
   // missing focal point would left-anchor the crop instead of centring it.
   const n = focalX == null || focalX === '' ? NaN : Number(focalX);
   const fx = Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 50;
+  const mirrorX = opts?.mirrorX === true;
+  const mirror = buildBgMirrorTransform(mirrorX, opts?.mirrorY);
+  const a = mirrorX ? 100 - fx : fx;
   return {
     position: 'absolute',
     top: 0,
@@ -73,8 +93,8 @@ export function buildFixedCropImgStyle(focalX) {
     width: 'auto',
     maxWidth: 'none',
     maxHeight: 'none',
-    left: `${fx}%`,
-    transform: `translateX(-${fx}%)`,
+    left: `${a}%`,
+    transform: `translateX(-${a}%)${mirror ? ` ${mirror}` : ''}`,
   };
 }
 

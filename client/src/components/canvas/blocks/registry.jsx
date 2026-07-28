@@ -127,6 +127,7 @@ import {
   IMAGE_FIT_FIXED_CROP,
   isFixedCropFit,
   buildFixedCropImgStyle,
+  buildBgMirrorTransform,
 } from '@/lib/canvasBackground';
 
 // Lazy-load the rich text editor — it's heavy (tiptap) and not needed for blocks
@@ -7171,6 +7172,11 @@ function SectionRender({ block, asEditor, priority }) {
     >
       {isImageBg && (() => {
         const r = buildResponsiveImage(c.bgImageUrl, { sizes: '100vw' });
+        // Task #3164: optional mirror flips. Both default off, so sections
+        // without the settings emit byte-identical styles.
+        const mirrorX = c.bgMirrorX === true;
+        const mirrorY = c.bgMirrorY === true;
+        const mirror = buildBgMirrorTransform(mirrorX, mirrorY);
         if (isFixedCropFit(c.bgImageFit)) {
           // Fixed Height / Horizontal Crop (Task #3159): the background image
           // is sized by the section's HEIGHT (padding included, via the same
@@ -7190,7 +7196,7 @@ function SectionRender({ block, asEditor, priority }) {
                 loading={priority ? 'eager' : 'lazy'}
                 decoding="async"
                 fetchpriority={priority ? 'high' : undefined}
-                style={{ ...buildFixedCropImgStyle(c.bgFocalPoint?.x), display: 'block' }}
+                style={{ ...buildFixedCropImgStyle(c.bgFocalPoint?.x, { mirrorX, mirrorY }), display: 'block' }}
               />
             </div>
           );
@@ -7217,6 +7223,10 @@ function SectionRender({ block, asEditor, priority }) {
               // focal points resolve to 50% per axis ('50% 50%' === the old
               // 'center'), so legacy sections render identically.
               ...getFocalPointStyle(c.bgFocalPoint),
+              // Task #3164: cover mode keeps its objectPosition crop (same
+              // slice of the picture stays visible) and just flips the
+              // rendered result about its own centre.
+              ...(mirror ? { transform: mirror } : null),
               zIndex: 0,
             }}
           />
@@ -7374,6 +7384,18 @@ function SectionInspector({ block, update, breakpoint }) {
               the section. Best for wide images designed around a safe area.
             </p>
           )}
+          <ToggleField
+            label="Mirror horizontally"
+            value={c.bgMirrorX === true}
+            onChange={(v) => set({ bgMirrorX: v === true })}
+            testId="toggle-section-bg-mirror-x"
+          />
+          <ToggleField
+            label="Mirror vertically"
+            value={c.bgMirrorY === true}
+            onChange={(v) => set({ bgMirrorY: v === true })}
+            testId="toggle-section-bg-mirror-y"
+          />
           {c.bgImageUrl && (
             <>
               <div className="space-y-1">
