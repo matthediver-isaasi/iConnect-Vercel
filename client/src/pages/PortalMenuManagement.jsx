@@ -74,6 +74,7 @@ const builtInPages = [
   { value: "CustomFieldsAdmin", label: "Custom Fields Admin" },
   { value: "Dashboard", label: "Dashboard" },
   { value: "DataExport", label: "Data Export" },
+  { value: "DirectDebitAdmin", label: "Direct Debit Console" },
   { value: "DiscountCodeManagement", label: "Discount Code Management" },
   { value: "DynamicDirectoryManagement", label: "Dynamic Directory Management" },
   { value: "DynamicPage", label: "Dynamic Page" },
