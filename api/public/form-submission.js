@@ -3,6 +3,7 @@ import { resolveTenantFromRequest, getHostFromRequest } from '../_lib/tenantReso
 import { executeStageActions } from '../due-diligence/_stageActions.js';
 import { sendSubmitterCopyEmail } from '../forms/send-submitter-copy.js';
 import { getSessionMember } from '../_lib/session.js';
+import { sendSubmissionEmailsGuarded } from '../_lib/formSubmissionEmails.js';
 
 export default async function handler(req, res) {
   console.log('[Public Form Submission] === ENDPOINT CALLED ===');
@@ -1148,6 +1149,36 @@ export default async function handler(req, res) {
         console.error('[Public Form Submission] Error creating DD record:', ddError);
         // Don't fail the submission for DD errors
       }
+    }
+
+    // Task #3190: send configured submission emails SERVER-SIDE so they fire
+    // reliably on every submission path (redirects, embeds, ad-blockers, JS
+    // errors can no longer lose them). The shared sender atomically claims
+    // form_submission.submission_email_state, so the retained legacy client
+    // call to /api/forms/send-submission-email becomes a no-op afterwards
+    // (exactly-once). Failures are recorded durably on the row and NEVER
+    // block the submission success response.
+    try {
+      const emailSendResult = await sendSubmissionEmailsGuarded({
+        supabase,
+        form,
+        formValues: submission_data || {},
+        fields: form.fields || [],
+        submissionId: submission.id,
+        createdMemberId: pipelineCreatedMemberId || null,
+        createdOrganizationId: pipelineCreatedOrgId || null,
+        baseUrl,
+        trigger: 'server',
+        allowUnguarded: false,
+      });
+      console.log('[Public Form Submission] Submission emails processed:', JSON.stringify({
+        success: emailSendResult.success,
+        skipped: emailSendResult.skipped || false,
+        reason: emailSendResult.reason || null,
+        emails: (emailSendResult.emails || []).length,
+      }));
+    } catch (submissionEmailErr) {
+      console.error('[Public Form Submission] Submission email send threw (non-fatal):', submissionEmailErr);
     }
 
     // Task #944: If the form allows it AND the submitter ticked the box on

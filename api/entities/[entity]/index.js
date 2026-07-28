@@ -20,6 +20,7 @@ import { reindexMemberContentEntitySafe } from '../../_lib/memberContentReindexH
 import { syncBlogPostAuthors } from '../../_lib/blogPostAuthors.js';
 import { checkMemberQuota, checkEventQuota } from '../../_lib/planQuota.js';
 import { filterInternalNotesForViewer } from '../../_lib/supportTicketQueues.js';
+import { sendSubmissionEmailsGuarded } from '../../_lib/formSubmissionEmails.js';
 
 /**
  * Task #3100: support staff = tenant users (admin dashboard), tenant admins,
@@ -35,170 +36,63 @@ async function isSupportStaff(tenantCtx) {
   return false;
 }
 
-// Send email on form submission if configured
+// Send email on form submission if configured.
+// Task #3190: now delegates to the shared api/_lib/formSubmissionEmails.js
+// sender, so the generic entity-API path supports the new `submission_emails`
+// array (multi-email, conditions, field-reference recipients, placeholders,
+// invoice attachment) as well as the legacy single-email fields, and records
+// a durable per-submission outcome. The shared sender's atomic claim on
+// form_submission.submission_email_state guarantees exactly-once even if a
+// client-side call to /api/forms/send-submission-email also fires.
 async function sendFormSubmissionEmail(submissionData) {
   if (!supabase) return;
-  
+
   try {
     const formId = submissionData.form_id;
     if (!formId) return;
 
-    // Fetch the form to check if it has email template configured
-    const { data: form } = await supabase
+    // Fetch the full form row (email config + fields + tenant context).
+    const { data: form, error: formError } = await supabase
       .from('form')
-      .select('submission_email_template_id, submission_email_recipient, fields, tenant_id')
+      .select('*, tenant_id')
       .eq('id', formId)
       .single();
 
-    if (!form || !form.submission_email_template_id) return;
-    
-    const formTenantId = form.tenant_id;
-
-    // Fetch the email template
-    const { data: template } = await supabase
-      .from('email_template')
-      .select('*')
-      .eq('id', form.submission_email_template_id)
-      .single();
-
-    if (!template || template.is_active === false) {
-      console.log('[FormSubmission] Email template not found or inactive');
+    if (formError || !form) {
+      console.log('[FormSubmission] Form not found for submission email:', formId, formError?.message);
       return;
     }
 
-    // Determine recipient
-    let recipient = form.submission_email_recipient || '';
-    const formValues = submissionData.form_values || {};
-    
-    // Replace {{field_id}} placeholders with form values
-    recipient = recipient.replace(/\{\{(\w+)\}\}/g, (_, fieldId) => {
-      return formValues[fieldId] || '';
-    });
+    // FormSubmission rows created via the entity API store values in
+    // submission_data; some legacy callers pass form_values instead.
+    const formValues = submissionData.form_values || submissionData.submission_data || {};
 
-    if (!recipient || !recipient.includes('@')) {
-      console.log('[FormSubmission] No valid recipient configured');
-      return;
-    }
+    const baseUrl = process.env.VITE_APP_URL || process.env.APP_URL || '';
 
-    // Replace placeholders in subject and body with form values
-    let subject = template.subject || 'Form Submission';
-    let body = template.body || '';
-
-    // Replace form field placeholders
-    for (const [fieldId, value] of Object.entries(formValues)) {
-      const placeholder = new RegExp(`\\{\\{form\\.${fieldId}\\}\\}`, 'gi');
-      subject = subject.replace(placeholder, String(value || ''));
-      body = body.replace(placeholder, String(value || ''));
-    }
-
-    // Also support simple {{field_id}} format for form values, BUT only
-    // consume tokens whose key actually exists in the submission's form
-    // values. Previously this stripped every unknown {{token}} to '',
-    // which destroyed system tokens like {{set_password_url}} and the
-    // {{member.*}} / {{organization.*}} tokens before any downstream
-    // resolver could see them. Unknown tokens are now preserved so the
-    // generic placeholder helper below (and any future system-token
-    // resolver) can attempt to fill them.
-    subject = subject.replace(/\{\{(\w+)\}\}/g, (match, fieldId) => {
-      return Object.prototype.hasOwnProperty.call(formValues, fieldId)
-        ? String(formValues[fieldId] || '')
-        : match;
-    });
-    body = body.replace(/\{\{(\w+)\}\}/g, (match, fieldId) => {
-      return Object.prototype.hasOwnProperty.call(formValues, fieldId)
-        ? String(formValues[fieldId] || '')
-        : match;
-    });
-
-    // Resolve member + organization context for the submission so generic
-    // [[member.*]] / [[organization.*]] placeholders in the template body
-    // are filled in (previously only form-field tokens were substituted,
-    // leaving any [[member.first_name]] / [[organization.name]] etc. as
-    // literal placeholders in the auto-reply email).
-    let memberRow = null;
-    let organizationRow = null;
-    try {
-      // form_submission column is `created_member_id` (see
-      // api/forms/send-submission-email.js + scripts/replay-form-submission-org-update.mjs).
-      // `created_by_member_id` is the column on the campaign tables — keep it
-      // as a defensive secondary fallback in case a caller passes that key,
-      // but `created_member_id` is the canonical field for this sender.
-      const memberId = submissionData.member_id
+    const result = await sendSubmissionEmailsGuarded({
+      supabase,
+      form,
+      formValues,
+      fields: form.fields || [],
+      submissionId: submissionData.id || null,
+      createdMemberId: submissionData.member_id
         || submissionData.created_member_id
         || submissionData.created_by_member_id
-        || null;
-      const orgId = submissionData.organization_id
+        || null,
+      createdOrganizationId: submissionData.organization_id
         || submissionData.created_organization_id
-        || null;
-      if (memberId) {
-        const { data: m } = await supabase
-          .from('member')
-          .select('id, first_name, last_name, email, organization_id')
-          .eq('id', memberId)
-          .maybeSingle();
-        memberRow = m || null;
-      }
-      const effectiveOrgId = orgId || memberRow?.organization_id || null;
-      if (effectiveOrgId) {
-        const { data: o } = await supabase
-          .from('organization')
-          .select('id, name, invoicing_email, phone')
-          .eq('id', effectiveOrgId)
-          .maybeSingle();
-        organizationRow = o || null;
-      }
-    } catch (lookupErr) {
-      console.warn('[FormSubmission] Failed to resolve member/org context for placeholders:', lookupErr.message);
-    }
-
-    const recordContext = {
-      ...(memberRow ? {
-        member_id: memberRow.id,
-        member_first_name: memberRow.first_name || '',
-        member_last_name: memberRow.last_name || '',
-        member_full_name: `${memberRow.first_name || ''} ${memberRow.last_name || ''}`.trim(),
-        member_email: memberRow.email || '',
-      } : {}),
-      ...(organizationRow ? {
-        organization_id: organizationRow.id,
-        organization_name: organizationRow.name || '',
-        organization_invoicing_email: organizationRow.invoicing_email || '',
-        organization_phone: organizationRow.phone || '',
-      } : {}),
-    };
-
-    const placeholderContext = {
-      tenantId: formTenantId,
-      memberId: memberRow?.id || null,
-    };
-    subject = replacePlaceholders(subject, 'record', recordContext, placeholderContext);
-    body = replacePlaceholders(body, 'record', recordContext, placeholderContext);
-
-    // Mint set_password_url once and reuse for both subject + body.
-    if (hasSetPasswordToken(subject, body) && memberRow?.id && memberRow?.email) {
-      const baseUrl = process.env.VITE_APP_URL || process.env.APP_URL || '';
-      if (baseUrl) {
-        const setPasswordUrl = await generatePasswordSetupUrl(memberRow.id, memberRow.email, baseUrl);
-        if (setPasswordUrl) {
-          body = replaceSetPasswordToken(body, setPasswordUrl);
-          subject = replaceSetPasswordToken(subject, setPasswordUrl);
-        }
-      } else {
-        console.warn('[FormSubmission] {{set_password_url}} present but no APP_URL/VITE_APP_URL configured');
-      }
-    }
-
-    // Send the email with tenant context for proper email domain
-    const result = await sendEmail({
-      to: recipient,
-      subject: subject,
-      html: body,
-      from: template.from_email,
-      replyTo: template.reply_to,
-      tenantId: formTenantId
+        || null,
+      baseUrl,
+      trigger: 'entity-api',
+      allowUnguarded: false,
     });
 
-    console.log(`[FormSubmission] Email sent to ${recipient}:`, result.success ? 'success' : result.error);
+    console.log('[FormSubmission] Submission emails processed:', JSON.stringify({
+      success: result.success,
+      skipped: result.skipped || false,
+      reason: result.reason || null,
+      emails: (result.emails || []).length,
+    }));
   } catch (err) {
     console.error('[FormSubmission] Email error:', err.message);
   }

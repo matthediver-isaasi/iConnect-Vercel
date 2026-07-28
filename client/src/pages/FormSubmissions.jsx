@@ -2358,6 +2358,63 @@ export default function FormSubmissionsPage() {
                 )}
               </div>
 
+              {/* Task #3190: durable submission-email outcome recorded server-side */}
+              <div>
+                <h3 className="font-semibold text-slate-900 mb-3">Submission Emails</h3>
+                {(() => {
+                  const state = viewingSubmission.submission_email_state;
+                  if (!state) {
+                    return (
+                      <p className="text-sm text-slate-500" data-testid="text-email-state-none">
+                        No email outcome recorded (submitted before email tracking, or not yet processed).
+                      </p>
+                    );
+                  }
+                  const statusBadge = {
+                    sent: <Badge className="bg-green-100 text-green-800 border-green-200">Sent</Badge>,
+                    skipped: <Badge className="bg-slate-100 text-slate-700 border-slate-200">Skipped</Badge>,
+                    failed: <Badge className="bg-red-100 text-red-800 border-red-200">Failed</Badge>,
+                    processing: <Badge className="bg-amber-100 text-amber-800 border-amber-200">Processing</Badge>,
+                  }[state.status] || <Badge variant="outline">{state.status || 'Unknown'}</Badge>;
+                  return (
+                    <div className="bg-white rounded-lg p-3 border border-slate-200 space-y-2" data-testid="panel-email-state">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {statusBadge}
+                        {state.reason && (
+                          <span className="text-sm text-slate-600">{state.reason}</span>
+                        )}
+                        {(state.processed_at || state.claimed_at) && (
+                          <span className="text-xs text-slate-400">
+                            {moment(state.processed_at || state.claimed_at).format('MMM D, YYYY h:mm A')}
+                          </span>
+                        )}
+                      </div>
+                      {Array.isArray(state.emails) && state.emails.length > 0 && (
+                        <div className="space-y-1">
+                          {state.emails.map((e, i) => (
+                            <div key={e.id || i} className="flex items-center gap-2 text-sm">
+                              {e.skipped ? (
+                                <Minus className="w-4 h-4 text-slate-400 shrink-0" />
+                              ) : e.success ? (
+                                <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
+                              ) : (
+                                <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                              )}
+                              <span className="text-slate-700">
+                                {e.to || '(no recipient)'}
+                              </span>
+                              <span className="text-xs text-slate-500">
+                                {e.skipped ? (e.reason || 'Skipped') : e.success ? 'Delivered to Mailgun' : (e.error || 'Failed')}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+
               <div>
                 <h3 className="font-semibold text-slate-900 mb-3">Submission Data</h3>
                 <div className="space-y-3">
