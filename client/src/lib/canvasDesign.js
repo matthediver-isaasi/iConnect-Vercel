@@ -788,6 +788,14 @@ export const BLOCK_DEFAULTS = {
       ctaHref: '#',
       ctaVariant: 'outline',
       ctaAlign: 'left',
+      // Icon-only CTA mode (Task #3174), mirroring the Button block's
+      // Task #3167 fields. Defaults off; render paths gate on `=== true`
+      // so existing cards are untouched. `ctaIcon` accepts a Lucide name
+      // or a Font Awesome class string.
+      ctaIconOnly: false,
+      ctaIconShape: 'square', // square | circle
+      ctaIcon: '',
+      ctaAriaLabel: '',
       // Drop shadow ('none' | 'sm' | 'md' | 'lg') + optional highlight ring.
       shadow: 'none',
       highlight: false,

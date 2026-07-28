@@ -1188,6 +1188,16 @@ function HeroCtaButton({ cta, asEditor, tenantStyles, stylesResolved }) {
   const hasCtaIconSize = Number.isFinite(ctaIconSizeNum) && ctaIconSizeNum > 0;
   const ctaIconPositionSet = cta.iconPosition === 'before' || cta.iconPosition === 'after';
 
+  // Task #3174: icon-only CTA mode, mirroring the Button block (Task #3167).
+  // Strict-true gated; only active when an icon actually resolves so the CTA
+  // never vanishes. In icon-only mode a per-CTA icon or the tenant style's
+  // default icon may supply the glyph.
+  const { iconOnly: ctaIconOnly, circle: ctaIconCircle } = readIconOnly({
+    iconOnly: cta.iconOnly,
+    iconShape: cta.iconShape,
+  });
+  const iconOnlyAria = resolveIconOnlyAriaLabel({ ariaLabel: cta.ariaLabel, label: cta.label });
+
   // Optional explicit dimensions. Blank/0 → auto (omit so the button sizes to
   // its content, preserving the prior look for existing heroes).
   const w = Number(cta.width);
@@ -1250,18 +1260,30 @@ function HeroCtaButton({ cta, asEditor, tenantStyles, stylesResolved }) {
     });
     if (awaitingLabel) tenantLabelStyle = { ...(tenantLabelStyle || {}), visibility: 'hidden' };
     const tenantLabelSpan = <span style={tenantLabelStyle || undefined}>{cta.label || 'CTA'}</span>;
+    // Icon-only: drop the label, symmetric padding + optional circle. The
+    // explicit width/height overrides (sizeStyle) still win, so authors can
+    // force an exact square.
+    const tenantIconOnly = ctaIconOnly && !!iconEl;
+    if (tenantIconOnly) {
+      Object.assign(
+        inlineStyle,
+        buildIconOnlyAnchorStyle(tenantBaseline.paddingY, ctaIconCircle, { fillBox: false }),
+        sizeStyle,
+      );
+    }
     return (
       <a
         href={asEditor ? undefined : (cta.href || '#')}
         target={!asEditor && resolveNewTab(cta) ? '_blank' : undefined}
         rel={!asEditor && resolveNewTab(cta) ? 'noopener noreferrer' : undefined}
+        aria-label={tenantIconOnly ? iconOnlyAria : undefined}
         className="inline-flex items-center justify-center gap-1.5 font-medium whitespace-nowrap leading-none"
         style={inlineStyle}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
         onClick={(e) => { if (asEditor) e.preventDefault(); }}
       >
-        {iconAfter ? (<>{tenantLabelSpan}{iconEl}</>) : (<>{iconEl}{tenantLabelSpan}</>)}
+        {tenantIconOnly ? iconEl : (iconAfter ? (<>{tenantLabelSpan}{iconEl}</>) : (<>{iconEl}{tenantLabelSpan}</>))}
       </a>
     );
   }
@@ -1280,16 +1302,25 @@ function HeroCtaButton({ cta, asEditor, tenantStyles, stylesResolved }) {
   const legacyIconEl = LegacyIcon ? (
     <LegacyIcon style={{ width: legacyIconSize, height: legacyIconSize, flexShrink: 0 }} />
   ) : null;
+  // Icon-only on the legacy path: resolve via the shared resolver so FA class
+  // strings (and lazily loaded Lucide names) work too.
+  const legacyIconOnlyName = ctaIconOnly && perCtaIconName ? resolveStoredIconName(perCtaIconName) : '';
+  const legacyIconOnlyEl = legacyIconOnlyName
+    ? (legacyIconEl || renderStyleIcon(legacyIconOnlyName, legacyIconSize))
+    : null;
   return (
     <a
       href={asEditor ? undefined : (cta.href || '#')}
       target={!asEditor && resolveNewTab(cta) ? '_blank' : undefined}
       rel={!asEditor && resolveNewTab(cta) ? 'noopener noreferrer' : undefined}
+      aria-label={legacyIconOnlyEl ? iconOnlyAria : undefined}
       className={buttonClasses(fallbackVariant, fallbackSize)}
-      style={hasSize ? sizeStyle : undefined}
+      style={legacyIconOnlyEl
+        ? { ...buildIconOnlyAnchorStyle('10px', ctaIconCircle, { fillBox: false, autoHeight: true }), ...sizeStyle }
+        : (hasSize ? sizeStyle : undefined)}
       onClick={(e) => { if (asEditor) e.preventDefault(); }}
     >
-      {legacyIconAfter ? (<>{labelSpan}{legacyIconEl}</>) : (<>{legacyIconEl}{labelSpan}</>)}
+      {legacyIconOnlyEl || (legacyIconAfter ? (<>{labelSpan}{legacyIconEl}</>) : (<>{legacyIconEl}{labelSpan}</>))}
     </a>
   );
 }
@@ -1652,13 +1683,55 @@ function HeroInspector({ block, update, breakpoint }) {
           testIdPrefix="hero-cta"
           renderItem={(item, idx, patch) => (
             <>
-              <TextField label="Label" value={item.label} onChange={(v) => patch({ label: v })} testId={`hero-cta-${idx}-label`} />
-              <TypographyStyleField
-                label="Label style"
-                value={item.labelTypographyStyleId}
-                onChange={(id) => patch({ labelTypographyStyleId: id })}
-                testId={`select-hero-cta-${idx}-typography`}
+              <ToggleField
+                label="Icon only (no label)"
+                value={item.iconOnly === true}
+                onChange={(v) => patch({ iconOnly: v === true })}
+                testId={`toggle-hero-cta-${idx}-icon-only`}
               />
+              {item.iconOnly === true && (
+                <>
+                  <SelectField
+                    label="Shape"
+                    value={item.iconShape === 'circle' ? 'circle' : 'square'}
+                    onChange={(v) => patch({ iconShape: v === 'circle' ? 'circle' : 'square' })}
+                    options={[
+                      { value: 'square', label: 'Square / rounded (variant radius)' },
+                      { value: 'circle', label: 'Circle' },
+                    ]}
+                    testId={`select-hero-cta-${idx}-icon-shape`}
+                  />
+                  {item.icon === '__none__' && (
+                    <p className="text-[11px] text-amber-600 leading-snug" data-testid={`text-hero-cta-${idx}-no-icon`}>
+                      Choose an icon below — with the icon set to "None" the
+                      labeled CTA keeps showing.
+                    </p>
+                  )}
+                  {!(item.ariaLabel || '').trim() && (
+                    <p className="text-[11px] text-amber-600 leading-snug" data-testid={`text-hero-cta-${idx}-a11y-nudge`}>
+                      Add a screen reader label below so people using assistive
+                      tech know what this button does.
+                    </p>
+                  )}
+                  <TextField
+                    label="Screen reader label"
+                    value={item.ariaLabel}
+                    onChange={(v) => patch({ ariaLabel: v })}
+                    testId={`input-hero-cta-${idx}-aria`}
+                  />
+                </>
+              )}
+              {item.iconOnly !== true && (
+                <>
+                  <TextField label="Label" value={item.label} onChange={(v) => patch({ label: v })} testId={`hero-cta-${idx}-label`} />
+                  <TypographyStyleField
+                    label="Label style"
+                    value={item.labelTypographyStyleId}
+                    onChange={(id) => patch({ labelTypographyStyleId: id })}
+                    testId={`select-hero-cta-${idx}-typography`}
+                  />
+                </>
+              )}
               <LinkField
                 label="Link"
                 value={item.href}
@@ -4222,7 +4295,21 @@ function CardRender({ block, asEditor, priority, breakpoint }) {
             CTA to the bottom of a grown / equalised card) and serves as the
             measurement subtrahend for the natural content height. */}
         <div ref={spacerRef} aria-hidden="true" style={{ flex: '1 1 auto', minHeight: 0 }} />
-        {c.ctaEnabled !== false && c.ctaLabel && (() => {
+        {c.ctaEnabled !== false && (c.ctaLabel || c.ctaIconOnly === true) && (() => {
+          // Task #3174: icon-only CTA mode, mirroring the Button block
+          // (Task #3167). Only active when a stored icon actually resolves —
+          // otherwise fall back to the labeled render so the CTA never
+          // vanishes (and an icon-only card without label + icon shows
+          // nothing, matching the legacy `ctaLabel` gate above).
+          const { iconOnly: ctaIconOnly, circle: ctaIconCircle } = readIconOnly({
+            iconOnly: c.ctaIconOnly,
+            iconShape: c.ctaIconShape,
+          });
+          const ctaIconName = ctaIconOnly ? resolveStoredIconName(c.ctaIcon) : '';
+          if (!ctaIconName && !c.ctaLabel) return null;
+          const ctaAria = ctaIconOnly && ctaIconName
+            ? resolveIconOnlyAriaLabel({ ariaLabel: c.ctaAriaLabel, label: c.ctaLabel })
+            : undefined;
           const ctaLabelStyleObj = resolveTenantStyle(c.ctaLabelTypographyStyleId, tenantStyles);
           const awaitingCtaLabel = isAwaitingTypographyStyle(c.ctaLabelTypographyStyleId, ctaLabelStyleObj, stylesResolved);
           const ctaLabelInline = ctaLabelStyleObj
@@ -4255,6 +4342,14 @@ function CardRender({ block, asEditor, priority, breakpoint }) {
               fontSize: baseline.fontSize,
               transition: 'background-color 0.2s ease, color 0.2s ease, background 0.2s ease',
             };
+            // Icon-only: symmetric padding + optional circle; the icon
+            // inherits the button's resolved text/hover colour.
+            const tenantIconOnlyEl = ctaIconOnly && ctaIconName
+              ? renderStyleIcon(ctaIconName, baseline.iconSize || 18)
+              : null;
+            if (tenantIconOnlyEl) {
+              Object.assign(inlineStyle, buildIconOnlyAnchorStyle(baseline.paddingY, ctaIconCircle, { fillBox: false }));
+            }
             return (
               <div
                 className={`${bodyCtaGapPx == null ? 'mt-2 ' : ''}flex`}
@@ -4264,14 +4359,19 @@ function CardRender({ block, asEditor, priority, breakpoint }) {
                   href={asEditor ? undefined : (c.ctaHref || '#')}
                   target={!asEditor && resolveNewTab(c) ? '_blank' : undefined}
                   rel={!asEditor && resolveNewTab(c) ? 'noopener noreferrer' : undefined}
+                  aria-label={tenantIconOnlyEl ? ctaAria : undefined}
                   className="inline-flex items-center justify-center gap-1.5 font-medium whitespace-nowrap"
                   style={inlineStyle}
                   onMouseEnter={() => setCtaHovered(true)}
                   onMouseLeave={() => setCtaHovered(false)}
                   onClick={(e) => { if (asEditor) e.preventDefault(); }}
                 >
-                  <span style={ctaLabelInline || undefined}>{c.ctaLabel}</span>
-                  <ArrowRight className="w-4 h-4" />
+                  {tenantIconOnlyEl || (
+                    <>
+                      <span style={ctaLabelInline || undefined}>{c.ctaLabel}</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
                 </a>
               </div>
             );
@@ -4280,6 +4380,9 @@ function CardRender({ block, asEditor, priority, breakpoint }) {
           // style configured → render with the legacy `outline` classes so the
           // CTA still looks sensible.
           const fallbackVariant = isTenantVariant ? 'outline' : ctaVariant;
+          const fallbackIconOnlyEl = ctaIconOnly && ctaIconName
+            ? renderStyleIcon(ctaIconName, 18)
+            : null;
           return (
             <div
               className={`${bodyCtaGapPx == null ? 'mt-2 ' : ''}flex`}
@@ -4289,11 +4392,22 @@ function CardRender({ block, asEditor, priority, breakpoint }) {
                 href={asEditor ? undefined : (c.ctaHref || '#')}
                 target={!asEditor && resolveNewTab(c) ? '_blank' : undefined}
                 rel={!asEditor && resolveNewTab(c) ? 'noopener noreferrer' : undefined}
+                aria-label={fallbackIconOnlyEl ? ctaAria : undefined}
                 className={buttonClasses(fallbackVariant, 'default')}
+                style={fallbackIconOnlyEl
+                  // autoHeight neutralises buttonClasses' fixed h-9 so the
+                  // symmetric padding yields a true square/circle (mirrors
+                  // the Hero legacy path).
+                  ? buildIconOnlyAnchorStyle('10px', ctaIconCircle, { fillBox: false, autoHeight: true })
+                  : undefined}
                 onClick={(e) => { if (asEditor) e.preventDefault(); }}
               >
-                <span style={ctaLabelInline || undefined}>{c.ctaLabel}</span>
-                <ArrowRight className="w-4 h-4" />
+                {fallbackIconOnlyEl || (
+                  <>
+                    <span style={ctaLabelInline || undefined}>{c.ctaLabel}</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
               </a>
             </div>
           );
@@ -4514,13 +4628,72 @@ function CardInspector({ block, update }) {
       />
       {ctaEnabled && (
         <>
-          <TextField label="CTA label" value={c.ctaLabel} onChange={(v) => set({ ctaLabel: v })} testId="input-card-cta-label" />
-          <TypographyStyleField
-            label="CTA label style"
-            value={c.ctaLabelTypographyStyleId}
-            onChange={(id) => set({ ctaLabelTypographyStyleId: id })}
-            testId="select-card-cta-typography"
+          <ToggleField
+            label="Icon only (no label)"
+            value={c.ctaIconOnly === true}
+            onChange={(v) => set({ ctaIconOnly: v === true })}
+            testId="toggle-card-cta-icon-only"
           />
+          {c.ctaIconOnly === true && (
+            <>
+              <SelectField
+                label="Shape"
+                value={c.ctaIconShape === 'circle' ? 'circle' : 'square'}
+                onChange={(v) => set({ ctaIconShape: v === 'circle' ? 'circle' : 'square' })}
+                options={[
+                  { value: 'square', label: 'Square / rounded (variant radius)' },
+                  { value: 'circle', label: 'Circle' },
+                ]}
+                testId="select-card-cta-icon-shape"
+              />
+              <SelectField
+                label="Icon"
+                value={isFaIconName((c.ctaIcon || '').trim()) || /^fa-/i.test((c.ctaIcon || '').trim()) ? '__none__' : (c.ctaIcon || '__none__')}
+                onChange={(v) => set({ ctaIcon: v === '__none__' ? '' : v })}
+                options={[{ value: '__none__', label: 'None' }, ...Object.keys(LUCIDE_ICONS).map((n) => ({ value: n, label: n }))]}
+                testId="select-card-cta-icon"
+              />
+              <TextField
+                label="Font Awesome class (optional, replaces icon pick)"
+                value={isFaIconName((c.ctaIcon || '').trim()) || /^fa-/i.test((c.ctaIcon || '').trim()) ? c.ctaIcon : ''}
+                onChange={(v) => {
+                  const t = (v || '').trim();
+                  if (t) set({ ctaIcon: t });
+                  else if (isFaIconName((c.ctaIcon || '').trim()) || /^fa-/i.test((c.ctaIcon || '').trim())) set({ ctaIcon: '' });
+                }}
+                testId="input-card-cta-icon-fa"
+              />
+              {!resolveStoredIconName(c.ctaIcon) && (
+                <p className="text-[11px] text-amber-600 leading-snug" data-testid="text-card-cta-icon-only-no-icon">
+                  Pick an icon (or enter a Font Awesome class) — until then the
+                  labeled CTA keeps showing.
+                </p>
+              )}
+              {!(c.ctaAriaLabel || '').trim() && (
+                <p className="text-[11px] text-amber-600 leading-snug" data-testid="text-card-cta-icon-only-a11y-nudge">
+                  Add a screen reader label below so people using assistive
+                  tech know what this button does.
+                </p>
+              )}
+              <TextField
+                label="Screen reader label"
+                value={c.ctaAriaLabel}
+                onChange={(v) => set({ ctaAriaLabel: v })}
+                testId="input-card-cta-aria"
+              />
+            </>
+          )}
+          {c.ctaIconOnly !== true && (
+            <>
+              <TextField label="CTA label" value={c.ctaLabel} onChange={(v) => set({ ctaLabel: v })} testId="input-card-cta-label" />
+              <TypographyStyleField
+                label="CTA label style"
+                value={c.ctaLabelTypographyStyleId}
+                onChange={(id) => set({ ctaLabelTypographyStyleId: id })}
+                testId="select-card-cta-typography"
+              />
+            </>
+          )}
           <LinkField
             label="CTA link"
             value={c.ctaHref}

@@ -59,6 +59,33 @@ test('buildIconOnlyAnchorStyle: circle shape wins over the variant radius', () =
   assert.equal(buildIconOnlyAnchorStyle('8px', true).borderRadius, '9999px');
 });
 
+test('buildIconOnlyAnchorStyle: fillBox:false (embedded CTAs) sizes to the icon', () => {
+  // Card/Hero CTAs (Task #3174): symmetric padding but NO width stretch —
+  // the intrinsic inline-flex anchor stays a natural square around the icon.
+  const s = buildIconOnlyAnchorStyle('12px', true, { fillBox: false });
+  assert.equal(s.paddingLeft, '12px');
+  assert.equal(s.paddingRight, '12px');
+  assert.equal('width' in s, false);
+  assert.equal('minWidth' in s, false);
+  assert.equal(s.borderRadius, '9999px');
+  // Default stays fillBox:true for the standalone Button block.
+  assert.equal(buildIconOnlyAnchorStyle('12px', false).width, '100%');
+});
+
+test('buildIconOnlyAnchorStyle: autoHeight neutralises class-driven fixed height (Card/Hero legacy circle)', () => {
+  // Card fallback + Hero legacy CTAs render with buttonClasses (fixed h-9/
+  // h-10); autoHeight must emit height:'auto' so circle mode is truly round,
+  // not an oval clamped to the class height.
+  const s = buildIconOnlyAnchorStyle('10px', true, { fillBox: false, autoHeight: true });
+  assert.equal(s.height, 'auto');
+  assert.equal(s.borderRadius, '9999px');
+  assert.equal(s.paddingTop, '10px');
+  assert.equal(s.paddingBottom, '10px');
+  assert.equal('width' in s, false);
+  // Not emitted unless requested.
+  assert.equal('height' in buildIconOnlyAnchorStyle('10px', true, { fillBox: false }), false);
+});
+
 test('resolveIconOnlyAriaLabel: ariaLabel → label → generic fallback', () => {
   assert.equal(resolveIconOnlyAriaLabel({ ariaLabel: 'Next page', label: 'Go' }), 'Next page');
   assert.equal(resolveIconOnlyAriaLabel({ ariaLabel: '  ', label: 'Go' }), 'Go');

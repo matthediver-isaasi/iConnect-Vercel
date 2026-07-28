@@ -64,16 +64,24 @@ export function readIconOnly(content) {
 // Style overrides layered onto a Button anchor's inline style when icon-only
 // mode is on. `padY` is the resolved vertical padding value (px string or CSS
 // var()) — icon-only buttons use it on ALL four sides so the button is
-// symmetric, and stop growing to label width (the anchor just fills the
-// block's stored box). Circle shape wins over the variant's radius.
-export function buildIconOnlyAnchorStyle(padY, circle) {
+// symmetric. Circle shape wins over the variant's radius.
+//
+// `fillBox` (default true, standalone Button block): the anchor stops growing
+// to label width and just fills the block's stored box. Intrinsic CTAs
+// embedded in other blocks (Card, Hero — Task #3174) pass fillBox:false so
+// the button sizes to its icon (padding + icon = a natural square) instead of
+// stretching across the host block.
+// `autoHeight` (embedded CTAs rendered with legacy `buttonClasses`): emits
+// height:'auto' to neutralise the class-driven fixed height (h-9/h-10) so
+// the symmetric padding yields a true square/circle.
+export function buildIconOnlyAnchorStyle(padY, circle, { fillBox = true, autoHeight = false } = {}) {
   const out = {
     paddingTop: padY,
     paddingBottom: padY,
     paddingLeft: padY,
     paddingRight: padY,
-    minWidth: '100%',
-    width: '100%',
+    ...(fillBox ? { minWidth: '100%', width: '100%' } : null),
+    ...(autoHeight ? { height: 'auto' } : null),
   };
   if (circle) out.borderRadius = '9999px';
   return out;
