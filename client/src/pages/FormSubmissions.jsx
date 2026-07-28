@@ -692,6 +692,7 @@ export default function FormSubmissionsPage() {
       
       const result = await response.json();
 
+      let emailOutcome = null;
       try {
         console.log('[FormSubmissions] Sending submission email after re-run...');
         const emailResponse = await fetch('/api/forms/send-submission-email', {
@@ -704,6 +705,9 @@ export default function FormSubmissionsPage() {
             fields: form.fields,
             created_member_id: result.created_member_id || null,
             created_organization_id: result.created_organization_id || null,
+            // Task #3194: admin rerun deliberately resends already-sent
+            // emails (server verifies tenant admin access).
+            force_resend: true,
             _debug_form_email_config: {
               hasSubmissionEmails: !!form?.submission_emails,
               submissionEmailsCount: form?.submission_emails?.length || 0,
@@ -717,19 +721,42 @@ export default function FormSubmissionsPage() {
         if (emailResponse.ok) {
           const emailResult = await emailResponse.json();
           console.log('[FormSubmissions] Submission email result:', emailResult);
+          emailOutcome = emailResult;
         } else {
           const errorText = await emailResponse.text();
           console.error('[FormSubmissions] Email endpoint error:', emailResponse.status, errorText.substring(0, 500));
+          let errorMessage = `Email endpoint error (${emailResponse.status})`;
+          try {
+            const parsed = JSON.parse(errorText);
+            if (parsed?.error) errorMessage = parsed.error;
+          } catch { /* non-JSON error body — keep the status message */ }
+          emailOutcome = { success: false, error: errorMessage };
         }
       } catch (emailError) {
         console.error('[FormSubmissions] Error sending submission email:', emailError);
+        emailOutcome = { success: false, error: emailError.message || 'Email request failed' };
       }
 
-      return result;
+      return { ...result, emailOutcome };
     },
     onSuccess: (result) => {
-      toast.success('Submission re-processed successfully');
       console.log('[FormSubmissions] Re-run result:', result);
+      // Task #3194: surface the email resend outcome instead of only logging
+      // it — a silent skip or Mailgun failure must be visible to the admin.
+      const eo = result?.emailOutcome;
+      if (!eo) {
+        toast.success('Submission re-processed successfully');
+      } else if (eo.success && !eo.skipped) {
+        const sent = (eo.emails || []).filter((e) => e.success && !e.skipped).length;
+        toast.success(sent > 0
+          ? `Submission re-processed — ${sent} email${sent === 1 ? '' : 's'} resent`
+          : 'Submission re-processed — no emails matched the sending conditions');
+      } else if (eo.skipped && eo.success !== false) {
+        toast.success(`Submission re-processed — emails skipped: ${eo.reason || 'nothing to send'}`);
+      } else {
+        toast.error(`Submission re-processed, but email resend failed: ${eo.error || eo.reason || 'unknown error'}`);
+      }
+      queryClient.invalidateQueries({ queryKey: ['form-submissions'] });
     },
     onError: (error) => {
       toast.error(error.message || 'Failed to re-run submission');

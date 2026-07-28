@@ -87,6 +87,52 @@ export async function claimSubmissionEmailSend(supabase, submissionId, trigger) 
   return { claimed: false, existingState: row.submission_email_state || null };
 }
 
+/**
+ * Task #3194: atomically re-claim an ALREADY-PROCESSED submission for a
+ * deliberate admin resend. Unlike claimSubmissionEmailSend this matches rows
+ * whose state exists, but refuses to steal a claim that is still
+ * 'processing' (a concurrent send in flight). The prior outcome is preserved
+ * by appending it to a `history` array carried on the new state, so
+ * exactly-once diagnostics survive resends.
+ * Returns { claimed: true, history } or { claimed: false, reason }.
+ */
+export async function claimSubmissionEmailResend(supabase, submissionId, trigger, existingState) {
+  if (!supabase || !submissionId) {
+    return { claimed: false, reason: 'No submission to claim' };
+  }
+  const prior = existingState && typeof existingState === 'object'
+    ? (() => { const { history, ...rest } = existingState; return rest; })()
+    : null;
+  // Bounded: keep only the most recent prior outcomes so repeated resends
+  // can't grow the jsonb state without limit.
+  const HISTORY_LIMIT = 10;
+  const history = [
+    ...(Array.isArray(existingState?.history) ? existingState.history : []),
+    ...(prior ? [prior] : []),
+  ].slice(-HISTORY_LIMIT);
+  const claimState = {
+    status: 'processing',
+    trigger: trigger || 'unknown',
+    resend: true,
+    claimed_at: new Date().toISOString(),
+    history,
+  };
+  const { data, error } = await supabase
+    .from('form_submission')
+    .update({ submission_email_state: claimState })
+    .eq('id', submissionId)
+    .neq('submission_email_state->>status', 'processing')
+    .select('id');
+  if (error) {
+    console.error('[SubmissionEmails] Resend claim failed:', error);
+    return { claimed: false, reason: error.message || 'Resend claim failed' };
+  }
+  if (!data || data.length === 0) {
+    return { claimed: false, reason: 'A send is already in progress for this submission' };
+  }
+  return { claimed: true, history };
+}
+
 async function recordOutcome(supabase, submissionId, state) {
   if (!supabase || !submissionId) return;
   const { error } = await supabase
@@ -487,11 +533,19 @@ export async function sendSubmissionEmails({
 export async function sendSubmissionEmailsGuarded(options) {
   const {
     supabase, form, submissionId, trigger = 'unknown', allowUnguarded = false,
+    // Task #3194: deliberate admin resend — bypasses the already-processed
+    // skip via an atomic re-claim that preserves prior outcomes in `history`.
+    // Callers MUST gate this server-side (tenant admin only).
+    forceResend = false,
   } = options;
 
   // Fast path: nothing configured → record a durable 'skipped' outcome so the
   // admin view can show WHY no email exists, then return.
   const configured = resolveConfiguredEmails(form);
+
+  // When set, the outcome recorded at the end carries the resend marker and
+  // the preserved history of previous sends.
+  let resendState = null;
 
   const claim = await claimSubmissionEmailSend(supabase, submissionId, trigger);
   if (!claim.claimed) {
@@ -518,6 +572,25 @@ export async function sendSubmissionEmailsGuarded(options) {
         return { success: true, skipped: true, reason: 'Idempotency guard unavailable', emails: [] };
       }
       // Legacy behaviour: send without guard (pre-migration environments).
+    } else if (forceResend) {
+      // Task #3194: admin-requested resend of an already-processed
+      // submission. Re-claim atomically (refuses if a send is in flight)
+      // and carry the prior outcome forward as history.
+      const reclaim = await claimSubmissionEmailResend(supabase, submissionId, trigger, claim.existingState);
+      if (!reclaim.claimed) {
+        console.warn('[SubmissionEmails] Resend re-claim refused for', submissionId, '—', reclaim.reason);
+        return {
+          success: false,
+          skipped: true,
+          alreadyProcessed: true,
+          reason: reclaim.reason || 'Resend claim failed',
+          error: reclaim.reason || 'Resend claim failed',
+          state: claim.existingState || null,
+          emails: claim.existingState?.emails || [],
+        };
+      }
+      console.log('[SubmissionEmails] Resend claimed for submission', submissionId, '(trigger:', trigger + ')');
+      resendState = { resend: true, history: reclaim.history };
     } else {
       console.log('[SubmissionEmails] Submission', submissionId, 'already claimed — skipping (trigger:', trigger + ')');
       return {
@@ -532,7 +605,7 @@ export async function sendSubmissionEmailsGuarded(options) {
   }
 
   const finishedAt = () => new Date().toISOString();
-  const baseState = { trigger, processed_at: finishedAt() };
+  const baseState = { trigger, processed_at: finishedAt(), ...(resendState || {}) };
 
   if (configured.length === 0) {
     const state = { ...baseState, status: 'skipped', reason: 'No emails configured', emails: [] };

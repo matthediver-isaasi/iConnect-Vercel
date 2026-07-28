@@ -35,6 +35,7 @@ export default async function handler(req, res) {
       fields,
       created_member_id,       // Member ID from process-application
       created_organization_id, // Organization ID from process-application
+      force_resend,            // Task #3194: admin rerun — resend already-sent emails
       _debug_form_email_config
     } = req.body;
 
@@ -67,6 +68,21 @@ export default async function handler(req, res) {
     }
     const baseUrl = host ? `${protocol}://${host}` : (process.env.APP_URL || '');
 
+    // Task #3194: force_resend deliberately bypasses the exactly-once guard
+    // (admin rerun of an already-sent submission). Only authenticated tenant
+    // admins of the form's own tenant may use it — getTenantIdFromSession-style
+    // membership is NOT enough.
+    let forceResend = false;
+    if (force_resend) {
+      const { getTenantContext, hasAdminAccess } = await import('../_lib/tenantContext.js');
+      const context = await getTenantContext(req);
+      const isAdmin = await hasAdminAccess(context);
+      if (!isAdmin || !context.tenantId || context.tenantId !== form.tenant_id) {
+        return res.status(403).json({ error: 'Resending submission emails requires tenant admin access' });
+      }
+      forceResend = true;
+    }
+
     const result = await sendSubmissionEmailsGuarded({
       supabase,
       form,
@@ -76,16 +92,20 @@ export default async function handler(req, res) {
       createdMemberId: created_member_id || null,
       createdOrganizationId: created_organization_id || null,
       baseUrl,
-      trigger: 'client',
+      trigger: forceResend ? 'admin-resend' : 'client',
       // When submission_id is missing there is nothing to claim against;
       // preserve the legacy unguarded behaviour for such callers.
       allowUnguarded: true,
+      forceResend,
     });
 
     if (result.skipped) {
       return res.json({
-        success: true,
+        // Task #3194: a refused resend re-claim reports success:false —
+        // don't mask it as success, the admin needs to see it failed.
+        success: result.success !== false,
         skipped: true,
+        ...(result.error ? { error: result.error } : {}),
         alreadyProcessed: result.alreadyProcessed || false,
         reason: result.reason,
         emails: result.emails || [],

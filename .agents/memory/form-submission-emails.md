@@ -29,3 +29,12 @@ If the claim column is missing (stale dev SOURCE DB), guarded server paths
 skip; only the legacy client endpoint is allowed unguarded sends.
 The workspace MAILGUN key gets 401 on tenant domains (e.g. bnms.iconn.app) and
 falls back to mail.iconn.app — env-specific, not a code bug.
+
+**Admin resend:** the exactly-once claim also blocks the admin "rerun"
+button, so a deliberate resend needs the guarded sender's `forceResend`
+mode: an atomic re-claim (`status != 'processing'`) that appends the prior
+outcome to a bounded `history` array on the same jsonb state. The endpoint
+only honours the flag for tenant admins of the form's tenant
+(getTenantContext + hasAdminAccess, never membership-only), and a refused
+re-claim must surface as `success:false` — don't collapse every skipped
+result to success or the admin sees a phantom "sent".
