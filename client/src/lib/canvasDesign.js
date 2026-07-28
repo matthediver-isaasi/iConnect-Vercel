@@ -458,6 +458,12 @@ export const BLOCK_DEFAULTS = {
       // '' = legacy cover behaviour; 'fixed-crop' = Fixed Height / Horizontal
       // Crop (image scales by section height only, sides clip when narrow).
       bgImageFit: '',
+      // Background focal point (Task #3162): { x, y } percentages mirroring
+      // the Hero block's bgFocalPoint. Like Hero, it is deliberately NOT
+      // seeded with a { x: 50, y: 50 } object — normalizeBlock would backfill
+      // that onto every legacy section and churn saved designs. All render
+      // paths treat a missing/partial focal point as centre (50/50), so
+      // existing sections render byte-identically.
       overlayType: 'solid',
       overlayBlendMode: 'normal',
       overlayColor: '#000000',
@@ -1869,7 +1875,7 @@ function generateId(prefix = 'block') {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-// ===========================================================================
+// ---------------------------------------------------------------------------
 // Task #2558 — Flow (auto-layout) model, version 2.
 //
 // A flow design is an ordered tree of nodes. Every node has the same v1 leaf
@@ -1887,7 +1893,7 @@ function generateId(prefix = 'block') {
 //
 // These helpers are additive and never touch the v1 path — `normalizeCanvasDesign`
 // only routes into the flow normalizer when `isFlowDesign()` is true.
-// ===========================================================================
+// ---------------------------------------------------------------------------
 
 export function isFlowDesign(design) {
   if (!design || typeof design !== 'object') return false;
@@ -2144,7 +2150,7 @@ export const AUTO_HEIGHT_LEAF_TYPES = new Set([
   BLOCK_TYPES.AI_CODE_COMPOSITION,
 ]);
 
-// ===========================================================================
+// ---------------------------------------------------------------------------
 // Task #2570 — v1 (absolute) -> v2 (flow) converter.
 //
 // A v1 design positions every block absolutely inside a single root section.
@@ -2167,7 +2173,7 @@ export const AUTO_HEIGHT_LEAF_TYPES = new Set([
 // idempotent v2 document. Converting an already-v2 design is a no-op
 // (normalize only). This is React-free so the admin opt-in endpoint can import
 // and run it server-side.
-// ===========================================================================
+// ---------------------------------------------------------------------------
 
 // Fraction of the shorter block height that two blocks' vertical extents must
 // overlap by to be treated as the same visual row (side-by-side columns).
@@ -2862,6 +2868,18 @@ export function validateBlock(block) {
       // Vertical dividers are purely decorative; no required content. The
       // explicit case registers the block type in the validator (matching the
       // horizontal divider, which likewise carries no validation errors).
+      break;
+    case BLOCK_TYPES.SECTION:
+      // Task #3162: background focal point is optional (absent = centre),
+      // but when present each axis must be a finite 0–100 percentage so the
+      // renderers' objectPosition / fixed-crop maths stay valid.
+      if (c.bgFocalPoint != null) {
+        const fp = c.bgFocalPoint;
+        const badAxis = (v) => v != null && (!Number.isFinite(Number(v)) || Number(v) < 0 || Number(v) > 100);
+        if (typeof fp !== 'object' || badAxis(fp.x) || badAxis(fp.y)) {
+          errors.push('Section background focal point must use 0–100 percentages.');
+        }
+      }
       break;
     case BLOCK_TYPES.HERO:
       if (!c.headline || !String(c.headline).trim()) {

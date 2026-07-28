@@ -7190,7 +7190,7 @@ function SectionRender({ block, asEditor, priority }) {
                 loading={priority ? 'eager' : 'lazy'}
                 decoding="async"
                 fetchpriority={priority ? 'high' : undefined}
-                style={{ ...buildFixedCropImgStyle(50), display: 'block' }}
+                style={{ ...buildFixedCropImgStyle(c.bgFocalPoint?.x), display: 'block' }}
               />
             </div>
           );
@@ -7212,7 +7212,11 @@ function SectionRender({ block, asEditor, priority }) {
               maxWidth: 'none',
               maxHeight: 'none',
               objectFit: 'cover',
-              objectPosition: 'center',
+              // Task #3162: focal point drives which part of the image stays
+              // in frame as the section's aspect changes. Missing/partial
+              // focal points resolve to 50% per axis ('50% 50%' === the old
+              // 'center'), so legacy sections render identically.
+              ...getFocalPointStyle(c.bgFocalPoint),
               zIndex: 0,
             }}
           />
@@ -7366,10 +7370,37 @@ function SectionInspector({ block, update, breakpoint }) {
             <p className="text-[11px] text-slate-500 leading-snug">
               The image keeps the section's height and scales to match it. On
               narrower screens the left and right edges are cropped around the
-              centre — the image never gets taller and never stretches the
-              section. Best for wide images designed around a central safe
-              area.
+              focal point — the image never gets taller and never stretches
+              the section. Best for wide images designed around a safe area.
             </p>
+          )}
+          {c.bgImageUrl && (
+            <>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Focal point</Label>
+                <FocalPointPicker
+                  imageUrl={c.bgImageUrl}
+                  focalPoint={c.bgFocalPoint || { x: 50, y: 50 }}
+                  onChange={(fp) => set({ bgFocalPoint: fp })}
+                />
+              </div>
+              <NumberField
+                label="Focal point X (%)"
+                value={c.bgFocalPoint?.x ?? 50}
+                onChange={(v) => set({ bgFocalPoint: { x: Math.max(0, Math.min(100, Number(v) || 0)), y: c.bgFocalPoint?.y ?? 50 } })}
+                min={0}
+                max={100}
+                testId="input-section-bg-focal-x"
+              />
+              <NumberField
+                label="Focal point Y (%)"
+                value={c.bgFocalPoint?.y ?? 50}
+                onChange={(v) => set({ bgFocalPoint: { x: c.bgFocalPoint?.x ?? 50, y: Math.max(0, Math.min(100, Number(v) || 0)) } })}
+                min={0}
+                max={100}
+                testId="input-section-bg-focal-y"
+              />
+            </>
           )}
           <SelectField
             label="Overlay"
