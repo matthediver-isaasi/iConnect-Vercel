@@ -602,7 +602,12 @@ export const BLOCK_DEFAULTS = {
       href: '#',
       variant: 'default', // default | outline | ghost | primary
       size: 'default',     // sm | default | lg
-      icon: '',            // lucide name
+      icon: '',            // lucide name OR Font Awesome class string
+      // Icon-only mode (Task #3167): render just the icon, no label. Both
+      // default off; render paths gate on `=== true` so legacy buttons
+      // without the keys are untouched.
+      iconOnly: false,
+      iconShape: 'square', // square | circle (icon-only mode)
       ariaLabel: '',
       newTab: false,
     },

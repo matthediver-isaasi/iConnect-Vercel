@@ -129,6 +129,14 @@ import {
   buildFixedCropImgStyle,
   buildBgMirrorTransform,
 } from '@/lib/canvasBackground';
+import {
+  isFaIconName,
+  sanitizeFaIconClass,
+  resolveStoredIconName,
+  readIconOnly,
+  buildIconOnlyAnchorStyle,
+  resolveIconOnlyAriaLabel,
+} from '@/lib/canvasButtonIcon';
 
 // Lazy-load the rich text editor — it's heavy (tiptap) and not needed for blocks
 // that don't use it.
@@ -181,14 +189,10 @@ function LazyLucideIcon({ name, sizePx, color }) {
 // class string always has MULTIPLE tokens: a style token (fa/fas/far/fab/
 // fa-solid/...) plus an fa-<icon> token — so single-token Lucide names like
 // "factory", "fan" or "fast-forward" are never treated as FA.
-const FA_STYLE_TOKEN = /^(fa|fas|far|fab|fal|fad|fat|fass|fasr|fasl|fa-solid|fa-regular|fa-brands|fa-light|fa-duotone|fa-thin|fa-sharp)$/;
-export function isFaIconName(name) {
-  if (typeof name !== 'string') return false;
-  const tokens = name.trim().split(/\s+/);
-  if (tokens.length < 2) return false;
-  return tokens.some((t) => FA_STYLE_TOKEN.test(t)) &&
-    tokens.some((t) => /^fa-[a-z0-9-]+$/.test(t) && !FA_STYLE_TOKEN.test(t));
-}
+// Task #3167: FA detection/sanitising + stored-name resolution moved to the
+// React-free lib/canvasButtonIcon.js so they are node-testable; re-exported
+// here for existing consumers.
+export { isFaIconName };
 
 // Render a button-style icon (Lucide component or Font Awesome <i>) at a
 // pixel size and optional colour. Returns null when the name resolves to
@@ -2225,15 +2229,8 @@ function TextInspector({ block, update, breakpoint }) {
 // stored value to a name renderStyleIcon can handle, or '' when it is neither.
 // Legacy bare fa- tokens (stored without a style token) get "fa-solid" added
 // so they keep rendering as FA rather than being mistaken for Lucide names.
-function _resolveImageIconName(raw) {
-  if (!raw || typeof raw !== 'string') return '';
-  const n = raw.trim();
-  if (!n) return '';
-  if (isFaIconName(n)) return sanitizeFaIconClass(n) ? n : '';
-  if (/^fa-[a-z0-9-]+$/i.test(n) && !FA_STYLE_TOKEN.test(n)) return `fa-solid ${n}`;
-  if (/^[A-Za-z][A-Za-z0-9-]*$/.test(n)) return n; // Lucide (kebab or Pascal)
-  return '';
-}
+// (Task #3167: shared with the Button block; lives in lib/canvasButtonIcon.js.)
+const _resolveImageIconName = resolveStoredIconName;
 
 function ImageRender({ block, asEditor, priority }) {
   const c = block.content || {};
@@ -2584,6 +2581,23 @@ function ImageInspector({ block, update }) {
 function ButtonRender({ block, asEditor, breakpoint }) {
   const c = block.content || {};
   const Icon = getLucideIcon(c.icon);
+  // Task #3167: icon-only mode. Strict-true gated so legacy buttons render
+  // byte-identically. The stored icon resolves through the SHARED resolver
+  // (Lucide name or Font Awesome class), and the accessible name falls back
+  // label → 'Button' so the anchor is never nameless.
+  const { iconOnly, circle: iconCircle } = readIconOnly(c);
+  const storedIconName = resolveStoredIconName(c.icon);
+  const ariaLabel = iconOnly ? resolveIconOnlyAriaLabel(c) : (c.ariaLabel || undefined);
+  // Icon element at a given px size (number or CSS var string). Lucide keeps
+  // the legacy direct-component path; FA (and, in icon-only mode, lazily
+  // loaded Lucide names) resolve via the shared renderStyleIcon.
+  const renderBlockIcon = (px) => {
+    if (Icon) return <Icon style={{ width: px, height: px }} />;
+    if (storedIconName && (isFaIconName(storedIconName) || iconOnly)) {
+      return renderStyleIcon(storedIconName, px);
+    }
+    return null;
+  };
   // Tenant button variants — when `variant` is `tenant-primary` or
   // `tenant-secondary` we render with inline styles derived from the
   // tenant's saved `branding.buttonStyles[primary|secondary]` instead of
@@ -2670,7 +2684,7 @@ function ButtonRender({ block, asEditor, breakpoint }) {
   // editor can auto-size the block's stored geometry to fit the rendered label.
   // measureKey re-reports on any style input that changes the anchor padding
   // without resizing the content span (variant / icon / size overrides / bp).
-  const buttonMeasureKey = `${c.label || ''}|${c.variant || ''}|${c.icon || ''}|${JSON.stringify(rawSizeOverrides || {})}|${breakpoint || ''}`;
+  const buttonMeasureKey = `${c.label || ''}|${c.variant || ''}|${c.icon || ''}|${JSON.stringify(rawSizeOverrides || {})}|${breakpoint || ''}${iconOnly ? `|io-${iconCircle ? 'circle' : 'square'}` : ''}`;
   const { anchorRef: btnAnchorRef, contentRef: btnContentRef } = useReportButtonBounds(block.id, buttonMeasureKey);
   const contentSpanStyle = { display: 'inline-flex', alignItems: 'center', gap: '0.375rem' };
 
@@ -2716,7 +2730,8 @@ function ButtonRender({ block, asEditor, breakpoint }) {
     const styleIconSize = Number.isFinite(styleIconCfg?.size) ? styleIconCfg.size : 18;
     const styleIconColor = styleIconCfg?.color || undefined;
     // renderStyleIcon supports both Lucide names and FA class strings.
-    const styleIconResolved = !Icon && styleIconCfg?.name
+    const blockIconEl = renderBlockIcon(iconPx);
+    const styleIconResolved = !blockIconEl && styleIconCfg?.name
       ? renderStyleIcon(styleIconCfg.name, styleIconSize, styleIconColor)
       : null;
     const styleIconAfter = !!styleIconResolved && styleIconCfg.position === 'after';
@@ -2739,11 +2754,21 @@ function ButtonRender({ block, asEditor, breakpoint }) {
     if (awaitingLabel) tenantLabelInline = { ...(tenantLabelInline || {}), visibility: 'hidden' };
     const labelSpan = <span style={tenantLabelInline || undefined}>{c.label || 'Button'}</span>;
     const styleIconEl = styleIconResolved;
+    // Task #3167: icon-only — drop the label span entirely, symmetric padding
+    // + optional circle shape on the anchor. The icon inherits the button's
+    // resolved text/hover colour (no explicit color passed). Falls back to
+    // the labeled render when no icon resolves so the button never vanishes.
+    const iconOnlyEl = iconOnly ? (blockIconEl || styleIconEl) : null;
+    if (iconOnlyEl) {
+      Object.assign(inlineStyle, buildIconOnlyAnchorStyle(padY, iconCircle));
+    }
     let tenantInner;
-    if (Icon) {
+    if (iconOnlyEl) {
+      tenantInner = iconOnlyEl;
+    } else if (blockIconEl) {
       tenantInner = (
         <>
-          <Icon style={{ width: iconPx, height: iconPx }} />
+          {blockIconEl}
           {labelSpan}
         </>
       );
@@ -2769,7 +2794,7 @@ function ButtonRender({ block, asEditor, breakpoint }) {
           href={asEditor ? undefined : (c.href || '#')}
           target={resolveNewTab(c) ? '_blank' : undefined}
           rel={resolveNewTab(c) ? 'noopener noreferrer' : undefined}
-          aria-label={c.ariaLabel || undefined}
+          aria-label={ariaLabel}
           className="flex h-full items-center justify-center font-medium whitespace-nowrap"
           style={inlineStyle}
           onMouseEnter={() => setTenantHovered(true)}
@@ -2787,7 +2812,9 @@ function ButtonRender({ block, asEditor, breakpoint }) {
   // so the overrides actually apply. Variant colours still come from
   // `buttonClasses` (sans size class) so existing colour behaviour is
   // preserved; only the size class is replaced by inline styles.
-  if (!isTenantVariant && hasSizeOverrides) {
+  // Task #3167: icon-only legacy buttons also route through this inline-styled
+  // path (even without size overrides) so symmetric padding + shape apply.
+  if (!isTenantVariant && (hasSizeOverrides || iconOnly)) {
     const baseline = LEGACY_BUTTON_SIZE_BASELINES[legacySizeClass] || LEGACY_BUTTON_SIZE_BASELINES.default;
     const variantClass = {
       primary: 'bg-primary text-primary-foreground hover-elevate active-elevate-2',
@@ -2807,6 +2834,12 @@ function ButtonRender({ block, asEditor, breakpoint }) {
       paddingRight: padX,
       fontSize: fs,
     };
+    const legacyBlockIconEl = renderBlockIcon(iconPx);
+    const legacyIconOnly = iconOnly && !!legacyBlockIconEl;
+    if (legacyIconOnly) {
+      // Inline borderRadius (when circle) wins over the rounded-md class.
+      Object.assign(inlineStyle, buildIconOnlyAnchorStyle(padY, iconCircle));
+    }
     return (
       <div className="w-full h-full">
         <a
@@ -2814,14 +2847,18 @@ function ButtonRender({ block, asEditor, breakpoint }) {
           href={asEditor ? undefined : (c.href || '#')}
           target={resolveNewTab(c) ? '_blank' : undefined}
           rel={resolveNewTab(c) ? 'noopener noreferrer' : undefined}
-          aria-label={c.ariaLabel || undefined}
+          aria-label={legacyIconOnly ? ariaLabel : (c.ariaLabel || undefined)}
           className={baseCls}
           style={inlineStyle}
           onClick={(e) => { if (asEditor) e.preventDefault(); }}
         >
           <span ref={btnContentRef} style={contentSpanStyle}>
-            {Icon && <Icon style={{ width: iconPx, height: iconPx }} />}
-            <span style={labelInline || undefined}>{c.label || 'Button'}</span>
+            {legacyIconOnly ? legacyBlockIconEl : (
+              <>
+                {legacyBlockIconEl}
+                <span style={labelInline || undefined}>{c.label || 'Button'}</span>
+              </>
+            )}
           </span>
         </a>
       </div>
@@ -2833,7 +2870,12 @@ function ButtonRender({ block, asEditor, breakpoint }) {
   // legacy classes so the button still has sensible CTA proportions.
   const fallbackSize = isTenantVariant ? 'lg' : legacySizeClass;
   const fallbackVariant = isTenantVariant ? 'primary' : c.variant;
-  const inner = (
+  // Task #3167: this path only sees icon-only for a tenant variant whose
+  // style hasn't loaded / isn't configured (legacy variants route through the
+  // inline path above). Render the bare icon with symmetric padding so it
+  // doesn't flash a label before branding resolves.
+  const fallbackIconEl = iconOnly ? renderBlockIcon(18) : null;
+  const inner = fallbackIconEl || (
     <>
       {Icon && <Icon className="w-4 h-4" />}
       <span style={labelInline || undefined}>{c.label || 'Button'}</span>
@@ -2846,9 +2888,9 @@ function ButtonRender({ block, asEditor, breakpoint }) {
         href={asEditor ? undefined : (c.href || '#')}
         target={resolveNewTab(c) ? '_blank' : undefined}
         rel={resolveNewTab(c) ? 'noopener noreferrer' : undefined}
-        aria-label={c.ariaLabel || undefined}
+        aria-label={fallbackIconEl ? ariaLabel : (c.ariaLabel || undefined)}
         className={`${buttonClasses(fallbackVariant, fallbackSize)} whitespace-nowrap`}
-        style={{ width: '100%', height: '100%' }}
+        style={{ width: '100%', height: '100%', ...(fallbackIconEl ? { paddingLeft: 0, paddingRight: 0, ...(iconCircle ? { borderRadius: '9999px' } : null) } : null) }}
         onClick={(e) => { if (asEditor) e.preventDefault(); }}
       >
         <span ref={btnContentRef} style={contentSpanStyle}>{inner}</span>
@@ -2997,16 +3039,55 @@ function ButtonInspector({ block, update, breakpoint }) {
   const labelTypoNoneLabel = inheritedLabelTypoStyle
     ? `Inherit from button style — ${inheritedLabelTypoStyle.name || 'saved style'}`
     : (inheritedLabelTypoId ? 'Inherit from button style' : undefined);
+  // Task #3167: icon-only mode hides the label controls and surfaces the
+  // shape + accessible-label affordances instead.
+  const { iconOnly } = readIconOnly(c);
+  const iconIsFa = isFaIconName((c.icon || '').trim()) || /^fa-/i.test((c.icon || '').trim());
   return (
     <>
-      <TextField label="Label" value={c.label} onChange={(v) => set({ label: v })} testId="input-button-label" />
-      <TypographyStyleField
-        label="Label style"
-        value={c.typographyStyleId}
-        onChange={(id) => set({ typographyStyleId: id })}
-        testId="select-button-typography"
-        noneLabel={labelTypoNoneLabel}
+      <ToggleField
+        label="Icon only (no label)"
+        value={iconOnly}
+        onChange={(v) => set({ iconOnly: v === true })}
+        testId="toggle-button-icon-only"
       />
+      {iconOnly && (
+        <>
+          <SelectField
+            label="Shape"
+            value={c.iconShape === 'circle' ? 'circle' : 'square'}
+            onChange={(v) => set({ iconShape: v === 'circle' ? 'circle' : 'square' })}
+            options={[
+              { value: 'square', label: 'Square / rounded (variant radius)' },
+              { value: 'circle', label: 'Circle (pill when not square)' },
+            ]}
+            testId="select-button-icon-shape"
+          />
+          <p className="text-[11px] text-slate-500 leading-snug">
+            The button fills its box with equal padding on all sides — make the
+            block's width and height equal for a perfect circle or square. Set
+            the icon below (pick one, or enter a Font Awesome class).
+          </p>
+          {!(c.ariaLabel || '').trim() && (
+            <p className="text-[11px] text-amber-600 leading-snug" data-testid="text-button-icon-only-a11y-nudge">
+              Add a screen reader label below so people using assistive tech
+              know what this button does.
+            </p>
+          )}
+        </>
+      )}
+      {!iconOnly && (
+        <>
+          <TextField label="Label" value={c.label} onChange={(v) => set({ label: v })} testId="input-button-label" />
+          <TypographyStyleField
+            label="Label style"
+            value={c.typographyStyleId}
+            onChange={(id) => set({ typographyStyleId: id })}
+            testId="select-button-typography"
+            noneLabel={labelTypoNoneLabel}
+          />
+        </>
+      )}
       <LinkField
         label="Link target"
         value={c.href}
@@ -3054,11 +3135,23 @@ function ButtonInspector({ block, update, breakpoint }) {
         testId="select-button-size"
       />
       <SelectField
-        label="Icon (optional)"
-        value={c.icon || '__none__'}
+        label={iconOnly ? 'Icon' : 'Icon (optional)'}
+        value={iconIsFa ? '__none__' : (c.icon || '__none__')}
         onChange={(v) => set({ icon: v === '__none__' ? '' : v })}
         options={[{ value: '__none__', label: 'None' }, ...Object.keys(LUCIDE_ICONS).map((n) => ({ value: n, label: n }))]}
         testId="select-button-icon"
+      />
+      {/* Task #3167: the stored icon also accepts a Font Awesome class string
+          (like tenant button styles). When set it replaces the pick above. */}
+      <TextField
+        label="Font Awesome class (optional, replaces icon pick)"
+        value={iconIsFa ? c.icon : ''}
+        onChange={(v) => {
+          const t = (v || '').trim();
+          if (t) set({ icon: t });
+          else if (iconIsFa) set({ icon: '' });
+        }}
+        testId="input-button-icon-fa"
       />
       <ButtonSizeOverridesField
         block={block}
@@ -3067,7 +3160,12 @@ function ButtonInspector({ block, update, breakpoint }) {
         baselineLabel={inspectorBaselineLabel}
         breakpoint={breakpoint}
       />
-      <TextField label="ARIA label (optional)" value={c.ariaLabel} onChange={(v) => set({ ariaLabel: v })} testId="input-button-aria" />
+      <TextField
+        label={iconOnly ? 'Screen reader label' : 'ARIA label (optional)'}
+        value={c.ariaLabel}
+        onChange={(v) => set({ ariaLabel: v })}
+        testId="input-button-aria"
+      />
     </>
   );
 }
@@ -3921,14 +4019,7 @@ function IconInspector({ block, update, breakpoint }) {
 // start with `fa` and consist of [a-z0-9-] survive (e.g. `fa-solid`,
 // `fa-book-open`, legacy `fas`/`fab`). This blocks arbitrary class injection
 // while allowing every Font Awesome style prefix + icon name.
-function sanitizeFaIconClass(raw) {
-  if (!raw || typeof raw !== 'string') return '';
-  return raw
-    .trim()
-    .split(/\s+/)
-    .filter((t) => /^fa[a-z0-9-]*$/.test(t))
-    .join(' ');
-}
+// (Task #3167: implementation moved to lib/canvasButtonIcon.js.)
 
 // Card drop-shadow presets, mirroring Tailwind's shadow scale.
 const CARD_SHADOW_PRESETS = {
