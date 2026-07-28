@@ -284,7 +284,23 @@ function CanvasBlockView({
       data-anchor={isAnchor ? 'true' : undefined}
     >
       {EditorComponent && (
-        <div className={isAutoHeight ? 'w-full pointer-events-none' : 'absolute inset-0 pointer-events-none'} data-testid={`canvas-block-content-${block.id}`}>
+        <div
+          className={isAutoHeight ? 'w-full pointer-events-none' : 'absolute pointer-events-none'}
+          // Task #3188: fixed-height content used to mount at `inset-0`, which
+          // spans the wrapper's PADDING box — so style.padding* was invisible
+          // in the editor while the public renderer (normal flow inside the
+          // padding) inset the content. Offset the overlay by the same padding
+          // the wrapper applies so both surfaces show the identical content
+          // box. Zero padding (and absoluteFill blocks, whose padding is
+          // skipped on every surface) keeps the exact inset-0 geometry.
+          style={isAutoHeight ? undefined : {
+            top: skipWrapperPadding ? 0 : (style.paddingTop || 0),
+            right: skipWrapperPadding ? 0 : (style.paddingRight || 0),
+            bottom: skipWrapperPadding ? 0 : (style.paddingBottom || 0),
+            left: skipWrapperPadding ? 0 : (style.paddingLeft || 0),
+          }}
+          data-testid={`canvas-block-content-${block.id}`}
+        >
           <EditorComponent block={block} breakpoint={breakpoint} asEditor />
         </div>
       )}
