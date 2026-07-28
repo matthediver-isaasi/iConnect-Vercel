@@ -264,6 +264,86 @@ test("re-enabling one child under a blocked parent keeps siblings blocked (misma
   assert.equal(isResourceExcluded(result, "system.site-map"), true);
 });
 
+// ---------------------------------------------------------------------------
+// DB-derived accessMap support (task: keep toggles honest when the access
+// list comes from role_access_item). Helpers must resolve hierarchy from the
+// SAME map the page renders, not always the hardcoded ROLE_ACCESS_MAP.
+// ---------------------------------------------------------------------------
+test("helpers honor a custom accessMap whose nesting diverges from ROLE_ACCESS_MAP", () => {
+  // A DB tree that nests a page under a different module than the hardcoded
+  // map, and includes a brand-new key absent from ROLE_ACCESS_MAP.
+  const dbMap = [
+    {
+      id: "alpha",
+      label: "Alpha",
+      pages: [
+        // in ROLE_ACCESS_MAP this page lives under "site-builder"
+        { id: "admin.canvas-links-manager", label: "Canvas Links Manager" },
+        {
+          id: "alpha.new-page",
+          label: "New Page",
+          features: [{ id: "alpha.new-page.brand-new", label: "Brand New Feature" }],
+        },
+      ],
+    },
+    {
+      id: "beta",
+      label: "Beta",
+      pages: [{ id: "beta.other", label: "Other" }],
+    },
+  ];
+
+  // Parent resolution follows the custom map
+  assert.equal(getModuleForResource("admin.canvas-links-manager", dbMap), "alpha");
+  assert.equal(getPageForResource("alpha.new-page.brand-new", dbMap), "alpha.new-page");
+  assert.equal(isModuleId("alpha", dbMap), true);
+  assert.equal(isPageId("alpha.new-page", dbMap), true);
+
+  // Module exclusion gates the re-nested page via the custom map...
+  assert.equal(isResourceExcluded(["alpha"], "admin.canvas-links-manager", dbMap), true);
+  // ...but NOT via the hardcoded map's nesting
+  assert.equal(isResourceExcluded(["site-builder"], "admin.canvas-links-manager", dbMap), false);
+  // New keys unknown to ROLE_ACCESS_MAP are gated by their custom-map parents
+  assert.equal(isResourceExcluded(["alpha.new-page"], "alpha.new-page.brand-new", dbMap), true);
+
+  // Toggling a module off collapses child entries using the custom nesting
+  const excluded = toggleResourceExclusion(["admin.canvas-links-manager"], "alpha", true, dbMap);
+  assert.ok(excluded.includes("alpha"));
+  assert.ok(!excluded.includes("admin.canvas-links-manager"), "child collapsed into custom-map module");
+  assert.equal(isResourceExcluded(excluded, "admin.canvas-links-manager", dbMap), true);
+
+  // Re-enabling one page under the blocked module keeps siblings blocked
+  const reEnabled = toggleResourceExclusion(excluded, "admin.canvas-links-manager", false, dbMap);
+  assert.equal(isResourceExcluded(reEnabled, "admin.canvas-links-manager", dbMap), false);
+  assert.equal(isResourceExcluded(reEnabled, "alpha.new-page", dbMap), true, "sibling page stays blocked");
+  assert.equal(getModuleExclusionState(reEnabled, "alpha", dbMap), "some");
+
+  // Section-state helpers read from the custom map
+  assert.equal(getModuleExclusionState(["alpha"], "alpha", dbMap), "all");
+  assert.equal(getPageExclusionState(["alpha.new-page.brand-new"], "alpha.new-page", dbMap), "some");
+});
+
+test("omitting accessMap keeps hardcoded-map behavior unchanged", () => {
+  // Spot-check that the default path is identical to passing ROLE_ACCESS_MAP.
+  const stored = ["content.articles"];
+  assert.equal(
+    isResourceExcluded(stored, "content.guest-writers"),
+    isResourceExcluded(stored, "content.guest-writers", ROLE_ACCESS_MAP),
+  );
+  assert.deepEqual(
+    toggleResourceExclusion(stored, "content.guest-writers", false).sort(),
+    toggleResourceExclusion(stored, "content.guest-writers", false, ROLE_ACCESS_MAP).sort(),
+  );
+  assert.equal(
+    getModuleExclusionState(stored, "content"),
+    getModuleExclusionState(stored, "content", ROLE_ACCESS_MAP),
+  );
+  assert.equal(
+    getPageExclusionState(stored, "content.articles"),
+    getPageExclusionState(stored, "content.articles", ROLE_ACCESS_MAP),
+  );
+});
+
 test("generated server hierarchy matches the client map (no drift)", () => {
   const h = buildRoleAccessHierarchy(ROLE_ACCESS_MAP);
   assert.deepEqual(

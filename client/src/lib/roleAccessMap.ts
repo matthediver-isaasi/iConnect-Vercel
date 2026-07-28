@@ -920,16 +920,21 @@ export function buildRoleAccessHierarchy(map: Module[]): RoleAccessHierarchy {
   return { moduleIds, pageIds, featureIds, featureToPage, resourceToModule };
 }
 
-let cachedHierarchy: RoleAccessHierarchy | null = null;
-export function getRoleAccessHierarchy(): RoleAccessHierarchy {
-  if (!cachedHierarchy) {
-    cachedHierarchy = buildRoleAccessHierarchy(ROLE_ACCESS_MAP);
+// Hierarchies are cached per map instance so callers can pass a DB-derived
+// accessMap (e.g. the one Role Management renders) without rebuilding lookup
+// tables on every call. Defaults to the hardcoded ROLE_ACCESS_MAP.
+const hierarchyCache = new WeakMap<Module[], RoleAccessHierarchy>();
+export function getRoleAccessHierarchy(map: Module[] = ROLE_ACCESS_MAP): RoleAccessHierarchy {
+  let cached = hierarchyCache.get(map);
+  if (!cached) {
+    cached = buildRoleAccessHierarchy(map);
+    hierarchyCache.set(map, cached);
   }
-  return cachedHierarchy;
+  return cached;
 }
 
-export function getModuleForResource(resourceId: string): string | null {
-  const h = getRoleAccessHierarchy();
+export function getModuleForResource(resourceId: string, accessMap?: Module[]): string | null {
+  const h = getRoleAccessHierarchy(accessMap);
   if (h.moduleIds.has(resourceId)) return resourceId;
   const fromMap = h.resourceToModule.get(resourceId);
   if (fromMap) return fromMap;
@@ -941,8 +946,8 @@ export function getModuleForResource(resourceId: string): string | null {
   return null;
 }
 
-export function getPageForResource(resourceId: string): string | null {
-  const h = getRoleAccessHierarchy();
+export function getPageForResource(resourceId: string, accessMap?: Module[]): string | null {
+  const h = getRoleAccessHierarchy(accessMap);
   if (h.pageIds.has(resourceId)) return resourceId;
   const fromMap = h.featureToPage.get(resourceId);
   if (fromMap) return fromMap;
@@ -955,23 +960,23 @@ export function getPageForResource(resourceId: string): string | null {
   return null;
 }
 
-export function isModuleId(resourceId: string): boolean {
-  const h = getRoleAccessHierarchy();
+export function isModuleId(resourceId: string, accessMap?: Module[]): boolean {
+  const h = getRoleAccessHierarchy(accessMap);
   if (h.moduleIds.has(resourceId)) return true;
   if (h.pageIds.has(resourceId) || h.featureIds.has(resourceId)) return false;
   return !resourceId.includes('.');
 }
 
-export function isPageId(resourceId: string): boolean {
-  const h = getRoleAccessHierarchy();
+export function isPageId(resourceId: string, accessMap?: Module[]): boolean {
+  const h = getRoleAccessHierarchy(accessMap);
   if (h.pageIds.has(resourceId)) return true;
   if (h.moduleIds.has(resourceId) || h.featureIds.has(resourceId)) return false;
   const parts = resourceId.split('.');
   return parts.length === 2;
 }
 
-export function isFeatureId(resourceId: string): boolean {
-  const h = getRoleAccessHierarchy();
+export function isFeatureId(resourceId: string, accessMap?: Module[]): boolean {
+  const h = getRoleAccessHierarchy(accessMap);
   if (h.featureIds.has(resourceId)) return true;
   if (h.moduleIds.has(resourceId) || h.pageIds.has(resourceId)) return false;
   const parts = resourceId.split('.');

@@ -1,8 +1,15 @@
-import { ROLE_ACCESS_MAP, getModuleForResource, getPageForResource, isModuleId, isPageId, migrateLegacyFeatureId } from './roleAccessMap';
+import { Module, ROLE_ACCESS_MAP, getModuleForResource, getPageForResource, isModuleId, isPageId, migrateLegacyFeatureId } from './roleAccessMap';
+
+// All helpers below accept an optional `accessMap`. When Role Management (or
+// any other caller) renders its tree from the role_access_item DB table, the
+// SAME map must be passed here so that read/write parent-child resolution
+// agrees with what the user sees. Omitting it falls back to the hardcoded
+// ROLE_ACCESS_MAP (identical behavior to before).
 
 export function isResourceExcluded(
   excludedResources: string[] | null | undefined,
-  resourceId: string
+  resourceId: string,
+  accessMap?: Module[]
 ): boolean {
   if (!excludedResources || !Array.isArray(excludedResources) || excludedResources.length === 0) {
     return false;
@@ -20,13 +27,13 @@ export function isResourceExcluded(
   }
 
   // Check if the parent page is excluded (makes all child features excluded)
-  const pageId = getPageForResource(normalizedId);
+  const pageId = getPageForResource(normalizedId, accessMap);
   if (pageId && normalizedExcluded.includes(pageId)) {
     return true;
   }
 
   // Check if the parent module is excluded (makes all pages and features excluded)
-  const moduleId = getModuleForResource(normalizedId);
+  const moduleId = getModuleForResource(normalizedId, accessMap);
   if (moduleId && normalizedExcluded.includes(moduleId)) {
     return true;
   }
@@ -36,45 +43,47 @@ export function isResourceExcluded(
 
 export function isResourceVisible(
   excludedResources: string[] | null | undefined,
-  resourceId: string
+  resourceId: string,
+  accessMap?: Module[]
 ): boolean {
-  return !isResourceExcluded(excludedResources, resourceId);
+  return !isResourceExcluded(excludedResources, resourceId, accessMap);
 }
 
 export function getExcludedChildrenCount(
   excludedResources: string[] | null | undefined,
-  parentId: string
+  parentId: string,
+  accessMap: Module[] = ROLE_ACCESS_MAP
 ): { excluded: number; total: number } {
   if (!excludedResources) excludedResources = [];
   
   let excluded = 0;
   let total = 0;
 
-  if (isModuleId(parentId)) {
-    const module = ROLE_ACCESS_MAP.find(m => m.id === parentId);
+  if (isModuleId(parentId, accessMap)) {
+    const module = accessMap.find(m => m.id === parentId);
     if (module) {
       for (const page of module.pages) {
         total++;
-        if (isResourceExcluded(excludedResources, page.id)) {
+        if (isResourceExcluded(excludedResources, page.id, accessMap)) {
           excluded++;
         }
         if (page.features) {
           for (const feature of page.features) {
             total++;
-            if (isResourceExcluded(excludedResources, feature.id)) {
+            if (isResourceExcluded(excludedResources, feature.id, accessMap)) {
               excluded++;
             }
           }
         }
       }
     }
-  } else if (isPageId(parentId)) {
-    for (const module of ROLE_ACCESS_MAP) {
+  } else if (isPageId(parentId, accessMap)) {
+    for (const module of accessMap) {
       const page = module.pages.find(p => p.id === parentId);
       if (page && page.features) {
         for (const feature of page.features) {
           total++;
-          if (isResourceExcluded(excludedResources, feature.id)) {
+          if (isResourceExcluded(excludedResources, feature.id, accessMap)) {
             excluded++;
           }
         }
@@ -88,7 +97,8 @@ export function getExcludedChildrenCount(
 export function toggleResourceExclusion(
   excludedResources: string[],
   resourceId: string,
-  exclude: boolean
+  exclude: boolean,
+  accessMap: Module[] = ROLE_ACCESS_MAP
 ): string[] {
   // CRITICAL: First normalize all existing exclusions to new format
   // This converts legacy IDs like "page_user_Preferences" to "user.about-me"
@@ -101,8 +111,8 @@ export function toggleResourceExclusion(
   if (exclude) {
     normalizedExcluded.add(normalizedResourceId);
     
-    if (isModuleId(normalizedResourceId)) {
-      const module = ROLE_ACCESS_MAP.find(m => m.id === normalizedResourceId);
+    if (isModuleId(normalizedResourceId, accessMap)) {
+      const module = accessMap.find(m => m.id === normalizedResourceId);
       if (module) {
         for (const page of module.pages) {
           normalizedExcluded.delete(page.id);
@@ -113,10 +123,10 @@ export function toggleResourceExclusion(
           }
         }
       }
-    } else if (isPageId(normalizedResourceId)) {
-      const moduleId = getModuleForResource(normalizedResourceId);
+    } else if (isPageId(normalizedResourceId, accessMap)) {
+      const moduleId = getModuleForResource(normalizedResourceId, accessMap);
       if (moduleId) {
-        const module = ROLE_ACCESS_MAP.find(m => m.id === moduleId);
+        const module = accessMap.find(m => m.id === moduleId);
         if (module) {
           const page = module.pages.find(p => p.id === normalizedResourceId);
           if (page && page.features) {
@@ -130,11 +140,11 @@ export function toggleResourceExclusion(
   } else {
     normalizedExcluded.delete(normalizedResourceId);
     
-    const moduleId = getModuleForResource(normalizedResourceId);
+    const moduleId = getModuleForResource(normalizedResourceId, accessMap);
     
     // When enabling a module, also clear all page and feature exclusions within it
-    if (isModuleId(normalizedResourceId)) {
-      const module = ROLE_ACCESS_MAP.find(m => m.id === normalizedResourceId);
+    if (isModuleId(normalizedResourceId, accessMap)) {
+      const module = accessMap.find(m => m.id === normalizedResourceId);
       if (module) {
         for (const page of module.pages) {
           normalizedExcluded.delete(page.id);
@@ -148,8 +158,8 @@ export function toggleResourceExclusion(
     }
     
     // When enabling a page, also clear all feature exclusions within it
-    if (isPageId(normalizedResourceId)) {
-      const module = ROLE_ACCESS_MAP.find(m => m.id === moduleId);
+    if (isPageId(normalizedResourceId, accessMap)) {
+      const module = accessMap.find(m => m.id === moduleId);
       if (module) {
         const page = module.pages.find(p => p.id === normalizedResourceId);
         if (page && page.features) {
@@ -162,10 +172,10 @@ export function toggleResourceExclusion(
     
     // When enabling a page that was blocked by module exclusion,
     // remove the module exclusion and add all OTHER pages to maintain block
-    if (moduleId && normalizedExcluded.has(moduleId) && isPageId(normalizedResourceId)) {
+    if (moduleId && normalizedExcluded.has(moduleId) && isPageId(normalizedResourceId, accessMap)) {
       normalizedExcluded.delete(moduleId);
       
-      const module = ROLE_ACCESS_MAP.find(m => m.id === moduleId);
+      const module = accessMap.find(m => m.id === moduleId);
       if (module) {
         for (const page of module.pages) {
           if (page.id !== normalizedResourceId) {
@@ -177,12 +187,12 @@ export function toggleResourceExclusion(
     
     // When enabling a feature that was blocked by page exclusion,
     // remove the page exclusion and add all OTHER features to maintain block
-    if (!isModuleId(normalizedResourceId) && !isPageId(normalizedResourceId)) {
-      const pageId = getPageForResource(normalizedResourceId);
+    if (!isModuleId(normalizedResourceId, accessMap) && !isPageId(normalizedResourceId, accessMap)) {
+      const pageId = getPageForResource(normalizedResourceId, accessMap);
       if (pageId && normalizedExcluded.has(pageId)) {
         normalizedExcluded.delete(pageId);
         
-        const module = ROLE_ACCESS_MAP.find(m => m.id === moduleId);
+        const module = accessMap.find(m => m.id === moduleId);
         if (module) {
           const page = module.pages.find(p => p.id === pageId);
           if (page && page.features) {
@@ -202,7 +212,8 @@ export function toggleResourceExclusion(
 
 export function getModuleExclusionState(
   excludedResources: string[],
-  moduleId: string
+  moduleId: string,
+  accessMap: Module[] = ROLE_ACCESS_MAP
 ): 'all' | 'some' | 'none' {
   // Normalize excluded resources with legacy mappings
   const normalizedExcluded = excludedResources.map(id => migrateLegacyFeatureId(id));
@@ -211,7 +222,7 @@ export function getModuleExclusionState(
     return 'all';
   }
 
-  const module = ROLE_ACCESS_MAP.find(m => m.id === moduleId);
+  const module = accessMap.find(m => m.id === moduleId);
   if (!module) return 'none';
 
   let hasExcluded = false;
@@ -251,7 +262,8 @@ export function getModuleExclusionState(
 
 export function getPageExclusionState(
   excludedResources: string[],
-  pageId: string
+  pageId: string,
+  accessMap: Module[] = ROLE_ACCESS_MAP
 ): 'all' | 'some' | 'none' {
   // Normalize excluded resources with legacy mappings
   const normalizedExcluded = excludedResources.map(id => migrateLegacyFeatureId(id));
@@ -260,14 +272,14 @@ export function getPageExclusionState(
     return 'all';
   }
 
-  const moduleId = getModuleForResource(pageId);
+  const moduleId = getModuleForResource(pageId, accessMap);
   if (moduleId && normalizedExcluded.includes(moduleId)) {
     return 'all';
   }
 
   let module = null;
   let page = null;
-  for (const m of ROLE_ACCESS_MAP) {
+  for (const m of accessMap) {
     const p = m.pages.find(pg => pg.id === pageId);
     if (p) {
       module = m;

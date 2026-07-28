@@ -497,7 +497,7 @@ export default function RoleManagementPage() {
     const excluded = editingRole.excluded_features || [];
     // When hasAccess=true, we remove from exclusions (exclude=false)
     // When hasAccess=false, we add to exclusions (exclude=true)
-    const newExcluded = toggleResourceExclusion(excluded, resourceId, !hasAccess);
+    const newExcluded = toggleResourceExclusion(excluded, resourceId, !hasAccess, accessMap);
     setEditingRole({ ...editingRole, excluded_features: newExcluded });
   };
 
@@ -657,7 +657,7 @@ export default function RoleManagementPage() {
                       let blocked = 0;
                       
                       accessMap.forEach(module => {
-                        const state = getModuleExclusionState(excluded, module.id);
+                        const state = getModuleExclusionState(excluded, module.id, accessMap);
                         if (state === 'none') fullAccess++;
                         else if (state === 'some') partial++;
                         else blocked++;
@@ -1146,7 +1146,7 @@ export default function RoleManagementPage() {
                   <div className="space-y-2 border rounded-lg p-3 bg-slate-50/50">
                     {accessMap.map((module) => {
                       const ModuleIcon = MODULE_ICONS[module.id] || Shield;
-                      const moduleExclusionState = getModuleExclusionState(editingRole.excluded_features || [], module.id);
+                      const moduleExclusionState = getModuleExclusionState(editingRole.excluded_features || [], module.id, accessMap);
                       const isModuleExpanded = expandedModules[module.id];
                       
                       return (
@@ -1200,7 +1200,7 @@ export default function RoleManagementPage() {
                           {isModuleExpanded && (
                             <div className="p-2 pl-8 space-y-1 border-t bg-slate-50/30">
                               {module.pages.map((page) => {
-                                const pageExclusionState = getPageExclusionState(editingRole.excluded_features || [], page.id);
+                                const pageExclusionState = getPageExclusionState(editingRole.excluded_features || [], page.id, accessMap);
                                 const isPageDisabled = (editingRole.excluded_features || []).includes(module.id);
                                 const hasFeatures = page.features && page.features.length > 0;
                                 const isPageExpanded = expandedPages[page.id];
@@ -1261,7 +1261,7 @@ export default function RoleManagementPage() {
                                     {hasFeatures && isPageExpanded && !isPageDisabled && (
                                       <div className="pl-6 py-1 space-y-1">
                                         {page.features.map((feature) => {
-                                          const isFeatureDisabled = isResourceExcluded(editingRole.excluded_features, page.id);
+                                          const isFeatureDisabled = isResourceExcluded(editingRole.excluded_features, page.id, accessMap);
                                           
                                           return (
                                             <div
@@ -1270,11 +1270,11 @@ export default function RoleManagementPage() {
                                             >
                                               <span className="text-xs text-slate-600 flex-1">{feature.label}</span>
                                               <Switch
-                                                checked={!isResourceExcluded(editingRole.excluded_features, feature.id)}
+                                                checked={!isResourceExcluded(editingRole.excluded_features, feature.id, accessMap)}
                                                 onCheckedChange={(checked) => toggleResourceAccess(feature.id, checked)}
                                                 disabled={isFeatureDisabled}
                                                 className={`scale-75 ${
-                                                  !isResourceExcluded(editingRole.excluded_features, feature.id)
+                                                  !isResourceExcluded(editingRole.excluded_features, feature.id, accessMap)
                                                     ? '[&[data-state=checked]]:bg-green-500'
                                                     : ''
                                                 }`}
