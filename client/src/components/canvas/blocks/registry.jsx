@@ -93,6 +93,7 @@ import {
   setBlockContentFullBleed,
   setBlockContentBleed,
   getBlockBleed,
+  resolveBleedBorderRadius,
   resolveBoxShadowCss,
 } from '@/lib/canvasDesign';
 import ImageSelector from '@/components/ImageSelector';
@@ -7533,6 +7534,13 @@ function SectionRender({ block, asEditor, priority }) {
   // image mode) so the visible gradient covers the section's full border box
   // — padding included — instead of only the inner content box.
   const isBleedBg = isImageBg || (isGradientBg && !!gradientBg);
+  // Task #3177: sections render with overflow:visible on their outer
+  // wrapper, so the wrapper's border radius cannot clip these inset
+  // background layers — each layer must carry the SAME resolved radius
+  // (bleed-aware per-corner value from the shared resolver) or a square
+  // background corner pokes out past the rounded wrapper corner. Radius 0 /
+  // unset emits nothing, keeping legacy sections byte-identical.
+  const layerRadius = resolveBleedBorderRadius(block);
   const layerInset = isBleedBg ? {
     position: 'absolute',
     top: -pt,
@@ -7540,6 +7548,7 @@ function SectionRender({ block, asEditor, priority }) {
     bottom: -pb,
     left: -pl,
     pointerEvents: 'none',
+    ...(layerRadius ? { borderRadius: layerRadius } : null),
   } : null;
 
   // Inner rail keeps content centered at the configured max-width even
@@ -8014,7 +8023,10 @@ function SymbolChildPreview({ block, breakpoint, hostWidth }) {
         borderColor: style.borderColor,
         borderWidth: style.borderWidth,
         borderStyle: style.borderStyle,
-        borderRadius: style.borderRadius,
+        // Task #3177: bleeding blocks square off the corners on the bled
+        // viewport edge (shared resolver — keeps this preview in sync with
+        // the editor stage and the public renderer).
+        borderRadius: resolveBleedBorderRadius(block),
         opacity: style.opacity,
         boxShadow: resolveBoxShadowCss(style),
         zIndex: style.zIndex,

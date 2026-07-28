@@ -13,6 +13,7 @@ import {
   BREAKPOINT_WIDTHS,
   blockSupportsFullBleed,
   getBlockBleed,
+  resolveBleedBorderRadius,
   resolveBlockHeightCss,
   resolveAspectSizingStyle,
   resolveBoxShadowCss,
@@ -285,7 +286,9 @@ function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint, windowBp, pinS
         borderColor: style.borderColor,
         borderWidth: style.borderWidth,
         borderStyle: style.borderStyle,
-        borderRadius: style.borderRadius,
+        // Task #3177: bleeding blocks square off the corners on the bled
+        // viewport edge; non-bleed blocks keep the stored radius verbatim.
+        borderRadius: resolveBleedBorderRadius(block),
         opacity: style.opacity,
         boxShadow: resolveBoxShadowCss(style),
         zIndex: style.zIndex,

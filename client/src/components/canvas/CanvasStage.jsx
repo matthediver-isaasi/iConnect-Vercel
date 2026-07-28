@@ -2,7 +2,7 @@ import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import useEdgeAutoScroll from './useEdgeAutoScroll';
 import { Group as GroupIcon, Ungroup as UngroupIcon, EyeOff as EyeOffIcon } from 'lucide-react';
-import { resolveBlockAtBreakpoint, blockIsFullWidthLike, clampGeomToStage, BLOCK_TYPES, resolveBoxShadowCss } from '@/lib/canvasDesign';
+import { resolveBlockAtBreakpoint, blockIsFullWidthLike, clampGeomToStage, BLOCK_TYPES, resolveBoxShadowCss, resolveBleedBorderRadius } from '@/lib/canvasDesign';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -259,7 +259,9 @@ function CanvasBlockView({
         borderColor: style.borderColor,
         borderWidth: style.borderWidth,
         borderStyle: style.borderStyle,
-        borderRadius: style.borderRadius,
+        // Task #3177: bleeding blocks square off the corners on the bled
+        // viewport edge (shared resolver — keeps editor and public in sync).
+        borderRadius: resolveBleedBorderRadius(block),
         opacity: style.opacity,
         boxShadow: resolveBoxShadowCss(style),
         // Task #2609 — focused group members render above the focus scrim.

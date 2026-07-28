@@ -305,12 +305,17 @@ export function getBlockBleed(block) {
   return c.fullBleed ? 'full' : null;
 }
 
-// True when a block should behave like a full-width block for *editor*
-// geometry purposes: either the generic `fullWidth` flag is set, or the
-// block opts into `fullBleed` (a viewport-edge breakout that the editor
-// approximates by spanning the full canvas width). The published CSS path
-// renders true `fullBleed` as 100vw via geomRule; this helper only governs
-// how the block is laid out / locked inside the design canvas.
+export function resolveBleedBorderRadius(block) {
+  const radius = block?.style?.borderRadius;
+  const bleed = getBlockBleed(block);
+  if (!bleed) return radius;
+  if (radius === undefined || radius === null || radius === 0 || radius === '0' || radius === '0px' || radius === '') {
+    return radius;
+  }
+  if (bleed === 'full') return 0;
+  const r = typeof radius === 'number' ? `${radius}px` : String(radius);
+  return bleed === 'left' ? `0 ${r} ${r} 0` : `${r} 0 0 ${r}`;
+}
 export function blockIsFullWidthLike(block) {
   if (!block) return false;
   if (block.fullWidth) return true;
