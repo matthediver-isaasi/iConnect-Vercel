@@ -36,6 +36,7 @@ export function LucideIconPicker({ open, onClose, onSelect, currentValue }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [query, setQuery] = useState('');
+  const [attempt, setAttempt] = useState(0); // bumped by the retry button
   const searchRef = useRef(null);
   const loadStartedRef = useRef(false);
 
@@ -58,7 +59,7 @@ export function LucideIconPicker({ open, onClose, onSelect, currentValue }) {
         setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [open, names]);
+  }, [open, names, attempt]);
 
   useEffect(() => {
     if (open) {
@@ -111,8 +112,21 @@ export function LucideIconPicker({ open, onClose, onSelect, currentValue }) {
             </div>
           )}
           {error && (
-            <div className="py-12 text-center text-sm text-slate-500" data-testid="status-lucide-icon-error">
-              Could not load the icon list. Close and try again.
+            <div className="py-12 text-center text-sm text-slate-500 space-y-3" data-testid="status-lucide-icon-error">
+              <p>Could not load the icon list.</p>
+              <button
+                type="button"
+                className="text-primary underline underline-offset-2"
+                onClick={() => {
+                  // loadStartedRef was reset by the failed attempt; bumping
+                  // `attempt` re-runs the load effect without closing.
+                  setError(false);
+                  setAttempt((n) => n + 1);
+                }}
+                data-testid="button-lucide-icon-retry"
+              >
+                Try again
+              </button>
             </div>
           )}
 

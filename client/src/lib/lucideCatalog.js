@@ -1,16 +1,24 @@
-// Lazy access to the FULL Lucide icon catalog (1500+ icons) without pulling
-// the whole library into the main bundle. lucide-react's dynamicIconImports
-// maps kebab-case icon names to per-icon dynamic imports, so only the icons
-// actually used are ever fetched. The map itself is also loaded on demand.
+// Lazy access to the FULL Lucide icon catalog (1500+ icons) for the icon
+// picker and button-style icon rendering.
+//
+// Task #3168: this used to dynamic-import `lucide-react/dynamicIconImports`
+// (a map of 1500+ per-icon dynamic imports). That subpath import rejects in
+// the running environment (Vite can't reliably pre-bundle/serve the per-icon
+// chunk graph), which made the picker permanently show its error state.
+// The main `lucide-react` module is ALREADY fully in the bundle from ~56
+// static import sites across the app, so instead we lazy-import that module
+// once and derive the kebab-case name catalog from its `icons` export. Icon
+// components then come synchronously from the same map, so previews can
+// never 404.
 //
 // Names: legacy button styles store curated PascalCase names (resolved by the
 // canvas registry's curated map); the full-catalog picker stores the kebab
 // name verbatim (e.g. "arrow-up-right"). kebabizeLucideName converts either
 // form so both resolve here.
 
-let _mapPromise = null;
-let _map = null; // { 'arrow-up-right': () => import(...), ... }
-const _iconCache = new Map(); // kebab name -> React component
+let _catalogPromise = null;
+let _catalog = null; // Map: 'arrow-up-right' -> React component (incl. lookup aliases)
+let _catalogNames = null; // canonical kebab names only (for the picker list)
 
 export function kebabizeLucideName(name) {
   if (!name || typeof name !== 'string') return '';
@@ -24,24 +32,54 @@ export function kebabizeLucideName(name) {
     .toLowerCase();
 }
 
-export function loadLucideIconMap() {
-  if (!_mapPromise) {
-    _mapPromise = import('lucide-react/dynamicIconImports')
+// Kebabizing a PascalCase icon name reproduces lucide's official kebab name
+// for all but 8 icons whose names end in a two-character group (ArrowDownAZ
+// -> official "arrow-down-a-z", ArrowUp01 -> "arrow-up-0-1"). This fixes the
+// derived form up to the official one; both forms are registered as lookup
+// keys so either spelling of a stored value resolves.
+function canonicalizeKebab(kebab) {
+  return kebab.replace(/-(01|10|az|za)$/, (m, g) => `-${g[0]}-${g[1]}`);
+}
+
+// Loads (once) the kebab-name -> component catalog, derived from the main
+// lucide-react module's `icons` export (canonical PascalCase names only —
+// no aliases — so kebabizing them reproduces lucide's official kebab names).
+function loadCatalog() {
+  if (_catalog) return Promise.resolve(_catalog);
+  if (!_catalogPromise) {
+    _catalogPromise = import('lucide-react')
       .then((mod) => {
-        _map = mod.default || mod;
-        return _map;
+        const icons = mod.icons || {};
+        const map = new Map();
+        const canonicalNames = [];
+        for (const [pascal, Cmp] of Object.entries(icons)) {
+          const derived = kebabizeLucideName(pascal);
+          if (!derived || !Cmp) continue;
+          const canonical = canonicalizeKebab(derived);
+          if (!map.has(canonical)) {
+            map.set(canonical, Cmp);
+            canonicalNames.push(canonical);
+          }
+          if (derived !== canonical && !map.has(derived)) map.set(derived, Cmp); // lookup alias
+        }
+        if (map.size === 0) throw new Error('lucide-react icons export is empty');
+        _catalog = map;
+        _catalogNames = canonicalNames.sort();
+        return map;
       })
       .catch((err) => {
-        _mapPromise = null; // allow retry
+        _catalogPromise = null; // allow retry
+        console.error('[lucideCatalog] failed to load icon catalog:', err);
         throw err;
       });
   }
-  return _mapPromise;
+  return _catalogPromise;
 }
 
 // Synchronous lookup of an already-loaded catalog icon (or null).
 export function getCachedLucideIcon(name) {
-  return _iconCache.get(kebabizeLucideName(name)) || null;
+  if (!_catalog) return null;
+  return _catalog.get(kebabizeLucideName(name)) || null;
 }
 
 // Load a single catalog icon component by (Pascal or kebab) name.
@@ -49,18 +87,12 @@ export function getCachedLucideIcon(name) {
 export async function loadLucideIcon(name) {
   const kebab = kebabizeLucideName(name);
   if (!kebab) return null;
-  if (_iconCache.has(kebab)) return _iconCache.get(kebab);
-  const map = await loadLucideIconMap();
-  const importer = map[kebab];
-  if (!importer) return null;
-  const mod = await importer();
-  const Cmp = mod.default || null;
-  if (Cmp) _iconCache.set(kebab, Cmp);
-  return Cmp;
+  const map = await loadCatalog();
+  return map.get(kebab) || null;
 }
 
-// All catalog icon names (kebab-case), for the picker's search list.
+// All catalog icon names (canonical kebab-case), for the picker's search list.
 export async function listLucideIconNames() {
-  const map = await loadLucideIconMap();
-  return Object.keys(map);
+  await loadCatalog();
+  return _catalogNames;
 }
