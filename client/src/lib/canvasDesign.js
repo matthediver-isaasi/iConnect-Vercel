@@ -455,6 +455,9 @@ export const BLOCK_DEFAULTS = {
       fullBleed: false,
       bgType: 'color',
       bgImageUrl: '',
+      // '' = legacy cover behaviour; 'fixed-crop' = Fixed Height / Horizontal
+      // Crop (image scales by section height only, sides clip when narrow).
+      bgImageFit: '',
       overlayType: 'solid',
       overlayBlendMode: 'normal',
       overlayColor: '#000000',
@@ -552,7 +555,7 @@ export const BLOCK_DEFAULTS = {
       src: '',
       alt: '',
       href: '',
-      objectFit: 'cover', // cover | contain | fill | none | scale-down
+      objectFit: 'cover', // cover | contain | fill | none | scale-down | fixed-crop (fixed height / horizontal crop)
       fullBleed: false,
       // When full-bleed is on the block spans 100vw; heightMode controls how
       // its height is resolved on published pages:

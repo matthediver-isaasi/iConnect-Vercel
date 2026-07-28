@@ -124,6 +124,9 @@ import {
   getUsableStops,
   buildGradientStopList,
   deriveSectionGradientStops,
+  IMAGE_FIT_FIXED_CROP,
+  isFixedCropFit,
+  buildFixedCropImgStyle,
 } from '@/lib/canvasBackground';
 
 // Lazy-load the rich text editor — it's heavy (tiptap) and not needed for blocks
@@ -2293,7 +2296,33 @@ function ImageRender({ block, asEditor, priority }) {
   }
 
   const r = c.src ? buildResponsiveImage(c.src, { sizes: '(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw' }) : null;
-  const img = c.src ? (
+  const isFixedCrop = isFixedCropFit(c.objectFit);
+  const img = c.src ? (isFixedCrop ? (
+    // Fixed Height / Horizontal Crop (Task #3159): the image is sized by the
+    // block's HEIGHT only; when the block narrows the sides clip instead of
+    // the image (or the block) growing taller. The clipping wrapper carries
+    // the border radius so the crop respects rounded corners.
+    <div
+      style={{
+        position: 'relative',
+        width: '100%',
+        height: '100%',
+        overflow: 'hidden',
+        borderRadius: block.style.borderRadius || 0,
+      }}
+    >
+      <img
+        src={r.src}
+        srcSet={r.srcSet}
+        sizes={r.sizes}
+        alt={c.alt || ''}
+        loading={priority ? 'eager' : 'lazy'}
+        decoding="async"
+        fetchpriority={priority ? 'high' : undefined}
+        style={{ ...buildFixedCropImgStyle(50), display: 'block' }}
+      />
+    </div>
+  ) : (
     <img
       src={r.src}
       srcSet={r.srcSet}
@@ -2310,7 +2339,7 @@ function ImageRender({ block, asEditor, priority }) {
         borderRadius: block.style.borderRadius || 0,
       }}
     />
-  ) : (
+  )) : (
     <div className="w-full h-full flex items-center justify-center bg-slate-100 text-slate-400 text-xs">
       <ImageIcon className="w-6 h-6 mr-1" /> No image
     </div>
@@ -2533,9 +2562,18 @@ function ImageInspector({ block, update }) {
             { value: 'fill', label: 'Fill' },
             { value: 'none', label: 'None' },
             { value: 'scale-down', label: 'Scale down' },
+            { value: IMAGE_FIT_FIXED_CROP, label: 'Fixed height / horizontal crop' },
           ]}
           testId="select-image-fit"
         />
+      )}
+      {!iconName && isFixedCropFit(c.objectFit) && (
+        <p className="text-[11px] text-slate-500 leading-snug">
+          The image keeps this element's height and scales to match it. On
+          narrower screens the left and right edges are cropped around the
+          centre — the image never gets taller. Best for wide images designed
+          around a central safe area.
+        </p>
       )}
     </>
   );
@@ -7133,6 +7171,30 @@ function SectionRender({ block, asEditor, priority }) {
     >
       {isImageBg && (() => {
         const r = buildResponsiveImage(c.bgImageUrl, { sizes: '100vw' });
+        if (isFixedCropFit(c.bgImageFit)) {
+          // Fixed Height / Horizontal Crop (Task #3159): the background image
+          // is sized by the section's HEIGHT (padding included, via the same
+          // negative insets as cover mode); when the section narrows the
+          // sides clip around the centre instead of the image scaling up or
+          // forcing extra height. Sections render with `overflow: visible`
+          // on their outer wrapper, so clipping happens on this dedicated
+          // inset layer. Cover mode below stays byte-identical.
+          return (
+            <div aria-hidden="true" style={{ ...layerInset, overflow: 'hidden', zIndex: 0 }}>
+              <img
+                src={r.src}
+                srcSet={r.srcSet}
+                sizes={r.sizes}
+                alt=""
+                aria-hidden="true"
+                loading={priority ? 'eager' : 'lazy'}
+                decoding="async"
+                fetchpriority={priority ? 'high' : undefined}
+                style={{ ...buildFixedCropImgStyle(50), display: 'block' }}
+              />
+            </div>
+          );
+        }
         return (
           <img
             src={r.src}
@@ -7290,6 +7352,25 @@ function SectionInspector({ block, update, breakpoint }) {
             onChangeSrc={(v) => set({ bgImageUrl: v })}
             testId="input-section-bg-image"
           />
+          <SelectField
+            label="Image fit"
+            value={isFixedCropFit(c.bgImageFit) ? IMAGE_FIT_FIXED_CROP : 'cover'}
+            onChange={(v) => set({ bgImageFit: v === IMAGE_FIT_FIXED_CROP ? IMAGE_FIT_FIXED_CROP : '' })}
+            options={[
+              { value: 'cover', label: 'Cover (fill section)' },
+              { value: IMAGE_FIT_FIXED_CROP, label: 'Fixed height / horizontal crop' },
+            ]}
+            testId="select-section-bg-image-fit"
+          />
+          {isFixedCropFit(c.bgImageFit) && (
+            <p className="text-[11px] text-slate-500 leading-snug">
+              The image keeps the section's height and scales to match it. On
+              narrower screens the left and right edges are cropped around the
+              centre — the image never gets taller and never stretches the
+              section. Best for wide images designed around a central safe
+              area.
+            </p>
+          )}
           <SelectField
             label="Overlay"
             value={overlayType}

@@ -34,6 +34,50 @@ export function hexToRgba(input, opacity) {
   return `color-mix(in srgb, ${s} ${Math.round(o * 100)}%, transparent)`;
 }
 
+// ---------------------------------------------------------------------------
+// Fixed Height / Horizontal Crop image fit (Task #3159)
+//
+// A responsive display mode for wide images: the image scales strictly by the
+// HEIGHT of its box (never by width), so as the box narrows the left/right
+// edges are clipped instead of the image growing taller. The box's height is
+// author-controlled and never grows because of the image.
+//
+// Implementation is one shared recipe used by every render surface (v1 editor
+// stage, v1 public renderer, v2 flow editor/public — all of which render
+// blocks through the same registry components):
+//   - a clipping wrapper with `overflow: hidden` filling the box, and
+//   - the <img> inside sized `height: 100%; width: auto` (aspect-preserving)
+//     and horizontally anchored on the focal x: `left: fx%` +
+//     `translateX(-fx%)` pins the image's fx% point to the box's fx% point,
+//     so cropping happens symmetrically around the chosen safe area.
+// ---------------------------------------------------------------------------
+export const IMAGE_FIT_FIXED_CROP = 'fixed-crop';
+
+export function isFixedCropFit(fit) {
+  return fit === IMAGE_FIT_FIXED_CROP;
+}
+
+// Style for the <img> inside an overflow-hidden clipping box. `focalX` is the
+// horizontal focal point in percent (0 = left edge stays visible, 100 = right
+// edge stays visible, 50 = centre crop).
+export function buildFixedCropImgStyle(focalX) {
+  // NB: Number(null) === 0, so nullish/empty must be checked explicitly or a
+  // missing focal point would left-anchor the crop instead of centring it.
+  const n = focalX == null || focalX === '' ? NaN : Number(focalX);
+  const fx = Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 50;
+  return {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    height: '100%',
+    width: 'auto',
+    maxWidth: 'none',
+    maxHeight: 'none',
+    left: `${fx}%`,
+    transform: `translateX(-${fx}%)`,
+  };
+}
+
 // Hero/overlay direction presets → CSS linear-gradient angle (deg). The angle
 // names the direction the gradient travels toward, so e.g. 'to-top' (0deg)
 // puts the first colour at the bottom fading to the second at the top.
