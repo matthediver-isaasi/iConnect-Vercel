@@ -1364,6 +1364,10 @@ export const BLOCK_DEFAULTS = {
       tag: '',
       columns: { desktop: 3, tablet: 2, mobile: 1 },
       gap: 16,
+      // Card corner radius in px (0–40, clamped at render time). 0 keeps
+      // the historical square resource cards, so legacy pages without the
+      // key render byte-identically.
+      cardBorderRadius: 0,
       emptyText: 'No resources available.',
       cardTitleTypographyStyleId: '',
       cardDescriptionTypographyStyleId: '',

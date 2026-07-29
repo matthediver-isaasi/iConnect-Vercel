@@ -4450,6 +4450,15 @@ function ResourceListRender({ block, breakpoint, asEditor }) {
   const layout = c.layout || 'grid';
   const effectiveCols = layout === 'list' ? 1 : cols;
 
+  // Card corner radius (Task #3208), mirroring the article/news list's
+  // 0–40px range. Unset/invalid values resolve to 0 so existing pages keep
+  // their square cards; clamped here at render time (inspector stores raw
+  // keystrokes so typing isn't mangled mid-entry).
+  const rawCardRadius = Number(c.cardBorderRadius);
+  const cardCornerRadius = Number.isFinite(rawCardRadius)
+    ? Math.min(40, Math.max(0, rawCardRadius))
+    : 0;
+
   const { data, isLoading, isError } = useQuery({
     queryKey: ['canvas', 'public-resources'],
     queryFn: () => publicClient.listResources(),
@@ -4577,6 +4586,7 @@ function ResourceListRender({ block, breakpoint, asEditor }) {
                 isLocked={!r.is_public && !isLoggedIn}
                 buttonStyles={buttonStyles}
                 openInNewTab={openLinksInNewTab}
+                cornerRadius={cardCornerRadius}
               />
             </li>
           ))}
@@ -4838,6 +4848,14 @@ function ResourceListInspector({ block, update }) {
       ) : null}
       <PerBreakpointColumns value={c.columns} onChange={(v) => set({ columns: v })} />
       <NumberField label="Gap (px)" min={0} value={c.gap || 16} onChange={(v) => set({ gap: Math.max(0, Number(v) || 0) })} testId="input-resource-list-gap" />
+      <NumberField
+        label="Card corner radius (px)"
+        min={0}
+        max={40}
+        value={c.cardBorderRadius ?? 0}
+        onChange={(v) => set({ cardBorderRadius: v })}
+        testId="input-resource-list-border-radius"
+      />
       <ToggleField
         label="Open in new tab"
         value={resolveNewTab(c, true)}

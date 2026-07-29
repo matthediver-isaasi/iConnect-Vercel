@@ -31,7 +31,12 @@ const iconMap = {
   Plus,
 };
 
-export default function ResourceCard({ resource, isLocked = false, isEventLocked = false, joinLocked = false, buttonStyles = [], enabledSocialIcons = ['x', 'linkedin', 'email'], isAuthenticated = true, viewCount = null, onResourceView, onEdit, onDelete, openInNewTab = true }) {
+// `cornerRadius` (px, optional) rounds the card container. Default null keeps
+// the historical square corners (rounded-none) so /resources and every other
+// existing caller render byte-identically; the Canvas Resource list block
+// passes a clamped value through. overflow-hidden on the Card already clips
+// the image/top edge to the rounded corners.
+export default function ResourceCard({ resource, isLocked = false, isEventLocked = false, joinLocked = false, buttonStyles = [], enabledSocialIcons = ['x', 'linkedin', 'email'], isAuthenticated = true, viewCount = null, onResourceView, onEdit, onDelete, openInNewTab = true, cornerRadius = null }) {
   const [copied, setCopied] = useState(false);
   
   // Get button style from props instead of fetching
@@ -427,7 +432,10 @@ export default function ResourceCard({ resource, isLocked = false, isEventLocked
   };
 
   return (
-    <Card className="border-slate-200 hover:shadow-lg transition-shadow duration-300 overflow-hidden h-full flex flex-col rounded-none relative">
+    <Card
+      className="border-slate-200 hover:shadow-lg transition-shadow duration-300 overflow-hidden h-full flex flex-col rounded-none relative"
+      style={Number.isFinite(Number(cornerRadius)) && Number(cornerRadius) > 0 ? { borderRadius: `${Number(cornerRadius)}px` } : undefined}
+    >
       <style>{`
         .agcas-share-button {
           box-shadow: inset 0 0 0 2px black;
