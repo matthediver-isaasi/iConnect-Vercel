@@ -1797,7 +1797,14 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
     
     console.log(`[Workflows] Evaluating ${workflows.length} workflows for ${entityType}:${entityId} (tenant: ${tenantId})`);
 
+    // Task 3197: re-check path restricts evaluation to an explicit workflow
+    // id set (workflows whose record_create run was skipped on conditions).
+    const onlyWorkflowIds = Array.isArray(context.onlyWorkflowIds) && context.onlyWorkflowIds.length > 0
+      ? new Set(context.onlyWorkflowIds)
+      : null;
+
     for (const workflow of workflows) {
+      if (onlyWorkflowIds && !onlyWorkflowIds.has(workflow.id)) continue;
       console.log(`[Workflows] Checking workflow "${workflow.name}": trigger_type="${workflow.trigger_type}", incoming triggerType="${triggerType}"`);
       let triggerMatches = false;
       
@@ -1989,6 +1996,12 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
         // sent (per-condition expected vs actual), instead of the skip being
         // visible only in server logs. Never let logging failures break the
         // trigger path.
+        // Task 3197: the post-create re-check path suppresses these rows —
+        // one skipped row from the original create is enough; re-checking on
+        // every preference-value save must not spam the log.
+        if (context.suppressSkipLog) {
+          continue;
+        }
         try {
           await supabase.from('workflow_log').insert({
             tenant_id: workflow.tenant_id,
@@ -2061,6 +2074,79 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
   } catch (err) {
     console.error('[Workflows] Error:', err.message, err.stack);
     return { pendingConfirmations: [], reverts: [] };
+  }
+}
+
+// Task 3197: the admin UI "add member/organization" dialog creates the record
+// first, then saves each custom field with separate MemberPreferenceValue /
+// OrganizationPreferenceValue POSTs. record_create workflows conditioned on a
+// custom field therefore evaluated against empty values at create time and
+// were logged as 'skipped'. This re-check runs when a preference value arrives
+// for a *recently created* record: it re-evaluates only the record_create
+// workflows that (a) reference a custom field in their conditions and (b) have
+// never executed for this record (no non-skipped workflow_log row), so
+// workflows that already fired at create time — including trigger_mode
+// 'every_time' ones — can never run twice for the same creation.
+export async function recheckRecordCreateWorkflows(entityType, entityId, baseUrl, { windowMinutes = 15 } = {}) {
+  if (!supabase) return;
+  if (entityType !== 'member' && entityType !== 'organization') return;
+  if (!entityId) return;
+
+  try {
+    const { data: record } = await supabase
+      .from(entityType)
+      .select('*')
+      .eq('id', entityId)
+      .single();
+    if (!record || !record.tenant_id) return;
+
+    // Only re-check for records created moments ago (the "same create dialog"
+    // window). Older records receiving new preference values are edits, not
+    // creations, and must not re-fire record_create workflows.
+    // Column drift: member rows use created_on, organization rows created_at.
+    // Fail closed (no re-check) when no creation timestamp exists — only
+    // legacy rows lack one, and those are edits, not fresh creations.
+    const createdRaw = record.created_on || record.created_at || record.created_date;
+    const createdAt = createdRaw ? new Date(createdRaw) : null;
+    if (!createdAt || isNaN(createdAt.getTime())) return;
+    if (Date.now() - createdAt.getTime() > windowMinutes * 60 * 1000) return;
+
+    const { data: workflows, error } = await supabase
+      .from('workflow')
+      .select('id, conditions')
+      .eq('entity_type', entityType)
+      .eq('tenant_id', record.tenant_id)
+      .eq('trigger_type', 'record_create')
+      .eq('is_active', true);
+    if (error || !workflows || workflows.length === 0) return;
+
+    const CUSTOM_TYPES = ['custom', 'member_custom', 'org_custom'];
+    const candidates = workflows.filter(w =>
+      Array.isArray(w.conditions) && w.conditions.some(c => CUSTOM_TYPES.includes(c?.field_type))
+    );
+    if (candidates.length === 0) return;
+
+    // Exclude workflows that already executed for this record (any non-skipped
+    // log). This is the duplicate guard for ALL trigger modes on this path.
+    const candidateIds = candidates.map(w => w.id);
+    const { data: logs } = await supabase
+      .from('workflow_log')
+      .select('workflow_id')
+      .in('workflow_id', candidateIds)
+      .eq('entity_type', entityType)
+      .eq('entity_id', entityId)
+      .neq('status', 'skipped');
+    const executed = new Set((logs || []).map(l => l.workflow_id));
+    const toRecheck = candidateIds.filter(id => !executed.has(id));
+    if (toRecheck.length === 0) return;
+
+    console.log(`[Workflows] Re-checking ${toRecheck.length} record_create workflow(s) for ${entityType}:${entityId} after preference value save`);
+    await triggerWorkflows(entityType, entityId, null, record, 'record_create', baseUrl, {
+      onlyWorkflowIds: toRecheck,
+      suppressSkipLog: true,
+    });
+  } catch (err) {
+    console.error('[Workflows] recheckRecordCreateWorkflows error:', err.message);
   }
 }
 

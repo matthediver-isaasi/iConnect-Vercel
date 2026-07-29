@@ -16,10 +16,15 @@ member insert, so workflows conditioned on a custom field captured in the same
 submission never matched — silently, with no workflow_log evidence.
 
 **How to apply:** in creation flows, stash the created row and trigger after the
-preference upsert/clear loop. The generic entity-API POST path CANNOT be fixed
-this way — the admin UI saves custom fields in separate follow-up
-MemberPreferenceValue POSTs, so record_create workflows there evaluate empty
-custom fields by design (documented in the entity POST handler).
+preference upsert/clear loop. The generic entity-API POST path can't do that
+(the admin UI saves custom fields in separate follow-up MemberPreferenceValue
+POSTs), so it instead re-checks: each preference-value POST for a *recently
+created* record calls `recheckRecordCreateWorkflows`, which re-evaluates only
+record_create workflows that (a) have a custom-field condition and (b) have no
+non-skipped workflow_log row for that record — the log check is the duplicate
+guard for ALL trigger modes, and the re-check suppresses extra 'skipped' rows.
+Beware column drift: member's creation timestamp column is `created_on`,
+organization's is `created_at`; legacy rows may have NULL → fail closed.
 
 Also: `workflow_log.status` has a DB check constraint; allowed values are
 `success | partial | failed | skipped` ('skipped' = conditions-not-met runs,

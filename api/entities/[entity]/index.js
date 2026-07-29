@@ -1,6 +1,6 @@
 import { sendEmail, replacePlaceholders } from '../../_lib/emailService.js';
 import { generatePasswordSetupUrl, hasSetPasswordToken, replaceSetPasswordToken } from '../../_lib/passwordSetupUrl.js';
-import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflows.js';
+import { triggerWorkflows, triggerPreferenceWorkflows, recheckRecordCreateWorkflows } from '../../_lib/workflows.js';
 import { triggerZohoCrmSync, awaitZohoCrmSyncForResponse } from '../../_lib/zohoCrmSync.js';
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
@@ -1600,15 +1600,15 @@ export default async function handler(req, res) {
 
       // Trigger workflow evaluation for new Organization/Member/JobPosting (non-blocking)
       //
-      // KNOWN LIMITATION (task 3196): custom-field values do NOT arrive in this
-      // request. The admin UI creates the member/organization here, then saves
-      // each custom field with separate MemberPreferenceValue /
-      // OrganizationPreferenceValue POSTs afterwards. So record_create
-      // workflows whose conditions reference custom fields will evaluate
-      // against empty values on this path and be logged as 'skipped'.
-      // (The form application processor was fixed to trigger after custom
-      // fields persist; this path cannot be, because the values are simply
-      // not in this request.)
+      // Custom-field values do NOT arrive in this request: the admin UI
+      // creates the member/organization here, then saves each custom field
+      // with separate MemberPreferenceValue / OrganizationPreferenceValue
+      // POSTs afterwards. So record_create workflows whose conditions
+      // reference custom fields evaluate against empty values here and log a
+      // 'skipped' row. Task 3197: those workflows are re-checked when the
+      // preference values for the just-created record arrive (see the
+      // recheckRecordCreateWorkflows call in the preference-value branch
+      // below), with a no-duplicate guard for all trigger modes.
       // Holds the in-flight Zoho CRM sync Promise (if any) so we can
       // await its outcome at the end and surface the result in the
       // response — same toast-debugging pattern as the PATCH handler.
@@ -1646,6 +1646,18 @@ export default async function handler(req, res) {
             }
           } catch (err) {
             console.error('[Entity POST] Preference workflow error:', err);
+          }
+
+          // Task 3197: if this preference value belongs to a just-created
+          // member/organization (admin UI create dialog saves custom fields
+          // AFTER the record POST), re-evaluate record_create workflows whose
+          // custom-field conditions saw empty values at create time. The
+          // helper only re-checks never-executed workflows for records
+          // created within the last few minutes, so nothing fires twice.
+          try {
+            await recheckRecordCreateWorkflows(entityType, entityId, baseUrl);
+          } catch (err) {
+            console.error('[Entity POST] record_create re-check error:', err);
           }
         }
       }
