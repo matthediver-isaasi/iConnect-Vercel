@@ -132,4 +132,5 @@
 - [RBAC map-driven parent resolution](rbac-parent-resolution.md) — exclusion parent/child lookups must use ROLE_ACCESS_MAP nesting (client hierarchy + generated server file), never dot-prefix splitting.
 - [Form submission emails](form-submission-emails.md) — exactly-once via atomic claim on form_submission.submission_email_state; all send paths must use the shared guarded sender.
 - [Widget click-through drilldown](widget-drilldown-clickthrough.md) — big id lists POST in a body (never URL); toggle enforced server-side; Recharts click key via entry.key ?? payload.key ?? name.
+- [Member-driven membership fee tokens](member-fee-tokens.md) — fee tokens carry org_id OR member_id; every consumer must branch (history/invoicing/notes/sim); token DD adopts unpaid workflow rows.
 - [record_create workflows & custom fields](workflow-record-create-custom-fields.md) — trigger AFTER preference values persist or custom-field conditions see empty; workflow_log status check allows success|partial|failed|skipped.

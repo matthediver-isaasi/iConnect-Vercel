@@ -4,7 +4,8 @@ import { applyDdOwnerPlaceholders, resolveDdOwnerForSubmission } from './ddOwner
 import { buildContractBracketPlaceholders, replaceContractBracketPlaceholders } from './contractPlaceholders.js';
 import crypto from 'crypto';
 import { supabase } from './database.js';
-import { simulateMembershipForOrg } from './membershipSimulation.js';
+import { simulateMembershipForOrg, simulateMembershipForMember } from './membershipSimulation.js';
+import { getConfigForMember } from './membershipConfigResolver.js';
 import { coerceBooleanPreferenceValue } from './booleanCoercion.js';
 
 // Attempts to parse a stringified JSON array. Returns the parsed array
@@ -1214,10 +1215,33 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
           .single();
         organizationId = member?.organization_id;
       }
+
+      // Task #3211 — structure-aware routing: when the triggering member is
+      // covered by a member-driven tier structure (structure_scope_type =
+      // 'member'), record the membership against the member, not their
+      // organisation. Members WITH an organisation stay on the org path
+      // (organisation-driven tiers), matching /api/membership/direct-debit.
+      if (!organizationId) {
+        let memberConfig = null;
+        try {
+          memberConfig = await getConfigForMember(tenantId, entityId);
+        } catch (cfgErr) {
+          console.error('[Workflows] create_membership member-config resolution failed:', cfgErr.message);
+        }
+        if (memberConfig) {
+          return await executeCreateMemberMembership(action, workflow, entityId);
+        }
+      }
     }
 
     if (!organizationId) {
-      return { action_type: 'create_membership', status: 'failed', error: 'Could not resolve organisation ID' };
+      return {
+        action_type: 'create_membership',
+        status: 'failed',
+        error: entityType === 'member'
+          ? 'Member has no organisation and no member-driven tier structure matches them'
+          : 'Could not resolve organisation ID',
+      };
     }
 
     const isDryRun = !!action.config?.dry_run;
@@ -1407,6 +1431,329 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
   } catch (error) {
     console.error('[Workflows] create_membership action error:', error);
     return { action_type: 'create_membership', status: 'failed', error: error.message };
+  }
+}
+
+// Task #3211 — member-driven Create Membership: record the member's
+// membership, raise the accounting invoice (renewal-cron member pattern),
+// and email the member a payment-link (fee token) so they can pay by card,
+// set up Direct Debit, or submit a PO on the public fee page.
+async function executeCreateMemberMembership(action, workflow, memberId) {
+  const tenantId = workflow.tenant_id;
+  console.log(`[Workflows] create_membership routed to MEMBER path for member ${memberId}`);
+
+  try {
+    const isDryRun = !!action.config?.dry_run;
+
+    const simResult = await simulateMembershipForMember(tenantId, memberId, {
+      source: 'workflow',
+      workflowName: workflow.name,
+      mode: 'manual',
+    });
+
+    if (!simResult.success) {
+      return {
+        action_type: 'create_membership',
+        status: 'failed',
+        target: 'member',
+        error: simResult.error,
+        simulation_steps: simResult.steps,
+      };
+    }
+
+    const memberName = simResult.member?.name || 'Member';
+    const targetYearLabel = simResult.membershipYear.label;
+
+    if (isDryRun) {
+      return {
+        action_type: 'create_membership',
+        status: 'dry_run',
+        target: 'member',
+        member_id: memberId,
+        member_name: memberName,
+        tier_label: simResult.tierLabel,
+        annual_cost: simResult.annualCost,
+        final_cost: simResult.finalCost,
+        membership_year: targetYearLabel,
+        year_number: simResult.yearNumber,
+        free_period_discount: simResult.freeDiscount,
+        rollover_discount: simResult.rolloverDiscount,
+        custom_discount_total: simResult.customDiscountTotal,
+        prorata_cost: simResult.prorataCost,
+        currency: simResult.currency,
+        overrideApplied: simResult.overrideApplied,
+        simulation_steps: simResult.steps,
+      };
+    }
+
+    // Invoicing-mode guard — mirrors the org path: an explicit manual /
+    // scheduled setting for this member defers to the admin UI / renewal
+    // cron; anything else (including no setting) proceeds.
+    const { data: yearSetting } = await supabase
+      .from('member_membership_invoicing')
+      .select('invoicing_mode, invoice_date')
+      .eq('tenant_id', tenantId)
+      .eq('member_id', memberId)
+      .eq('membership_year', targetYearLabel)
+      .maybeSingle();
+    let fallbackSetting = null;
+    if (!yearSetting) {
+      const { data: legacySetting } = await supabase
+        .from('member_membership_invoicing')
+        .select('invoicing_mode, invoice_date')
+        .eq('tenant_id', tenantId)
+        .eq('member_id', memberId)
+        .is('membership_year', null)
+        .maybeSingle();
+      fallbackSetting = legacySetting;
+    }
+    const effectiveInvoicingMode = yearSetting?.invoicing_mode || fallbackSetting?.invoicing_mode || 'automatic';
+
+    if (effectiveInvoicingMode === 'manual') {
+      return {
+        action_type: 'create_membership',
+        status: 'skipped',
+        target: 'member',
+        message: `Invoicing is set to manual for ${memberName} (${targetYearLabel}). Use the admin UI to record the membership.`,
+      };
+    }
+    if (effectiveInvoicingMode === 'scheduled') {
+      const invoiceDate = yearSetting?.invoice_date || fallbackSetting?.invoice_date || null;
+      return {
+        action_type: 'create_membership',
+        status: 'skipped',
+        target: 'member',
+        message: `Invoicing is set to scheduled for ${memberName} (${targetYearLabel})${invoiceDate ? ` (invoice date: ${invoiceDate})` : ''}. The scheduled renewal job will process this automatically.`,
+      };
+    }
+
+    // Fee-approval guard.
+    try {
+      const { data: approvalSetting } = await supabase
+        .from('system_settings')
+        .select('setting_value')
+        .eq('setting_key', 'membership_require_approval')
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+      if (approvalSetting?.setting_value === 'true') {
+        const { data: approvalRecord, error: approvalError } = await supabase
+          .from('member_membership_invoicing')
+          .select('fees_approved')
+          .eq('tenant_id', tenantId)
+          .eq('member_id', memberId)
+          .eq('membership_year', targetYearLabel)
+          .maybeSingle();
+        if (approvalError) {
+          console.error(`[Workflows] Error checking fee approval for member ${memberId}:`, approvalError.message);
+        }
+        if (!approvalRecord?.fees_approved) {
+          return {
+            action_type: 'create_membership',
+            status: 'skipped',
+            target: 'member',
+            message: `Fees for ${targetYearLabel} have not been approved for ${memberName}. Approve fees on the Membership tab before the workflow can create a record.`,
+          };
+        }
+      }
+    } catch (approvalErr) {
+      console.error(`[Workflows] Member fee approval check failed for ${memberId}:`, approvalErr.message);
+    }
+
+    // Duplicate-year guard.
+    if (simResult.existingRecord) {
+      return {
+        action_type: 'create_membership',
+        status: 'skipped',
+        target: 'member',
+        message: `Membership record for ${targetYearLabel} already exists for ${memberName}`,
+      };
+    }
+
+    // Record the membership (mirrors the renewal cron's member insert).
+    const { data: record, error: insertError } = await supabase
+      .from('member_membership_history')
+      .insert({
+        tenant_id: tenantId,
+        member_id: memberId,
+        membership_year: targetYearLabel,
+        config_id: simResult.config.id,
+        band_id: simResult.matchedBand?.id || null,
+        tier_label: simResult.tierLabel,
+        field_value: simResult.fieldValue,
+        annual_cost: simResult.annualCost,
+        prorata_cost: simResult.prorataCost,
+        free_period_discount: simResult.freeDiscount || 0,
+        rollover_discount: simResult.rolloverDiscount || 0,
+        custom_discount_total: simResult.customDiscountTotal || 0,
+        custom_discount_details: simResult.customDiscountDetails?.length > 0 ? simResult.customDiscountDetails : null,
+        final_cost: simResult.finalCost,
+        currency: simResult.currency,
+        billing_period: simResult.billingPeriod || 'annual',
+        vat_rate_percent: simResult.vatRatePercent || null,
+        vat_amount: simResult.vatAmount || 0,
+        total_with_vat: simResult.totalWithVat || simResult.finalCost,
+        year_number: simResult.yearNumber || null,
+        prorata_days: simResult.prorataDays || null,
+        free_period_days_applied: simResult.freePeriodDaysApplied || 0,
+        override_applied: simResult.overrideApplied || false,
+        override_type: simResult.overrideType || null,
+        status: 'active',
+        notes: `Created by workflow "${workflow.name}" (year ${simResult.yearNumber})`,
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      if (insertError.code === '23505') {
+        return {
+          action_type: 'create_membership',
+          status: 'skipped',
+          target: 'member',
+          message: `Membership record for ${targetYearLabel} already exists for ${memberName} (database constraint)`,
+        };
+      }
+      console.error('[Workflows] Error creating member membership record:', insertError);
+      return { action_type: 'create_membership', status: 'failed', target: 'member', error: insertError.message };
+    }
+
+    // Accounting invoice — shared provider facade, renewal-cron member
+    // pattern (dual provider id columns via buildInvoiceColumnUpdate).
+    let invoice = null;
+    let invoiceError = null;
+    let providerLabel = 'Xero';
+    try {
+      const { getAccountingProvider, buildInvoiceColumnUpdate } = await import('./accountingProvider.js');
+      const { resolveInvoiceAddress } = await import('./invoiceAddressResolver.js');
+      const provider = await getAccountingProvider(tenantId);
+      providerLabel = provider?.name === 'quickbooks' ? 'QuickBooks' : 'Xero';
+      const invoicingAddress = await resolveInvoiceAddress(supabase, simResult.config, memberId, 'member');
+      invoice = await provider.createMembershipInvoice({
+        appTenantId: tenantId,
+        organizationName: memberName,
+        invoicingEmail: simResult.member?.email || null,
+        invoicingAddress,
+        membershipYear: targetYearLabel,
+        tierLabel: simResult.tierLabel,
+        finalCost: simResult.finalCost,
+        currency: simResult.currency,
+        reference: `Membership ${targetYearLabel}`,
+        vatRate: simResult.taxType || simResult.matchedBand?.vat_rate || null,
+        invoiceDescription: simResult.config?.invoice_description || null,
+      });
+      if (invoice) {
+        const { error: linkError } = await supabase
+          .from('member_membership_history')
+          .update(buildInvoiceColumnUpdate(invoice))
+          .eq('id', record.id);
+        if (linkError) {
+          console.error(`[Workflows] Failed to link ${providerLabel} invoice for member ${memberId}:`, linkError.message);
+        }
+      }
+    } catch (invErr) {
+      console.error(`[Workflows] ${providerLabel} invoice failed for member ${memberId} (non-fatal):`, invErr.message);
+      invoiceError = invErr.message;
+    }
+
+    // Payment-link email (fee token). Idempotent: the duplicate-year guard
+    // means this only runs on the execution that created the record, and the
+    // helper itself reuses any pending token for (tenant, member, year).
+    let emailResult = null;
+    try {
+      const { sendMembershipFeeTokenEmail } = await import('./membershipFeeTokenEmail.js');
+      let stripeEnabled = false;
+      if (simResult.config?.online_card_payment) {
+        try {
+          const { getStripeCredentials } = await import('./stripeCredentials.js');
+          const creds = await getStripeCredentials(tenantId, 'membership');
+          stripeEnabled = !!(creds?.is_enabled && creds?.publishable_key);
+        } catch {}
+      }
+      const costBreakdown = {
+        annualCost: simResult.annualCost,
+        annualCostBeforeDiscounts: simResult.annualCostBeforeDiscounts,
+        customDiscountTotal: simResult.customDiscountTotal || 0,
+        customDiscountDetails: simResult.customDiscountDetails || [],
+        prorataCost: simResult.prorataCost,
+        prorataDays: simResult.prorataDays,
+        dailyCost: simResult.dailyCost,
+        freeDiscount: simResult.freeDiscount || 0,
+        freePeriodDaysApplied: simResult.freePeriodDaysApplied || 0,
+        freePeriodAmount: simResult.freePeriodAmount,
+        freePeriodUnit: simResult.freePeriodUnit,
+        yearNumber: simResult.yearNumber,
+        rolloverDiscount: simResult.rolloverDiscount || 0,
+        proRataEnabled: simResult.proRataEnabled,
+        overrideType: simResult.overrideType || null,
+        vatRatePercent: simResult.vatRatePercent || null,
+        vatAmount: simResult.vatAmount || 0,
+        totalWithVat: simResult.totalWithVat || simResult.finalCost,
+        taxLabel: simResult.taxLabel || null,
+      };
+      emailResult = await sendMembershipFeeTokenEmail({
+        client: supabase,
+        tenantId,
+        memberId,
+        organizationName: memberName,
+        membershipYear: targetYearLabel,
+        finalCost: simResult.finalCost,
+        currency: simResult.currency,
+        tierLabel: simResult.tierLabel,
+        costBreakdown,
+        poNumber: null,
+        tierConfig: simResult.config,
+        stripeEnabled,
+        xeroInvoiceId: invoice?.invoice_id || null,
+        xeroInvoiceNumber: invoice?.invoice_number || null,
+        xeroOnlineInvoiceUrl: invoice?.online_invoice_url || null,
+        historyRecordId: record.id,
+      });
+      if (!emailResult?.success) {
+        console.error(`[Workflows] Fee-link email failed for member ${memberId}:`, emailResult?.error);
+      }
+    } catch (emailErr) {
+      console.error(`[Workflows] Fee-link email error for member ${memberId} (non-fatal):`, emailErr.message);
+      emailResult = { success: false, error: emailErr.message };
+    }
+
+    // Member note for the admin timeline (best-effort).
+    try {
+      const invoiceNote = invoice
+        ? ` ${providerLabel} invoice ${invoice.invoice_number || '(no invoice number)'} created.`
+        : ` ${providerLabel} invoice could not be created${invoiceError ? ` (${invoiceError})` : ''}.`;
+      const emailNote = emailResult?.success
+        ? ` Payment link emailed to ${emailResult.sentTo?.join(', ')}.`
+        : ' Payment link email could not be sent.';
+      await supabase.from('member_note').insert({
+        member_id: memberId,
+        created_by: null,
+        content: `[Membership - Workflow "${workflow.name}"] Membership recorded for ${targetYearLabel}. Fee: ${simResult.currency} ${Number(simResult.finalCost).toFixed(2)}.${invoiceNote}${emailNote}`,
+      });
+    } catch (noteErr) {
+      console.error(`[Workflows] Failed to create member note for ${memberId} (non-fatal):`, noteErr.message);
+    }
+
+    console.log(`[Workflows] Created member membership record ${record.id} for ${memberName} - tier: ${simResult.tierLabel}, final cost: ${simResult.finalCost}, year: ${targetYearLabel}`);
+
+    return {
+      action_type: 'create_membership',
+      status: 'success',
+      target: 'member',
+      membership_id: record.id,
+      member_id: memberId,
+      member_name: memberName,
+      tier_label: simResult.tierLabel,
+      annual_cost: simResult.annualCost,
+      final_cost: simResult.finalCost,
+      membership_year: targetYearLabel,
+      year_number: simResult.yearNumber,
+      invoice_number: invoice?.invoice_number || null,
+      invoice_error: invoiceError,
+      payment_link_sent_to: emailResult?.success ? emailResult.sentTo : null,
+      payment_link_error: emailResult?.success ? null : (emailResult?.error || null),
+    };
+  } catch (error) {
+    console.error('[Workflows] create_membership (member) action error:', error);
+    return { action_type: 'create_membership', status: 'failed', target: 'member', error: error.message };
   }
 }
 

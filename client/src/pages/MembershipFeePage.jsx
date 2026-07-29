@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import {
   Loader2, CheckCircle2, FileText, CreditCard, ClipboardList,
-  AlertCircle, Building2
+  AlertCircle, Building2, Landmark, User
 } from "lucide-react";
 
 function formatCurrency(amount, currency) {
@@ -42,6 +42,10 @@ export default function MembershipFeePage() {
   const [paymentComplete, setPaymentComplete] = useState(false);
   const [paymentError, setPaymentError] = useState(null);
   const [completingRedirectPayment, setCompletingRedirectPayment] = useState(false);
+
+  const [startingDd, setStartingDd] = useState(false);
+  const [ddStarted, setDdStarted] = useState(false);
+  const [ddBanner, setDdBanner] = useState(null); // 'complete' | 'cancelled'
 
   const stripeRef = useRef(null);
   const elementsRef = useRef(null);
@@ -84,6 +88,16 @@ export default function MembershipFeePage() {
     const urlParams = new URLSearchParams(window.location.search);
     const paymentIntentFromUrl = urlParams.get('payment_intent');
     const redirectStatus = urlParams.get('redirect_status');
+
+    // Direct Debit hosted-flow return (?dd=complete / ?dd=cancelled)
+    const ddParam = urlParams.get('dd');
+    if (ddParam === 'complete' || ddParam === 'cancelled') {
+      setDdBanner(ddParam);
+      const cleaned = new URLSearchParams(window.location.search);
+      cleaned.delete('dd');
+      const s = cleaned.toString();
+      window.history.replaceState({}, '', window.location.pathname + (s ? '?' + s : ''));
+    }
 
     if (!paymentIntentFromUrl) return;
 
@@ -153,6 +167,32 @@ export default function MembershipFeePage() {
       setPaymentError(err.message);
     } finally {
       setSubmittingPo(false);
+    }
+  };
+
+  const handleStartDirectDebit = async () => {
+    setStartingDd(true);
+    setPaymentError(null);
+    try {
+      const res = await fetch(`/api/public/membership-fees/${token}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'start_direct_debit' }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body.error || 'Failed to start Direct Debit set-up');
+      }
+      if (body.authorisationUrl) {
+        window.location.href = body.authorisationUrl;
+        return;
+      }
+      // Reused mandate or already in progress — no hosted flow needed.
+      setDdStarted(true);
+    } catch (err) {
+      setPaymentError(err.message);
+    } finally {
+      setStartingDd(false);
     }
   };
 
@@ -355,13 +395,15 @@ export default function MembershipFeePage() {
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-2 mb-4">
-              <Building2 className="w-5 h-5" style={{ color: primaryColor }} />
+              {data?.isMember
+                ? <User className="w-5 h-5" style={{ color: primaryColor }} />
+                : <Building2 className="w-5 h-5" style={{ color: primaryColor }} />}
               <h1 className="text-lg font-semibold">Membership Fee</h1>
             </div>
 
             <div className="flex items-center justify-between mb-1">
-              <span className="text-sm text-gray-500">Organisation</span>
-              <span className="font-medium" data-testid="text-org-name">{data?.organizationName}</span>
+              <span className="text-sm text-gray-500">{data?.isMember ? 'Member' : 'Organisation'}</span>
+              <span className="font-medium" data-testid="text-org-name">{data?.isMember ? (data?.memberName || data?.organizationName) : data?.organizationName}</span>
             </div>
             <div className="flex items-center justify-between mb-1">
               <span className="text-sm text-gray-500">Period</span>
@@ -507,6 +549,72 @@ export default function MembershipFeePage() {
                   ) : null}
                 </div>
               )}
+            </CardContent>
+          </Card>
+        )}
+
+        {ddBanner === 'complete' && (
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-2 text-green-600">
+                <CheckCircle2 className="w-5 h-5" />
+                <span className="font-medium">Direct Debit Set-Up Complete</span>
+              </div>
+              <p className="text-sm text-gray-500 mt-1">
+                Thank you — your Direct Debit mandate is being confirmed by your bank. Your membership payments will be collected monthly and no further action is needed.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {ddBanner === 'cancelled' && (
+          <div className="flex items-start gap-2 p-3 rounded-md bg-amber-50 border border-amber-200">
+            <AlertCircle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
+            <p className="text-sm text-amber-700">Direct Debit set-up was cancelled. You can try again below, or use another payment option.</p>
+          </div>
+        )}
+
+        {ddStarted && ddBanner !== 'complete' && (
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-2 text-green-600">
+                <CheckCircle2 className="w-5 h-5" />
+                <span className="font-medium">Direct Debit In Progress</span>
+              </div>
+              <p className="text-sm text-gray-500 mt-1">
+                Your existing Direct Debit mandate has been reused — your monthly payments have been scheduled.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {data?.ddEnabled && !paymentComplete && !ddStarted && ddBanner !== 'complete' && (
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-2 mb-3">
+                <Landmark className="w-4 h-4" style={{ color: primaryColor }} />
+                <h2 className="font-medium">Pay Monthly by Direct Debit</h2>
+              </div>
+              <p className="text-sm text-gray-500 mb-3">
+                Spread your membership fee over {data?.ddOffer?.instalmentCount || 12} monthly payments of{' '}
+                <span className="font-medium text-gray-700">{formatCurrency(data?.ddOffer?.monthlyAmount, data?.ddOffer?.currency || data?.currency)}</span>
+                {data?.ddOffer?.planTotal ? <> (total {formatCurrency(data.ddOffer.planTotal, data?.ddOffer?.currency || data?.currency)})</> : null}.
+                You'll be taken to our secure Direct Debit provider to set up your mandate.
+              </p>
+              <Button
+                onClick={handleStartDirectDebit}
+                disabled={startingDd}
+                variant="outline"
+                className="w-full"
+                data-testid="button-setup-direct-debit"
+              >
+                {startingDd ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Landmark className="w-4 h-4 mr-2" />
+                )}
+                Set Up Direct Debit
+              </Button>
             </CardContent>
           </Card>
         )}

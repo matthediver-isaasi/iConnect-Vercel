@@ -66,7 +66,8 @@ async function ensureTokenTable(client) {
           id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
           token TEXT NOT NULL UNIQUE,
           tenant_id UUID NOT NULL,
-          organization_id UUID NOT NULL,
+          organization_id UUID,
+          member_id UUID,
           membership_year TEXT NOT NULL,
           status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'po_submitted', 'paid', 'expired', 'cancelled')),
           final_cost NUMERIC(12, 2),
@@ -94,6 +95,27 @@ async function ensureTokenTable(client) {
   } catch (err) {
     console.error('[FeeTokenEmail] ensureTokenTable error:', err.message);
     tokenTableEnsured = true;
+  }
+}
+
+// Task #3211 — member-driven fee tokens. Legacy deployments created
+// membership_fee_token with organization_id NOT NULL and no member_id
+// column; ensure both changes idempotently before minting a member token.
+let memberColumnsEnsured = false;
+async function ensureMemberTokenColumns(client) {
+  if (memberColumnsEnsured) return;
+  try {
+    await client.rpc('exec_sql', {
+      sql_text: `
+        ALTER TABLE membership_fee_token ADD COLUMN IF NOT EXISTS member_id UUID;
+        ALTER TABLE membership_fee_token ALTER COLUMN organization_id DROP NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_membership_fee_token_tenant_member ON membership_fee_token(tenant_id, member_id, membership_year);
+      `,
+    });
+    memberColumnsEnsured = true;
+  } catch (err) {
+    console.warn('[FeeTokenEmail] ensureMemberTokenColumns failed (non-fatal, insert may still work):', err.message);
+    memberColumnsEnsured = true;
   }
 }
 
@@ -164,7 +186,8 @@ function buildBreakdownRows(currencySymbol, costBreakdown, finalCost) {
 export async function sendMembershipFeeTokenEmail({
   client = defaultSupabase,
   tenantId,
-  organizationId,
+  organizationId = null,
+  memberId = null,
   organizationName,
   membershipYear,
   finalCost,
@@ -181,12 +204,25 @@ export async function sendMembershipFeeTokenEmail({
   historyRecordId = null,
 }) {
   if (!client) return { success: false, error: 'Database not configured' };
+  if (!organizationId && !memberId) {
+    return { success: false, error: 'organizationId or memberId is required' };
+  }
 
   let toEmails = Array.isArray(recipientEmails)
     ? [...new Set(recipientEmails.map((e) => (e || '').trim().toLowerCase()).filter(Boolean))]
     : [];
 
-  if (toEmails.length === 0) {
+  if (toEmails.length === 0 && memberId) {
+    // Member-driven token: the member themself is the recipient.
+    const { data: member } = await client
+      .from('member')
+      .select('email')
+      .eq('id', memberId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    const email = (member?.email || '').trim().toLowerCase();
+    if (email) toEmails = [email];
+  } else if (toEmails.length === 0) {
     const resolved = await resolveTierRecipients({
       client,
       tenantId,
@@ -206,6 +242,7 @@ export async function sendMembershipFeeTokenEmail({
   }
 
   await ensureTokenTable(client);
+  if (memberId) await ensureMemberTokenColumns(client);
 
   // Idempotency: if a non-terminal token already exists for this
   // (tenant, org, year), reuse it instead of minting a duplicate. Manual
@@ -220,12 +257,15 @@ export async function sendMembershipFeeTokenEmail({
   let tokenId = null;
   let expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
   try {
-    const { data: existing } = await client
+    let existingQuery = client
       .from('membership_fee_token')
       .select('id, token, expires_at, status')
       .eq('tenant_id', tenantId)
-      .eq('organization_id', organizationId)
-      .eq('membership_year', membershipYear)
+      .eq('membership_year', membershipYear);
+    existingQuery = memberId
+      ? existingQuery.eq('member_id', memberId)
+      : existingQuery.eq('organization_id', organizationId);
+    const { data: existing } = await existingQuery
       .in('status', ['pending', 'po_submitted'])
       .order('created_at', { ascending: false })
       .limit(1)
@@ -243,6 +283,7 @@ export async function sendMembershipFeeTokenEmail({
       token,
       tenant_id: tenantId,
       organization_id: organizationId,
+      ...(memberId ? { member_id: memberId } : {}),
       membership_year: membershipYear,
       status: 'pending',
       final_cost: finalCost,

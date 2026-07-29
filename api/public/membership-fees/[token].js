@@ -48,12 +48,57 @@ export default async function handler(req, res) {
       return res.status(410).json({ error: 'This fee link has been cancelled' });
     }
 
+    // Task #3211 — member-driven fee tokens (workflow "Create Membership"
+    // on member-scoped tier structures) carry member_id instead of
+    // organization_id. Their approval checks, history table, notes and
+    // Direct Debit option all branch on this flag.
+    const isMemberToken = !!feeToken.member_id;
+    let tokenMember = null;
+    if (isMemberToken) {
+      const { data: m } = await supabase
+        .from('member')
+        .select('id, first_name, last_name, email, tenant_id, organization_id')
+        .eq('id', feeToken.member_id)
+        .maybeSingle();
+      tokenMember = m || null;
+    }
+    const memberDisplayName = tokenMember
+      ? (`${tokenMember.first_name || ''} ${tokenMember.last_name || ''}`.trim() || tokenMember.email || 'Member')
+      : null;
+
+    // Shared approval gate: when membership_require_approval is on, fees
+    // must be approved on the entity's invoicing row before payment.
+    const checkApprovalBlocked = async () => {
+      try {
+        const { data: approvalSetting } = await supabase
+          .from('system_settings')
+          .select('setting_value')
+          .eq('setting_key', 'membership_require_approval')
+          .eq('tenant_id', feeToken.tenant_id)
+          .maybeSingle();
+        if (approvalSetting?.setting_value !== 'true') return false;
+        const table = isMemberToken ? 'member_membership_invoicing' : 'organisation_membership_invoicing';
+        let q = supabase
+          .from(table)
+          .select('fees_approved')
+          .eq('tenant_id', feeToken.tenant_id)
+          .eq('membership_year', feeToken.membership_year);
+        q = isMemberToken ? q.eq('member_id', feeToken.member_id) : q.eq('organization_id', feeToken.organization_id);
+        const { data: invoicing } = await q.maybeSingle();
+        return !invoicing?.fees_approved;
+      } catch {
+        return false;
+      }
+    };
+
     if (req.method === 'GET') {
-      const { data: org } = await supabase
-        .from('organization')
-        .select('name')
-        .eq('id', feeToken.organization_id)
-        .single();
+      const { data: org } = isMemberToken
+        ? { data: { name: memberDisplayName } }
+        : await supabase
+            .from('organization')
+            .select('name')
+            .eq('id', feeToken.organization_id)
+            .single();
 
       let tenantBranding = null;
       try {
@@ -66,9 +111,12 @@ export default async function handler(req, res) {
       } catch {}
 
       let stripePublishableKey = null;
+      let tierConfig = null;
       try {
-        const { getConfigForOrganisation } = await import('../../_lib/membershipConfigResolver.js');
-        const tierConfig = await getConfigForOrganisation(feeToken.tenant_id, feeToken.organization_id);
+        const { getConfigForOrganisation, getConfigForMember } = await import('../../_lib/membershipConfigResolver.js');
+        tierConfig = isMemberToken
+          ? await getConfigForMember(feeToken.tenant_id, feeToken.member_id)
+          : await getConfigForOrganisation(feeToken.tenant_id, feeToken.organization_id);
         if (tierConfig?.online_card_payment) {
           const { getStripeCredentials } = await import('../../_lib/stripeCredentials.js');
           const creds = await getStripeCredentials(feeToken.tenant_id, 'membership');
@@ -82,11 +130,16 @@ export default async function handler(req, res) {
 
       if (breakdown.freeDiscount > 0 && !breakdown.freePeriodUnit) {
         try {
-          const { simulateMembershipForOrg } = await import('../../_lib/membershipSimulation.js');
-          const simResult = await simulateMembershipForOrg(feeToken.tenant_id, feeToken.organization_id, {
-            source: 'token-enrich',
-            targetYear: feeToken.membership_year,
-          });
+          const { simulateMembershipForOrg, simulateMembershipForMember } = await import('../../_lib/membershipSimulation.js');
+          const simResult = isMemberToken
+            ? await simulateMembershipForMember(feeToken.tenant_id, feeToken.member_id, {
+                source: 'token-enrich',
+                targetYear: feeToken.membership_year,
+              })
+            : await simulateMembershipForOrg(feeToken.tenant_id, feeToken.organization_id, {
+                source: 'token-enrich',
+                targetYear: feeToken.membership_year,
+              });
           if (simResult.success) {
             breakdown.freePeriodUnit = simResult.freePeriodUnit;
             breakdown.freePeriodAmount = simResult.freePeriodAmount;
@@ -109,7 +162,7 @@ export default async function handler(req, res) {
       // record confirms the add-ons are baked into its totals (otherwise the
       // rows wouldn't reconcile to the token's total).
       let addonLines = Array.isArray(breakdown.addonLines) ? breakdown.addonLines : null;
-      if (!addonLines && feeToken.history_record_id) {
+      if (!addonLines && feeToken.history_record_id && !isMemberToken) {
         try {
           const { data: hist } = await supabase
             .from('organisation_membership_history')
@@ -150,8 +203,58 @@ export default async function handler(req, res) {
         } catch {}
       }
 
+      // Direct Debit option (member tokens only): offered when the member's
+      // tier has DD enabled with a resolvable monthly amount AND the tenant
+      // has GoCardless credentials. Also surfaces any in-flight agreement so
+      // the page can show progress after the hosted-flow redirect.
+      let ddEnabled = false;
+      let ddOffer = null;
+      let ddStatus = null;
+      if (isMemberToken && tokenMember) {
+        try {
+          const { getGocardlessCredentials } = await import('../../_lib/gocardlessCredentials.js');
+          const creds = await getGocardlessCredentials(feeToken.tenant_id);
+          if (creds?.accessToken && tierConfig?.dd_enabled) {
+            const { simulateMembershipForMember } = await import('../../_lib/membershipSimulation.js');
+            const { resolveDdOffer } = await import('../../_lib/gocardlessDirectDebit.js');
+            const ddSim = await simulateMembershipForMember(feeToken.tenant_id, feeToken.member_id, {
+              source: 'token-dd',
+              mode: 'manual',
+              targetYear: feeToken.membership_year,
+            });
+            const offer = resolveDdOffer(ddSim);
+            if (offer) {
+              ddEnabled = true;
+              ddOffer = {
+                monthlyAmount: offer.monthlyAmount,
+                instalmentCount: offer.instalmentCount,
+                planTotal: offer.planTotal,
+                currency: offer.currency,
+              };
+            }
+          }
+          const { data: agreements } = await supabase
+            .from('membership_billing_agreements')
+            .select('id, status, gocardless_mandate_id, created_at')
+            .eq('tenant_id', feeToken.tenant_id)
+            .eq('member_id', feeToken.member_id)
+            .order('created_at', { ascending: false })
+            .limit(1);
+          if (agreements?.[0]) {
+            ddStatus = { status: agreements[0].status, hasMandate: !!agreements[0].gocardless_mandate_id };
+          }
+        } catch (ddErr) {
+          console.warn('[Public Fee] DD availability check failed (non-fatal):', ddErr.message);
+        }
+      }
+
       return res.json({
         status: feeToken.status,
+        isMember: isMemberToken,
+        memberName: memberDisplayName,
+        ddEnabled,
+        ddOffer,
+        ddStatus,
         organizationName: org?.name || 'Organisation',
         membershipYear: feeToken.membership_year,
         finalCost: parseFloat(feeToken.final_cost),
@@ -174,10 +277,8 @@ export default async function handler(req, res) {
         } : null,
         ...(await (async () => {
           try {
-            const { data: s } = await supabase.from('system_settings').select('setting_value').eq('setting_key', 'membership_require_approval').eq('tenant_id', feeToken.tenant_id).maybeSingle();
-            if (s?.setting_value !== 'true') return { approvalPending: false, approvalMessage: null };
-            const { data: inv } = await supabase.from('organisation_membership_invoicing').select('fees_approved').eq('tenant_id', feeToken.tenant_id).eq('organization_id', feeToken.organization_id).eq('membership_year', feeToken.membership_year).maybeSingle();
-            if (inv?.fees_approved) return { approvalPending: false, approvalMessage: null };
+            const blocked = await checkApprovalBlocked();
+            if (!blocked) return { approvalPending: false, approvalMessage: null };
             const { data: msgSetting } = await supabase.from('system_settings').select('setting_value').eq('setting_key', 'membership_custom_message').eq('tenant_id', feeToken.tenant_id).maybeSingle();
             return { approvalPending: true, approvalMessage: msgSetting?.setting_value || null };
           } catch { return { approvalPending: false, approvalMessage: null }; }
@@ -202,28 +303,9 @@ export default async function handler(req, res) {
           return res.status(400).json({ error: 'Purchase order number is required' });
         }
 
-        try {
-          const { data: approvalSetting } = await supabase
-            .from('system_settings')
-            .select('setting_value')
-            .eq('setting_key', 'membership_require_approval')
-            .eq('tenant_id', feeToken.tenant_id)
-            .maybeSingle();
-
-          if (approvalSetting?.setting_value === 'true') {
-            const { data: invoicing } = await supabase
-              .from('organisation_membership_invoicing')
-              .select('fees_approved')
-              .eq('tenant_id', feeToken.tenant_id)
-              .eq('organization_id', feeToken.organization_id)
-              .eq('membership_year', feeToken.membership_year)
-              .maybeSingle();
-
-            if (!invoicing?.fees_approved) {
-              return res.status(400).json({ error: 'Fees have not yet been approved. Please contact your administrator.' });
-            }
-          }
-        } catch {}
+        if (await checkApprovalBlocked()) {
+          return res.status(400).json({ error: 'Fees have not yet been approved. Please contact your administrator.' });
+        }
 
         const { error: updateError } = await supabase
           .from('membership_fee_token')
@@ -240,13 +322,16 @@ export default async function handler(req, res) {
         }
 
         let poSyncWarning = null;
+        const invoicingTable = isMemberToken ? 'member_membership_invoicing' : 'organisation_membership_invoicing';
+        const entityColumn = isMemberToken ? 'member_id' : 'organization_id';
+        const entityId = isMemberToken ? feeToken.member_id : feeToken.organization_id;
         try {
           try {
             await supabase.rpc('exec_sql', {
               sql_text: `
-                ALTER TABLE organisation_membership_invoicing ADD COLUMN IF NOT EXISTS purchase_order_number TEXT;
-                ALTER TABLE organisation_membership_invoicing ADD COLUMN IF NOT EXISTS membership_year TEXT;
-                ALTER TABLE organisation_membership_invoicing ADD COLUMN IF NOT EXISTS po_source TEXT;
+                ALTER TABLE ${invoicingTable} ADD COLUMN IF NOT EXISTS purchase_order_number TEXT;
+                ALTER TABLE ${invoicingTable} ADD COLUMN IF NOT EXISTS membership_year TEXT;
+                ALTER TABLE ${invoicingTable} ADD COLUMN IF NOT EXISTS po_source TEXT;
               `
             });
           } catch (colErr) {
@@ -254,10 +339,10 @@ export default async function handler(req, res) {
           }
 
           const { data: existingInvoicing, error: lookupErr } = await supabase
-            .from('organisation_membership_invoicing')
+            .from(invoicingTable)
             .select('id')
             .eq('tenant_id', feeToken.tenant_id)
-            .eq('organization_id', feeToken.organization_id)
+            .eq(entityColumn, entityId)
             .eq('membership_year', feeToken.membership_year)
             .maybeSingle();
 
@@ -266,7 +351,7 @@ export default async function handler(req, res) {
             poSyncWarning = 'PO number saved on token but could not sync to admin invoicing tab. The admin may need to add the purchase_order_number column manually.';
           } else if (existingInvoicing) {
             const { error: updErr } = await supabase
-              .from('organisation_membership_invoicing')
+              .from(invoicingTable)
               .update({ purchase_order_number: poNumber.trim(), po_source: 'member', updated_at: new Date().toISOString() })
               .eq('id', existingInvoicing.id);
             if (updErr) {
@@ -275,10 +360,10 @@ export default async function handler(req, res) {
             }
           } else {
             const { error: insErr } = await supabase
-              .from('organisation_membership_invoicing')
+              .from(invoicingTable)
               .insert({
                 tenant_id: feeToken.tenant_id,
-                organization_id: feeToken.organization_id,
+                [entityColumn]: entityId,
                 membership_year: feeToken.membership_year,
                 invoicing_mode: 'manual',
                 purchase_order_number: poNumber.trim(),
@@ -322,7 +407,7 @@ export default async function handler(req, res) {
         if (feeToken.history_record_id) {
           try {
             await supabase
-              .from('organisation_membership_history')
+              .from(isMemberToken ? 'member_membership_history' : 'organisation_membership_history')
               .update({ purchase_order_number: poNumber.trim() })
               .eq('id', feeToken.history_record_id);
           } catch (histErr) {
@@ -357,12 +442,21 @@ export default async function handler(req, res) {
         }
 
         try {
-          await supabase.from('organization_note').insert({
-            organization_id: feeToken.organization_id,
-            member_id: null,
-            content: `[Membership Fee - PO Submitted] Purchase order ${poNumber.trim()} submitted via fee link for ${feeToken.membership_year}.${feeToken.xero_invoice_number ? ` Xero invoice: ${feeToken.xero_invoice_number}.` : ''}`,
-            attachments: [],
-          });
+          const poNoteContent = `[Membership Fee - PO Submitted] Purchase order ${poNumber.trim()} submitted via fee link for ${feeToken.membership_year}.${feeToken.xero_invoice_number ? ` Xero invoice: ${feeToken.xero_invoice_number}.` : ''}`;
+          if (isMemberToken) {
+            await supabase.from('member_note').insert({
+              member_id: feeToken.member_id,
+              created_by: null,
+              content: poNoteContent,
+            });
+          } else {
+            await supabase.from('organization_note').insert({
+              organization_id: feeToken.organization_id,
+              member_id: null,
+              content: poNoteContent,
+              attachments: [],
+            });
+          }
         } catch {}
 
         const response = {
@@ -377,28 +471,9 @@ export default async function handler(req, res) {
       }
 
       if (action === 'create_payment') {
-        try {
-          const { data: approvalSetting } = await supabase
-            .from('system_settings')
-            .select('setting_value')
-            .eq('setting_key', 'membership_require_approval')
-            .eq('tenant_id', feeToken.tenant_id)
-            .maybeSingle();
-
-          if (approvalSetting?.setting_value === 'true') {
-            const { data: invoicing } = await supabase
-              .from('organisation_membership_invoicing')
-              .select('fees_approved')
-              .eq('tenant_id', feeToken.tenant_id)
-              .eq('organization_id', feeToken.organization_id)
-              .eq('membership_year', feeToken.membership_year)
-              .maybeSingle();
-
-            if (!invoicing?.fees_approved) {
-              return res.status(400).json({ error: 'Fees have not yet been approved for payment. Please contact your administrator.' });
-            }
-          }
-        } catch {}
+        if (await checkApprovalBlocked()) {
+          return res.status(400).json({ error: 'Fees have not yet been approved for payment. Please contact your administrator.' });
+        }
 
         const { getStripeCredentials, findOrCreateStripeCustomer } = await import('../../_lib/stripeCredentials.js');
         const Stripe = (await import('stripe')).default;
@@ -419,17 +494,23 @@ export default async function handler(req, res) {
           return res.status(400).json({ error: `Amount is below the minimum charge for ${cur.toUpperCase()}` });
         }
 
-        const { data: org } = await supabase
-          .from('organization')
-          .select('name')
-          .eq('id', feeToken.organization_id)
-          .single();
+        let payerName = memberDisplayName;
+        if (!isMemberToken) {
+          const { data: org } = await supabase
+            .from('organization')
+            .select('name')
+            .eq('id', feeToken.organization_id)
+            .single();
+          payerName = org?.name || 'Organisation';
+        }
 
         const stripeCustomer = feeToken.recipient_email
           ? await findOrCreateStripeCustomer(stripe, {
               email: feeToken.recipient_email,
-              name: org?.name || undefined,
-              metadata: { tenant_id: feeToken.tenant_id, organization_id: feeToken.organization_id, organization_name: org?.name || '' },
+              name: payerName || undefined,
+              metadata: isMemberToken
+                ? { tenant_id: feeToken.tenant_id, member_id: feeToken.member_id, member_name: payerName || '' }
+                : { tenant_id: feeToken.tenant_id, organization_id: feeToken.organization_id, organization_name: payerName || '' },
             })
           : null;
 
@@ -440,11 +521,13 @@ export default async function handler(req, res) {
           receipt_email: feeToken.recipient_email || undefined,
           metadata: {
             token_id: feeToken.id,
-            organization_id: feeToken.organization_id,
+            ...(isMemberToken
+              ? { member_id: feeToken.member_id }
+              : { organization_id: feeToken.organization_id }),
             membership_year: feeToken.membership_year,
             tenant_id: feeToken.tenant_id,
           },
-          description: `Membership fee for ${org?.name || 'Organisation'} - ${feeToken.membership_year}`,
+          description: `Membership fee for ${payerName || 'Member'} - ${feeToken.membership_year}`,
         });
 
         await supabase
@@ -498,9 +581,12 @@ export default async function handler(req, res) {
           return res.status(400).json({ error: 'paymentIntentId is required' });
         }
 
+        const historyTable = isMemberToken ? 'member_membership_history' : 'organisation_membership_history';
+        const noteTable = isMemberToken ? 'member_note' : 'organization_note';
+
         // Idempotency probe — by history row first (the original path).
         const { data: existingByPI } = await supabase
-          .from('organisation_membership_history')
+          .from(historyTable)
           .select('id')
           .eq('stripe_payment_intent_id', paymentIntentId)
           .maybeSingle();
@@ -525,28 +611,9 @@ export default async function handler(req, res) {
           });
         }
 
-        try {
-          const { data: approvalSetting } = await supabase
-            .from('system_settings')
-            .select('setting_value')
-            .eq('setting_key', 'membership_require_approval')
-            .eq('tenant_id', feeToken.tenant_id)
-            .maybeSingle();
-
-          if (approvalSetting?.setting_value === 'true') {
-            const { data: invoicing } = await supabase
-              .from('organisation_membership_invoicing')
-              .select('fees_approved')
-              .eq('tenant_id', feeToken.tenant_id)
-              .eq('organization_id', feeToken.organization_id)
-              .eq('membership_year', feeToken.membership_year)
-              .maybeSingle();
-
-            if (!invoicing?.fees_approved) {
-              return res.status(400).json({ error: 'Fees have not yet been approved for payment. Please contact your administrator.' });
-            }
-          }
-        } catch {}
+        if (await checkApprovalBlocked()) {
+          return res.status(400).json({ error: 'Fees have not yet been approved for payment. Please contact your administrator.' });
+        }
 
         const { getStripeCredentials } = await import('../../_lib/stripeCredentials.js');
         const Stripe = (await import('stripe')).default;
@@ -587,12 +654,18 @@ export default async function handler(req, res) {
           })
           .eq('id', feeToken.id);
 
-        const { simulateMembershipForOrg } = await import('../../_lib/membershipSimulation.js');
-        const simResult = await simulateMembershipForOrg(feeToken.tenant_id, feeToken.organization_id, {
-          source: 'stripe-payment',
-          mode: 'manual',
-          targetYear: feeToken.membership_year,
-        });
+        const { simulateMembershipForOrg, simulateMembershipForMember } = await import('../../_lib/membershipSimulation.js');
+        const simResult = isMemberToken
+          ? await simulateMembershipForMember(feeToken.tenant_id, feeToken.member_id, {
+              source: 'stripe-payment',
+              mode: 'manual',
+              targetYear: feeToken.membership_year,
+            })
+          : await simulateMembershipForOrg(feeToken.tenant_id, feeToken.organization_id, {
+              source: 'stripe-payment',
+              mode: 'manual',
+              targetYear: feeToken.membership_year,
+            });
 
         // Task #1112 — explicit handling of simResult.success === false.
         // Previously this dropped through to the (recordCreated=false)
@@ -600,11 +673,12 @@ export default async function handler(req, res) {
         // invoice — silent loss. We now auto-refund (consistent with the
         // history-insert failure path further down) and surface a 500.
         if (!simResult.success) {
-          console.error('[Public Fee] simulateMembershipForOrg returned success=false during confirm_payment:', {
+          console.error('[Public Fee] membership simulation returned success=false during confirm_payment:', {
             tokenId: feeToken.id,
             paymentIntentId,
             tenantId: feeToken.tenant_id,
             organizationId: feeToken.organization_id,
+            memberId: feeToken.member_id || null,
             membershipYear: feeToken.membership_year,
             error: simResult.error,
             steps: simResult.steps,
@@ -637,21 +711,21 @@ export default async function handler(req, res) {
           // existing-record tokens too.
           try {
             const { data: existing } = await supabase
-              .from('organisation_membership_history')
+              .from(historyTable)
               .select('*')
               .eq('id', feeToken.history_record_id || '00000000-0000-0000-0000-000000000000')
               .maybeSingle();
             historyRecord = existing
               || (await supabase
-                .from('organisation_membership_history')
+                .from(historyTable)
                 .select('*')
                 .eq('tenant_id', feeToken.tenant_id)
-                .eq('organization_id', feeToken.organization_id)
+                .eq(isMemberToken ? 'member_id' : 'organization_id', isMemberToken ? feeToken.member_id : feeToken.organization_id)
                 .eq('membership_year', feeToken.membership_year)
                 .maybeSingle()).data;
             if (historyRecord && !historyRecord.stripe_payment_intent_id) {
               await supabase
-                .from('organisation_membership_history')
+                .from(historyTable)
                 .update({ payment_method: 'stripe', stripe_payment_intent_id: paymentIntentId })
                 .eq('id', historyRecord.id);
             }
@@ -668,10 +742,12 @@ export default async function handler(req, res) {
           const cbForRecord = feeToken.cost_breakdown || {};
           const tokenAddons = Array.isArray(cbForRecord.addonLines) ? cbForRecord.addonLines : [];
           const { data: insertedRecord, error: insertError } = await supabase
-            .from('organisation_membership_history')
+            .from(historyTable)
             .insert({
               tenant_id: feeToken.tenant_id,
-              organization_id: feeToken.organization_id,
+              ...(isMemberToken
+                ? { member_id: feeToken.member_id }
+                : { organization_id: feeToken.organization_id }),
               membership_year: simResult.membershipYear.label,
               config_id: simResult.config?.id || null,
               band_id: simResult.matchedBand?.id || null,
@@ -781,7 +857,7 @@ export default async function handler(req, res) {
               if (historyRecord && !historyRecord.xero_invoice_id && !historyRecord.accounting_invoice_id) {
                 try {
                   await supabase
-                    .from('organisation_membership_history')
+                    .from(historyTable)
                     .update(buildInvoiceColumnUpdate({
                       invoice_id: feeToken.xero_invoice_id,
                       invoice_number: feeToken.xero_invoice_number,
@@ -792,11 +868,24 @@ export default async function handler(req, res) {
               }
             } else {
               const { getAccountingProvider, buildInvoiceColumnUpdate } = await import('../../_lib/accountingProvider.js');
-              const { data: org } = await supabase
-                .from('organization')
-                .select('name, invoicing_address, invoicing_email')
-                .eq('id', feeToken.organization_id)
-                .single();
+              let invoicingName;
+              let invoicingEmail;
+              let invoicingAddress;
+              if (isMemberToken) {
+                const { resolveInvoiceAddress } = await import('../../_lib/invoiceAddressResolver.js');
+                invoicingName = memberDisplayName || 'Member';
+                invoicingEmail = tokenMember?.email || null;
+                invoicingAddress = await resolveInvoiceAddress(supabase, simResult.config, feeToken.member_id, 'member');
+              } else {
+                const { data: org } = await supabase
+                  .from('organization')
+                  .select('name, invoicing_address, invoicing_email')
+                  .eq('id', feeToken.organization_id)
+                  .single();
+                invoicingName = org?.name || 'Organisation';
+                invoicingEmail = org?.invoicing_email || null;
+                invoicingAddress = org?.invoicing_address;
+              }
 
               const reference = feeToken.po_number
                 ? `Membership ${feeToken.membership_year} - PO: ${feeToken.po_number}`
@@ -807,7 +896,7 @@ export default async function handler(req, res) {
               // add-on subtotal, add-ons as their own extra line items.
               let invoiceAddonLines = [];
               let invoiceMembershipCost = parseFloat(feeToken.final_cost);
-              if (Array.isArray(feeToken.cost_breakdown?.addonLines) && feeToken.cost_breakdown.addonLines.length > 0) {
+              if (!isMemberToken && Array.isArray(feeToken.cost_breakdown?.addonLines) && feeToken.cost_breakdown.addonLines.length > 0) {
                 try {
                   const { loadAddonLines, computeAddonTotals } = await import('../../_lib/membershipAddons.js');
                   const storedAddons = await loadAddonLines(feeToken.tenant_id, feeToken.organization_id, feeToken.membership_year);
@@ -823,9 +912,9 @@ export default async function handler(req, res) {
               const { buildExtraLineItems: _buildExtra } = await import('../../_lib/membershipAddons.js');
               xeroInvoice = await _provider.createMembershipInvoice({
                 appTenantId: feeToken.tenant_id,
-                organizationName: org?.name || 'Organisation',
-                invoicingEmail: org?.invoicing_email || null,
-                invoicingAddress: org?.invoicing_address,
+                organizationName: invoicingName,
+                invoicingEmail,
+                invoicingAddress,
                 membershipYear: feeToken.membership_year,
                 tierLabel: feeToken.tier_label,
                 finalCost: invoiceMembershipCost,
@@ -856,7 +945,7 @@ export default async function handler(req, res) {
               if (xeroInvoice && historyRecord) {
                 try {
                   await supabase
-                    .from('organisation_membership_history')
+                    .from(historyTable)
                     .update(buildInvoiceColumnUpdate({
                       invoice_id: xeroInvoice.invoice_id,
                       invoice_number: xeroInvoice.invoice_number,
@@ -877,7 +966,7 @@ export default async function handler(req, res) {
             if (historyRecord?.id) {
               try {
                 await supabase
-                  .from('organisation_membership_history')
+                  .from(historyTable)
                   .update({
                     accounting_sync_status: 'failed',
                     accounting_sync_error: accountingSyncError.slice(0, 1000),
@@ -897,7 +986,7 @@ export default async function handler(req, res) {
             try {
               const { reconcileMembershipInvoicePayment } = await import('../../_lib/membershipPaymentReconciliation.js');
               await reconcileMembershipInvoicePayment({
-                table: 'organisation_membership_history',
+                table: historyTable,
                 recordId: historyRecord.id,
               });
             } catch (reconcileErr) {
@@ -905,7 +994,7 @@ export default async function handler(req, res) {
             }
           }
 
-          if (xeroInvoice && historyRecord) {
+          if (xeroInvoice && historyRecord && !isMemberToken) {
             try {
               const { sendMembershipInvoiceEmail } = await import('../../_lib/membershipInvoiceEmail.js');
               const { data: emailOrg } = await supabase
@@ -935,18 +1024,30 @@ export default async function handler(req, res) {
               console.error('[Public Fee] Invoice email failed (non-fatal):', emailErr.message);
             }
           }
+          // Member tokens: Stripe's receipt_email already covers the payment
+          // receipt; the tenant invoice email templates/recipients are
+          // organisation-shaped, so we skip the separate invoice email here.
         }
 
         try {
           const invoiceNote = xeroInvoice
             ? ` Xero invoice ${xeroInvoice.invoice_number} created.`
             : recordCreated ? ` Accounting invoice could not be created${accountingSyncError ? ` (${accountingSyncError})` : ''}; flagged for admin retry.` : '';
-          await supabase.from('organization_note').insert({
-            organization_id: feeToken.organization_id,
-            member_id: null,
-            content: `[Membership Fee - Stripe Payment] Payment received for ${feeToken.membership_year}. Amount: ${feeToken.currency} ${parseFloat(confirmTotal).toFixed(2)}${confirmBreakdown.vatAmount > 0 ? ` (incl. VAT ${parseFloat(confirmBreakdown.vatAmount).toFixed(2)})` : ''}. Stripe PI: ${paymentIntentId}.${invoiceNote}`,
-            attachments: [],
-          });
+          const paymentNoteContent = `[Membership Fee - Stripe Payment] Payment received for ${feeToken.membership_year}. Amount: ${feeToken.currency} ${parseFloat(confirmTotal).toFixed(2)}${confirmBreakdown.vatAmount > 0 ? ` (incl. VAT ${parseFloat(confirmBreakdown.vatAmount).toFixed(2)})` : ''}. Stripe PI: ${paymentIntentId}.${invoiceNote}`;
+          if (isMemberToken) {
+            await supabase.from('member_note').insert({
+              member_id: feeToken.member_id,
+              created_by: null,
+              content: paymentNoteContent,
+            });
+          } else {
+            await supabase.from('organization_note').insert({
+              organization_id: feeToken.organization_id,
+              member_id: null,
+              content: paymentNoteContent,
+              attachments: [],
+            });
+          }
         } catch {}
 
         return res.json({
@@ -961,6 +1062,212 @@ export default async function handler(req, res) {
             : null,
           message: 'Payment confirmed successfully',
         });
+      }
+
+      // Task #3211 — start GoCardless Direct Debit set-up from the public
+      // fee page. Authorised by possession of the fee token (member tokens
+      // only). Mirrors POST /api/membership/direct-debit action=start, with
+      // one difference: a workflow-recorded (unpaid, non-DD) history row for
+      // the year is ADOPTED (linked to the agreement and switched to
+      // direct_debit) rather than refused.
+      if (action === 'start_direct_debit') {
+        if (!isMemberToken || !tokenMember) {
+          return res.status(400).json({ error: 'Direct Debit is only available for individual memberships' });
+        }
+
+        if (await checkApprovalBlocked()) {
+          return res.status(403).json({ error: 'Your membership fees are awaiting approval. Please try again once they have been approved.' });
+        }
+
+        const { getGocardlessCredentials } = await import('../../_lib/gocardlessCredentials.js');
+        const creds = await getGocardlessCredentials(feeToken.tenant_id);
+        if (!creds?.accessToken) {
+          return res.status(400).json({ error: 'Direct Debit is not available for this organisation' });
+        }
+
+        const { simulateMembershipForMember } = await import('../../_lib/membershipSimulation.js');
+        const simResult = await simulateMembershipForMember(feeToken.tenant_id, feeToken.member_id, {
+          source: 'fee-token-dd',
+          mode: 'manual',
+          targetYear: feeToken.membership_year,
+        });
+        if (!simResult.success) {
+          return res.status(400).json({ error: simResult.error || 'Could not calculate membership fees' });
+        }
+        const { resolveDdOffer, buildAgreementSnapshot, findReusableMandate, ensureSubscriptionForAgreement, activateMembershipForAgreement } = await import('../../_lib/gocardlessDirectDebit.js');
+        const offer = resolveDdOffer(simResult);
+        if (!offer) {
+          return res.status(400).json({ error: 'Monthly Direct Debit is not available for this membership' });
+        }
+
+        const yearLabel = simResult.membershipYear?.label || feeToken.membership_year;
+
+        const { data: existingHistory } = await supabase
+          .from('member_membership_history')
+          .select('id, status, payment_status, payment_method, billing_agreement_id, stripe_payment_intent_id')
+          .eq('tenant_id', feeToken.tenant_id)
+          .eq('member_id', feeToken.member_id)
+          .eq('membership_year', yearLabel)
+          .maybeSingle();
+        if (existingHistory && (existingHistory.payment_status === 'paid' || existingHistory.stripe_payment_intent_id)) {
+          return res.status(400).json({ error: 'Membership for this year has already been paid' });
+        }
+
+        const { gocardlessForTenant, buildIdempotencyKey } = await import('../../_lib/gocardless.js');
+        const { STATUS } = await import('../../_lib/gocardlessState.js');
+        const { sendDdLifecycleEmail } = await import('../../_lib/gocardlessDdEmails.js');
+        const { markRenewalConfirmed } = await import('../../_lib/gocardlessDdRenewals.js');
+
+        const idempotencyKey = buildIdempotencyKey('dd-agree', feeToken.tenant_id, feeToken.member_id, yearLabel);
+
+        // Idempotent re-entry: reuse the in-flight agreement + hosted flow URL.
+        const { data: existingAgreement } = await supabase
+          .from('membership_billing_agreements')
+          .select('*')
+          .eq('idempotency_key', idempotencyKey)
+          .maybeSingle();
+        if (existingAgreement) {
+          if (existingAgreement.status === STATUS.PAYMENT_SETUP_REQUIRED && existingAgreement.redirect_url) {
+            return res.json({ authorisationUrl: existingAgreement.redirect_url, agreementId: existingAgreement.id, resumed: true });
+          }
+          return res.json({ agreementId: existingAgreement.id, status: existingAgreement.status, resumed: true });
+        }
+
+        const snapshot = buildAgreementSnapshot({ offer, simResult });
+        const gcClient = await gocardlessForTenant(feeToken.tenant_id);
+        const reusable = await findReusableMandate({ tenantId: feeToken.tenant_id, memberId: feeToken.member_id });
+
+        const agreementInsert = {
+          tenant_id: feeToken.tenant_id,
+          member_id: feeToken.member_id,
+          agreement_type: 'member',
+          status: STATUS.PAYMENT_SETUP_REQUIRED,
+          idempotency_key: idempotencyKey,
+          environment: creds.environment || 'sandbox',
+          metadata: { dd: snapshot },
+        };
+
+        let authorisationUrl = null;
+        if (reusable) {
+          agreementInsert.gocardless_mandate_id = reusable.mandateId;
+          agreementInsert.gocardless_customer_id = reusable.customerId;
+          agreementInsert.status = STATUS.MANDATE_PENDING;
+        } else {
+          const billingRequest = await gcClient.createBillingRequest({
+            idempotencyKey: buildIdempotencyKey('dd-br', feeToken.tenant_id, feeToken.member_id, yearLabel),
+            currency: offer.currency,
+            metadata: { tenant_id: feeToken.tenant_id, member_id: feeToken.member_id, membership_year: yearLabel, kind: 'monthly_direct_debit' },
+          });
+          const proto = req.headers['x-forwarded-proto'] || 'https';
+          const host = req.headers['x-forwarded-host'] || req.headers.host;
+          const origin = host ? `${proto}://${host}` : null;
+          const flow = await gcClient.createBillingRequestFlow({
+            billingRequestId: billingRequest.id,
+            redirectUri: origin ? `${origin}/membership-fees/${token}?dd=complete` : undefined,
+            exitUri: origin ? `${origin}/membership-fees/${token}?dd=cancelled` : undefined,
+            idempotencyKey: buildIdempotencyKey('dd-brf', feeToken.tenant_id, feeToken.member_id, yearLabel),
+            prefilledCustomer: {
+              email: tokenMember.email || undefined,
+              given_name: tokenMember.first_name || undefined,
+              family_name: tokenMember.last_name || undefined,
+            },
+          });
+          agreementInsert.gocardless_billing_request_id = billingRequest.id;
+          agreementInsert.gocardless_billing_request_flow_id = flow.id;
+          agreementInsert.redirect_url = flow.authorisation_url;
+          authorisationUrl = flow.authorisation_url;
+        }
+
+        const { data: agreement, error: agreeErr } = await supabase
+          .from('membership_billing_agreements')
+          .insert(agreementInsert)
+          .select()
+          .single();
+        if (agreeErr) {
+          if (agreeErr.code === '23505') {
+            const { data: raced } = await supabase
+              .from('membership_billing_agreements')
+              .select('*')
+              .eq('idempotency_key', idempotencyKey)
+              .maybeSingle();
+            if (raced?.redirect_url) return res.json({ authorisationUrl: raced.redirect_url, agreementId: raced.id, resumed: true });
+            if (raced) return res.json({ agreementId: raced.id, status: raced.status, resumed: true });
+          }
+          console.error('[Public Fee] Failed to create DD agreement:', agreeErr);
+          return res.status(500).json({ error: 'Failed to start Direct Debit set-up' });
+        }
+
+        if (!existingHistory) {
+          const { error: histErr } = await supabase.from('member_membership_history').insert({
+            tenant_id: feeToken.tenant_id,
+            member_id: feeToken.member_id,
+            membership_year: yearLabel,
+            config_id: simResult.config?.id || null,
+            band_id: simResult.matchedBand?.id || null,
+            tier_label: simResult.tierLabel,
+            field_value: simResult.fieldValue,
+            annual_cost: simResult.annualCost,
+            final_cost: snapshot.plan_total,
+            currency: offer.currency,
+            billing_period: 'monthly_direct_debit',
+            vat_rate_percent: simResult.vatRatePercent || null,
+            vat_amount: simResult.vatAmount || 0,
+            total_with_vat: snapshot.plan_total,
+            payment_method: 'direct_debit',
+            status: 'pending_payment_setup',
+            payment_status: 'unpaid',
+            billing_agreement_id: agreement.id,
+            notes: `Monthly Direct Debit: ${offer.instalmentCount} x ${offer.currency} ${offer.monthlyAmount}`,
+          });
+          if (histErr) {
+            console.error('[Public Fee] Failed to create DD membership history row:', histErr);
+            return res.status(500).json({ error: 'Failed to record membership' });
+          }
+        } else {
+          // Adopt the workflow-recorded fee row: link the agreement and
+          // switch its payment method so DD activation/webhooks find it via
+          // billing_agreement_id. The already-raised accounting invoice (if
+          // any) stays attached; a note records the switch for finance.
+          const { error: linkErr } = await supabase
+            .from('member_membership_history')
+            .update({
+              billing_agreement_id: agreement.id,
+              payment_method: 'direct_debit',
+              billing_period: 'monthly_direct_debit',
+            })
+            .eq('id', existingHistory.id);
+          if (linkErr) {
+            console.error('[Public Fee] Failed to link DD agreement onto existing history row:', linkErr);
+            return res.status(500).json({ error: 'Failed to record membership' });
+          }
+          try {
+            await supabase.from('member_note').insert({
+              member_id: feeToken.member_id,
+              created_by: null,
+              content: `[Membership Fee - Direct Debit] Member started monthly Direct Debit set-up via fee link for ${yearLabel} (${offer.instalmentCount} x ${offer.currency} ${offer.monthlyAmount}).${feeToken.xero_invoice_number ? ` Existing invoice ${feeToken.xero_invoice_number} remains attached.` : ''}`,
+            });
+          } catch {}
+        }
+
+        await sendDdLifecycleEmail('setup_started', agreement, { db: supabase });
+        await markRenewalConfirmed({ tenantId: feeToken.tenant_id, memberId: feeToken.member_id, yearLabel, newAgreementId: agreement.id });
+
+        if (reusable) {
+          const subResult = await ensureSubscriptionForAgreement(agreement, {});
+          const actResult = await activateMembershipForAgreement(agreement, { trigger: 'mandate_active' });
+          await sendDdLifecycleEmail('mandate_active', agreement, {
+            db: supabase,
+            extraContext: { firstChargeDate: subResult.plan?.next_charge_date || subResult.plan?.start_date || null },
+          });
+          return res.json({
+            agreementId: agreement.id,
+            reusedMandate: true,
+            subscriptionCreated: subResult.created,
+            activation: actResult.detail,
+          });
+        }
+
+        return res.json({ authorisationUrl, agreementId: agreement.id });
       }
 
       return res.status(400).json({ error: 'Unknown action' });
