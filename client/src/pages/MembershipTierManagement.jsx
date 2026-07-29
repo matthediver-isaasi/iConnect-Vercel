@@ -799,6 +799,11 @@ export default function MembershipTierManagement() {
     }
   };
 
+  // NOTE: declared here (not further down) because the ddTotalMismatch IIFE
+  // below runs during render — referencing a const declared later throws
+  // "Cannot access ... before initialization" (TDZ) and crashes the page.
+  const isMemberScoped = config.structure_scope_type === 'member';
+
   // Spec: when the Direct Debit plan total differs from the annual cost the
   // admin must EXPLICITLY confirm the difference before saving (not just see
   // a warning). Flat pricing only — banded DD amounts are validated per band.
@@ -1160,7 +1165,7 @@ export default function MembershipTierManagement() {
     return [];
   }, [selectedBasisField]);
 
-  const isMemberScoped = config.structure_scope_type === 'member';
+  // isMemberScoped is declared further up (above ddTotalMismatch) — see note there.
 
   const filteredPreviewOrgs = useMemo(() => {
     const items = isMemberScoped
