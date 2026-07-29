@@ -50,7 +50,7 @@ import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import { EMAIL_PLACEHOLDERS } from "@/lib/emailPlaceholders";
 import { designToHtml } from "@/components/email-builder/mjmlConverter";
-import { defaultEmailDesign, extractDynamicSlots } from "@/components/email-builder/types";
+import { defaultEmailDesign, extractDynamicSlots, normalizeDuplicateDynamicTokens } from "@/components/email-builder/types";
 
 const EmailBuilder = lazy(() => import("@/components/email-builder/EmailBuilder").then(m => ({ default: m.default })));
 
@@ -683,10 +683,14 @@ export default function EmailTemplateManagement() {
     let saveData = { ...formData };
 
     if (isVisual) {
+      // Guard: never persist a design with duplicated dynamic tokens (copies
+      // would hide/edit together at send time). Repair before saving.
+      const { design: repairedDesign, changed } = normalizeDuplicateDynamicTokens(formData.design_json);
+      if (changed) saveData.design_json = repairedDesign;
       // Visual builder: body holds the builder-rendered HTML so legacy send
       // paths keep working. Regenerate it from the design on every save.
       try {
-        const freshHtml = designToHtml(formData.design_json);
+        const freshHtml = designToHtml(saveData.design_json);
         if (freshHtml) saveData.body = freshHtml;
       } catch (e) {
         console.warn('[Template Save] Failed to regenerate HTML from design, using existing body');

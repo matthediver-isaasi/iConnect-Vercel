@@ -443,6 +443,147 @@ export const nextDynamicTokenIndex = (blocks) => {
   return max + 1;
 };
 
+export const generateBlockId = () =>
+  `block-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+// Auto-generated slot labels look like "Slot 3". User-customized labels are
+// kept on duplicate/repair so the sender can still tell slots apart.
+const isAutoSlotLabel = (label) => !label || /^Slot \d+$/.test(label);
+
+// Deep-clone a block subtree for a Duplicate action. Every nested block and
+// column gets a fresh id, and every dynamic block gets a fresh `dynamic_N`
+// token (and `dynamic_N_link` linkToken for buttons) so the copy never shares
+// a slot key with the original — sharing a token makes hide/edit of one copy
+// affect all copies (DYN_BLOCK regions and slot fill are keyed by token).
+// `allBlocks` is the full current design.blocks tree, used to compute the next
+// free token index across all nesting levels.
+export const cloneBlockForDuplicate = (block, allBlocks) => {
+  const clone = JSON.parse(JSON.stringify(block));
+  let next = nextDynamicTokenIndex(allBlocks);
+  const visit = (b) => {
+    if (!b || typeof b !== 'object') return;
+    b.id = generateBlockId();
+    if (isDynamicBlockType(b.type)) {
+      const n = next;
+      next += 1;
+      b.token = `dynamic_${n}`;
+      if (isAutoSlotLabel(b.label)) b.label = `Slot ${n}`;
+      if (b.type === BLOCK_TYPES.DYNAMIC_BUTTON) b.linkToken = `dynamic_${n}_link`;
+    }
+    if (Array.isArray(b.children)) b.children.forEach(visit);
+    if (Array.isArray(b.columns)) {
+      b.columns.forEach((col) => {
+        if (col && typeof col === 'object') {
+          col.id = generateBlockId();
+          if (Array.isArray(col.blocks)) col.blocks.forEach(visit);
+        }
+      });
+    }
+  };
+  visit(clone);
+  return clone;
+};
+
+// Repair pass for designs that already contain duplicated dynamic tokens
+// (from the old Duplicate behaviour that only regenerated the top-level id).
+// Later occurrences of a duplicated token get a fresh token/linkToken (and a
+// fresh label when auto-generated); any saved slotValues entry for the old
+// token is copied to the new token so already-filled content is preserved.
+// Duplicate block ids anywhere in the tree are also regenerated.
+// Returns { design, changed, renames } — `design` is the ORIGINAL object when
+// nothing needed repair. Each rename is
+//   { oldToken, newToken, oldLinkToken, newLinkToken, occurrence }
+// where `occurrence` is the 0-based index of that block among all blocks
+// carrying oldToken, in document order (occurrence 0 always keeps its token).
+export const normalizeDuplicateDynamicTokens = (design) => {
+  if (!design || !Array.isArray(design.blocks)) {
+    return { design, changed: false, renames: [] };
+  }
+
+  // Cheap detection pass first so the common (healthy) case allocates nothing.
+  let hasDupe = false;
+  {
+    const seenTokens = new Set();
+    const seenIds = new Set();
+    const detect = (b) => {
+      if (!b || typeof b !== 'object' || hasDupe) return;
+      if (b.id) {
+        if (seenIds.has(b.id)) { hasDupe = true; return; }
+        seenIds.add(b.id);
+      }
+      if (isDynamicBlockType(b.type) && b.token) {
+        if (seenTokens.has(b.token)) { hasDupe = true; return; }
+        seenTokens.add(b.token);
+        if (b.linkToken) seenTokens.add(b.linkToken);
+      }
+      if (Array.isArray(b.children)) b.children.forEach(detect);
+      if (Array.isArray(b.columns)) {
+        b.columns.forEach((col) => { if (Array.isArray(col?.blocks)) col.blocks.forEach(detect); });
+      }
+    };
+    design.blocks.forEach(detect);
+    if (!hasDupe) return { design, changed: false, renames: [] };
+  }
+
+  const clone = JSON.parse(JSON.stringify(design));
+  let next = nextDynamicTokenIndex(clone.blocks);
+  const seenTokens = new Set();
+  const seenIds = new Set();
+  const occurrenceCount = new Map(); // oldToken -> how many blocks carried it so far
+  const renames = [];
+  const slotValues = (clone.slotValues && typeof clone.slotValues === 'object') ? clone.slotValues : null;
+
+  const visit = (b) => {
+    if (!b || typeof b !== 'object') return;
+    if (b.id) {
+      if (seenIds.has(b.id)) b.id = generateBlockId();
+      seenIds.add(b.id);
+    }
+    if (isDynamicBlockType(b.type) && b.token) {
+      const oldToken = b.token;
+      const occ = occurrenceCount.get(oldToken) || 0;
+      occurrenceCount.set(oldToken, occ + 1);
+      if (seenTokens.has(oldToken)) {
+        const oldLinkToken = b.linkToken || null;
+        const n = next;
+        next += 1;
+        b.token = `dynamic_${n}`;
+        if (isAutoSlotLabel(b.label)) b.label = `Slot ${n}`;
+        if (b.type === BLOCK_TYPES.DYNAMIC_BUTTON) b.linkToken = `dynamic_${n}_link`;
+        if (slotValues) {
+          if (Object.prototype.hasOwnProperty.call(slotValues, oldToken)
+              && !Object.prototype.hasOwnProperty.call(slotValues, b.token)) {
+            slotValues[b.token] = slotValues[oldToken];
+          }
+          if (oldLinkToken && b.linkToken
+              && Object.prototype.hasOwnProperty.call(slotValues, oldLinkToken)
+              && !Object.prototype.hasOwnProperty.call(slotValues, b.linkToken)) {
+            slotValues[b.linkToken] = slotValues[oldLinkToken];
+          }
+        }
+        renames.push({
+          oldToken,
+          newToken: b.token,
+          oldLinkToken,
+          newLinkToken: b.linkToken || null,
+          occurrence: occ,
+        });
+      }
+      seenTokens.add(b.token);
+      if (b.linkToken) seenTokens.add(b.linkToken);
+    }
+    if (Array.isArray(b.children)) b.children.forEach(visit);
+    if (Array.isArray(b.columns)) {
+      b.columns.forEach((col) => { if (Array.isArray(col?.blocks)) col.blocks.forEach(visit); });
+    }
+  };
+  clone.blocks.forEach(visit);
+
+  // hiddenSlots referencing a duplicated token keep hiding the FIRST
+  // occurrence only (it retains the token), which matches sender intent.
+  return { design: clone, changed: true, renames };
+};
+
 export const defaultEmailDesign = {
   type: 'custom-email-builder',
   version: 1,

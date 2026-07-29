@@ -21,7 +21,7 @@ import BlockRenderer from './BlockRenderer';
 import BlockEditor from './BlockEditor';
 import GlobalSettings from './GlobalSettings';
 import LayersPanel from './LayersPanel';
-import { BLOCK_TYPES, createBlock, defaultEmailDesign, nextDynamicTokenIndex } from './types';
+import { BLOCK_TYPES, createBlock, defaultEmailDesign, nextDynamicTokenIndex, cloneBlockForDuplicate, normalizeDuplicateDynamicTokens } from './types';
 import { designToHtml } from './mjmlConverter';
 import { PanelRightOpen, PanelRightClose, Layers, Undo2, Redo2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -43,13 +43,20 @@ export default function EmailBuilder({
   initialDesign, 
   onChange, 
 }) {
+  // When a loaded design carries duplicated dynamic tokens (from the old
+  // Duplicate behaviour), repair it on open and flag it so the parent is
+  // notified once — otherwise saving without further edits would persist the
+  // broken design.
+  const initialRepairRef = useRef(false);
   const [design, setDesign] = useState(() => {
     if (initialDesign && initialDesign.blocks) {
+      const { design: repaired, changed } = normalizeDuplicateDynamicTokens(initialDesign);
+      initialRepairRef.current = changed;
       return {
-        ...initialDesign,
+        ...repaired,
         globalStyles: {
           ...defaultEmailDesign.globalStyles,
-          ...initialDesign.globalStyles,
+          ...repaired.globalStyles,
         },
       };
     }
@@ -129,6 +136,16 @@ export default function EmailBuilder({
       onChange({ design: newDesign, html });
     }, 300);
   }, [onChange]);
+
+  // Push the repaired design to the parent once, so a save without further
+  // edits persists the repaired tokens (and regenerated HTML).
+  useEffect(() => {
+    if (initialRepairRef.current) {
+      initialRepairRef.current = false;
+      notifyChange(design);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     loadGoogleFonts();
@@ -440,10 +457,9 @@ export default function EmailBuilder({
         const childIndex = block.children.findIndex(c => c.id === childId);
         if (childIndex !== -1) {
           const child = block.children[childIndex];
-          const newChild = {
-            ...JSON.parse(JSON.stringify(child)),
-            id: `block-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          };
+          // Fresh ids AND fresh dynamic tokens for the whole cloned subtree —
+          // dynamic copies sharing a token would hide/edit together.
+          const newChild = cloneBlockForDuplicate(child, design.blocks);
           updateDesign(prev => ({
             ...prev,
             blocks: prev.blocks.map(b => {
@@ -579,10 +595,10 @@ export default function EmailBuilder({
     const block = design.blocks.find(b => b.id === blockId);
     if (!block) return;
     
-    const newBlock = {
-      ...JSON.parse(JSON.stringify(block)),
-      id: `block-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-    };
+    // Fresh ids for every nested child/column and fresh dynamic tokens for
+    // every dynamic block in the cloned subtree (sections/columns included).
+    const newBlock = cloneBlockForDuplicate(block, design.blocks);
+
     
     const index = design.blocks.findIndex(b => b.id === blockId);
     updateDesign(prev => ({

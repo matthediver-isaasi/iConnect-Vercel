@@ -20,7 +20,7 @@ import { base44 } from "@/api/base44Client";
 import { maybeEmitPlanQuotaFromBody } from "@/lib/queryClient";
 import { designToHtml } from '@/components/email-builder/mjmlConverter';
 import { ReadOnlyBlockPreview } from '@/components/email-builder/BlockRenderer';
-import { defaultEmailDesign } from '@/components/email-builder/types';
+import { defaultEmailDesign, normalizeDuplicateDynamicTokens } from '@/components/email-builder/types';
 import TestSendDialog from '@/components/TestSendDialog';
 
 const EmailBuilder = lazy(() => import('@/components/email-builder/EmailBuilder').then(m => ({ default: m.default })));
@@ -280,6 +280,9 @@ export default function EmailCampaignEdit() {
         saveData.email_template_id = null;
       }
       if (saveData.design_json && typeof saveData.design_json === 'object' && saveData.design_json.blocks) {
+        // Guard: repair duplicated dynamic tokens before persisting.
+        const { design: repairedDesign, changed } = normalizeDuplicateDynamicTokens(saveData.design_json);
+        if (changed) saveData.design_json = repairedDesign;
         try {
           const fHtml = footerData?.hasFooter ? footerData.footer : null;
           const freshHtml = designToHtml(saveData.design_json, { footerHtml: fHtml });
