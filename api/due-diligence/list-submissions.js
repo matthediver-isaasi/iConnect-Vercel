@@ -66,7 +66,29 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { formId, status, riskLevel, limit = 50, offset = 0 } = req.query;
+    const { formId, status, riskLevel, startDate, endDate, limit = 50, offset = 0 } = req.query;
+
+    // Optional submission-date range (ISO datetimes, inclusive). Reject
+    // unparseable values explicitly rather than silently ignoring them.
+    let startIso = null;
+    let endIso = null;
+    if (startDate) {
+      const d = new Date(startDate);
+      if (Number.isNaN(d.getTime())) {
+        return res.status(400).json({ error: 'Invalid startDate' });
+      }
+      startIso = d.toISOString();
+    }
+    if (endDate) {
+      const d = new Date(endDate);
+      if (Number.isNaN(d.getTime())) {
+        return res.status(400).json({ error: 'Invalid endDate' });
+      }
+      endIso = d.toISOString();
+    }
+    if (startIso && endIso && endIso < startIso) {
+      return res.status(400).json({ error: 'endDate must not be before startDate' });
+    }
 
     // Check if we should include archived submissions
     const includeArchived = req.query.includeArchived === 'true';
@@ -121,6 +143,13 @@ export default async function handler(req, res) {
 
     if (riskLevel) {
       query = query.eq('risk_level', riskLevel);
+    }
+
+    if (startIso) {
+      query = query.gte('created_at', startIso);
+    }
+    if (endIso) {
+      query = query.lte('created_at', endIso);
     }
 
     const { data: submissions, error: listError, count } = await query;

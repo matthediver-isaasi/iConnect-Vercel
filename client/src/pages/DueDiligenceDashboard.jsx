@@ -350,6 +350,17 @@ export default function DueDiligenceDashboardPage() {
   const [selectedFormId, setSelectedFormId] = useState(initialUrlFilters.formId || 'all');
   const [outstandingDaysFilter] = useState(initialUrlFilters.outstandingDays || '');
   const [reviewerUrlFilter] = useState(initialUrlFilters.reviewer || '');
+  // Submission-date range (datetime-local strings in the admin's local tz).
+  const [startDateFilter, setStartDateFilter] = useState('');
+  const [endDateFilter, setEndDateFilter] = useState('');
+
+  // Valid when either bound is empty, or end is not before start.
+  const dateRangeInvalid = Boolean(
+    startDateFilter && endDateFilter && new Date(endDateFilter) < new Date(startDateFilter)
+  );
+  // Only apply a valid range to the fetch; while invalid, keep the last valid state.
+  const appliedStartIso = startDateFilter && !dateRangeInvalid ? new Date(startDateFilter).toISOString() : '';
+  const appliedEndIso = endDateFilter && !dateRangeInvalid ? new Date(endDateFilter).toISOString() : '';
   
   const [submissionToDelete, setSubmissionToDelete] = useState(null);
   const [deleteConfirmStep, setDeleteConfirmStep] = useState(1);
@@ -446,7 +457,7 @@ export default function DueDiligenceDashboardPage() {
   }, [cardReferenceFieldByFormId]);
 
   const { data: submissionsData, isLoading: submissionsLoading, refetch } = useQuery({
-    queryKey: ['dd-submissions', statusFilter, riskFilter, selectedFormId],
+    queryKey: ['dd-submissions', statusFilter, riskFilter, selectedFormId, appliedStartIso, appliedEndIso],
     queryFn: async () => {
       // Fetch ALL matching submissions in pages so search, filters and the
       // stats operate over the complete dataset (the endpoint caps each
@@ -458,6 +469,8 @@ export default function DueDiligenceDashboardPage() {
         if (statusFilter !== 'all') params.set('status', statusFilter);
         if (riskFilter !== 'all') params.set('riskLevel', riskFilter);
         if (selectedFormId !== 'all') params.set('formId', selectedFormId);
+        if (appliedStartIso) params.set('startDate', appliedStartIso);
+        if (appliedEndIso) params.set('endDate', appliedEndIso);
         params.set('limit', String(FETCH_PAGE_SIZE));
         return params;
       };
@@ -633,7 +646,7 @@ export default function DueDiligenceDashboardPage() {
   const [currentPage, setCurrentPage] = useState(1);
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, ownerFilter, statusFilter, riskFilter, selectedFormId, outstandingDaysFilter, reviewerUrlFilter]);
+  }, [searchQuery, ownerFilter, statusFilter, riskFilter, selectedFormId, outstandingDaysFilter, reviewerUrlFilter, appliedStartIso, appliedEndIso]);
   const totalPages = Math.max(1, Math.ceil(filteredSubmissions.length / PAGE_SIZE));
   const safePage = Math.min(currentPage, totalPages);
   const paginatedSubmissions = useMemo(
@@ -1001,8 +1014,49 @@ export default function DueDiligenceDashboardPage() {
                   ))}
                 </SelectContent>
               </Select>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-col">
+                  <Input
+                    type="datetime-local"
+                    value={startDateFilter}
+                    onChange={(e) => setStartDateFilter(e.target.value)}
+                    className="w-52"
+                    aria-label="Submitted from"
+                    title="Submitted from (local time)"
+                    data-testid="input-date-from"
+                  />
+                </div>
+                <span className="text-sm text-muted-foreground">to</span>
+                <div className="flex flex-col">
+                  <Input
+                    type="datetime-local"
+                    value={endDateFilter}
+                    onChange={(e) => setEndDateFilter(e.target.value)}
+                    className={`w-52 ${dateRangeInvalid ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
+                    aria-label="Submitted until"
+                    title="Submitted until (local time)"
+                    data-testid="input-date-to"
+                  />
+                </div>
+                {(startDateFilter || endDateFilter) && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => { setStartDateFilter(''); setEndDateFilter(''); }}
+                    data-testid="button-clear-date-range"
+                  >
+                    <X className="w-4 h-4 mr-1" />
+                    Clear dates
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
+          {dateRangeInvalid && (
+            <p className="text-sm text-red-600 mt-2" data-testid="text-date-range-error">
+              End date must not be before start date — the date filter is not applied.
+            </p>
+          )}
         </CardHeader>
         <CardContent>
           {submissionsLoading ? (
