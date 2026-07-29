@@ -72,6 +72,7 @@ const builtInPages = [
   { value: "CategoryManagement", label: "Category Management" },
   { value: "CommunicationsManagement", label: "Communications Management" },
   { value: "CustomFieldsAdmin", label: "Custom Fields Admin" },
+  { value: "MemberGroupClassificationReport", label: "Group Classification Report" },
   { value: "Dashboard", label: "Dashboard" },
   { value: "DataExport", label: "Data Export" },
   { value: "DirectDebitAdmin", label: "Direct Debit Console" },
