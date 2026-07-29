@@ -26,7 +26,7 @@ import {
 const DD_MOVED_TO_STAGE_FIELD = 'moved_to_stage';
 
 const MAX_BUCKETS = 50;
-const MAX_GROUPS = 20;
+const MAX_GROUPS = 30;
 // List widgets render rows in a scrollable pane, so they can afford far more
 // groups than a chart — but still cap them so a pathological group-by (e.g.
 // free-text field) can't blow up the response.
