@@ -52,7 +52,7 @@ export default async function handler(req, res) {
     // Include communication_category_id for newsletter subscription
     const { data: form, error: formError } = await supabase
       .from('form')
-      .select('id, name, tenant_id, require_authentication, fields, entity_pipelines, field_mappings, application_level, due_diligence_required, communication_category_id, allow_submitter_email_copy, prevent_duplicate_email_submission, is_event_related, related_event_id, deactivate_at')
+      .select('id, name, tenant_id, require_authentication, fields, entity_pipelines, field_mappings, application_level, due_diligence_required, communication_category_id, allow_submitter_email_copy, prevent_duplicate_email_submission, is_event_related, related_event_id, deactivate_at, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping')
       .eq('id', form_id)
       .eq('tenant_id', tenantData.id)
       .eq('is_active', true)

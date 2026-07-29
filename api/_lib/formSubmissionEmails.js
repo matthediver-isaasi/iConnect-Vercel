@@ -532,12 +532,33 @@ export async function sendSubmissionEmails({
  */
 export async function sendSubmissionEmailsGuarded(options) {
   const {
-    supabase, form, submissionId, trigger = 'unknown', allowUnguarded = false,
+    supabase, submissionId, trigger = 'unknown', allowUnguarded = false,
     // Task #3194: deliberate admin resend — bypasses the already-processed
     // skip via an atomic re-claim that preserves prior outcomes in `history`.
     // Callers MUST gate this server-side (tenant admin only).
     forceResend = false,
   } = options;
+
+  // Task #3202: harden against partial form selects. If the caller passed a
+  // form object that lacks the `submission_emails` key entirely (a partial
+  // SELECT that never included the email-config columns), re-fetch just the
+  // email columns so a future partial select degrades to a correct send
+  // instead of a durable "No emails configured" skip.
+  let form = options.form;
+  if (form && form.id && !('submission_emails' in form)) {
+    console.warn('[SubmissionEmails] form object missing submission_emails key (partial select?) — re-fetching email config for form', form.id);
+    const { data: emailCols, error: emailColsError } = await supabase
+      .from('form')
+      .select('submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping')
+      .eq('id', form.id)
+      .single();
+    if (!emailColsError && emailCols) {
+      form = { ...form, ...emailCols };
+      options = { ...options, form };
+    } else if (emailColsError) {
+      console.error('[SubmissionEmails] Failed to re-fetch email config for form', form.id, '-', emailColsError.message);
+    }
+  }
 
   // Fast path: nothing configured → record a durable 'skipped' outcome so the
   // admin view can show WHY no email exists, then return.
@@ -608,6 +629,14 @@ export async function sendSubmissionEmailsGuarded(options) {
   const baseState = { trigger, processed_at: finishedAt(), ...(resendState || {}) };
 
   if (configured.length === 0) {
+    // Task #3202: about to durably record "No emails configured" — log the
+    // form's email-related keys so a partial-select regression is diagnosable.
+    console.warn('[SubmissionEmails] No emails configured for form', form?.id, '— email config keys:', JSON.stringify({
+      has_submission_emails_key: !!form && ('submission_emails' in form),
+      submission_emails_count: Array.isArray(form?.submission_emails) ? form.submission_emails.length : null,
+      legacy_template_id: form?.submission_email_template_id || null,
+      legacy_recipient: form?.submission_email_recipient || null,
+    }));
     const state = { ...baseState, status: 'skipped', reason: 'No emails configured', emails: [] };
     await recordOutcome(supabase, submissionId, state);
     return { success: true, skipped: true, reason: 'No emails configured', emails: [] };
