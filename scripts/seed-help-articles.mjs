@@ -986,6 +986,290 @@ Fundraisers can post updates to their pages; you can review and manage updates a
 ## Sharing the campaign
 Campaign pages support SEO settings — a title, description and social-sharing image — so the campaign looks its best when links are shared. See "Browsing fundraising campaigns" for what supporters see.`,
   },
+
+  // --------------------------------------------------------------- Community
+  {
+    slug: 'member-and-organisation-directories',
+    title: 'Finding people: the member and organisation directories',
+    category: 'Community',
+    summary: 'Search for fellow members and member organisations, view profiles, and get in touch.',
+    status: 'published',
+    sort_order: 60,
+    required_feature: 'membership.member-directory',
+    body: `The directories help you find and connect with other members and their organisations. What you can see is controlled by each member's own privacy choice and your organisation's directory settings, so the details on show vary.
+
+## Searching the member directory
+Open the Member Directory to browse everyone who has chosen to appear.
+
+- Search by name, email, job title or organisation.
+- Filter by organisation, and by any custom filters your organisation has set up (for example region or areas of interest).
+- Sort the list by name, organisation, or activity such as events attended or articles published.
+
+{{screenshot: The member directory with search and filters}}
+
+## Viewing a profile and getting in touch
+Select a member's card to open their profile. Depending on your organisation's settings you may see their photo, job title, organisation, biography, awards and activity stats.
+
+- Use the email button to start a message in your mail app, or copy their address to the clipboard.
+- Where a member has added their LinkedIn profile, you can open it from here too.
+
+{{screenshot: A member profile with contact options}}
+
+## Controlling whether you appear
+You decide whether other members can find you. The "Show in Directory" switch in your About Me area controls whether your profile is listed — turn it off at any time to be removed from the directory. See "Your profile and account" for more.
+
+{{feature: membership.organisation-directory}}
+## The organisation directory
+The Organisation Directory lists the organisations in your community.
+
+- Search by name, and filter by any custom organisation fields your community uses.
+- Each card can show the organisation's logo, name and member count.
+- Open an organisation to see its details and a Contacts section listing the people to speak to — with buttons to email them or copy their address.
+
+{{screenshot: The organisation directory}}
+{{/feature}}
+
+If someone you expect to find isn't listed, they may have chosen not to appear, or the directory settings may exclude their role — your organisation's administrator can advise.`,
+  },
+  {
+    slug: 'member-groups-joining-and-taking-part',
+    title: 'Member groups: joining and taking part',
+    category: 'Community',
+    summary: 'Browse groups, join or express interest, and use group discussions, resources, events and projects.',
+    status: 'published',
+    sort_order: 61,
+    required_feature: 'membership.member-group-access',
+    body: `Member groups are communities within your organisation — committees, special interest groups, regional networks and more. This article covers finding a group, joining, and what you can do inside one.
+
+## Browsing groups
+Open the Member Groups area to see the groups open to you. Each card shows the group's name and description. If you're not signed in, group content is locked with a prompt to sign in first.
+
+{{screenshot: The member groups listing}}
+
+## Joining a group
+How you join depends on the group:
+
+- Instant join — groups that allow self-join have a "Join Group" button. If the group has terms of reference, you'll be asked to agree to them before you're added.
+- Vacancies and expressions of interest — some groups advertise specific open positions. You can express interest or complete an application form for the role, and the group's organisers will follow up.
+- Closed groups — a group may show that registrations are closed. Contact your organisation if you believe you should have access.
+
+{{screenshot: Joining a group with terms of reference}}
+
+## Inside a group
+A group's page brings together everything the group shares:
+
+- Discussions — a message board for the group. Start threads, reply, and react to posts.
+- Resources — documents and links owned by the group, alongside any relevant resources from the main library.
+- Events — upcoming events run by or for the group.
+- Members — a searchable list of who's in the group, with their group role (for example Member or Chair).
+- Vacancies — open positions you can apply for.
+
+{{screenshot: A group page with its discussions and members}}
+
+## Group roles and terms
+You hold a role within each group you belong to. Some roles run for a fixed term — you can see your role (and any term details) on the group page and in the "Your groups" section of About Me.
+
+{{feature: membership.member-group-projects}}
+## Group projects
+Groups can run shared project boards — kanban-style boards for tracking the group's work. Open Group Projects to see boards for the groups you belong to.
+{{/feature}}
+
+{{feature: membership.member-group-events}}
+## Group events
+The Group Events area gathers upcoming events across all your groups in one place, so you don't miss anything.
+{{/feature}}`,
+  },
+  {
+    slug: 'forum-discussions',
+    title: 'Using the forum: threads, replies and reactions',
+    category: 'Community',
+    summary: 'Browse discussion categories, start threads, reply with images and mentions, and report problems.',
+    status: 'published',
+    sort_order: 62,
+    required_feature: 'forum.browse',
+    body: `The forum is where members discuss topics together. This article covers reading, posting and keeping discussions healthy.
+
+## Browsing categories
+Open the Forum to see the discussion categories available to you. Each category shows how many threads it holds and when it was last active. Which categories you can see depends on your membership and groups — some categories belong to specific member groups.
+
+{{screenshot: The forum categories}}
+
+## Reading and starting threads
+Open a category to see its threads, then open a thread to read the conversation.
+
+{{feature: forum.threads}}
+To start a new discussion, choose "New Thread", give it a title, and write your opening post. You can attach images to illustrate your point. Posts may be automatically checked before they appear, to keep discussions constructive.
+
+{{screenshot: Starting a new thread}}
+
+## Replying and reacting
+- Reply at the bottom of a thread, or reply directly to a specific post to keep sub-conversations together.
+- Mention another member with @ and their name to bring them into the conversation.
+- React to posts (for example a thumbs up) to show agreement without adding a reply.
+
+Threads update live — new replies and reactions appear without refreshing the page.
+{{/feature}}
+
+## Reporting a post
+If you see something that shouldn't be there, use the report option on the post and describe the problem. A moderator will review it.
+
+## Pinned and locked threads
+Moderators can pin important threads to the top of a category, and lock threads that have run their course — a locked thread stays readable but no longer accepts replies.`,
+  },
+
+  // ----------------------------------------------------------- News and jobs
+  {
+    slug: 'news-and-articles',
+    title: 'Reading and writing articles',
+    category: 'News & Articles',
+    summary: 'Browse news and articles, react and comment, and publish your own writing.',
+    status: 'published',
+    sort_order: 65,
+    required_feature: 'content.articles',
+    body: `The Articles area is where your organisation and its members publish news, insight and stories. This article covers finding things to read — and publishing your own.
+
+## Browsing articles
+Open Articles to see everything published.
+
+- Use the search box to find articles by keyword.
+- Filter by category to focus on a topic.
+- Sort by newest, oldest, or title — and, when signed in, by most viewed or most liked.
+
+{{screenshot: The articles listing with filters}}
+
+## Reading an article
+Open any article to read it in full. Alongside the content you'll see the author, their organisation, and any co-authors.
+
+- Where reactions are enabled, use the thumbs to show what you thought.
+- Where comments are enabled, join the conversation at the bottom of the article.
+
+{{screenshot: An article page with reactions and comments}}
+
+{{feature: content.my-articles}}
+## Writing your own articles
+If your access includes writing, you'll see a "New Article" button in the Articles area.
+
+- Write and format your article in the editor, add images, and choose a category.
+- Save as a draft and come back to it any time — use the "My Articles" view to see your drafts and published pieces together.
+- When it's ready, submit or publish it following your organisation's process.
+
+{{screenshot: The article editor}}
+{{/feature}}`,
+  },
+  {
+    slug: 'jobs-and-volunteering',
+    title: 'The job board and volunteer board',
+    category: 'Jobs',
+    summary: 'Browse and apply for jobs, post your own vacancy, and find volunteer roles.',
+    status: 'published',
+    sort_order: 66,
+    required_feature: 'jobs.job-board',
+    body: `The Job Board lists opportunities shared across your community, and the Volunteer Board gathers volunteer roles from member groups. This article covers browsing, applying, and posting.
+
+## Browsing the job board
+Open the Job Board to see active postings. Featured jobs appear first.
+
+- Search by keyword, and filter by location, job type (for example full-time or part-time) and flexible hours.
+- Sort by posted date or closing date so you don't miss a deadline.
+
+{{screenshot: The job board with filters}}
+
+## Viewing and applying
+Open a posting to see the full details — the role, the organisation, salary information where given, and the closing date. How you apply depends on the posting: some give an email address, others link to an application page on the employer's website.
+
+{{screenshot: A job posting's details}}
+
+{{feature: jobs.post-job}}
+## Posting a job
+Use "Post a Job" to advertise a vacancy.
+
+- Fill in the role details, location, how to apply, and a closing date.
+- Depending on your membership, posting may be free or may require a fee paid by card before the posting goes live.
+- Where your access allows, you can post on behalf of another organisation.
+
+{{screenshot: The post a job form}}
+{{/feature}}
+
+{{feature: jobs.my-postings}}
+## Managing your postings
+My Job Postings lists everything you've posted, so you can check status, edit details, or close a vacancy once it's filled.
+{{/feature}}
+
+{{feature: jobs.volunteer-board}}
+## The volunteer board
+The Volunteer Board shows volunteer positions across your community's member groups.
+
+- Filter by group, and hide closed positions to focus on what's open.
+- Use "Express Interest" on a role to put yourself forward — you may be asked to complete a short form.
+
+{{screenshot: The volunteer board}}
+{{/feature}}`,
+  },
+
+  // ------------------------------------------------------- Forms & your org
+  {
+    slug: 'filling-in-forms',
+    title: 'Filling in forms and saving drafts',
+    category: 'Getting started',
+    summary: 'Complete forms your organisation shares, save your progress, and know your submission went through.',
+    status: 'published',
+    sort_order: 3,
+    required_feature: null,
+    body: `Your organisation uses forms for all sorts of things — applications, surveys, registrations and more. Forms are shared with you as links, and many can be completed without signing in.
+
+## Completing a form
+Open the form link you've been given and work through the questions. Longer forms are split into pages — use the navigation to move between them. Required questions are marked, and you'll be prompted if anything needed is missing.
+
+{{screenshot: A form with multiple pages}}
+
+## Saving a draft and returning later
+On longer forms you can save your progress part-way through.
+
+- Choose the save option and your answers are stored as a draft.
+- You'll get a personal resume link — keep it safe, as it's how you return to your draft. Opening the link restores everything you'd entered.
+
+{{screenshot: Saving a form draft}}
+
+## Submitting
+When you submit, you'll see a confirmation on screen (or be taken to a follow-up page if your organisation has set one up). If you don't see a confirmation, your submission hasn't gone through — check for any highlighted questions and try again.
+
+## If something goes wrong
+- Don't press submit twice — if the page is taking a moment, give it time to confirm.
+- If a form tells you it has closed or you don't have access, contact your organisation.`,
+  },
+  {
+    slug: 'managing-your-organisation-profile',
+    title: 'Managing your organisation\'s profile',
+    category: 'Your account',
+    summary: 'Keep your organisation\'s details, logo and custom information up to date.',
+    status: 'published',
+    sort_order: 22,
+    required_feature: 'organisation.my-organisation',
+    body: `If you look after your organisation's record, the My Organisation area is where you keep it current. What's shown here can appear in the organisation directory and on things like invoices, so it's worth keeping accurate.
+
+## Updating your details
+Open My Organisation to edit:
+
+- Phone number, website and address.
+- The invoicing email — where invoices for your organisation are sent.
+- A description of what your organisation does.
+
+Save when you're done; changes take effect straight away.
+
+{{screenshot: The My Organisation details form}}
+
+## Your logo
+Upload your organisation's logo so it appears wherever your organisation is shown, including the organisation directory. You can replace it at any time.
+
+## Additional information
+Your community may ask organisations for extra details through custom fields — for example sector or size. Fill these in and save; some may be used as directory filters so others can find you.
+
+## Your members
+The page lists the members linked to your organisation, so you can check who's connected. If someone is missing or shouldn't be there, contact your organisation's administrator.
+
+## Awards and verified domains
+Where used, you'll also see any awards your organisation holds and the email domains verified as belonging to it (used to recognise your colleagues automatically).`,
+  },
 ];
 
 async function run() {

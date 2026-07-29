@@ -36,3 +36,5 @@ feature, even though the page hides it. Parity is locked by
 - Embeddings need an OpenAI key, which is NOT present in the Replit workspace —
   the `--apply` backfill (`scripts/reindex-help-articles.mjs`) and any live
   ask/index path only work on Vercel/CI. Dry-run (chunk plan) works locally.
+
+**Reindex triggering (July 2026):** a nightly cron (`/api/cron/reindex-help-articles`, 03:00) is in vercel.json so the index self-heals. The cron endpoint currently accepts unauthenticated POSTs in prod because CRON_SECRET is unset there (guard fails open) — the whole-index rebuild is idempotent/read-safe, but set CRON_SECRET in the Vercel dashboard to close it.

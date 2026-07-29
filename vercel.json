@@ -95,6 +95,10 @@
       "schedule": "0 */6 * * *"
     },
     {
+      "path": "/api/cron/reindex-help-articles",
+      "schedule": "0 3 * * *"
+    },
+    {
       "path": "/api/cron/backup-storage-to-r2",
       "schedule": "*/10 2-7 * * *"
     },
