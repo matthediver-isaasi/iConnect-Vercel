@@ -30,32 +30,47 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    const { data: resources, error } = await supabase
-      .from('resource')
-      .select(`
-        id,
-        title,
-        description,
-        image_url,
-        target_url,
-        resource_type,
-        release_date,
-        author_name,
-        subcategories,
-        tags,
-        is_public,
-        open_in_new_tab,
-        allowed_role_ids,
-        linked_events
-      `)
-      .eq('tenant_id', tenant.id)
-      .eq('status', 'active')
-      .is('member_group_id', null)
-      .order('release_date', { ascending: false });
+    // Task #3220: PostgREST caps un-paginated selects at 1000 rows, so tenants
+    // with >1000 resources saw exactly 1000. Page through in batches with a
+    // deterministic order (release_date desc, id asc as a unique tiebreaker)
+    // so no rows are skipped or duplicated across page boundaries.
+    const BATCH_SIZE = 1000;
+    const resources = [];
+    let offset = 0;
+    for (;;) {
+      const { data: batch, error } = await supabase
+        .from('resource')
+        .select(`
+          id,
+          title,
+          description,
+          image_url,
+          target_url,
+          resource_type,
+          release_date,
+          author_name,
+          subcategories,
+          tags,
+          is_public,
+          open_in_new_tab,
+          allowed_role_ids,
+          linked_events
+        `)
+        .eq('tenant_id', tenant.id)
+        .eq('status', 'active')
+        .is('member_group_id', null)
+        .order('release_date', { ascending: false })
+        .order('id', { ascending: true })
+        .range(offset, offset + BATCH_SIZE - 1);
 
-    if (error) {
-      console.error('[Public Resources] Query error:', error);
-      return res.status(500).json({ error: 'Failed to fetch resources' });
+      if (error) {
+        console.error('[Public Resources] Query error:', error);
+        return res.status(500).json({ error: 'Failed to fetch resources' });
+      }
+
+      resources.push(...(batch || []));
+      if (!batch || batch.length < BATCH_SIZE) break;
+      offset += batch.length;
     }
 
     const tenant_domain = tenant.domain || `${tenant.slug}.iconn.app`;

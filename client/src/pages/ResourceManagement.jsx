@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
+import { listAllResources } from "@/lib/listAllResources";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -84,7 +85,7 @@ export default function ResourceManagementPage() {
   const { data: resources = [], isLoading } = useQuery({
     queryKey: ['admin-resources'],
     queryFn: async () => {
-      const all = await base44.entities.Resource.list('-release_date');
+      const all = await listAllResources();
       // Group resources (member_group_id set) are managed on MemberGroupDetail,
       // not in the tenant-wide resource library.
       return all.filter((r) => !r.member_group_id);

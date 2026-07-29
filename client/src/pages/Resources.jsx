@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
+import { listAllResources } from "@/lib/listAllResources";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -157,7 +158,7 @@ export default function ResourcesPage() {
       console.log('[Resources] memberRole:', memberRole?.id || 'none');
       console.log('[Resources] isAdmin:', isAdmin);
       
-      const allResources = await base44.entities.Resource.list('-release_date');
+      const allResources = await listAllResources();
       console.log('[Resources] Total resources from API:', allResources.length);
 
       // Task #1701: a group resource is normally private to its group, but
