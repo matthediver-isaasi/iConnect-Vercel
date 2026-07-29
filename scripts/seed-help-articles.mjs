@@ -358,6 +358,74 @@ Two things to know:
 {{screenshot: Requesting a cancellation with terms}}`,
   },
   {
+    slug: 'group-tickets-and-group-bookings',
+    title: 'Group tickets: booking for a group and managing your participants',
+    category: 'Events',
+    summary: 'Buy a block of places with one group ticket, then add or remove your participants using your group management link.',
+    status: 'published',
+    sort_order: 17,
+    required_feature: 'events.browse-events',
+    body: `Some events offer group tickets — a single ticket that covers a block of places, for example "Team Ticket (covers 10 participants)". You buy the group ticket once, and add the people attending afterwards using a personal management link. This article covers booking a group ticket, managing your participant list, and (for event organisers) how to set group tickets up.
+
+## Spotting a group ticket
+On the event page, a group ticket shows a "Group" badge with the number of places it covers — for example "Group (10)" — along with a note like "Covers 10 participants — manage your group after booking". The price shown is for the whole block of places, not per person.
+
+{{screenshot: An event page showing a group ticket with its Group badge}}
+
+## Booking a group ticket
+Book a group ticket the same way as any other ticket: select it, apply any discount code, voucher or training fund, and pay by card or purchase order (see "Paying for your booking"). You don't need to know who's attending yet — you're buying the places now and naming the people later.
+
+Once your booking is confirmed:
+
+- Your confirmation screen shows a "Manage Your Group" link.
+- You also receive an email with your booking reference, the number of places in your group, and the same "Manage Your Group" button.
+
+{{screenshot: The group booking confirmation email with the Manage Your Group button}}
+
+Keep that email — the link is your key to managing the group, and you can return to it as often as you need. Anyone with the link can edit the group, so only share it with someone you trust to manage the list for you.
+
+## Managing your group
+Opening your management link takes you to your group booking page. You don't need to sign in — the link itself identifies your booking. The page shows:
+
+- The event, date and location, and your booking reference.
+- How many places are filled — for example "3 / 10 participants" — with a progress bar and how many spots remain.
+- A countdown to the cut-off date, if the organiser set one.
+
+{{screenshot: The group booking management page with the participant list}}
+
+### Adding participants
+Use the "Add Participant" form: enter the person's email address (required) and optionally their first and last name, then choose "Add to Group". Each email address can only be added once, and you can't add more people than your group size allows — once every place is filled you'll see "All spots have been filled."
+
+### Removing participants
+Made a mistake, or someone can't attend? Remove them from the participant list and their place opens up again for someone else.
+
+## The cut-off date
+Organisers can set a cut-off date and time for group changes. Until then, you can add and remove participants freely; the page shows how long you have left, for example "2d 5h remaining".
+
+Once the cut-off passes, the group booking is locked: the page shows "This group booking is now closed" and no further additions or removals are possible. If you need a change after the cut-off, contact the event organiser directly.
+
+{{screenshot: A locked group booking after the cut-off date}}
+
+{{feature: events.browse-events.create}}
+## Setting up group tickets (organisers)
+When creating or editing an event, any ticket class can be made a group ticket:
+
+1. In the ticket class settings, switch on "Group Ticket".
+2. Set the Group Size — the maximum number of participants the ticket covers. It must be at least 2.
+3. Optionally set a Cut-off Date/Time. After this moment the booker can no longer add or remove participants.
+
+{{screenshot: The Group Ticket settings on a ticket class}}
+
+Price the ticket for the whole block: a group ticket is one purchase at one price, however many of the places end up filled. When someone buys it, the system creates their group booking automatically and emails them their "Manage Your Group" link — there's nothing for you to send manually.
+
+### Group tickets on multi-session (complex) events
+Ticket classes on multi-session events have the same Group Ticket option, and marked tickets show the "Group" badge with their size on the event page. Bookings on multi-session events work differently, though: the booker names each attendee at checkout, adding them to the ticket's cart before paying, rather than filling places afterwards through a management link. Use a group ticket when you want one buyer to pay once and fill in names later; use the normal multi-attendee booking when attendee details should be captured at the point of booking.
+
+### Seeing who's in a group
+Group bookings appear in the Event Registration Report alongside other bookings, so you can see the booker and the participants they've added when planning the event.
+{{/feature}}`,
+  },
+  {
     slug: 'running-in-person-events-checkin',
     title: 'Running in-person events: QR check-in, scanning and reports',
     category: 'Events',
