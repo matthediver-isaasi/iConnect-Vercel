@@ -701,6 +701,223 @@ Balances update automatically. If you make a booking in another tab, you'll see 
 If you manage your organisation's fund and vouchers, you can set role restrictions to control which member roles are allowed to spend the training fund or use vouchers. Adjust these using the checkboxes in the availability settings.
 {{/feature}}`,
   },
+
+  // ------------------------------------------------------------- Fundraising
+  {
+    slug: 'browsing-fundraising-campaigns',
+    title: 'Browsing fundraising campaigns',
+    category: 'Fundraising',
+    summary: 'See the fundraising campaigns running, how they\'re going, and how to get involved.',
+    status: 'published',
+    sort_order: 50,
+    required_feature: null,
+    body: `The Campaigns page lists the fundraising campaigns your organisation is running, so you can see what's happening, follow the progress, and get involved — by donating or by becoming a fundraiser yourself.
+
+## Finding campaigns
+Open the Campaigns page to see every live campaign. Each campaign card shows:
+
+- The campaign name, cover image and a short description.
+- A progress bar with the total raised so far against the goal (unless the organisation has chosen to hide the target).
+- How many fundraisers are taking part and how many donations have been made.
+- The end date, where the campaign has one.
+
+{{screenshot: The fundraising campaigns page}}
+
+## Getting involved
+From a campaign card you can:
+
+- Choose "Start Fundraising" to register as a fundraiser for that campaign — see "Becoming a fundraiser".
+- Open a fundraiser's personal page (for example from a link they've shared) to read their story and donate — see "Making a donation and Gift Aid".
+
+If a campaign shows "Registration Closed", it isn't currently accepting new fundraisers, and "Campaign Ended" means it has finished — though you can still see how it went.`,
+  },
+  {
+    slug: 'becoming-a-fundraiser',
+    title: 'Becoming a fundraiser',
+    category: 'Fundraising',
+    summary: 'Register for a campaign as an individual, a team or an organisation, and sign in to your fundraiser dashboard.',
+    status: 'published',
+    sort_order: 51,
+    required_feature: null,
+    body: `When a campaign has registration open, anyone can sign up to fundraise for it — you don't need an existing portal account. This article covers registering and signing back in later.
+
+## Registering for a campaign
+Choose "Start Fundraising" on a campaign to begin. The registration is a short, guided set of steps:
+
+1. Choose how you're taking part. Depending on the campaign you can register as an individual or as a team (some campaigns offer both).
+2. If the campaign supports organisation sign-up, search for your organisation by name — or enter its details (address, city, postcode and country) if it isn't listed yet.
+3. Enter your own details: first name, last name and email address. You can also set a personal fundraising goal if you'd like one shown on your page.
+4. For a team, give the team a name and add your team members with their names and email addresses. Campaigns may limit how many people a team can have.
+
+{{screenshot: The fundraiser registration steps}}
+
+## What happens next
+Once you've registered:
+
+- You (and each team member) get a personal fundraising page with its own unique donation link to share with supporters.
+- The campaign's welcome message confirms you're in and explains any next steps the organisation wants you to take.
+
+## Signing in to your dashboard
+Fundraisers sign in with a secure email link — there's no password to remember.
+
+- Open the fundraiser sign-in page and enter the email address you registered with.
+- You'll receive an email with a sign-in link. Open it and you're taken straight to your fundraiser dashboard.
+- If the email doesn't arrive, check your spam folder and make sure you used the same address you registered with.
+
+{{screenshot: The fundraiser sign-in page}}
+
+See "Your fundraiser dashboard" for everything you can do once you're signed in.`,
+  },
+  {
+    slug: 'your-fundraiser-dashboard',
+    title: 'Your fundraiser dashboard',
+    category: 'Fundraising',
+    summary: 'Share your donation link, personalise your page, post updates, and follow the leaderboard.',
+    status: 'published',
+    sort_order: 52,
+    required_feature: null,
+    body: `Your fundraiser dashboard is home base for your campaign — it's where you track what you've raised, personalise your page, and keep supporters engaged.
+
+## Tracking your progress
+The dashboard shows your total raised, your progress toward your goal, and your recent donations as they come in — including any messages donors have left for you.
+
+{{screenshot: The fundraiser dashboard overview}}
+
+## Sharing your donation link
+Every fundraiser has a unique donation link.
+
+- Use "Copy Link" to copy it, then share it by email, message or social media — anyone with the link can donate.
+- If you're part of a team, your team also has a shared page supporters can give to.
+
+## Personalising your page
+Make your page yours so supporters know why you're fundraising:
+
+- Add a personal message telling your story.
+- Upload a profile photo or page image.
+- Set or adjust your personal fundraising goal.
+
+{{screenshot: Editing your fundraiser page}}
+
+## Posting updates
+Keep supporters in the loop with updates on your page.
+
+- Use "Post an Update" to write a short update, and attach photos if you like.
+- You can edit or delete your own updates later.
+- Updates appear on your public fundraising page, so supporters who visit see your latest news.
+
+{{screenshot: Posting a campaign update}}
+
+## Leaderboard and achievements
+When several fundraisers are taking part, the dashboard shows a bit of friendly competition:
+
+- Your rank in the campaign and the fundraisers nearest to you on the leaderboard.
+- Achievement badges you earn as donations arrive and milestones are reached.
+
+## Messages from well-wishers
+Supporters can leave messages of encouragement — with or without a donation. You'll see them on your dashboard, so nothing kind goes unnoticed.`,
+  },
+  {
+    slug: 'making-a-donation-and-gift-aid',
+    title: 'Making a donation and Gift Aid',
+    category: 'Fundraising',
+    summary: 'Donate to a fundraiser, leave a message of support, and add Gift Aid if you\'re a UK taxpayer.',
+    status: 'published',
+    sort_order: 53,
+    required_feature: null,
+    body: `Anyone with a fundraiser's donation link can give — you don't need an account. This article walks through the donation page.
+
+## Choosing an amount
+Open the fundraiser's page from their shared link. You'll see their story, their progress, and the donation form.
+
+- Pick one of the suggested amounts, or enter your own.
+- The minimum donation is 1.00 in the campaign's currency.
+
+{{screenshot: Choosing a donation amount}}
+
+## Your details and message
+- Enter your name. Adding your email is optional but recommended — it's where your payment receipt goes.
+- You can leave a message of support that appears with your donation.
+- Prefer to stay private? Tick the anonymous option and your name won't be shown publicly.
+- A separate consent box asks whether the organisation may contact you about future campaigns — entirely your choice.
+
+## Adding Gift Aid (UK taxpayers)
+If you're a UK taxpayer, Gift Aid lets the organisation claim an extra 25% on top of your donation from HMRC — at no cost to you.
+
+- Tick the Gift Aid box and read the taxpayer declaration.
+- Enter your home address (address line, city and postcode). HMRC requires this to process the claim.
+- Only add Gift Aid if you pay enough UK Income or Capital Gains Tax to cover the amount reclaimed on your donations.
+
+{{screenshot: The Gift Aid declaration}}
+
+## Paying
+Payment is by card, handled securely — card details are never stored by the organisation.
+
+- Enter your card details and confirm. If your bank asks you to verify the payment, follow its prompts and you'll be returned automatically.
+- Once the payment succeeds you'll see a confirmation, and your donation appears on the fundraiser's page (as "Anonymous" if you chose that).
+
+## Just want to send encouragement?
+You can also leave a message of support without donating — look for the well-wisher option on the fundraiser's page. Your message goes to the fundraiser to cheer them on.`,
+  },
+  {
+    slug: 'managing-fundraising-campaigns',
+    title: 'Managing fundraising campaigns',
+    category: 'Fundraising',
+    summary: 'Create and run campaigns, manage fundraisers and teams, and track donations and Gift Aid.',
+    status: 'published',
+    sort_order: 54,
+    required_feature: 'fundraising.fundraising-management',
+    body: `The Fundraising area is where administrators create campaigns, look after fundraisers, and keep track of every donation. This article covers the full admin journey.
+
+## The fundraising overview
+Open Fundraising to see all your campaigns at a glance — total raised across everything, total donations, how many campaigns are active, and the average donation. Each campaign card shows its own progress, fundraiser count and donation count.
+
+{{screenshot: The fundraising overview}}
+
+## Creating a campaign
+Choose "New Campaign" and fill in the details:
+
+- Name and description, plus a cover image to bring the page to life.
+- A goal amount and currency. You can optionally hide the target from the public page if you'd rather not show it.
+- Start and end dates, where the campaign has a fixed window.
+- The campaign type — individual fundraisers, teams, or both. For team campaigns you can set a maximum team size (or leave it unlimited).
+- Whether donors may give anonymously.
+
+A campaign starts as a draft, so you can get everything right before it goes live. Set the status to Active when you're ready to accept donations; Completed and Cancelled close it down.
+
+{{screenshot: Creating a new campaign}}
+
+## Opening self-registration
+Turn on registration to let people sign themselves up as fundraisers:
+
+- Copy the campaign's registration link and share it — anyone with the link can register while registration is open.
+- Add a welcome message shown to fundraisers after they register.
+- Optionally have the platform create a member record (with a role you choose) and organisation record automatically for each new fundraiser, so they're part of your database from day one.
+- You can also add terms and conditions and a privacy statement that registrants see.
+
+## Managing fundraisers and teams
+From a campaign you can see every fundraiser, grouped into their teams where applicable, each with the amount they've raised, their donation count and any Gift Aid donations.
+
+- Add fundraisers yourself, or remove someone who's no longer taking part.
+- Copy any fundraiser's personal donation link, or open their public page to see it as supporters do.
+
+{{screenshot: A campaign's fundraiser list}}
+
+## Tracking donations and Gift Aid
+The campaign view brings the money together:
+
+- Totals for the amount raised, donation count, unique donors and average donation.
+- A Gift Aid summary showing how many donations carry a declaration and the extra 25% you can claim — donor addresses are captured with each declaration for your HMRC claim.
+- The full donation list, including pending payments, donor messages and anonymous gifts.
+- Download the donations as a CSV for your records or your Gift Aid claim.
+
+{{screenshot: The campaign donations view}}
+
+## Campaign updates
+Fundraisers can post updates to their pages; you can review and manage updates across the whole campaign from the admin view, keeping everything on-message.
+
+## Sharing the campaign
+Campaign pages support SEO settings — a title, description and social-sharing image — so the campaign looks its best when links are shared. See "Browsing fundraising campaigns" for what supporters see.`,
+  },
 ];
 
 async function run() {
