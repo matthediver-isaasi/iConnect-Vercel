@@ -262,6 +262,8 @@ import MemberGroupAssignmentReport from "./MemberGroupAssignmentReport";
 
 import MemberGroupInviteReport from "./MemberGroupInviteReport";
 
+import MemberGroupClassificationReport from "./MemberGroupClassificationReport";
+
 import TeamEngagementReport from "./TeamEngagementReport";
 
 import MemberGroupGuestManagement from "./MemberGroupGuestManagement";
@@ -714,6 +716,8 @@ const PAGES = {
     
     MemberGroupInviteReport: MemberGroupInviteReport,
     
+    MemberGroupClassificationReport: MemberGroupClassificationReport,
+    
     TeamEngagementReport: TeamEngagementReport,
     
     MemberGroupGuestManagement: MemberGroupGuestManagement,
@@ -1145,6 +1149,8 @@ function PagesContent() {
                 <Route path="/MemberGroupAssignmentReport" element={<MemberGroupAssignmentReport />} />
                 
                 <Route path="/MemberGroupInviteReport" element={<MemberGroupInviteReport />} />
+                
+                <Route path="/MemberGroupClassificationReport" element={<MemberGroupClassificationReport />} />
                 
                 <Route path="/TeamEngagementReport" element={<TeamEngagementReport />} />
                 

@@ -312,6 +312,12 @@ const adminNavigationItems = [
     featureId: "membership.member-groups-invite-report"
   },
   {
+    title: "Group Classification Report",
+    url: createPageUrl("MemberGroupClassificationReport"),
+    icon: FileText,
+    featureId: "membership.member-group-classification-report"
+  },
+  {
     title: "Discount Codes",
     url: createPageUrl("DiscountCodeManagement"),
     icon: Ticket,

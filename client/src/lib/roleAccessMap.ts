@@ -258,6 +258,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
         label: "Member Group Invite Report"
       },
       {
+        id: "membership.member-group-classification-report",
+        label: "Group Classification Activity Report"
+      },
+      {
         id: "membership.member-directory-settings",
         label: "Member Directory Settings"
       },
@@ -1162,6 +1166,8 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_SponsorManagement": "events.sponsors",
   "page_ArticlesSettings": "content.articles-settings",
   "page_VoucherManagement": "commerce.voucher-management",
+  "page_MemberGroupClassificationReport": "membership.member-group-classification-report",
+  "page_admin_MemberGroupClassificationReport": "membership.member-group-classification-report",
   "page_MonthlyFinanceReport": "commerce.monthly-finance-report",
   "page_admin_MonthlyFinanceReport": "commerce.monthly-finance-report",
   "page_DirectDebitAdmin": "commerce.gocardless-dd",
