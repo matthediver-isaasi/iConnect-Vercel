@@ -1,6 +1,7 @@
 import { supabase } from '../../_lib/database.js';
 import { resolveTenantFromRequest } from '../../_lib/tenantResolver.js';
-import { createCalendarEvent, getOutlookConnectionForIdentity } from '../../outlook/calendar.js';
+import { createCalendarEvent, getOutlookConnectionForIdentity, getBusyTimes, markConnectionError } from '../../outlook/calendar.js';
+import { slotConflictsWithBusyTimes } from '../../_lib/busyTimes.js';
 import { getZoomAccessTokenForTenant } from '../../_lib/zoomClient.js';
 import { formatInTimeZone } from 'date-fns-tz';
 import { sendEmail } from '../../_lib/emailService.js';
@@ -254,6 +255,30 @@ export default async function handler(req, res) {
 
       if (conflicts && conflicts.length > 0) {
         return res.status(409).json({ error: 'This time slot is no longer available' });
+      }
+
+      // Re-validate against the agent's Outlook calendar at booking time: the
+      // slot list may be stale (page left open, or a new Outlook event added
+      // after slots loaded).
+      const outlookConn = await getOutlookConnectionForIdentity(identity.id, tenantId);
+      if (outlookConn) {
+        const agentTimezone = profile.timezone || 'Europe/London';
+        try {
+          const busyTimes = await getBusyTimes(
+            outlookConn,
+            startTime.toISOString(),
+            endTime.toISOString(),
+            agentTimezone
+          );
+          if (slotConflictsWithBusyTimes(startTime, endTime, busyTimes, agentTimezone)) {
+            return res.status(409).json({ error: 'This time slot is no longer available' });
+          }
+        } catch (calendarError) {
+          // Flag but fail open, matching the slots endpoint: a broken Outlook
+          // connection degrades to internal-booking checks only.
+          console.error(`[Public Booking] Outlook busy-time re-check failed for identity ${identity.id} (tenant ${tenantId}):`, calendarError.message);
+          await markConnectionError(outlookConn, outlookConn.status === 'active' ? 'error' : outlookConn.status, `Busy-time fetch failed: ${calendarError.message}`);
+        }
       }
 
       const { data: memberMatch } = await supabase

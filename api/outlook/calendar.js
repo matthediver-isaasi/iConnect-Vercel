@@ -17,7 +17,10 @@ async function refreshAccessToken(connection) {
 
   if (!tokenResponse.ok) {
     const errorData = await tokenResponse.text();
-    console.error('[Outlook Calendar] Token refresh failed:', errorData);
+    console.error(`[Outlook Calendar] Token refresh failed for connection ${connection.id} (identity ${connection.identity_id}):`, errorData);
+    // Flag the connection so admins/agents can see the calendar is no longer
+    // being honoured (same pattern as api/outlook/send.js)
+    await markConnectionError(connection, 'expired', 'Token refresh failed');
     throw new Error('Token refresh failed');
   }
 
@@ -95,6 +98,34 @@ export async function createCalendarEvent(connection, eventData) {
   return await response.json();
 }
 
+/**
+ * Flag an Outlook connection as errored so the broken state is visible to
+ * admins (api/outlook/status.js surfaces status + sync_error). Best-effort:
+ * never throws.
+ */
+export async function markConnectionError(connection, status, message) {
+  if (!connection?.id) return;
+  try {
+    const { error } = await supabase
+      .from('outlook_connection')
+      .update({
+        status: status || 'error',
+        sync_error: message,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', connection.id);
+    if (error) {
+      console.error('[Outlook Calendar] Failed to flag connection error:', error.message);
+    }
+  } catch (e) {
+    console.error('[Outlook Calendar] Failed to flag connection error:', e.message);
+  }
+}
+
+// Safety cap on calendarview pagination: 20 pages x 100 events = 2000 events
+// in a booking window, far beyond any realistic agent calendar.
+const MAX_CALENDAR_PAGES = 20;
+
 export async function getBusyTimes(connection, startDateTime, endDateTime, timeZone = 'UTC') {
   const accessToken = await getValidAccessToken(connection);
   
@@ -104,21 +135,33 @@ export async function getBusyTimes(connection, startDateTime, endDateTime, timeZ
   calendarViewUrl.searchParams.set('$select', 'subject,start,end,showAs,isCancelled');
   calendarViewUrl.searchParams.set('$top', '100');
 
-  const response = await fetch(calendarViewUrl.toString(), {
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Prefer': `outlook.timezone="${timeZone}"`
-    }
-  });
+  const events = [];
+  let nextUrl = calendarViewUrl.toString();
+  let pages = 0;
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('[Outlook Calendar] Failed to get calendar view:', errorText);
-    throw new Error('Failed to get calendar events');
+  while (nextUrl && pages < MAX_CALENDAR_PAGES) {
+    const response = await fetch(nextUrl, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Prefer': `outlook.timezone="${timeZone}"`
+      }
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[Outlook Calendar] Failed to get calendar view for connection ${connection.id} (identity ${connection.identity_id}):`, errorText);
+      throw new Error('Failed to get calendar events');
+    }
+
+    const data = await response.json();
+    events.push(...(data.value || []));
+    nextUrl = data['@odata.nextLink'] || null;
+    pages += 1;
   }
 
-  const data = await response.json();
-  const events = data.value || [];
+  if (nextUrl) {
+    console.warn(`[Outlook Calendar] Calendar view pagination hit ${MAX_CALENDAR_PAGES}-page cap for connection ${connection.id}; remaining events ignored`);
+  }
 
   const busyTimes = events
     .filter(e => !e.isCancelled && (e.showAs === 'busy' || e.showAs === 'tentative' || e.showAs === 'oof'))

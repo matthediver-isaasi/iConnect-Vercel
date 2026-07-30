@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -157,6 +157,8 @@ export default function PublicBooking() {
   });
 
   const [bookingResult, setBookingResult] = useState(null);
+  const [slotConflictMessage, setSlotConflictMessage] = useState(null);
+  const queryClient = useQueryClient();
 
   const bookingMutation = useMutation({
     mutationFn: (bookingData) => publicClient.submitBooking(slug, bookingData),
@@ -166,6 +168,15 @@ export default function PublicBooking() {
     },
     onError: (error) => {
       console.error('[PublicBooking] Booking failed:', error);
+      if (error?.status === 409) {
+        // The chosen slot was taken (internal booking or Outlook busy time)
+        // while the page was open — refresh availability and prompt the
+        // applicant to pick another time.
+        setSelectedSlot(null);
+        setSlotConflictMessage('Sorry, that time slot is no longer available. Please pick another time.');
+        setStep('select');
+        queryClient.invalidateQueries({ queryKey: ['public-booking-slots'] });
+      }
     }
   });
 
@@ -486,6 +497,13 @@ export default function PublicBooking() {
                     {format(selectedDate, 'EEEE, MMMM d')}
                   </h3>
 
+                  {slotConflictMessage && (
+                    <div className="mb-4 p-3 rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 text-sm flex items-start gap-2" data-testid="banner-slot-conflict">
+                      <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                      <span>{slotConflictMessage}</span>
+                    </div>
+                  )}
+
                   {slotsError ? (
                     <div className="text-center py-12 text-red-500">
                       <AlertTriangle className="h-8 w-8 mx-auto mb-2" />
@@ -508,7 +526,10 @@ export default function PublicBooking() {
                             key={index}
                             variant={selectedSlot?.start === slot.start ? 'default' : 'outline'}
                             className="justify-center"
-                            onClick={() => setSelectedSlot(slot)}
+                            onClick={() => {
+                              setSelectedSlot(slot);
+                              setSlotConflictMessage(null);
+                            }}
                             data-testid={`button-slot-${index}`}
                           >
                             {formatTimeInTimezone(slot.start, visitorTimezone)}

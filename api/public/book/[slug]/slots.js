@@ -2,17 +2,8 @@ import { supabase } from '../../../_lib/database.js';
 import { resolveTenantFromRequest } from '../../../_lib/tenantResolver.js';
 import { format, parse, addMinutes, isBefore, isAfter, startOfDay, addDays } from 'date-fns';
 import { toZonedTime, fromZonedTime, formatInTimeZone } from 'date-fns-tz';
-import { getBusyTimes, getOutlookConnectionForIdentity } from '../../../outlook/calendar.js';
-
-// Parse calendar busy times into UTC Date objects, handling timezone correctly
-function parseBusyTimeToUTC(timeStr, timeZone) {
-  // If the time string already has a Z suffix, it's UTC
-  if (timeStr.endsWith('Z') || timeStr.includes('+') || timeStr.includes('-')) {
-    return new Date(timeStr);
-  }
-  // Otherwise, treat it as local time in the given timezone and convert to UTC
-  return fromZonedTime(new Date(timeStr), timeZone);
-}
+import { getBusyTimes, getOutlookConnectionForIdentity, markConnectionError } from '../../../outlook/calendar.js';
+import { slotConflictsWithBusyTimes } from '../../../_lib/busyTimes.js';
 
 function generateSlots(workingHours, agentTimezone, slotMinutes, bufferMinutes, dateStr, existingBookings, calendarBusyTimes = []) {
   const slots = [];
@@ -83,11 +74,7 @@ function generateSlots(workingHours, agentTimezone, slotMinutes, bufferMinutes, 
       });
 
       // Check for conflicts with calendar busy times from Outlook
-      const hasCalendarConflict = calendarBusyTimes.some(busy => {
-        const busyStart = parseBusyTimeToUTC(busy.start, busy.timeZone || agentTimezone);
-        const busyEnd = parseBusyTimeToUTC(busy.end, busy.timeZone || agentTimezone);
-        return isBefore(currentSlot, busyEnd) && isAfter(slotEnd, busyStart);
-      });
+      const hasCalendarConflict = slotConflictsWithBusyTimes(currentSlot, slotEnd, calendarBusyTimes, agentTimezone);
 
       const isPast = isBefore(currentSlot, now);
 
@@ -239,8 +226,10 @@ export default async function handler(req, res) {
     // Fetch calendar busy times from Outlook if connected
     let calendarBusyTimes = [];
     let calendarConnected = false;
+    let calendarDegraded = false;
+    let outlookConnection = null;
     try {
-      const outlookConnection = await getOutlookConnectionForIdentity(identityId, tenantId);
+      outlookConnection = await getOutlookConnectionForIdentity(identityId, tenantId);
       if (outlookConnection) {
         calendarConnected = true;
         calendarBusyTimes = await getBusyTimes(
@@ -252,8 +241,16 @@ export default async function handler(req, res) {
         console.log(`[Slots] Found ${calendarBusyTimes.length} calendar busy times for agent`);
       }
     } catch (calendarError) {
-      console.error('[Slots] Failed to fetch calendar busy times:', calendarError.message);
-      // Continue without calendar data - don't fail the request
+      // Not silent: flag the connection so admins/agents can see the Outlook
+      // calendar is not being honoured (token refresh failures are already
+      // flagged as 'expired' inside calendar.js; Graph errors flagged here).
+      calendarDegraded = true;
+      console.error(`[Slots] Failed to fetch calendar busy times for identity ${identityId} (tenant ${tenantId}):`, calendarError.message);
+      if (outlookConnection) {
+        await markConnectionError(outlookConnection, outlookConnection.status === 'active' ? 'error' : outlookConnection.status, `Busy-time fetch failed: ${calendarError.message}`);
+      }
+      // Product decision: continue serving slots (availability degrades to
+      // internal bookings only) rather than blocking all public bookings.
     }
 
     const slotsByDate = {};
@@ -278,6 +275,7 @@ export default async function handler(req, res) {
       timezone: profile.timezone,
       slotMinutes: profile.default_slot_minutes,
       calendarConnected,
+      calendarDegraded,
       maxDaysAhead
     });
   } catch (err) {
