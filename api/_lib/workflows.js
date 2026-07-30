@@ -6,6 +6,7 @@ import crypto from 'crypto';
 import { supabase } from './database.js';
 import { simulateMembershipForOrg, simulateMembershipForMember } from './membershipSimulation.js';
 import { getConfigForMember } from './membershipConfigResolver.js';
+import { autoApproveMemberFees, autoApproveOrgFees } from './membershipFeeApproval.js';
 import { coerceBooleanPreferenceValue } from './booleanCoercion.js';
 
 // Attempts to parse a stringified JSON array. Returns the parsed array
@@ -574,7 +575,9 @@ async function buildActionSummary(action, tenantId, entityContext) {
                   console.error('[Workflows] Error querying fee approval in preview:', approvalError.message);
                 }
 
-                summary.fees_approved = !!approvalRecord?.fees_approved;
+                // Task #3241 — the config's "Auto-approve fees" setting means
+                // execution will approve and proceed; preview stays read-only.
+                summary.fees_approved = !!approvalRecord?.fees_approved || !!simResult?.config?.auto_approve_fees;
                 summary.membership_year = yearLabel;
                 if (!summary.fees_approved) {
                   summary.approval_warning = `Fees for ${yearLabel} have not been approved`;
@@ -614,7 +617,9 @@ async function buildActionSummary(action, tenantId, entityContext) {
                   }
 
                   const memberName = simResult?.member?.name || 'this member';
-                  summary.fees_approved = !!approvalRecord?.fees_approved;
+                  // Task #3241 — auto-approve on the config counts as approved
+                  // (execution materialises it); preview stays read-only.
+                  summary.fees_approved = !!approvalRecord?.fees_approved || !!memberConfig.auto_approve_fees;
                   summary.membership_year = yearLabel;
                   if (!summary.fees_approved) {
                     summary.approval_warning = `Fees for ${yearLabel} have not been approved for ${memberName}`;
@@ -1489,12 +1494,20 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
         }
 
         if (!approvalRecord?.fees_approved) {
-          console.log(`[Workflows] Skipping create_membership for org ${organizationId} - fees not approved for ${targetYearLabel}`);
-          return {
-            action_type: 'create_membership',
-            status: 'skipped',
-            message: `Fees for ${targetYearLabel} have not been approved. Approve fees on the Membership tab before the workflow can create a record.`,
-          };
+          // Task #3241 — the tier config's "Auto-approve fees" setting wins:
+          // materialise the approval and proceed instead of skipping.
+          const autoResult = await autoApproveOrgFees(tenantId, organizationId, {
+            config: simResult.config,
+            yearLabel: targetYearLabel,
+          });
+          if (!autoResult.approved) {
+            console.log(`[Workflows] Skipping create_membership for org ${organizationId} - fees not approved for ${targetYearLabel}`);
+            return {
+              action_type: 'create_membership',
+              status: 'skipped',
+              message: `Fees for ${targetYearLabel} have not been approved. Approve fees on the Membership tab before the workflow can create a record.`,
+            };
+          }
         }
       }
     } catch (approvalErr) {
@@ -1691,12 +1704,19 @@ async function executeCreateMemberMembership(action, workflow, memberId) {
           console.error(`[Workflows] Error checking fee approval for member ${memberId}:`, approvalError.message);
         }
         if (!approvalRecord?.fees_approved) {
-          return {
-            action_type: 'create_membership',
-            status: 'skipped',
-            target: 'member',
-            message: `Fees for ${targetYearLabel} have not been approved for ${memberName}. Approve fees on the Membership tab before the workflow can create a record.`,
-          };
+          // Task #3241 — honour the config's "Auto-approve fees" setting.
+          const autoResult = await autoApproveMemberFees(tenantId, memberId, {
+            config: simResult.config,
+            yearLabel: targetYearLabel,
+          });
+          if (!autoResult.approved) {
+            return {
+              action_type: 'create_membership',
+              status: 'skipped',
+              target: 'member',
+              message: `Fees for ${targetYearLabel} have not been approved for ${memberName}. Approve fees on the Membership tab before the workflow can create a record.`,
+            };
+          }
         }
       }
     } catch (approvalErr) {
