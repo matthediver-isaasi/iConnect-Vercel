@@ -680,6 +680,46 @@ async function buildConditionSummaries(conditions, tenantId, entityType) {
   return summaries;
 }
 
+// Task #3232 — workflow-set fields trigger downstream workflows.
+// A chain context rides on `context.chain`: { depth, visited: [workflowIds] }.
+// Each update_field action extends the chain with the CURRENT workflow's id
+// before re-evaluating field-change workflows, so a workflow never re-triggers
+// itself and A -> B -> A cycles stop at the visited guard. Depth is capped as
+// a belt-and-braces backstop for long non-cyclic chains.
+const MAX_WORKFLOW_CHAIN_DEPTH = 5;
+
+export function extendWorkflowChain(context, workflow) {
+  const prev = context?.chain || {};
+  const visited = new Set(prev.visited || []);
+  visited.add(workflow.id);
+  const depth = (prev.depth || 0) + 1;
+  if (depth > MAX_WORKFLOW_CHAIN_DEPTH) return null;
+  return { depth, visited: Array.from(visited) };
+}
+
+// Log a skipped run when the chain guard stops a downstream workflow, so the
+// admin can see WHY it didn't fire instead of the skip living only in logs.
+async function logChainGuardSkip(workflow, entityType, entityId, reason, chain) {
+  try {
+    await supabase.from('workflow_log').insert({
+      tenant_id: workflow.tenant_id,
+      workflow_id: workflow.id,
+      entity_type: entityType,
+      entity_id: entityId,
+      trigger_data: {
+        trigger_type: 'field_change',
+        reason,
+        chain_depth: chain?.depth,
+        chain_visited: chain?.visited,
+      },
+      actions_executed: [],
+      status: 'skipped',
+    });
+  } catch (e) {
+    console.error(`[Workflows] Failed to log chain-guard skip for ${workflow.name}:`, e.message);
+  }
+}
+
 async function executeWorkflowActions(workflow, entityType, entityId, entityData, baseUrl, context = {}) {
   const results = [];
   const tenantId = workflow.tenant_id;
@@ -717,6 +757,15 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
         resolvedValue = new Date().toISOString();
       }
       console.log(`[Workflows] update_field (core): ${table}.${action.config.field_id} = "${resolvedValue}" for ${entityType}:${entityId}`);
+      // Task #3232: snapshot the row before writing so downstream field-change
+      // workflows can be evaluated with real before/after data.
+      let beforeRow = null;
+      try {
+        const { data } = await supabase.from(table).select('*').eq('id', entityId).maybeSingle();
+        beforeRow = data;
+      } catch (e) {
+        console.warn(`[Workflows] update_field (core): before-row snapshot failed:`, e.message);
+      }
       const { data: updateData, error: updateError } = await supabase.from(table).update({ [action.config.field_id]: resolvedValue }).eq('id', entityId).select('id');
       if (updateError) {
         console.error(`[Workflows] update_field (core) error:`, updateError.message);
@@ -726,6 +775,29 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
         results.push({ action_type: 'update_field', field_type: 'core', status: 'failed', error: `No rows updated - field "${action.config.field_id}" may not exist on ${table}` });
       } else {
         results.push({ action_type: 'update_field', field_type: 'core', status: 'success' });
+        // Task #3232: a workflow-set field must evaluate downstream workflows
+        // itself (nothing else sees this write). System-initiated, so
+        // requires_confirmation workflows run without the popup.
+        const beforeValue = String(beforeRow?.[action.config.field_id] ?? '');
+        const afterValue = String(resolvedValue ?? '');
+        if (beforeValue !== afterValue) {
+          const chain = extendWorkflowChain(context, workflow);
+          if (!chain) {
+            console.warn(`[Workflows] Chain depth cap (${MAX_WORKFLOW_CHAIN_DEPTH}) reached after "${workflow.name}" - not evaluating downstream workflows for ${table}.${action.config.field_id}`);
+            await logChainGuardSkip(workflow, entityType, entityId, 'chain_depth_cap', context?.chain);
+          } else {
+            try {
+              const afterRow = { ...(beforeRow || {}), id: entityId, [action.config.field_id]: resolvedValue };
+              await triggerWorkflows(entityType, entityId, beforeRow || {}, afterRow, 'field_change', baseUrl, {
+                ...context,
+                systemInitiated: true,
+                chain,
+              });
+            } catch (chainErr) {
+              console.error(`[Workflows] Downstream evaluation after update_field (core) failed:`, chainErr.message);
+            }
+          }
+        }
       }
     } else if (action.type === 'update_field' && normalizedFieldType === 'custom') {
       try {
@@ -791,10 +863,11 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
 
         const { data: existing } = await supabase
           .from(prefTable)
-          .select('id')
+          .select('id, value')
           .eq(foreignKey, entityId)
           .eq('field_id', fieldId)
           .maybeSingle();
+        const previousValue = existing?.value;
 
         if (existing) {
           const { error: upErr } = await supabase
@@ -822,6 +895,27 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
         }
 
         results.push({ action_type: 'update_field', field_type: 'custom', status: 'success' });
+
+        // Task #3232: chain downstream field-change workflows for the custom
+        // field this workflow just set. System-initiated -> confirmation
+        // popups are bypassed (nobody is present to click Confirm).
+        if (String(previousValue ?? '') !== String(resolvedValue ?? '')) {
+          const chain = extendWorkflowChain(context, workflow);
+          if (!chain) {
+            console.warn(`[Workflows] Chain depth cap (${MAX_WORKFLOW_CHAIN_DEPTH}) reached after "${workflow.name}" - not evaluating downstream workflows for custom field ${fieldId}`);
+            await logChainGuardSkip(workflow, entityType, entityId, 'chain_depth_cap', context?.chain);
+          } else if (entityType === 'member' || entityType === 'organization') {
+            try {
+              await triggerPreferenceWorkflows(entityType, entityId, fieldId, String(resolvedValue ?? ''), baseUrl, previousValue, {
+                ...context,
+                systemInitiated: true,
+                chain,
+              });
+            } catch (chainErr) {
+              console.error(`[Workflows] Downstream evaluation after update_field (custom) failed:`, chainErr.message);
+            }
+          }
+        }
       } catch (err) {
         console.error(`[Workflows] update_field (custom) error:`, err.message);
         results.push({ action_type: 'update_field', field_type: 'custom', status: 'failed', error: err.message });
@@ -2193,6 +2287,14 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
         continue;
       }
 
+      // Task #3232: loop guard for workflow-initiated chains — a workflow
+      // already in this chain must not run again (A -> B -> A / self-trigger).
+      if (Array.isArray(context.chain?.visited) && context.chain.visited.includes(workflow.id)) {
+        console.log(`[Workflows] Chain loop guard: "${workflow.name}" already ran in this chain - skipping`);
+        await logChainGuardSkip(workflow, entityType, entityId, 'chain_loop_guard', context.chain);
+        continue;
+      }
+
       let allConditionsMet = true;
       const conditionResults = [];
       console.log(`[Workflows] ${workflow.name} - conditions array:`, JSON.stringify(workflow.conditions));
@@ -2313,7 +2415,9 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
         continue;
       }
 
-      if (workflow.trigger_type === 'field_change' && workflow.trigger_config?.requires_confirmation) {
+      // Task #3232: system-initiated changes (a workflow set the field) have
+      // no human present to confirm — bypass the confirmation gate and run.
+      if (workflow.trigger_type === 'field_change' && workflow.trigger_config?.requires_confirmation && !context.systemInitiated) {
         console.log(`[Workflows] Workflow "${workflow.name}" requires user confirmation - adding to pending list (conditions_met=${allConditionsMet})`);
         const revertFieldId = workflow.trigger_config?.field_id;
         const revertFieldType = workflow.trigger_config?.field_type || 'core';
@@ -2414,7 +2518,7 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
       console.log(`[Workflows] Executing workflow: ${workflow.name} (trigger_mode=${workflow.trigger_mode || 'every_time'})`);
 
       const results = await executeWorkflowActions(workflow, entityType, entityId, afterData || {}, baseUrl, context);
-      await logWorkflowExecution(workflow, entityType, entityId, { before: beforeData, after: afterData, trigger_type: triggerType }, results);
+      await logWorkflowExecution(workflow, entityType, entityId, { before: beforeData, after: afterData, trigger_type: triggerType, ...(context.systemInitiated ? { system_initiated: true } : {}) }, results);
     }
     
     return { pendingConfirmations, reverts };
@@ -2497,7 +2601,7 @@ export async function recheckRecordCreateWorkflows(entityType, entityId, baseUrl
   }
 }
 
-export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, value, baseUrl, previousValue) {
+export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, value, baseUrl, previousValue, context = {}) {
   const pendingConfirmations = [];
   const reverts = [];
   
@@ -2559,6 +2663,14 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
         console.log(`[Workflows] Result: triggerMatches=${triggerMatches}`);
 
         if (!triggerMatches) continue;
+      }
+
+      // Task #3232: loop guard for workflow-initiated chains — a workflow
+      // already in this chain must not run again (A -> B -> A / self-trigger).
+      if (Array.isArray(context.chain?.visited) && context.chain.visited.includes(workflow.id)) {
+        console.log(`[Workflows] Chain loop guard: "${workflow.name}" already ran in this chain - skipping`);
+        await logChainGuardSkip(workflow, entityType, entityId, 'chain_loop_guard', context.chain);
+        continue;
       }
 
       let allConditionsMet = true;
@@ -2657,7 +2769,9 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
         continue;
       }
       
-      if (!isRecordUpdate && cfg?.requires_confirmation) {
+      // Task #3232: system-initiated changes (a workflow set the field) have
+      // no human present to confirm — bypass the confirmation gate and run.
+      if (!isRecordUpdate && cfg?.requires_confirmation && !context.systemInitiated) {
         console.log(`[Workflows] Workflow "${workflow.name}" requires user confirmation - adding to pending list (conditions_met=${allConditionsMet})`);
         const conditionSummaries = await buildConditionSummaries(workflow.conditions, workflow.tenant_id, entityType);
         const confirmationData = {
@@ -2722,8 +2836,8 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
       const entityTable = entityType === 'organization' ? 'organization' : 'member';
       const { data: entityData } = await supabase.from(entityTable).select('*').eq('id', entityId).single();
       
-      const results = await executeWorkflowActions(workflow, entityType, entityId, entityData || {}, baseUrl);
-      await logWorkflowExecution(workflow, entityType, entityId, { field_id: fieldId, value: value, trigger_type: 'field_change' }, results);
+      const results = await executeWorkflowActions(workflow, entityType, entityId, entityData || {}, baseUrl, context);
+      await logWorkflowExecution(workflow, entityType, entityId, { field_id: fieldId, value: value, trigger_type: 'field_change', ...(context.systemInitiated ? { system_initiated: true } : {}) }, results);
     }
   } catch (err) {
     console.error('[Workflows] Preference Error:', err.message, err.stack);
