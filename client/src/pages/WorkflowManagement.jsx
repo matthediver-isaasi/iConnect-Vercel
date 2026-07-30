@@ -983,7 +983,9 @@ export default function WorkflowManagementPage() {
                               )}
                               {log.trigger_data?.system_initiated === true && (
                                 <Badge variant="outline" data-testid={`badge-system-initiated-${log.id}`}>
-                                  Triggered by workflow
+                                  {log.trigger_data?.triggered_by_workflow?.name
+                                    ? `Triggered by: ${log.trigger_data.triggered_by_workflow.name}`
+                                    : 'Triggered by workflow'}
                                 </Badge>
                               )}
                               {log.status === 'skipped' && (

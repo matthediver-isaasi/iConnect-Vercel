@@ -791,6 +791,9 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
               await triggerWorkflows(entityType, entityId, beforeRow || {}, afterRow, 'field_change', baseUrl, {
                 ...context,
                 systemInitiated: true,
+                // Task #3235: record WHICH workflow started the chained run so
+                // the history badge can name it, not just flag it as chained.
+                triggeredByWorkflow: { id: workflow.id, name: workflow.name },
                 chain,
               });
             } catch (chainErr) {
@@ -909,6 +912,8 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
               await triggerPreferenceWorkflows(entityType, entityId, fieldId, String(resolvedValue ?? ''), baseUrl, previousValue, {
                 ...context,
                 systemInitiated: true,
+                // Task #3235: name the initiating workflow in trigger_data.
+                triggeredByWorkflow: { id: workflow.id, name: workflow.name },
                 chain,
               });
             } catch (chainErr) {
@@ -2518,7 +2523,7 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
       console.log(`[Workflows] Executing workflow: ${workflow.name} (trigger_mode=${workflow.trigger_mode || 'every_time'})`);
 
       const results = await executeWorkflowActions(workflow, entityType, entityId, afterData || {}, baseUrl, context);
-      await logWorkflowExecution(workflow, entityType, entityId, { before: beforeData, after: afterData, trigger_type: triggerType, ...(context.systemInitiated ? { system_initiated: true } : {}) }, results);
+      await logWorkflowExecution(workflow, entityType, entityId, { before: beforeData, after: afterData, trigger_type: triggerType, ...(context.systemInitiated ? { system_initiated: true, ...(context.triggeredByWorkflow ? { triggered_by_workflow: context.triggeredByWorkflow } : {}) } : {}) }, results);
     }
     
     return { pendingConfirmations, reverts };
@@ -2837,7 +2842,7 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
       const { data: entityData } = await supabase.from(entityTable).select('*').eq('id', entityId).single();
       
       const results = await executeWorkflowActions(workflow, entityType, entityId, entityData || {}, baseUrl, context);
-      await logWorkflowExecution(workflow, entityType, entityId, { field_id: fieldId, value: value, trigger_type: 'field_change', ...(context.systemInitiated ? { system_initiated: true } : {}) }, results);
+      await logWorkflowExecution(workflow, entityType, entityId, { field_id: fieldId, value: value, trigger_type: 'field_change', ...(context.systemInitiated ? { system_initiated: true, ...(context.triggeredByWorkflow ? { triggered_by_workflow: context.triggeredByWorkflow } : {}) } : {}) }, results);
     }
   } catch (err) {
     console.error('[Workflows] Preference Error:', err.message, err.stack);
