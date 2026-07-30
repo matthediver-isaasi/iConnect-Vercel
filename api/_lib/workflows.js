@@ -580,6 +580,51 @@ async function buildActionSummary(action, tenantId, entityContext) {
                   summary.approval_warning = `Fees for ${yearLabel} have not been approved`;
                 }
               }
+            } else if (entityContext.entityType === 'member' && entityContext.entityId) {
+              // Task #3237 — mirror the member-scoped execution path
+              // (executeCreateMemberMembership): a member without an
+              // organisation may be covered by a member-driven tier
+              // structure; show their real fee-approval state instead of
+              // the misleading "organisation could not be determined".
+              let memberConfig = null;
+              try {
+                memberConfig = await getConfigForMember(tenantId, entityContext.entityId);
+              } catch (cfgErr) {
+                console.error('[Workflows] Preview member-config resolution failed:', cfgErr.message);
+              }
+
+              if (memberConfig) {
+                const simResult = await simulateMembershipForMember(tenantId, entityContext.entityId, {
+                  source: 'preview',
+                  mode: 'manual',
+                });
+                const yearLabel = simResult?.membershipYear?.label;
+
+                if (yearLabel) {
+                  const { data: approvalRecord, error: approvalError } = await supabase
+                    .from('member_membership_invoicing')
+                    .select('fees_approved')
+                    .eq('tenant_id', tenantId)
+                    .eq('member_id', entityContext.entityId)
+                    .eq('membership_year', yearLabel)
+                    .maybeSingle();
+
+                  if (approvalError) {
+                    console.error('[Workflows] Error querying member fee approval in preview:', approvalError.message);
+                  }
+
+                  const memberName = simResult?.member?.name || 'this member';
+                  summary.fees_approved = !!approvalRecord?.fees_approved;
+                  summary.membership_year = yearLabel;
+                  if (!summary.fees_approved) {
+                    summary.approval_warning = `Fees for ${yearLabel} have not been approved for ${memberName}`;
+                  }
+                } else {
+                  summary.approval_warning = 'Fee approval is required but the membership year could not be determined';
+                }
+              } else {
+                summary.approval_warning = 'Fee approval is required but organisation could not be determined';
+              }
             } else {
               summary.approval_warning = 'Fee approval is required but organisation could not be determined';
             }
