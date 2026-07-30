@@ -951,15 +951,18 @@ async function handlePost(req, res, tenantId) {
 function ddConfigFields(config) {
   const enabled = config.dd_enabled === true;
   if (!enabled) {
+    // Columns from the Phase 2 migration are NOT NULL with defaults, so the
+    // disabled path must write those schema defaults (writing null raises
+    // 23502). Truly nullable columns stay null so re-enabling starts clean.
     return {
       dd_enabled: false,
-      dd_instalment_count: null,
+      dd_instalment_count: 12,
       dd_monthly_amount: null,
-      dd_first_collection_rule: null,
+      dd_first_collection_rule: 'earliest',
       dd_collection_day: null,
-      dd_activation_rule: null,
-      dd_auto_renew: null,
-      dd_grace_days: null,
+      dd_activation_rule: 'first_payment',
+      dd_auto_renew: true,
+      dd_grace_days: 7,
       dd_terms_version: null,
       dd_migration_enabled: false,
     };
