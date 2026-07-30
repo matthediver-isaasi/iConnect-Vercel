@@ -981,9 +981,18 @@ export default function WorkflowManagementPage() {
                                   Manual run
                                 </Badge>
                               )}
+                              {log.trigger_data?.system_initiated === true && (
+                                <Badge variant="outline" data-testid={`badge-system-initiated-${log.id}`}>
+                                  Triggered by workflow
+                                </Badge>
+                              )}
                               {log.status === 'skipped' && (
                                 <Badge variant="secondary" data-testid={`badge-skipped-${log.id}`}>
-                                  Skipped — conditions not met
+                                  {log.trigger_data?.reason === 'chain_loop_guard'
+                                    ? 'Skipped — would loop back to a workflow already run in this chain'
+                                    : log.trigger_data?.reason === 'chain_depth_cap'
+                                    ? 'Skipped — workflow chain limit reached'
+                                    : 'Skipped — conditions not met'}
                                 </Badge>
                               )}
                             </div>
