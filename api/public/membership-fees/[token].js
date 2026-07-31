@@ -844,6 +844,7 @@ export default async function handler(req, res) {
               xeroInvoice = await provider.applyStripePaymentToInvoice({
                 appTenantId: feeToken.tenant_id,
                 invoiceId: feeToken.xero_invoice_id,
+                xeroInvoiceId: feeToken.xero_invoice_id,
                 stripePaymentIntentId: paymentIntentId,
               });
               if (xeroInvoice?.online_invoice_url) {

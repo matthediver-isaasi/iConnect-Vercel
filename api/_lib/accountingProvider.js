@@ -305,6 +305,23 @@ export function buildCreditNoteColumnUpdate(creditNote) {
   return out;
 }
 
+/**
+ * Task #3248 — Normalise the invoice-id argument shape for
+ * `applyStripePaymentToInvoice`. Callers may pass either the generic
+ * `invoiceId` or the legacy `xeroInvoiceId` (or both); the underlying
+ * provider implementations require `xeroInvoiceId` (the Xero one throws
+ * "xeroInvoiceId is required" otherwise). Mapping across here makes every
+ * caller safe — the public fee confirm path previously passed only
+ * `invoiceId` and always failed for Xero tenants.
+ */
+export function normalizeInvoiceIdArgs(args) {
+  return {
+    ...args,
+    xeroInvoiceId: args?.xeroInvoiceId || args?.invoiceId,
+    invoiceId: args?.invoiceId || args?.xeroInvoiceId,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Provider implementations
 // ---------------------------------------------------------------------------
@@ -345,7 +362,7 @@ function makeXeroProvider() {
     },
 
     async applyStripePaymentToInvoice(args) {
-      const result = await xero.applyStripePaymentToXeroInvoice(args);
+      const result = await xero.applyStripePaymentToXeroInvoice(normalizeInvoiceIdArgs(args));
       if (!result) return null;
       return {
         provider: PROVIDER_XERO,
@@ -439,7 +456,7 @@ function makeQuickBooksProvider() {
     },
 
     async applyStripePaymentToInvoice(args) {
-      const result = await qbo.applyStripePaymentToQuickBooksInvoice(args);
+      const result = await qbo.applyStripePaymentToQuickBooksInvoice(normalizeInvoiceIdArgs(args));
       if (!result) return null;
       return {
         provider: PROVIDER_QUICKBOOKS,
