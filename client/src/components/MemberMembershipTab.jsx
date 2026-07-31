@@ -640,7 +640,9 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
       const approvedFlags = {};
       for (const [yearKey, setting] of Object.entries(invoicingData.settings)) {
         if (yearKey === '_legacy') continue;
-        modes[yearKey] = setting.invoicing_mode || 'manual';
+        // A row with no explicit mode (materialised by fee approval) is
+        // effectively 'automatic' — that's the workflow guard's fallback.
+        modes[yearKey] = setting.invoicing_mode || 'automatic';
         dates[yearKey] = setting.invoice_date || '';
         poNumbers[yearKey] = setting.purchase_order_number || '';
         if (setting.po_supplied_by_member) poMemberFlags[yearKey] = true;
@@ -930,6 +932,14 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
     );
   }
 
+  // An explicit manual/scheduled invoicing mode blocks the workflow's
+  // Create Membership action for that year, so the year card must always
+  // expose the invoicing controls as the admin's manual path (Task #3244).
+  const modeBlocksWorkflow = (year) => {
+    const setting = (year && invoicingData?.settings?.[year]) || invoicingData?.settings?._legacy || null;
+    return ['manual', 'scheduled'].includes(setting?.invoicing_mode);
+  };
+
   const makeInvoicingHandlers = (yearData, testIdPrefix) => {
     if (!yearData) return {};
     const year = yearData.membershipYear;
@@ -1061,9 +1071,11 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                 showRecordFee={false}
                 currentYearRecorded={null}
                 testIdPrefix="next-year"
-                onManualRenewal={null}
-                manualRenewalPending={false}
-                hideInvoicing={!currentYearRecorded}
+                onManualRenewal={modeBlocksWorkflow(nextYearData?.membershipYear)
+                  ? () => manualRenewalMutation.mutate({ membershipYear: nextYearData?.membershipYear })
+                  : null}
+                manualRenewalPending={manualRenewalMutation.isPending}
+                hideInvoicing={!currentYearRecorded && !modeBlocksWorkflow(nextYearData?.membershipYear)}
                 onSimulate={(membershipYear) => { setSimulatingYear(membershipYear); simulateRenewalMutation.mutate({ mode: invoicingModes[nextYearData?.membershipYear] || 'manual', targetYear: membershipYear }); }}
                 simulatePending={simulateRenewalMutation.isPending && simulatingYear === nextYearData?.membershipYear}
                 onOpenOverride={handleOpenOverrideModal}

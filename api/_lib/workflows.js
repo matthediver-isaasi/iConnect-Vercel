@@ -2241,6 +2241,22 @@ async function checkOncePerRecord(workflow, entityType, entityId) {
 }
 
 async function logWorkflowExecution(workflow, entityType, entityId, triggerData, results) {
+  // Task #3244 — don't log an unqualified "success" when actions were
+  // skipped or failed. NOTE: status 'skipped' is reserved for
+  // conditions-not-met runs (checkOncePerRecord relies on that), so runs
+  // with skipped/failed actions are logged as 'partial' / 'failed'.
+  const statuses = (results || []).map(r => r?.status);
+  const hasFailed = statuses.includes('failed');
+  const hasSkippedOrPartial = statuses.includes('skipped') || statuses.includes('partial');
+  let status = 'success';
+  if (hasFailed) {
+    status = statuses.some(s => s === 'success' || s === 'partial' || s === 'skipped') ? 'partial' : 'failed';
+  } else if (hasSkippedOrPartial) {
+    status = 'partial';
+  }
+  const problems = (results || [])
+    .filter(r => r?.status === 'skipped' || r?.status === 'failed')
+    .map(r => `${r.action_type || 'action'} ${r.status}${r.message ? `: ${r.message}` : r.error ? `: ${r.error}` : ''}`);
   await supabase.from('workflow_log').insert({
     tenant_id: workflow.tenant_id,
     workflow_id: workflow.id,
@@ -2248,7 +2264,8 @@ async function logWorkflowExecution(workflow, entityType, entityId, triggerData,
     entity_id: entityId,
     trigger_data: triggerData,
     actions_executed: results,
-    status: 'success'
+    status,
+    ...(problems.length > 0 ? { error_message: problems.join(' | ') } : {}),
   });
   console.log(`[Workflows] Logged execution for ${workflow.name}`);
 }

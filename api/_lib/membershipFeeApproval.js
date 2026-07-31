@@ -48,7 +48,12 @@ async function upsertApproval(table, matchColumn, tenantId, targetId, yearLabel)
         [matchColumn]: targetId,
         membership_year: yearLabel,
         fees_approved: true,
-        invoicing_mode: 'manual',
+        // 'automatic' (the resolver's fallback), NOT 'manual': approval must
+        // never change the effective invoicing mode, or auto-approval
+        // deadlocks the Create Membership workflow action (Task #3244).
+        // (organisation_membership_invoicing.invoicing_mode is NOT NULL, so
+        // an explicit value is required.)
+        invoicing_mode: 'automatic',
       });
     writeError = error;
   }

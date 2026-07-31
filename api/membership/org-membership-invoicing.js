@@ -708,7 +708,9 @@ async function handleApproval(req, res, tenantId) {
         tenant_id: tenantId,
         organization_id: organizationId,
         membership_year: membershipYear,
-        invoicing_mode: 'manual',
+        // 'automatic' (the resolver's fallback), NOT 'manual': fee approval
+        // must not change the effective invoicing mode (Task #3244).
+        invoicing_mode: 'automatic',
         fees_approved: approved,
         addon_lines: approved ? storedAddonLines : null,
         updated_at: new Date().toISOString(),

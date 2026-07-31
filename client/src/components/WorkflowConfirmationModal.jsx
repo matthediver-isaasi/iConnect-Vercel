@@ -326,9 +326,11 @@ export function WorkflowConfirmationModal({
             {allProcessed
               ? processedWorkflows.every(p => p.action === 'skipped')
                 ? 'All workflows were skipped. No actions were taken.'
-                : processedWorkflows.every(p => p.action === 'confirmed')
-                  ? 'All workflows have been executed. See the results below.'
-                  : 'Your workflow choices have been processed.'
+                : Object.values(workflowResults).some(results => (results || []).some(r => r?.status === 'skipped' || r?.status === 'failed'))
+                  ? 'Some actions were skipped or failed — review the results below before assuming everything completed.'
+                  : processedWorkflows.every(p => p.action === 'confirmed')
+                    ? 'All workflows have been executed. See the results below.'
+                    : 'Your workflow choices have been processed.'
               : 'The following workflows are ready to run based on your changes. Review the actions and confirm.'
             }
           </DialogDescription>

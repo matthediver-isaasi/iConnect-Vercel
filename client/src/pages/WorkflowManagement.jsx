@@ -1004,6 +1004,15 @@ export default function WorkflowManagementPage() {
                             {log.error_message && (
                               <p className="text-sm text-red-500 mt-1">{log.error_message}</p>
                             )}
+                            {Array.isArray(log.actions_executed) && log.actions_executed.some(a => a?.status === 'skipped' || a?.status === 'failed') && (
+                              <div className="mt-1 space-y-0.5" data-testid={`action-problems-${log.id}`}>
+                                {log.actions_executed.filter(a => a?.status === 'skipped' || a?.status === 'failed').map((a, idx) => (
+                                  <p key={idx} className={`text-xs ${a.status === 'failed' ? 'text-red-500' : 'text-warning'}`}>
+                                    {a.status === 'failed' ? '✗' : '⏸'} {a.action_type || 'Action'} {a.status === 'failed' ? 'failed' : 'skipped'}{a.message ? ` — ${a.message}` : a.error ? ` — ${a.error}` : ''}
+                                  </p>
+                                ))}
+                              </div>
+                            )}
                             {log.status === 'skipped' && Array.isArray(log.trigger_data?.condition_results) && log.trigger_data.condition_results.length > 0 && (
                               <div className="mt-1 space-y-0.5" data-testid={`skip-conditions-${log.id}`}>
                                 {log.trigger_data.condition_results.map((cr, idx) => (

@@ -1048,7 +1048,9 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
       const approvedFlags = {};
       for (const [yearKey, setting] of Object.entries(invoicingData.settings)) {
         if (yearKey === '_legacy') continue;
-        modes[yearKey] = setting.invoicing_mode || 'manual';
+        // A row with no explicit mode (materialised by fee approval) is
+        // effectively 'automatic' — that's the workflow guard's fallback.
+        modes[yearKey] = setting.invoicing_mode || 'automatic';
         dates[yearKey] = setting.invoice_date || '';
         poNumbers[yearKey] = setting.purchase_order_number || '';
         if (setting.po_supplied_by_member) poMemberFlags[yearKey] = true;
@@ -1106,6 +1108,14 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
       toast.error(error.message);
     },
   });
+
+  // An explicit manual/scheduled invoicing mode blocks the workflow's
+  // Create Membership action for that year, so the year card must always
+  // expose the invoicing controls as the admin's manual path (Task #3244).
+  const modeBlocksWorkflow = (year) => {
+    const setting = (year && invoicingData?.settings?.[year]) || invoicingData?.settings?._legacy || null;
+    return ['manual', 'scheduled'].includes(setting?.invoicing_mode);
+  };
 
   const manualRenewalMutation = useMutation({
     mutationFn: async ({ membershipYear }) => {
@@ -1620,8 +1630,10 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                   });
                 }}
                 invoicingSaving={invoicingMutation.isPending}
-                onManualRenewal={null}
-                manualRenewalPending={false}
+                onManualRenewal={modeBlocksWorkflow(nextYearPreview?.membershipYear)
+                  ? () => manualRenewalMutation.mutate({ membershipYear: nextYearPreview?.membershipYear })
+                  : null}
+                manualRenewalPending={manualRenewalMutation.isPending}
                 purchaseOrderNumber={purchaseOrderNumbers[nextYearPreview?.membershipYear] || ''}
                 onPurchaseOrderChange={(val) => setPurchaseOrderNumbers(prev => ({ ...prev, [nextYearPreview.membershipYear]: val }))}
                 poSuppliedByMember={!!poSuppliedByMemberMap[nextYearPreview?.membershipYear]}
@@ -1635,7 +1647,7 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                   setEmailFeesDialogOpen(true);
                 }}
                 emailFeesPending={emailFeesMutation.isPending}
-                hideInvoicing={!currentYearRecorded}
+                hideInvoicing={!currentYearRecorded && !modeBlocksWorkflow(nextYearPreview?.membershipYear)}
                 onlineCardPayment={!!config?.online_card_payment}
                 approvalRequired={!!membershipSettings?.require_approval}
                 feesApproved={!!feesApprovedMap[nextYearPreview?.membershipYear]}

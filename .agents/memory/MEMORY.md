@@ -134,4 +134,5 @@
 - [Widget click-through drilldown](widget-drilldown-clickthrough.md) — big id lists POST in a body (never URL); toggle enforced server-side; Recharts click key via entry.key ?? payload.key ?? name.
 - [Member-driven membership fee tokens](member-fee-tokens.md) — fee tokens carry org_id OR member_id; every consumer must branch (history/invoicing/notes/sim); token DD adopts unpaid workflow rows.
 - [Outlook busy-time handling](outlook-busy-times.md) — Graph calendarview returns naive datetimes in the Prefer tz; never offset-detect via includes('-'); paginate nextLink; flag connection on failure.
+- [Fee approval must not set invoicing_mode](fee-approval-invoicing-mode.md) — side-effect invoicing rows must be 'automatic' (org column NOT NULL) or the Create Membership workflow guard deadlocks; log status must surface skipped actions.
 - [record_create workflows & custom fields](workflow-record-create-custom-fields.md) — trigger AFTER preference values persist or custom-field conditions see empty; workflow_log status check allows success|partial|failed|skipped.
