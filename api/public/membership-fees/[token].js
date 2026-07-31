@@ -986,9 +986,15 @@ export default async function handler(req, res) {
           if (xeroInvoice && historyRecord?.id) {
             try {
               const { reconcileMembershipInvoicePayment } = await import('../../_lib/membershipPaymentReconciliation.js');
+              // Task #3253 — pass the request-derived base URL so the
+              // membership-paid workflow can mint {{set_password_url}} links.
+              const reconcileBaseUrl = req.headers.host
+                ? `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}`
+                : '';
               await reconcileMembershipInvoicePayment({
                 table: historyTable,
                 recordId: historyRecord.id,
+                baseUrl: reconcileBaseUrl,
               });
             } catch (reconcileErr) {
               console.warn('[Public Fee] inline payment reconciliation failed (non-fatal):', reconcileErr.message);

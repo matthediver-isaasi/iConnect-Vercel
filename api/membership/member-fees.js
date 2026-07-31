@@ -525,9 +525,15 @@ async function handlePostOrgScoped(req, res, member, tenantId, organizationId, s
                 provider: provider.name,
               }))
               .eq('id', histRow.id);
+            // Task #3253 — pass the request-derived base URL so the
+            // membership-paid workflow can mint {{set_password_url}} links.
+            const reconcileBaseUrl = req.headers.host
+              ? `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}`
+              : '';
             await reconcileMembershipInvoicePayment({
               table: 'organisation_membership_history',
               recordId: histRow.id,
+              baseUrl: reconcileBaseUrl,
             });
           }
         } catch (reconcileErr) {
@@ -888,9 +894,15 @@ async function handlePostMemberScoped(req, res, member, tenantId, sessionMember)
                 provider: provider.name,
               }))
               .eq('id', histRow.id);
+            // Task #3253 — pass the request-derived base URL so the
+            // membership-paid workflow can mint {{set_password_url}} links.
+            const reconcileBaseUrl = req.headers.host
+              ? `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}`
+              : '';
             await reconcileMembershipInvoicePayment({
               table: 'member_membership_history',
               recordId: histRow.id,
+              baseUrl: reconcileBaseUrl,
             });
           }
         } catch (reconcileErr) {

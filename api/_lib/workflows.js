@@ -8,6 +8,44 @@ import { simulateMembershipForOrg, simulateMembershipForMember } from './members
 import { getConfigForMember } from './membershipConfigResolver.js';
 import { autoApproveMemberFees, autoApproveOrgFees } from './membershipFeeApproval.js';
 import { coerceBooleanPreferenceValue } from './booleanCoercion.js';
+import { getTenantBaseUrl } from './campaignService.js';
+import { hasSetPasswordToken } from './passwordSetupUrl.js';
+
+// Task #3253 — when a workflow fires from a background/webhook path with no
+// request context (empty baseUrl) but the email template contains special
+// placeholders like {{set_password_url}}, derive the tenant's canonical base
+// URL from its slug so the link can still be minted.
+export async function resolveWorkflowBaseUrl(baseUrl, tenantId) {
+  if (baseUrl) return baseUrl;
+  if (!tenantId || !supabase) return '';
+  try {
+    const { data: tenant } = await supabase
+      .from('tenant')
+      .select('slug')
+      .eq('id', tenantId)
+      .maybeSingle();
+    if (tenant?.slug) {
+      const derived = getTenantBaseUrl(tenant.slug);
+      console.log(`[Workflows] baseUrl empty - derived "${derived}" from tenant slug "${tenant.slug}"`);
+      return derived;
+    }
+    console.warn(`[Workflows] baseUrl empty and tenant ${tenantId} has no slug - cannot derive base URL`);
+  } catch (e) {
+    console.warn(`[Workflows] baseUrl fallback lookup failed for tenant ${tenantId}:`, e.message);
+  }
+  return '';
+}
+
+// Task #3253 — final safety net: never let a raw {{set_password_url}} /
+// [[set_password_url]] token reach a recipient. Returns the cleaned string.
+export function stripUnresolvedSetPasswordToken(str, label) {
+  if (typeof str !== 'string' || !str) return str;
+  if (!hasSetPasswordToken(str)) return str;
+  console.warn(`[Workflows] Unresolved set_password_url placeholder stripped from ${label} before send`);
+  return str
+    .replace(/\{\{\s*set_password_url\s*\}\}/gi, '')
+    .replace(/\[\[\s*set_password_url\s*\]\]/gi, '');
+}
 
 // Attempts to parse a stringified JSON array. Returns the parsed array
 // (with each element coerced to string) on success, or null when the value
@@ -1055,11 +1093,18 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
       // Process special placeholders like {{set_password_url}}
       console.log(`[Workflows] baseUrl: "${baseUrl}", entityType: "${entityType}", entityId: "${entityId}"`);
       console.log(`[Workflows] Body contains set_password_url: ${body?.includes('set_password_url')}`);
-      if (baseUrl) {
+      // Task #3253 — background/webhook callers may not have a request host;
+      // derive the tenant base URL from its slug so special placeholders
+      // (e.g. {{set_password_url}}) still resolve.
+      let effectiveBaseUrl = baseUrl;
+      if (!effectiveBaseUrl && hasSetPasswordToken(subject, body)) {
+        effectiveBaseUrl = await resolveWorkflowBaseUrl(baseUrl, tenantId);
+      }
+      if (effectiveBaseUrl) {
         if (entityType === 'member') {
           // Direct member trigger - use the entity ID
-          subject = await processSpecialPlaceholders(subject, 'member', entityId, baseUrl);
-          body = await processSpecialPlaceholders(body, 'member', entityId, baseUrl);
+          subject = await processSpecialPlaceholders(subject, 'member', entityId, effectiveBaseUrl);
+          body = await processSpecialPlaceholders(body, 'member', entityId, effectiveBaseUrl);
         } else if ((body?.includes('set_password_url') || subject?.includes('set_password_url')) && to) {
           // Non-member trigger but template has set_password_url - look up member by recipient email
           console.log(`[Workflows] Non-member trigger has set_password_url placeholder, looking up member by email: "${to}"`);
@@ -1071,8 +1116,8 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
             .single();
           if (recipientMember) {
             console.log(`[Workflows] Found member ${recipientMember.id} for email ${to}, processing special placeholders`);
-            subject = await processSpecialPlaceholders(subject, 'member', recipientMember.id, baseUrl);
-            body = await processSpecialPlaceholders(body, 'member', recipientMember.id, baseUrl);
+            subject = await processSpecialPlaceholders(subject, 'member', recipientMember.id, effectiveBaseUrl);
+            body = await processSpecialPlaceholders(body, 'member', recipientMember.id, effectiveBaseUrl);
           } else {
             console.warn(`[Workflows] Could not find member for email "${to}" in tenant ${tenantId} - cannot generate set_password_url`);
             // Clean up the placeholder to avoid raw text in email
@@ -1081,8 +1126,8 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
           }
         } else {
           // No special placeholders to process for non-member entities
-          subject = await processSpecialPlaceholders(subject, entityType, entityId, baseUrl);
-          body = await processSpecialPlaceholders(body, entityType, entityId, baseUrl);
+          subject = await processSpecialPlaceholders(subject, entityType, entityId, effectiveBaseUrl);
+          body = await processSpecialPlaceholders(body, entityType, entityId, effectiveBaseUrl);
         }
       } else {
         console.warn(`[Workflows] baseUrl is empty/undefined, cannot process special placeholders`);
@@ -1099,6 +1144,11 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
       const ddOwnerVals = await resolveDdOwnerForSubmission({ tenantId, formSubmissionId });
       subject = applyDdOwnerPlaceholders(subject, ddOwnerVals);
       body = applyDdOwnerPlaceholders(body, ddOwnerVals);
+
+      // Task #3253 — final safety net: a raw set_password_url token must
+      // never reach a recipient.
+      subject = stripUnresolvedSetPasswordToken(subject, 'subject');
+      body = stripUnresolvedSetPasswordToken(body, 'body');
 
       const inboxDelivery = await buildInboxDelivery({
         tenantId,
@@ -2145,13 +2195,22 @@ async function executeRoleBasedEmail(action, workflow, entityType, entityId, ent
       }
       
       // Step 4: Process special placeholders like {{set_password_url}} for THIS member
-      // Always attempt this regardless of baseUrl - log if baseUrl is missing
-      if (baseUrl) {
-        memberSubject = await processSpecialPlaceholders(memberSubject, 'member', member.id, baseUrl);
-        memberBody = await processSpecialPlaceholders(memberBody, 'member', member.id, baseUrl);
+      // Task #3253 — derive a tenant base URL from the tenant slug when the
+      // caller provided none (background/webhook paths).
+      let roleEffectiveBaseUrl = baseUrl;
+      if (!roleEffectiveBaseUrl && hasSetPasswordToken(memberSubject, memberBody)) {
+        roleEffectiveBaseUrl = await resolveWorkflowBaseUrl(baseUrl, tenantId);
+      }
+      if (roleEffectiveBaseUrl) {
+        memberSubject = await processSpecialPlaceholders(memberSubject, 'member', member.id, roleEffectiveBaseUrl);
+        memberBody = await processSpecialPlaceholders(memberBody, 'member', member.id, roleEffectiveBaseUrl);
       } else {
         console.warn(`[Workflows] Role-based email: baseUrl is empty/missing - cannot process {{set_password_url}} placeholder`);
       }
+
+      // Task #3253 — never let a raw set_password_url token reach a recipient.
+      memberSubject = stripUnresolvedSetPasswordToken(memberSubject, 'role-email subject');
+      memberBody = stripUnresolvedSetPasswordToken(memberBody, 'role-email body');
       
       // Debug: Log final body for first member to verify all placeholders resolved
       if (members.indexOf(member) === 0) {

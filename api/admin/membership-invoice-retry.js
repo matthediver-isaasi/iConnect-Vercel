@@ -138,7 +138,12 @@ export default async function handler(req, res) {
     // Best-effort: if the invoice was marked-as-paid at the provider,
     // flip the row's payment_status immediately.
     try {
-      await reconcileMembershipInvoicePayment({ table, recordId });
+      // Task #3253 — pass the request-derived base URL so the
+      // membership-paid workflow can mint {{set_password_url}} links.
+      const reconcileBaseUrl = req.headers.host
+        ? `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}`
+        : '';
+      await reconcileMembershipInvoicePayment({ table, recordId, baseUrl: reconcileBaseUrl });
     } catch (recErr) {
       console.warn('[admin/membership-invoice-retry] inline reconcile failed (non-fatal):', recErr.message);
     }
