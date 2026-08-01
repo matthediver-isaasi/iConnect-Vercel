@@ -117,7 +117,6 @@ export default function PublicEventsPage() {
   }, [allSimpleEvents, allComplexEvents]);
 
   const featuredEvents = useMemo(() => events.filter(e => e.is_featured === true), [events]);
-  const nonFeaturedEvents = useMemo(() => events.filter(e => e.is_featured !== true), [events]);
 
   const featuredBgStyle = useMemo(() => {
     const setting = Array.isArray(systemSettings)
@@ -299,7 +298,7 @@ export default function PublicEventsPage() {
             </div>
           )}
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {nonFeaturedEvents.map((event) => {
+            {events.map((event) => {
               const eventTimezone = event.timezone || DEFAULT_TIMEZONE;
               const timezoneAbbr = getTimezoneAbbr(event.start_date, eventTimezone);
               const hasUnlimitedCapacity = event.available_seats === 0 || event.available_seats === null;
