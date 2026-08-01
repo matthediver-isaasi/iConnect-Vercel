@@ -38,6 +38,7 @@ export default function EventSettingsPage() {
   const [showEventSeats, setShowEventSeats] = useState(true);
   const [eventCardTitleClamp, setEventCardTitleClamp] = useState(true);
   const [showEventCardPrices, setShowEventCardPrices] = useState(false);
+  const [sponsorsPlacement, setSponsorsPlacement] = useState("after_documents");
   const [donationEnabled, setDonationEnabled] = useState(false);
   const [featuredBgMode, setFeaturedBgMode] = useState("solid");
   const [featuredBgColor, setFeaturedBgColor] = useState("#f0f9ff");
@@ -242,6 +243,12 @@ export default function EventSettingsPage() {
     const showPricesSetting = settings.find(s => s.setting_key === 'show_event_card_prices');
     if (showPricesSetting) {
       setShowEventCardPrices(showPricesSetting.setting_value === 'true');
+    }
+    
+    // Load sponsor card placement setting
+    const sponsorsPlacementSetting = settings.find(s => s.setting_key === 'event_sponsors_placement');
+    if (sponsorsPlacementSetting) {
+      setSponsorsPlacement(sponsorsPlacementSetting.setting_value === 'after_date' ? 'after_date' : 'after_documents');
     }
     
     // Load description preview lines setting
@@ -572,6 +579,22 @@ export default function EventSettingsPage() {
           setting_key: 'show_event_card_prices',
           setting_value: showEventCardPrices.toString(),
           description: 'Show ticket prices on event cards'
+        });
+      }
+      
+      // Save sponsor card placement setting
+      const sponsorsPlacementSetting = settings.find(s => s.setting_key === 'event_sponsors_placement');
+      
+      if (sponsorsPlacementSetting) {
+        await base44.entities.SystemSettings.update(sponsorsPlacementSetting.id, {
+          setting_value: sponsorsPlacement,
+          description: 'Where the sponsors card appears on event detail pages'
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'event_sponsors_placement',
+          setting_value: sponsorsPlacement,
+          description: 'Where the sponsors card appears on event detail pages'
         });
       }
       
@@ -2000,6 +2023,41 @@ export default function EventSettingsPage() {
                     disabled={isSaving}
                     size="sm"
                     data-testid="button-save-prices-settings"
+                  >
+                    <Save className="w-4 h-4 mr-2" />
+                    Save
+                  </Button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
+                <div className="space-y-1">
+                  <Label htmlFor="sponsors-placement" className="font-medium">
+                    Sponsor Card Placement
+                  </Label>
+                  <p className="text-sm text-slate-500">
+                    Choose where the sponsors card appears on event detail pages (applies to both simple and session-based events).
+                  </p>
+                </div>
+                <div className="flex items-center gap-4">
+                  <Select value={sponsorsPlacement} onValueChange={setSponsorsPlacement}>
+                    <SelectTrigger className="w-64" id="sponsors-placement" data-testid="select-sponsors-placement">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="after_documents" data-testid="option-sponsors-after-documents">
+                        After description &amp; documents (default)
+                      </SelectItem>
+                      <SelectItem value="after_date" data-testid="option-sponsors-after-date">
+                        Below date section, above description
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    onClick={handleSaveSettings}
+                    disabled={isSaving}
+                    size="sm"
+                    data-testid="button-save-sponsors-placement"
                   >
                     <Save className="w-4 h-4 mr-2" />
                     Save

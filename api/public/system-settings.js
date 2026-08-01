@@ -15,6 +15,7 @@ const PUBLIC_SETTINGS_WHITELIST = [
   'portal_logo',
   'search_enabled',
   'event_booking_terms',
+  'event_sponsors_placement',
   'speaker_module_name',
   'newsletter_form_id',
   'floater_config',

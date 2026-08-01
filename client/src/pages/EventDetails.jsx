@@ -1152,6 +1152,11 @@ export default function EventDetailsPage() {
   const showAvailableSeats = showSeatsEnabled && (!isFeatureExcluded || !isFeatureExcluded('element_AvailableSeatsDisplay'));
 
   // Get description preview lines setting (default to 3 lines)
+  const sponsorsPlacementSetting = Array.isArray(systemSettings)
+    ? systemSettings.find(s => s.setting_key === 'event_sponsors_placement')
+    : null;
+  const sponsorsAfterDate = sponsorsPlacementSetting?.setting_value === 'after_date';
+
   const descPreviewLinesSetting = Array.isArray(systemSettings) 
     ? systemSettings.find(s => s.setting_key === 'event_description_preview_lines')
     : null;
@@ -1470,6 +1475,11 @@ export default function EventDetailsPage() {
                 </div>
               </CardHeader>
 
+              {/* Sponsors - below date section, above description */}
+              {sponsorsAfterDate && (
+                <EventSponsorsCard eventId={event.id} eventType="simple" />
+              )}
+
               {/* Description Section - Expandable accordion style */}
               {event.description && (
                 <CardContent className="pt-6 border-t border-slate-200">
@@ -1521,8 +1531,10 @@ export default function EventDetailsPage() {
                 </CardContent>
               )}
 
-              {/* Sponsors */}
-              <EventSponsorsCard eventId={event.id} eventType="simple" />
+              {/* Sponsors - default position after description & documents */}
+              {!sponsorsAfterDate && (
+                <EventSponsorsCard eventId={event.id} eventType="simple" />
+              )}
 
               {/* Sessions Schedule */}
               {eventSessions.length > 0 && (

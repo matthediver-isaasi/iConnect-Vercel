@@ -1159,6 +1159,15 @@ export default function ComplexEventDetail() {
     enabled: !!eventId
   });
 
+  const { data: detailSystemSettings = [] } = useQuery({
+    queryKey: ['/api/public/system-settings'],
+    queryFn: () => publicClient.listSystemSettings()
+  });
+
+  const sponsorsAfterDate = (Array.isArray(detailSystemSettings)
+    ? detailSystemSettings.find(s => s.setting_key === 'event_sponsors_placement')
+    : null)?.setting_value === 'after_date';
+
   const allSpeakerIds = useMemo(() => {
     const ids = new Set(event?.speaker_ids || []);
     sessions.forEach(s => (s.speaker_ids || []).forEach(id => ids.add(id)));
@@ -1464,6 +1473,11 @@ export default function ComplexEventDetail() {
                 </div>
               </CardHeader>
             </Card>
+
+            {sponsorsAfterDate && (
+              <EventSponsorsCard eventId={event.id} eventType="complex" />
+            )}
+
             {(event.description || event.summary) && (
               <Card className="border-slate-200">
                 <CardContent className="p-6">
@@ -1491,7 +1505,9 @@ export default function ComplexEventDetail() {
               </Card>
             )}
 
-            <EventSponsorsCard eventId={event.id} eventType="complex" />
+            {!sponsorsAfterDate && (
+              <EventSponsorsCard eventId={event.id} eventType="complex" />
+            )}
 
             {filteredSessions.length > 0 && (
               <Card className="border-slate-200">
