@@ -515,6 +515,31 @@ export default function EventsPage({
       : rawTags;
   }, [searchParams, categoriesLoaded, filterTagKeyMap]);
 
+  // Group selected tag keys by their parent category so filtering can AND
+  // across categories while ORing within a category. Legacy keys without a
+  // category id share a single group (preserves old OR behaviour for them).
+  const selectedTagsByCategory = useMemo(() => {
+    const groups = new Map();
+    for (const tag of selectedFilterTags) {
+      const { categoryId } = parseFilterTagKey(tag);
+      const groupKey = categoryId || "__legacy__";
+      if (!groups.has(groupKey)) groups.set(groupKey, []);
+      groups.get(groupKey).push(tag);
+    }
+    return groups;
+  }, [selectedFilterTags]);
+
+  // AND across categories, OR within a category. Returns true while
+  // categories are still loading so we never falsely filter on initial load.
+  const matchesSelectedFilterTags = useCallback((event) => {
+    if (selectedFilterTags.length === 0 || !categoriesLoaded) return true;
+    const normalizedEventTags = normalizeFilterTags(event.filter_tags || [], eventCategories);
+    for (const tags of selectedTagsByCategory.values()) {
+      if (!tags.some((tag) => normalizedEventTags.includes(tag))) return false;
+    }
+    return true;
+  }, [selectedFilterTags, categoriesLoaded, eventCategories, selectedTagsByCategory]);
+
   // Mutate only the filter params on the URL, preserving any unrelated params.
   // Uses { replace: true } so adjusting filters doesn't flood browser history;
   // genuine navigation (shared links, back/forward) still restores state because
@@ -548,8 +573,16 @@ export default function EventsPage({
     });
   }, [updateFilterParams]);
 
-  const clearFilterTags = useCallback(() => {
-    updateFilterParams((next) => next.delete("category"));
+  // Clear only the selections belonging to one category's dropdown,
+  // leaving other categories' selections (and legacy keys) untouched.
+  const clearFilterTagsForCategory = useCallback((categoryId) => {
+    updateFilterParams((next) => {
+      const current = next.getAll("category");
+      next.delete("category");
+      for (const t of current) {
+        if (parseFilterTagKey(t).categoryId !== categoryId) next.append("category", t);
+      }
+    });
   }, [updateFilterParams]);
 
   // Keep the search text and sort order in the URL so the current link always
@@ -578,12 +611,7 @@ export default function EventsPage({
     
     // Handle filter tag filtering - match if event has ANY of the selected tags
     // Skip filter tag check if categories not loaded (prevents false filtering on initial load)
-    let matchesFilterTag = true;
-    if (selectedFilterTags.length > 0 && categoriesLoaded) {
-      const rawEventTags = event.filter_tags || [];
-      const normalizedEventTags = normalizeFilterTags(rawEventTags, eventCategories);
-      matchesFilterTag = selectedFilterTags.some(tag => normalizedEventTags.includes(tag));
-    }
+    const matchesFilterTag = matchesSelectedFilterTags(event);
     
     // Handle event type filtering
     let matchesEventType = true;
@@ -688,12 +716,7 @@ export default function EventsPage({
       event.location?.toLowerCase().includes(searchQuery.toLowerCase());
     
     // Use same filter tag matching logic with normalization (skip if categories not loaded)
-    let matchesFilterTag = true;
-    if (selectedFilterTags.length > 0 && categoriesLoaded) {
-      const rawEventTags = event.filter_tags || [];
-      const normalizedEventTags = normalizeFilterTags(rawEventTags, eventCategories);
-      matchesFilterTag = selectedFilterTags.some(tag => normalizedEventTags.includes(tag));
-    }
+    const matchesFilterTag = matchesSelectedFilterTags(event);
     
     // Use same event type matching logic
     let matchesEventType = true;
@@ -727,12 +750,7 @@ export default function EventsPage({
       event.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       event.location?.toLowerCase().includes(searchQuery.toLowerCase());
     
-    let matchesFilterTag = true;
-    if (selectedFilterTags.length > 0 && categoriesLoaded) {
-      const rawEventTags = event.filter_tags || [];
-      const normalizedEventTags = normalizeFilterTags(rawEventTags, eventCategories);
-      matchesFilterTag = selectedFilterTags.some(tag => normalizedEventTags.includes(tag));
-    }
+    const matchesFilterTag = matchesSelectedFilterTags(event);
     
     let matchesEventType = true;
     if (selectedEventType !== "all") {
@@ -1283,87 +1301,85 @@ export default function EventsPage({
             
             {/* Filter Dropdowns Row */}
             <div className="flex flex-wrap gap-2 mt-4">
-                {/* Filter Tags - Multi-select with grouped subcategories */}
-                {eventCategories.length > 0 && (
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button 
-                        variant="outline" 
-                        className="w-full md:w-auto justify-between gap-2"
-                        data-testid="filter-tags-trigger"
-                      >
-                        <div className="flex items-center gap-2">
-                          <Tag className="w-4 h-4" />
-                          {selectedFilterTags.length === 0 ? (
-                            <span>Filter by category</span>
-                          ) : selectedFilterTags.length === 1 ? (
-                            <span className="truncate max-w-[200px]">{parseFilterTagKey(selectedFilterTags[0]).label}</span>
-                          ) : (
-                            <span>{selectedFilterTags.length} selected</span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-1">
-                          {selectedFilterTags.length > 0 && (
-                            <Badge variant="secondary" className="h-5 px-1.5 text-xs">
-                              {selectedFilterTags.length}
-                            </Badge>
-                          )}
-                          <ChevronDown className="w-4 h-4 opacity-50" />
-                        </div>
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-72 p-0" align="start">
-                      <div className="p-2 border-b border-slate-100">
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium text-slate-700">Filter by category</span>
-                          {selectedFilterTags.length > 0 && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 text-xs text-slate-500 hover:text-slate-700"
-                              onClick={() => clearFilterTags()}
-                              data-testid="filter-tags-clear"
-                            >
-                              Clear all
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                      <div className="max-h-[320px] overflow-y-auto p-1">
-                        {eventCategories.map((category) => (
-                          <div key={category.id} className="mb-2">
-                            <div className="px-2 py-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                              {category.name}
-                            </div>
-                            {category.subcategories.map((subcategory) => {
-                              const tagKey = createFilterTagKey(category.id, subcategory);
-                              const isSelected = selectedFilterTags.includes(tagKey);
-                              return (
-                                <button
-                                  key={tagKey}
-                                  className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md transition-colors ${
-                                    isSelected 
-                                      ? "bg-slate-100 text-slate-900 font-medium" 
-                                      : "text-slate-600 hover:bg-slate-50"
-                                  }`}
-                                  onClick={() => setFilterTagSelected(tagKey, !isSelected)}
-                                  data-testid={`filter-tag-${subcategory}`}
-                                >
-                                  <div className={`w-4 h-4 rounded border flex items-center justify-center ${
-                                    isSelected ? "bg-primary border-primary" : "border-slate-300"
-                                  }`}>
-                                    {isSelected && <Check className="w-3 h-3 text-white" />}
-                                  </div>
-                                  <span className="truncate">{subcategory}</span>
-                                </button>
-                              );
-                            })}
+                {/* Filter Tags - one multi-select dropdown per category */}
+                {eventCategories.map((category) => {
+                  const categorySelected = selectedFilterTags.filter(
+                    (tag) => parseFilterTagKey(tag).categoryId === category.id
+                  );
+                  return (
+                    <Popover key={category.id}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          className="w-full md:w-auto justify-between gap-2"
+                          data-testid={`filter-tags-trigger-${category.id}`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <Tag className="w-4 h-4" />
+                            {categorySelected.length === 0 ? (
+                              <span className="truncate max-w-[200px]">{category.name}</span>
+                            ) : categorySelected.length === 1 ? (
+                              <span className="truncate max-w-[200px]">{parseFilterTagKey(categorySelected[0]).label}</span>
+                            ) : (
+                              <span className="truncate max-w-[200px]">{category.name}: {categorySelected.length} selected</span>
+                            )}
                           </div>
-                        ))}
-                      </div>
-                    </PopoverContent>
-                  </Popover>
-                )}
+                          <div className="flex items-center gap-1">
+                            {categorySelected.length > 0 && (
+                              <Badge variant="secondary" className="h-5 px-1.5 text-xs">
+                                {categorySelected.length}
+                              </Badge>
+                            )}
+                            <ChevronDown className="w-4 h-4 opacity-50" />
+                          </div>
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-72 p-0" align="start">
+                        <div className="p-2 border-b border-slate-100">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium text-slate-700">{category.name}</span>
+                            {categorySelected.length > 0 && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 text-xs text-slate-500 hover:text-slate-700"
+                                onClick={() => clearFilterTagsForCategory(category.id)}
+                                data-testid={`filter-tags-clear-${category.id}`}
+                              >
+                                Clear
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                        <div className="max-h-[320px] overflow-y-auto p-1">
+                          {category.subcategories.map((subcategory) => {
+                            const tagKey = createFilterTagKey(category.id, subcategory);
+                            const isSelected = selectedFilterTags.includes(tagKey);
+                            return (
+                              <button
+                                key={tagKey}
+                                className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md transition-colors ${
+                                  isSelected 
+                                    ? "bg-slate-100 text-slate-900 font-medium" 
+                                    : "text-slate-600 hover:bg-slate-50"
+                                }`}
+                                onClick={() => setFilterTagSelected(tagKey, !isSelected)}
+                                data-testid={`filter-tag-${subcategory}`}
+                              >
+                                <div className={`w-4 h-4 rounded border flex items-center justify-center ${
+                                  isSelected ? "bg-primary border-primary" : "border-slate-300"
+                                }`}>
+                                  {isSelected && <Check className="w-3 h-3 text-white" />}
+                                </div>
+                                <span className="truncate">{subcategory}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                  );
+                })}
                 
                 {/* Event Type Filter */}
                 {eventTypes.length > 0 && (
