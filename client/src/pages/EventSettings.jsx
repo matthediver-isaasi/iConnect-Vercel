@@ -46,6 +46,15 @@ export default function EventSettingsPage() {
   const [featuredBgTo, setFeaturedBgTo] = useState("#ede9fe");
   const [featuredHeaderTextColor, setFeaturedHeaderTextColor] = useState("#0f172a");
   const [featuredHeaderIconColor, setFeaturedHeaderIconColor] = useState("#b45309");
+  // TBC events banner (pre-registration section demarcation on /events)
+  const [tbcBannerEnabled, setTbcBannerEnabled] = useState(false);
+  const [tbcBannerMode, setTbcBannerMode] = useState("solid");
+  const [tbcBannerColor, setTbcBannerColor] = useState("#eff6ff");
+  const [tbcBannerFrom, setTbcBannerFrom] = useState("#dbeafe");
+  const [tbcBannerTo, setTbcBannerTo] = useState("#e0e7ff");
+  const [tbcBannerTextColor, setTbcBannerTextColor] = useState("#1e3a8a");
+  const [tbcBannerIconColor, setTbcBannerIconColor] = useState("#2563eb");
+  const [tbcBannerTitle, setTbcBannerTitle] = useState("Events open for pre-registration");
   const [isSaving, setIsSaving] = useState(false);
   const [editingEventImage, setEditingEventImage] = useState(null);
   const [selectedImage, setSelectedImage] = useState(null);
@@ -336,6 +345,26 @@ export default function EventSettingsPage() {
         setFeaturedHeaderIconColor(bgConfig.headerIconColor || '#b45309');
       } catch (e) {
         console.error('Failed to parse featured events background:', e);
+      }
+    }
+
+    const tbcBannerSetting = settings.find(s => s.setting_key === 'tbc_events_banner');
+    if (tbcBannerSetting?.setting_value) {
+      try {
+        const cfg = JSON.parse(tbcBannerSetting.setting_value);
+        setTbcBannerEnabled(cfg.enabled === true);
+        setTbcBannerMode(cfg.mode || 'solid');
+        if (cfg.mode === 'gradient') {
+          setTbcBannerFrom(cfg.from || '#dbeafe');
+          setTbcBannerTo(cfg.to || '#e0e7ff');
+        } else {
+          setTbcBannerColor(cfg.color || '#eff6ff');
+        }
+        setTbcBannerTextColor(cfg.textColor || '#1e3a8a');
+        setTbcBannerIconColor(cfg.iconColor || '#2563eb');
+        setTbcBannerTitle(cfg.title || 'Events open for pre-registration');
+      } catch (e) {
+        console.error('Failed to parse TBC events banner config:', e);
       }
     }
   }, [settings]);
@@ -738,6 +767,31 @@ export default function EventSettingsPage() {
           setting_key: 'featured_events_background',
           setting_value: featuredBgValue,
           description: 'Background style for the Featured Events card on event listings'
+        });
+      }
+
+      // Save TBC events banner config
+      const tbcBannerCommon = {
+        enabled: tbcBannerEnabled,
+        textColor: tbcBannerTextColor,
+        iconColor: tbcBannerIconColor,
+        title: (tbcBannerTitle || '').trim() || 'Events open for pre-registration',
+      };
+      const tbcBannerValue = tbcBannerMode === 'gradient'
+        ? JSON.stringify({ mode: 'gradient', from: tbcBannerFrom, to: tbcBannerTo, ...tbcBannerCommon })
+        : JSON.stringify({ mode: 'solid', color: tbcBannerColor, ...tbcBannerCommon });
+      const tbcBannerSetting = settings.find(s => s.setting_key === 'tbc_events_banner');
+
+      if (tbcBannerSetting) {
+        await base44.entities.SystemSettings.update(tbcBannerSetting.id, {
+          setting_value: tbcBannerValue,
+          description: 'Banner shown above "To be confirmed" (pre-registration) events on event listings'
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'tbc_events_banner',
+          setting_value: tbcBannerValue,
+          description: 'Banner shown above "To be confirmed" (pre-registration) events on event listings'
         });
       }
       
@@ -2263,6 +2317,157 @@ export default function EventSettingsPage() {
                   disabled={isSaving}
                   size="sm"
                   data-testid="button-save-featured-bg"
+                >
+                  <Save className="w-4 h-4 mr-2" />
+                  Save
+                </Button>
+              </div>
+
+              <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1">
+                    <Label className="font-medium">"To Be Confirmed" Events Banner</Label>
+                    <p className="text-sm text-slate-500">
+                      Show a banner above the first "To be confirmed" event on the events list, marking the pre-registration section.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={tbcBannerEnabled}
+                    onCheckedChange={setTbcBannerEnabled}
+                    data-testid="switch-tbc-banner-enabled"
+                  />
+                </div>
+                <div className="flex items-center gap-3">
+                  <Label className="text-sm text-slate-600 whitespace-nowrap">Banner Title:</Label>
+                  <Input
+                    value={tbcBannerTitle}
+                    onChange={(e) => setTbcBannerTitle(e.target.value)}
+                    placeholder="Events open for pre-registration"
+                    className="max-w-md"
+                    data-testid="input-tbc-banner-title"
+                  />
+                </div>
+                <RadioGroup
+                  value={tbcBannerMode}
+                  onValueChange={setTbcBannerMode}
+                  className="flex gap-4"
+                  data-testid="radio-tbc-banner-mode"
+                >
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="solid" id="tbc-banner-solid" data-testid="radio-tbc-banner-solid" />
+                    <Label htmlFor="tbc-banner-solid" className="cursor-pointer">Solid Colour</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="gradient" id="tbc-banner-gradient" data-testid="radio-tbc-banner-gradient" />
+                    <Label htmlFor="tbc-banner-gradient" className="cursor-pointer">Gradient</Label>
+                  </div>
+                </RadioGroup>
+                {tbcBannerMode === 'solid' ? (
+                  <div className="flex items-center gap-3">
+                    <Label className="text-sm text-slate-600">Colour:</Label>
+                    <input
+                      type="color"
+                      value={tbcBannerColor}
+                      onChange={(e) => setTbcBannerColor(e.target.value)}
+                      className="w-10 h-10 rounded border border-slate-300 cursor-pointer"
+                      data-testid="input-tbc-banner-color"
+                    />
+                    <Input
+                      value={tbcBannerColor}
+                      onChange={(e) => setTbcBannerColor(e.target.value)}
+                      className="w-28"
+                      data-testid="input-tbc-banner-color-text"
+                    />
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-4">
+                    <div className="flex items-center gap-2">
+                      <Label className="text-sm text-slate-600">From:</Label>
+                      <input
+                        type="color"
+                        value={tbcBannerFrom}
+                        onChange={(e) => setTbcBannerFrom(e.target.value)}
+                        className="w-10 h-10 rounded border border-slate-300 cursor-pointer"
+                        data-testid="input-tbc-banner-from"
+                      />
+                      <Input
+                        value={tbcBannerFrom}
+                        onChange={(e) => setTbcBannerFrom(e.target.value)}
+                        className="w-28"
+                        data-testid="input-tbc-banner-from-text"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Label className="text-sm text-slate-600">To:</Label>
+                      <input
+                        type="color"
+                        value={tbcBannerTo}
+                        onChange={(e) => setTbcBannerTo(e.target.value)}
+                        className="w-10 h-10 rounded border border-slate-300 cursor-pointer"
+                        data-testid="input-tbc-banner-to"
+                      />
+                      <Input
+                        value={tbcBannerTo}
+                        onChange={(e) => setTbcBannerTo(e.target.value)}
+                        className="w-28"
+                        data-testid="input-tbc-banner-to-text"
+                      />
+                    </div>
+                  </div>
+                )}
+                <div className="flex flex-wrap items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <Label className="text-sm text-slate-600">Text Colour:</Label>
+                    <input
+                      type="color"
+                      value={tbcBannerTextColor}
+                      onChange={(e) => setTbcBannerTextColor(e.target.value)}
+                      className="w-10 h-10 rounded border border-slate-300 cursor-pointer"
+                      data-testid="input-tbc-banner-text-color"
+                    />
+                    <Input
+                      value={tbcBannerTextColor}
+                      onChange={(e) => setTbcBannerTextColor(e.target.value)}
+                      className="w-28"
+                      data-testid="input-tbc-banner-text-color-text"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Label className="text-sm text-slate-600">Icon Colour:</Label>
+                    <input
+                      type="color"
+                      value={tbcBannerIconColor}
+                      onChange={(e) => setTbcBannerIconColor(e.target.value)}
+                      className="w-10 h-10 rounded border border-slate-300 cursor-pointer"
+                      data-testid="input-tbc-banner-icon-color"
+                    />
+                    <Input
+                      value={tbcBannerIconColor}
+                      onChange={(e) => setTbcBannerIconColor(e.target.value)}
+                      className="w-28"
+                      data-testid="input-tbc-banner-icon-color-text"
+                    />
+                  </div>
+                </div>
+                <div
+                  className="h-12 rounded-lg border border-slate-200 flex items-center px-4 gap-2"
+                  style={
+                    tbcBannerMode === 'gradient'
+                      ? { background: `linear-gradient(to right, ${tbcBannerFrom}, ${tbcBannerTo})` }
+                      : { background: tbcBannerColor }
+                  }
+                  data-testid="preview-tbc-banner"
+                >
+                  <Clock className="h-4 w-4" style={{ color: tbcBannerIconColor }} />
+                  <span className="text-sm font-semibold" style={{ color: tbcBannerTextColor }}>
+                    {(tbcBannerTitle || '').trim() || 'Events open for pre-registration'}
+                  </span>
+                </div>
+                <Button
+                  onClick={handleSaveSettings}
+                  disabled={isSaving}
+                  size="sm"
+                  data-testid="button-save-tbc-banner"
                 >
                   <Save className="w-4 h-4 mr-2" />
                   Save

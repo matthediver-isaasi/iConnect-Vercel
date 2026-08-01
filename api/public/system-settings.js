@@ -46,6 +46,7 @@ const PUBLIC_SETTINGS_WHITELIST = [
   'job_hours',
   'show_event_card_prices',
   'featured_events_background',
+  'tbc_events_banner',
   'email_preferences_blank_page',
   'photo_gallery_max_upload_mb',
   'resource_max_upload_mb',

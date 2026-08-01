@@ -55,6 +55,12 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useEventsData, useMyGroupIds, filterGroupEventVisibility } from "@/hooks/useEventsData";
 import { createPageUrl } from "@/utils";
 import { useEventTypes } from "@/hooks/useEventTypes";
+import {
+  parseTbcBannerConfig,
+  getTbcBannerPlacement,
+  getTbcBannerStyle,
+  getTbcBannerTitle,
+} from "@/lib/tbcEventsBanner";
 import { 
   createFilterTagKey, 
   parseFilterTagKey, 
@@ -719,6 +725,31 @@ export default function EventsPage({
 
   const featuredHeaderTextColor = featuredBgSetting?.headerTextColor || null;
   const featuredHeaderIconColor = featuredBgSetting?.headerIconColor || null;
+
+  // TBC events banner config (pre-registration section demarcation).
+  // Placed above the first TBC event in rendered order (featured section
+  // renders first, then the non-featured grid).
+  const tbcBannerConfig = parseTbcBannerConfig(systemSettings);
+  const tbcBannerPlacement = getTbcBannerPlacement(tbcBannerConfig, featuredEvents, nonFeaturedEvents);
+  const showTbcBanner = tbcBannerPlacement.show;
+  const tbcBannerStyle = getTbcBannerStyle(tbcBannerConfig);
+  const tbcBannerTitle = getTbcBannerTitle(tbcBannerConfig);
+  const scrollToTbcBanner = () => {
+    document.getElementById('tbc-events-banner')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  const tbcBannerNode = showTbcBanner ? (
+    <div
+      id="tbc-events-banner"
+      className="col-span-full rounded-lg p-4 flex items-center gap-2 scroll-mt-24"
+      style={tbcBannerStyle}
+      data-testid="banner-tbc-events"
+    >
+      <Clock className="h-5 w-5 shrink-0" style={{ color: tbcBannerConfig.iconColor || '#2563eb' }} />
+      <h2 className="text-lg font-semibold" style={{ color: tbcBannerConfig.textColor || '#1e3a8a' }}>
+        {tbcBannerTitle}
+      </h2>
+    </div>
+  ) : null;
   
   // Count past events for the toggle label
   const pastEventsCount = accessibleEvents.filter(event => {
@@ -1310,6 +1341,25 @@ export default function EventsPage({
                 />
               </div>
             </div>
+
+            {showTbcBanner && (
+              <div className="flex flex-wrap items-center gap-2 mt-3" data-testid="tbc-jump-row">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={scrollToTbcBanner}
+                  className="gap-1.5"
+                  data-testid="button-jump-tbc-events"
+                >
+                  <Clock className="w-4 h-4" />
+                  Jump to pre-registration events
+                </Button>
+                <span className="text-xs text-slate-500">
+                  Some events are open for pre-registration while their dates are confirmed.
+                </span>
+              </div>
+            )}
             
             {/* Filter Dropdowns Row */}
             <div className="flex flex-wrap gap-2 mt-4">
@@ -1771,7 +1821,11 @@ export default function EventsPage({
                     >Featured Events</h2>
                   </div>
                   <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
-                    {featuredEvents.map((event) => {
+                    {featuredEvents.map((event, featuredIndex) => {
+                      const featuredTbcBanner =
+                        tbcBannerPlacement.section === 'featured' && featuredIndex === tbcBannerPlacement.index
+                          ? tbcBannerNode
+                          : null;
                       if (event.is_complex) {
                         const eventTimezone = event.timezone || DEFAULT_TIMEZONE;
                         const detailUrl = event.slug
@@ -1797,8 +1851,9 @@ export default function EventsPage({
                         const descriptionText = event.summary || stripHtmlTags(event.description);
 
                         return (
+                          <React.Fragment key={`featured-complex-${event.id}`}>
+                          {featuredTbcBanner}
                           <Card
-                            key={`featured-complex-${event.id}`}
                             className="overflow-hidden hover:shadow-lg transition-shadow duration-300 border-slate-200 bg-white"
                             data-testid={`card-featured-event-${event.id}`}
                           >
@@ -2073,12 +2128,14 @@ export default function EventsPage({
                               </div>
                             </CardContent>
                           </Card>
+                          </React.Fragment>
                         );
                       }
 
                       return (
+                        <React.Fragment key={`featured-${event.id}`}>
+                        {featuredTbcBanner}
                         <EventCard
-                          key={`featured-${event.id}`}
                           event={event}
                           organizationInfo={organizationInfo}
                           isFeatureExcluded={resolvedIsFeatureExcluded}
@@ -2088,13 +2145,20 @@ export default function EventsPage({
                           systemSettings={systemSettings}
                           memberInfo={memberInfo}
                         />
+                        </React.Fragment>
                       );
                     })}
                   </div>
                 </div>
               )}
               <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
-                {nonFeaturedEvents.map((event) => {
+                {nonFeaturedEvents.map((event, eventIndex) => {
+                  // Full-width banner injected above the first TBC event,
+                  // demarking the pre-registration section.
+                  const tbcBannerElement =
+                    tbcBannerPlacement.section === 'nonFeatured' && eventIndex === tbcBannerPlacement.index
+                      ? tbcBannerNode
+                      : null;
                   if (event.is_complex) {
                     const eventTimezone = event.timezone || DEFAULT_TIMEZONE;
                     const detailUrl = event.slug
@@ -2120,8 +2184,9 @@ export default function EventsPage({
                     const descriptionText = event.summary || stripHtmlTags(event.description);
 
                     return (
+                      <React.Fragment key={`complex-${event.id}`}>
+                      {tbcBannerElement}
                       <Card
-                        key={`complex-${event.id}`}
                         className="overflow-hidden hover:shadow-lg transition-shadow duration-300 border-slate-200 bg-white"
                         data-testid={`card-event-${event.id}`}
                       >
@@ -2373,12 +2438,14 @@ export default function EventsPage({
                           </div>
                         </CardContent>
                       </Card>
+                      </React.Fragment>
                     );
                   }
 
                   return (
+                    <React.Fragment key={event.id}>
+                    {tbcBannerElement}
                     <EventCard
-                      key={event.id}
                       event={event}
                       organizationInfo={organizationInfo}
                       isFeatureExcluded={resolvedIsFeatureExcluded}
@@ -2388,6 +2455,7 @@ export default function EventsPage({
                       systemSettings={systemSettings}
                       memberInfo={memberInfo}
                     />
+                    </React.Fragment>
                   );
                 })}
               </div>
