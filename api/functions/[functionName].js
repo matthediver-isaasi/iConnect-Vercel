@@ -5,6 +5,7 @@ import { getTenantContext } from '../_lib/tenantContext.js';
 import { isResourceExcluded } from '../_lib/roleVisibility.js';
 import { sendEmail, replacePlaceholders } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
+import { scheduleComplexEventReminders } from '../_lib/complexEventReminders.js';
 import { getZoomAccessTokenForTenant } from '../_lib/zoomClient.js';
 import { getXeroCredentials } from '../_lib/xeroCredentials.js';
 import { getAccountingProvider, getAccountingProviderByName, buildInvoiceColumnUpdate } from '../_lib/accountingProvider.js';
@@ -369,154 +370,17 @@ async function scheduleBookingReminderEmails(bookingId, eventId, attendeeEmail, 
 }
 
 async function scheduleBookingComplexReminders(bookingId, eventId, attendeeEmail, ticketClassId, reminderEmails) {
-  try {
-    const { data: sessions, error: sessionsError } = await supabase
-      .from('complex_event_session')
-      .select('id, title, start_time')
-      .eq('complex_event_id', eventId)
-      .order('start_time', { ascending: true });
-
-    if (sessionsError || !sessions || sessions.length === 0) {
-      console.log('[scheduleBookingComplexReminders] No sessions found for complex event');
-      return;
-    }
-
-    const sessionIds = sessions.map(s => s.id);
-    const { data: junctions } = await supabase
-      .from('complex_event_session_track')
-      .select('complex_event_session_id, complex_event_track_id')
-      .in('complex_event_session_id', sessionIds);
-
-    const sessionTrackMap = {};
-    for (const j of (junctions || [])) {
-      if (!sessionTrackMap[j.complex_event_session_id]) {
-        sessionTrackMap[j.complex_event_session_id] = [];
-      }
-      sessionTrackMap[j.complex_event_session_id].push(j.complex_event_track_id);
-    }
-
-    let accessibleSessions = sessions;
-
-    if (ticketClassId) {
-      const { data: ticketClass } = await supabase
-        .from('complex_event_ticket_class')
-        .select('id, linked_track_ids, all_tracks')
-        .eq('id', ticketClassId)
-        .eq('complex_event_id', eventId)
-        .maybeSingle();
-
-      if (ticketClass && !ticketClass.all_tracks && ticketClass.linked_track_ids?.length > 0) {
-        accessibleSessions = sessions.filter(s => {
-          const trackIds = sessionTrackMap[s.id] || [];
-          return trackIds.length === 0 || 
-            trackIds.some(tid => ticketClass.linked_track_ids.includes(tid));
-        });
-      }
-    }
-
-    console.log(`[scheduleBookingComplexReminders] ${accessibleSessions.length} accessible sessions for booking ${bookingId}`);
-
-    const nowMs = Date.now();
-
-    for (const email of reminderEmails) {
-      if (isAbsoluteReminder(email)) {
-        const scheduledTimeMs = calculateScheduledTimeMs(0, email);
-        if (scheduledTimeMs == null || scheduledTimeMs <= nowMs) {
-          console.log(`[scheduleBookingComplexReminders] Skipping absolute reminder - already passed or invalid`);
-          continue;
-        }
-        const scheduledTimeISO = new Date(scheduledTimeMs).toISOString();
-
-        const { data: existing } = await supabase
-          .from('scheduled_email')
-          .select('id')
-          .eq('event_email_id', email.id)
-          .eq('booking_id', bookingId)
-          .is('session_id', null)
-          .maybeSingle();
-
-        if (existing) {
-          console.log(`[scheduleBookingComplexReminders] Absolute reminder already scheduled for booking ${bookingId}`);
-          continue;
-        }
-
-        const { error: insertError } = await supabase
-          .from('scheduled_email')
-          .insert({
-            event_email_id: email.id,
-            booking_id: bookingId,
-            attendee_email: attendeeEmail,
-            scheduled_send_time: scheduledTimeISO,
-            session_id: null,
-            status: 'pending'
-          });
-
-        if (insertError) {
-          console.error(`[scheduleBookingComplexReminders] Failed to insert absolute reminder:`, insertError.message);
-        } else {
-          console.log(`[scheduleBookingComplexReminders] Scheduled absolute reminder for booking ${bookingId} at ${scheduledTimeISO}`);
-        }
-        continue;
-      }
-
-      for (const session of accessibleSessions) {
-        if (!session.start_time) continue;
-
-        let startTimeStr = session.start_time;
-        if (!startTimeStr.endsWith('Z') && !startTimeStr.includes('+') && !startTimeStr.includes('-', 10)) {
-          startTimeStr = startTimeStr + 'Z';
-        }
-        const sessionStartMs = new Date(startTimeStr).getTime();
-        if (isNaN(sessionStartMs)) continue;
-
-        const scheduledTimeMs = calculateScheduledTimeMs(sessionStartMs, email);
-        if (!scheduledTimeMs) continue;
-
-        if (scheduledTimeMs <= nowMs) {
-          console.log(`[scheduleBookingComplexReminders] Skipping session "${session.title}" reminder - already passed`);
-          continue;
-        }
-
-        const scheduledTimeISO = new Date(scheduledTimeMs).toISOString();
-
-        const { data: existing } = await supabase
-          .from('scheduled_email')
-          .select('id')
-          .eq('event_email_id', email.id)
-          .eq('booking_id', bookingId)
-          .eq('session_id', session.id)
-          .maybeSingle();
-
-        if (existing) {
-          console.log(`[scheduleBookingComplexReminders] Reminder already scheduled for booking ${bookingId}, session ${session.id}`);
-          continue;
-        }
-
-        const { error: insertError } = await supabase
-          .from('scheduled_email')
-          .insert({
-            event_email_id: email.id,
-            booking_id: bookingId,
-            attendee_email: attendeeEmail,
-            scheduled_send_time: scheduledTimeISO,
-            session_id: session.id,
-            status: 'pending'
-          });
-
-        if (insertError) {
-          console.error(`[scheduleBookingComplexReminders] Failed to insert for session ${session.title}:`, insertError.message);
-          continue;
-        }
-
-        console.log(`[scheduleBookingComplexReminders] Scheduled reminder for session "${session.title}" at ${scheduledTimeISO}`);
-      }
-    }
-
-    console.log(`[scheduleBookingComplexReminders] Done scheduling for booking ${bookingId}`);
-  } catch (err) {
-    console.error('[scheduleBookingComplexReminders] Error:', err.message);
-  }
+  await scheduleComplexEventReminders({
+    supabase,
+    bookingId,
+    eventId,
+    attendeeEmail,
+    ticketClassId,
+    reminderEmails,
+    logPrefix: '[scheduleBookingComplexReminders]'
+  });
 }
+
 
 function getHoursFromTimingType(timingType, customHours) {
   switch (timingType) {

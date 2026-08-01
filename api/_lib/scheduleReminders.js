@@ -1,4 +1,5 @@
 import { supabase } from './database.js';
+import { pickDayAnchorSessions } from './complexEventReminders.js';
 
 export function isAbsoluteReminder(email) {
   return (
@@ -224,13 +225,20 @@ export async function scheduleReminderEmails(eventId) {
   }
 }
 
-export async function scheduleComplexEventReminderEmails(eventId) {
+export async function scheduleComplexEventReminderEmails(eventId, client = supabase) {
   const result = emptyResult();
   const bookingSet = new Set();
   const failureBag = new Map();
 
   try {
-    const { data: sessions, error: sessionsError } = await supabase
+    const { data: complexEvent } = await client
+      .from('complex_event')
+      .select('id, timezone')
+      .eq('id', eventId)
+      .maybeSingle();
+    const eventTimezone = complexEvent?.timezone || 'UTC';
+
+    const { data: sessions, error: sessionsError } = await client
       .from('complex_event_session')
       .select('id, title, start_time')
       .eq('complex_event_id', eventId)
@@ -247,7 +255,7 @@ export async function scheduleComplexEventReminderEmails(eventId) {
 
     let junctions = [];
     if (sessionIds.length > 0) {
-      const { data: junctionsData, error: junctionsError } = await supabase
+      const { data: junctionsData, error: junctionsError } = await client
         .from('complex_event_session_track')
         .select('complex_event_session_id, complex_event_track_id')
         .in('complex_event_session_id', sessionIds);
@@ -265,7 +273,7 @@ export async function scheduleComplexEventReminderEmails(eventId) {
       sessionTrackMap[j.complex_event_session_id].push(j.complex_event_track_id);
     }
 
-    const { data: reminderEmails, error: emailsError } = await supabase
+    const { data: reminderEmails, error: emailsError } = await client
       .from('event_email')
       .select('*')
       .eq('event_id', eventId)
@@ -282,7 +290,7 @@ export async function scheduleComplexEventReminderEmails(eventId) {
       return result;
     }
 
-    const { data: bookings, error: bookingsError } = await supabase
+    const { data: bookings, error: bookingsError } = await client
       .from('booking')
       .select('id, attendee_email, ticket_class_id')
       .eq('event_id', eventId)
@@ -307,7 +315,7 @@ export async function scheduleComplexEventReminderEmails(eventId) {
       return result;
     }
 
-    const { data: ticketClasses } = await supabase
+    const { data: ticketClasses } = await client
       .from('complex_event_ticket_class')
       .select('id, linked_track_ids, all_tracks')
       .eq('complex_event_id', eventId);
@@ -330,7 +338,7 @@ export async function scheduleComplexEventReminderEmails(eventId) {
         }
 
         for (const booking of bookings) {
-          const { data: existing, error: existingError } = await supabase
+          const { data: existing, error: existingError } = await client
             .from('scheduled_email')
             .select('id')
             .eq('event_email_id', email.id)
@@ -344,7 +352,7 @@ export async function scheduleComplexEventReminderEmails(eventId) {
           }
 
           if (existing) {
-            const { error: updateError } = await supabase
+            const { error: updateError } = await client
               .from('scheduled_email')
               .update({
                 scheduled_send_time: scheduledTime.toISOString(),
@@ -356,7 +364,7 @@ export async function scheduleComplexEventReminderEmails(eventId) {
               continue;
             }
           } else {
-            const { error: insertError } = await supabase
+            const { error: insertError } = await client
               .from('scheduled_email')
               .insert({
                 event_email_id: email.id,
@@ -378,28 +386,62 @@ export async function scheduleComplexEventReminderEmails(eventId) {
         continue;
       }
 
+      // Relative reminder: one per calendar day (event timezone) per booking,
+      // anchored to the earliest session that day the booking's ticket class
+      // can access. session_id stores the day's anchor session for dedupe.
       let scheduledForThisEmail = 0;
-      for (const session of sessionList) {
-        if (!session.start_time) continue;
-
-        const sessionStart = new Date(session.start_time);
-        const scheduledTime = calculateScheduledTime(sessionStart, email);
-
-        if (!scheduledTime || scheduledTime <= new Date()) {
-          continue;
+      for (const booking of bookings) {
+        const tc = booking.ticket_class_id ? ticketClassMap[booking.ticket_class_id] : null;
+        let accessibleSessions = sessionList;
+        if (tc && !tc.all_tracks && tc.linked_track_ids?.length > 0) {
+          accessibleSessions = sessionList.filter(s => {
+            const trackIds = sessionTrackMap[s.id] || [];
+            return trackIds.length === 0 ||
+              trackIds.some(tid => tc.linked_track_ids.includes(tid));
+          });
         }
 
-        const sessionTrackIds = sessionTrackMap[session.id] || [];
+        const dayAnchors = pickDayAnchorSessions(accessibleSessions, eventTimezone);
 
-        for (const booking of bookings) {
-          const tc = booking.ticket_class_id ? ticketClassMap[booking.ticket_class_id] : null;
-          if (tc && !tc.all_tracks && tc.linked_track_ids?.length > 0) {
-            const hasAccess = sessionTrackIds.length === 0 ||
-              sessionTrackIds.some(tid => tc.linked_track_ids.includes(tid));
-            if (!hasAccess) continue;
+        // Reconcile legacy per-session rows: cancel any pending session-bound
+        // rows that are not one of the desired day anchors (e.g. rows created
+        // by the former per-session scheduler for later same-day sessions, or
+        // for sessions the ticket class can no longer access).
+        const anchorIds = new Set(dayAnchors.map(a => a.session.id));
+        const { data: existingRows, error: existingRowsError } = await client
+          .from('scheduled_email')
+          .select('id, session_id')
+          .eq('event_email_id', email.id)
+          .eq('booking_id', booking.id)
+          .eq('status', 'pending');
+        if (existingRowsError) {
+          recordWriteFailure(failureBag, email, existingRowsError, booking.id);
+        } else {
+          const obsoleteIds = (existingRows || [])
+            .filter(r => r.session_id != null && !anchorIds.has(r.session_id))
+            .map(r => r.id);
+          if (obsoleteIds.length > 0) {
+            const { error: cancelError } = await client
+              .from('scheduled_email')
+              .update({ status: 'cancelled' })
+              .in('id', obsoleteIds);
+            if (cancelError) {
+              recordWriteFailure(failureBag, email, cancelError, booking.id);
+            } else {
+              console.log(`[scheduleComplexEventReminderEmails] Cancelled ${obsoleteIds.length} obsolete per-session reminder row(s) for booking ${booking.id}`);
+            }
+          }
+        }
+
+        for (const anchor of dayAnchors) {
+          const { session, startMs } = anchor;
+          const scheduledTime = calculateScheduledTime(new Date(startMs), email);
+
+          if (!scheduledTime || scheduledTime <= new Date()) {
+            continue;
           }
 
-          const { data: existing, error: existingError } = await supabase
+          const { data: existing, error: existingError } = await client
             .from('scheduled_email')
             .select('id')
             .eq('event_email_id', email.id)
@@ -413,7 +455,7 @@ export async function scheduleComplexEventReminderEmails(eventId) {
           }
 
           if (existing) {
-            const { error: updateError } = await supabase
+            const { error: updateError } = await client
               .from('scheduled_email')
               .update({
                 scheduled_send_time: scheduledTime.toISOString(),
@@ -425,7 +467,7 @@ export async function scheduleComplexEventReminderEmails(eventId) {
               continue;
             }
           } else {
-            const { error: insertError } = await supabase
+            const { error: insertError } = await client
               .from('scheduled_email')
               .insert({
                 event_email_id: email.id,

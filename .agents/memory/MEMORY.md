@@ -109,6 +109,7 @@
 - [Unchecked supabase inserts hide schema drift](unchecked-supabase-inserts.md) — supabase-js returns {error}, never throws; unchecked side-effect inserts fail silently forever on column drift.
 - [jsdom pinned to v26 for Vercel](jsdom-vercel-esm-pin.md) — jsdom 27+ pulls an ESM-only encoding dep that crashes Vercel functions with ERR_REQUIRE_ESM; keep ^26.
 - [AI V2 retry carry-forward](ai-code-v2-retry-carry.md) — carry a passing HTML/CSS side between retries only when ALL real gate errors sit on the other side; heuristics alone trap loops.
+- [Complex event reminders per-day](complex-reminders-per-day.md) — relative reminders schedule once per calendar day via shared helper; dedupe reuses session_id as the deterministic day-anchor session.
 - [complex_event_session FK column](complex-event-session-fk.md) — parent FK is complex_event_id (NOT event_id, despite some code querying that); session start column is start_time.
 - [useQuery `= []` default render loop](usequery-default-array-loop.md) — disabled query + inline array default + setState effect = silent infinite loop that freezes router transitions; use stable EMPTY consts.
 - [Accounting provider dual invoice columns](accounting-provider-dual-columns.md) — QBO rows fill only accounting_invoice_id/number; queries filtering xero_* alone silently miss them; keep xero_invoice_id strictly Xero for API calls.
