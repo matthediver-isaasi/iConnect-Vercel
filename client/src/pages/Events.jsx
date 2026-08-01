@@ -445,15 +445,17 @@ export default function EventsPage({
     // Filter by event_state - drafts are hidden by default, shown only when toggle is on
     // Active and closed events are always shown (closed = visible but registration disabled)
     // Note: event.status now stores timing (published/tbc), event_state stores visibility (active/draft/closed)
+    // Task #3255 — the drafts toggle is an exclusive view: ON shows ONLY
+    // drafts (for permitted users), OFF shows only non-draft events.
     filtered = filtered.filter(event => {
       // Check if event is a draft (new field or legacy fallback)
       const isDraft = event.event_state === 'draft' || (!event.event_state && event.status === 'draft');
-      if (isDraft) {
-        // Only show drafts if user has permission AND toggle is on
-        return canToggleDrafts && showDraftEvents;
+      if (canToggleDrafts && showDraftEvents) {
+        return isDraft;
       }
-      // Show all non-draft events (active, closed, or legacy published/tbc)
-      return true;
+      // Toggle off (or no permission): show only non-draft events
+      // (active, closed, or legacy published/tbc)
+      return !isDraft;
     });
     
     return filtered;
@@ -601,9 +603,10 @@ export default function EventsPage({
       }
     }
     
-    // Filter out past events unless showPastEvents is enabled
+    // Task #3255 — the past-events toggle is an exclusive view: ON shows
+    // ONLY past events, OFF shows only upcoming (non-past) events.
     const isPast = isEventPast(event);
-    const matchesTimeFilter = showPastEvents || !isPast;
+    const matchesTimeFilter = showPastEvents ? isPast : !isPast;
 
     // Apply member group filter
     const isGroupEvent = !!event.member_group_id;
@@ -1615,10 +1618,10 @@ export default function EventsPage({
               </div>
             
             {/* Toggle Row for Past Events, Drafts, and Member Group filter */}
-            {(pastEventsCount > 0 || canToggleDrafts || memberGroupEventsCount > 0) && (
+            {(pastEventsCount > 0 || showPastEvents || canToggleDrafts || memberGroupEventsCount > 0) && (
               <div className="flex flex-wrap items-center gap-6 mt-4 pt-4 border-t border-slate-200">
                 {/* Show Past Events Toggle */}
-                {pastEventsCount > 0 && (
+                {(pastEventsCount > 0 || showPastEvents) && (
                   <div className="flex items-center gap-3">
                     <Switch
                       id="show-past-events"
@@ -1631,7 +1634,7 @@ export default function EventsPage({
                       className="text-sm text-slate-600 cursor-pointer flex items-center gap-2"
                     >
                       <History className="w-4 h-4" />
-                      Show past events ({pastEventsCount})
+                      Show past events only ({pastEventsCount})
                     </Label>
                   </div>
                 )}
@@ -1650,7 +1653,7 @@ export default function EventsPage({
                       className="text-sm text-slate-600 cursor-pointer flex items-center gap-2"
                     >
                       <FileEdit className="w-4 h-4" />
-                      Show drafts{draftEventsCount > 0 ? ` (${draftEventsCount})` : ''}
+                      Show drafts only{draftEventsCount > 0 ? ` (${draftEventsCount})` : ''}
                     </Label>
                   </div>
                 )}
