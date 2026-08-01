@@ -716,6 +716,9 @@ export default function EventsPage({
       ? { background: `linear-gradient(to right, ${featuredBgSetting.from}, ${featuredBgSetting.to})` }
       : { background: featuredBgSetting.color }
     : { background: '#f0f9ff' };
+
+  const featuredHeaderTextColor = featuredBgSetting?.headerTextColor || null;
+  const featuredHeaderIconColor = featuredBgSetting?.headerIconColor || null;
   
   // Count past events for the toggle label
   const pastEventsCount = accessibleEvents.filter(event => {
@@ -1758,8 +1761,14 @@ export default function EventsPage({
               {featuredEvents.length > 0 && (
                 <div className="mb-6 rounded-lg p-4 -mx-[10px]" style={featuredBgStyle} data-testid="card-featured-events">
                   <div className="flex items-center gap-2 mb-4">
-                    <Star className="h-5 w-5 text-warning" />
-                    <h2 className="text-lg font-semibold">Featured Events</h2>
+                    <Star
+                      className={featuredHeaderIconColor ? "h-5 w-5" : "h-5 w-5 text-warning"}
+                      style={featuredHeaderIconColor ? { color: featuredHeaderIconColor } : undefined}
+                    />
+                    <h2
+                      className="text-lg font-semibold"
+                      style={featuredHeaderTextColor ? { color: featuredHeaderTextColor } : undefined}
+                    >Featured Events</h2>
                   </div>
                   <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
                     {featuredEvents.map((event) => {

@@ -118,20 +118,24 @@ export default function PublicEventsPage() {
 
   const featuredEvents = useMemo(() => events.filter(e => e.is_featured === true), [events]);
 
-  const featuredBgStyle = useMemo(() => {
+  const featuredBgConfig = useMemo(() => {
     const setting = Array.isArray(systemSettings)
       ? systemSettings.find(item => item.setting_key === 'featured_events_background')
       : null;
     if (setting?.setting_value) {
-      try {
-        const bgConfig = JSON.parse(setting.setting_value);
-        return bgConfig.mode === 'gradient'
-          ? { background: `linear-gradient(to right, ${bgConfig.from}, ${bgConfig.to})` }
-          : { background: bgConfig.color };
-      } catch { return { background: '#f0f9ff' }; }
+      try { return JSON.parse(setting.setting_value); } catch { return null; }
     }
-    return { background: '#f0f9ff' };
+    return null;
   }, [systemSettings]);
+
+  const featuredBgStyle = featuredBgConfig
+    ? featuredBgConfig.mode === 'gradient'
+      ? { background: `linear-gradient(to right, ${featuredBgConfig.from}, ${featuredBgConfig.to})` }
+      : { background: featuredBgConfig.color }
+    : { background: '#f0f9ff' };
+
+  const featuredHeaderTextColor = featuredBgConfig?.headerTextColor || null;
+  const featuredHeaderIconColor = featuredBgConfig?.headerIconColor || null;
 
   return (
     <div className="bg-white min-h-screen">
@@ -172,8 +176,14 @@ export default function PublicEventsPage() {
           {featuredEvents.length > 0 && (
             <div className="mb-8 rounded-lg p-4 -mx-[10px]" style={featuredBgStyle} data-testid="card-featured-events">
               <div className="flex items-center gap-2 mb-4">
-                <Star className="h-5 w-5 text-warning" />
-                <h2 className="text-lg font-semibold">Featured Events</h2>
+                <Star
+                  className={featuredHeaderIconColor ? "h-5 w-5" : "h-5 w-5 text-warning"}
+                  style={featuredHeaderIconColor ? { color: featuredHeaderIconColor } : undefined}
+                />
+                <h2
+                  className="text-lg font-semibold"
+                  style={featuredHeaderTextColor ? { color: featuredHeaderTextColor } : undefined}
+                >Featured Events</h2>
               </div>
               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {featuredEvents.map((event) => {

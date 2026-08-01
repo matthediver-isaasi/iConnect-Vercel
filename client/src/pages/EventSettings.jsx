@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Settings, Calendar, Clock, MapPin, Ticket, RefreshCw, Save, Image as ImageIcon, Upload, X, FileText, Plus, Trash2, Edit2, Tag, Gift } from "lucide-react";
+import { Settings, Calendar, Clock, MapPin, Ticket, RefreshCw, Save, Image as ImageIcon, Upload, X, FileText, Plus, Trash2, Edit2, Tag, Gift, Star } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { format } from "date-fns";
@@ -44,6 +44,8 @@ export default function EventSettingsPage() {
   const [featuredBgColor, setFeaturedBgColor] = useState("#f0f9ff");
   const [featuredBgFrom, setFeaturedBgFrom] = useState("#dbeafe");
   const [featuredBgTo, setFeaturedBgTo] = useState("#ede9fe");
+  const [featuredHeaderTextColor, setFeaturedHeaderTextColor] = useState("#0f172a");
+  const [featuredHeaderIconColor, setFeaturedHeaderIconColor] = useState("#b45309");
   const [isSaving, setIsSaving] = useState(false);
   const [editingEventImage, setEditingEventImage] = useState(null);
   const [selectedImage, setSelectedImage] = useState(null);
@@ -330,6 +332,8 @@ export default function EventSettingsPage() {
         } else {
           setFeaturedBgColor(bgConfig.color || '#f0f9ff');
         }
+        setFeaturedHeaderTextColor(bgConfig.headerTextColor || '#0f172a');
+        setFeaturedHeaderIconColor(bgConfig.headerIconColor || '#b45309');
       } catch (e) {
         console.error('Failed to parse featured events background:', e);
       }
@@ -715,9 +719,13 @@ export default function EventSettingsPage() {
         });
       }
 
+      const featuredHeaderColors = {
+        headerTextColor: featuredHeaderTextColor,
+        headerIconColor: featuredHeaderIconColor,
+      };
       const featuredBgValue = featuredBgMode === 'gradient'
-        ? JSON.stringify({ mode: 'gradient', from: featuredBgFrom, to: featuredBgTo })
-        : JSON.stringify({ mode: 'solid', color: featuredBgColor });
+        ? JSON.stringify({ mode: 'gradient', from: featuredBgFrom, to: featuredBgTo, ...featuredHeaderColors })
+        : JSON.stringify({ mode: 'solid', color: featuredBgColor, ...featuredHeaderColors });
       const featuredBgSetting = settings.find(s => s.setting_key === 'featured_events_background');
 
       if (featuredBgSetting) {
@@ -2204,15 +2212,52 @@ export default function EventSettingsPage() {
                     </div>
                   </div>
                 )}
+                <div className="flex flex-wrap items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <Label className="text-sm text-slate-600">Header Text Colour:</Label>
+                    <input
+                      type="color"
+                      value={featuredHeaderTextColor}
+                      onChange={(e) => setFeaturedHeaderTextColor(e.target.value)}
+                      className="w-10 h-10 rounded border border-slate-300 cursor-pointer"
+                      data-testid="input-featured-header-text-color"
+                    />
+                    <Input
+                      value={featuredHeaderTextColor}
+                      onChange={(e) => setFeaturedHeaderTextColor(e.target.value)}
+                      className="w-28"
+                      data-testid="input-featured-header-text-color-text"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Label className="text-sm text-slate-600">Header Icon Colour:</Label>
+                    <input
+                      type="color"
+                      value={featuredHeaderIconColor}
+                      onChange={(e) => setFeaturedHeaderIconColor(e.target.value)}
+                      className="w-10 h-10 rounded border border-slate-300 cursor-pointer"
+                      data-testid="input-featured-header-icon-color"
+                    />
+                    <Input
+                      value={featuredHeaderIconColor}
+                      onChange={(e) => setFeaturedHeaderIconColor(e.target.value)}
+                      className="w-28"
+                      data-testid="input-featured-header-icon-color-text"
+                    />
+                  </div>
+                </div>
                 <div
-                  className="h-12 rounded-lg border border-slate-200"
+                  className="h-12 rounded-lg border border-slate-200 flex items-center px-4 gap-2"
                   style={
                     featuredBgMode === 'gradient'
                       ? { background: `linear-gradient(to right, ${featuredBgFrom}, ${featuredBgTo})` }
                       : { background: featuredBgColor }
                   }
                   data-testid="preview-featured-bg"
-                />
+                >
+                  <Star className="h-4 w-4" style={{ color: featuredHeaderIconColor }} />
+                  <span className="text-sm font-semibold" style={{ color: featuredHeaderTextColor }}>Featured Events</span>
+                </div>
                 <Button
                   onClick={handleSaveSettings}
                   disabled={isSaving}
