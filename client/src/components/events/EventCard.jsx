@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { Calendar, MapPin, Users, Clock, Ticket, AlertCircle, ShoppingCart, Pencil, Trash2, Video, Globe, UsersRound, Download, Upload, Search, ChevronLeft, ChevronRight, Loader2, CheckCircle2, XCircle, AlertTriangle, Send, Plus, Copy, Lock } from "lucide-react";
+import { Calendar, CalendarDays, MapPin, Users, Clock, Ticket, AlertCircle, ShoppingCart, Pencil, Trash2, Video, Globe, UsersRound, Download, Upload, Search, ChevronLeft, ChevronRight, Loader2, CheckCircle2, XCircle, AlertTriangle, Send, Plus, Copy, Lock, Info } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { createPageUrl, getEventUrl } from "@/utils";
 import { parseEventTypes } from "@/lib/utils";
@@ -814,9 +814,23 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                 <div className="flex items-center gap-2 text-sm text-slate-600">
                   <Calendar className="w-4 h-4 text-slate-400" />
                   <span>{formatEventDate(event.start_date, "MMM d, yyyy", event.timezone)}</span>
-                  {event.end_date && event.start_date !== event.end_date && (
+                  {event.end_date && event.start_date !== event.end_date && !event.days_nonconsecutive && (
                     <span className="text-slate-400">- {formatEventDate(event.end_date, "MMM d, yyyy", event.timezone)}</span>
                   )}
+                </div>
+              )}
+
+              {/* Task #3266: non-consecutive complex event days — show day count instead of end date */}
+              {event.days_nonconsecutive && event.day_count > 1 && (
+                <div className="flex items-center gap-2 text-sm text-slate-600" data-testid={`text-event-day-count-${event.id}`}>
+                  <CalendarDays className="w-4 h-4 text-slate-400" />
+                  <span>{event.day_count} days</span>
+                </div>
+              )}
+              {event.days_nonconsecutive && event.day_count > 1 && event.custom_duration_explainer && (
+                <div className="flex items-center gap-2 text-sm text-slate-600" data-testid={`text-event-duration-explainer-${event.id}`}>
+                  <Info className="w-4 h-4 text-slate-400 shrink-0" />
+                  <span>{event.custom_duration_explainer}</span>
                 </div>
               )}
 

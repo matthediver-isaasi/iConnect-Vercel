@@ -14,7 +14,7 @@ import {
   Calendar, MapPin, Clock, Users, ArrowLeft, Ticket, Loader2,
   Video, User, Mic, AlertCircle, Monitor, Building2,
   Plus, Trash2, Layers, Lock, UserPlus, X, ShoppingCart, Mail, FileText, ChevronDown, ChevronUp,
-  ChevronLeft, ChevronRight, Copy, ExternalLink, LogIn
+  ChevronLeft, ChevronRight, Copy, ExternalLink, LogIn, CalendarDays, Info
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import ColleagueSelector from "@/components/booking/ColleagueSelector";
@@ -31,6 +31,7 @@ import {
   ScrollableSchedule,
 } from "@/components/events/ComplexEventSchedule";
 import { publicClient } from "@/api/publicClient";
+import { computeComplexEventDayInfo } from "@/lib/complexEventDays";
 import { supabase } from "@/api/supabaseClient";
 import { getFocalPointStyle } from "@/components/FocalPointPicker";
 import { getEffectiveTicketPrice } from "@/lib/ticketPricing";
@@ -1277,6 +1278,14 @@ export default function ComplexEventDetail() {
     });
   }, [sessions, accessibleTrackNames]);
 
+  // Task #3266: detect non-consecutive event days (all sessions, not
+  // track-filtered) so the header drops the misleading end date.
+  const dayInfo = useMemo(
+    () => computeComplexEventDayInfo(sessions, event?.timezone),
+    [sessions, event?.timezone]
+  );
+  const showDayCountInsteadOfEndDate = dayInfo.isNonConsecutive && dayInfo.dayCount > 1;
+
   const filteredTrackColorMap = useMemo(() => {
     if (!accessibleTrackNames) return trackColorMap;
     const filtered = {};
@@ -1438,9 +1447,22 @@ export default function ComplexEventDetail() {
                     <div className="flex items-center gap-3 text-slate-700">
                       <Calendar className="w-5 h-5 text-slate-400" />
                       <span className="font-medium">{formatDate(event.start_date, tz, "EEEE, MMMM d, yyyy")}</span>
-                      {event.end_date && !isSameDay(parseISO(event.start_date), parseISO(event.end_date)) && (
+                      {event.end_date && !showDayCountInsteadOfEndDate && !isSameDay(parseISO(event.start_date), parseISO(event.end_date)) && (
                         <span className="text-slate-500">- {formatDate(event.end_date, tz, "MMMM d, yyyy")}</span>
                       )}
+                    </div>
+                  )}
+
+                  {showDayCountInsteadOfEndDate && (
+                    <div className="flex items-center gap-3 text-slate-700" data-testid="text-event-day-count">
+                      <CalendarDays className="w-5 h-5 text-slate-400" />
+                      <span>{dayInfo.dayCount} days</span>
+                    </div>
+                  )}
+                  {showDayCountInsteadOfEndDate && event.custom_duration_explainer && (
+                    <div className="flex items-center gap-3 text-slate-700" data-testid="text-event-duration-explainer">
+                      <Info className="w-5 h-5 text-slate-400 shrink-0" />
+                      <span>{event.custom_duration_explainer}</span>
                     </div>
                   )}
 

@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Calendar, MapPin, Clock, Users, Ticket, Star, List, Layers } from "lucide-react";
+import { Calendar, CalendarDays, MapPin, Clock, Users, Ticket, Star, List, Layers, Info } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { formatInTimeZone, toZonedTime } from "date-fns-tz";
 import { publicClient } from "@/api/publicClient";
@@ -233,8 +233,21 @@ export default function PublicEventsPage() {
                             <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
                             <span>
                               {formatEventDate(event.start_date, eventTimezone)}
-                              {isComplex && event.end_date && ` - ${formatEventDate(event.end_date, eventTimezone)}`}
+                              {isComplex && event.end_date && !event.days_nonconsecutive && ` - ${formatEventDate(event.end_date, eventTimezone)}`}
                             </span>
+                          </div>
+                        )}
+
+                        {isComplex && event.days_nonconsecutive && event.day_count > 1 && (
+                          <div className="flex items-center gap-2 text-sm text-slate-600" data-testid={`text-featured-day-count-${event.id}`}>
+                            <CalendarDays className="w-4 h-4 text-slate-400 shrink-0" />
+                            <span>{event.day_count} days</span>
+                          </div>
+                        )}
+                        {isComplex && event.days_nonconsecutive && event.day_count > 1 && event.custom_duration_explainer && (
+                          <div className="flex items-center gap-2 text-sm text-slate-600" data-testid={`text-featured-duration-explainer-${event.id}`}>
+                            <Info className="w-4 h-4 text-slate-400 shrink-0" />
+                            <span>{event.custom_duration_explainer}</span>
                           </div>
                         )}
 
@@ -352,8 +365,21 @@ export default function PublicEventsPage() {
                         <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
                         <span>
                           {formatEventDate(event.start_date, eventTimezone)}
-                          {isComplex && event.end_date && ` - ${formatEventDate(event.end_date, eventTimezone)}`}
+                          {isComplex && event.end_date && !event.days_nonconsecutive && ` - ${formatEventDate(event.end_date, eventTimezone)}`}
                         </span>
+                      </div>
+                    )}
+
+                    {isComplex && event.days_nonconsecutive && event.day_count > 1 && (
+                      <div className="flex items-center gap-2 text-sm text-slate-600" data-testid={`text-public-day-count-${event.id}`}>
+                        <CalendarDays className="w-4 h-4 text-slate-400 shrink-0" />
+                        <span>{event.day_count} days</span>
+                      </div>
+                    )}
+                    {isComplex && event.days_nonconsecutive && event.day_count > 1 && event.custom_duration_explainer && (
+                      <div className="flex items-center gap-2 text-sm text-slate-600" data-testid={`text-public-duration-explainer-${event.id}`}>
+                        <Info className="w-4 h-4 text-slate-400 shrink-0" />
+                        <span>{event.custom_duration_explainer}</span>
                       </div>
                     )}
 

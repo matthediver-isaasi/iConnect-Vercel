@@ -604,6 +604,7 @@ export default function CreateComplexEvent() {
     slug: "",
     description: "",
     summary: "",
+    custom_duration_explainer: "",
     image_url: "",
     image_focal_point: null,
     start_date: "",
@@ -1082,6 +1083,7 @@ export default function CreateComplexEvent() {
         slug: existingEvent.slug || "",
         description: existingEvent.description || "",
         summary: existingEvent.summary || "",
+        custom_duration_explainer: existingEvent.custom_duration_explainer || "",
         image_url: existingEvent.image_url || "",
         image_focal_point: existingEvent.image_focal_point || null,
         start_date: existingEvent.start_date
@@ -1713,6 +1715,7 @@ export default function CreateComplexEvent() {
         slug: formData.slug,
         description: formData.description || null,
         summary: formData.summary || null,
+        custom_duration_explainer: (formData.custom_duration_explainer || "").trim().slice(0, 75) || null,
         image_url: formData.image_url || null,
         image_focal_point: formData.image_focal_point || null,
         start_date: formData.start_date || null,
@@ -2444,6 +2447,28 @@ export default function CreateComplexEvent() {
                     <span>Displayed on event cards and listings</span>
                     <span className={formData.summary.length >= summaryMaxLength - 10 ? 'text-warning' : ''}>
                       {formData.summary.length}/{summaryMaxLength}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="custom-duration-explainer">Custom duration explainer</Label>
+                  <Input
+                    id="custom-duration-explainer"
+                    value={formData.custom_duration_explainer}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (value.length <= 75) {
+                        updateField("custom_duration_explainer", value);
+                      }
+                    }}
+                    placeholder="e.g. Runs Tuesdays & Thursdays over 2 weeks"
+                    data-testid="input-custom-duration-explainer"
+                  />
+                  <div className="flex justify-between text-xs text-slate-500">
+                    <span>Shown with the day count on cards when event days are not consecutive</span>
+                    <span className={(formData.custom_duration_explainer || "").length >= 65 ? 'text-warning' : ''}>
+                      {(formData.custom_duration_explainer || "").length}/75
                     </span>
                   </div>
                 </div>

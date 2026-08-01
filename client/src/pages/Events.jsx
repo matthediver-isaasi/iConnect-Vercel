@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Search, Calendar, Plus, History, Tag, Check, ChevronDown, Layers, X, MapPin, FileEdit, Clock, Users, Ticket, Pencil, Trash2, UsersRound, List, Star, ArrowUpDown, Download, Upload, ChevronLeft, ChevronRight, Loader2, CheckCircle2, XCircle, AlertTriangle, AlertCircle, Send, Copy } from "lucide-react";
+import { Search, Calendar, CalendarDays, Plus, History, Tag, Check, ChevronDown, Layers, X, MapPin, FileEdit, Clock, Users, Ticket, Pencil, Trash2, UsersRound, List, Star, ArrowUpDown, Download, Upload, ChevronLeft, ChevronRight, Loader2, CheckCircle2, XCircle, AlertTriangle, AlertCircle, Send, Copy, Info } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -13,6 +13,7 @@ import { parseISO, format } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import { Link, useSearchParams } from "react-router-dom";
 import { getFocalPointStyle } from "@/components/FocalPointPicker";
+import { computeComplexEventDayInfo } from "@/lib/complexEventDays";
 import TenantCtaButton from "@/components/common/TenantCtaButton";
 import { toast } from "sonner";
 import {
@@ -230,9 +231,12 @@ export default function EventsPage({
           const sessionCounts = {};
           const trackCounts = {};
           const cheapestPrices = {};
+          const sessionsByEvent = {};
           (allSessions || []).forEach(s => {
             if (eventIds.includes(s.complex_event_id)) {
               sessionCounts[s.complex_event_id] = (sessionCounts[s.complex_event_id] || 0) + 1;
+              if (!sessionsByEvent[s.complex_event_id]) sessionsByEvent[s.complex_event_id] = [];
+              sessionsByEvent[s.complex_event_id].push(s);
             }
           });
           (allTracks || []).forEach(t => {
@@ -250,13 +254,18 @@ export default function EventsPage({
               }
             }
           });
-          return events.map(e => ({
-            ...e,
-            is_complex: true,
-            session_count: sessionCounts[e.id] || 0,
-            track_count: trackCounts[e.id] || 0,
-            cheapest_price: cheapestPrices[e.id] ?? null
-          }));
+          return events.map(e => {
+            const dayInfo = computeComplexEventDayInfo(sessionsByEvent[e.id] || [], e.timezone);
+            return {
+              ...e,
+              is_complex: true,
+              session_count: sessionCounts[e.id] || 0,
+              track_count: trackCounts[e.id] || 0,
+              cheapest_price: cheapestPrices[e.id] ?? null,
+              day_count: dayInfo.dayCount,
+              days_nonconsecutive: dayInfo.isNonConsecutive
+            };
+          });
         }
         return events.map(e => ({ ...e, is_complex: true, session_count: 0, track_count: 0, cheapest_price: null }));
       } else {
@@ -1844,8 +1853,20 @@ export default function EventsPage({
                                   <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
                                   <span>
                                     {formatInTimeZone(parseISO(event.start_date), eventTimezone, "MMM d, yyyy")}
-                                    {event.end_date && ` - ${formatInTimeZone(parseISO(event.end_date), eventTimezone, "MMM d, yyyy")}`}
+                                    {event.end_date && !event.days_nonconsecutive && ` - ${formatInTimeZone(parseISO(event.end_date), eventTimezone, "MMM d, yyyy")}`}
                                   </span>
+                                </div>
+                              )}
+                              {event.status !== 'tbc' && event.days_nonconsecutive && event.day_count > 1 && (
+                                <div className="flex items-center gap-2 text-sm text-slate-600" data-testid={`text-day-count-${event.id}`}>
+                                  <CalendarDays className="w-4 h-4 text-slate-400 shrink-0" />
+                                  <span>{event.day_count} days</span>
+                                </div>
+                              )}
+                              {event.status !== 'tbc' && event.days_nonconsecutive && event.day_count > 1 && event.custom_duration_explainer && (
+                                <div className="flex items-center gap-2 text-sm text-slate-600" data-testid={`text-duration-explainer-${event.id}`}>
+                                  <Info className="w-4 h-4 text-slate-400 shrink-0" />
+                                  <span>{event.custom_duration_explainer}</span>
                                 </div>
                               )}
                               {(event.track_count > 0 || event.session_count > 0) && (
@@ -2177,8 +2198,20 @@ export default function EventsPage({
                               <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
                               <span>
                                 {formatInTimeZone(parseISO(event.start_date), eventTimezone, "MMM d, yyyy")}
-                                {event.end_date && ` - ${formatInTimeZone(parseISO(event.end_date), eventTimezone, "MMM d, yyyy")}`}
+                                {event.end_date && !event.days_nonconsecutive && ` - ${formatInTimeZone(parseISO(event.end_date), eventTimezone, "MMM d, yyyy")}`}
                               </span>
+                            </div>
+                          )}
+                          {event.status !== 'tbc' && event.days_nonconsecutive && event.day_count > 1 && (
+                            <div className="flex items-center gap-2 text-sm text-slate-600" data-testid={`text-grid-day-count-${event.id}`}>
+                              <CalendarDays className="w-4 h-4 text-slate-400 shrink-0" />
+                              <span>{event.day_count} days</span>
+                            </div>
+                          )}
+                          {event.status !== 'tbc' && event.days_nonconsecutive && event.day_count > 1 && event.custom_duration_explainer && (
+                            <div className="flex items-center gap-2 text-sm text-slate-600" data-testid={`text-grid-duration-explainer-${event.id}`}>
+                              <Info className="w-4 h-4 text-slate-400 shrink-0" />
+                              <span>{event.custom_duration_explainer}</span>
                             </div>
                           )}
                           {(event.track_count > 0 || event.session_count > 0) && (

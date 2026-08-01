@@ -148,8 +148,9 @@ function HScrollContainer({ children, trackCount }) {
 }
 
 function ScheduleGrid({ sessions, timezone, trackColorMap, eventTracks, speakerMap = {}, onSessionClick }) {
-  const [collapsedDays, setCollapsedDays] = useState({});
-  const toggleDay = (dateKey) => setCollapsedDays(prev => ({ ...prev, [dateKey]: !prev[dateKey] }));
+  // Task #3266: multi-day events default to all days collapsed; user toggles
+  // are stored as overrides so the default applies until a day is clicked.
+  const [dayOverrides, setDayOverrides] = useState({});
 
   const sessionsByDay = useMemo(() => {
     const days = {};
@@ -163,6 +164,10 @@ function ScheduleGrid({ sessions, timezone, trackColorMap, eventTracks, speakerM
     });
     return Object.values(days).sort((a, b) => new Date(a.date) - new Date(b.date));
   }, [sessions, timezone]);
+
+  const defaultCollapsed = sessionsByDay.length > 1;
+  const isDayCollapsed = (dateKey) => dayOverrides[dateKey] !== undefined ? dayOverrides[dateKey] : defaultCollapsed;
+  const toggleDay = (dateKey) => setDayOverrides(prev => ({ ...prev, [dateKey]: !isDayCollapsed(dateKey) }));
 
   const allTracks = useMemo(() => {
     const trackSet = new Set();
@@ -197,22 +202,44 @@ function ScheduleGrid({ sessions, timezone, trackColorMap, eventTracks, speakerM
     <div className="space-y-8">
       {sessionsByDay.map((day, dayIndex) => {
         const layout = computeTimelineLayout(day.sessions, { timezone, pixelsPerMinute: 2, minCardHeight: 40 });
+        const collapsed = isDayCollapsed(day.date);
+        // Day time range: earliest session start to latest session end
+        // (fall back to start_time + duration, then start_time alone).
+        let dayStart = null;
+        let dayEnd = null;
+        day.sessions.forEach(s => {
+          if (!s.start_time) return;
+          const start = new Date(s.start_time);
+          if (Number.isNaN(start.getTime())) return;
+          let end = s.end_time ? new Date(s.end_time) : null;
+          if ((!end || Number.isNaN(end.getTime())) && s.duration_minutes) {
+            end = new Date(start.getTime() + Number(s.duration_minutes) * 60000);
+          }
+          if (!end || Number.isNaN(end.getTime())) end = start;
+          if (!dayStart || start < dayStart) dayStart = start;
+          if (!dayEnd || end > dayEnd) dayEnd = end;
+        });
 
         return (
           <div key={dayIndex} data-testid={`schedule-day-${dayIndex}`}>
             <button
               type="button"
               onClick={() => toggleDay(day.date)}
-              className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2 hover-elevate active-elevate-2 rounded-md px-2 py-1 -ml-2 w-auto"
+              className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2 flex-wrap hover-elevate active-elevate-2 rounded-md px-2 py-1 -ml-2 w-auto text-left"
               data-testid={`schedule-day-toggle-${dayIndex}`}
             >
-              {collapsedDays[day.date] ? <ChevronRight className="w-5 h-5 text-indigo-600" /> : <ChevronDown className="w-5 h-5 text-indigo-600" />}
+              {collapsed ? <ChevronRight className="w-5 h-5 text-indigo-600" /> : <ChevronDown className="w-5 h-5 text-indigo-600" />}
               <Calendar className="w-5 h-5 text-indigo-600" />
               {formatDate(day.date, timezone)}
+              {collapsed && dayStart && (
+                <span className="text-sm font-normal text-slate-600" data-testid={`schedule-day-times-${dayIndex}`}>
+                  {formatTime(dayStart, timezone)}{dayEnd && dayEnd > dayStart ? ` - ${formatTime(dayEnd, timezone)}` : ''}
+                </span>
+              )}
               <span className="text-sm font-normal text-slate-500">({day.sessions.length} sessions)</span>
             </button>
 
-            {collapsedDays[day.date] ? null : <HScrollContainer trackCount={totalColumns}>
+            {collapsed ? null : <HScrollContainer trackCount={totalColumns}>
                 {(allTracks.length > 0) && (
                   <div className="flex gap-1 mb-2">
                     <div className="text-xs font-medium text-slate-500 uppercase tracking-wider p-2 sticky left-0 bg-white z-[1]" style={{ width: 100, minWidth: 100 }}>Time</div>

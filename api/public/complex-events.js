@@ -32,7 +32,7 @@ export default async function handler(req, res) {
 
     const { data: rawEvents, error } = await supabase
       .from('complex_event')
-      .select('id, title, slug, description, summary, start_date, end_date, location, image_url, status, timezone, available_seats, event_state, event_type, is_featured, cta_override_url, cta_override_mode, member_group_id, group_event_public')
+      .select('id, title, slug, description, summary, start_date, end_date, location, image_url, status, timezone, available_seats, event_state, event_type, is_featured, cta_override_url, cta_override_mode, member_group_id, group_event_public, custom_duration_explainer')
       .eq('tenant_id', tenant.id)
       .in('status', ['published', 'tbc'])
       .or('event_state.is.null,event_state.eq.active,event_state.eq.closed')
@@ -48,6 +48,27 @@ export default async function handler(req, res) {
     }
 
     const eventIds = (rawEvents || []).map(e => e.id);
+    const timezoneByEvent = {};
+    (rawEvents || []).forEach(e => { timezoneByEvent[e.id] = e.timezone || 'Europe/London'; });
+
+    // Task #3266: bucket each event's sessions by calendar day (in the
+    // event's timezone) so cards can show a day count and detect
+    // non-consecutive event days.
+    const dayKeyFormatters = {};
+    const dayKeyForSession = (eventId, startTime) => {
+      const tz = timezoneByEvent[eventId] || 'Europe/London';
+      if (!dayKeyFormatters[tz]) {
+        try {
+          dayKeyFormatters[tz] = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' });
+        } catch {
+          dayKeyFormatters[tz] = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' });
+        }
+      }
+      const d = new Date(startTime);
+      if (Number.isNaN(d.getTime())) return null;
+      return dayKeyFormatters[tz].format(d); // en-CA => yyyy-mm-dd
+    };
+    const dayKeysByEvent = {};
 
     let sessionCountByEvent = {};
     let trackCountByEvent = {};
@@ -55,7 +76,7 @@ export default async function handler(req, res) {
       const [sessionRes, trackRes] = await Promise.all([
         supabase
           .from('complex_event_session')
-          .select('complex_event_id')
+          .select('complex_event_id, start_time')
           .in('complex_event_id', eventIds)
           .eq('tenant_id', tenant.id),
         supabase
@@ -70,6 +91,13 @@ export default async function handler(req, res) {
       } else if (sessionRes.data) {
         for (const s of sessionRes.data) {
           sessionCountByEvent[s.complex_event_id] = (sessionCountByEvent[s.complex_event_id] || 0) + 1;
+          if (s.start_time) {
+            const key = dayKeyForSession(s.complex_event_id, s.start_time);
+            if (key) {
+              if (!dayKeysByEvent[s.complex_event_id]) dayKeysByEvent[s.complex_event_id] = new Set();
+              dayKeysByEvent[s.complex_event_id].add(key);
+            }
+          }
         }
       }
 
@@ -125,6 +153,16 @@ export default async function handler(req, res) {
           all_tracks: tc.all_tracks
         }));
 
+      const dayKeys = [...(dayKeysByEvent[event.id] || [])].sort();
+      const dayCount = dayKeys.length;
+      let daysNonconsecutive = false;
+      if (dayCount > 1) {
+        const spanDays = Math.round(
+          (Date.parse(`${dayKeys[dayCount - 1]}T00:00:00Z`) - Date.parse(`${dayKeys[0]}T00:00:00Z`)) / 86400000
+        ) + 1;
+        daysNonconsecutive = spanDays > dayCount;
+      }
+
       return {
         id: event.id,
         title: event.title,
@@ -143,6 +181,9 @@ export default async function handler(req, res) {
         is_featured: event.is_featured || false,
         is_complex: true,
         session_count: sessionCountByEvent[event.id] || 0,
+        day_count: dayCount,
+        days_nonconsecutive: daysNonconsecutive,
+        custom_duration_explainer: event.custom_duration_explainer || null,
         track_count: trackCountByEvent[event.id] || 0,
         cheapest_price: cheapestPrice,
         pricing_config: publicTicketClasses.length > 0 ? { ticket_classes: publicTicketClasses } : null,
