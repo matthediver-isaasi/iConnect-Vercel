@@ -50,6 +50,7 @@ import { checkEventClashes } from "@/lib/eventClash";
 import { createPageUrl, getEventUrl } from "@/utils";
 import EventDocumentsManager from "@/components/events/EventDocumentsManager";
 import EventOptionListsEditor from "@/components/events/EventOptionListsEditor";
+import { isAttendeeOptionsCollectionEnabled } from "@/lib/attendeeOptionsSetting";
 import { formatEventDateTime } from "@/utils/timeFormat";
 import EventImageUpload from "@/components/events/EventImageUpload";
 import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
@@ -320,6 +321,12 @@ export default function CreateEvent() {
     const setting = systemSettings.find(s => s.setting_key === 'event_summary_max_length');
     return setting ? parseInt(setting.setting_value) || 150 : 150;
   }, [systemSettings]);
+
+  // Whether dietary/allergy/accessibility collection is enabled tenant-wide (defaults to true)
+  const collectAttendeeOptionsEnabled = useMemo(
+    () => isAttendeeOptionsCollectionEnabled(systemSettings),
+    [systemSettings]
+  );
 
   // Whether an internal reference is required to save an event (defaults to false)
   const requireInternalReference = useMemo(() => {
@@ -2983,7 +2990,7 @@ export default function CreateEvent() {
             </CardContent>
           </Card>
 
-          {!isGroupLimited && (
+          {!isGroupLimited && collectAttendeeOptionsEnabled && (
           <Card className="border-slate-200 shadow-sm mb-6">
             <CardHeader className="pb-4">
               <CardTitle className="text-lg">Dietary, Allergy &amp; Accessibility Options</CardTitle>

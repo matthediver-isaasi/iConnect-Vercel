@@ -28,6 +28,7 @@ import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import AttendeeList from "../components/booking/AttendeeList";
 import AttendeeOptionsSelector from "../components/booking/AttendeeOptionsSelector";
+import { isAttendeeOptionsCollectionEnabled } from "@/lib/attendeeOptionsSetting";
 import PaymentOptions from "../components/booking/PaymentOptions";
 import ColleagueSelector from "../components/booking/ColleagueSelector";
 import PageTour from "../components/tour/PageTour";
@@ -437,12 +438,21 @@ export default function EventDetailsPage() {
     }
   });
   
+  // Tenant-wide toggle: when disabled, expose empty option lists so the
+  // attendee options selector never renders and no selections can be made.
+  const collectAttendeeOptionsEnabled = isAttendeeOptionsCollectionEnabled(systemSettings);
+
   // One-off event pricing calculations - parse if it's a JSON string
-  const eventOptions = useMemo(() => ({
-    dietary_options: Array.isArray(event?.dietary_options) ? event.dietary_options : [],
-    allergy_options: Array.isArray(event?.allergy_options) ? event.allergy_options : [],
-    accessibility_options: Array.isArray(event?.accessibility_options) ? event.accessibility_options : [],
-  }), [event]);
+  const eventOptions = useMemo(() => {
+    if (!collectAttendeeOptionsEnabled) {
+      return { dietary_options: [], allergy_options: [], accessibility_options: [] };
+    }
+    return {
+      dietary_options: Array.isArray(event?.dietary_options) ? event.dietary_options : [],
+      allergy_options: Array.isArray(event?.allergy_options) ? event.allergy_options : [],
+      accessibility_options: Array.isArray(event?.accessibility_options) ? event.accessibility_options : [],
+    };
+  }, [event, collectAttendeeOptionsEnabled]);
 
   const pricingConfig = useMemo(() => {
     // Guard for missing event or not a one-off event

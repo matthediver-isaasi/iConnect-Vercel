@@ -19,6 +19,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import ColleagueSelector from "@/components/booking/ColleagueSelector";
 import AttendeeOptionsSelector from "@/components/booking/AttendeeOptionsSelector";
+import { isAttendeeOptionsCollectionEnabled } from "@/lib/attendeeOptionsSetting";
 import { parseISO, isSameDay } from "date-fns";
 import DOMPurify from "dompurify";
 import {
@@ -578,11 +579,20 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
     return vis === 'public_only';
   };
 
-  const eventOptions = useMemo(() => ({
-    dietary_options: Array.isArray(event?.dietary_options) ? event.dietary_options : [],
-    allergy_options: Array.isArray(event?.allergy_options) ? event.allergy_options : [],
-    accessibility_options: Array.isArray(event?.accessibility_options) ? event.accessibility_options : [],
-  }), [event]);
+  // Tenant-wide toggle: when disabled, expose empty option lists so the
+  // attendee options selector never renders and no selections can be made.
+  const collectAttendeeOptionsEnabled = isAttendeeOptionsCollectionEnabled(systemSettings);
+
+  const eventOptions = useMemo(() => {
+    if (!collectAttendeeOptionsEnabled) {
+      return { dietary_options: [], allergy_options: [], accessibility_options: [] };
+    }
+    return {
+      dietary_options: Array.isArray(event?.dietary_options) ? event.dietary_options : [],
+      allergy_options: Array.isArray(event?.allergy_options) ? event.allergy_options : [],
+      accessibility_options: Array.isArray(event?.accessibility_options) ? event.accessibility_options : [],
+    };
+  }, [event, collectAttendeeOptionsEnabled]);
 
   const allExistingEmails = useMemo(() => {
     const emails = [];

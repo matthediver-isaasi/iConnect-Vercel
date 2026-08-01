@@ -59,6 +59,7 @@ import { createPageUrl, getEventUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
 import EventDocumentsManager from "@/components/events/EventDocumentsManager";
 import EventOptionListsEditor from "@/components/events/EventOptionListsEditor";
+import { isAttendeeOptionsCollectionEnabled } from "@/lib/attendeeOptionsSetting";
 import ChangeZoomDialog from "@/components/events/ChangeZoomDialog";
 import { FocalPointPicker } from "@/components/FocalPointPicker";
 import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
@@ -465,6 +466,12 @@ export default function EditEvent() {
     const setting = systemSettings.find(s => s.setting_key === 'show_event_seats');
     return !setting || setting.setting_value !== 'false';
   }, [systemSettings]);
+
+  // Whether dietary/allergy/accessibility collection is enabled tenant-wide (defaults to true)
+  const collectAttendeeOptionsEnabled = useMemo(
+    () => isAttendeeOptionsCollectionEnabled(systemSettings),
+    [systemSettings]
+  );
 
   // Get default VAT rate from settings
   const defaultVatRate = useMemo(() => {
@@ -3956,7 +3963,7 @@ export default function EditEvent() {
             </CardContent>
           </Card>
 
-          {!isGroupLimited && (
+          {!isGroupLimited && collectAttendeeOptionsEnabled && (
           <Card className="border-slate-200 shadow-sm mb-6">
             <CardHeader className="pb-4">
               <CardTitle className="text-lg">Dietary, Allergy &amp; Accessibility Options</CardTitle>

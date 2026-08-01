@@ -36,6 +36,7 @@ import { createPageUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
 import EventDocumentsManager from "@/components/events/EventDocumentsManager";
 import EventOptionListsEditor from "@/components/events/EventOptionListsEditor";
+import { isAttendeeOptionsCollectionEnabled } from "@/lib/attendeeOptionsSetting";
 import ZoomSessionConfig from "@/components/events/ZoomSessionConfig";
 import ChangeZoomDialog from "@/components/events/ChangeZoomDialog";
 import { FocalPointPicker } from "@/components/FocalPointPicker";
@@ -699,6 +700,12 @@ export default function CreateComplexEvent() {
     const setting = systemSettings.find(s => s.setting_key === 'show_event_seats');
     return !setting || setting.setting_value !== 'false';
   }, [systemSettings]);
+
+  // Whether dietary/allergy/accessibility collection is enabled tenant-wide (defaults to true)
+  const collectAttendeeOptionsEnabled = useMemo(
+    () => isAttendeeOptionsCollectionEnabled(systemSettings),
+    [systemSettings]
+  );
 
   const eventCategories = useMemo(() => {
     return resourceCategories
@@ -3030,7 +3037,7 @@ export default function CreateComplexEvent() {
               </CardContent>
             </Card>
 
-            {!isGroupLimited && (
+            {!isGroupLimited && collectAttendeeOptionsEnabled && (
             <Card className="border-slate-200 shadow-sm">
               <CardHeader className="pb-4">
                 <CardTitle className="text-lg">Dietary, Allergy &amp; Accessibility Options</CardTitle>

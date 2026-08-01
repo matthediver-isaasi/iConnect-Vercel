@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { getSessionMember } from '../_lib/session.js';
 import { getStripeCredentials } from '../_lib/stripeCredentials.js';
-import { sanitizeOptionSelections } from '../_lib/eventOptionSelections.js';
+import { sanitizeOptionSelections, isAttendeeOptionsCollectionEnabled, EMPTY_OPTION_SELECTIONS } from '../_lib/eventOptionSelections.js';
 import {
   resolveTicketPrice,
   getTicketClassFromConfig,
@@ -685,6 +685,10 @@ export default async function handler(req, res) {
       }
     };
 
+    // Tenant toggle: when dietary/accessibility collection is disabled,
+    // never persist submitted selections (defense in depth).
+    const collectOptionsEnabled = await isAttendeeOptionsCollectionEnabled(supabase, tenant.id);
+
     for (const item of resolvedItems) {
       for (let i = 0; i < item.attendees.length; i++) {
         const attendee = item.attendees[i];
@@ -727,7 +731,7 @@ export default async function handler(req, res) {
           purchase_order_number: purchaseOrderNumber || null,
           po_to_follow: (confirmedPaymentMethod === 'account' || confirmedPaymentMethod === 'invoice') ? (poToFollow || false) : false,
           third_party_consent: (event.pricing_config?.collectThirdPartyConsent === true && typeof thirdPartyConsent === 'boolean') ? thirdPartyConsent : null,
-          ...sanitizeOptionSelections(attendee, event)
+          ...(collectOptionsEnabled ? sanitizeOptionSelections(attendee, event) : EMPTY_OPTION_SELECTIONS)
         };
 
         const { data: booking, error: insertError } = await supabase

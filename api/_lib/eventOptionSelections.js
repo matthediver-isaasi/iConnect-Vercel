@@ -8,6 +8,41 @@
 
 const SEVERITIES = new Set(['mild', 'moderate', 'severe']);
 
+/**
+ * Tenant-wide toggle (Event Settings -> "Collect dietary & accessibility
+ * needs", system_settings key `collect_attendee_options`, default enabled).
+ * When disabled, booking paths must not persist any attendee option
+ * selections even if the client submits them (defense in depth against
+ * stale/crafted payloads).
+ *
+ * Fail-open to enabled on lookup errors so bookings never break.
+ *
+ * @param {object} supabase - a supabase client
+ * @param {string|null} tenantId
+ * @returns {Promise<boolean>}
+ */
+export async function isAttendeeOptionsCollectionEnabled(supabase, tenantId) {
+  if (!tenantId) return true;
+  try {
+    const { data } = await supabase
+      .from('system_settings')
+      .select('setting_value')
+      .eq('setting_key', 'collect_attendee_options')
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    return data?.setting_value !== 'false';
+  } catch {
+    return true;
+  }
+}
+
+// Sanitized "no selections" shape used when collection is disabled.
+export const EMPTY_OPTION_SELECTIONS = Object.freeze({
+  dietary_selections: null,
+  allergy_selections: null,
+  accessibility_selections: null,
+});
+
 const asArray = (v) => (Array.isArray(v) ? v : []);
 
 /**

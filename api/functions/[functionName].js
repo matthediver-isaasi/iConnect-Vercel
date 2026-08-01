@@ -12,7 +12,7 @@ import { creditTrainingFundForPurchase } from '../_lib/trainingFundPurchase.js';
 import { getMembershipAddonSettings } from '../_lib/membershipAddons.js';
 import { getStripeCredentials, findOrCreateStripeCustomer } from '../_lib/stripeCredentials.js';
 import { sendConfirmationEmailsFromTemplate as sharedSendConfirmationEmailsFromTemplate } from '../_lib/eventConfirmationEmail.js';
-import { sanitizeOptionSelections } from '../_lib/eventOptionSelections.js';
+import { sanitizeOptionSelections, isAttendeeOptionsCollectionEnabled, EMPTY_OPTION_SELECTIONS } from '../_lib/eventOptionSelections.js';
 import { getAllowVoucherUseAfterExpiry, isVoucherUsableForEventDate } from '../_lib/voucherExpiryPolicy.js';
 import { orderVoucherIdsForRedemption } from '../_lib/voucherOrdering.js';
 import {
@@ -1655,6 +1655,9 @@ const functionHandlers = {
 
     if (registrationMode === 'self' || registrationMode === 'colleagues') {
       const attendeeList = attendees || [];
+      // Tenant toggle: when dietary/accessibility collection is disabled,
+      // never persist submitted selections (defense in depth).
+      const collectOptionsEnabled = await isAttendeeOptionsCollectionEnabled(supabase, event.tenant_id);
       for (let i = 0; i < attendeeList.length; i++) {
         const attendee = attendeeList[i];
         // Find corresponding Zoom registration result
@@ -1677,7 +1680,7 @@ const functionHandlers = {
           status: bookingStatus,
           payment_method: 'program_ticket',
           third_party_consent: (event.pricing_config?.collectThirdPartyConsent === true && typeof thirdPartyConsent === 'boolean') ? thirdPartyConsent : null,
-          ...sanitizeOptionSelections(attendee, event),
+          ...(collectOptionsEnabled ? sanitizeOptionSelections(attendee, event) : EMPTY_OPTION_SELECTIONS),
           created_at: new Date().toISOString()
         };
 
@@ -2645,6 +2648,9 @@ const functionHandlers = {
     // Create booking records for each attendee
     const createdBookings = [];
     console.log('[createOneOffEventBooking] About to create bookings for', bookingAttendees.length, 'attendees (isGuestBooking:', isGuestBooking, ')');
+    // Tenant toggle: when dietary/accessibility collection is disabled,
+    // never persist submitted selections (defense in depth).
+    const collectOptionsEnabled = await isAttendeeOptionsCollectionEnabled(supabase, event.tenant_id);
     
     for (let i = 0; i < bookingAttendees.length; i++) {
       const attendee = bookingAttendees[i];
@@ -2687,7 +2693,7 @@ const functionHandlers = {
         discount_code_id: validatedDiscountCodeId || null,
         discount_code_amount: validatedDiscountAmount > 0 ? validatedDiscountAmount / ticketsRequired : 0,
         third_party_consent: (event.pricing_config?.collectThirdPartyConsent === true && typeof thirdPartyConsent === 'boolean') ? thirdPartyConsent : null,
-        ...sanitizeOptionSelections(attendee, event),
+        ...(collectOptionsEnabled ? sanitizeOptionSelections(attendee, event) : EMPTY_OPTION_SELECTIONS),
         created_at: new Date().toISOString(),
         tenant_id: event.tenant_id
       };

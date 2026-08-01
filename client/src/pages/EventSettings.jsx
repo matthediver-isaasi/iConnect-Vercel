@@ -114,6 +114,9 @@ export default function EventSettingsPage() {
   // Allow vouchers to be used for events after their expiry date
   const [allowVoucherAfterExpiry, setAllowVoucherAfterExpiry] = useState(true);
   
+  // Collect dietary & accessibility needs at booking (default on)
+  const [collectAttendeeOptions, setCollectAttendeeOptions] = useState(true);
+  
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -309,6 +312,11 @@ export default function EventSettingsPage() {
     const voucherExpirySetting = settings.find(s => s.setting_key === 'allow_voucher_use_after_expiry');
     if (voucherExpirySetting) {
       setAllowVoucherAfterExpiry(voucherExpirySetting.setting_value !== 'false');
+    }
+
+    const collectAttendeeOptionsSetting = settings.find(s => s.setting_key === 'collect_attendee_options');
+    if (collectAttendeeOptionsSetting) {
+      setCollectAttendeeOptions(collectAttendeeOptionsSetting.setting_value !== 'false');
     }
 
     const featuredBgSetting = settings.find(s => s.setting_key === 'featured_events_background');
@@ -689,6 +697,21 @@ export default function EventSettingsPage() {
           setting_key: 'allow_voucher_use_after_expiry',
           setting_value: allowVoucherAfterExpiry.toString(),
           description: 'Allow training vouchers to be used for events that take place after the voucher expiry date'
+        });
+      }
+
+      // Save collect dietary & accessibility needs setting
+      const collectAttendeeOptionsSetting = settings.find(s => s.setting_key === 'collect_attendee_options');
+      if (collectAttendeeOptionsSetting) {
+        await base44.entities.SystemSettings.update(collectAttendeeOptionsSetting.id, {
+          setting_value: collectAttendeeOptions.toString(),
+          description: 'Collect dietary, allergy and accessibility needs from attendees at booking'
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'collect_attendee_options',
+          setting_value: collectAttendeeOptions.toString(),
+          description: 'Collect dietary, allergy and accessibility needs from attendees at booking'
         });
       }
 
@@ -1573,6 +1596,47 @@ export default function EventSettingsPage() {
                   onClick={handleSaveSettings}
                   disabled={isSaving}
                   data-testid="button-save-voucher-settings"
+                >
+                  <Save className="w-4 h-4 mr-2" />
+                  Save
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Attendee Needs Collection Section */}
+        <Card className="border-slate-200 shadow-sm mb-8">
+          <CardHeader className="border-b border-slate-200">
+            <div className="flex items-center gap-2">
+              <Settings className="w-5 h-5 text-blue-600" />
+              <CardTitle>Attendee Needs Collection</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-6">
+            <div className="max-w-2xl space-y-4">
+              <div className="flex items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <Label htmlFor="collect-attendee-options-toggle">
+                    Collect dietary &amp; accessibility needs
+                  </Label>
+                  <p className="text-xs text-slate-500">
+                    When enabled, events can define dietary, allergy and accessibility option lists and registrants are asked for each attendee's needs during booking.
+                    When disabled, these editors and booking questions are hidden everywhere; previously collected selections still appear in check-in and registration reports.
+                  </p>
+                </div>
+                <Switch
+                  id="collect-attendee-options-toggle"
+                  checked={collectAttendeeOptions}
+                  onCheckedChange={setCollectAttendeeOptions}
+                  data-testid="switch-collect-attendee-options"
+                />
+              </div>
+              <div className="flex justify-end pt-2">
+                <Button
+                  onClick={handleSaveSettings}
+                  disabled={isSaving}
+                  data-testid="button-save-attendee-options-settings"
                 >
                   <Save className="w-4 h-4 mr-2" />
                   Save

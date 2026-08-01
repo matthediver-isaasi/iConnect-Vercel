@@ -59,6 +59,7 @@ const PUBLIC_SETTINGS_WHITELIST = [
   'support_ticket_instructions',
   'support_areas',
   'allow_voucher_use_after_expiry',
+  'collect_attendee_options',
 ];
 
 export default async function handler(req, res) {
