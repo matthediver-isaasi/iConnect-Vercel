@@ -33,6 +33,7 @@ import {
   ChevronUp,
   Check,
   Mic,
+  Mail,
   Eye,
   AlertCircle,
   QrCode
@@ -59,6 +60,12 @@ import { useEventTypes } from "@/hooks/useEventTypes";
 import { useMemberGroupSettings } from "@/hooks/useMemberGroupSettings";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
+import EventEmailSettingsEditor, {
+  createEmptyEmail,
+  formatSchedulingFailures,
+  findInvalidCcAddresses,
+  putEventEmails,
+} from "@/components/events/EventEmailSettingsEditor";
 
 async function apiRequest(url, options = {}) {
   const response = await fetch(url, {
@@ -311,6 +318,17 @@ export default function CreateEvent() {
   });
 
   // Fetch system settings for summary max length
+  // Email configuration held in local state until the event is created (Task #3263).
+  const [eventEmails, setEventEmails] = useState([]);
+
+  const { data: emailTemplates = [] } = useQuery({
+    queryKey: ['email-templates', 'events'],
+    queryFn: async () => {
+      const allTemplates = await base44.entities.EmailTemplate.list();
+      return allTemplates.filter(t => t.category === 'events' && t.is_active);
+    }
+  });
+
   const { data: systemSettings = [] } = useQuery({
     queryKey: ['/api/entities/SystemSettings'],
     queryFn: () => base44.entities.SystemSettings.list()
@@ -643,12 +661,47 @@ export default function CreateEvent() {
   const createEventMutation = useMutation({
     mutationFn: async (eventData) => {
       const createdEvent = await base44.entities.Event.create(eventData);
-      
-      return createdEvent;
+
+      // Task #3263: persist emails configured during creation, now that the
+      // event has an ID. A failure here must never lose the created event —
+      // report it back so onSuccess can route the admin to edit mode.
+      let emailError = null;
+      let schedulingWarning = null;
+      if (eventEmails.length > 0) {
+        try {
+          const { response, result } = await putEventEmails(createdEvent.id, eventEmails);
+          if (!response.ok) {
+            throw new Error(result?.error || 'Failed to save email configurations');
+          }
+          const failures = result?.schedulingFailures || [];
+          const schedulerError = result?.schedulerError || result?.error;
+          if (failures.length > 0 || schedulerError) {
+            schedulingWarning = formatSchedulingFailures({ schedulingFailures: failures, error: schedulerError });
+          }
+        } catch (err) {
+          console.error('Failed to save event emails after creation:', err);
+          emailError = err.message || 'Unknown error';
+        }
+      }
+
+      return { createdEvent, emailError, schedulingWarning };
     },
-    onSuccess: () => {
-      toast.success('Event created successfully');
+    onSuccess: ({ createdEvent, emailError, schedulingWarning }) => {
       queryClient.invalidateQueries({ queryKey: ['events'] });
+      if (emailError) {
+        toast.error(
+          `Event created, but email settings could not be saved: ${emailError}. Opening the event so you can fix them in the email section.`,
+          { duration: 10000 }
+        );
+        setTimeout(() => {
+          window.location.href = `${createPageUrl('EditEvent')}?id=${createdEvent.id}`;
+        }, 500);
+        return;
+      }
+      if (schedulingWarning) {
+        toast.error(`Event created and emails saved, but ${schedulingWarning}`);
+      }
+      toast.success('Event created successfully');
       setTimeout(() => {
         window.location.href = createPageUrl('Events');
       }, 500);
@@ -701,6 +754,15 @@ export default function CreateEvent() {
     // (skipped in group-limited mode — the field is hidden there)
     if (requireInternalReference && !isGroupLimited && !formData.internal_reference?.trim()) {
       errors.push('Please enter an internal reference');
+    }
+
+    // Emails configured during creation are saved right after the event is
+    // created — validate their CC addresses up front (Task #3263).
+    if (eventEmails.length > 0) {
+      const invalidCc = findInvalidCcAddresses(eventEmails);
+      if (invalidCc.length > 0) {
+        errors.push(`Invalid CC email address in email settings: ${invalidCc.join(', ')}`);
+      }
     }
     
     // Summary length validation
@@ -3010,6 +3072,54 @@ export default function CreateEvent() {
             </CardContent>
           </Card>
           )}
+
+          {/* Email Configuration (Task #3263) — saved right after the event is created */}
+          <Card className="border-slate-200 shadow-sm">
+            <CardHeader>
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Mail className="h-5 w-5 text-blue-600" />
+                    Email Configuration
+                  </CardTitle>
+                  <CardDescription>
+                    Configure confirmation and reminder emails for this event. They will be saved when the event is created.
+                  </CardDescription>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setEventEmails(prev => [...prev, createEmptyEmail('booking_confirmation')])}
+                    data-testid="button-add-confirmation-email"
+                  >
+                    <Plus className="h-4 w-4 mr-1" />
+                    Confirmation
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setEventEmails(prev => [...prev, createEmptyEmail('reminder')])}
+                    data-testid="button-add-reminder-email"
+                  >
+                    <Plus className="h-4 w-4 mr-1" />
+                    Reminder
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <EventEmailSettingsEditor
+                emails={eventEmails}
+                setEmails={setEventEmails}
+                emailTemplates={emailTemplates}
+                eventTimezone={formData.timezone || 'Europe/London'}
+                mode="event"
+              />
+            </CardContent>
+          </Card>
 
           <div className="flex items-center justify-end gap-4">
             <Button

@@ -46,6 +46,14 @@ import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
 import EventSponsorSelector from "@/components/events/EventSponsorSelector";
 import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
+import EventEmailSettingsEditor, {
+  createEmptyEmail,
+  formatSchedulingFailures,
+  formatSkippedSummary,
+  findInvalidCcAddresses,
+  mapEmailSaveFailureDetails,
+  putEventEmails,
+} from "@/components/events/EventEmailSettingsEditor";
 
 const TIMEZONE_OPTIONS = [
   { value: "Europe/London", label: "London (GMT/BST)" },
@@ -745,19 +753,7 @@ export default function CreateComplexEvent() {
   const [eventEmails, setEventEmails] = useState([]);
   const [isSavingEmails, setIsSavingEmails] = useState(false);
   const [isRequeueingEmails, setIsRequeueingEmails] = useState(false);
-  const [emailCodeViewMode, setEmailCodeViewMode] = useState({});
   const [emailSaveErrors, setEmailSaveErrors] = useState({}); // Per-email inline save errors keyed by email.id
-
-  const TIMING_OPTIONS = [
-    { value: '7_days_before', label: '7 days before session' },
-    { value: '3_days_before', label: '3 days before session' },
-    { value: '1_day_before', label: '1 day before session' },
-    { value: '12_hours_before', label: '12 hours before session' },
-    { value: '6_hours_before', label: '6 hours before session' },
-    { value: '1_hour_before', label: '1 hour before session' },
-    { value: '30_minutes_before', label: '30 minutes before session' },
-    { value: 'custom', label: 'Custom timing' }
-  ];
 
   const { data: programs = [], isLoading: loadingPrograms } = useQuery({
     queryKey: ['/api/entities/Program'],
@@ -893,8 +889,7 @@ export default function CreateComplexEvent() {
     queryFn: async () => {
       const allTemplates = await base44.entities.EmailTemplate.list();
       return allTemplates.filter(t => t.category === 'events' && t.is_active);
-    },
-    enabled: isEditMode
+    }
   });
 
   useEffect(() => {
@@ -903,94 +898,19 @@ export default function CreateComplexEvent() {
     }
   }, [fetchedEventEmails]);
 
-  const createEmptyEmail = (emailType = 'reminder') => ({
-    id: `email-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-    email_type: emailType,
-    timing_type: emailType === 'booking_confirmation' ? null : '1_day_before',
-    custom_hours_before: null,
-    custom_unit: 'hours',
-    custom_send_at: null,
-    subject: emailType === 'booking_confirmation'
-      ? 'Your booking confirmation for {{event_name}}'
-      : 'Reminder: {{event_name}} is coming up!',
-    body: emailType === 'booking_confirmation'
-      ? 'Dear {{attendee_first_name}},\n\nThank you for booking {{event_name}}.\n\nEvent Date: {{event_date}}\nLocation: {{event_location}}\n{{#zoom_link}}Join Link: {{zoom_link}}{{/zoom_link}}\n\nWe look forward to seeing you!'
-      : 'Dear {{attendee_first_name}},\n\nThis is a reminder that {{event_name}} is coming up soon.\n\nEvent Date: {{event_date}}\nLocation: {{event_location}}\n{{#zoom_link}}Join Link: {{zoom_link}}{{/zoom_link}}\n\nSee you there!',
-    cc: '',
-    is_enabled: true,
-    isNew: true
-  });
-
+  // Email configuration helpers now live in the shared
+  // EventEmailSettingsEditor component (Task #3263).
   const addEventEmail = (emailType = 'reminder') => {
     setEventEmails([...eventEmails, createEmptyEmail(emailType)]);
   };
 
-  const removeEventEmail = (emailId) => {
-    setEventEmails(eventEmails.filter(e => e.id !== emailId));
-  };
-
-  const updateEventEmail = (emailId, field, value) => {
-    setEventEmails(prev => prev.map(e =>
-      e.id === emailId ? { ...e, [field]: value } : e
-    ));
-    // Clear any prior save error for this email once the admin edits it.
+  // Clear any prior save error for an email row once the admin edits it.
+  const handleEmailRowEdited = (emailId) => {
     setEmailSaveErrors(prev => {
       if (!prev[emailId]) return prev;
       const { [emailId]: _removed, ...rest } = prev;
       return rest;
     });
-  };
-
-  // Build a human-friendly label for an email row, used in inline error messaging.
-  const getEmailRowLabel = (email) => {
-    if (email.email_type === 'booking_confirmation') return 'Booking confirmation email';
-    if (email.email_type === 'reminder') {
-      if (email.timing_type === 'custom') {
-        const unit = email.custom_unit || 'hours';
-        if (unit === 'specific_datetime') return 'Reminder — Absolute date/time';
-        const n = email.custom_hours_before;
-        return `Reminder — Custom (${n ? `${n} ${unit}` : unit} before session)`;
-      }
-      const opt = TIMING_OPTIONS.find(o => o.value === email.timing_type);
-      return `Reminder — ${opt ? opt.label : (email.timing_type || 'unscheduled')}`;
-    }
-    return email.email_type || 'Email';
-  };
-
-  const loadTemplateIntoEmail = (emailId, templateId) => {
-    const template = emailTemplates.find(t => t.id === templateId);
-    if (!template) return;
-
-    setEventEmails(prev => prev.map(e =>
-      e.id === emailId ? {
-        ...e,
-        subject: template.subject || e.subject,
-        body: template.body || e.body,
-        loaded_template_id: templateId,
-        loaded_template_name: template.name
-      } : e
-    ));
-    toast.success(`Loaded template: ${template.name}`);
-  };
-
-  const formatSchedulingFailures = (scheduling) => {
-    const parts = [];
-    const failures = scheduling.schedulingFailures || [];
-    if (failures.length > 0) {
-      const totalBookings = failures.reduce((s, f) => s + (f.failed_booking_count || 0), 0);
-      const reasons = Array.from(new Set(failures.map(f => f.reason).filter(Boolean))).slice(0, 2).join('; ');
-      parts.push(`${failures.length} reminder(s) could not be queued for ${totalBookings} booking(s)${reasons ? ` — ${reasons}` : ''}`);
-    }
-    if (scheduling.error) parts.push(`scheduler error: ${scheduling.error}`);
-    return parts.join(' · ') || 'reminders could not be queued';
-  };
-
-  const formatSkippedSummary = (skipped) => {
-    const counts = {};
-    for (const s of skipped) {
-      counts[s.reason] = (counts[s.reason] || 0) + 1;
-    }
-    return Object.entries(counts).map(([r, n]) => `${n} skipped: ${r}`).join(', ');
   };
 
   const requeueReminders = async () => {
@@ -1025,28 +945,16 @@ export default function CreateComplexEvent() {
   };
 
   const saveEventEmails = async () => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    for (const e of eventEmails) {
-      if (!e.cc) continue;
-      const parts = String(e.cc).split(',').map(s => s.trim()).filter(Boolean);
-      const invalid = parts.filter(p => !emailRegex.test(p));
-      if (invalid.length > 0) {
-        toast.error(`Invalid CC email address: ${invalid.join(', ')}`);
-        return;
-      }
+    const invalidCc = findInvalidCcAddresses(eventEmails);
+    if (invalidCc.length > 0) {
+      toast.error(`Invalid CC email address: ${invalidCc.join(', ')}`);
+      return;
     }
     setEmailSaveErrors({});
     setIsSavingEmails(true);
     const requestEmails = eventEmails;
     try {
-      const response = await fetch(`/api/event-emails/${editId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ emails: requestEmails, is_complex_event: true })
-      });
-
-      const result = await response.json();
+      const { response, result } = await putEventEmails(editId, requestEmails, true);
 
       if (response.ok) {
         const savedFromOk = Array.isArray(result)
@@ -1080,39 +988,7 @@ export default function CreateComplexEvent() {
       const savedEmails = Array.isArray(result?.savedEmails) ? result.savedEmails : [];
 
       if (details.length > 0) {
-        const errMap = {};
-        const failedIndexes = new Set();
-        const unindexedDetails = [];
-        for (const detail of details) {
-          if (typeof detail.request_index === 'number' && requestEmails[detail.request_index]) {
-            failedIndexes.add(detail.request_index);
-            errMap[requestEmails[detail.request_index].id] = detail.error || 'Unknown error';
-          } else {
-            unindexedDetails.push(detail);
-          }
-        }
-        // Fallback for older API responses without request_index — match by email_type
-        // in request order.
-        if (unindexedDetails.length > 0) {
-          const typeErrCursor = {};
-          for (const detail of unindexedDetails) {
-            const seen = typeErrCursor[detail.email_type] || 0;
-            let count = 0;
-            let foundIdx = -1;
-            for (let i = 0; i < requestEmails.length; i++) {
-              if (failedIndexes.has(i)) continue;
-              if (requestEmails[i].email_type === detail.email_type) {
-                if (count === seen) { foundIdx = i; break; }
-                count++;
-              }
-            }
-            typeErrCursor[detail.email_type] = seen + 1;
-            if (foundIdx >= 0) {
-              failedIndexes.add(foundIdx);
-              errMap[requestEmails[foundIdx].id] = detail.error || 'Unknown error';
-            }
-          }
-        }
+        const { errMap, failedIndexes } = mapEmailSaveFailureDetails(details, requestEmails);
         setEmailSaveErrors(errMap);
 
         // Merge any successfully-saved rows back in. The API loop processes emails in
@@ -1141,18 +1017,6 @@ export default function CreateComplexEvent() {
     } finally {
       setIsSavingEmails(false);
     }
-  };
-
-  const emailQuillModules = {
-    toolbar: [
-      [{ 'header': [1, 2, 3, false] }],
-      ['bold', 'italic', 'underline', 'strike'],
-      [{ 'color': [] }, { 'background': [] }],
-      [{ 'list': 'ordered' }, { 'list': 'bullet' }],
-      [{ 'align': [] }],
-      ['link'],
-      ['clean']
-    ],
   };
 
   const buildSnapshot = useCallback(() => {
@@ -1794,6 +1658,16 @@ export default function CreateComplexEvent() {
       return;
     }
 
+    // Emails configured during creation are saved right after the event is
+    // created — validate their CC addresses up front (Task #3263).
+    if (!isEditMode && eventEmails.length > 0) {
+      const invalidCc = findInvalidCcAddresses(eventEmails);
+      if (invalidCc.length > 0) {
+        toast.error(`Invalid CC email address in Emails tab: ${invalidCc.join(', ')}`);
+        return;
+      }
+    }
+
     if (!unlimitedSeats) {
       const seats = parseInt(formData.available_seats);
       if (!formData.available_seats || isNaN(seats) || seats < 1) {
@@ -2133,8 +2007,36 @@ export default function CreateComplexEvent() {
           setSponsorsInitialized(false);
         }
       } else {
-        toast.success("Complex event created");
-        window.location.href = groupReturnUrl || createPageUrl("Events");
+        // Task #3263: persist emails configured during creation, now that the
+        // event has an ID. A failure here must never lose the created event —
+        // surface a clear error and send the admin to edit mode to fix it.
+        let emailSaveFailed = false;
+        if (eventEmails.length > 0) {
+          try {
+            const { response, result } = await putEventEmails(eventId, eventEmails, true);
+            if (!response.ok) {
+              throw new Error(result?.error || 'Failed to save email configurations');
+            }
+            const failures = result?.schedulingFailures || [];
+            const schedulerError = result?.schedulerError || result?.error;
+            if (failures.length > 0 || schedulerError) {
+              toast.error(`Event created and emails saved, but ${formatSchedulingFailures({ schedulingFailures: failures, error: schedulerError })}`);
+            }
+          } catch (emailErr) {
+            console.error('Failed to save event emails after creation:', emailErr);
+            emailSaveFailed = true;
+            toast.error(
+              `Event created, but email settings could not be saved: ${emailErr.message || 'Unknown error'}. Opening the event so you can fix them in the Emails tab.`,
+              { duration: 10000 }
+            );
+          }
+        }
+        if (emailSaveFailed) {
+          window.location.href = `${createPageUrl("CreateComplexEvent")}?id=${eventId}`;
+        } else {
+          toast.success("Complex event created");
+          window.location.href = groupReturnUrl || createPageUrl("Events");
+        }
       }
     } catch (err) {
       console.error("Save error:", err);
@@ -2202,9 +2104,7 @@ export default function CreateComplexEvent() {
             <TabsTrigger value="tracks" data-testid="button-section-tracks">Tracks</TabsTrigger>
             <TabsTrigger value="sessions" data-testid="button-section-sessions">Sessions</TabsTrigger>
             <TabsTrigger value="tickets" data-testid="button-section-tickets">Tickets</TabsTrigger>
-            {isEditMode && (
-              <TabsTrigger value="emails" data-testid="button-section-emails">Emails</TabsTrigger>
-            )}
+            <TabsTrigger value="emails" data-testid="button-section-emails">Emails</TabsTrigger>
           </TabsList>
 
         <TabsContent value="details">
@@ -4137,7 +4037,6 @@ export default function CreateComplexEvent() {
         </Card>
         </TabsContent>
 
-        {isEditMode && (
         <TabsContent value="emails">
           <Card className="border-slate-200 shadow-sm">
             <CardHeader>
@@ -4176,313 +4075,64 @@ export default function CreateComplexEvent() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              {loadingEmails ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
-                  <span className="ml-2 text-slate-500">Loading email configurations...</span>
+              {!isEditMode && eventEmails.length > 0 && (
+                <div className="flex items-start gap-2 p-3 rounded-md border border-blue-200 bg-blue-50 text-blue-800 text-sm" data-testid="note-emails-saved-on-create">
+                  <Mail className="h-4 w-4 shrink-0 mt-0.5" />
+                  <span>These email settings will be saved when you create the event.</span>
                 </div>
-              ) : eventEmails.length === 0 ? (
-                <div className="text-center py-8 text-slate-500">
-                  <Mail className="h-12 w-12 mx-auto mb-3 text-slate-300" />
-                  <p>No email configurations yet</p>
-                  <p className="text-sm mt-1">Add a confirmation or reminder email to get started</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {eventEmails.map((email) => (
-                    <div
-                      key={email.id}
-                      className={`p-4 border rounded-md ${email.email_type === 'booking_confirmation' ? 'border-green-200 bg-green-50' : 'border-blue-200 bg-blue-50'}`}
-                    >
-                      <div className="flex items-start justify-between mb-3">
-                        <div className="flex items-center gap-2">
-                          {email.email_type === 'booking_confirmation' ? (
-                            <Badge variant="outline" className="bg-green-100 text-green-700 border-green-300">
-                              <Check className="h-3 w-3 mr-1" />
-                              Confirmation
-                            </Badge>
-                          ) : (
-                            <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-300">
-                              <Bell className="h-3 w-3 mr-1" />
-                              Reminder
-                            </Badge>
-                          )}
-                          <div className="flex items-center gap-2">
-                            <Switch
-                              checked={email.is_enabled}
-                              onCheckedChange={(checked) => updateEventEmail(email.id, 'is_enabled', checked)}
-                              data-testid={`switch-email-enabled-${email.id}`}
-                            />
-                            <span className="text-sm text-slate-600">
-                              {email.is_enabled ? 'Enabled' : 'Disabled'}
-                            </span>
-                          </div>
-                        </div>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => removeEventEmail(email.id)}
-                          className="text-slate-400 hover:text-red-500"
-                          data-testid={`button-remove-email-${email.id}`}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-
-                      {emailSaveErrors[email.id] && (
-                        <div
-                          className="mb-3 flex items-start gap-2 p-3 rounded-md border border-red-200 bg-red-50 text-red-800 text-sm"
-                          data-testid={`email-save-error-${email.id}`}
-                        >
-                          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                          <div className="min-w-0">
-                            <div className="font-medium">
-                              Failed to save: {getEmailRowLabel(email)}
-                            </div>
-                            <div className="text-xs mt-0.5 break-words">
-                              {emailSaveErrors[email.id]}
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {email.email_type === 'reminder' && (
-                        <div className="mb-3">
-                          <Label className="text-sm font-medium flex items-center gap-1 mb-2">
-                            <Clock className="h-4 w-4" />
-                            Send Timing (relative to each session)
-                          </Label>
-                          <Select
-                            value={email.timing_type || '1_day_before'}
-                            onValueChange={(value) => updateEventEmail(email.id, 'timing_type', value)}
-                          >
-                            <SelectTrigger className="w-full bg-white" data-testid={`select-timing-${email.id}`}>
-                              <SelectValue placeholder="Select when to send" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {TIMING_OPTIONS.map(option => (
-                                <SelectItem key={option.value} value={option.value}>
-                                  {option.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-
-                          {email.timing_type === 'custom' && (
-                            <div className="mt-2 space-y-2">
-                              <Select
-                                value={email.custom_unit || 'hours'}
-                                onValueChange={(value) => updateEventEmail(email.id, 'custom_unit', value)}
-                              >
-                                <SelectTrigger className="w-full bg-white" data-testid={`select-custom-unit-${email.id}`}>
-                                  <SelectValue placeholder="Select unit" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="days">Days before session</SelectItem>
-                                  <SelectItem value="hours">Hours before session</SelectItem>
-                                  <SelectItem value="minutes">Minutes before session</SelectItem>
-                                  <SelectItem value="specific_datetime">Specific date & time</SelectItem>
-                                </SelectContent>
-                              </Select>
-
-                              {(email.custom_unit || 'hours') !== 'specific_datetime' ? (
-                                <div className="flex items-center gap-2">
-                                  <Input
-                                    type="number"
-                                    min="1"
-                                    value={email.custom_hours_before || ''}
-                                    onChange={(e) => updateEventEmail(email.id, 'custom_hours_before', parseInt(e.target.value) || null)}
-                                    placeholder={
-                                      (email.custom_unit || 'hours') === 'days' ? 'Days' :
-                                      (email.custom_unit || 'hours') === 'minutes' ? 'Minutes' : 'Hours'
-                                    }
-                                    className="w-24 bg-white"
-                                    data-testid={`input-custom-value-${email.id}`}
-                                  />
-                                  <span className="text-sm text-slate-600">
-                                    {(email.custom_unit || 'hours') === 'days' ? 'days before session' :
-                                     (email.custom_unit || 'hours') === 'minutes' ? 'minutes before session' : 'hours before session'}
-                                  </span>
-                                </div>
-                              ) : (
-                                <div>
-                                  <TimezoneAwareDateTimeInput
-                                    tz={formData.timezone || DEFAULT_TIMEZONE}
-                                    value={email.custom_send_at}
-                                    onChange={(iso) => updateEventEmail(email.id, 'custom_send_at', iso || null)}
-                                    className="w-full bg-white"
-                                    data-testid={`input-custom-datetime-${email.id}`}
-                                  />
-                                  <p className="text-xs text-slate-500 mt-1">
-                                    Choose the exact date and time to send this reminder
-                                  </p>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {emailTemplates.length > 0 && (
-                        <div className="mb-3">
-                          <Label className="text-sm font-medium mb-2 block flex items-center gap-2">
-                            <Download className="h-4 w-4" />
-                            Load from Template
-                          </Label>
-                          <div className="flex gap-2">
-                            <Select
-                              value={email.loaded_template_id || "none"}
-                              onValueChange={(templateId) => {
-                                if (templateId !== "none") {
-                                  loadTemplateIntoEmail(email.id, templateId);
-                                }
-                              }}
-                            >
-                              <SelectTrigger className="bg-white" data-testid={`select-template-${email.id}`}>
-                                <SelectValue placeholder="Select a template to load..." />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="none">Select a template to load...</SelectItem>
-                                {emailTemplates.map(template => (
-                                  <SelectItem key={template.id} value={template.id}>
-                                    {template.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          {email.loaded_template_name && (
-                            <p className="text-xs text-slate-500 mt-1">
-                              Based on: {email.loaded_template_name} (edits won't affect the original template)
-                            </p>
-                          )}
-                        </div>
-                      )}
-
-                      <div className="mb-3">
-                        <Label className="text-sm font-medium mb-2 block">Subject</Label>
-                        <Input
-                          value={email.subject}
-                          onChange={(e) => updateEventEmail(email.id, 'subject', e.target.value)}
-                          placeholder="Email subject line"
-                          className="bg-white"
-                          data-testid={`input-email-subject-${email.id}`}
-                        />
-                      </div>
-
-                      <div className="mb-3">
-                        <Label className="text-sm font-medium mb-2 block">CC (optional)</Label>
-                        <Input
-                          value={email.cc || ''}
-                          onChange={(e) => updateEventEmail(email.id, 'cc', e.target.value)}
-                          placeholder="team@example.com, manager@example.com"
-                          className="bg-white"
-                          data-testid={`input-email-cc-${email.id}`}
-                        />
-                        <p className="text-xs text-slate-500 mt-1">
-                          Comma-separate multiple addresses to CC on every send.
-                        </p>
-                      </div>
-
-                      <div className="mb-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <Label className="text-sm font-medium">Body</Label>
-                          <div className="flex gap-1">
-                            <Button
-                              type="button"
-                              variant={emailCodeViewMode[email.id] === 'richtext' ? "ghost" : "secondary"}
-                              size="sm"
-                              onClick={() => setEmailCodeViewMode(prev => ({ ...prev, [email.id]: undefined }))}
-                              data-testid={`button-plain-text-${email.id}`}
-                            >
-                              <Code className="h-3 w-3 mr-1" />
-                              Plain Text
-                            </Button>
-                            <Button
-                              type="button"
-                              variant={emailCodeViewMode[email.id] === 'richtext' ? "secondary" : "ghost"}
-                              size="sm"
-                              onClick={() => setEmailCodeViewMode(prev => ({ ...prev, [email.id]: 'richtext' }))}
-                              data-testid={`button-rich-text-${email.id}`}
-                            >
-                              <FileText className="h-3 w-3 mr-1" />
-                              Rich Text
-                            </Button>
-                          </div>
-                        </div>
-
-                        {emailCodeViewMode[email.id] === 'richtext' ? (
-                          <div className="bg-white border rounded-md overflow-hidden">
-                            <ReactQuill
-                              theme="snow"
-                              value={email.body || ''}
-                              onChange={(value) => updateEventEmail(email.id, 'body', value)}
-                              modules={emailQuillModules}
-                              placeholder="Email body content"
-                              className="[&_.ql-editor]:min-h-[150px]"
-                              data-testid={`quill-email-body-${email.id}`}
-                            />
-                          </div>
-                        ) : (
-                          <Textarea
-                            value={email.body}
-                            onChange={(e) => updateEventEmail(email.id, 'body', e.target.value)}
-                            placeholder="Email body content"
-                            className="bg-white min-h-[200px]"
-                            data-testid={`textarea-email-body-${email.id}`}
-                          />
-                        )}
-                        <p className="text-xs text-slate-500 mt-1">
-                          Available placeholders: {'{{event_name}}'}, {'{{event_date}}'}, {'{{event_location}}'}, {'{{attendee_first_name}}'}, {'{{zoom_link}}'}, {'{{session_schedule}}'}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-
-                  <div className="flex flex-wrap justify-end gap-2 pt-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={requeueReminders}
-                      disabled={isRequeueingEmails || isSavingEmails}
-                      data-testid="button-requeue-reminders"
-                    >
-                      {isRequeueingEmails ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Re-queueing...
-                        </>
-                      ) : (
-                        <>Re-queue reminders</>
-                      )}
-                    </Button>
-                    <Button
-                      type="button"
-                      onClick={saveEventEmails}
-                      disabled={isSavingEmails}
-                      className="bg-blue-600 hover:bg-blue-700"
-                      data-testid="button-save-emails"
-                    >
-                      {isSavingEmails ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Saving Emails...
-                        </>
-                      ) : (
-                        <>
-                          <Save className="h-4 w-4 mr-2" />
-                          Save Email Settings
-                        </>
-                      )}
-                    </Button>
-                  </div>
+              )}
+              <EventEmailSettingsEditor
+                emails={eventEmails}
+                setEmails={setEventEmails}
+                emailTemplates={emailTemplates}
+                saveErrors={emailSaveErrors}
+                onRowEdited={handleEmailRowEdited}
+                eventTimezone={formData.timezone || DEFAULT_TIMEZONE}
+                loading={isEditMode && loadingEmails}
+                mode="session"
+              />
+              {isEditMode && !loadingEmails && eventEmails.length > 0 && (
+                <div className="flex flex-wrap justify-end gap-2 pt-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={requeueReminders}
+                    disabled={isRequeueingEmails || isSavingEmails}
+                    data-testid="button-requeue-reminders"
+                  >
+                    {isRequeueingEmails ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Re-queueing...
+                      </>
+                    ) : (
+                      <>Re-queue reminders</>
+                    )}
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={saveEventEmails}
+                    disabled={isSavingEmails}
+                    className="bg-blue-600 hover:bg-blue-700"
+                    data-testid="button-save-emails"
+                  >
+                    {isSavingEmails ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Saving Emails...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="h-4 w-4 mr-2" />
+                        Save Email Settings
+                      </>
+                    )}
+                  </Button>
                 </div>
               )}
             </CardContent>
           </Card>
         </TabsContent>
-        )}
 
         </Tabs>
 
