@@ -402,27 +402,46 @@ async function handlePost(req, res, resolvedTenantId) {
       return res.status(400).json({ error: approvalCheck.message || 'Fees have not yet been approved for payment.' });
     }
 
-    const { getStripeCredentials } = await import('../_lib/stripeCredentials.js');
-    const Stripe = (await import('stripe')).default;
+    const { retrieveTenantPaymentIntent } = await import('../_lib/stripeCredentials.js');
 
-    const stripeCredentials = await getStripeCredentials(tenantId, 'membership');
-    if (!stripeCredentials?.secret_key) {
+    // Task #3278 — mode-flip resilient PI lookup: if the tenant's
+    // stripe_mode_membership was flipped mid-session, the PI lives in the
+    // other mode's account; retrieve it there instead of 500ing on
+    // resource_missing while the card was charged.
+    let retrieved;
+    try {
+      retrieved = await retrieveTenantPaymentIntent(tenantId, 'membership', paymentIntentId);
+    } catch (retrieveErr) {
+      console.error(`[MEMBERSHIP-CONFIRM-FAILURE] [FormPayment] Could not retrieve PI ${paymentIntentId} in either Stripe mode (tenant ${tenantId}, member ${member.id}): ${retrieveErr.message}`);
+      return res.status(500).json({ error: 'We could not verify your payment with Stripe. If your card was charged (you received a Stripe receipt), your membership will be reconciled automatically — please do not pay again. Otherwise, please retry.' });
+    }
+    if (!retrieved) {
       return res.status(503).json({ error: 'Payment verification not available' });
     }
-
-    const stripe = new Stripe(stripeCredentials.secret_key);
-    const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+    const { paymentIntent, stripe } = retrieved;
 
     if (paymentIntent.status !== 'succeeded') {
       return res.status(400).json({ error: 'Payment has not been completed', status: paymentIntent.status });
     }
 
+    // From here on the charge HAS succeeded — any rejection below must be
+    // logged distinctly and must tell the payer the charge went through and
+    // will be reconciled (Task #3278), never imply the payment failed.
+    const confirmFailure = (reason, extra = {}) => {
+      console.error(`[MEMBERSHIP-CONFIRM-FAILURE] [FormPayment] Succeeded PI ${paymentIntentId} could not be recorded: ${reason}`, JSON.stringify({ tenantId, memberId: member.id, organizationId: organizationId || null, ...extra }));
+      return res.status(400).json({
+        error: 'Your card payment was successful and you will receive a Stripe receipt, but we could not finish updating your membership record automatically. It will be reconciled by the administrator shortly — please do NOT pay again.',
+        paymentSucceeded: true,
+        reason,
+      });
+    };
+
     if (paymentIntent.metadata?.member_id !== member.id) {
-      return res.status(400).json({ error: 'Payment does not match the specified member' });
+      return confirmFailure('metadata member_id mismatch', { piMemberId: paymentIntent.metadata?.member_id });
     }
 
     if (paymentIntent.metadata?.tenant_id !== tenantId) {
-      return res.status(400).json({ error: 'Payment does not match the tenant' });
+      return confirmFailure('metadata tenant_id mismatch', { piTenantId: paymentIntent.metadata?.tenant_id });
     }
 
     const targetYear = confirmYear || paymentIntent.metadata?.membership_year;
@@ -433,15 +452,13 @@ async function handlePost(req, res, resolvedTenantId) {
       : await simulateMembershipForOrg(tenantId, organizationId, confirmSimOptions);
 
     if (!simResult.success) {
-      console.error('[FormPayment] Simulation failed during confirm:', simResult.error);
-      return res.status(400).json({ error: simResult.error || 'Could not verify membership fees' });
+      return confirmFailure(`simulation failed during confirm: ${simResult.error || 'unknown'}`, { simSteps: simResult.steps });
     }
 
     const confirmChargeTotal = simResult.totalWithVat || simResult.finalCost;
     const expectedAmount = Math.round(confirmChargeTotal * 100);
     if (paymentIntent.amount !== expectedAmount) {
-      console.error(`[FormPayment] Amount mismatch: expected ${expectedAmount}, got ${paymentIntent.amount}`);
-      return res.status(400).json({ error: 'Payment amount does not match expected fee' });
+      return confirmFailure(`amount mismatch: expected ${expectedAmount}, PI charged ${paymentIntent.amount}`);
     }
 
     let recordCreated = false;
@@ -509,18 +526,15 @@ async function handlePost(req, res, resolvedTenantId) {
         console.log(`[FormPayment] Duplicate constraint hit for PI ${paymentIntentId} - already processed`);
         recordCreated = true;
       } else {
-        console.error('[FormPayment] Error creating history record:', insertError);
-        try {
-          await stripe.refunds.create({
-            payment_intent: paymentIntentId,
-            reason: 'requested_by_customer',
-            metadata: { reason: 'form_membership_record_creation_failed', member_id: member.id }
-          });
-          console.log(`[FormPayment] Auto-refund issued for PI ${paymentIntentId} after record creation failure`);
-        } catch (refundErr) {
-          console.error(`[FormPayment] Auto-refund FAILED for PI ${paymentIntentId}:`, refundErr.message);
-        }
-        return res.status(500).json({ error: 'Failed to create membership record. A refund has been initiated. Please contact support if you do not see it within 5-10 business days.' });
+        // Task #3278 — do NOT auto-refund here: the charge succeeded and
+        // the Stripe membership webhook / reconcile cron will record it
+        // (reconstructing the row if needed). Refunding would race the
+        // webhook and could produce a refunded-but-paid membership.
+        console.error(`[MEMBERSHIP-CONFIRM-FAILURE] [FormPayment] History insert failed after succeeded PI ${paymentIntentId}: ${insertError.message}`, JSON.stringify({ tenantId, memberId: member.id, code: insertError.code }));
+        return res.status(500).json({
+          error: 'Your card payment was successful and you will receive a Stripe receipt, but we could not finish updating your membership record automatically. It will be reconciled by the administrator shortly — please do NOT pay again.',
+          paymentSucceeded: true,
+        });
       }
     }
 

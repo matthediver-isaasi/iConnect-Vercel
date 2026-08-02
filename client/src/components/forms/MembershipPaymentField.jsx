@@ -225,7 +225,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
         });
         if (!confirmRes.ok) {
           const err = await confirmRes.json().catch(() => ({}));
-          throw new Error(err.error || 'Failed to confirm payment');
+          throw new Error(err.error || 'Your card payment was successful, but we could not finish updating your membership record. It will be reconciled automatically — please do NOT pay again.');
         }
         sessionStorage.removeItem('pending_form_membership_payment_year');
         sessionStorage.removeItem('pending_form_membership_invoice_address');
@@ -373,7 +373,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
 
         if (!confirmRes.ok) {
           const err = await confirmRes.json().catch(() => ({}));
-          throw new Error(err.error || 'Failed to confirm payment');
+          throw new Error(err.error || 'Your card payment was successful, but we could not finish updating your membership record. It will be reconciled automatically — please do NOT pay again.');
         }
 
         setPaymentComplete(true);

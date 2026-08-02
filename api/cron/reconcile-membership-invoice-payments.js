@@ -45,6 +45,12 @@ export default async function handler(req, res) {
   };
 
   try {
+    // Backstop pre-pass (Task #3278): retry pending stripe-membership
+    // webhook events (e.g. the webhook arrived before the confirm flow
+    // created the history row, and Stripe's own redelivery window has
+    // passed). Idempotent — the recorder dedupes by PI.
+    results.stripe_webhook_retries = await retryPendingStripeMembershipEvents(baseUrl);
+
     const orgRows = await fetchOutstanding(ORG_TABLE);
     const memberRows = await fetchOutstanding(MEMBER_TABLE);
 
@@ -121,6 +127,54 @@ export default async function handler(req, res) {
     console.error('[cron/reconcile-membership-invoice-payments] fatal:', err);
     return res.status(500).json({ ok: false, error: err.message, ...results });
   }
+}
+
+async function retryPendingStripeMembershipEvents(baseUrl) {
+  const summary = { attempted: 0, recorded: 0, still_pending: 0, errors: 0 };
+  try {
+    const { data: events, error } = await supabase
+      .from('payment_webhook_events')
+      .select('id, tenant_id, payload')
+      .eq('provider', 'stripe-membership')
+      .eq('processing_status', 'pending')
+      .limit(50);
+    if (error || !events?.length) return summary;
+
+    const { recordSucceededMembershipPaymentIntent } = await import('../_lib/membershipPaymentReconciliation.js');
+    for (const evt of events) {
+      const pi = evt.payload?.data?.object;
+      if (!pi || evt.payload?.type !== 'payment_intent.succeeded') continue;
+      summary.attempted++;
+      try {
+        const outcome = await recordSucceededMembershipPaymentIntent({
+          tenantId: evt.tenant_id,
+          paymentIntent: pi,
+          baseUrl,
+          source: 'stripe_membership_webhook_cron_retry',
+        });
+        const ok = outcome.status === 'recorded' || outcome.status === 'already-recorded' || outcome.status === 'raced';
+        if (ok || outcome.status === 'invalid') {
+          await supabase.from('payment_webhook_events')
+            .update({ processing_status: ok ? 'processed' : 'skipped', processing_error: ok ? null : `invalid: ${outcome.detail || ''}`, processed_at: new Date().toISOString() })
+            .eq('id', evt.id);
+          if (ok) summary.recorded++;
+        } else {
+          // unmatched/conflict — keep pending (surfaced by logs/admin script)
+          await supabase.from('payment_webhook_events')
+            .update({ processing_error: `${outcome.status}: ${outcome.detail || ''}` })
+            .eq('id', evt.id);
+          summary.still_pending++;
+          console.error(`[cron/reconcile-membership-invoice-payments] stripe-membership event ${evt.id} still ${outcome.status}: ${outcome.detail}`);
+        }
+      } catch (err) {
+        summary.errors++;
+        console.error(`[cron/reconcile-membership-invoice-payments] stripe-membership retry failed for event ${evt.id}: ${err.message}`);
+      }
+    }
+  } catch (err) {
+    console.error(`[cron/reconcile-membership-invoice-payments] stripe webhook retry pre-pass failed: ${err.message}`);
+  }
+  return summary;
 }
 
 async function fetchOutstanding(table) {

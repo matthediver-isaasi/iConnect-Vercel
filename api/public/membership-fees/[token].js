@@ -615,31 +615,54 @@ export default async function handler(req, res) {
           return res.status(400).json({ error: 'Fees have not yet been approved for payment. Please contact your administrator.' });
         }
 
-        const { getStripeCredentials } = await import('../../_lib/stripeCredentials.js');
-        const Stripe = (await import('stripe')).default;
+        const { retrieveTenantPaymentIntent } = await import('../../_lib/stripeCredentials.js');
 
-        const stripeCredentials = await getStripeCredentials(feeToken.tenant_id, 'membership');
-        if (!stripeCredentials?.secret_key) {
+        // Task #3278 — mode-flip resilient PI lookup. If the tenant's
+        // stripe_mode_membership flipped mid-session (the live incident on
+        // 2026-07-31), the PI lives in the other mode's Stripe account;
+        // retrieve it there rather than failing resource_missing after the
+        // card was charged.
+        let retrieved;
+        try {
+          retrieved = await retrieveTenantPaymentIntent(feeToken.tenant_id, 'membership', paymentIntentId);
+        } catch (retrieveErr) {
+          console.error(`[MEMBERSHIP-CONFIRM-FAILURE] [Public Fee] Could not retrieve PI ${paymentIntentId} in either Stripe mode (tenant ${feeToken.tenant_id}, token ${feeToken.id}): ${retrieveErr.message}`);
+          return res.status(500).json({ error: 'We could not verify your payment with Stripe. If your card was charged (you received a Stripe receipt), your membership will be reconciled automatically — please do not pay again. Otherwise, please retry.' });
+        }
+        if (!retrieved) {
           return res.status(503).json({ error: 'Payment verification not available' });
         }
-
-        if (feeToken.stripe_payment_intent_id && feeToken.stripe_payment_intent_id !== paymentIntentId) {
-          return res.status(400).json({ error: 'Payment intent does not match this fee token' });
-        }
-
-        const stripe = new Stripe(stripeCredentials.secret_key);
-        const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+        const { paymentIntent, stripe } = retrieved;
 
         if (paymentIntent.status !== 'succeeded') {
           return res.status(400).json({ error: 'Payment has not been completed', status: paymentIntent.status });
+        }
+
+        // From here on the charge HAS succeeded — rejections must be logged
+        // distinctly and must tell the payer the money was taken and will be
+        // reconciled (Task #3278), never imply the payment failed.
+        const confirmFailure = (reason, extra = {}) => {
+          console.error(`[MEMBERSHIP-CONFIRM-FAILURE] [Public Fee] Succeeded PI ${paymentIntentId} could not be recorded: ${reason}`, JSON.stringify({ tenantId: feeToken.tenant_id, tokenId: feeToken.id, memberId: feeToken.member_id || null, organizationId: feeToken.organization_id || null, ...extra }));
+          return res.status(400).json({
+            error: 'Your card payment was successful and you will receive a Stripe receipt, but we could not finish updating your membership record automatically. It will be reconciled by the administrator shortly — please do NOT pay again.',
+            paymentSucceeded: true,
+            reason,
+          });
+        };
+
+        // Task #3278 — a re-initialised fee page stamps a NEWER PI onto the
+        // token; a payer completing the OLDER (or a concurrent) PI must not
+        // be rejected after their card was charged. Trust the PI's own
+        // metadata binding instead of the last-stamped id.
+        if (paymentIntent.metadata?.token_id !== feeToken.id) {
+          return confirmFailure('PI metadata token_id does not match this fee token', { piTokenId: paymentIntent.metadata?.token_id, stampedPI: feeToken.stripe_payment_intent_id });
         }
 
         const confirmBreakdown = feeToken.cost_breakdown || {};
         const confirmTotal = confirmBreakdown.totalWithVat || parseFloat(feeToken.final_cost);
         const expectedAmount = Math.round(confirmTotal * 100);
         if (paymentIntent.amount !== expectedAmount) {
-          console.error(`[Public Fee] Amount mismatch: expected ${expectedAmount}, got ${paymentIntent.amount}`);
-          return res.status(400).json({ error: 'Payment amount does not match expected fee' });
+          return confirmFailure(`amount mismatch: expected ${expectedAmount}, PI charged ${paymentIntent.amount}`);
         }
 
         // Task #1112 — stamp the PI on the token (status still pending) so
@@ -673,33 +696,12 @@ export default async function handler(req, res) {
         // invoice — silent loss. We now auto-refund (consistent with the
         // history-insert failure path further down) and surface a 500.
         if (!simResult.success) {
-          console.error('[Public Fee] membership simulation returned success=false during confirm_payment:', {
-            tokenId: feeToken.id,
-            paymentIntentId,
-            tenantId: feeToken.tenant_id,
-            organizationId: feeToken.organization_id,
-            memberId: feeToken.member_id || null,
-            membershipYear: feeToken.membership_year,
-            error: simResult.error,
-            steps: simResult.steps,
-          });
-          try {
-            await stripe.refunds.create({
-              payment_intent: paymentIntentId,
-              reason: 'requested_by_customer',
-              metadata: { reason: 'membership_simulation_failed', token_id: feeToken.id },
-            });
-            console.log(`[Public Fee] Auto-refund issued for PI ${paymentIntentId} after simulation failure`);
-            await supabase
-              .from('membership_fee_token')
-              .update({ stripe_payment_intent_id: null, updated_at: new Date().toISOString() })
-              .eq('id', feeToken.id);
-          } catch (refundErr) {
-            console.error(`[Public Fee] Auto-refund FAILED for PI ${paymentIntentId} after sim failure:`, refundErr.message);
-          }
-          return res.status(500).json({
-            error: 'Could not create your membership record because the fee structure could not be re-verified. A refund has been initiated. Please contact your administrator if you do not see it within 5-10 business days.',
-          });
+          // Task #3278 — no auto-refund: the charge succeeded, and the
+          // Stripe membership webhook / reconcile cron will record the
+          // payment from the token snapshot. Refunding here would race
+          // the webhook and could produce a refunded-but-paid membership.
+          // Keep the PI stamped on the token so reconciliation can find it.
+          return confirmFailure(`simulation failed during confirm: ${simResult.error || 'unknown'}`, { simSteps: simResult.steps });
         }
 
         let recordCreated = false;
@@ -790,26 +792,16 @@ export default async function handler(req, res) {
             console.log(`[Public Fee] Duplicate constraint hit for PI ${paymentIntentId} - already processed`);
             recordCreated = true;
           } else {
-            console.error('[Public Fee] Error creating history record:', insertError);
-            // Auto-refund: record creation failed after payment succeeded.
-            // Task #1112 — also clear the PI off the token so the token is
-            // back to a clean 'pending' state (token status was never
-            // flipped to 'paid' in this revised sequence).
-            try {
-              await stripe.refunds.create({
-                payment_intent: paymentIntentId,
-                reason: 'requested_by_customer',
-                metadata: { reason: 'membership_record_creation_failed', token_id: feeToken.id }
-              });
-              console.log(`[Public Fee] Auto-refund issued for PI ${paymentIntentId} after record creation failure`);
-              await supabase
-                .from('membership_fee_token')
-                .update({ stripe_payment_intent_id: null, updated_at: new Date().toISOString() })
-                .eq('id', feeToken.id);
-            } catch (refundErr) {
-              console.error(`[Public Fee] Auto-refund FAILED for PI ${paymentIntentId}:`, refundErr.message);
-            }
-            return res.status(500).json({ error: 'Failed to create membership record. A refund has been initiated. Please contact support if you do not see it within 5-10 business days.' });
+            // Task #3278 — no auto-refund: the charge succeeded and the
+            // Stripe membership webhook / reconcile cron will record it
+            // (reconstructing the row from the token if needed). Refunding
+            // would race the webhook and could produce a refunded-but-paid
+            // membership. Keep the PI stamped on the token for recovery.
+            console.error(`[MEMBERSHIP-CONFIRM-FAILURE] [Public Fee] History insert failed after succeeded PI ${paymentIntentId}: ${insertError.message}`, JSON.stringify({ tenantId: feeToken.tenant_id, tokenId: feeToken.id, code: insertError.code }));
+            return res.status(500).json({
+              error: 'Your card payment was successful and you will receive a Stripe receipt, but we could not finish updating your membership record automatically. It will be reconciled by the administrator shortly — please do NOT pay again.',
+              paymentSucceeded: true,
+            });
           }
         }
 

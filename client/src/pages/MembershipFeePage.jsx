@@ -129,7 +129,7 @@ export default function MembershipFeePage() {
 
         if (!confirmRes.ok) {
           const err = await confirmRes.json().catch(() => ({}));
-          throw new Error(err.error || 'Payment was taken but confirmation failed. Please contact support.');
+          throw new Error(err.error || 'Your card payment was successful, but we could not finish updating your membership record. It will be reconciled automatically — please do NOT pay again.');
         }
 
         const body = await confirmRes.json().catch(() => ({}));
@@ -281,7 +281,7 @@ export default function MembershipFeePage() {
 
         if (!confirmRes.ok) {
           const err = await confirmRes.json().catch(() => ({}));
-          throw new Error(err.error || 'Payment was taken but confirmation failed. Please contact support.');
+          throw new Error(err.error || 'Your card payment was successful, but we could not finish updating your membership record. It will be reconciled automatically — please do NOT pay again.');
         }
 
         const confirmBody = await confirmRes.json().catch(() => ({}));
