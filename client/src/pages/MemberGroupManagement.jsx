@@ -2034,136 +2034,177 @@ export default function MemberGroupManagementPage() {
                   </div>
                 )}
 
-                <div className="flex flex-wrap gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {groupForm.roles.map((role, idx) => {
                     const isLeader = (groupForm.leadership_roles || []).includes(role);
+                    // Role cards (Task #3304): each role shows its linked
+                    // badge, terms-of-reference link, and term-of-office
+                    // summary at a glance, with visible add/replace/remove
+                    // badge controls. Writes the same role_badge_ids /
+                    // role_terms_url / role_term_definitions form state as
+                    // the per-role settings panel below.
+                    const linkedBadgeId = (groupForm.role_badge_ids || {})[role] || '';
+                    const linkedBadge = linkedBadgeId ? badgeById.get(linkedBadgeId) : null;
+                    const pickerBadges = activeLibraryBadges.some((b) => b.id === linkedBadgeId) || !linkedBadge
+                      ? activeLibraryBadges
+                      : [linkedBadge, ...activeLibraryBadges];
+                    const termsUrl = ((groupForm.role_terms_url || {})[role] || '').toString().trim();
+                    const termDef = (groupForm.role_term_definitions || {})[role] || null;
+                    const termValue = Number(termDef?.term_value);
+                    const maxTerms = Number(termDef?.max_terms);
+                    const hasTermValue = Number.isFinite(termValue) && termValue > 0;
+                    const hasMaxTerms = Number.isFinite(maxTerms) && maxTerms > 0;
+                    const termSummaryParts = [];
+                    if (hasTermValue) {
+                      const unit = termDef?.term_unit === 'months' ? 'month' : 'year';
+                      termSummaryParts.push(`${Math.floor(termValue)} ${unit}${Math.floor(termValue) === 1 ? '' : 's'}`);
+                    }
+                    if (hasMaxTerms) {
+                      termSummaryParts.push(`max ${Math.floor(maxTerms)} term${Math.floor(maxTerms) === 1 ? '' : 's'}`);
+                    }
+                    const termSummary = termSummaryParts.join(', ');
                     return (
-                      <Badge
+                      <div
                         key={idx}
-                        className={isLeader ? "bg-amber-100 text-amber-800" : "bg-blue-100 text-blue-700"}
-                        data-testid={`badge-role-${role}`}
+                        className="rounded-lg border border-slate-200 p-3 space-y-2.5 bg-white"
+                        data-testid={`card-role-${role}`}
                       >
-                        {role}
-                        {(() => {
-                          // Per-role badge control (Task #3302): the linked
-                          // badge is visible on the chip, and the popover
-                          // offers one-click add / replace / remove. Writes
-                          // the same role_badge_ids form state as the
-                          // per-role settings panel below.
-                          const linkedBadgeId = (groupForm.role_badge_ids || {})[role] || '';
-                          const linkedBadge = linkedBadgeId ? badgeById.get(linkedBadgeId) : null;
-                          const pickerBadges = activeLibraryBadges.some((b) => b.id === linkedBadgeId) || !linkedBadge
-                            ? activeLibraryBadges
-                            : [linkedBadge, ...activeLibraryBadges];
-                          return (
-                            <Popover>
-                              <PopoverTrigger asChild>
-                                <button
-                                  type="button"
-                                  className="ml-2 inline-flex items-center gap-1"
-                                  title={linkedBadge
-                                    ? `Badge: ${linkedBadge.name} — click to change or remove`
-                                    : 'Link a badge to this role'}
-                                  data-testid={`button-role-badge-${role}`}
-                                >
-                                  {linkedBadge && linkedBadge.image_url ? (
-                                    <img
-                                      src={linkedBadge.image_url}
-                                      alt={`${linkedBadge.name} badge`}
-                                      className="w-4 h-4 object-contain rounded-sm"
-                                    />
-                                  ) : (
-                                    <Award className={`w-3 h-3 ${linkedBadge ? 'text-emerald-600 fill-current' : 'text-slate-400 hover:text-emerald-600'}`} />
-                                  )}
-                                </button>
-                              </PopoverTrigger>
-                              <PopoverContent className="w-80 space-y-3" align="start">
-                                <div>
-                                  <p className="text-sm font-medium">Badge for {role}</p>
-                                  <p className="text-xs text-slate-500 mt-0.5">
-                                    Members currently holding this role see the linked badge on their About Me page; it disappears automatically when they no longer hold the role.
-                                  </p>
-                                </div>
-                                {linkedBadge && (
-                                  <div className="flex items-center gap-2 p-2 border border-slate-200 rounded-md" data-testid={`preview-role-badge-chip-${role}`}>
-                                    {linkedBadge.image_url && (
-                                      <img src={linkedBadge.image_url} alt="" className="w-8 h-8 object-contain" />
-                                    )}
-                                    <div className="min-w-0">
-                                      <p className="text-sm font-medium truncate">{linkedBadge.name}</p>
-                                      {linkedBadge.is_active === false && (
-                                        <p className="text-xs text-amber-600">Inactive — won't display on profiles.</p>
-                                      )}
-                                    </div>
-                                  </div>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <p className="text-sm font-medium truncate" data-testid={`text-role-name-${role}`}>{role}</p>
+                            {isLeader && (
+                              <Badge className="bg-amber-100 text-amber-800 shrink-0" data-testid={`badge-leadership-${role}`}>
+                                <Crown className="w-3 h-3 fill-current mr-1" />
+                                Leadership
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => toggleLeadershipRole(role)}
+                              className={`p-1 rounded ${isLeader ? "text-amber-700" : "text-slate-400 hover:text-amber-700"}`}
+                              title={isLeader ? "Remove from Leadership" : "Mark as Leadership"}
+                              data-testid={`button-toggle-leadership-${role}`}
+                            >
+                              <Crown className={`w-4 h-4 ${isLeader ? "fill-current" : ""}`} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveRole(role)}
+                              className="p-1 rounded text-slate-400 hover:text-red-600"
+                              title="Remove role"
+                              data-testid={`button-remove-role-${role}`}
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          {linkedBadge ? (
+                            <div className="flex items-center gap-2" data-testid={`preview-role-badge-card-${role}`}>
+                              {linkedBadge.image_url ? (
+                                <img src={linkedBadge.image_url} alt={`${linkedBadge.name} badge`} className="w-8 h-8 object-contain rounded-sm" />
+                              ) : (
+                                <Award className="w-6 h-6 text-emerald-600" />
+                              )}
+                              <div className="min-w-0">
+                                <p className="text-xs font-medium truncate">{linkedBadge.name}</p>
+                                {linkedBadge.is_active === false && (
+                                  <p className="text-[11px] text-amber-600">Inactive — won't display on profiles.</p>
                                 )}
-                                <div className="flex items-center gap-2">
-                                  <Select
-                                    value={linkedBadgeId || undefined}
-                                    onValueChange={(v) => setGroupForm((prev) => ({
-                                      ...prev,
-                                      role_badge_ids: {
-                                        ...(prev.role_badge_ids || {}),
-                                        [role]: v,
-                                      },
-                                    }))}
-                                  >
-                                    <SelectTrigger className="flex-1" data-testid={`select-role-badge-chip-${role}`}>
-                                      <SelectValue placeholder={activeLibraryBadges.length === 0
-                                        ? 'No active badges available'
-                                        : (linkedBadge ? 'Replace badge…' : 'Add a badge…')} />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {pickerBadges.map((badge) => (
-                                        <SelectItem key={badge.id} value={badge.id} data-testid={`option-role-badge-chip-${badge.id}`}>
-                                          <span className="flex items-center gap-2">
-                                            {badge.image_url && (
-                                              <img src={badge.image_url} alt="" className="w-5 h-5 object-contain rounded-sm" />
-                                            )}
-                                            <span>{badge.name}{badge.is_active === false ? ' (inactive)' : ''}</span>
-                                          </span>
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                  {linkedBadgeId && (
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="icon"
-                                      title="Remove badge link"
-                                      onClick={() => setGroupForm((prev) => {
-                                        const next = { ...(prev.role_badge_ids || {}) };
-                                        delete next[role];
-                                        return { ...prev, role_badge_ids: next };
-                                      })}
-                                      data-testid={`button-clear-role-badge-chip-${role}`}
-                                    >
-                                      <X className="w-4 h-4" />
-                                    </Button>
-                                  )}
-                                </div>
-                              </PopoverContent>
-                            </Popover>
-                          );
-                        })()}
-                        <button
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-slate-400 flex items-center gap-1.5" data-testid={`text-no-badge-${role}`}>
+                              <Award className="w-4 h-4" />
+                              No badge
+                            </p>
+                          )}
+                          <div className="flex items-center gap-1.5">
+                            <Select
+                              value={linkedBadgeId || undefined}
+                              onValueChange={(v) => setGroupForm((prev) => ({
+                                ...prev,
+                                role_badge_ids: {
+                                  ...(prev.role_badge_ids || {}),
+                                  [role]: v,
+                                },
+                              }))}
+                            >
+                              <SelectTrigger className="flex-1 h-8 text-xs" data-testid={`select-role-badge-card-${role}`}>
+                                <SelectValue placeholder={activeLibraryBadges.length === 0
+                                  ? 'No active badges available'
+                                  : (linkedBadge ? 'Replace badge…' : 'Add a badge…')} />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {pickerBadges.map((badge) => (
+                                  <SelectItem key={badge.id} value={badge.id} data-testid={`option-role-badge-card-${badge.id}`}>
+                                    <span className="flex items-center gap-2">
+                                      {badge.image_url && (
+                                        <img src={badge.image_url} alt="" className="w-5 h-5 object-contain rounded-sm" />
+                                      )}
+                                      <span>{badge.name}{badge.is_active === false ? ' (inactive)' : ''}</span>
+                                    </span>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            {linkedBadgeId && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                title="Remove badge link"
+                                onClick={() => setGroupForm((prev) => {
+                                  const next = { ...(prev.role_badge_ids || {}) };
+                                  delete next[role];
+                                  return { ...prev, role_badge_ids: next };
+                                })}
+                                data-testid={`button-clear-role-badge-card-${role}`}
+                              >
+                                <X className="w-4 h-4" />
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="space-y-1 text-xs">
+                          {termsUrl ? (
+                            <a
+                              href={termsUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="block text-blue-600 hover:underline truncate"
+                              title={termsUrl}
+                              data-testid={`link-role-terms-${role}`}
+                            >
+                              Terms of reference ↗
+                            </a>
+                          ) : (
+                            <p className="text-slate-400" data-testid={`text-no-terms-${role}`}>No terms of reference link</p>
+                          )}
+                          {termSummary ? (
+                            <p className="text-slate-600" data-testid={`text-term-summary-${role}`}>Term of office: {termSummary}</p>
+                          ) : (
+                            <p className="text-slate-400" data-testid={`text-no-term-def-${role}`}>No term of office set</p>
+                          )}
+                        </div>
+
+                        <Button
                           type="button"
-                          onClick={() => toggleLeadershipRole(role)}
-                          className={`ml-2 ${isLeader ? "text-amber-700" : "text-slate-400 hover:text-amber-700"}`}
-                          title={isLeader ? "Remove from Leadership" : "Mark as Leadership"}
-                          data-testid={`button-toggle-leadership-${role}`}
+                          variant="outline"
+                          size="sm"
+                          className="w-full h-7 text-xs"
+                          onClick={() => setSelectedRoleForTerms(role)}
+                          data-testid={`button-edit-role-settings-${role}`}
                         >
-                          <Crown className={`w-3 h-3 ${isLeader ? "fill-current" : ""}`} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveRole(role)}
-                          className="ml-2 hover:text-red-600"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </Badge>
+                          <Pencil className="w-3 h-3 mr-1" />
+                          Edit terms & term of office
+                        </Button>
+                      </div>
                     );
                   })}
                 </div>
@@ -2178,7 +2219,7 @@ export default function MemberGroupManagementPage() {
                   <div className="mt-4 space-y-2">
                     <Label htmlFor="role_terms_select">Per-role settings</Label>
                     <p className="text-xs text-slate-500">
-                      Optional. Set a role's term of office, terms of reference link, and linked badge. The role invite email and invite page link to the terms URL; roles without a link simply show no terms of reference. Badges can also be managed directly from the award icon on each role above.
+                      Optional. Set a role's term of office and terms of reference link. The role invite email and invite page link to the terms URL; roles without a link simply show no terms of reference. Badges are managed directly on each role card above.
                     </p>
                     <Select
                       value={selectedRoleForTerms || ''}
@@ -2296,93 +2337,9 @@ export default function MemberGroupManagementPage() {
                             The invitee for the <strong>{selectedRoleForTerms}</strong> role is shown a link to this page. Leave blank for no terms of reference.
                           </p>
                         </div>
-                        <div className="space-y-1.5">
-                          <Label htmlFor="role-badge-select">Badge</Label>
-                          {(() => {
-                            const linkedBadgeId = (groupForm.role_badge_ids || {})[selectedRoleForTerms] || '';
-                            const linkedBadge = linkedBadgeId ? badgeById.get(linkedBadgeId) : null;
-                            const pickerBadges = activeLibraryBadges.some((b) => b.id === linkedBadgeId) || !linkedBadge
-                              ? activeLibraryBadges
-                              : [linkedBadge, ...activeLibraryBadges];
-                            return (
-                              <div className="flex items-center gap-2">
-                                <Select
-                                  value={linkedBadgeId || undefined}
-                                  onValueChange={(v) => setGroupForm((prev) => ({
-                                    ...prev,
-                                    role_badge_ids: {
-                                      ...(prev.role_badge_ids || {}),
-                                      [selectedRoleForTerms]: v,
-                                    },
-                                  }))}
-                                >
-                                  <SelectTrigger id="role-badge-select" className="flex-1" data-testid="select-role-badge">
-                                    <SelectValue placeholder={activeLibraryBadges.length === 0 ? 'No active badges available' : 'No badge linked'} />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {pickerBadges.map((badge) => (
-                                      <SelectItem key={badge.id} value={badge.id} data-testid={`option-role-badge-${badge.id}`}>
-                                        <span className="flex items-center gap-2">
-                                          {badge.image_url && (
-                                            <img
-                                              src={badge.image_url}
-                                              alt=""
-                                              className="w-5 h-5 object-contain rounded-sm"
-                                            />
-                                          )}
-                                          <span>{badge.name}{badge.is_active === false ? ' (inactive)' : ''}</span>
-                                        </span>
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                                {linkedBadgeId && (
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon"
-                                    title="Remove badge link"
-                                    onClick={() => setGroupForm((prev) => {
-                                      const next = { ...(prev.role_badge_ids || {}) };
-                                      delete next[selectedRoleForTerms];
-                                      return { ...prev, role_badge_ids: next };
-                                    })}
-                                    data-testid="button-clear-role-badge"
-                                  >
-                                    <X className="w-4 h-4" />
-                                  </Button>
-                                )}
-                              </div>
-                            );
-                          })()}
-                          {(() => {
-                            const linkedBadge = badgeById.get((groupForm.role_badge_ids || {})[selectedRoleForTerms] || '');
-                            if (!linkedBadge) {
-                              return (
-                                <p className="text-xs text-slate-500">
-                                  Optional. Members currently holding the <strong>{selectedRoleForTerms}</strong> role see the linked badge on their About Me page; it disappears automatically when they no longer hold the role.
-                                </p>
-                              );
-                            }
-                            return (
-                              <div className="flex items-center gap-3 p-2 border border-slate-200 rounded-md" data-testid="preview-role-badge">
-                                {linkedBadge.image_url && (
-                                  <img
-                                    src={linkedBadge.image_url}
-                                    alt={`${linkedBadge.name} badge`}
-                                    className="w-10 h-10 object-contain"
-                                  />
-                                )}
-                                <div className="min-w-0">
-                                  <p className="text-sm font-medium truncate">{linkedBadge.name}</p>
-                                  {linkedBadge.is_active === false && (
-                                    <p className="text-xs text-amber-600">This badge is inactive and won't display on member profiles.</p>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })()}
-                        </div>
+                        <p className="text-xs text-slate-500">
+                          The badge for the <strong>{selectedRoleForTerms}</strong> role is managed directly on its role card above.
+                        </p>
                       </div>
                     )}
                   </div>
