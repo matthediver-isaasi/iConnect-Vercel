@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import DOMPurify from "dompurify";
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +13,7 @@ import {
   Check,
   Users2,
   Lock,
+  ChevronDown,
 } from "lucide-react";
 
 const COMMITMENT_UNIT_LABELS = {
@@ -97,11 +98,33 @@ export function formatClosingDate(vacancy) {
   });
 }
 
+/** Plain-text excerpt of a rich-text description: first non-empty line. */
+export function getDescriptionExcerpt(html) {
+  const text = (html || "")
+    .replace(/<(br|\/p|\/div|\/li|\/h[1-6])[^>]*>/gi, "\n")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&quot;/gi, '"');
+  const firstLine = text
+    .split("\n")
+    .map((l) => l.replace(/\s+/g, " ").trim())
+    .find((l) => l.length > 0);
+  return firstLine || "";
+}
+
 /**
  * Shared presentation for a single vacancy: title, status badges, description,
  * the metadata-icon row (commitment / term / max-terms / positions) and the
  * express-interest control. Group-admin-only controls are passed in via
  * `adminActions` so they stay out of this shared unit.
+ *
+ * `collapsible` (opt-in) renders a compact summary card (title, group,
+ * description excerpt, commitment + positions remaining, status badges)
+ * that expands in place to the full card when clicked.
  */
 export default function VacancyCard({
   vacancy,
@@ -114,7 +137,10 @@ export default function VacancyCard({
   adminActions = null,
   groupName = null,
   groupUrl = null,
+  collapsible = false,
+  defaultExpanded = false,
 }) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const commitment = formatCommitment(vacancy);
   const term = formatTerm(vacancy);
   const maxTerms = formatMaxTerms(vacancy);
@@ -127,9 +153,132 @@ export default function VacancyCard({
     positionsRemaining != null ? positionsRemaining : total;
   const isFilled = remaining <= 0;
 
+  const stopToggle = (e) => e.stopPropagation();
+
+  const statusBadges = (
+    <>
+      {isClosed && (
+        <Badge variant="secondary" data-testid={`badge-vacancy-closed-${vacancy.id}`}>
+          Closed
+        </Badge>
+      )}
+      {!isClosed && isFilled && (
+        <Badge variant="secondary" data-testid={`badge-vacancy-filled-${vacancy.id}`}>
+          Filled
+        </Badge>
+      )}
+      {!isClosed && closingSoon && (
+        <Badge variant="warning" data-testid={`badge-vacancy-closing-soon-${vacancy.id}`}>
+          Closing soon
+        </Badge>
+      )}
+    </>
+  );
+
+  if (collapsible && !expanded) {
+    const excerpt = getDescriptionExcerpt(vacancy.role_description);
+    return (
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => setExpanded(true)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setExpanded(true);
+          }
+        }}
+        className="rounded-md border border-slate-200 p-4 cursor-pointer hover-elevate"
+        aria-expanded={false}
+        data-testid={`card-vacancy-${vacancy.id}`}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex flex-col gap-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3
+                className="text-base font-semibold text-slate-900"
+                data-testid={`text-vacancy-title-${vacancy.id}`}
+              >
+                {vacancy.role_title}
+              </h3>
+              {statusBadges}
+            </div>
+            {groupName && (
+              groupUrl ? (
+                <Link
+                  to={groupUrl}
+                  onClick={stopToggle}
+                  className="inline-flex items-center gap-1.5 text-sm text-blue-700 hover:underline w-fit"
+                  data-testid={`link-vacancy-group-${vacancy.id}`}
+                >
+                  <Users2 className="w-4 h-4" />
+                  {groupName}
+                </Link>
+              ) : (
+                <span
+                  className="inline-flex items-center gap-1.5 text-sm text-slate-600"
+                  data-testid={`text-vacancy-group-${vacancy.id}`}
+                >
+                  <Users2 className="w-4 h-4 text-slate-400" />
+                  {groupName}
+                </span>
+              )
+            )}
+            {excerpt && (
+              <p
+                className="text-sm text-slate-600 truncate"
+                data-testid={`text-vacancy-excerpt-${vacancy.id}`}
+              >
+                {excerpt}
+              </p>
+            )}
+          </div>
+          <ChevronDown
+            className="w-5 h-5 text-slate-400 shrink-0 mt-0.5"
+            data-testid={`icon-vacancy-expand-${vacancy.id}`}
+          />
+        </div>
+        <div className="flex flex-wrap gap-x-6 gap-y-2 mt-3 text-sm text-slate-600">
+          {commitment && (
+            <span
+              className="inline-flex items-center gap-1.5"
+              data-testid={`text-vacancy-commitment-${vacancy.id}`}
+            >
+              <Clock className="w-4 h-4 text-slate-400" />
+              {commitment}
+            </span>
+          )}
+          <span
+            className="inline-flex items-center gap-1.5"
+            data-testid={`text-vacancy-positions-${vacancy.id}`}
+          >
+            <Users className="w-4 h-4 text-slate-400" />
+            {isFilled
+              ? `All ${total} position${total === 1 ? "" : "s"} filled`
+              : `${remaining} of ${total} position${total === 1 ? "" : "s"} remaining`}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
-      className="rounded-md border border-slate-200 p-4"
+      className={`rounded-md border border-slate-200 p-4 ${collapsible ? "cursor-pointer" : ""}`}
+      onClick={collapsible ? () => setExpanded(false) : undefined}
+      onKeyDown={
+        collapsible
+          ? (e) => {
+              if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) {
+                e.preventDefault();
+                setExpanded(false);
+              }
+            }
+          : undefined
+      }
+      role={collapsible ? "button" : undefined}
+      tabIndex={collapsible ? 0 : undefined}
+      aria-expanded={collapsible ? true : undefined}
       data-testid={`card-vacancy-${vacancy.id}`}
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -141,26 +290,13 @@ export default function VacancyCard({
             >
               {vacancy.role_title}
             </h3>
-            {isClosed && (
-              <Badge variant="secondary" data-testid={`badge-vacancy-closed-${vacancy.id}`}>
-                Closed
-              </Badge>
-            )}
-            {!isClosed && isFilled && (
-              <Badge variant="secondary" data-testid={`badge-vacancy-filled-${vacancy.id}`}>
-                Filled
-              </Badge>
-            )}
-            {!isClosed && closingSoon && (
-              <Badge variant="warning" data-testid={`badge-vacancy-closing-soon-${vacancy.id}`}>
-                Closing soon
-              </Badge>
-            )}
+            {statusBadges}
           </div>
           {groupName && (
             groupUrl ? (
               <Link
                 to={groupUrl}
+                onClick={collapsible ? stopToggle : undefined}
                 className="inline-flex items-center gap-1.5 text-sm text-blue-700 hover:underline w-fit"
                 data-testid={`link-vacancy-group-${vacancy.id}`}
               >
@@ -178,9 +314,22 @@ export default function VacancyCard({
             )
           )}
         </div>
-        {adminActions && (
-          <div className="flex flex-wrap items-center gap-2">{adminActions}</div>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {adminActions && (
+            <div
+              className="flex flex-wrap items-center gap-2"
+              onClick={collapsible ? stopToggle : undefined}
+            >
+              {adminActions}
+            </div>
+          )}
+          {collapsible && (
+            <ChevronDown
+              className="w-5 h-5 text-slate-400 shrink-0 rotate-180"
+              data-testid={`icon-vacancy-collapse-${vacancy.id}`}
+            />
+          )}
+        </div>
       </div>
 
       <div
@@ -231,7 +380,7 @@ export default function VacancyCard({
       </div>
 
       {!isClosed && (
-        <div className="mt-4">
+        <div className="mt-4" onClick={collapsible ? stopToggle : undefined}>
           {joinLocked ? (
             <Button
               variant="outline"

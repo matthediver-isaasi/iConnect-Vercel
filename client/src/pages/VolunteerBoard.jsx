@@ -321,6 +321,7 @@ export default function VolunteerBoardPage() {
                     positionsRemaining={positionsTotal}
                     onExpressInterest={interest.handleExpressInterest}
                     expressDisabled={!memberInfo?.id}
+                    collapsible
                     groupName={group?.name || null}
                     groupUrl={
                       group
