@@ -137,4 +137,5 @@
 - [Member-driven membership fee tokens](member-fee-tokens.md) — fee tokens carry org_id OR member_id; every consumer must branch (history/invoicing/notes/sim); token DD adopts unpaid workflow rows.
 - [Outlook busy-time handling](outlook-busy-times.md) — Graph calendarview returns naive datetimes in the Prefer tz; never offset-detect via includes('-'); paginate nextLink; flag connection on failure.
 - [Fee approval must not set invoicing_mode](fee-approval-invoicing-mode.md) — side-effect invoicing rows must be 'automatic' (org column NOT NULL) or the Create Membership workflow guard deadlocks; log status must surface skipped actions.
+- [Cron email delivery model](speaker-award-notifications.md) — one-off notification emails need lease+delivered timestamp pairs (CAS everywhere) and a retry sweep independent of the parent's done-stamp; a claim is not delivery.
 - [record_create workflows & custom fields](workflow-record-create-custom-fields.md) — trigger AFTER preference values persist or custom-field conditions see empty; workflow_log status check allows success|partial|failed|skipped.

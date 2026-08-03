@@ -10,6 +10,7 @@
 
 import { supabase } from '../_lib/database.js';
 import { grantSpeakerAwardsForEvent, normalizeSpeakerAwardConfig } from '../_lib/speakerAwards.js';
+import { sendPendingSpeakerAwardNotifications } from '../_lib/speakerAwardEmails.js';
 
 const MAX_EVENTS_PER_RUN = 20;
 
@@ -30,7 +31,7 @@ export default async function handler(req, res) {
   }
 
   const nowIso = new Date().toISOString();
-  const summary = { processed: 0, granted: 0, skipped: 0, errors: [] };
+  const summary = { processed: 0, granted: 0, skipped: 0, notified: 0, errors: [] };
 
   try {
     const [simpleRes, complexRes] = await Promise.all([
@@ -115,6 +116,19 @@ export default async function handler(req, res) {
         console.error(`[cron/grant-speaker-awards] ${eventType} ${event.id} failed: ${err.message}`);
         summary.errors.push({ eventType, eventId: event.id, error: err.message });
       }
+    }
+
+    // Task #3287: notify speakers/organisations for granted awards. Runs as a
+    // sweep over ALL granted-but-unnotified rows — deliberately independent of
+    // the event's speaker_awards_granted_at stamp, so notification sends that
+    // failed on an earlier run are retried even after the event has left the
+    // grant queue above. Exactly-once per recipient is guarded by
+    // member_notified_at/org_notified_at claims inside the helper; it never
+    // throws.
+    const notifySummary = await sendPendingSpeakerAwardNotifications({ db: supabase });
+    summary.notified += notifySummary.notified;
+    if (notifySummary.failed > 0) {
+      summary.errors.push({ error: `${notifySummary.failed} award notification(s) failed, will retry next run` });
     }
 
     return res.status(200).json({ ok: true, ...summary });
