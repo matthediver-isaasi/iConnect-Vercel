@@ -2124,6 +2124,10 @@ export default function MemberGroupManagementPage() {
                           )}
                           <div className="flex items-center gap-1.5">
                             <Select
+                              // Remount when the linked badge changes: a Radix Select
+                              // whose `value` flips to undefined goes uncontrolled and
+                              // keeps displaying the previously selected badge.
+                              key={`role-badge-select-${role}-${linkedBadgeId || 'none'}`}
                               value={linkedBadgeId || undefined}
                               onValueChange={(v) => setGroupForm((prev) => ({
                                 ...prev,
