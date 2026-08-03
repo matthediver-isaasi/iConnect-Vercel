@@ -99,6 +99,7 @@ export default async function handler(req, res) {
         .from('resource_view')
         .select('resource_id, user_identifier')
         .in('resource_id', resourceIds)
+        .order('id', { ascending: true })
         .range(from, from + pageSize - 1);
 
       if (pageErr) {
@@ -222,16 +223,28 @@ export default async function handler(req, res) {
           break;
       }
 
-      const { data: periodViews, error: pvError } = await supabase
-        .from('resource_view')
-        .select('viewed_at')
-        .in('resource_id', resourceIds)
-        .gte('viewed_at', startDate.toISOString())
-        .order('viewed_at', { ascending: true });
+      // Paginate: a single select is capped at 1000 rows, which silently
+      // truncated chart data for tenants with many views (Task #3300).
+      let periodViews = [];
+      let pvFrom = 0;
+      const pvPageSize = 1000;
+      while (true) {
+        const { data: pvPage, error: pvError } = await supabase
+          .from('resource_view')
+          .select('viewed_at, id')
+          .in('resource_id', resourceIds)
+          .gte('viewed_at', startDate.toISOString())
+          .order('viewed_at', { ascending: true })
+          .order('id', { ascending: true })
+          .range(pvFrom, pvFrom + pvPageSize - 1);
 
-      if (pvError) {
-        console.error('Error fetching resource chart data:', pvError);
-        return [];
+        if (pvError) {
+          console.error('Error fetching resource chart data:', pvError);
+          return [];
+        }
+        periodViews = periodViews.concat(pvPage || []);
+        if (!pvPage || pvPage.length < pvPageSize) break;
+        pvFrom += pvPageSize;
       }
 
       let groupBy;

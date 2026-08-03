@@ -19,6 +19,7 @@ import { resolveTenantButtonStyle, resolveTenantButtonStyleValues } from "@/lib/
 const DEFAULT_RESOURCE_CATEGORY_TITLE_COLOR = '#7e22ce';
 const VALID_SORT_VALUES = ['newest', 'oldest', 'title-asc', 'title-desc'];
 const DEFAULT_SORT_VALUE = 'newest';
+const EMPTY_VIEW_COUNTS = {};
 
 export default function ResourcesPage() {
   const { memberInfo, memberRole, isAdmin, isFeatureExcluded } = useMemberAccess();
@@ -333,23 +334,19 @@ export default function ResourcesPage() {
   // Get enabled social icons from settings, default to all enabled
   const enabledSocialIcons = resourceSettings?.enabled_social_icons || ['x', 'linkedin', 'email'];
 
-  // Fetch all resource views for view count display - only for authenticated users
-  const { data: allResourceViews = [] } = useQuery({
+  // Task #3300: fetch per-resource view counts aggregated server-side.
+  // (Fetching raw resource_view rows here hit PostgREST's 1000-row cap, so
+  // counts froze once the tenant accumulated more than 1000 view rows.)
+  const { data: resourceViewCounts = EMPTY_VIEW_COUNTS } = useQuery({
     queryKey: ['all-resource-views'],
     queryFn: async () => {
-      return await base44.entities.ResourceView.list();
+      const resp = await fetch('/api/resources/view-counts', { credentials: 'include' });
+      if (!resp.ok) throw new Error('Failed to load resource view counts');
+      const data = await resp.json();
+      return data.counts || {};
     },
     enabled: isAuthenticated
   });
-
-  // Calculate view counts per resource
-  const resourceViewCounts = useMemo(() => {
-    const counts = {};
-    allResourceViews.forEach(v => {
-      counts[v.resource_id] = (counts[v.resource_id] || 0) + 1;
-    });
-    return counts;
-  }, [allResourceViews]);
 
   // Track which resources have been recorded as viewed in this session
   const viewedResourcesRef = useRef(new Set());
