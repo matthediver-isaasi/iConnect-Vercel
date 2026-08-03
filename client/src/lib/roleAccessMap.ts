@@ -742,6 +742,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
       {
         id: "admin.ai-design-studio",
         label: "AI Design Studio"
+      },
+      {
+        id: "admin.badges",
+        label: "Badge Management"
       }
     ]
   },

@@ -266,6 +266,7 @@ class EntitiesProxy {
   get PortalMenu() { return this._getEntity('PortalMenu'); }
   get AwardClassification() { return this._getEntity('AwardClassification'); }
   get AwardSublevel() { return this._getEntity('AwardSublevel'); }
+  get Badge() { return this._getEntity('Badge'); }
   get MemberGroupGuest() { return this._getEntity('MemberGroupGuest'); }
   get CommunicationCategory() { return this._getEntity('CommunicationCategory'); }
   get CommunicationCategoryRole() { return this._getEntity('CommunicationCategoryRole'); }

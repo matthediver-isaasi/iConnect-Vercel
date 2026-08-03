@@ -408,6 +408,12 @@ const adminNavigationItems = [
     featureId: "page_AwardManagement"
   },
   {
+    title: "Badge Management",
+    url: createPageUrl("BadgeManagement"),
+    icon: Award,
+    featureId: "admin.badges"
+  },
+  {
     title: "Category Management",
     url: createPageUrl("CategoryManagement"),
     icon: FolderTree,

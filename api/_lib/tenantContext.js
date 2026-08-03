@@ -131,6 +131,7 @@ export const entityTenantScope = {
   'Floater': TENANT_SCOPE.TENANT,
   'Award': TENANT_SCOPE.TENANT,
   'AwardClassification': TENANT_SCOPE.TENANT,
+  'Badge': TENANT_SCOPE.TENANT,
   'AwardSublevel': TENANT_SCOPE.TENANT,
   'OfflineAward': TENANT_SCOPE.TENANT,
   'OfflineAwardAssignment': TENANT_SCOPE.TENANT,

@@ -111,6 +111,8 @@ export const MemberGroupAssignment = base44.entities.MemberGroupAssignment;
 
 export const MemberGroupClassification = base44.entities.MemberGroupClassification;
 
+export const Badge = base44.entities.Badge;
+
 export const GuestWriter = base44.entities.GuestWriter;
 
 export const PortalMenu = base44.entities.PortalMenu;

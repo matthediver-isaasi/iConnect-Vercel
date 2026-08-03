@@ -4,6 +4,7 @@ import { invalidateMemberSessions } from '../../_lib/session.js';
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
 import { isEventFamilyEntity, authorizeGroupAdminEventWrite } from '../../_lib/groupAdminEventWrite.js';
+import { checkBadgeWriteAccess } from '../../_lib/badgeAccess.js';
 import { isResourceEntity, authorizeGroupAdminResourceWrite } from '../../_lib/groupAdminResourceWrite.js';
 import { isMemberGroupAssignmentEntity, authorizeMemberGroupAdminAssignmentChange } from '../../_lib/groupAdminAssignmentLeave.js';
 import { getSession } from '../../_lib/session.js';
@@ -90,6 +91,7 @@ const entityToTable = {
   'GuestWriter': 'guest_writer',
   'PortalMenu': 'portal_menu',
   'AwardClassification': 'award_classification',
+  'Badge': 'badge',
   'AwardSublevel': 'award_sublevel',
   'MemberGroupGuest': 'member_group_guest',
   'MemberCredentials': 'member_credentials',
@@ -182,6 +184,16 @@ export default async function handler(req, res) {
     const isAdmin = await hasAdminAccess(tenantCtx);
     if (!isAdmin) {
       return res.status(403).json({ error: 'Admin access required' });
+    }
+  }
+
+  // Badge library (Task #3282): writes gated by the admin.badges RBAC key
+  // (tenant users bypass); reads stay available to authenticated tenant
+  // members so future surfaces can display badges.
+  if (entityNorm === 'badge' && req.method !== 'GET') {
+    const access = await checkBadgeWriteAccess(tenantCtx);
+    if (!access.ok) {
+      return res.status(access.status).json({ error: access.error });
     }
   }
 
@@ -290,7 +302,7 @@ export default async function handler(req, res) {
             'ForumCategory', 'ForumThread', 'ForumPost', 'ForumReaction', 'ForumReport', 'ForumModerationLog',
             'MemberBookmark', 'Role', 'Speaker', 'ResourceView',
             'Award', 'OfflineAward', 'OfflineAwardAssignment', 'EngagementAward', 'EngagementAwardAssignment',
-            'OrganisationAward', 'OrganisationAwardAssignment', 'AwardClassification', 'AwardSublevel',
+            'OrganisationAward', 'OrganisationAwardAssignment', 'AwardClassification', 'AwardSublevel', 'Badge',
             'DynamicDirectory',
             'IEditPage', 'IEditPageElement', 'IEditPageFolder',
             'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession', 'ComplexEventTicketClass',
@@ -440,7 +452,7 @@ export default async function handler(req, res) {
                 'ForumCategory', 'ForumThread', 'ForumPost', 'ForumReaction', 'ForumReport', 'ForumModerationLog',
                 'MemberBookmark', 'Role', 'Speaker', 'ResourceView',
                 'Award', 'OfflineAward', 'OfflineAwardAssignment', 'EngagementAward', 'EngagementAwardAssignment',
-                'OrganisationAward', 'OrganisationAwardAssignment', 'AwardClassification', 'AwardSublevel',
+                'OrganisationAward', 'OrganisationAwardAssignment', 'AwardClassification', 'AwardSublevel', 'Badge',
                 'DynamicDirectory',
                 'IEditPage', 'IEditPageElement', 'IEditPageFolder',
                 'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession',
@@ -855,7 +867,7 @@ export default async function handler(req, res) {
             'ForumCategory', 'ForumThread', 'ForumPost', 'ForumReaction', 'ForumReport', 'ForumModerationLog',
             'MemberBookmark', 'Role', 'Speaker', 'ResourceView',
             'Award', 'OfflineAward', 'OfflineAwardAssignment', 'EngagementAward', 'EngagementAwardAssignment',
-            'OrganisationAward', 'OrganisationAwardAssignment', 'AwardClassification', 'AwardSublevel',
+            'OrganisationAward', 'OrganisationAwardAssignment', 'AwardClassification', 'AwardSublevel', 'Badge',
             'DynamicDirectory',
             'IEditPage', 'IEditPageElement', 'IEditPageFolder',
             'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession', 'ComplexEventTicketClass',
@@ -1413,7 +1425,7 @@ export default async function handler(req, res) {
             'ForumCategory', 'ForumThread', 'ForumPost', 'ForumReaction', 'ForumReport', 'ForumModerationLog',
             'MemberBookmark', 'Role', 'Speaker', 'ResourceView',
             'Award', 'OfflineAward', 'OfflineAwardAssignment', 'EngagementAward', 'EngagementAwardAssignment',
-            'OrganisationAward', 'OrganisationAwardAssignment', 'AwardClassification', 'AwardSublevel',
+            'OrganisationAward', 'OrganisationAwardAssignment', 'AwardClassification', 'AwardSublevel', 'Badge',
             'DynamicDirectory',
             'IEditPage', 'IEditPageElement', 'IEditPageFolder',
             'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession', 'ComplexEventTicketClass',

@@ -59,6 +59,7 @@ const builtInPages = [
   { value: "ArticleEditor", label: "Article Editor" },
   { value: "ArticleView", label: "Article View" },
   { value: "AwardManagement", label: "Award Management" },
+  { value: "BadgeManagement", label: "Badge Management" },
   { value: "Balances", label: "Balances" },
   { value: "Bookings", label: "Bookings" },
   { value: "booking-agents", label: "Booking Agents" },

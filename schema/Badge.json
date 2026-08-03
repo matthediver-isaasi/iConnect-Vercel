@@ -1,0 +1,27 @@
+{
+    "name": "Badge",
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string",
+        "description": "Badge name"
+      },
+      "description": {
+        "type": "string",
+        "description": "Optional description of what this badge represents"
+      },
+      "image_url": {
+        "type": "string",
+        "description": "Public URL of the badge image (Supabase Storage)"
+      },
+      "is_active": {
+        "type": "boolean",
+        "default": true,
+        "description": "Whether this badge is currently active and available for use"
+      }
+    },
+    "required": [
+      "name",
+      "image_url"
+    ]
+  }

@@ -143,6 +143,8 @@ import BorderRadiusSettings from "./BorderRadiusSettings";
 
 import AwardManagement from "./AwardManagement";
 
+import BadgeManagement from "./BadgeManagement";
+
 import Team from "./Team";
 
 import MemberDirectory from "./MemberDirectory";
@@ -610,6 +612,8 @@ const PAGES = {
     
     AwardManagement: AwardManagement,
     
+    BadgeManagement: BadgeManagement,
+    
     Team: Team,
     
     MemberDirectory: MemberDirectory,
@@ -1016,6 +1020,7 @@ function PagesContent() {
                 <Route path="/BorderRadiusSettings" element={<BorderRadiusSettings />} />
                 
                 <Route path="/AwardManagement" element={<AwardManagement />} />
+                <Route path="/BadgeManagement" element={<BadgeManagement />} />
                 
                 <Route path="/Team" element={<Team />} />
                 
