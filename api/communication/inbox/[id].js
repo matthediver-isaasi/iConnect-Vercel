@@ -36,7 +36,7 @@ function renderBody(campaign, recipient) {
   let html = campaign.html_content || '';
 
   html = stripHiddenDynamicRegions(html, hiddenSlots);
-  if (slotValues) html = applyDynamicSlotValues(html, slotValues);
+  if (slotValues) html = applyDynamicSlotValues(html, slotValues, { html: true });
 
   const recipientName = `${recipient.first_name || ''} ${recipient.last_name || ''}`.trim();
   html = html

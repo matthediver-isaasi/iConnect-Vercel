@@ -101,12 +101,18 @@ function isTemplatePermittedForGroup(tpl, groupClassId) {
 
 // Replace every {{token}} occurrence in an HTML/text string with its slot value.
 // Mirrors applyDynamicSlotValues in api/_lib/campaignService.js for client preview.
+// Values are HTML-escaped and newlines become <br>, matching the server-side
+// HTML-body substitution so the preview shows what the recipient will see.
 function fillDynamicSlots(input, slotValues) {
   if (!input || !slotValues) return input || "";
   return String(input).replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (match, token) => {
-    return Object.prototype.hasOwnProperty.call(slotValues, token)
-      ? (slotValues[token] ?? "")
-      : match;
+    if (!Object.prototype.hasOwnProperty.call(slotValues, token)) return match;
+    return String(slotValues[token] ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/\r\n|\r|\n/g, "<br>");
   });
 }
 

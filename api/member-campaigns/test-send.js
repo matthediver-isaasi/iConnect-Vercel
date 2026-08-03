@@ -137,7 +137,7 @@ export default async function handler(req, res) {
 
       let html = campaign.html_content || '';
       html = stripHiddenDynamicRegions(html, campaignHiddenSlots);
-      if (campaignSlotValues) html = applyDynamicSlotValues(html, campaignSlotValues);
+      if (campaignSlotValues) html = applyDynamicSlotValues(html, campaignSlotValues, { html: true });
       const subject = `[TEST] ${applyDynamicSlotValues(campaign.subject || 'No Subject', campaignSlotValues)}`;
       html = html.replace(/\{\{first_name\}\}/gi, 'Test');
       html = html.replace(/\{\{last_name\}\}/gi, 'User');

@@ -2749,13 +2749,31 @@ export async function processSendingCampaigns() {
 // values captured when the campaign was composed. Slot values are the same for
 // every recipient (one value per send, not per-recipient). Missing values
 // resolve to an empty string so no raw {{dynamic_N}} token leaks.
-export function applyDynamicSlotValues(html, slotValues) {
+// Escape a plain-text slot value for safe injection into HTML, converting
+// newlines to <br> so multi-line values keep their line breaks.
+export function encodeSlotValueForHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/\r\n|\r|\n/g, '<br>');
+}
+
+// Replace {{token}} placeholders with per-send slot values.
+// Pass { html: true } when filling an HTML body: values are HTML-escaped and
+// newlines become <br>. Leave it off for subjects/plain text (no tags injected).
+export function applyDynamicSlotValues(html, slotValues, options = {}) {
   if (!html || !slotValues || typeof slotValues !== 'object') return html;
+  const asHtml = !!options.html;
   let out = html;
   for (const [token, value] of Object.entries(slotValues)) {
     if (!token) continue;
     const re = new RegExp(`\\{\\{\\s*${token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\}\\}`, 'gi');
-    out = out.replace(re, value == null ? '' : String(value));
+    const raw = value == null ? '' : String(value);
+    const replacement = asHtml ? encodeSlotValueForHtml(raw) : raw;
+    // Function replacer so '$' sequences in values are inserted literally.
+    out = out.replace(re, () => replacement);
   }
   return out;
 }
@@ -3083,7 +3101,7 @@ async function sendToRecipient(recipient, campaign, tenantId, tenantSlug, reques
     // Dynamic Text slots: single per-send values, identical for every recipient.
     // Resolve before any per-recipient placeholder substitution.
     if (designInfo?.slotValues) {
-      html = applyDynamicSlotValues(html, designInfo.slotValues);
+      html = applyDynamicSlotValues(html, designInfo.slotValues, { html: true });
       subject = applyDynamicSlotValues(subject, designInfo.slotValues);
     }
 
