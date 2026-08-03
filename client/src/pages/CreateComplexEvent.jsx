@@ -43,6 +43,7 @@ import { FocalPointPicker } from "@/components/FocalPointPicker";
 import SEOSettings from "@/components/blog/SEOSettings";
 import UnfurlPreview from "@/components/UnfurlPreview";
 import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
+import SpeakerAwardsSection, { configToFormState, formStateToConfig } from "@/components/events/SpeakerAwardsSection";
 import EventSponsorSelector from "@/components/events/EventSponsorSelector";
 import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
@@ -628,6 +629,9 @@ export default function CreateComplexEvent() {
   const [tracks, setTracks] = useState([]);
   const [expandedTracks, setExpandedTracks] = useState({});
   const [sessions, setSessions] = useState([]);
+
+  // Task #3285: speaker awards (vouchers/badges granted at event start)
+  const [speakerAwards, setSpeakerAwards] = useState(configToFormState(null));
   const [sessionDialogOpen, setSessionDialogOpen] = useState(false);
   // task-692: change-zoom dialog for a saved session (attach/change/detach).
   const [sessionZoomDialog, setSessionZoomDialog] = useState({ open: false, mode: 'change', sessionId: null });
@@ -1078,6 +1082,9 @@ export default function CreateComplexEvent() {
         loadedStatus = 'published';
         loadedEventState = 'closed';
       }
+      // Task #3285: load speaker award config
+      setSpeakerAwards(configToFormState(existingEvent.speaker_award_config));
+
       setFormData({
         title: existingEvent.title || "",
         slug: existingEvent.slug || "",
@@ -1716,6 +1723,7 @@ export default function CreateComplexEvent() {
         description: formData.description || null,
         summary: formData.summary || null,
         custom_duration_explainer: (formData.custom_duration_explainer || "").trim().slice(0, 75) || null,
+        speaker_award_config: formStateToConfig(speakerAwards),
         image_url: formData.image_url || null,
         image_focal_point: formData.image_focal_point || null,
         start_date: formData.start_date || null,
@@ -2186,6 +2194,18 @@ export default function CreateComplexEvent() {
                     data-testid="switch-is-featured"
                   />
                 </div>
+                )}
+
+                {!isGroupLimited && (
+                  <SpeakerAwardsSection
+                    speakers={speakers.filter(s =>
+                      sessions.some(sess => (sess.speaker_ids || []).includes(s.id))
+                    )}
+                    value={speakerAwards}
+                    onChange={setSpeakerAwards}
+                    eventId={isEditMode ? editId : undefined}
+                    eventType={isEditMode ? "complex_event" : undefined}
+                  />
                 )}
 
                 {!isGroupLimited && (

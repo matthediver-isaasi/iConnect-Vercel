@@ -63,6 +63,7 @@ import { isAttendeeOptionsCollectionEnabled } from "@/lib/attendeeOptionsSetting
 import ChangeZoomDialog from "@/components/events/ChangeZoomDialog";
 import { FocalPointPicker } from "@/components/FocalPointPicker";
 import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
+import SpeakerAwardsSection, { configToFormState, formStateToConfig } from "@/components/events/SpeakerAwardsSection";
 import EventSponsorSelector from "@/components/events/EventSponsorSelector";
 import { useSpeakerModuleName } from "@/hooks/useSpeakerModuleName";
 import { useEventTypes } from "@/hooks/useEventTypes";
@@ -567,6 +568,9 @@ export default function EditEvent() {
   // Selected speakers state
   const [selectedSpeakers, setSelectedSpeakers] = useState([]);
   const [speakerModalOpen, setSpeakerModalOpen] = useState(false);
+
+  // Task #3285: speaker awards (vouchers/badges granted at event start)
+  const [speakerAwards, setSpeakerAwards] = useState(configToFormState(null));
   
   // Selected sponsors state
   const [selectedSponsors, setSelectedSponsors] = useState([]);
@@ -1047,6 +1051,9 @@ export default function EditEvent() {
         setCollectThirdPartyConsent(config.collectThirdPartyConsent === true);
       }
 
+      // Task #3285: load speaker award config
+      setSpeakerAwards(configToFormState(event.speaker_award_config));
+
       // Load speaker_ids from event
       if (event.speaker_ids && Array.isArray(event.speaker_ids)) {
         setSelectedSpeakers(event.speaker_ids);
@@ -1403,6 +1410,7 @@ export default function EditEvent() {
       zoom_webinar_id: isGroupLimited ? null : (zoomType === 'webinar' ? (formData.zoom_webinar_id || null) : null),
       zoom_meeting_id: isGroupLimited ? null : (zoomType === 'meeting' ? (selectedMeetingId || null) : null),
       speaker_ids: selectedSpeakers.length > 0 ? selectedSpeakers : [],
+      speaker_award_config: formStateToConfig(speakerAwards),
       // Convert composite keys back to plain labels for database storage
       filter_tags: selectedFilterTags.length > 0 
         ? selectedFilterTags.map(key => parseFilterTagKey(key).label) 
@@ -2233,6 +2241,14 @@ export default function EditEvent() {
                         })}
                       </div>
                     )}
+
+                    <SpeakerAwardsSection
+                      speakers={speakers.filter(s => resolvedSpeakerIds.includes(s.id))}
+                      value={speakerAwards}
+                      onChange={setSpeakerAwards}
+                      eventId={eventId}
+                      eventType="event"
+                    />
 
                     <SpeakerSelectionModal
                       open={speakerModalOpen}

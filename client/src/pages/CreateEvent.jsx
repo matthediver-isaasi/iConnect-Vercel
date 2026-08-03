@@ -55,6 +55,7 @@ import { isAttendeeOptionsCollectionEnabled } from "@/lib/attendeeOptionsSetting
 import { formatEventDateTime } from "@/utils/timeFormat";
 import EventImageUpload from "@/components/events/EventImageUpload";
 import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
+import SpeakerAwardsSection, { configToFormState, formStateToConfig } from "@/components/events/SpeakerAwardsSection";
 import { useSpeakerModuleName } from "@/hooks/useSpeakerModuleName";
 import { useEventTypes } from "@/hooks/useEventTypes";
 import { useMemberGroupSettings } from "@/hooks/useMemberGroupSettings";
@@ -476,6 +477,9 @@ export default function CreateEvent() {
   // Selected speakers state
   const [selectedSpeakers, setSelectedSpeakers] = useState([]);
   const [speakerModalOpen, setSpeakerModalOpen] = useState(false);
+
+  // Task #3285: speaker awards (vouchers/badges granted at event start)
+  const [speakerAwards, setSpeakerAwards] = useState(configToFormState(null));
   
   // Selected filter tags state
   const [selectedFilterTags, setSelectedFilterTags] = useState([]);
@@ -927,6 +931,7 @@ export default function CreateEvent() {
       zoom_webinar_id: isGroupLimited ? null : (isOnline && zoomType === 'webinar' && selectedWebinarId ? selectedWebinarId : null),
       zoom_meeting_id: isGroupLimited ? null : (isOnline && zoomType === 'meeting' && selectedMeetingId ? selectedMeetingId : null),
       speaker_ids: selectedSpeakers.length > 0 ? selectedSpeakers : [],
+      speaker_award_config: formStateToConfig(speakerAwards),
       // Convert composite keys back to plain labels for database storage
       filter_tags: selectedFilterTags.length > 0 
         ? selectedFilterTags.map(key => parseFilterTagKey(key).label) 
@@ -1716,6 +1721,12 @@ export default function CreateEvent() {
                         })}
                       </div>
                     )}
+
+                    <SpeakerAwardsSection
+                      speakers={speakers.filter(s => selectedSpeakers.includes(s.id))}
+                      value={speakerAwards}
+                      onChange={setSpeakerAwards}
+                    />
 
                     <SpeakerSelectionModal
                       open={speakerModalOpen}

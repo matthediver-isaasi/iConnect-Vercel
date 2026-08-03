@@ -76,6 +76,10 @@ function normalizeHiddenGroupEventFields(out) {
   if ('show_seat_count' in out) out.show_seat_count = true;
   if ('show_ticket_availability' in out) out.show_ticket_availability = false;
   if ('speaker_ids' in out) out.speaker_ids = [];
+  // Task #3285: speaker awards are money-like (training vouchers) and admin-only;
+  // group admins must never configure them via crafted requests.
+  if ('speaker_award_config' in out) out.speaker_award_config = null;
+  if ('speaker_awards_granted_at' in out) delete out.speaker_awards_granted_at;
   if ('event_type' in out) out.event_type = null;
   if ('internal_reference' in out) out.internal_reference = null;
   if ('cta_override_url' in out) out.cta_override_url = null;

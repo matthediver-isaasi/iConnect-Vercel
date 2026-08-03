@@ -36,7 +36,12 @@
     },
     "status": {
       "type": "string",
-      "enum": ["draft", "published", "tbc", "closed"],
+      "enum": [
+        "draft",
+        "published",
+        "tbc",
+        "closed"
+      ],
       "description": "Event visibility/lifecycle status"
     },
     "timezone": {
@@ -57,12 +62,24 @@
       "items": {
         "type": "object",
         "properties": {
-          "id": { "type": "string" },
-          "label": { "type": "string" },
-          "url": { "type": "string" },
-          "file_name": { "type": "string" },
-          "mime_type": { "type": "string" },
-          "size": { "type": "number" }
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "file_name": {
+            "type": "string"
+          },
+          "mime_type": {
+            "type": "string"
+          },
+          "size": {
+            "type": "number"
+          }
         }
       }
     },
@@ -73,18 +90,36 @@
     "dietary_options": {
       "type": "array",
       "description": "Admin-defined Dietary Requirement options registrants can choose from per attendee. Empty/absent = group hidden.",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     },
     "allergy_options": {
       "type": "array",
       "description": "Admin-defined Allergy options (a subsection of Dietary). Registrants multi-select, each with a Mild/Moderate/Severe severity. Empty/absent = group hidden.",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     },
     "accessibility_options": {
       "type": "array",
       "description": "Admin-defined Accessibility Need options registrants can choose from per attendee. Empty/absent = group hidden.",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
+    },
+    "speaker_award_config": {
+      "type": "object",
+      "description": "Speaker awards granted at event start: { enabled, default: { voucher_value, voucher_expiry, badge_id }, overrides: { <speakerId>: { excluded } | { voucher_value, voucher_expiry, badge_id } } }"
+    },
+    "speaker_awards_granted_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Set by the grant cron once speaker awards for this event have been processed"
     }
   },
-  "required": ["title", "slug"]
+  "required": [
+    "title",
+    "slug"
+  ]
 }
