@@ -868,6 +868,45 @@ export default function PreferencesPage() {
     return memberRoles.filter(role => role.badge_image_url);
   }, [memberRoles]);
 
+  // --- Badges derived from current group role assignments (Task #3297) ---
+  // Join the member's CURRENT member_group_assignment rows to each group's
+  // role→badge map (member_group.role_badge_ids). Display is fully derived:
+  // removing the assignment, deleting the group, or clearing the role's badge
+  // link makes the badge disappear with no cleanup. Role names are matched
+  // case-insensitively, mirroring the group editor's canonicalisation.
+  const groupRoleBadgeIds = useMemo(() => {
+    if (!groupAssignments.length || !memberGroups.length) return [];
+    const groupById = new Map(memberGroups.map((g) => [g.id, g]));
+    const ids = new Set();
+    for (const assignment of groupAssignments) {
+      const group = groupById.get(assignment.group_id);
+      const map = group?.role_badge_ids;
+      if (!map || typeof map !== 'object') continue;
+      const roleKey = (assignment.group_role || '').trim().replace(/\s+/g, ' ').toLowerCase();
+      if (!roleKey) continue;
+      for (const [roleName, badgeId] of Object.entries(map)) {
+        if ((roleName || '').trim().replace(/\s+/g, ' ').toLowerCase() === roleKey && badgeId) {
+          ids.add(badgeId);
+        }
+      }
+    }
+    return [...ids];
+  }, [groupAssignments, memberGroups]);
+
+  const { data: groupRoleBadges = [] } = useQuery({
+    queryKey: ["groupRoleBadges", groupRoleBadgeIds],
+    enabled: groupRoleBadgeIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("badge")
+        .select("id, name, description, image_url")
+        .in("id", groupRoleBadgeIds)
+        .eq("is_active", true);
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
   // --- Filter categories available to this member based on their role(s) ---
   const availableCategories = useMemo(() => {
     if (!communicationCategories.length) return [];
@@ -2283,14 +2322,14 @@ export default function PreferencesPage() {
         );
 
       case 'membership_badges':
-        if (isFeatureExcluded('user.about-me.membership-badges') || rolesWithBadges.length === 0) return null;
+        if (isFeatureExcluded('user.about-me.membership-badges') || (rolesWithBadges.length === 0 && groupRoleBadges.length === 0)) return null;
         return (
           <Card key="membership_badges" className="border-slate-200 shadow-sm">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Award className="w-5 h-5 text-indigo-600" />
                 Membership Badges
-                <Badge variant="secondary">{rolesWithBadges.length}</Badge>
+                <Badge variant="secondary">{rolesWithBadges.length + groupRoleBadges.length}</Badge>
               </CardTitle>
               <CardDescription>
                 Your membership badges that you can download and share
@@ -2332,6 +2371,46 @@ export default function PreferencesPage() {
                       }}
                       className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
                       data-testid={`download-badge-${role.id}`}
+                    >
+                      <Download className="w-4 h-4 mr-1" />
+                      Download Badge
+                    </Button>
+                  </div>
+                ))}
+                {groupRoleBadges.map((badge) => (
+                  <div
+                    key={`group-role-badge-${badge.id}`}
+                    className="flex flex-col items-center p-4 bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-lg border border-indigo-200 hover:shadow-md transition-shadow"
+                    data-testid={`group-role-badge-${badge.id}`}
+                  >
+                    <img
+                      src={badge.image_url}
+                      alt={`${badge.name} badge`}
+                      className="w-24 h-24 object-contain mb-3"
+                    />
+                    <p className="text-sm font-semibold text-center text-slate-900 mb-1">
+                      {badge.name}
+                    </p>
+                    {badge.description && (
+                      <p className="text-xs text-slate-600 text-center mb-3 line-clamp-2">
+                        {badge.description}
+                      </p>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const link = document.createElement('a');
+                        link.href = badge.image_url;
+                        link.download = `${badge.name.replace(/\s+/g, '-').toLowerCase()}-badge.png`;
+                        link.target = '_blank';
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        toast.success("Badge download started");
+                      }}
+                      className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
+                      data-testid={`download-group-role-badge-${badge.id}`}
                     >
                       <Download className="w-4 h-4 mr-1" />
                       Download Badge

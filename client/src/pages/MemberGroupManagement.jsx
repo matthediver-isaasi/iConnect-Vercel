@@ -117,6 +117,7 @@ export default function MemberGroupManagementPage() {
     role_terms_of_reference: {},
     role_terms_url: {},
     role_term_definitions: {},
+    role_badge_ids: {},
     resource_subcategories: [],
     approval_email_template_id: '',
     decline_email_template_id: '',
@@ -214,6 +215,23 @@ export default function MemberGroupManagementPage() {
     enabled: showGroupDialog,
     staleTime: 0,
   });
+
+  // Active badges from the Badges module power the optional per-role badge
+  // picker (Task #3297). Only fetched while the create/edit dialog is open.
+  const { data: libraryBadges = [] } = useQuery({
+    queryKey: ['badges-for-group-roles'],
+    queryFn: () => base44.entities.Badge.list(),
+    enabled: showGroupDialog,
+    staleTime: 0,
+  });
+  const activeLibraryBadges = React.useMemo(
+    () => libraryBadges.filter((b) => b.is_active !== false),
+    [libraryBadges]
+  );
+  const badgeById = React.useMemo(
+    () => new Map(libraryBadges.map((b) => [b.id, b])),
+    [libraryBadges]
+  );
 
   // Email templates power the group-level approval/decline decision pickers
   // (Task #1700). Both are optional.
@@ -541,6 +559,7 @@ export default function MemberGroupManagementPage() {
       role_terms_of_reference: {},
       role_terms_url: {},
       role_term_definitions: {},
+      role_badge_ids: {},
       resource_subcategories: [],
       approval_email_template_id: '',
       decline_email_template_id: '',
@@ -578,6 +597,7 @@ export default function MemberGroupManagementPage() {
       role_terms_of_reference: (group.role_terms_of_reference && typeof group.role_terms_of_reference === 'object') ? { ...group.role_terms_of_reference } : {},
       role_terms_url: (group.role_terms_url && typeof group.role_terms_url === 'object') ? { ...group.role_terms_url } : {},
       role_term_definitions: (group.role_term_definitions && typeof group.role_term_definitions === 'object') ? { ...group.role_term_definitions } : {},
+      role_badge_ids: (group.role_badge_ids && typeof group.role_badge_ids === 'object') ? { ...group.role_badge_ids } : {},
       resource_subcategories: Array.isArray(group.resource_subcategories) ? [...group.resource_subcategories] : [],
       approval_email_template_id: group.approval_email_template_id || '',
       decline_email_template_id: group.decline_email_template_id || '',
@@ -613,6 +633,7 @@ export default function MemberGroupManagementPage() {
       role_terms_of_reference: (group.role_terms_of_reference && typeof group.role_terms_of_reference === 'object') ? { ...group.role_terms_of_reference } : {},
       role_terms_url: (group.role_terms_url && typeof group.role_terms_url === 'object') ? { ...group.role_terms_url } : {},
       role_term_definitions: (group.role_term_definitions && typeof group.role_term_definitions === 'object') ? { ...group.role_term_definitions } : {},
+      role_badge_ids: (group.role_badge_ids && typeof group.role_badge_ids === 'object') ? { ...group.role_badge_ids } : {},
       resource_subcategories: Array.isArray(group.resource_subcategories) ? [...group.resource_subcategories] : [],
       approval_email_template_id: group.approval_email_template_id || '',
       decline_email_template_id: group.decline_email_template_id || '',
@@ -847,6 +868,21 @@ export default function MemberGroupManagementPage() {
       };
     }
 
+    // Prune per-role badge links (Task #3297): keep only roles still on the
+    // group (rename via case-variant merge keeps the badge attached), drop
+    // blank entries.
+    const rawRoleBadgeIds = (groupForm.role_badge_ids && typeof groupForm.role_badge_ids === 'object')
+      ? groupForm.role_badge_ids
+      : {};
+    const prunedRoleBadgeIds = {};
+    for (const [roleName, badgeId] of Object.entries(rawRoleBadgeIds)) {
+      const surviving = toSurvivingRole(roleName);
+      if (!surviving) continue;
+      if (prunedRoleBadgeIds[surviving] !== undefined && roleName !== surviving) continue;
+      const trimmed = (badgeId || '').toString().trim();
+      if (trimmed) prunedRoleBadgeIds[surviving] = trimmed;
+    }
+
     const payload = {
       ...groupForm,
       roles: dedupedRoles,
@@ -869,6 +905,7 @@ export default function MemberGroupManagementPage() {
       role_terms_of_reference: prunedRoleTerms,
       role_terms_url: prunedRoleTermsUrl,
       role_term_definitions: prunedRoleTermDefs,
+      role_badge_ids: prunedRoleBadgeIds,
       resource_subcategories: Array.isArray(groupForm.resource_subcategories)
         ? Array.from(new Set(groupForm.resource_subcategories.filter((s) => typeof s === 'string' && s.trim())))
         : [],
@@ -945,6 +982,8 @@ export default function MemberGroupManagementPage() {
     delete nextRoleTerms[role];
     const nextRoleTermsUrl = { ...(groupForm.role_terms_url || {}) };
     delete nextRoleTermsUrl[role];
+    const nextRoleBadgeIds = { ...(groupForm.role_badge_ids || {}) };
+    delete nextRoleBadgeIds[role];
     setGroupForm({
       ...groupForm,
       roles: groupForm.roles.filter(r => r !== role),
@@ -953,7 +992,8 @@ export default function MemberGroupManagementPage() {
       forum_enabled_roles: (groupForm.forum_enabled_roles || []).filter(r => r !== role),
       default_self_join_role: groupForm.default_self_join_role === role ? '' : groupForm.default_self_join_role,
       role_terms_of_reference: nextRoleTerms,
-      role_terms_url: nextRoleTermsUrl
+      role_terms_url: nextRoleTermsUrl,
+      role_badge_ids: nextRoleBadgeIds
     });
   };
 
@@ -2098,6 +2138,93 @@ export default function MemberGroupManagementPage() {
                           <p className="text-xs text-slate-500">
                             The invitee for the <strong>{selectedRoleForTerms}</strong> role is shown a link to this page. Leave blank for no terms of reference.
                           </p>
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label htmlFor="role-badge-select">Badge</Label>
+                          {(() => {
+                            const linkedBadgeId = (groupForm.role_badge_ids || {})[selectedRoleForTerms] || '';
+                            const linkedBadge = linkedBadgeId ? badgeById.get(linkedBadgeId) : null;
+                            const pickerBadges = activeLibraryBadges.some((b) => b.id === linkedBadgeId) || !linkedBadge
+                              ? activeLibraryBadges
+                              : [linkedBadge, ...activeLibraryBadges];
+                            return (
+                              <div className="flex items-center gap-2">
+                                <Select
+                                  value={linkedBadgeId || undefined}
+                                  onValueChange={(v) => setGroupForm((prev) => ({
+                                    ...prev,
+                                    role_badge_ids: {
+                                      ...(prev.role_badge_ids || {}),
+                                      [selectedRoleForTerms]: v,
+                                    },
+                                  }))}
+                                >
+                                  <SelectTrigger id="role-badge-select" className="flex-1" data-testid="select-role-badge">
+                                    <SelectValue placeholder={activeLibraryBadges.length === 0 ? 'No active badges available' : 'No badge linked'} />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {pickerBadges.map((badge) => (
+                                      <SelectItem key={badge.id} value={badge.id} data-testid={`option-role-badge-${badge.id}`}>
+                                        <span className="flex items-center gap-2">
+                                          {badge.image_url && (
+                                            <img
+                                              src={badge.image_url}
+                                              alt=""
+                                              className="w-5 h-5 object-contain rounded-sm"
+                                            />
+                                          )}
+                                          <span>{badge.name}{badge.is_active === false ? ' (inactive)' : ''}</span>
+                                        </span>
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                {linkedBadgeId && (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    title="Remove badge link"
+                                    onClick={() => setGroupForm((prev) => {
+                                      const next = { ...(prev.role_badge_ids || {}) };
+                                      delete next[selectedRoleForTerms];
+                                      return { ...prev, role_badge_ids: next };
+                                    })}
+                                    data-testid="button-clear-role-badge"
+                                  >
+                                    <X className="w-4 h-4" />
+                                  </Button>
+                                )}
+                              </div>
+                            );
+                          })()}
+                          {(() => {
+                            const linkedBadge = badgeById.get((groupForm.role_badge_ids || {})[selectedRoleForTerms] || '');
+                            if (!linkedBadge) {
+                              return (
+                                <p className="text-xs text-slate-500">
+                                  Optional. Members currently holding the <strong>{selectedRoleForTerms}</strong> role see the linked badge on their About Me page; it disappears automatically when they no longer hold the role.
+                                </p>
+                              );
+                            }
+                            return (
+                              <div className="flex items-center gap-3 p-2 border border-slate-200 rounded-md" data-testid="preview-role-badge">
+                                {linkedBadge.image_url && (
+                                  <img
+                                    src={linkedBadge.image_url}
+                                    alt={`${linkedBadge.name} badge`}
+                                    className="w-10 h-10 object-contain"
+                                  />
+                                )}
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium truncate">{linkedBadge.name}</p>
+                                  {linkedBadge.is_active === false && (
+                                    <p className="text-xs text-amber-600">This badge is inactive and won't display on member profiles.</p>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })()}
                         </div>
                       </div>
                     )}

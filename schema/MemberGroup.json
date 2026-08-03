@@ -66,6 +66,11 @@
         "default": {},
         "description": "Optional per-role terms-of-reference URL, keyed by role name. Used by role invitations: the invite email and public invite page link to this URL. Roles without a URL show no terms link."
       },
+      "role_badge_ids": {
+        "type": "object",
+        "default": {},
+        "description": "Optional per-role badge link, keyed by role name: badge id from the Badges module (badge table). Members currently holding the role see the badge in the Membership Badges section of /about-me; display is derived from current assignments, no member_badge rows are written."
+      },
       "role_term_definitions": {
         "type": "object",
         "default": {},
