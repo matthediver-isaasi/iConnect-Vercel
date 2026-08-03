@@ -22,7 +22,7 @@ import {
 import { evaluateTermLimit } from "@/lib/memberGroupTermSnapshot";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Users, Plus, Pencil, Trash2, UserPlus, X, Copy, ListPlus, CheckSquare, Calendar, Loader2, Crown, Tag, Mail, Send, RotateCw, CheckCircle2, XCircle, Clock, AlertTriangle, ChevronDown } from "lucide-react";
+import { Users, Plus, Pencil, Trash2, UserPlus, X, Copy, ListPlus, CheckSquare, Calendar, Loader2, Crown, Tag, Mail, Send, RotateCw, CheckCircle2, XCircle, Clock, AlertTriangle, ChevronDown, Award } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
@@ -96,6 +96,9 @@ export default function MemberGroupManagementPage() {
   const [classificationToDelete, setClassificationToDelete] = useState(null);
   const [membersModalGroupId, setMembersModalGroupId] = useState(null);
   const [torOpen, setTorOpen] = useState(false);
+  // Pending save awaiting confirmation of role→badge changes that affect
+  // current role holders (Task #3302): { payload, changes: [...] } or null.
+  const [badgeConfirm, setBadgeConfirm] = useState(null);
   const [groupForm, setGroupForm] = useState({
     name: '',
     description: '',
@@ -913,6 +916,56 @@ export default function MemberGroupManagementPage() {
       decline_email_template_id: groupForm.decline_email_template_id || null
     };
 
+    // Diff the role→badge map against the loaded group (Task #3302). Badge
+    // display on member profiles is fully DERIVED from current assignments +
+    // this map (no member_badge rows are written), so any add/change/removal
+    // takes effect for current holders the moment the group is saved. When a
+    // changed role has current holders, pause and ask the admin to confirm.
+    const badgeChanges = [];
+    if (editingGroup) {
+      const prevRaw = (editingGroup.role_badge_ids && typeof editingGroup.role_badge_ids === 'object')
+        ? editingGroup.role_badge_ids
+        : {};
+      const prevByKey = new Map();
+      for (const [roleName, badgeId] of Object.entries(prevRaw)) {
+        const k = roleNameKey(roleName);
+        const trimmed = (badgeId || '').toString().trim();
+        if (k && trimmed && !prevByKey.has(k)) prevByKey.set(k, { role: roleName, badgeId: trimmed });
+      }
+      const nextByKey = new Map(
+        Object.entries(prunedRoleBadgeIds).map(([r, id]) => [roleNameKey(r), { role: r, badgeId: id }])
+      );
+      const badgeName = (id) => badgeById.get(id)?.name || 'linked';
+      for (const k of new Set([...prevByKey.keys(), ...nextByKey.keys()])) {
+        const prev = prevByKey.get(k);
+        const next = nextByKey.get(k);
+        if (prev && next && prev.badgeId === next.badgeId) continue;
+        // Count current holders of this role (case-insensitive role match,
+        // mirroring how profiles resolve derived badges).
+        const holders = assignments.filter(
+          (a) => a.group_id === editingGroup.id && roleNameKey(a.group_role) === k
+        ).length;
+        if (holders === 0) continue;
+        const role = (next || prev).role;
+        if (prev && next) {
+          badgeChanges.push({ role, holders, kind: 'changed', from: badgeName(prev.badgeId), to: badgeName(next.badgeId) });
+        } else if (next) {
+          badgeChanges.push({ role, holders, kind: 'added', to: badgeName(next.badgeId) });
+        } else {
+          badgeChanges.push({ role, holders, kind: 'removed', from: badgeName(prev.badgeId) });
+        }
+      }
+    }
+
+    if (badgeChanges.length > 0) {
+      setBadgeConfirm({ payload, changes: badgeChanges });
+      return;
+    }
+
+    submitGroupPayload(payload);
+  };
+
+  const submitGroupPayload = (payload) => {
     if (editingGroup) {
       updateGroupMutation.mutate({ id: editingGroup.id, data: payload });
     } else {
@@ -1991,6 +2044,109 @@ export default function MemberGroupManagementPage() {
                         data-testid={`badge-role-${role}`}
                       >
                         {role}
+                        {(() => {
+                          // Per-role badge control (Task #3302): the linked
+                          // badge is visible on the chip, and the popover
+                          // offers one-click add / replace / remove. Writes
+                          // the same role_badge_ids form state as the
+                          // per-role settings panel below.
+                          const linkedBadgeId = (groupForm.role_badge_ids || {})[role] || '';
+                          const linkedBadge = linkedBadgeId ? badgeById.get(linkedBadgeId) : null;
+                          const pickerBadges = activeLibraryBadges.some((b) => b.id === linkedBadgeId) || !linkedBadge
+                            ? activeLibraryBadges
+                            : [linkedBadge, ...activeLibraryBadges];
+                          return (
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="ml-2 inline-flex items-center gap-1"
+                                  title={linkedBadge
+                                    ? `Badge: ${linkedBadge.name} — click to change or remove`
+                                    : 'Link a badge to this role'}
+                                  data-testid={`button-role-badge-${role}`}
+                                >
+                                  {linkedBadge && linkedBadge.image_url ? (
+                                    <img
+                                      src={linkedBadge.image_url}
+                                      alt={`${linkedBadge.name} badge`}
+                                      className="w-4 h-4 object-contain rounded-sm"
+                                    />
+                                  ) : (
+                                    <Award className={`w-3 h-3 ${linkedBadge ? 'text-emerald-600 fill-current' : 'text-slate-400 hover:text-emerald-600'}`} />
+                                  )}
+                                </button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-80 space-y-3" align="start">
+                                <div>
+                                  <p className="text-sm font-medium">Badge for {role}</p>
+                                  <p className="text-xs text-slate-500 mt-0.5">
+                                    Members currently holding this role see the linked badge on their About Me page; it disappears automatically when they no longer hold the role.
+                                  </p>
+                                </div>
+                                {linkedBadge && (
+                                  <div className="flex items-center gap-2 p-2 border border-slate-200 rounded-md" data-testid={`preview-role-badge-chip-${role}`}>
+                                    {linkedBadge.image_url && (
+                                      <img src={linkedBadge.image_url} alt="" className="w-8 h-8 object-contain" />
+                                    )}
+                                    <div className="min-w-0">
+                                      <p className="text-sm font-medium truncate">{linkedBadge.name}</p>
+                                      {linkedBadge.is_active === false && (
+                                        <p className="text-xs text-amber-600">Inactive — won't display on profiles.</p>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                                <div className="flex items-center gap-2">
+                                  <Select
+                                    value={linkedBadgeId || undefined}
+                                    onValueChange={(v) => setGroupForm((prev) => ({
+                                      ...prev,
+                                      role_badge_ids: {
+                                        ...(prev.role_badge_ids || {}),
+                                        [role]: v,
+                                      },
+                                    }))}
+                                  >
+                                    <SelectTrigger className="flex-1" data-testid={`select-role-badge-chip-${role}`}>
+                                      <SelectValue placeholder={activeLibraryBadges.length === 0
+                                        ? 'No active badges available'
+                                        : (linkedBadge ? 'Replace badge…' : 'Add a badge…')} />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {pickerBadges.map((badge) => (
+                                        <SelectItem key={badge.id} value={badge.id} data-testid={`option-role-badge-chip-${badge.id}`}>
+                                          <span className="flex items-center gap-2">
+                                            {badge.image_url && (
+                                              <img src={badge.image_url} alt="" className="w-5 h-5 object-contain rounded-sm" />
+                                            )}
+                                            <span>{badge.name}{badge.is_active === false ? ' (inactive)' : ''}</span>
+                                          </span>
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  {linkedBadgeId && (
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      title="Remove badge link"
+                                      onClick={() => setGroupForm((prev) => {
+                                        const next = { ...(prev.role_badge_ids || {}) };
+                                        delete next[role];
+                                        return { ...prev, role_badge_ids: next };
+                                      })}
+                                      data-testid={`button-clear-role-badge-chip-${role}`}
+                                    >
+                                      <X className="w-4 h-4" />
+                                    </Button>
+                                  )}
+                                </div>
+                              </PopoverContent>
+                            </Popover>
+                          );
+                        })()}
                         <button
                           type="button"
                           onClick={() => toggleLeadershipRole(role)}
@@ -2020,23 +2176,24 @@ export default function MemberGroupManagementPage() {
 
                 {(groupForm.roles || []).length > 0 && (
                   <div className="mt-4 space-y-2">
-                    <Label htmlFor="role_terms_select">Per-role terms of reference</Label>
+                    <Label htmlFor="role_terms_select">Per-role settings</Label>
                     <p className="text-xs text-slate-500">
-                      Optional. Provide a link to where the terms of reference for a specific role can be found. The role invite email and invite page link to this URL. Roles without a link simply show no terms of reference.
+                      Optional. Set a role's term of office, terms of reference link, and linked badge. The role invite email and invite page link to the terms URL; roles without a link simply show no terms of reference. Badges can also be managed directly from the award icon on each role above.
                     </p>
                     <Select
                       value={selectedRoleForTerms || ''}
                       onValueChange={(value) => setSelectedRoleForTerms(value)}
                     >
                       <SelectTrigger id="role_terms_select" data-testid="select-role-for-terms">
-                        <SelectValue placeholder="Select a role to edit its terms…" />
+                        <SelectValue placeholder="Select a role to edit its settings…" />
                       </SelectTrigger>
                       <SelectContent>
                         {(groupForm.roles || []).map((role) => {
                           const hasTerms = !!((groupForm.role_terms_url || {})[role] || '').toString().trim();
+                          const hasBadge = !!((groupForm.role_badge_ids || {})[role] || '').toString().trim();
                           return (
                             <SelectItem key={role} value={role}>
-                              {role}{hasTerms ? ' • has terms link' : ''}
+                              {role}{hasTerms ? ' • has terms link' : ''}{hasBadge ? ' • has badge' : ''}
                             </SelectItem>
                           );
                         })}
@@ -2599,6 +2756,51 @@ export default function MemberGroupManagementPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Confirm role→badge changes that affect current holders (Task #3302).
+            Badge display is fully derived, so saving applies instantly to all
+            current holders — this prompt makes that explicit. Cancel returns
+            to the still-open group dialog without saving. */}
+        <AlertDialog open={!!badgeConfirm} onOpenChange={(open) => { if (!open) setBadgeConfirm(null); }}>
+          <AlertDialogContent data-testid="dialog-confirm-role-badge-changes">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Confirm badge changes</AlertDialogTitle>
+              <AlertDialogDescription asChild>
+                <div className="space-y-2 text-sm text-slate-600">
+                  <p>These badge changes take effect on member profiles immediately when you save:</p>
+                  <ul className="list-disc pl-5 space-y-1">
+                    {(badgeConfirm?.changes || []).map((c) => (
+                      <li key={c.role} data-testid={`text-badge-change-${c.role}`}>
+                        {c.kind === 'added' && (
+                          <>{c.holders} member{c.holders === 1 ? '' : 's'} holding the <strong>{c.role}</strong> role will immediately see the <strong>{c.to}</strong> badge on their profile.</>
+                        )}
+                        {c.kind === 'changed' && (
+                          <>{c.holders} member{c.holders === 1 ? '' : 's'} holding the <strong>{c.role}</strong> role will immediately see the <strong>{c.to}</strong> badge instead of <strong>{c.from}</strong>.</>
+                        )}
+                        {c.kind === 'removed' && (
+                          <>{c.holders} member{c.holders === 1 ? '' : 's'} holding the <strong>{c.role}</strong> role will immediately lose the <strong>{c.from}</strong> badge from their profile.</>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel data-testid="button-cancel-badge-changes">Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                data-testid="button-confirm-badge-changes"
+                onClick={() => {
+                  const pending = badgeConfirm?.payload;
+                  setBadgeConfirm(null);
+                  if (pending) submitGroupPayload(pending);
+                }}
+              >
+                Save changes
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         {/* Assign Member Dialog */}
         <Dialog open={showAssignDialog} onOpenChange={(open) => {
