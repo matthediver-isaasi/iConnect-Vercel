@@ -16,6 +16,7 @@ import { base44 } from "@/api/base44Client";
 import { getFocalPointStyle } from "@/components/FocalPointPicker";
 import TenantCtaButton from "@/components/common/TenantCtaButton";
 import { toast } from "sonner";
+import { resolveAttendeeJobTitle } from "@/lib/attendeeJobTitle";
 import {
   Dialog,
   DialogContent,
@@ -230,11 +231,11 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
     }, {});
   }, [organizationsData]);
 
-  // Create member job title lookup map
-  const memberJobTitleMap = useMemo(() => {
+  // Create member info lookup map (used only for the legacy booker fallback)
+  const memberInfoMap = useMemo(() => {
     if (!membersData) return {};
     return membersData.reduce((acc, member) => {
-      acc[member.id] = member.job_title || '';
+      acc[member.id] = member;
       return acc;
     }, {});
   }, [membersData]);
@@ -343,7 +344,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
     const headers = ['Name', 'Job Title', 'Organisation', 'Email'];
     const rows = filteredAttendees.map(booking => [
       `${booking.attendee_first_name || ''} ${booking.attendee_last_name || ''}`.trim(),
-      booking.member_id ? (memberJobTitleMap[booking.member_id] || '') : '',
+      resolveAttendeeJobTitle(booking, memberInfoMap[booking.member_id]),
       booking.organization_id ? (organizationMap[booking.organization_id] || '') : 'Non-member',
       booking.attendee_email || ''
     ]);
@@ -1320,9 +1321,8 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                             {`${booking.attendee_first_name || ''} ${booking.attendee_last_name || ''}`.trim() || '-'}
                           </TableCell>
                           <TableCell>
-                            {booking.member_id
-                              ? (memberJobTitleMap[booking.member_id] || '-')
-                              : <span className="text-muted-foreground">-</span>
+                            {resolveAttendeeJobTitle(booking, memberInfoMap[booking.member_id])
+                              || <span className="text-muted-foreground">-</span>
                             }
                           </TableCell>
                           <TableCell>

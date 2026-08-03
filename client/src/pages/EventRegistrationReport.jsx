@@ -888,6 +888,7 @@ export default function EventRegistrationReport() {
     { key: 'std:bookingGroup', label: 'Booking Group', get: ({ group }) => (group.isGroup ? (group.groupRef || 'Group') : '') },
     { key: 'std:name', label: 'Name', get: ({ a }) => `${a.attendee_first_name || ''} ${a.attendee_last_name || ''}`.trim() },
     { key: 'std:email', label: 'Email', get: ({ a }) => a.attendee_email || '' },
+    { key: 'std:jobTitle', label: 'Job Title', get: ({ a }) => a.attendee_job_title || '' },
     { key: 'std:designation', label: 'Designation', get: ({ a }) => a.designation || '' },
     { key: 'std:buddy', label: 'Buddy', get: ({ a }) => (a.buddy ? 'Yes' : 'No') },
     { key: 'std:badge', label: 'Badge', get: ({ a }) => (a.badge !== false ? 'Yes' : 'No') },

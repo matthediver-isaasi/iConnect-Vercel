@@ -56,7 +56,7 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "npx tsx --test client/src/lib/roleAccessMap.test.ts client/src/components/help/HelpArticleContent.test.jsx client/src/components/branding/brandingShared.test.jsx client/src/components/canvas/AiCompositionRenderer.test.jsx api/_lib/helpArticleChunker.test.mjs"
+args = "npx tsx --test client/src/lib/attendeeJobTitle.test.mjs client/src/lib/roleAccessMap.test.ts client/src/components/help/HelpArticleContent.test.jsx client/src/components/branding/brandingShared.test.jsx client/src/components/canvas/AiCompositionRenderer.test.jsx api/_lib/helpArticleChunker.test.mjs"
 
 [[workflows.workflow]]
 name = "ai-assistant-tests"

@@ -16,6 +16,7 @@ import { getFocalPointStyle } from "@/components/FocalPointPicker";
 import { computeComplexEventDayInfo } from "@/lib/complexEventDays";
 import TenantCtaButton from "@/components/common/TenantCtaButton";
 import { toast } from "sonner";
+import { resolveAttendeeJobTitle } from "@/lib/attendeeJobTitle";
 import {
   Dialog,
   DialogContent,
@@ -903,10 +904,10 @@ export default function EventsPage({
     }, {});
   }, [complexOrganizationsData]);
 
-  const complexMemberJobTitleMap = useMemo(() => {
+  const complexMemberInfoMap = useMemo(() => {
     if (!complexMembersData) return {};
     return complexMembersData.reduce((acc, member) => {
-      acc[member.id] = member.job_title || '';
+      acc[member.id] = member;
       return acc;
     }, {});
   }, [complexMembersData]);
@@ -999,7 +1000,7 @@ export default function EventsPage({
     const headers = ['Name', 'Job Title', 'Organisation', 'Email', 'Designation'];
     const rows = complexFilteredAttendees.map(booking => [
       `${booking.attendee_first_name || ''} ${booking.attendee_last_name || ''}`.trim(),
-      booking.member_id ? (complexMemberJobTitleMap[booking.member_id] || '') : '',
+      resolveAttendeeJobTitle(booking, complexMemberInfoMap[booking.member_id]),
       booking.organization_id ? (complexOrgMap[booking.organization_id] || '') : 'Non-member',
       booking.attendee_email || '',
       booking.designation || ''
@@ -2703,9 +2704,8 @@ export default function EventsPage({
                             {`${booking.attendee_first_name || ''} ${booking.attendee_last_name || ''}`.trim() || '-'}
                           </TableCell>
                           <TableCell>
-                            {booking.member_id
-                              ? (complexMemberJobTitleMap[booking.member_id] || '-')
-                              : <span className="text-muted-foreground">-</span>
+                            {resolveAttendeeJobTitle(booking, complexMemberInfoMap[booking.member_id])
+                              || <span className="text-muted-foreground">-</span>
                             }
                           </TableCell>
                           <TableCell>

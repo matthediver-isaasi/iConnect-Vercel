@@ -217,7 +217,7 @@ export default async function handler(req, res) {
       if (targetEventIds.length > 0) {
         let bookingQuery = supabase
           .from('booking')
-          .select('id, event_id, member_id, attendee_email, attendee_first_name, attendee_last_name, ticket_price, total_cost, payment_method, voucher_amount, training_fund_amount, account_amount, purchase_order_number, po_to_follow, stripe_payment_intent_id, ticket_class_name, ticket_class_id, organization_id, booking_reference, booking_group_reference, xero_invoice_id, xero_invoice_number, xero_invoice_error, is_guest_booking, status, created_at, third_party_consent, designation, buddy, badge, dietary_selections, allergy_selections, accessibility_selections, discount_code_id, discount_code_amount')
+          .select('id, event_id, member_id, attendee_email, attendee_first_name, attendee_last_name, ticket_price, total_cost, payment_method, voucher_amount, training_fund_amount, account_amount, purchase_order_number, po_to_follow, stripe_payment_intent_id, ticket_class_name, ticket_class_id, organization_id, booking_reference, booking_group_reference, xero_invoice_id, xero_invoice_number, xero_invoice_error, is_guest_booking, status, created_at, third_party_consent, designation, buddy, badge, dietary_selections, allergy_selections, accessibility_selections, discount_code_id, discount_code_amount, attendee_job_title')
           .in('event_id', targetEventIds)
           .eq('tenant_id', tenantId)
           .order('booking_group_reference', { ascending: true, nullsFirst: false })
@@ -245,7 +245,7 @@ export default async function handler(req, res) {
       if (targetComplexEventIds.length > 0) {
         let complexBookingQuery = supabase
           .from('complex_event_booking')
-          .select('id, event_id, member_id, attendee_email, attendee_first_name, attendee_last_name, ticket_price, total_paid, payment_method, voucher_amount, training_fund_amount, account_balance_amount, stripe_payment_intent_id, ticket_class_name, ticket_class_id, organization_id, booking_reference, booking_group_reference, discount_code, discount_amount, status, created_at, third_party_consent, designation, buddy, badge, dietary_selections, allergy_selections, accessibility_selections')
+          .select('id, event_id, member_id, attendee_email, attendee_first_name, attendee_last_name, ticket_price, total_paid, payment_method, voucher_amount, training_fund_amount, account_balance_amount, stripe_payment_intent_id, ticket_class_name, ticket_class_id, organization_id, booking_reference, booking_group_reference, discount_code, discount_amount, status, created_at, third_party_consent, designation, buddy, badge, dietary_selections, allergy_selections, accessibility_selections, attendee_job_title')
           .in('event_id', targetComplexEventIds)
           .eq('tenant_id', tenantId)
           .order('booking_group_reference', { ascending: true, nullsFirst: false })
@@ -426,19 +426,18 @@ export default async function handler(req, res) {
         }
       }
 
+      // Look up member info for booker resolution (groups without explicit booker info)
+      // and for the legacy attendee-job-title fallback (all bookings with a member_id).
       const memberIdsToLookup = new Set();
-      for (const [groupKey, members] of groupMap) {
-        if (groupBookerInfo.has(groupKey)) continue;
-        for (const b of members) {
-          if (b.member_id) memberIdsToLookup.add(b.member_id);
-        }
+      for (const b of allBookings) {
+        if (b.member_id) memberIdsToLookup.add(b.member_id);
       }
 
       const memberInfoById = new Map();
       if (memberIdsToLookup.size > 0) {
         const { data: memberRows } = await supabase
           .from('member')
-          .select('id, email, first_name, last_name')
+          .select('id, email, first_name, last_name, job_title')
           .in('id', [...memberIdsToLookup]);
         if (memberRows) {
           for (const m of memberRows) {
@@ -633,6 +632,24 @@ export default async function handler(req, res) {
               ? (b.attendee_email || '').toLowerCase().trim() === bookerEmailNorm
               : false;
 
+            // Per-attendee job title: stored value wins; legacy fallback to the
+            // booker's member-profile title only when the attendee IS the booker
+            // (matching email or full name) — never attribute it to someone else.
+            let attendeeJobTitle = (b.attendee_job_title || '').trim() || null;
+            if (!attendeeJobTitle && b.member_id) {
+              const m = memberInfoById.get(b.member_id);
+              if (m) {
+                const normStr = (v) => (v || '').toLowerCase().trim();
+                const emailMatches = normStr(b.attendee_email) && normStr(b.attendee_email) === normStr(m.email);
+                const attendeeName = `${normStr(b.attendee_first_name)} ${normStr(b.attendee_last_name)}`.trim();
+                const memberName = `${normStr(m.first_name)} ${normStr(m.last_name)}`.trim();
+                const nameMatches = attendeeName && attendeeName === memberName;
+                if (emailMatches || nameMatches) {
+                  attendeeJobTitle = m.job_title || null;
+                }
+              }
+            }
+
             return {
               id: b.id,
               attendee_first_name: b.attendee_first_name,
@@ -655,6 +672,7 @@ export default async function handler(req, res) {
               attendance_by_session,
               third_party_consent: b.third_party_consent ?? null,
               designation: b.designation || null,
+              attendee_job_title: attendeeJobTitle,
               buddy: !!b.buddy,
               badge: b.badge !== false,
               dietary_selections: b.dietary_selections || null,
