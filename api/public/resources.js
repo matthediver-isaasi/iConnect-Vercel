@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import { fetchCategoriesWithAccess, computeHiddenSubcategories, filterResourcesByCategoryAccess } from '../_lib/resourceCategoryAccess.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -73,8 +74,21 @@ export default async function handler(req, res) {
       offset += batch.length;
     }
 
+    // Task #3306: resources exclusively tagged with subcategories of
+    // role-restricted categories are member-only — hide them from guests.
+    // Categories with no restrictions leave everything exactly as before.
+    let guestHiddenSubcats = new Set();
+    try {
+      const cats = await fetchCategoriesWithAccess(supabase, tenant.id);
+      guestHiddenSubcats = computeHiddenSubcategories(cats, { isGuest: true });
+    } catch (catErr) {
+      console.error('[Public Resources] Failed to load category access:', catErr?.message);
+      // Fail closed is not possible without the category list; log and continue
+      // (matches pre-existing behaviour when the column is absent).
+    }
+
     const tenant_domain = tenant.domain || `${tenant.slug}.iconn.app`;
-    const publicResources = (resources || []).filter(r => {
+    const publicResources = filterResourcesByCategoryAccess(resources || [], guestHiddenSubcats).filter(r => {
       if (r.linked_events && Array.isArray(r.linked_events) && r.linked_events.length > 0) {
         return false;
       }

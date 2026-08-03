@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import { fetchCategoriesWithAccess, filterCategoriesForViewer } from '../_lib/resourceCategoryAccess.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -30,19 +31,23 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    const { data, error } = await supabase
-      .from('resource_category')
-      .select('id, name, description, subcategories, applies_to_content_types, display_order, is_active')
-      .eq('tenant_id', tenant.id)
-      .or('is_active.eq.true,is_active.is.null')
-      .order('display_order', { ascending: true });
-
-    if (error) {
+    let data;
+    try {
+      data = await fetchCategoriesWithAccess(supabase, tenant.id);
+    } catch (error) {
       console.error('Error fetching resource categories:', error);
       return res.status(500).json({ error: error.message });
     }
 
-    return res.json(data || []);
+    // Task #3306: role-restricted categories are member-only — never expose
+    // them (or their role lists) to guests. Unrestricted categories behave
+    // exactly as before.
+    const visible = filterCategoriesForViewer(
+      (data || []).filter((c) => c.is_active !== false),
+      { isGuest: true }
+    ).map(({ excluded_role_ids, ...rest }) => rest);
+
+    return res.json(visible);
   } catch (error) {
     console.error('Public resource categories fetch error:', error);
     return res.status(500).json({ error: 'Failed to fetch resource categories' });

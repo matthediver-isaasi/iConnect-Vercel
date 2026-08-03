@@ -66,6 +66,10 @@ const MODULE_ICONS = {
 export default function RoleManagementPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [editingRole, setEditingRole] = useState(null);
+  // Task #3306: per-role resource category access edits, keyed by category id
+  // (true = role can see the category). Applied to the categories' own
+  // excluded_role_ids on Save; untouched categories are never written.
+  const [categoryAccessOverrides, setCategoryAccessOverrides] = useState({});
   const [showDialog, setShowDialog] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [roleToDelete, setRoleToDelete] = useState(null);
@@ -210,6 +214,21 @@ export default function RoleManagementPage() {
       toast.error('Failed to update segmentation field: ' + error.message);
     }
   });
+
+  // Task #3306: resource categories for the per-role category access panel.
+  // Admins are privileged, so the entity API returns all categories here.
+  const { data: resourceCategories = [] } = useQuery({
+    queryKey: ['resource-categories-for-roles'],
+    queryFn: () => base44.entities.ResourceCategory.list(),
+    staleTime: 30000
+  });
+
+  const activeResourceCategories = React.useMemo(
+    () => resourceCategories
+      .filter(c => c.is_active !== false)
+      .sort((a, b) => (a.display_order || 0) - (b.display_order || 0)),
+    [resourceCategories]
+  );
 
   // Fetch IEdit pages (custom pages) for dynamic landing page options
   const { data: ieditPages = [] } = useQuery({
@@ -427,6 +446,7 @@ export default function RoleManagementPage() {
       segment_values: [],  // Initialize empty for new roles
       max_members: null    // null = unlimited
     });
+    setCategoryAccessOverrides({});
     setShowDialog(true);
   };
 
@@ -435,7 +455,22 @@ export default function RoleManagementPage() {
       ...role,
       segment_values: role.segment_values || []  // Ensure array for editing
     });
+    setCategoryAccessOverrides({});
     setShowDialog(true);
+  };
+
+  // Task #3306: whether a role can currently see a category (pending edits first).
+  const roleHasCategoryAccess = (category) => {
+    if (categoryAccessOverrides[category.id] !== undefined) {
+      return categoryAccessOverrides[category.id];
+    }
+    const excluded = Array.isArray(category.excluded_role_ids) ? category.excluded_role_ids : [];
+    return !editingRole?.id || !excluded.includes(editingRole.id);
+  };
+
+  const toggleCategoryAccess = (category) => {
+    const next = !roleHasCategoryAccess(category);
+    setCategoryAccessOverrides(prev => ({ ...prev, [category.id]: next }));
   };
 
   const toggleSegmentValue = (value) => {
@@ -455,7 +490,7 @@ export default function RoleManagementPage() {
     setShowDeleteConfirm(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!editingRole.name.trim()) {
       toast.error('Role name is required');
       return;
@@ -487,6 +522,42 @@ export default function RoleManagementPage() {
     };
 
     if (editingRole.id) {
+      // Task #3306: persist any resource category access changes for this role
+      // BEFORE saving the role, awaited, via the atomic server endpoint (an SQL
+      // function adds/removes only THIS role id, so concurrent edits to other
+      // roles' exclusions are never clobbered). Only toggled categories are
+      // written; a category's excluded_role_ids stays empty (= visible to all)
+      // unless someone deliberately restricts it.
+      if (Object.keys(categoryAccessOverrides).length > 0) {
+        try {
+          // Server applies each change atomically (SQL add/remove of just this
+          // role id), so concurrent edits to other roles' exclusions are never
+          // clobbered, and retries are idempotent.
+          const resp = await fetch('/api/resources/category-role-access', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              roleId: editingRole.id,
+              changes: Object.entries(categoryAccessOverrides).map(([categoryId, hasAccess]) => ({ categoryId, hasAccess })),
+            }),
+          });
+          const result = await resp.json().catch(() => ({}));
+          if (!resp.ok || (result.failed && result.failed.length > 0)) {
+            throw new Error(result.error
+              || `${result.failed?.length || 'some'} category change(s) failed`);
+          }
+          setCategoryAccessOverrides({});
+          queryClient.invalidateQueries({ queryKey: ['resource-categories-for-roles'] });
+          queryClient.invalidateQueries({ queryKey: ['authenticated-resource-categories'] });
+        } catch (err) {
+          // Keep the dialog and pending toggles so the admin can retry
+          // (already-applied changes are safe to resend — idempotent).
+          queryClient.invalidateQueries({ queryKey: ['resource-categories-for-roles'] });
+          toast.error('Some resource category access changes could not be saved: ' + (err.message || 'unknown error') + '. The role was not saved — please try again.');
+          return;
+        }
+      }
       updateRoleMutation.mutate({ id: editingRole.id, roleData });
     } else {
       createRoleMutation.mutate(roleData);
@@ -1293,6 +1364,54 @@ export default function RoleManagementPage() {
                         </div>
                       );
                     })}
+                  </div>
+
+                  {/* Task #3306: per-role resource category access */}
+                  <div className="pt-2">
+                    <Label className="text-base">Resource Category Access</Label>
+                    <p className="text-sm text-slate-500 mt-1 mb-3">
+                      Control which resource categories this role can see on the Resources page.
+                      Categories left available to every role are visible to all members (and guests),
+                      exactly as before — restrictions only apply where you untick a role.
+                    </p>
+                    {!editingRole.id ? (
+                      <p className="text-sm text-slate-500 italic border rounded-lg p-3 bg-slate-50/50" data-testid="text-category-access-save-first">
+                        Save the role first, then reopen it to configure resource category access.
+                      </p>
+                    ) : activeResourceCategories.length === 0 ? (
+                      <p className="text-sm text-slate-500 italic border rounded-lg p-3 bg-slate-50/50" data-testid="text-no-resource-categories">
+                        No resource categories have been created yet.
+                      </p>
+                    ) : (
+                      <div className="space-y-1 border rounded-lg p-3 bg-slate-50/50">
+                        {activeResourceCategories.map((category) => {
+                          const hasAccess = roleHasCategoryAccess(category);
+                          const otherExclusions = (Array.isArray(category.excluded_role_ids) ? category.excluded_role_ids : [])
+                            .filter(r => r !== editingRole.id).length;
+                          return (
+                            <div key={category.id} className="flex items-center justify-between gap-3 p-2 rounded-md bg-white border">
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium text-slate-800 truncate">{category.name}</p>
+                                <p className="text-xs text-slate-500 truncate">
+                                  {(category.subcategories || []).length} subcategories
+                                  {otherExclusions > 0 && ` · restricted for ${otherExclusions} other role${otherExclusions === 1 ? '' : 's'}`}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <span className={`text-xs ${hasAccess ? 'text-green-600' : 'text-red-600'}`}>
+                                  {hasAccess ? 'Visible' : 'Hidden'}
+                                </span>
+                                <Switch
+                                  checked={hasAccess}
+                                  onCheckedChange={() => toggleCategoryAccess(category)}
+                                  data-testid={`switch-category-access-${category.id}`}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

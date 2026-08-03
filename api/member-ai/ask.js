@@ -31,6 +31,7 @@ import {
   makeFeatureAccessChecker,
 } from '../_lib/memberFeatureAccess.js';
 import { isChunkVisibleToMember } from '../_lib/memberContentVisibility.js';
+import { fetchCategoriesWithAccess, computeHiddenSubcategories, isResourceHiddenByCategories } from '../_lib/resourceCategoryAccess.js';
 import {
   isRecencyQuestion,
   recencyScore,
@@ -427,9 +428,40 @@ export default async function handler(req, res) {
     const aboveFloor = candidates.filter(
       (m) => (m.similarity ?? 0) >= MIN_SIMILARITY
     );
-    const visible = aboveFloor.filter((m) =>
+    let visible = aboveFloor.filter((m) =>
       isChunkVisibleToMember(m, visibilityCtx)
     );
+
+    // Task #3306: resources exclusively tagged with subcategories of
+    // role-restricted categories are hidden from excluded roles. Chunk
+    // metadata predates this rule (no subcategories field), so enforce it
+    // live: when the viewer has hidden subcategories, look up the surviving
+    // resource chunks' subcategories and drop hidden ones (missing rows fail
+    // closed). Skips all extra queries when no restrictions apply.
+    if (visible.some((m) => m.content_type === 'resource')) {
+      const categories = await fetchCategoriesWithAccess(supabase, ctx.tenantId);
+      const hiddenSubcats = computeHiddenSubcategories(categories, {
+        roleId,
+        isPrivileged: isAdmin,
+      });
+      if (hiddenSubcats.size > 0) {
+        const resourceIds = [...new Set(
+          visible.filter((m) => m.content_type === 'resource').map((m) => m.source_id)
+        )];
+        const { data: resourceRows, error: resourceErr } = await supabase
+          .from('resource')
+          .select('id, subcategories')
+          .in('id', resourceIds);
+        if (resourceErr) throw resourceErr;
+        const byId = new Map((resourceRows || []).map((r) => [r.id, r]));
+        visible = visible.filter((m) => {
+          if (m.content_type !== 'resource') return true;
+          const row = byId.get(m.source_id);
+          if (!row) return false; // fail closed on missing/deleted rows
+          return !isResourceHiddenByCategories(row, hiddenSubcats);
+        });
+      }
+    }
 
     if (!visible.length) {
       // Structured fallback instrumentation: make future stock answers

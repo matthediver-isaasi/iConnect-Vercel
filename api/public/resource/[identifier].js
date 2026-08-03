@@ -1,5 +1,7 @@
 import { supabase } from '../../_lib/database.js';
 import { resolveTenantFromRequest } from '../../_lib/tenantResolver.js';
+import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
+import { fetchCategoriesWithAccess, computeHiddenSubcategories, isResourceHiddenByCategories } from '../../_lib/resourceCategoryAccess.js';
 
 const PUBLIC_RESOURCE_COLUMNS = 'id, title, description, image_url, target_url, resource_type, is_public, open_in_new_tab, release_date, author_name, tags, subcategories, tenant_id';
 
@@ -60,6 +62,32 @@ export default async function handler(req, res) {
 
     if (!resource) {
       return res.status(404).json({ error: 'Resource not found' });
+    }
+
+    // Task #3306: resources exclusively tagged with subcategories of
+    // role-restricted categories must not be fetchable by direct UUID/slug.
+    // Resolve the caller (guest vs authenticated member) and 404 when hidden.
+    try {
+      const categories = await fetchCategoriesWithAccess(supabase, tenant.id);
+      let viewer = { isGuest: true };
+      try {
+        const ctx = await getTenantContext(req);
+        if (ctx?.isAuthenticated === true && !ctx.tenantMismatch && ctx.tenantId === tenant.id) {
+          const isPrivileged = !!ctx.tenantUserId
+            || await hasAdminAccess(ctx)
+            || (ctx.roleId ? await hasFeatureAccess(ctx.roleId, 'content.resource-management') : false);
+          viewer = { roleId: ctx.roleId, isPrivileged };
+        }
+      } catch {
+        // No/invalid session: treat as guest.
+      }
+      const hiddenSubcats = computeHiddenSubcategories(categories, viewer);
+      if (isResourceHiddenByCategories(resource, hiddenSubcats)) {
+        return res.status(404).json({ error: 'Resource not found or inactive' });
+      }
+    } catch (accessErr) {
+      console.error('[Public Resource API] Category access check failed:', accessErr?.message);
+      return res.status(500).json({ error: 'Failed to fetch resource' });
     }
 
     const publicResource = {

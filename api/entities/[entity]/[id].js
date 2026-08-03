@@ -21,6 +21,7 @@ import { sendSupportNotification } from '../../support/notify.js';
 import { getAccountingProvider } from '../../_lib/accountingProvider.js';
 import { pruneSpeakerIdsFromReferences } from '../../_lib/speakerReferences.js';
 import { assessAiCodePagePublishGate } from '../../_lib/aiCodeActions.js';
+import { isCategoryRestricted, isCategoryVisibleToViewer } from '../../_lib/resourceCategoryAccess.js';
 
 // Entity name to Supabase table mapping (singular names for Base44 compatibility)
 const entityToTable = {
@@ -377,6 +378,20 @@ export default async function handler(req, res) {
         if (!allowed) return res.status(404).json({ error: 'Not found' });
       }
 
+      // SECURITY (Task #3306): role-restricted resource categories are hidden
+      // from excluded member roles. Non-privileged by-id reads get a 404,
+      // mirroring the list-endpoint filter in index.js.
+      if (entityNorm === 'resourcecategory' && data && isCategoryRestricted(data)) {
+        const isPrivileged = !!tenantCtx.tenantUserId
+          || await hasAdminAccess(tenantCtx)
+          || (tenantCtx.roleId
+            ? await hasFeatureAccess(tenantCtx.roleId, 'content.resource-management')
+            : false);
+        if (!isCategoryVisibleToViewer(data, { roleId: tenantCtx.roleId, isPrivileged })) {
+          return res.status(404).json({ error: 'Not found' });
+        }
+      }
+
       // SECURITY (Task #3100): internal notes on support ticket conversations
       // are staff-only. Non-staff by-id reads get a 404, mirroring the
       // list-endpoint filter in index.js.
@@ -394,6 +409,21 @@ export default async function handler(req, res) {
       // Normalize entity name for comparison (handles both PascalCase and slug-case)
       const entityNormalized = entity.replace(/[-_]/g, '').toLowerCase();
       
+      // SECURITY (Task #3306): excluded_role_ids is an access-control field on
+      // resource categories. Only admins / resource managers may change it —
+      // otherwise any member could lift or impose category restrictions.
+      if (entityNormalized === 'resourcecategory'
+          && req.body && Object.prototype.hasOwnProperty.call(req.body, 'excluded_role_ids')) {
+        const canManage = !!tenantCtx.tenantUserId
+          || await hasAdminAccess(tenantCtx)
+          || (tenantCtx.roleId
+            ? await hasFeatureAccess(tenantCtx.roleId, 'content.resource-management')
+            : false);
+        if (!canManage) {
+          return res.status(403).json({ error: 'Not authorized to change resource category access' });
+        }
+      }
+
       // For Organization/Member/JobPosting, fetch before data for workflow evaluation
       // Also fetch before data for ArticleBrief to track key field changes in activity log
       let beforeData = null;

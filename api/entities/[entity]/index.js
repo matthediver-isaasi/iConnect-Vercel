@@ -21,6 +21,7 @@ import { reindexMemberContentEntitySafe } from '../../_lib/memberContentReindexH
 import { syncBlogPostAuthors } from '../../_lib/blogPostAuthors.js';
 import { checkMemberQuota, checkEventQuota } from '../../_lib/planQuota.js';
 import { filterInternalNotesForViewer } from '../../_lib/supportTicketQueues.js';
+import { isCategoryRestricted, filterCategoriesForViewer } from '../../_lib/resourceCategoryAccess.js';
 import { sendSubmissionEmailsGuarded } from '../../_lib/formSubmissionEmails.js';
 
 /**
@@ -1014,6 +1015,40 @@ export default async function handler(req, res) {
         return res.json(filtered || []);
       }
 
+      // SECURITY (Task #3306): resource categories can be restricted to member
+      // roles via excluded_role_ids. Trim restricted categories from list reads
+      // for non-privileged member callers so they never appear in filters or
+      // pickers. Categories with no exclusions are untouched (current behaviour).
+      if (entityNorm === 'resourcecategory') {
+        const rows = data || [];
+        const anyRestricted = rows.some((c) => isCategoryRestricted(c));
+        let visibleRows = rows;
+        if (anyRestricted) {
+          const isPrivileged = !!tenantCtx.tenantUserId
+            || await hasAdminAccess(tenantCtx)
+            || (tenantCtx.roleId
+              ? await hasFeatureAccess(tenantCtx.roleId, 'content.resource-management')
+              : false);
+          visibleRows = filterCategoriesForViewer(rows, { roleId: tenantCtx.roleId, isPrivileged });
+        }
+        if (wantsCount) {
+          // The DB `count` ignores post-filtering. When the page holds the
+          // complete result set (offset 0 and fewer rows than the effective
+          // limit — the normal case, category tables are tiny) the visible
+          // length is EXACT. Otherwise return the visible length as a
+          // conservative lower bound: it never overstates, so count-based
+          // pagination can't fabricate phantom pages of restricted rows.
+          const offsetNum = offset ? parseInt(offset) : 0;
+          const effLimit = limit ? parseInt(limit) : 1000; // PostgREST default cap
+          const complete = offsetNum === 0 && rows.length < effLimit;
+          const safeCount = complete
+            ? visibleRows.length
+            : Math.max(visibleRows.length, 0);
+          return res.json({ data: visibleRows, count: safeCount });
+        }
+        return res.json(visibleRows);
+      }
+
       // SECURITY (Task #3100): internal notes on support ticket conversations
       // are staff-only. Filter them out server-side for non-staff callers so
       // members never receive them, regardless of client behaviour.
@@ -1052,6 +1087,21 @@ export default async function handler(req, res) {
       // so the card on SupportManagement never shows "Date not recorded".
       if (entityNorm === 'supportticket' && !sanitizedBody.created_date) {
         sanitizedBody.created_date = new Date().toISOString();
+      }
+
+      // SECURITY (Task #3306): excluded_role_ids is an access-control field on
+      // resource categories. Only admins / resource managers may set it at
+      // creation time — mirrors the PATCH guard in [id].js.
+      if (entityNorm === 'resourcecategory'
+          && Object.prototype.hasOwnProperty.call(sanitizedBody, 'excluded_role_ids')) {
+        const canManage = !!tenantCtx.tenantUserId
+          || await hasAdminAccess(tenantCtx)
+          || (tenantCtx.roleId
+            ? await hasFeatureAccess(tenantCtx.roleId, 'content.resource-management')
+            : false);
+        if (!canManage) {
+          return res.status(403).json({ error: 'Not authorized to set resource category access' });
+        }
       }
 
       // SECURITY (Task #3100): only support staff may create internal notes.

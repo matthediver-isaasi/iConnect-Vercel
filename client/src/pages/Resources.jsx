@@ -20,6 +20,7 @@ const DEFAULT_RESOURCE_CATEGORY_TITLE_COLOR = '#7e22ce';
 const VALID_SORT_VALUES = ['newest', 'oldest', 'title-asc', 'title-desc'];
 const DEFAULT_SORT_VALUE = 'newest';
 const EMPTY_VIEW_COUNTS = {};
+const EMPTY_CATEGORY_DATA = { categories: [], hiddenSubcategories: [] };
 
 export default function ResourcesPage() {
   const { memberInfo, memberRole, isAdmin, isFeatureExcluded } = useMemberAccess();
@@ -276,21 +277,38 @@ export default function ResourcesPage() {
     refetchOnWindowFocus: true
   });
 
-  // Authenticated categories query - only runs for authenticated users
-  const { data: authCategories = [], isLoading: authCategoriesLoading } = useQuery({
+  // Authenticated categories query - only runs for authenticated users.
+  // Task #3306: served by a dedicated endpoint that removes role-restricted
+  // categories server-side and reports which subcategory names are hidden so
+  // resources exclusively tagged with them can be hidden below.
+  const { data: visibleCategoryData = EMPTY_CATEGORY_DATA, isLoading: authCategoriesLoading } = useQuery({
     queryKey: ['authenticated-resource-categories'],
     queryFn: async () => {
-      const cats = await base44.entities.ResourceCategory.list();
-      const resourceCategories = cats.filter(c => 
-        c.is_active && 
-        c.applies_to_content_types && 
-        c.applies_to_content_types.includes("Resources")
-      );
-      return resourceCategories.sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+      const resp = await fetch('/api/resources/visible-categories', { credentials: 'include' });
+      if (!resp.ok) throw new Error('Failed to load resource categories');
+      const data = await resp.json();
+      return {
+        categories: (data.categories || [])
+          .filter(c =>
+            c.is_active &&
+            c.applies_to_content_types &&
+            c.applies_to_content_types.includes("Resources")
+          )
+          .sort((a, b) => (a.display_order || 0) - (b.display_order || 0)),
+        hiddenSubcategories: data.hiddenSubcategories || [],
+      };
     },
     enabled: isAuthenticated,
     refetchOnWindowFocus: true
   });
+  const authCategories = visibleCategoryData.categories;
+
+  // Subcategory names the current member's role may not see (empty for admins
+  // and whenever no category restrictions are configured).
+  const hiddenSubcategorySet = useMemo(
+    () => new Set(isAuthenticated ? visibleCategoryData.hiddenSubcategories : []),
+    [isAuthenticated, visibleCategoryData.hiddenSubcategories]
+  );
 
   // Combine categories based on auth state
   const categories = isAuthenticated ? authCategories : publicCategories;
@@ -518,8 +536,29 @@ export default function ResourcesPage() {
     }
   });
 
-  const filteredResources = useMemo(() => {
+  // Task #3306: hide resources whose every subcategory belongs to a category
+  // the member's role may not see. Resources with no subcategories, or with at
+  // least one visible/unmapped subcategory, are unaffected. Saved filter
+  // preferences referencing hidden subcategories are ignored rather than
+  // silently filtering the list down to nothing.
+  const roleVisibleResources = useMemo(() => {
+    if (hiddenSubcategorySet.size === 0) return resources;
     return resources.filter(resource => {
+      const subs = Array.isArray(resource.subcategories)
+        ? resource.subcategories.filter(s => typeof s === 'string' && s)
+        : [];
+      if (subs.length === 0) return true;
+      return subs.some(s => !hiddenSubcategorySet.has(s));
+    });
+  }, [resources, hiddenSubcategorySet]);
+
+  const effectiveSelectedSubcategories = useMemo(
+    () => selectedSubcategories.filter(s => !hiddenSubcategorySet.has(s)),
+    [selectedSubcategories, hiddenSubcategorySet]
+  );
+
+  const filteredResources = useMemo(() => {
+    return roleVisibleResources.filter(resource => {
       // If filtering to a specific resource (e.g., after login redirect), only show that one
       // Compare as strings to handle numeric IDs from URL query params
       if (filteredResourceId) {
@@ -534,12 +573,12 @@ export default function ResourcesPage() {
       
       // If no subcategories are selected, show all resources
       // If subcategories are selected, only show resources that have at least one matching subcategory
-      const matchesSubcategory = selectedSubcategories.length === 0 || 
-        (resource.subcategories && Array.isArray(resource.subcategories) && resource.subcategories.some(sub => selectedSubcategories.includes(sub)));
+      const matchesSubcategory = effectiveSelectedSubcategories.length === 0 || 
+        (resource.subcategories && Array.isArray(resource.subcategories) && resource.subcategories.some(sub => effectiveSelectedSubcategories.includes(sub)));
       
       return matchesSearch && matchesSubcategory;
     });
-  }, [resources, searchQuery, selectedSubcategories, filteredResourceId]);
+  }, [roleVisibleResources, searchQuery, effectiveSelectedSubcategories, filteredResourceId]);
 
   const sortedResources = useMemo(() => {
     const sorted = [...filteredResources];

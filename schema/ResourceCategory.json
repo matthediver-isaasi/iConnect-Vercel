@@ -28,6 +28,14 @@
         "default": true,
         "description": "Whether this category is currently active"
       },
+      "excluded_role_ids": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "default": [],
+        "description": "Member role IDs that cannot see this category (and resources exclusively tagged with its subcategories). Empty array means all roles can see it. A category with any exclusions is member-only (hidden from guests)."
+      },
       "applies_to_content_types": {
         "type": "array",
         "items": {
