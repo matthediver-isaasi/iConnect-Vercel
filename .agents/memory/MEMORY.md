@@ -139,4 +139,5 @@
 - [Fee approval must not set invoicing_mode](fee-approval-invoicing-mode.md) — side-effect invoicing rows must be 'automatic' (org column NOT NULL) or the Create Membership workflow guard deadlocks; log status must surface skipped actions.
 - [Cron email delivery model](speaker-award-notifications.md) — one-off notification emails need lease+delivered timestamp pairs (CAS everywhere) and a retry sweep independent of the parent's done-stamp; a claim is not delivery.
 - [Radix Select undefined = uncontrolled](radix-select-undefined-uncontrolled.md) — clearing a controlled Select via `value={x || undefined}` leaves the old choice displayed; remount with a value-tied key.
+- [Resource category & subcategory role access](resource-category-role-access.md) — name-level visible-wins hiding via one shared helper; ~6 surfaces must strip access fields + trim hidden names or roles leak.
 - [record_create workflows & custom fields](workflow-record-create-custom-fields.md) — trigger AFTER preference values persist or custom-field conditions see empty; workflow_log status check allows success|partial|failed|skipped.

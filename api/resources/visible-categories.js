@@ -10,7 +10,9 @@ import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tena
 import {
   fetchCategoriesWithAccess,
   filterCategoriesForViewer,
+  filterCategorySubcategoriesForViewer,
   computeHiddenSubcategories,
+  stripCategoryAccessFields,
 } from '../_lib/resourceCategoryAccess.js';
 
 export default async function handler(req, res) {
@@ -34,8 +36,11 @@ export default async function handler(req, res) {
       || (ctx.roleId ? await hasFeatureAccess(ctx.roleId, 'content.resource-management') : false);
     const viewer = { roleId: ctx.roleId, isPrivileged };
 
+    // Task #3320: also remove role-excluded subcategory names from each
+    // visible category so hidden filter chips never render, and strip the
+    // per-subcategory exclusion map alongside excluded_role_ids.
     const visible = filterCategoriesForViewer(categories, viewer)
-      .map(({ excluded_role_ids, ...rest }) => rest);
+      .map((c) => stripCategoryAccessFields(filterCategorySubcategoriesForViewer(c, viewer)));
     const hiddenSubcategories = Array.from(computeHiddenSubcategories(categories, viewer));
 
     return res.status(200).json({ categories: visible, hiddenSubcategories });

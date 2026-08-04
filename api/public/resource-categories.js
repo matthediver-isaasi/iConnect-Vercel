@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
-import { fetchCategoriesWithAccess, filterCategoriesForViewer } from '../_lib/resourceCategoryAccess.js';
+import { fetchCategoriesWithAccess, filterCategoriesForViewer, filterCategorySubcategoriesForViewer, stripCategoryAccessFields } from '../_lib/resourceCategoryAccess.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -42,10 +42,13 @@ export default async function handler(req, res) {
     // Task #3306: role-restricted categories are member-only — never expose
     // them (or their role lists) to guests. Unrestricted categories behave
     // exactly as before.
+    // Task #3320: subcategories with any role exclusions are member-only too —
+    // drop them from the guest view and strip both access-control fields.
+    const guest = { isGuest: true };
     const visible = filterCategoriesForViewer(
       (data || []).filter((c) => c.is_active !== false),
-      { isGuest: true }
-    ).map(({ excluded_role_ids, ...rest }) => rest);
+      guest
+    ).map((c) => stripCategoryAccessFields(filterCategorySubcategoriesForViewer(c, guest)));
 
     return res.json(visible);
   } catch (error) {

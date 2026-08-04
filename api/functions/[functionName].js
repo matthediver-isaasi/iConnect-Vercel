@@ -5114,6 +5114,43 @@ const functionHandlers = {
       return { success: false, error: 'Failed to update category subcategories: ' + catUpdateError.message };
     }
 
+    // Step 1b (Task #3320): carry per-role subcategory exclusions over to the
+    // new name so role access settings follow a rename instead of orphaning.
+    // If the new name already has an entry (rename-onto-merge), union the role
+    // ids. Best-effort with 42703 tolerance (column absent in stale envs).
+    try {
+      const { data: exclRow, error: exclErr } = await supabase
+        .from('resource_category')
+        .select('subcategory_excluded_role_ids')
+        .eq('id', categoryId)
+        .eq('tenant_id', tenantId)
+        .single();
+      if (!exclErr && exclRow) {
+        const map = (exclRow.subcategory_excluded_role_ids && typeof exclRow.subcategory_excluded_role_ids === 'object' && !Array.isArray(exclRow.subcategory_excluded_role_ids))
+          ? { ...exclRow.subcategory_excluded_role_ids }
+          : {};
+        if (Object.prototype.hasOwnProperty.call(map, oldSubcategoryName)) {
+          const oldIds = Array.isArray(map[oldSubcategoryName]) ? map[oldSubcategoryName] : [];
+          const existingIds = Array.isArray(map[newSubcategoryName]) ? map[newSubcategoryName] : [];
+          delete map[oldSubcategoryName];
+          const merged = [...new Set([...existingIds, ...oldIds])];
+          if (merged.length > 0) map[newSubcategoryName] = merged;
+          const { error: exclUpdateError } = await supabase
+            .from('resource_category')
+            .update({ subcategory_excluded_role_ids: map })
+            .eq('id', categoryId)
+            .eq('tenant_id', tenantId);
+          if (exclUpdateError) {
+            console.warn(`[renameResourceSubcategory] Failed to carry subcategory role exclusions from "${oldSubcategoryName}" to "${newSubcategoryName}": ${exclUpdateError.message}`);
+          }
+        }
+      } else if (exclErr && exclErr.code !== '42703') {
+        console.warn(`[renameResourceSubcategory] Could not read subcategory role exclusions: ${exclErr.message}`);
+      }
+    } catch (exclCatchErr) {
+      console.warn(`[renameResourceSubcategory] Subcategory role exclusion carry-over skipped: ${exclCatchErr?.message}`);
+    }
+
     // Step 2: Migrate resource rows whose subcategories array contains the old name.
     const { data: resources, error: resourceFetchError } = await supabase
       .from('resource')

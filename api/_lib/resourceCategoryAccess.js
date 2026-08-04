@@ -19,6 +19,31 @@ export function getExcludedRoleIds(category) {
   return Array.isArray(raw) ? raw.filter((r) => typeof r === 'string' && r) : [];
 }
 
+// Task #3320: per-subcategory role exclusions.
+// resource_category.subcategory_excluded_role_ids is a JSONB map of
+// subcategory name -> array of role ids that cannot see that subcategory
+// (within this category). Missing/empty entries mean the subcategory follows
+// the category's own visibility — current behaviour, so tenants that never
+// touch subcategory toggles need no migration of data.
+export function getSubcategoryExclusionMap(category) {
+  const raw = category?.subcategory_excluded_role_ids;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  return raw;
+}
+
+export function getSubcategoryExcludedRoleIds(category, subcategoryName) {
+  const arr = getSubcategoryExclusionMap(category)[subcategoryName];
+  return Array.isArray(arr) ? arr.filter((r) => typeof r === 'string' && r) : [];
+}
+
+export function hasSubcategoryRestrictions(category) {
+  const map = getSubcategoryExclusionMap(category);
+  return Object.keys(map).some((k) => {
+    const arr = map[k];
+    return Array.isArray(arr) && arr.some((r) => typeof r === 'string' && r);
+  });
+}
+
 export function isCategoryRestricted(category) {
   return getExcludedRoleIds(category).length > 0;
 }
@@ -42,6 +67,47 @@ export function filterCategoriesForViewer(categories, viewer = {}) {
 }
 
 /**
+ * Task #3320: whether a viewer may see a specific subcategory occurrence
+ * within a category. Requires the category itself to be visible, then applies
+ * the per-subcategory role exclusions with the same semantics as category
+ * exclusions: empty = visible to everyone; non-empty = member-only, hidden
+ * from listed roles and from members with no role.
+ */
+export function isSubcategoryVisibleInCategory(category, subcategoryName, viewer = {}) {
+  if (viewer.isPrivileged) return true;
+  if (!isCategoryVisibleToViewer(category, viewer)) return false;
+  const excluded = getSubcategoryExcludedRoleIds(category, subcategoryName);
+  if (excluded.length === 0) return true;
+  if (viewer.isGuest) return false; // restricted subcategories are member-only
+  if (!viewer.roleId) return false; // member without a role: fail closed
+  return !excluded.includes(viewer.roleId);
+}
+
+/**
+ * Task #3320: a copy of the category whose `subcategories` list only contains
+ * names the viewer may see in THIS category. Used when building filter
+ * sidebars so hidden subcategory chips never render.
+ */
+export function filterCategorySubcategoriesForViewer(category, viewer = {}) {
+  const subs = Array.isArray(category?.subcategories) ? category.subcategories : [];
+  return {
+    ...category,
+    subcategories: subs.filter(
+      (s) => typeof s === 'string' && s && isSubcategoryVisibleInCategory(category, s, viewer)
+    ),
+  };
+}
+
+/**
+ * Task #3320: strip access-control fields before returning categories to
+ * non-admin callers.
+ */
+export function stripCategoryAccessFields(category) {
+  const { excluded_role_ids, subcategory_excluded_role_ids, ...rest } = category || {};
+  return rest;
+}
+
+/**
  * Subcategory names the viewer must not see: present in some hidden category
  * and absent from every visible category.
  * @returns {Set<string>}
@@ -51,11 +117,15 @@ export function computeHiddenSubcategories(categories, viewer = {}) {
   const visible = new Set();
   for (const cat of categories || []) {
     const subs = Array.isArray(cat?.subcategories) ? cat.subcategories : [];
-    const target = isCategoryVisibleToViewer(cat, viewer) ? visible : hidden;
     for (const s of subs) {
-      if (typeof s === 'string' && s) target.add(s);
+      if (typeof s !== 'string' || !s) continue;
+      // Task #3320: an occurrence is hidden when its category is hidden OR
+      // the subcategory itself is role-excluded within a visible category.
+      const target = isSubcategoryVisibleInCategory(cat, s, viewer) ? visible : hidden;
+      target.add(s);
     }
   }
+  // Duplicate names across categories: any visible occurrence wins.
   for (const s of visible) hidden.delete(s);
   return hidden;
 }
@@ -83,17 +153,22 @@ export function filterResourcesByCategoryAccess(resources, hiddenSubcategories) 
  */
 export async function fetchCategoriesWithAccess(supabaseClient, tenantId) {
   const base = 'id, name, description, subcategories, applies_to_content_types, display_order, is_active';
-  let { data, error } = await supabaseClient
-    .from('resource_category')
-    .select(`${base}, excluded_role_ids`)
-    .eq('tenant_id', tenantId)
-    .order('display_order', { ascending: true });
-  if (error && error.code === '42703') {
+  // Try the fullest column set first, then degrade (42703 = column missing in
+  // this environment; the corresponding feature is simply inert there).
+  const selects = [
+    `${base}, excluded_role_ids, subcategory_excluded_role_ids`,
+    `${base}, excluded_role_ids`,
+    base,
+  ];
+  let data = null;
+  let error = null;
+  for (const sel of selects) {
     ({ data, error } = await supabaseClient
       .from('resource_category')
-      .select(base)
+      .select(sel)
       .eq('tenant_id', tenantId)
       .order('display_order', { ascending: true }));
+    if (!error || error.code !== '42703') break;
   }
   if (error) throw error;
   return data || [];

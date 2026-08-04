@@ -21,7 +21,7 @@ import { reindexMemberContentEntitySafe } from '../../_lib/memberContentReindexH
 import { syncBlogPostAuthors } from '../../_lib/blogPostAuthors.js';
 import { checkMemberQuota, checkEventQuota } from '../../_lib/planQuota.js';
 import { filterInternalNotesForViewer } from '../../_lib/supportTicketQueues.js';
-import { isCategoryRestricted, filterCategoriesForViewer } from '../../_lib/resourceCategoryAccess.js';
+import { isCategoryRestricted, hasSubcategoryRestrictions, filterCategoriesForViewer, filterCategorySubcategoriesForViewer, stripCategoryAccessFields } from '../../_lib/resourceCategoryAccess.js';
 import { sendSubmissionEmailsGuarded } from '../../_lib/formSubmissionEmails.js';
 
 /**
@@ -1021,7 +1021,8 @@ export default async function handler(req, res) {
       // pickers. Categories with no exclusions are untouched (current behaviour).
       if (entityNorm === 'resourcecategory') {
         const rows = data || [];
-        const anyRestricted = rows.some((c) => isCategoryRestricted(c));
+        // Task #3320: subcategory-level exclusions also count as restrictions.
+        const anyRestricted = rows.some((c) => isCategoryRestricted(c) || hasSubcategoryRestrictions(c));
         let visibleRows = rows;
         if (anyRestricted) {
           const isPrivileged = !!tenantCtx.tenantUserId
@@ -1029,7 +1030,14 @@ export default async function handler(req, res) {
             || (tenantCtx.roleId
               ? await hasFeatureAccess(tenantCtx.roleId, 'content.resource-management')
               : false);
-          visibleRows = filterCategoriesForViewer(rows, { roleId: tenantCtx.roleId, isPrivileged });
+          const viewer = { roleId: tenantCtx.roleId, isPrivileged };
+          visibleRows = filterCategoriesForViewer(rows, viewer);
+          if (!isPrivileged) {
+            // Non-privileged members never see role-excluded subcategory names
+            // or the exclusion data itself (Task #3320).
+            visibleRows = visibleRows.map((c) =>
+              stripCategoryAccessFields(filterCategorySubcategoriesForViewer(c, viewer)));
+          }
         }
         if (wantsCount) {
           // The DB `count` ignores post-filtering. When the page holds the
@@ -1093,7 +1101,8 @@ export default async function handler(req, res) {
       // resource categories. Only admins / resource managers may set it at
       // creation time — mirrors the PATCH guard in [id].js.
       if (entityNorm === 'resourcecategory'
-          && Object.prototype.hasOwnProperty.call(sanitizedBody, 'excluded_role_ids')) {
+          && (Object.prototype.hasOwnProperty.call(sanitizedBody, 'excluded_role_ids')
+            || Object.prototype.hasOwnProperty.call(sanitizedBody, 'subcategory_excluded_role_ids'))) {
         const canManage = !!tenantCtx.tenantUserId
           || await hasAdminAccess(tenantCtx)
           || (tenantCtx.roleId

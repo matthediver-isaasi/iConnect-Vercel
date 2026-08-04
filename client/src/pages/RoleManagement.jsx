@@ -70,6 +70,12 @@ export default function RoleManagementPage() {
   // (true = role can see the category). Applied to the categories' own
   // excluded_role_ids on Save; untouched categories are never written.
   const [categoryAccessOverrides, setCategoryAccessOverrides] = useState({});
+  // Task #3320: per-role SUBcategory access edits, keyed by `${categoryId}::${subcategoryName}`
+  // (true = role can see the subcategory). Saved through the same endpoint,
+  // one atomic change per toggled subcategory.
+  const [subcategoryAccessOverrides, setSubcategoryAccessOverrides] = useState({});
+  // Which category rows are expanded to show their subcategory toggles.
+  const [expandedCategoryAccess, setExpandedCategoryAccess] = useState({});
   const [showDialog, setShowDialog] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [roleToDelete, setRoleToDelete] = useState(null);
@@ -447,6 +453,8 @@ export default function RoleManagementPage() {
       max_members: null    // null = unlimited
     });
     setCategoryAccessOverrides({});
+    setSubcategoryAccessOverrides({});
+    setExpandedCategoryAccess({});
     setShowDialog(true);
   };
 
@@ -456,6 +464,8 @@ export default function RoleManagementPage() {
       segment_values: role.segment_values || []  // Ensure array for editing
     });
     setCategoryAccessOverrides({});
+    setSubcategoryAccessOverrides({});
+    setExpandedCategoryAccess({});
     setShowDialog(true);
   };
 
@@ -471,6 +481,30 @@ export default function RoleManagementPage() {
   const toggleCategoryAccess = (category) => {
     const next = !roleHasCategoryAccess(category);
     setCategoryAccessOverrides(prev => ({ ...prev, [category.id]: next }));
+  };
+
+  // Task #3320: whether a role can currently see a subcategory of a category
+  // (pending edits first). Independent of the category-level toggle — the UI
+  // greys these out when the whole category is off.
+  const subKey = (categoryId, sub) => `${categoryId}::${sub}`;
+
+  const roleHasSubcategoryAccess = (category, sub) => {
+    const key = subKey(category.id, sub);
+    if (subcategoryAccessOverrides[key] !== undefined) {
+      return subcategoryAccessOverrides[key];
+    }
+    const map = category.subcategory_excluded_role_ids;
+    const excluded = (map && typeof map === 'object' && Array.isArray(map[sub])) ? map[sub] : [];
+    return !editingRole?.id || !excluded.includes(editingRole.id);
+  };
+
+  const toggleSubcategoryAccess = (category, sub) => {
+    const next = !roleHasSubcategoryAccess(category, sub);
+    setSubcategoryAccessOverrides(prev => ({ ...prev, [subKey(category.id, sub)]: next }));
+  };
+
+  const toggleCategoryAccessExpanded = (categoryId) => {
+    setExpandedCategoryAccess(prev => ({ ...prev, [categoryId]: !prev[categoryId] }));
   };
 
   const toggleSegmentValue = (value) => {
@@ -528,7 +562,16 @@ export default function RoleManagementPage() {
       // roles' exclusions are never clobbered). Only toggled categories are
       // written; a category's excluded_role_ids stays empty (= visible to all)
       // unless someone deliberately restricts it.
-      if (Object.keys(categoryAccessOverrides).length > 0) {
+      const pendingAccessChanges = [
+        ...Object.entries(categoryAccessOverrides).map(([categoryId, hasAccess]) => ({ categoryId, hasAccess })),
+        // Task #3320: subcategory-level toggles ride along in the same batch;
+        // keys are `${categoryId}::${subcategoryName}`.
+        ...Object.entries(subcategoryAccessOverrides).map(([key, hasAccess]) => {
+          const sep = key.indexOf('::');
+          return { categoryId: key.slice(0, sep), subcategory: key.slice(sep + 2), hasAccess };
+        }),
+      ];
+      if (pendingAccessChanges.length > 0) {
         try {
           // Server applies each change atomically (SQL add/remove of just this
           // role id), so concurrent edits to other roles' exclusions are never
@@ -539,7 +582,7 @@ export default function RoleManagementPage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               roleId: editingRole.id,
-              changes: Object.entries(categoryAccessOverrides).map(([categoryId, hasAccess]) => ({ categoryId, hasAccess })),
+              changes: pendingAccessChanges,
             }),
           });
           const result = await resp.json().catch(() => ({}));
@@ -548,6 +591,7 @@ export default function RoleManagementPage() {
               || `${result.failed?.length || 'some'} category change(s) failed`);
           }
           setCategoryAccessOverrides({});
+          setSubcategoryAccessOverrides({});
           queryClient.invalidateQueries({ queryKey: ['resource-categories-for-roles'] });
           queryClient.invalidateQueries({ queryKey: ['authenticated-resource-categories'] });
         } catch (err) {
@@ -1373,6 +1417,8 @@ export default function RoleManagementPage() {
                       Control which resource categories this role can see on the Resources page.
                       Categories left available to every role are visible to all members (and guests),
                       exactly as before — restrictions only apply where you untick a role.
+                      Expand a category to hide individual subcategories for this role while keeping
+                      the rest of the category visible.
                     </p>
                     {!editingRole.id ? (
                       <p className="text-sm text-slate-500 italic border rounded-lg p-3 bg-slate-50/50" data-testid="text-category-access-save-first">
@@ -1388,25 +1434,77 @@ export default function RoleManagementPage() {
                           const hasAccess = roleHasCategoryAccess(category);
                           const otherExclusions = (Array.isArray(category.excluded_role_ids) ? category.excluded_role_ids : [])
                             .filter(r => r !== editingRole.id).length;
+                          const subs = (category.subcategories || []).filter(s => typeof s === 'string' && s);
+                          const isExpanded = !!expandedCategoryAccess[category.id];
                           return (
-                            <div key={category.id} className="flex items-center justify-between gap-3 p-2 rounded-md bg-white border">
-                              <div className="min-w-0">
-                                <p className="text-sm font-medium text-slate-800 truncate">{category.name}</p>
-                                <p className="text-xs text-slate-500 truncate">
-                                  {(category.subcategories || []).length} subcategories
-                                  {otherExclusions > 0 && ` · restricted for ${otherExclusions} other role${otherExclusions === 1 ? '' : 's'}`}
-                                </p>
+                            <div key={category.id} className="rounded-md bg-white border">
+                              <div className="flex items-center justify-between gap-3 p-2">
+                                <div className="flex items-center gap-1 min-w-0">
+                                  {subs.length > 0 ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleCategoryAccessExpanded(category.id)}
+                                      className="p-1 rounded hover:bg-slate-100 shrink-0"
+                                      aria-label={isExpanded ? 'Collapse subcategories' : 'Expand subcategories'}
+                                      data-testid={`button-expand-category-access-${category.id}`}
+                                    >
+                                      {isExpanded
+                                        ? <ChevronDown className="w-4 h-4 text-slate-500" />
+                                        : <ChevronRight className="w-4 h-4 text-slate-500" />}
+                                    </button>
+                                  ) : (
+                                    <span className="w-6 shrink-0" />
+                                  )}
+                                  <div className="min-w-0">
+                                    <p className="text-sm font-medium text-slate-800 truncate">{category.name}</p>
+                                    <p className="text-xs text-slate-500 truncate">
+                                      {subs.length} subcategories
+                                      {otherExclusions > 0 && ` · restricted for ${otherExclusions} other role${otherExclusions === 1 ? '' : 's'}`}
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <span className={`text-xs ${hasAccess ? 'text-green-600' : 'text-red-600'}`}>
+                                    {hasAccess ? 'Visible' : 'Hidden'}
+                                  </span>
+                                  <Switch
+                                    checked={hasAccess}
+                                    onCheckedChange={() => toggleCategoryAccess(category)}
+                                    data-testid={`switch-category-access-${category.id}`}
+                                  />
+                                </div>
                               </div>
-                              <div className="flex items-center gap-2 shrink-0">
-                                <span className={`text-xs ${hasAccess ? 'text-green-600' : 'text-red-600'}`}>
-                                  {hasAccess ? 'Visible' : 'Hidden'}
-                                </span>
-                                <Switch
-                                  checked={hasAccess}
-                                  onCheckedChange={() => toggleCategoryAccess(category)}
-                                  data-testid={`switch-category-access-${category.id}`}
-                                />
-                              </div>
+                              {/* Task #3320: per-subcategory toggles. Greyed out while
+                                  the whole category is hidden (category off = all hidden). */}
+                              {isExpanded && subs.length > 0 && (
+                                <div className={`border-t px-3 py-2 space-y-1 ${!hasAccess ? 'opacity-50' : ''}`}>
+                                  {!hasAccess && (
+                                    <p className="text-xs text-slate-500 italic pb-1">
+                                      The whole category is hidden for this role — subcategory settings apply once the category is visible again.
+                                    </p>
+                                  )}
+                                  {subs.map((sub) => {
+                                    const subHasAccess = roleHasSubcategoryAccess(category, sub);
+                                    return (
+                                      <div key={sub} className="flex items-center justify-between gap-3 pl-6 py-1">
+                                        <span className="text-xs text-slate-700 truncate">{sub}</span>
+                                        <div className="flex items-center gap-2 shrink-0">
+                                          <span className={`text-[11px] ${subHasAccess ? 'text-green-600' : 'text-red-600'}`}>
+                                            {subHasAccess ? 'Visible' : 'Hidden'}
+                                          </span>
+                                          <Switch
+                                            checked={subHasAccess}
+                                            onCheckedChange={() => toggleSubcategoryAccess(category, sub)}
+                                            disabled={!hasAccess}
+                                            className="scale-75"
+                                            data-testid={`switch-subcategory-access-${category.id}-${sub}`}
+                                          />
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
                             </div>
                           );
                         })}

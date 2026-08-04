@@ -21,7 +21,7 @@ import { sendSupportNotification } from '../../support/notify.js';
 import { getAccountingProvider } from '../../_lib/accountingProvider.js';
 import { pruneSpeakerIdsFromReferences } from '../../_lib/speakerReferences.js';
 import { assessAiCodePagePublishGate } from '../../_lib/aiCodeActions.js';
-import { isCategoryRestricted, isCategoryVisibleToViewer } from '../../_lib/resourceCategoryAccess.js';
+import { isCategoryRestricted, hasSubcategoryRestrictions, isCategoryVisibleToViewer, filterCategorySubcategoriesForViewer, getSubcategoryExclusionMap } from '../../_lib/resourceCategoryAccess.js';
 
 // Entity name to Supabase table mapping (singular names for Base44 compatibility)
 const entityToTable = {
@@ -381,14 +381,23 @@ export default async function handler(req, res) {
       // SECURITY (Task #3306): role-restricted resource categories are hidden
       // from excluded member roles. Non-privileged by-id reads get a 404,
       // mirroring the list-endpoint filter in index.js.
-      if (entityNorm === 'resourcecategory' && data && isCategoryRestricted(data)) {
+      if (entityNorm === 'resourcecategory' && data
+          && (isCategoryRestricted(data) || hasSubcategoryRestrictions(data))) {
         const isPrivileged = !!tenantCtx.tenantUserId
           || await hasAdminAccess(tenantCtx)
           || (tenantCtx.roleId
             ? await hasFeatureAccess(tenantCtx.roleId, 'content.resource-management')
             : false);
-        if (!isCategoryVisibleToViewer(data, { roleId: tenantCtx.roleId, isPrivileged })) {
+        const viewer = { roleId: tenantCtx.roleId, isPrivileged };
+        if (!isCategoryVisibleToViewer(data, viewer)) {
           return res.status(404).json({ error: 'Not found' });
+        }
+        if (!isPrivileged) {
+          // Task #3320: hide role-excluded subcategory names and strip the
+          // access-control fields for non-privileged readers.
+          data.subcategories = filterCategorySubcategoriesForViewer(data, viewer).subcategories;
+          delete data.excluded_role_ids;
+          delete data.subcategory_excluded_role_ids;
         }
       }
 
@@ -413,7 +422,8 @@ export default async function handler(req, res) {
       // resource categories. Only admins / resource managers may change it —
       // otherwise any member could lift or impose category restrictions.
       if (entityNormalized === 'resourcecategory'
-          && req.body && Object.prototype.hasOwnProperty.call(req.body, 'excluded_role_ids')) {
+          && req.body && (Object.prototype.hasOwnProperty.call(req.body, 'excluded_role_ids')
+            || Object.prototype.hasOwnProperty.call(req.body, 'subcategory_excluded_role_ids'))) {
         const canManage = !!tenantCtx.tenantUserId
           || await hasAdminAccess(tenantCtx)
           || (tenantCtx.roleId
@@ -516,6 +526,39 @@ export default async function handler(req, res) {
       for (const field of uuidFields) {
         if (field in sanitizedBody && sanitizedBody[field] === '') {
           sanitizedBody[field] = null;
+        }
+      }
+
+      // Task #3320: when a resource category's subcategories list changes,
+      // prune per-role exclusion entries for subcategories that no longer
+      // exist so settings can't orphan. Renames go through the dedicated
+      // rename function (which carries entries over); this handles removals.
+      // Best-effort: environments without the column (42703) skip silently.
+      if (entityNormalized === 'resourcecategory'
+          && Object.prototype.hasOwnProperty.call(sanitizedBody, 'subcategories')
+          && !Object.prototype.hasOwnProperty.call(sanitizedBody, 'subcategory_excluded_role_ids')) {
+        try {
+          const { data: currentCat, error: curErr } = await supabase
+            .from(tableName)
+            .select('subcategory_excluded_role_ids')
+            .eq('id', id)
+            .single();
+          if (!curErr && currentCat) {
+            const map = getSubcategoryExclusionMap(currentCat);
+            const nextSubs = new Set(
+              (Array.isArray(sanitizedBody.subcategories) ? sanitizedBody.subcategories : [])
+                .filter((s) => typeof s === 'string')
+            );
+            const pruned = {};
+            let removed = false;
+            for (const [name, roleIds] of Object.entries(map)) {
+              if (nextSubs.has(name)) pruned[name] = roleIds;
+              else removed = true;
+            }
+            if (removed) sanitizedBody.subcategory_excluded_role_ids = pruned;
+          }
+        } catch (pruneErr) {
+          console.warn('[Entity PATCH] resource_category subcategory exclusion prune skipped:', pruneErr?.message);
         }
       }
 

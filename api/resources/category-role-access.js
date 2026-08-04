@@ -1,10 +1,14 @@
 // Task #3306: apply per-role resource category access changes atomically.
-// POST { roleId, changes: [{ categoryId, hasAccess }] }
+// POST { roleId, changes: [{ categoryId, hasAccess, subcategory? }] }
 // Each change runs through the resource_category_set_role_access() SQL
 // function, which adds/removes ONLY the given role id inside
 // excluded_role_ids in a single UPDATE — concurrent edits by other admins to
 // other roles' exclusions are never clobbered (unlike a client
 // read-modify-write of the full array).
+// Task #3320: a change carrying a `subcategory` name applies at subcategory
+// level instead, via resource_category_set_subcategory_role_access(), which
+// mutates only that (subcategory, role) pair inside
+// subcategory_excluded_role_ids with the same atomic/idempotent guarantees.
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tenantContext.js';
 
@@ -41,8 +45,30 @@ export default async function handler(req, res) {
     for (const change of changes) {
       const categoryId = change?.categoryId;
       const hasAccess = change?.hasAccess === true;
+      const subcategory = change?.subcategory;
       if (!categoryId || typeof categoryId !== 'string') {
         failed.push({ categoryId, error: 'Invalid categoryId' });
+        continue;
+      }
+      if (subcategory !== undefined
+          && (typeof subcategory !== 'string' || !subcategory.trim() || subcategory.length > 200)) {
+        failed.push({ categoryId, subcategory, error: 'Invalid subcategory' });
+        continue;
+      }
+      if (subcategory) {
+        const { data, error } = await supabase.rpc('resource_category_set_subcategory_role_access', {
+          p_category_id: categoryId,
+          p_tenant_id: ctx.tenantId,
+          p_role_id: roleId,
+          p_subcategory: subcategory,
+          p_has_access: hasAccess,
+        });
+        if (error) {
+          console.error('[category-role-access] subcategory rpc failed:', categoryId, subcategory, error.message);
+          failed.push({ categoryId, subcategory, error: error.message });
+        } else {
+          applied.push({ categoryId, subcategory, subcategory_excluded_role_ids: data });
+        }
         continue;
       }
       const { data, error } = await supabase.rpc('resource_category_set_role_access', {

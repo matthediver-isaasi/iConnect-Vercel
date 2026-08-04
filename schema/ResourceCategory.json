@@ -36,6 +36,17 @@
         "default": [],
         "description": "Member role IDs that cannot see this category (and resources exclusively tagged with its subcategories). Empty array means all roles can see it. A category with any exclusions is member-only (hidden from guests)."
       },
+      "subcategory_excluded_role_ids": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "default": {},
+        "description": "Map of subcategory name to member role IDs that cannot see that subcategory within this category. Missing/empty entries follow the category's own visibility. A subcategory with any exclusions is member-only (hidden from guests). Managed via the category-role-access endpoint; renames carry entries over and removals prune them."
+      },
       "applies_to_content_types": {
         "type": "array",
         "items": {

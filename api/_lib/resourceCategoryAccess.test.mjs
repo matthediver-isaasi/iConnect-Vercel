@@ -9,6 +9,12 @@ import {
   computeHiddenSubcategories,
   isResourceHiddenByCategories,
   filterResourcesByCategoryAccess,
+  getSubcategoryExclusionMap,
+  getSubcategoryExcludedRoleIds,
+  hasSubcategoryRestrictions,
+  isSubcategoryVisibleInCategory,
+  filterCategorySubcategoriesForViewer,
+  stripCategoryAccessFields,
 } from './resourceCategoryAccess.js';
 
 const cats = [
@@ -71,6 +77,81 @@ test('resource hidden only when ALL of its subcategories are hidden', () => {
   assert.equal(isResourceHiddenByCategories({ subcategories: ['Legacy'] }, hidden), false);
   // empty hidden set is a no-op
   assert.equal(isResourceHiddenByCategories({ subcategories: ['C'] }, new Set()), false);
+});
+
+// ---- Task #3320: subcategory-level role exclusions ----
+
+const subCats = [
+  {
+    id: 's1',
+    subcategories: ['A', 'B'],
+    excluded_role_ids: [],
+    subcategory_excluded_role_ids: { B: ['r1'] },
+  },
+  {
+    id: 's2',
+    subcategories: ['B', 'C'],
+    excluded_role_ids: ['r1'],
+    subcategory_excluded_role_ids: {},
+  },
+];
+
+test('malformed/empty subcategory exclusion maps read as unrestricted', () => {
+  assert.deepEqual(getSubcategoryExclusionMap({}), {});
+  assert.deepEqual(getSubcategoryExclusionMap({ subcategory_excluded_role_ids: null }), {});
+  assert.deepEqual(getSubcategoryExclusionMap({ subcategory_excluded_role_ids: ['junk'] }), {});
+  assert.deepEqual(getSubcategoryExcludedRoleIds({ subcategory_excluded_role_ids: { A: ['r1', '', 42] } }, 'A'), ['r1']);
+  assert.equal(hasSubcategoryRestrictions({ subcategory_excluded_role_ids: {} }), false);
+  assert.equal(hasSubcategoryRestrictions({ subcategory_excluded_role_ids: { A: [] } }), false);
+  assert.equal(hasSubcategoryRestrictions({ subcategory_excluded_role_ids: { A: ['r1'] } }), true);
+});
+
+test('subcategory visibility: excluded role loses only that subcategory', () => {
+  assert.equal(isSubcategoryVisibleInCategory(subCats[0], 'A', { roleId: 'r1' }), true);
+  assert.equal(isSubcategoryVisibleInCategory(subCats[0], 'B', { roleId: 'r1' }), false);
+  assert.equal(isSubcategoryVisibleInCategory(subCats[0], 'B', { roleId: 'r2' }), true);
+  // Category hidden => every subcategory hidden regardless of the map.
+  assert.equal(isSubcategoryVisibleInCategory(subCats[1], 'C', { roleId: 'r1' }), false);
+  // Privileged bypass.
+  assert.equal(isSubcategoryVisibleInCategory(subCats[0], 'B', { isPrivileged: true }), true);
+  // Guests / roleless members fail closed on restricted subcategories.
+  assert.equal(isSubcategoryVisibleInCategory(subCats[0], 'B', { isGuest: true }), false);
+  assert.equal(isSubcategoryVisibleInCategory(subCats[0], 'B', { roleId: null }), false);
+});
+
+test('computeHiddenSubcategories includes role-excluded subs of visible categories', () => {
+  // r1: category s2 hidden (B, C), sub B of s1 excluded => B hidden everywhere, C hidden, A visible.
+  assert.deepEqual([...computeHiddenSubcategories(subCats, { roleId: 'r1' })].sort(), ['B', 'C']);
+  // r2 sees everything.
+  assert.equal(computeHiddenSubcategories(subCats, { roleId: 'r2' }).size, 0);
+});
+
+test('duplicate subcategory names: any visible occurrence rescues the name', () => {
+  const cats = [
+    { id: 'x', subcategories: ['B'], subcategory_excluded_role_ids: { B: ['r1'] } },
+    { id: 'y', subcategories: ['B'], subcategory_excluded_role_ids: {} },
+  ];
+  assert.equal(computeHiddenSubcategories(cats, { roleId: 'r1' }).size, 0);
+});
+
+test('filterCategorySubcategoriesForViewer trims only hidden occurrences', () => {
+  assert.deepEqual(filterCategorySubcategoriesForViewer(subCats[0], { roleId: 'r1' }).subcategories, ['A']);
+  assert.deepEqual(filterCategorySubcategoriesForViewer(subCats[0], { roleId: 'r2' }).subcategories, ['A', 'B']);
+  assert.deepEqual(filterCategorySubcategoriesForViewer(subCats[0], { isGuest: true }).subcategories, ['A']);
+  assert.deepEqual(filterCategorySubcategoriesForViewer(subCats[0], { isPrivileged: true }).subcategories, ['A', 'B']);
+});
+
+test('stripCategoryAccessFields removes both access-control fields', () => {
+  const stripped = stripCategoryAccessFields(subCats[0]);
+  assert.equal('excluded_role_ids' in stripped, false);
+  assert.equal('subcategory_excluded_role_ids' in stripped, false);
+  assert.equal(stripped.id, 's1');
+});
+
+test('no subcategory restrictions anywhere = zero behaviour change', () => {
+  for (const viewer of [{ isGuest: true }, { roleId: 'r9' }, { roleId: null }, { isPrivileged: true }]) {
+    assert.equal(computeHiddenSubcategories([{ id: 'p', subcategories: ['A'], subcategory_excluded_role_ids: {} }], viewer).size, 0);
+  }
 });
 
 test('filterResourcesByCategoryAccess keeps identity when nothing hidden', () => {
