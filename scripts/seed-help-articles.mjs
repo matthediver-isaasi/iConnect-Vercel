@@ -1344,6 +1344,107 @@ The page lists the members linked to your organisation, so you can check who's c
 ## Awards and verified domains
 Where used, you'll also see any awards your organisation holds and the email domains verified as belonging to it (used to recognise your colleagues automatically).`,
   },
+
+  // ------------------------------------------------------------- Forms admin
+  {
+    slug: 'forms-managing-submissions',
+    title: 'Forms: finding, filtering and exporting submissions',
+    category: 'Forms',
+    summary: 'Manage your forms, then find, filter, review and export the submissions that come in.',
+    status: 'published',
+    sort_order: 40,
+    required_feature: 'forms.submissions',
+    body: `When people complete your forms, everything they send arrives in one place: the Form Submissions page. This article shows you how to find the submissions you need, filter and save views, review individual entries, and export them. It starts with a quick tour of where forms themselves are managed.
+
+{{feature: forms.form-management}}
+## Where forms live: Form Management
+Form Management is the home for the forms themselves. From here you can:
+
+- Create a new form, or edit an existing one in the Form Builder.
+- Duplicate a form — handy for reusing a structure; the copy starts with no submissions.
+- Activate or deactivate a form. Inactive forms stop accepting submissions but keep everything already received.
+- Switch between the tabs for standard forms and contract forms, and use the search, status, and other filters to find a form quickly. Pin the forms you use most so they stay at the top.
+
+Each form card shows how many submissions it has received, with a shortcut through to those submissions.
+
+{{screenshot: The Form Management page with the standard forms tab}}
+{{/feature}}
+
+## The Form Submissions page
+Open Form Submissions from the navigation to see every submission you have access to, newest first.
+
+At the top, summary cards give you the headline counts:
+
+- All Submissions — everything in your current scope.
+- New — submissions nobody has dealt with yet.
+- Actioned — submissions marked as handled.
+- Junk — spam or test entries you've set aside.
+
+Below the cards, Submission Trends compares recent periods (last 7, 30, 90 and 365 days) against the previous period, so you can see at a glance whether activity is rising or falling.
+
+{{screenshot: The Form Submissions page with status cards and trends}}
+
+### All vs My Forms
+If you own any forms, two tabs appear at the top: **All** shows every submission you can see, while **My Forms** narrows the list to submissions on forms you own. If you don't own any forms, the tabs are hidden and you simply see everything you have access to.
+
+## Filtering submissions
+The filter bar lets you combine several filters:
+
+- **Search** — matches against the submission's content and submitter details.
+- **Form** — pick a single form, or leave it on "All Forms". By default only active forms are listed; switch on **Include inactive forms** to filter by a form that's been deactivated (inactive forms are marked "(inactive)" in the list).
+- **Status** — All Status, New, Junk or Actioned.
+- **Date range** — From and To dates, with a "Clear dates" shortcut.
+
+Your filters are kept in the page's address (URL), so a filtered view survives a refresh — and you can bookmark it or share the link with a colleague, who'll land on exactly the same filtered list.
+
+{{screenshot: The submissions filter bar with a form and status selected}}
+
+## Saved views
+If you keep coming back to the same combination of filters, save it as a personal view:
+
+1. Set the filters the way you want them.
+2. Choose **Save view** and give it a name — for example "New entries this month".
+3. Open **Saved views** any time to apply a view with one click.
+
+From the Saved views list you can also rename a view, update it with your current filters, or delete it. Views are personal to you — they don't change what colleagues see.
+
+{{screenshot: The Saved views list with a view being applied}}
+
+## Reviewing a submission and changing its status
+Each submission in the list shows who submitted it, when, which form it came from, and its current status. Choose **View Full** to open the complete submission, laid out section by section as the form was designed.
+
+From the submission view you can:
+
+- Change the status between New, Actioned and Junk using the status dropdown — use this to keep track of what's been dealt with.
+- Edit an individual answer using the pencil icon next to it, if something needs correcting.
+- Send a reply email to the submitter and see any replies already sent.
+
+You can also update the status of several submissions at once from the list: tick the submissions (or "Select all"), choose a status, and apply it in bulk.
+
+{{screenshot: A submission opened in full view with the status dropdown}}
+
+## Exporting submissions
+There are two export formats, and both respect your current filters:
+
+- **Export CSV** — a spreadsheet of the filtered submissions. Select a single form first (the columns come from that form's fields), then tick exactly the fields you want as columns before exporting.
+- **Export Word** — a formatted document, available whether or not a single form is selected. Choose which fields to include, then export.
+
+If you've ticked specific submissions in the list, the export covers just your selection; otherwise it covers everything matching the current filters — the export dialog tells you how many submissions will be included before you confirm. You can also download a single submission as a Word document straight from the list.
+
+{{screenshot: The export dialog with field selection}}
+
+## Re-processing a submission and resending its emails
+Some forms do work when a submission arrives — creating or updating records, and sending confirmation or notification emails. If something went wrong (or you need the emails to go out again), use the **re-run** button on the submission in the list.
+
+Re-running processes the submission again and deliberately resends its emails, even if they were already sent — so use it when you genuinely want the emails to go out again. You'll see a message confirming whether emails were resent, skipped, or failed. Any issues found during processing are recorded as processing notes on the submission itself.
+
+{{screenshot: The re-run button on a submission row}}
+
+{{feature: forms.due-diligence-dashboard}}
+## Due diligence submissions
+Submissions on due diligence forms appear in this list too, but they're managed through their own workflow — for example, they can't be deleted from here. For scoring, review stages and everything else specific to due diligence, see [the Due Diligence Dashboard guide](/help/forms-due-diligence-dashboard).
+{{/feature}}`,
+  },
 ];
 
 async function run() {
