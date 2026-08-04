@@ -250,7 +250,11 @@ const FONT_SIZES = [
   { value: '192px', label: '192' },
 ];
 
-function MenuBar({ editor, breakpoint, anchorOptions }) {
+// Task #3379: `compact` mode strips the toolbar down to bold / italic /
+// underline / lists / link for small hosted surfaces (e.g. the dynamic
+// text slot popover on the campaign edit page). The full email builder
+// keeps every control.
+function MenuBar({ editor, breakpoint, anchorOptions, compact }) {
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
   // Per-link "open in new tab" choice. New links default to same tab; existing
@@ -292,36 +296,40 @@ function MenuBar({ editor, breakpoint, anchorOptions }) {
   return (
     <div className="border-b p-1 space-y-1">
       <div className="flex flex-wrap gap-0.5 items-center">
-        <ToolbarButton
-          onClick={() => editor.chain().focus().setParagraph().run()}
-          isActive={editor.isActive('paragraph')}
-          title="Paragraph"
-        >
-          <Type className="h-3.5 w-3.5" />
-        </ToolbarButton>
-        <ToolbarButton
-          onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
-          isActive={editor.isActive('heading', { level: 1 })}
-          title="Heading 1"
-        >
-          <Heading1 className="h-3.5 w-3.5" />
-        </ToolbarButton>
-        <ToolbarButton
-          onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
-          isActive={editor.isActive('heading', { level: 2 })}
-          title="Heading 2"
-        >
-          <Heading2 className="h-3.5 w-3.5" />
-        </ToolbarButton>
-        <ToolbarButton
-          onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
-          isActive={editor.isActive('heading', { level: 3 })}
-          title="Heading 3"
-        >
-          <Heading3 className="h-3.5 w-3.5" />
-        </ToolbarButton>
+        {!compact && (
+          <>
+            <ToolbarButton
+              onClick={() => editor.chain().focus().setParagraph().run()}
+              isActive={editor.isActive('paragraph')}
+              title="Paragraph"
+            >
+              <Type className="h-3.5 w-3.5" />
+            </ToolbarButton>
+            <ToolbarButton
+              onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+              isActive={editor.isActive('heading', { level: 1 })}
+              title="Heading 1"
+            >
+              <Heading1 className="h-3.5 w-3.5" />
+            </ToolbarButton>
+            <ToolbarButton
+              onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+              isActive={editor.isActive('heading', { level: 2 })}
+              title="Heading 2"
+            >
+              <Heading2 className="h-3.5 w-3.5" />
+            </ToolbarButton>
+            <ToolbarButton
+              onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
+              isActive={editor.isActive('heading', { level: 3 })}
+              title="Heading 3"
+            >
+              <Heading3 className="h-3.5 w-3.5" />
+            </ToolbarButton>
 
-        <div className="w-px bg-border mx-0.5 self-stretch" />
+            <div className="w-px bg-border mx-0.5 self-stretch" />
+          </>
+        )}
 
         <ToolbarButton
           onClick={() => editor.chain().focus().toggleBold().run()}
@@ -344,37 +352,41 @@ function MenuBar({ editor, breakpoint, anchorOptions }) {
         >
           <UnderlineIcon className="h-3.5 w-3.5" />
         </ToolbarButton>
-        <ToolbarButton
-          onClick={() => editor.chain().focus().toggleStrike().run()}
-          isActive={editor.isActive('strike')}
-          title="Strikethrough"
-        >
-          <Strikethrough className="h-3.5 w-3.5" />
-        </ToolbarButton>
+        {!compact && (
+          <>
+            <ToolbarButton
+              onClick={() => editor.chain().focus().toggleStrike().run()}
+              isActive={editor.isActive('strike')}
+              title="Strikethrough"
+            >
+              <Strikethrough className="h-3.5 w-3.5" />
+            </ToolbarButton>
 
-        <div className="w-px bg-border mx-0.5 self-stretch" />
+            <div className="w-px bg-border mx-0.5 self-stretch" />
 
-        <ToolbarButton
-          onClick={() => editor.chain().focus().setTextAlign('left').run()}
-          isActive={editor.isActive({ textAlign: 'left' })}
-          title="Align left"
-        >
-          <AlignLeft className="h-3.5 w-3.5" />
-        </ToolbarButton>
-        <ToolbarButton
-          onClick={() => editor.chain().focus().setTextAlign('center').run()}
-          isActive={editor.isActive({ textAlign: 'center' })}
-          title="Align center"
-        >
-          <AlignCenter className="h-3.5 w-3.5" />
-        </ToolbarButton>
-        <ToolbarButton
-          onClick={() => editor.chain().focus().setTextAlign('right').run()}
-          isActive={editor.isActive({ textAlign: 'right' })}
-          title="Align right"
-        >
-          <AlignRight className="h-3.5 w-3.5" />
-        </ToolbarButton>
+            <ToolbarButton
+              onClick={() => editor.chain().focus().setTextAlign('left').run()}
+              isActive={editor.isActive({ textAlign: 'left' })}
+              title="Align left"
+            >
+              <AlignLeft className="h-3.5 w-3.5" />
+            </ToolbarButton>
+            <ToolbarButton
+              onClick={() => editor.chain().focus().setTextAlign('center').run()}
+              isActive={editor.isActive({ textAlign: 'center' })}
+              title="Align center"
+            >
+              <AlignCenter className="h-3.5 w-3.5" />
+            </ToolbarButton>
+            <ToolbarButton
+              onClick={() => editor.chain().focus().setTextAlign('right').run()}
+              isActive={editor.isActive({ textAlign: 'right' })}
+              title="Align right"
+            >
+              <AlignRight className="h-3.5 w-3.5" />
+            </ToolbarButton>
+          </>
+        )}
 
         <div className="w-px bg-border mx-0.5 self-stretch" />
 
@@ -393,13 +405,15 @@ function MenuBar({ editor, breakpoint, anchorOptions }) {
           <ListOrdered className="h-3.5 w-3.5" />
         </ToolbarButton>
 
-        <ToolbarButton
-          onClick={() => editor.chain().focus().setHorizontalRule().run()}
-          isActive={false}
-          title="Horizontal rule"
-        >
-          <Minus className="h-3.5 w-3.5" />
-        </ToolbarButton>
+        {!compact && (
+          <ToolbarButton
+            onClick={() => editor.chain().focus().setHorizontalRule().run()}
+            isActive={false}
+            title="Horizontal rule"
+          >
+            <Minus className="h-3.5 w-3.5" />
+          </ToolbarButton>
+        )}
 
         <div className="w-px bg-border mx-0.5 self-stretch" />
 
@@ -424,6 +438,8 @@ function MenuBar({ editor, breakpoint, anchorOptions }) {
           )}
         </ToolbarButton>
 
+        {!compact && (
+          <>
         <div className="w-px bg-border mx-0.5 self-stretch" />
 
         <div className="relative inline-flex" title="Text color">
@@ -496,8 +512,11 @@ function MenuBar({ editor, breakpoint, anchorOptions }) {
         >
           <Redo className="h-3.5 w-3.5" />
         </ToolbarButton>
+          </>
+        )}
       </div>
 
+      {!compact && (
       <div className="flex gap-1 items-center px-1 flex-wrap">
         <Select
           value={currentFont || '__default__'}
@@ -558,6 +577,7 @@ function MenuBar({ editor, breakpoint, anchorOptions }) {
           </span>
         )}
       </div>
+      )}
 
       {showLinkInput && (
         <div className="flex gap-1 items-center px-1 pb-1">
@@ -617,7 +637,7 @@ function MenuBar({ editor, breakpoint, anchorOptions }) {
   );
 }
 
-export default function RichTextEditor({ content, onChange, fontFamily, color, lineHeight, breakpoint, anchorOptions }) {
+export default function RichTextEditor({ content, onChange, fontFamily, color, lineHeight, breakpoint, anchorOptions, compact }) {
   const buildStyle = (ff, c, lh) => [
     ff ? `font-family: ${ff}` : '',
     c ? `color: ${c}` : '',
@@ -688,7 +708,7 @@ export default function RichTextEditor({ content, onChange, fontFamily, color, l
 
   return (
     <div className="border rounded-md overflow-hidden bg-background" data-testid="rich-text-editor">
-      <MenuBar editor={editor} breakpoint={breakpoint} anchorOptions={anchorOptions} />
+      <MenuBar editor={editor} breakpoint={breakpoint} anchorOptions={anchorOptions} compact={compact} />
       <EditorContent editor={editor} />
     </div>
   );

@@ -623,6 +623,7 @@ function DynamicTextSlotEditor({ block, slotCtx }) {
     <div className="space-y-1.5" data-testid={`campaign-input-${block.token}`}>
       <span className="text-xs text-muted-foreground">Text</span>
       <RichTextEditor
+        compact
         content={content}
         onChange={(html) => {
           slotCtx.onChangeSlot(block.token, html);
