@@ -1,196 +1,10 @@
-import { MODULE_IDS, PAGE_IDS, FEATURE_TO_PAGE, RESOURCE_TO_MODULE } from './roleAccessHierarchy.generated.js';
+import { MODULE_IDS, PAGE_IDS, FEATURE_TO_PAGE, RESOURCE_TO_MODULE, LEGACY_TO_NEW_MAPPING } from './roleAccessHierarchy.generated.js';
+import { supabase as defaultSupabase } from './database.js';
 
-const LEGACY_TO_NEW_MAPPING = {
-  "page_user_BuyProgramTickets": "commerce.buy-tickets",
-  "page_user_Events": "events.browse-events",
-  "page_user_Bookings": "commerce.bookings",
-  "page_user_MyTickets": "events.my-tickets",
-  "page_user_Balances": "commerce.balances",
-  "page_user_History": "commerce.history",
-  "page_user_Team": "membership.team",
-  "page_user_MemberDirectory": "membership.member-directory",
-  "page_user_OrganisationDirectory": "membership.organisation-directory",
-  "page_user_MyOrganisation": "membership.my-organisation",
-  "page_user_Resources": "content.resources",
-  "page_user_ArticlesSection": "content",
-  "page_user_MyArticles": "content.my-articles",
-  "page_user_Articles": "content.articles",
-  "page_user_News": "content.news",
-  "page_user_MyJobPostings": "jobs.my-postings",
-  "page_user_Preferences": "communication.preferences",
-  "page_user_Support": "support.help",
-  "page_admin_NewsSection": "content",
-  "page_admin_NewsSettings": "content.news-settings",
-  "page_admin_ArticlesSection": "content",
-  "page_admin_ArticleManagement": "content.article-management",
-  "page_admin_ArticlesSettings": "content.articles-settings",
-  "page_admin_RoleManagement": "admin.role-management",
-  "page_admin_MemberRoleAssignment": "admin.member-role-assignment",
-  "page_admin_TeamMemberManagement": "admin.team-member-management",
-  "page_admin_MemberHandleManagement": "admin.member-handle-management",
-  "page_admin_MemberDirectorySettings": "membership.member-directory-settings",
-  "page_admin_DiscountCodeManagement": "events.discount-codes",
-  "page_admin_EventSettings": "events.event-settings",
-  "page_admin_TicketSalesAnalytics": "events.ticket-analytics",
-  "page_admin_AwardManagement": "content.awards",
-  "page_admin_CategoryManagement": "content.categories",
-  "page_admin_ResourceSettings": "content.resource-settings",
-  "page_admin_ResourcesSection": "content",
-  "page_admin_ResourceManagement": "content.resource-management",
-  "page_admin_TagManagement": "content.tags",
-  "page_admin_FileManagement": "content.files",
-  "page_admin_JobBoardSection": "jobs",
-  "page_admin_JobPostingManagement": "jobs.job-management",
-  "page_admin_JobBoardSettings": "jobs.job-settings",
-  "page_admin_PageBuilder": "site-builder",
-  "page_admin_IEditPageManagement": "site-builder.pages",
-  "page_admin_IEditTemplateManagement": "site-builder.templates",
-  "page_admin_PageBannerManagement": "site-builder.banners",
-  "page_admin_NavigationManagement": "site-builder.navigation",
-  "page_admin_MicrositeManagement": "site-builder.micro-sites",
-  "page_admin_ButtonElements": "site-builder.buttons",
-  "page_admin_ButtonStyleManagement": "site-builder.button-styles",
-  "page_admin_WallOfFameManagement": "site-builder.wall-of-fame",
-  "page_admin_InstalledFonts": "site-builder.fonts",
-  "page_admin_FormsSection": "forms",
-  "page_admin_FormManagement": "forms.form-management",
-  "page_admin_FormSubmissions": "forms.submissions",
-  "page_admin_FloaterManagement": "site-builder.floaters",
-  "page_admin_TeamInviteSettings": "system.team-invite",
-  "page_admin_DataExport": "admin.data-export",
-  "page_admin_SiteMap": "system.site-map",
-  "page_admin_SupportManagement": "support.management",
-  "page_admin_PortalNavigationManagement": "system.portal-navigation",
-  "page_admin_PortalMenuManagement": "system.portal-menu",
-  "page_admin_TourManagement": "system.tours",
-  "page_admin_MemberGroupManagement": "membership.member-groups",
-  "page_MemberGroups": "membership.member-group-access",
-  "page_GroupEmail": "membership.member-group-email",
-  "page_admin_ZoomWebinarProvisioning": "events.zoom-webinars",
-  "page_admin_SpeakerManagement": "events.speakers",
-  "page_EventRegistrationReport": "events.event-report",
-  "page_admin_EventRegistrationReport": "events.event-report",
-  "page_admin_OrganisationPreferences": "membership.organisation-preferences",
-  "page_Dashboard": "system.dashboard",
-  "page_user_Dashboard": "system.dashboard",
-  "page_admin_Dashboard": "system.dashboard",
-  "page_ReportsDashboard": "dashboard.view",
-  "page_admin_ReportsDashboard": "dashboard.view",
-  "page_EventDetails": "events.event-details",
-  "page_ArticleEditor": "content.article-editor",
-  "page_ArticleView": "content.articles",
-  "page_NewsEditor": "content.news-editor",
-  "page_NewsView": "content.news",
-  "page_IEditPageEditor": "site-builder.page-editor",
-  "page_GuestWriterManagement": "content.guest-writers",
-  "page_OrganisationDirectorySettings": "membership.organisation-directory-settings",
-  "element_EventDescription": "events.event-details.description",
-  "element_EventsPageDescription": "events.browse-events.page-description",
-  "element_EventsSearch": "events.browse-events.search-filters",
-  "element_SelfRegistration": "events.event-details.self-registration",
-  "element_AddColleaguesToEvents": "events.event-details.add-colleagues",
-  "element_PurchaseButton": "events.event-details.purchase-button",
-  "element_AvailableSeatsDisplay": "events.event-details.available-seats",
-  "element_FloatersDisplay": "site-builder.floaters.display",
-  "element_NewsTickerBar": "system.news-ticker.display",
-  "element_ShowDisabledAccounts": "membership.member-directory.show-disabled",
-  "edit_professional_biography": "communication.preferences.edit-biography",
-  "view_member_biography": "membership.member-directory.view-biography",
-  "payment_training_vouchers": "commerce.buy-tickets.use-vouchers",
-  "payment_training_fund": "commerce.buy-tickets.use-training-fund",
-  "action_news_edit": "content.news.edit",
-  "action_news_delete": "content.news.delete",
-  "action_org_logo_edit": "membership.organisation-directory.edit-logo",
-  "admin_can_edit_members": "admin.member-role-assignment.edit-members",
-  "admin_can_manage_communications": "communication",
-  "feature_PostJobOnBehalfOfOrg": "jobs.my-postings.post-for-others",
-  "page_Events": "events.browse-events",
-  "page_Bookings": "commerce.bookings",
-  "page_MyTickets": "events.my-tickets",
-  "page_BuyProgramTickets": "commerce.buy-tickets",
-  "page_Balances": "commerce.balances",
-  "feature_BalancesAvailability": "commerce.balances.availability",
-  "page_History": "commerce.history",
-  "page_Team": "membership.team",
-  "page_TeamEngagement": "membership.teamEngagement",
-  "page_MemberDirectory": "membership.member-directory",
-  "page_OrganisationDirectory": "membership.organisation-directory",
-  "page_MyOrganisation": "membership.my-organisation",
-  "page_Resources": "content.resources",
-  "page_MyArticles": "content.my-articles",
-  "page_Articles": "content.articles",
-  "page_ArticlesSection": "content",
-  "page_MyJobPostings": "jobs.my-postings",
-  "page_Preferences": "communication.preferences",
-  "page_Support": "support.help",
-  "page_RoleManagement": "admin.role-management",
-  "page_MemberRoleAssignment": "admin.member-role-assignment",
-  "page_TeamMemberManagement": "admin.team-member-management",
-  "page_MemberHandleManagement": "admin.member-handle-management",
-  "page_MemberDirectorySettings": "membership.member-directory-settings",
-  "page_DiscountCodeManagement": "events.discount-codes",
-  "page_EventSettings": "events.event-settings",
-  "page_TicketSalesAnalytics": "events.ticket-analytics",
-  "page_AwardManagement": "content.awards",
-  "page_JobPostingManagement": "jobs.job-management",
-  "page_JobBoardSettings": "jobs.job-settings",
-  "page_PageBannerManagement": "site-builder.banners",
-  "page_ButtonStyleManagement": "site-builder.button-styles",
-  "page_WallOfFameManagement": "site-builder.wall-of-fame",
-  "page_InstalledFonts": "site-builder.fonts",
-  "page_FormManagement": "forms.form-management",
-  "page_FormSubmissions": "forms.submissions",
-  "page_FloaterManagement": "site-builder.floaters",
-  "page_TeamInviteSettings": "system.team-invite",
-  "page_TourManagement": "system.tours",
-  "page_ZoomWebinarProvisioning": "events.zoom-webinars",
-  "page_SpeakerManagement": "events.speakers",
-  "page_ArticleManagement": "content.article-management",
-  "page_ArticlesSettings": "content.articles-settings",
-  "page_VoucherManagement": "commerce.voucher-management",
-  "page_TrainingFundManagement": "commerce.training-fund-management",
-  "page_MembersList": "membership.members-list",
-  "page_OrganisationsList": "membership.organisations-list",
-  "page_BorderRadiusSettings": "site-builder.border-radius",
-  "page_TeamSettings": "system.team-settings",
-  "page_PreferenceSettings": "communication.preference-settings",
-  "page_FormBuilder": "forms.form-builder",
-  "page_CustomFieldsAdmin": "admin.custom-fields",
-  "page_EmailTemplateManagement": "communication.email-templates",
-  "page_DynamicDirectoryManagement": "admin.dynamic-directories",
-  "page_MemberGroupGuestManagement": "membership.member-groups-guests",
-  "page_PageVisibilitySettings": "system.page-visibility",
-  "page_NewsAdmin": "content",
-  "page_NewsSettings": "content.news-settings",
-  "page_ArticlesAdmin": "content",
-  "page_CategoryManagement": "content.categories",
-  "page_FormsAdmin": "forms",
-  "page_ResourcesAdmin": "content",
-  "page_ResourceSettings": "content.resource-settings",
-  "page_ResourceManagement": "content.resource-management",
-  "page_TagManagement": "content.tags",
-  "page_FileManagement": "content.files",
-  "page_JobBoardAdmin": "jobs",
-  "page_PageBuilder": "site-builder",
-  "page_IEditPageManagement": "site-builder.pages",
-  "page_IEditTemplateManagement": "site-builder.templates",
-  "page_NavigationManagement": "site-builder.navigation",
-  "page_MicrositeManagement": "site-builder.micro-sites",
-  "page_ButtonElements": "site-builder.buttons",
-  "page_DataExport": "admin.data-export",
-  "page_SiteMap": "system.site-map",
-  "page_PortalNavigationManagement": "system.portal-navigation",
-  "action_article_edit": "content.articles.edit",
-  "action_article_delete": "content.articles.delete",
-  "page_SupportManagement": "support.management",
-  "page_Help": "support.docs",
-  "page_PostJob": "jobs.my-postings",
-  "page_AIReports": "admin.ai-reports",
-  "page_admin_AIReports": "admin.ai-reports",
-  "page_AccessibilityAudits": "admin.accessibility-audits",
-  "page_admin_AccessibilityAudits": "admin.accessibility-audits",
-  "membership.volunteer-board": "jobs.volunteer-board"
-};
+// Task #3349: the legacy-id mapping used to be a hand-maintained copy of the
+// client's LEGACY_TO_NEW_MAPPING and had drifted (58 missing entries, e.g.
+// page_PendingPurchaseOrdersReport) — it is now imported from the generated
+// file so client and server aliasing can never diverge again.
 
 function migrateLegacyFeatureId(legacyId) {
   return LEGACY_TO_NEW_MAPPING[legacyId] || legacyId;
@@ -228,10 +42,129 @@ function getPageForResource(resourceId) {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Task #3349: DB-aware hierarchy overlay.
+//
+// Role Management's Access Control tree is driven by the role_access_item DB
+// table, whose module/page placement can differ from the generated hierarchy
+// above (e.g. "events.discount-codes" placed under the "commerce" module).
+// Enforcement must match exclusions against the tree AS DISPLAYED, or
+// unticking an item in Role Management is a silently dead toggle.
+//
+// The overlay is loaded once at module init (bounded by a short timeout so a
+// slow DB can never block cold starts) and refreshed in the background on a
+// short TTL. Matching is a UNION with the hardcoded hierarchy: the overlay
+// can only ADD matches, never remove them, so no role gains access if the
+// overlay is missing/stale (fail-safe). Empty role_access_item => hardcoded
+// behavior, unchanged.
+
+const OVERLAY_TTL_MS = 60_000;
+let dbOverlay = null; // { moduleIds:Set, pageIds:Set, featureToPage:Map, resourceToModule:Map } | null
+let overlayFetchedAt = 0;
+let overlayInFlight = null;
+
+export function buildRoleAccessOverlay(rows) {
+  const active = (rows || []).filter((r) => r && r.item_key && r.is_active !== false);
+  if (active.length === 0) return null;
+  const byId = new Map(active.map((r) => [r.id, r]));
+  // Alias legacy keys (page_* etc.) to canonical ids so exclusions stored
+  // under either representation match rows keyed under either.
+  const norm = (k) => migrateLegacyFeatureId(k);
+  const moduleIds = new Set();
+  const pageIds = new Set();
+  const featureToPage = new Map();
+  const resourceToModule = new Map();
+  for (const r of active) {
+    if (r.item_type === 'module') moduleIds.add(norm(r.item_key));
+  }
+  for (const r of active) {
+    if (r.item_type !== 'page') continue;
+    const key = norm(r.item_key);
+    pageIds.add(key);
+    const parent = r.parent_id ? byId.get(r.parent_id) : null;
+    if (parent && parent.item_type === 'module') {
+      resourceToModule.set(key, norm(parent.item_key));
+    }
+  }
+  for (const r of active) {
+    if (r.item_type !== 'feature') continue;
+    const key = norm(r.item_key);
+    const page = r.parent_id ? byId.get(r.parent_id) : null;
+    if (page && page.item_type === 'page') {
+      featureToPage.set(key, norm(page.item_key));
+      const mod = page.parent_id ? byId.get(page.parent_id) : null;
+      if (mod && mod.item_type === 'module') {
+        resourceToModule.set(key, norm(mod.item_key));
+      }
+    }
+  }
+  return { moduleIds, pageIds, featureToPage, resourceToModule };
+}
+
+export async function refreshRoleAccessOverlay(client = defaultSupabase) {
+  if (!client) return dbOverlay;
+  if (overlayInFlight) return overlayInFlight;
+  overlayInFlight = (async () => {
+    try {
+      const { data, error } = await client
+        .from('role_access_item')
+        .select('id,item_type,item_key,parent_id,is_active');
+      if (error) throw error;
+      dbOverlay = buildRoleAccessOverlay(data);
+      overlayFetchedAt = Date.now();
+    } catch (err) {
+      // Fail open to the hardcoded hierarchy (union semantics mean this can
+      // only under-match DB-placement exclusions, never widen legacy ones).
+      // Back off briefly so a broken DB doesn't get hammered per call.
+      console.error('[roleVisibility] failed to load role_access_item overlay:', err?.message || err);
+      overlayFetchedAt = Date.now() - OVERLAY_TTL_MS + 10_000;
+    } finally {
+      overlayInFlight = null;
+    }
+    return dbOverlay;
+  })();
+  return overlayInFlight;
+}
+
+function maybeRefreshOverlayInBackground() {
+  if (!defaultSupabase) return;
+  if (Date.now() - overlayFetchedAt <= OVERLAY_TTL_MS) return;
+  refreshRoleAccessOverlay().catch(() => {});
+}
+
+/** Test hook: install a fixed overlay and disable background refreshes. */
+export function __setRoleAccessOverlayForTests(rows) {
+  dbOverlay = buildRoleAccessOverlay(rows);
+  overlayFetchedAt = Number.MAX_SAFE_INTEGER;
+}
+
+function overlayParentMatch(normalizedId, normalizedExcluded) {
+  if (!dbOverlay) return false;
+  const pageId = dbOverlay.featureToPage.get(normalizedId);
+  if (pageId && normalizedExcluded.includes(pageId)) return true;
+  const moduleId = dbOverlay.resourceToModule.get(normalizedId);
+  if (moduleId && normalizedExcluded.includes(moduleId)) return true;
+  return false;
+}
+
+// Prime the overlay at module init so even cold starts enforce DB placement,
+// but never let a slow DB delay a function beyond the race timeout.
+if (defaultSupabase && !process.env.ROLE_ACCESS_OVERLAY_SKIP_PRIME) {
+  await Promise.race([
+    refreshRoleAccessOverlay().catch(() => {}),
+    new Promise((resolve) => {
+      const t = setTimeout(resolve, 2500);
+      if (typeof t?.unref === 'function') t.unref();
+    }),
+  ]);
+}
+
 export function isResourceExcluded(excludedResources, resourceId) {
   if (!excludedResources || !Array.isArray(excludedResources) || excludedResources.length === 0) {
     return false;
   }
+
+  maybeRefreshOverlayInBackground();
 
   // Normalize the input resourceId
   const normalizedId = migrateLegacyFeatureId(resourceId);
@@ -253,6 +186,11 @@ export function isResourceExcluded(excludedResources, resourceId) {
   // Check if the parent module is excluded (makes all pages and features excluded)
   const moduleId = getModuleForResource(normalizedId);
   if (moduleId && normalizedExcluded.includes(moduleId)) {
+    return true;
+  }
+
+  // DB-tree overlay match (Task #3349): parents as placed in role_access_item.
+  if (overlayParentMatch(normalizedId, normalizedExcluded)) {
     return true;
   }
 

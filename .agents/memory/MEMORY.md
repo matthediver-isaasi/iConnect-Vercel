@@ -132,7 +132,7 @@
 - [GoCardless arrears & DD console](gocardless-arrears-phase4.md) — grace is a non-rolling snapshot; retry guard must throw fail-closed; arrears policy applies once; money-moving admin actions need server-side finance RBAC.
 - [v2 flow sections never run SectionRender](canvas-flow-section-backgrounds.md) — flow containers paint style-only; all content.bgType section features (image/gradient/overlay/fixed-crop) are v1-only.
 - [Merge verifier flags equals-ruler comments](merge-verifier-equals-comments.md) — resolution check substring-matches 7+ '='; long `// ===` comment rulers cause false "markers remain"; rewrite as `-`.
-- [RBAC map-driven parent resolution](rbac-parent-resolution.md) — exclusion parent/child lookups must use ROLE_ACCESS_MAP nesting (client hierarchy + generated server file), never dot-prefix splitting.
+- [RBAC map-driven parent resolution](rbac-parent-resolution.md) — parent lookups via map nesting, never dot-prefix; enforcement is a UNION of hardcoded map + role_access_item DB overlay; legacy mapping is generated, never hand-copied.
 - [Form submission emails](form-submission-emails.md) — exactly-once via atomic claim on form_submission.submission_email_state; all send paths must use the shared guarded sender.
 - [Widget click-through drilldown](widget-drilldown-clickthrough.md) — big id lists POST in a body (never URL); toggle enforced server-side; Recharts click key via entry.key ?? payload.key ?? name.
 - [Member-driven membership fee tokens](member-fee-tokens.md) — fee tokens carry org_id OR member_id; every consumer must branch (history/invoicing/notes/sim); token DD adopts unpaid workflow rows.

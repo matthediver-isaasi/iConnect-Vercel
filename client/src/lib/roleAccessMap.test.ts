@@ -8,7 +8,7 @@ import {
   migrateLegacyFeatureId,
   migrateLegacyExcludedFeatures,
 } from "./roleAccessMap.ts";
-import { isResourceExcluded, isResourceVisible } from "./roleVisibility.ts";
+import { isResourceExcluded, isResourceVisible, setDbRoleAccessOverlay } from "./roleVisibility.ts";
 
 const validResourceIds = new Set(getAllResourceIds());
 
@@ -301,8 +301,10 @@ test("helpers honor a custom accessMap whose nesting diverges from ROLE_ACCESS_M
 
   // Module exclusion gates the re-nested page via the custom map...
   assert.equal(isResourceExcluded(["alpha"], "admin.canvas-links-manager", dbMap), true);
-  // ...but NOT via the hardcoded map's nesting
-  assert.equal(isResourceExcluded(["site-builder"], "admin.canvas-links-manager", dbMap), false);
+  // ...AND still via the hardcoded map's nesting (Task #3349: matching is a
+  // fail-safe UNION of old-map and DB-map placement, so exclusions stored
+  // under the old canonical parent never silently stop matching).
+  assert.equal(isResourceExcluded(["site-builder"], "admin.canvas-links-manager", dbMap), true);
   // New keys unknown to ROLE_ACCESS_MAP are gated by their custom-map parents
   assert.equal(isResourceExcluded(["alpha.new-page"], "alpha.new-page.brand-new", dbMap), true);
 
@@ -352,4 +354,68 @@ test("generated server hierarchy matches the client map (no drift)", () => {
   assert.deepEqual([...h.pageIds].sort(), [...generated.PAGE_IDS].sort(), "PAGE_IDS drifted — re-run the generator");
   assert.deepEqual(Object.fromEntries(h.featureToPage), generated.FEATURE_TO_PAGE, "FEATURE_TO_PAGE drifted — re-run the generator");
   assert.deepEqual(Object.fromEntries(h.resourceToModule), generated.RESOURCE_TO_MODULE, "RESOURCE_TO_MODULE drifted — re-run the generator");
+});
+
+test("generated server legacy mapping matches the client mapping (no drift)", () => {
+  assert.deepEqual(
+    (generated as any).LEGACY_TO_NEW_MAPPING,
+    LEGACY_TO_NEW_MAPPING,
+    "LEGACY_TO_NEW_MAPPING drifted — re-run npx tsx scripts/generate-role-access-hierarchy.mjs",
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Task #3349: DB-tree overlay enforcement. The role_access_item table can
+// place items under different modules than ROLE_ACCESS_MAP (production case:
+// events.discount-codes and events.pending-purchase-orders under "commerce").
+// Enforcement must match exclusions against the tree as displayed, as a UNION
+// with the hardcoded map (never removing existing matches).
+const OVERLAY_DB_ROWS = [
+  { id: "m-commerce", item_type: "module", item_key: "commerce", parent_id: null, is_active: true },
+  { id: "m-events", item_type: "module", item_key: "events", parent_id: null, is_active: true },
+  { id: "p-discount", item_type: "page", item_key: "events.discount-codes", parent_id: "m-commerce", is_active: true },
+  { id: "p-ppo", item_type: "page", item_key: "events.pending-purchase-orders", parent_id: "m-commerce", is_active: true },
+  { id: "p-browse", item_type: "page", item_key: "events.browse-events", parent_id: "m-events", is_active: true },
+  { id: "f-create", item_type: "feature", item_key: "events.browse-events.create", parent_id: "p-browse", is_active: true },
+  { id: "p-legacy", item_type: "page", item_key: "page_TicketSalesAnalytics", parent_id: "m-commerce", is_active: true },
+];
+
+test("DB overlay: module exclusion hides children as placed in the DB tree", (t) => {
+  setDbRoleAccessOverlay(OVERLAY_DB_ROWS);
+  t.after(() => setDbRoleAccessOverlay(null));
+
+  // Reported case: Commerce & Finance fully disabled must hide Discount Codes
+  // and Pending Purchase Orders Report (nav items use page_* feature ids).
+  assert.equal(isResourceExcluded(["commerce"], "events.discount-codes"), true);
+  assert.equal(isResourceExcluded(["commerce"], "page_DiscountCodeManagement"), true);
+  assert.equal(isResourceExcluded(["commerce"], "events.pending-purchase-orders"), true);
+  assert.equal(isResourceExcluded(["commerce"], "page_PendingPurchaseOrdersReport"), true);
+  // Items placed under other modules stay visible.
+  assert.equal(isResourceExcluded(["commerce"], "events.browse-events"), false);
+  // Legacy-keyed DB rows alias to their canonical id.
+  assert.equal(isResourceExcluded(["commerce"], "events.ticket-analytics"), true);
+  // Feature rows resolve page + module parents from the DB tree.
+  assert.equal(isResourceExcluded(["events.browse-events"], "events.browse-events.create"), true);
+});
+
+test("DB overlay is a union: old-map exclusions keep matching (no widening)", (t) => {
+  setDbRoleAccessOverlay(OVERLAY_DB_ROWS);
+  t.after(() => setDbRoleAccessOverlay(null));
+
+  assert.equal(isResourceExcluded(["events"], "events.discount-codes"), true);
+  assert.equal(isResourceExcluded(["page_DiscountCodeManagement"], "events.discount-codes"), true);
+  // Union also applies when a caller passes a DB-derived accessMap whose
+  // placement differs: hardcoded-map parents are still consulted.
+  const dbLikeMap = [
+    { id: "commerce", label: "Commerce & Finance", pages: [{ id: "events.discount-codes", label: "Discount Codes" }] },
+  ];
+  assert.equal(isResourceExcluded(["events"], "events.discount-codes", dbLikeMap), true);
+  assert.equal(isResourceExcluded(["commerce"], "events.discount-codes", dbLikeMap), true);
+});
+
+test("empty role_access_item table keeps hardcoded-map behavior", (t) => {
+  setDbRoleAccessOverlay([]);
+  t.after(() => setDbRoleAccessOverlay(null));
+  assert.equal(isResourceExcluded(["events"], "events.discount-codes"), true);
+  assert.equal(isResourceExcluded(["commerce"], "events.discount-codes"), false);
 });

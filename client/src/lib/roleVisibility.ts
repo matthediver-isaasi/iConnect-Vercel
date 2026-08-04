@@ -6,6 +6,97 @@ import { Module, ROLE_ACCESS_MAP, getModuleForResource, getPageForResource, isMo
 // agrees with what the user sees. Omitting it falls back to the hardcoded
 // ROLE_ACCESS_MAP (identical behavior to before).
 
+// ---------------------------------------------------------------------------
+// Task #3349: DB-aware hierarchy overlay.
+//
+// Role Management's Access Control tree is driven by the role_access_item DB
+// table, whose module/page placement can differ from the hardcoded
+// ROLE_ACCESS_MAP (e.g. a tenant placing "events.discount-codes" under the
+// "commerce" module). Enforcement (Layout nav filtering, useMemberAccess)
+// must match exclusions against the tree AS DISPLAYED, or unticking an item
+// becomes a silently dead toggle.
+//
+// The overlay is a module-level singleton set once by Layout after fetching
+// the RoleAccessItem rows. Matching is a UNION: an exclusion matches if it
+// matches via the hardcoded map OR via the DB tree, so no role ever silently
+// GAINS access when the overlay loads (fail-safe: overlay only adds matches).
+// Tenants with an empty role_access_item table keep hardcoded-map behavior.
+
+export interface RoleAccessItemRow {
+  id: string;
+  item_type: string;
+  item_key: string;
+  parent_id?: string | null;
+  is_active?: boolean | null;
+}
+
+interface OverlayHierarchy {
+  moduleIds: Set<string>;
+  pageIds: Set<string>;
+  featureToPage: Map<string, string>;
+  resourceToModule: Map<string, string>;
+}
+
+export function buildOverlayHierarchy(rows: RoleAccessItemRow[] | null | undefined): OverlayHierarchy | null {
+  const active = (rows || []).filter(r => r && r.item_key && r.is_active !== false);
+  if (active.length === 0) return null;
+  const byId = new Map(active.map(r => [r.id, r]));
+  // Alias legacy keys (page_* etc.) to canonical ids so exclusions stored
+  // under either representation match rows keyed under either.
+  const norm = (k: string) => migrateLegacyFeatureId(k);
+  const moduleIds = new Set<string>();
+  const pageIds = new Set<string>();
+  const featureToPage = new Map<string, string>();
+  const resourceToModule = new Map<string, string>();
+  for (const r of active) {
+    if (r.item_type === 'module') moduleIds.add(norm(r.item_key));
+  }
+  for (const r of active) {
+    if (r.item_type !== 'page') continue;
+    const key = norm(r.item_key);
+    pageIds.add(key);
+    const parent = r.parent_id ? byId.get(r.parent_id) : null;
+    if (parent && parent.item_type === 'module') {
+      resourceToModule.set(key, norm(parent.item_key));
+    }
+  }
+  for (const r of active) {
+    if (r.item_type !== 'feature') continue;
+    const key = norm(r.item_key);
+    const page = r.parent_id ? byId.get(r.parent_id) : null;
+    if (page && page.item_type === 'page') {
+      featureToPage.set(key, norm(page.item_key));
+      const mod = page.parent_id ? byId.get(page.parent_id) : null;
+      if (mod && mod.item_type === 'module') {
+        resourceToModule.set(key, norm(mod.item_key));
+      }
+    }
+  }
+  return { moduleIds, pageIds, featureToPage, resourceToModule };
+}
+
+let dbOverlay: OverlayHierarchy | null = null;
+
+/** Install (or clear, with null/[]) the DB-tree overlay used by isResourceExcluded. */
+export function setDbRoleAccessOverlay(rows: RoleAccessItemRow[] | null | undefined): void {
+  dbOverlay = buildOverlayHierarchy(rows);
+}
+
+export function getDbRoleAccessOverlay(): OverlayHierarchy | null {
+  return dbOverlay;
+}
+
+function overlayParentMatch(normalizedId: string, normalizedExcluded: string[]): boolean {
+  if (!dbOverlay) return false;
+  // Parent page (for features) as placed in the DB tree
+  const pageId = dbOverlay.featureToPage.get(normalizedId);
+  if (pageId && normalizedExcluded.includes(pageId)) return true;
+  // Parent module (for pages and features) as placed in the DB tree
+  const moduleId = dbOverlay.resourceToModule.get(normalizedId);
+  if (moduleId && normalizedExcluded.includes(moduleId)) return true;
+  return false;
+}
+
 export function isResourceExcluded(
   excludedResources: string[] | null | undefined,
   resourceId: string,
@@ -35,6 +126,25 @@ export function isResourceExcluded(
   // Check if the parent module is excluded (makes all pages and features excluded)
   const moduleId = getModuleForResource(normalizedId, accessMap);
   if (moduleId && normalizedExcluded.includes(moduleId)) {
+    return true;
+  }
+
+  // Fail-safe union (Task #3349): when a caller passes a DB-derived accessMap,
+  // ALSO check parents from the hardcoded map so exclusions stored under the
+  // old canonical placement keep matching (no access widening).
+  if (accessMap) {
+    const defaultPageId = getPageForResource(normalizedId);
+    if (defaultPageId && normalizedExcluded.includes(defaultPageId)) {
+      return true;
+    }
+    const defaultModuleId = getModuleForResource(normalizedId);
+    if (defaultModuleId && normalizedExcluded.includes(defaultModuleId)) {
+      return true;
+    }
+  }
+
+  // DB-tree overlay match (Task #3349): parents as placed in role_access_item.
+  if (overlayParentMatch(normalizedId, normalizedExcluded)) {
     return true;
   }
 

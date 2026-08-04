@@ -8,7 +8,7 @@ import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
 import { BUILTIN_MEMBER_ALIASES } from "@shared/memberAliases.js";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
-import { isResourceExcluded } from "@/lib/roleVisibility";
+import { isResourceExcluded, setDbRoleAccessOverlay } from "@/lib/roleVisibility";
 import { migrateLegacyFeatureId } from "@/lib/roleAccessMap";
 import { buildPortalNavBackgroundStyle } from "@/lib/canvasBackground";
 import { InstalledFontsLoader } from "@/lib/installedFonts";
@@ -1145,6 +1145,32 @@ const { data: memberRole } = useQuery({
     }
   },
 });
+
+// Task #3349: fetch the role_access_item DB tree so exclusion matching can
+// resolve an item's parent page/module as the Role Management UI displays it
+// (union with the hardcoded map — see roleVisibility.setDbRoleAccessOverlay).
+// Same query key as RoleManagement so react-query dedupes the fetch.
+const { data: roleAccessItemsForOverlay } = useQuery({
+  queryKey: ['role-access-items'],
+  enabled: !!memberInfo,
+  staleTime: 60000,
+  queryFn: async () => {
+    try {
+      return await base44.entities.RoleAccessItem.list();
+    } catch (error) {
+      console.error('Error loading role access items for nav overlay:', error);
+      return [];
+    }
+  },
+});
+
+// Install the overlay synchronously during render so nav filtering below in
+// this same render pass already sees the DB placement (no post-effect flash).
+useMemo(() => {
+  if (roleAccessItemsForOverlay !== undefined) {
+    setDbRoleAccessOverlay(roleAccessItemsForOverlay);
+  }
+}, [roleAccessItemsForOverlay]);
 
 // Fetch the current member's group assignments to determine whether they are a
 // group admin of at least one (non-expired) group. Group admins get an

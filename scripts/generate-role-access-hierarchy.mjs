@@ -11,7 +11,7 @@
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { ROLE_ACCESS_MAP, buildRoleAccessHierarchy } from '../client/src/lib/roleAccessMap.ts';
+import { ROLE_ACCESS_MAP, LEGACY_TO_NEW_MAPPING, buildRoleAccessHierarchy } from '../client/src/lib/roleAccessMap.ts';
 
 const h = buildRoleAccessHierarchy(ROLE_ACCESS_MAP);
 
@@ -26,6 +26,11 @@ export const PAGE_IDS = ${JSON.stringify([...h.pageIds], null, 2)};
 export const FEATURE_TO_PAGE = ${JSON.stringify(Object.fromEntries(h.featureToPage), null, 2)};
 
 export const RESOURCE_TO_MODULE = ${JSON.stringify(Object.fromEntries(h.resourceToModule), null, 2)};
+
+// Task #3349: single source of truth for legacy-id aliasing. The server used
+// to hand-maintain a copy of this mapping and it drifted (missing entries =
+// silently dead exclusions). Now generated from the client mapping.
+export const LEGACY_TO_NEW_MAPPING = ${JSON.stringify(LEGACY_TO_NEW_MAPPING, null, 2)};
 `;
 
 const dest = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'api', '_lib', 'roleAccessHierarchy.generated.js');
