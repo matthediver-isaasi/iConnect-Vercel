@@ -407,7 +407,7 @@ import BnmsMemberDemo from "./BnmsMemberDemo";
 import PhotoGalleries from "./PhotoGalleries";
 
 import { useEffect, useRef, lazy, Suspense } from 'react';
-import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { LayoutProvider } from '@/contexts/LayoutContext';
 import { MicrositeProvider } from '@/contexts/MicrositeContext';
 import PlanQuotaDialog from '@/components/PlanQuotaDialog';
@@ -811,6 +811,12 @@ function _getCurrentPage(url) {
         return 'ComplexEventDetail';
     }
     
+    // Task #3331: survey opened via an event-assignment link. Rendered by
+    // FormView (already a hybrid page), so classify it as such.
+    if (urlParts.length >= 2 && urlParts[0].toLowerCase() === 'survey') {
+        return 'FormView';
+    }
+
     if (urlParts.length >= 2 && urlParts[0].toLowerCase() === 'gallery') {
         return 'GalleryView';
     }
@@ -837,6 +843,13 @@ function _getCurrentPage(url) {
     // Return "_DynamicPage" for unrecognized routes (CMS pages like /homely)
     // This allows Layout to treat them as hybrid pages that handle their own auth
     return pageName || "_DynamicPage";
+}
+
+// Task #3331: /survey/:token — a survey opened via its event-assignment
+// link. FormView resolves everything server-side from the token.
+function SurveyAssignmentRoute() {
+    const { token } = useParams();
+    return <FormView assignmentToken={token} />;
 }
 
 // Create a wrapper component that uses useLocation inside the Router context
@@ -1063,6 +1076,7 @@ function PagesContent() {
                 <Route path="/FormBuilder" element={<FormBuilder />} />
                 
                 <Route path="/FormView" element={<FormView />} />
+                <Route path="/survey/:token" element={<SurveyAssignmentRoute />} />
                 
                 <Route path="/MemberDirectorySettings" element={<MemberDirectorySettings />} />
                 

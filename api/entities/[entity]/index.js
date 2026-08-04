@@ -156,6 +156,7 @@ const entityToTable = {
   'Floater': 'floater',
   'Form': 'form',
   'SurveyVersion': 'survey_version',
+  'EventSurveyAssignment': 'event_survey_assignment',
   'SurveyAnswer': 'survey_answer',
   'EmailTemplate': 'email_template',
   'FormSubmission': 'form_submission',
@@ -297,7 +298,11 @@ export default async function handler(req, res) {
   // answers are server-authoritative records. Writes go ONLY through the
   // publish endpoint / public submission endpoint (service role); reads are
   // admin-gated (reporting surfaces).
-  if (entityNorm === 'surveyversion' || entityNorm === 'surveyanswer') {
+  // Task #3331: event survey assignments are created/updated ONLY via the
+  // guarded /api/surveys/event-assignments endpoint (token generation,
+  // cross-tenant event checks, archive-not-delete). Generic API is read-only,
+  // admin-gated.
+  if (entityNorm === 'surveyversion' || entityNorm === 'surveyanswer' || entityNorm === 'eventsurveyassignment') {
     if (req.method !== 'GET') {
       return res.status(403).json({ error: 'Survey records are managed server-side and cannot be written directly' });
     }
@@ -884,7 +889,7 @@ export default async function handler(req, res) {
               'DynamicDirectory',
               'IEditPage', 'IEditPageElement', 'IEditPageFolder',
               'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession', 'ComplexEventTicketClass', 'ComplexEventBooking',
-              'EventSponsor', 'EventSponsorCategory', 'EventSponsorAssignment',
+              'EventSponsor', 'EventSponsorCategory', 'EventSponsorAssignment', 'EventSurveyAssignment',
               'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity',
               'ExternalWriter', 'ExternalWriterDocument',
               'CrmTagColor',
@@ -1324,7 +1329,7 @@ export default async function handler(req, res) {
             'DynamicDirectory',
             'IEditPage', 'IEditPageElement', 'IEditPageFolder',
             'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession', 'ComplexEventTicketClass', 'ComplexEventBooking',
-            'EventSponsor', 'EventSponsorCategory', 'EventSponsorAssignment',
+            'EventSponsor', 'EventSponsorCategory', 'EventSponsorAssignment', 'EventSurveyAssignment',
             'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity',
             'ExternalWriter', 'ExternalWriterDocument',
             'CrmTagColor',

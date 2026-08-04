@@ -12,7 +12,15 @@
     },
     "event_id": {
       "type": "string",
-      "description": "The event this submission relates to, copied from the form's related_event_id at submission time (for event-linked forms). Null for forms not linked to an event."
+      "description": "The event this submission relates to, copied from the form's related_event_id at submission time (for event-linked forms) or stamped server-side from a survey event assignment. Null for forms not linked to an event."
+    },
+    "complex_event_id": {
+      "type": "string",
+      "description": "The complex (multi-session) event this survey response relates to, stamped server-side from the resolved survey event assignment. Null for non-assignment submissions and simple-event assignments."
+    },
+    "survey_assignment_id": {
+      "type": "string",
+      "description": "The event survey assignment this response arrived through (server-resolved from the assignment token). Null for direct/non-survey submissions."
     },
     "submitted_by_email": {
       "type": "string",

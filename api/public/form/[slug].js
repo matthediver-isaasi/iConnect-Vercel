@@ -101,6 +101,22 @@ export default async function handler(req, res) {
       if (surveyStatus === 'archived' || (surveyStatus !== 'published' && !hasValidSession)) {
         return res.status(404).json({ error: 'Form not found or inactive' });
       }
+      // Direct-access policy (Task #3331): once a survey has ACTIVE event
+      // assignments, respondents must use an assignment link (/survey/:token)
+      // so the event is server-resolved and dedupe scopes can't be mixed.
+      // Authenticated viewers (builder preview) still see the form.
+      if (surveyStatus === 'published' && !hasValidSession) {
+        const { data: activeAssignments } = await supabase
+          .from('event_survey_assignment')
+          .select('id')
+          .eq('form_id', form.id)
+          .eq('tenant_id', form.tenant_id)
+          .eq('status', 'active')
+          .limit(1);
+        if (activeAssignments && activeAssignments.length > 0) {
+          return res.status(404).json({ error: 'Form not found or inactive' });
+        }
+      }
       // Published surveys serve the IMMUTABLE active snapshot, never the
       // mutable live row — respondents must see exactly what server-side
       // scoring validates against. Fail closed if the pointed snapshot is

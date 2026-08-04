@@ -252,6 +252,7 @@ class EntitiesProxy {
   get Floater() { return this._getEntity('Floater'); }
   get Form() { return this._getEntity('Form'); }
   get SurveyVersion() { return this._getEntity('SurveyVersion'); }
+  get EventSurveyAssignment() { return this._getEntity('EventSurveyAssignment'); }
   get SurveyAnswer() { return this._getEntity('SurveyAnswer'); }
   get FormSubmission() { return this._getEntity('FormSubmission'); }
   get FormSubmissionEmail() { return this._getEntity('FormSubmissionEmail'); }

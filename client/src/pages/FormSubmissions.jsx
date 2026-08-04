@@ -34,7 +34,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, FileText, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronDown, ChevronUp, Eye, Trash2, RotateCcw, Mail, TrendingUp, TrendingDown, Minus, BarChart3, CheckCircle, AlertCircle, Clock, Download, FileDown, Calendar, Inbox, Bookmark, Save, Pencil } from "lucide-react";
+import { Loader2, FileText, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronDown, ChevronUp, Eye, Trash2, RotateCcw, Mail, TrendingUp, TrendingDown, Minus, BarChart3, CheckCircle, AlertCircle, Clock, Download, FileDown, Calendar, Inbox, Bookmark, Save, Pencil, X } from "lucide-react";
 import {
   Popover,
   PopoverContent,
@@ -112,6 +112,8 @@ export default function FormSubmissionsPage() {
   }, [isFeatureExcluded, isAccessReady]);
   const [activeTab, setActiveTab] = useState(() => (searchParams.get('tab') === 'owned' ? 'owned' : 'all'));
   const [selectedForm, setSelectedForm] = useState(() => searchParams.get('form') || "all");
+  // Task #3331: optional filter to a single survey event-assignment.
+  const [assignmentFilter, setAssignmentFilter] = useState(() => searchParams.get('assignment') || "");
   const [includeInactiveForms, setIncludeInactiveForms] = useState(() => searchParams.get('includeInactive') === '1');
   const [selectedStatus, setSelectedStatus] = useState(() => searchParams.get('status') || "all");
   const [dateFrom, setDateFrom] = useState(() => searchParams.get('dateFrom') || "");
@@ -130,6 +132,7 @@ export default function FormSubmissionsPage() {
     if (activeTab !== 'all') params.set('tab', activeTab);
     if (searchQuery) params.set('q', searchQuery);
     if (selectedForm !== 'all') params.set('form', selectedForm);
+    if (assignmentFilter) params.set('assignment', assignmentFilter);
     if (includeInactiveForms) params.set('includeInactive', '1');
     if (selectedStatus !== 'all') params.set('status', selectedStatus);
     if (dateFrom) params.set('dateFrom', dateFrom);
@@ -138,7 +141,7 @@ export default function FormSubmissionsPage() {
     if (itemsPerPage !== DEFAULT_PAGE_SIZE) params.set('size', String(itemsPerPage));
     const str = params.toString();
     return str ? `?${str}` : '';
-  }, [activeTab, searchQuery, selectedForm, includeInactiveForms, selectedStatus, dateFrom, dateTo, currentPage, itemsPerPage]);
+  }, [activeTab, searchQuery, selectedForm, assignmentFilter, includeInactiveForms, selectedStatus, dateFrom, dateTo, currentPage, itemsPerPage]);
 
   useEffect(() => {
     setSearchParams(filterQueryString ? filterQueryString.slice(1) : '', { replace: true });
@@ -304,6 +307,93 @@ export default function FormSubmissionsPage() {
     eventsForLink.forEach(ev => { map[ev.id] = ev; });
     return map;
   }, [eventsForLink]);
+
+  // Task #3331: survey event-assignments lookup so survey submissions can show
+  // which event they were collected for (uses the assignment's event snapshot,
+  // which survives event deletion). Fetch by the selected form when one is
+  // chosen; otherwise lazily fetch the distinct assignment ids referenced by
+  // the current submissions. Reads are admin-gated; writes are blocked.
+  const assignmentIdsInSubmissions = useMemo(() => {
+    const ids = new Set();
+    submissions.forEach(s => {
+      if (s?.survey_assignment_id) ids.add(s.survey_assignment_id);
+    });
+    return [...ids];
+  }, [submissions]);
+
+  const { data: surveyAssignments = [] } = useQuery({
+    queryKey: [
+      'form-submissions-survey-assignments',
+      selectedForm,
+      assignmentFilter,
+      assignmentIdsInSubmissions.join(','),
+    ],
+    enabled: selectedForm !== 'all' || !!assignmentFilter || assignmentIdsInSubmissions.length > 0,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      // Prefer a single lightweight fetch scoped to the selected form.
+      if (selectedForm !== 'all') {
+        try {
+          return await base44.entities.EventSurveyAssignment.filter({ form_id: selectedForm });
+        } catch {
+          return [];
+        }
+      }
+      // Otherwise resolve just the assignment ids we actually need.
+      const ids = new Set(assignmentIdsInSubmissions);
+      if (assignmentFilter) ids.add(assignmentFilter);
+      const results = await Promise.all(
+        [...ids].map(async (id) => {
+          try {
+            const rows = await base44.entities.EventSurveyAssignment.filter({ id });
+            return Array.isArray(rows) ? rows[0] : rows;
+          } catch {
+            return null;
+          }
+        })
+      );
+      return results.filter(Boolean);
+    },
+  });
+
+  const assignmentsById = useMemo(() => {
+    const map = {};
+    (surveyAssignments || []).forEach(a => { if (a && a.id) map[a.id] = a; });
+    return map;
+  }, [surveyAssignments]);
+
+  // The assignment used for the dismissible context banner (when the URL
+  // carries an ?assignment= param).
+  const activeAssignment = assignmentFilter ? assignmentsById[assignmentFilter] || null : null;
+
+  const clearAssignmentFilter = () => {
+    setAssignmentFilter("");
+    setCurrentPage(1);
+  };
+
+  const formatAssignmentDate = (value) => {
+    if (!value) return null;
+    try {
+      const d = new Date(value);
+      if (isNaN(d.getTime())) return null;
+      return d.toLocaleDateString();
+    } catch {
+      return null;
+    }
+  };
+
+  // Resolve a survey submission's event attribution from its assignment
+  // snapshot (works even if the underlying event was deleted).
+  const resolveAssignmentEvent = (submission) => {
+    const aid = submission?.survey_assignment_id;
+    if (!aid) return null;
+    const a = assignmentsById[aid];
+    if (!a) return null;
+    return {
+      title: a.event_title || '(untitled event)',
+      date: formatAssignmentDate(a.event_start_date),
+    };
+  };
 
   // Resolve the linked event for a submission. Prefer the submission's own
   // event_id (set at submission time); fall back to the form's currently
@@ -804,6 +894,10 @@ export default function FormSubmissionsPage() {
       filtered = filtered.filter(s => s.form_id === selectedForm);
     }
 
+    if (assignmentFilter) {
+      filtered = filtered.filter(s => s.survey_assignment_id === assignmentFilter);
+    }
+
     if (selectedStatus !== "all") {
       filtered = filtered.filter(s => (s.status || 'new') === selectedStatus);
     }
@@ -829,7 +923,7 @@ export default function FormSubmissionsPage() {
     }
 
     return filtered;
-  }, [scopedSubmissions, selectedForm, selectedStatus, dateFrom, dateTo, searchQuery, formsById]);
+  }, [scopedSubmissions, selectedForm, assignmentFilter, selectedStatus, dateFrom, dateTo, searchQuery, formsById]);
 
   const totalPages = Math.ceil(filteredSubmissions.length / itemsPerPage);
   const paginatedSubmissions = useMemo(() => {
@@ -1949,6 +2043,37 @@ export default function FormSubmissionsPage() {
           </DialogContent>
         </Dialog>
 
+        {assignmentFilter && (
+          <Alert className="mb-4 border-blue-200 bg-blue-50" data-testid="banner-assignment-filter">
+            <Calendar className="h-4 w-4" />
+            <AlertTitle className="flex items-center justify-between gap-3">
+              <span data-testid="text-assignment-filter-title">
+                {activeAssignment
+                  ? `Responses for: ${activeAssignment.event_title || '(untitled event)'}${
+                      formatAssignmentDate(activeAssignment.event_start_date)
+                        ? ` (${formatAssignmentDate(activeAssignment.event_start_date)})`
+                        : ''
+                    }`
+                  : 'Responses for a specific event assignment'}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-slate-600 hover:text-slate-900"
+                onClick={clearAssignmentFilter}
+                title="Clear assignment filter"
+                data-testid="button-clear-assignment-filter"
+              >
+                <X className="w-4 h-4 mr-1" />
+                Clear
+              </Button>
+            </AlertTitle>
+            <AlertDescription className="text-slate-600">
+              Showing only responses submitted through this event's survey link.
+            </AlertDescription>
+          </Alert>
+        )}
+
         {selectedFormEvent && (
           <Alert className="mb-4 border-slate-200" data-testid="banner-event-completion">
             <Calendar className="h-4 w-4" />
@@ -2148,6 +2273,15 @@ export default function FormSubmissionsPage() {
                             <Badge variant="secondary" className="flex items-center gap-1" data-testid={`badge-event-${submission.id}`}>
                               <Calendar className="w-3.5 h-3.5" />
                               {resolveLinkedEvent(submission).title}
+                            </Badge>
+                          )}
+                          {resolveAssignmentEvent(submission) && (
+                            <Badge variant="secondary" className="flex items-center gap-1" data-testid={`badge-survey-event-${submission.id}`}>
+                              <Calendar className="w-3.5 h-3.5" />
+                              {resolveAssignmentEvent(submission).title}
+                              {resolveAssignmentEvent(submission).date
+                                ? ` (${resolveAssignmentEvent(submission).date})`
+                                : ''}
                             </Badge>
                           )}
                         </div>
@@ -2354,6 +2488,18 @@ export default function FormSubmissionsPage() {
                       <p className="font-medium text-slate-900 flex items-center gap-1" data-testid="text-linked-event">
                         <Calendar className="w-3.5 h-3.5" />
                         {resolveLinkedEvent(viewingSubmission).title}
+                      </p>
+                    </div>
+                  )}
+                  {resolveAssignmentEvent(viewingSubmission) && (
+                    <div>
+                      <Label className="text-slate-600">Survey Event</Label>
+                      <p className="font-medium text-slate-900 flex items-center gap-1" data-testid="text-survey-event">
+                        <Calendar className="w-3.5 h-3.5" />
+                        {resolveAssignmentEvent(viewingSubmission).title}
+                        {resolveAssignmentEvent(viewingSubmission).date
+                          ? ` (${resolveAssignmentEvent(viewingSubmission).date})`
+                          : ''}
                       </p>
                     </div>
                   )}

@@ -6,6 +6,7 @@ import { getSessionMember } from '../_lib/session.js';
 import { sendSubmissionEmailsGuarded } from '../_lib/formSubmissionEmails.js';
 import { scoreSubmission, redactIdentityAnswers, anonymizeSubmissionRecord, activeVersionNumber } from '../_lib/surveyScoring.js';
 import { createHmac } from 'node:crypto';
+import { assignmentSubmissionRejection, respondentKeyInput, requiresAssignmentLink } from '../_lib/surveyAssignment.js';
 
 export default async function handler(req, res) {
   console.log('[Public Form Submission] === ENDPOINT CALLED ===');
@@ -22,7 +23,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { form_id, form_name, answers, submission_data, source, tenant, prefill_organization_id, contract_instance_id, role_id: clientRoleId, brief_id, vacancy_id, submitterCopyRequested, submitterCopyEmail, idempotency_key } = req.body;
+  const { form_id, form_name, answers, submission_data, source, tenant, prefill_organization_id, contract_instance_id, role_id: clientRoleId, brief_id, vacancy_id, submitterCopyRequested, submitterCopyEmail, idempotency_key, assignment_token } = req.body;
   console.log('[Public Form Submission] form_id:', form_id, 'form_name:', form_name, 'brief_id:', brief_id || 'none', 'vacancy_id:', vacancy_id || 'none');
 
   if (!form_id) {
@@ -122,6 +123,55 @@ export default async function handler(req, res) {
       const isAuthedSurvey = form.form_type === 'survey' && hasTenantSession;
       if (!isAuthedSurvey) {
         return res.status(403).json({ error: 'This form requires authentication' });
+      }
+    }
+
+    // --- Event survey assignment (Task #3331) ---------------------------
+    // When the survey was opened via an assignment link, the ASSIGNMENT is
+    // the source of truth for the event, the response window and the access
+    // mode. The client sends only the opaque token — event id, assignment id
+    // and version are all stamped server-side from the resolved row.
+    let surveyAssignment = null;
+    if (assignment_token) {
+      if (form.form_type !== 'survey') {
+        return res.status(400).json({ error: 'Assignment links are only valid for surveys' });
+      }
+      const { data: assignmentRow, error: assignmentErr } = await supabase
+        .from('event_survey_assignment')
+        .select('*')
+        .eq('token', String(assignment_token))
+        .eq('tenant_id', tenantData.id)
+        .eq('form_id', form.id)
+        .maybeSingle();
+      if (assignmentErr || !assignmentRow) {
+        return res.status(404).json({ error: 'Survey assignment not found' });
+      }
+      const rejection = assignmentSubmissionRejection(assignmentRow, { hasTenantSession });
+      if (rejection) {
+        return res.status(rejection.status).json({ error: rejection.error, code: rejection.code });
+      }
+      surveyAssignment = assignmentRow;
+    } else if (form.form_type === 'survey') {
+      // Direct-access policy (Task #3331): once a survey has any ACTIVE event
+      // assignment, responses are accepted ONLY through an assignment link —
+      // the event is always server-resolved and the per-assignment dedupe
+      // scope cannot be bypassed via the plain slug URL.
+      const { data: activeAssignments, error: activeErr } = await supabase
+        .from('event_survey_assignment')
+        .select('id')
+        .eq('form_id', form.id)
+        .eq('tenant_id', tenantData.id)
+        .eq('status', 'active')
+        .limit(1);
+      if (activeErr) {
+        console.error('[Public Form Submission] Active-assignment check failed:', activeErr);
+        return res.status(500).json({ error: 'Failed to validate submission' });
+      }
+      if (requiresAssignmentLink(activeAssignments?.length)) {
+        return res.status(403).json({
+          error: 'This survey collects responses through its event links. Please use the survey link you were given.',
+          code: 'ASSIGNMENT_REQUIRED'
+        });
       }
     }
 
@@ -242,8 +292,17 @@ export default async function handler(req, res) {
           console.error('[Public Form Submission] SESSION_SECRET missing — cannot derive survey respondent key');
           return res.status(500).json({ error: 'Server is not configured for anonymous duplicate prevention' });
         }
+        // Assignment-scoped dedupe (Task #3331): the same reusable survey can
+        // be assigned to MANY events — one response per respondent applies
+        // per assignment, so the assignment id is part of the key. Direct
+        // (non-assignment) responses keep the original per-form key; the two
+        // scopes can never be mixed because the direct path is blocked while
+        // any assignment is active (ASSIGNMENT_REQUIRED above). Concurrency
+        // stays race-proof: same respondent + same assignment produce the
+        // SAME key, so the unique partial index on
+        // (form_id, survey_respondent_key) rejects the concurrent loser.
         surveyRespondentKey = createHmac('sha256', process.env.SESSION_SECRET)
-          .update(`${tenantData.id}|${form.id}|${respondentIdentity}`)
+          .update(respondentKeyInput(tenantData.id, form.id, surveyAssignment?.id || null, respondentIdentity))
           .digest('hex');
         const { data: priorResponse, error: priorErr } = await supabase
           .from('form_submission')
@@ -404,7 +463,20 @@ export default async function handler(req, res) {
       ...(prefill_organization_id && { organization_id: prefill_organization_id }),
       // For event-linked forms, associate the submission with the form's
       // chosen event so admins can review submissions per event.
-      ...(form.is_event_related && form.related_event_id && { event_id: form.related_event_id }),
+      // Survey assignments (Task #3331) take precedence: the event comes
+      // from the SERVER-resolved assignment, never a client-supplied id or
+      // the form's single related_event_id link.
+      ...(surveyAssignment
+        ? {
+            survey_assignment_id: surveyAssignment.id,
+            ...(surveyAssignment.event_type === 'event' && surveyAssignment.event_id
+              ? { event_id: surveyAssignment.event_id }
+              : {}),
+            ...(surveyAssignment.event_type === 'complex_event' && surveyAssignment.complex_event_id
+              ? { complex_event_id: surveyAssignment.complex_event_id }
+              : {})
+          }
+        : (form.is_event_related && form.related_event_id ? { event_id: form.related_event_id } : {})),
       // Task #1539: when the form was opened from a member-group vacancy
       // ("Express interest"), carry the vacancy association onto the row so the
       // group admin's submissions review modal can find it.

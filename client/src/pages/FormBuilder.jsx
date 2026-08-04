@@ -42,6 +42,7 @@ import { SCORE_CONDITION_OPERATORS } from "@/lib/surveyConditions";
 import ScoreField from "@/components/forms/ScoreField";
 import { validateScoreFieldConfig, validateSurveyForPublish, getScoreRange, getScoreWeight } from "../../../api/_lib/surveyScoring.js";
 import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
+import SurveyEventAssignmentsPanel from "@/components/surveys/SurveyEventAssignmentsPanel";
 
 const BADGE_STYLE_DEFAULTS = {
   background_color: '#ffffff',
@@ -6438,7 +6439,7 @@ export default function FormBuilderPage() {
 
         {/* Tabs for organizing form sections */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className={`grid w-full ${formData.form_type === 'survey' ? 'grid-cols-6' : 'grid-cols-5'} mb-6`} data-testid="formbuilder-tabs">
+          <TabsList className={`grid w-full ${formData.form_type === 'survey' ? 'grid-cols-7' : 'grid-cols-5'} mb-6`} data-testid="formbuilder-tabs">
             <TabsTrigger value="builder" data-testid="tab-builder">Builder</TabsTrigger>
             <TabsTrigger value="settings" data-testid="tab-settings">Form Settings</TabsTrigger>
             <TabsTrigger value="submission" data-testid="tab-submission">Submission Settings</TabsTrigger>
@@ -6446,6 +6447,9 @@ export default function FormBuilderPage() {
             <TabsTrigger value="logic" data-testid="tab-logic">Conditional Logic</TabsTrigger>
             {formData.form_type === 'survey' && (
               <TabsTrigger value="survey" data-testid="tab-survey">Survey Settings</TabsTrigger>
+            )}
+            {formData.form_type === 'survey' && (
+              <TabsTrigger value="events" data-testid="tab-events">Events</TabsTrigger>
             )}
           </TabsList>
 
@@ -8575,6 +8579,21 @@ export default function FormBuilderPage() {
                   </CardContent>
                 </Card>
               </div>
+            </TabsContent>
+          )}
+
+          {/* Events Tab (Task #3331) */}
+          {formData.form_type === 'survey' && (
+            <TabsContent value="events">
+              {formId ? (
+                <SurveyEventAssignmentsPanel formId={formId} />
+              ) : (
+                <Card className="border-slate-200">
+                  <CardContent className="py-12 text-center text-slate-500">
+                    Save the survey first to assign it to events.
+                  </CardContent>
+                </Card>
+              )}
             </TabsContent>
           )}
         </Tabs>

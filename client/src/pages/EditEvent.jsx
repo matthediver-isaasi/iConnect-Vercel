@@ -58,6 +58,7 @@ import { checkEventClashes } from "@/lib/eventClash";
 import { createPageUrl, getEventUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
 import EventDocumentsManager from "@/components/events/EventDocumentsManager";
+import EventSurveysSection from "@/components/surveys/EventSurveysSection";
 import EventOptionListsEditor from "@/components/events/EventOptionListsEditor";
 import { isAttendeeOptionsCollectionEnabled } from "@/lib/attendeeOptionsSetting";
 import ChangeZoomDialog from "@/components/events/ChangeZoomDialog";
@@ -3834,6 +3835,18 @@ export default function EditEvent() {
                 onDocumentsChange={setAttachedDocuments}
                 entityId={eventId}
               />
+            </CardContent>
+          </Card>
+
+          <Card className="border-slate-200 shadow-sm mb-6">
+            <CardHeader className="pb-4">
+              <CardTitle className="text-lg">Surveys</CardTitle>
+              <CardDescription>
+                Attach surveys to this event so attendees can give feedback. Set optional open/close windows and control who can respond.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <EventSurveysSection eventId={eventId} eventType="event" />
             </CardContent>
           </Card>
 

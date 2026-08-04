@@ -35,6 +35,7 @@ import { base44 } from "@/api/base44Client";
 import { createPageUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
 import EventDocumentsManager from "@/components/events/EventDocumentsManager";
+import EventSurveysSection from "@/components/surveys/EventSurveysSection";
 import EventOptionListsEditor from "@/components/events/EventOptionListsEditor";
 import { isAttendeeOptionsCollectionEnabled } from "@/lib/attendeeOptionsSetting";
 import ZoomSessionConfig from "@/components/events/ZoomSessionConfig";
@@ -2116,6 +2117,9 @@ export default function CreateComplexEvent() {
             <TabsTrigger value="sessions" data-testid="button-section-sessions">Sessions</TabsTrigger>
             <TabsTrigger value="tickets" data-testid="button-section-tickets">Tickets</TabsTrigger>
             <TabsTrigger value="emails" data-testid="button-section-emails">Emails</TabsTrigger>
+            {isEditMode && (
+              <TabsTrigger value="surveys" data-testid="button-section-surveys">Surveys</TabsTrigger>
+            )}
           </TabsList>
 
         <TabsContent value="details">
@@ -4178,6 +4182,22 @@ export default function CreateComplexEvent() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {isEditMode && (
+          <TabsContent value="surveys">
+            <Card>
+              <CardHeader>
+                <CardTitle>Surveys</CardTitle>
+                <CardDescription>
+                  Attach surveys to this event so attendees can give feedback. Set optional open/close windows and control who can respond.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <EventSurveysSection eventId={editId} eventType="complex_event" />
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
 
         </Tabs>
 

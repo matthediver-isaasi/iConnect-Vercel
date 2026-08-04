@@ -1,0 +1,86 @@
+{
+    "name": "EventSurveyAssignment",
+    "type": "object",
+    "properties": {
+      "form_id": {
+        "type": "string",
+        "description": "The survey Form this assignment belongs to"
+      },
+      "survey_version_id": {
+        "type": "string",
+        "description": "Survey version that was current when the assignment was created (reference only; responses stamp the version actually served)"
+      },
+      "survey_version_number": {
+        "type": "number",
+        "description": "Version number snapshot at assignment time"
+      },
+      "event_type": {
+        "type": "string",
+        "enum": ["event", "complex_event"],
+        "description": "Which event table the assignment points at"
+      },
+      "event_id": {
+        "type": "string",
+        "description": "Simple event id (when event_type = event); nulled if the event is deleted"
+      },
+      "complex_event_id": {
+        "type": "string",
+        "description": "Complex event id (when event_type = complex_event); nulled if the event is deleted"
+      },
+      "event_title": {
+        "type": "string",
+        "description": "Event title snapshot so historic results survive rename/archive/delete"
+      },
+      "event_start_date": {
+        "type": "string",
+        "description": "Event start date snapshot"
+      },
+      "opens_at": {
+        "type": "string",
+        "description": "When the assignment starts accepting responses (null = immediately)"
+      },
+      "closes_at": {
+        "type": "string",
+        "description": "When the assignment stops accepting responses (null = never)"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["active", "archived"],
+        "default": "active"
+      },
+      "access_mode": {
+        "type": "string",
+        "enum": ["public", "authenticated"],
+        "default": "public",
+        "description": "Whether respondents must be logged-in members"
+      },
+      "token": {
+        "type": "string",
+        "description": "Unguessable token driving the public assignment URL (/survey/{token})"
+      },
+      "response_count": {
+        "type": "number",
+        "default": 0
+      },
+      "first_response_at": {
+        "type": "string"
+      },
+      "last_response_at": {
+        "type": "string"
+      },
+      "created_by": {
+        "type": "string"
+      },
+      "archived_by": {
+        "type": "string"
+      },
+      "archived_at": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "form_id",
+      "event_type",
+      "token"
+    ]
+  }

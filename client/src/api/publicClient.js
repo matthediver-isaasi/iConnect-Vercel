@@ -450,6 +450,14 @@ class PublicClient {
     return this._fetch(`/api/public/form/${encodeURIComponent(slug)}${authQuery}`);
   }
   
+  // Task #3331: survey opened via an event-assignment link. Returns
+  // { assignment, event, form? , closed_message?, require_authentication? } —
+  // the server resolves tenant, version snapshot, event and window state.
+  async getSurveyAssignment(token) {
+    if (!token) return null;
+    return this._fetch(`/api/public/survey-assignment/${encodeURIComponent(token)}`);
+  }
+
   async getFormDraft(token) {
     if (!token) return null;
     return this._fetch(`/api/public/form-draft?token=${encodeURIComponent(token)}`);

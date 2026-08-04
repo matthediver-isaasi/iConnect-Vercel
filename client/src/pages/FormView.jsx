@@ -56,7 +56,11 @@ function resolveRedirectTarget(form, formValues) {
 // to render a form at its pretty URL (/{form-slug}) without the ?slug= query
 // param. All other query-driven behaviour (prefill, drafts, contract signing)
 // still reads from the URL search string as before.
-export default function FormViewPage({ slug: slugProp = null }) {
+// Task #3331: `assignmentToken` renders a survey opened via its event
+// assignment link (/survey/:token). The server resolves the survey version,
+// event, access mode and open/close window from the token — the client never
+// supplies an event id.
+export default function FormViewPage({ slug: slugProp = null, assignmentToken = null }) {
   const { memberInfo, organizationInfo } = useMemberAccess();
   const { setForceBlankLayout } = useLayoutContext();
 
@@ -112,17 +116,35 @@ export default function FormViewPage({ slug: slugProp = null }) {
   });
 
   const { data: rawForm, isLoading, error: formError } = useQuery({
-    queryKey: ['public-form-by-slug', formSlug, !!memberInfo],
+    queryKey: assignmentToken
+      ? ['public-survey-assignment', assignmentToken, !!memberInfo]
+      : ['public-form-by-slug', formSlug, !!memberInfo],
     queryFn: async () => {
+      // Task #3331: assignment links resolve everything server-side from the
+      // token. When the window is closed / auth is required the payload has
+      // no form config — carry the metadata through so the guards below can
+      // render the right message instead of "not found".
+      if (assignmentToken) {
+        const payload = await publicClient.getSurveyAssignment(assignmentToken);
+        if (!payload) return null;
+        if (payload.form) {
+          return { ...payload.form, __assignment: payload };
+        }
+        return { __assignment: payload, __assignmentBlocked: true, fields: [] };
+      }
       // Use publicClient which handles both subdomain and custom domain resolution.
       // Pass the authenticated flag (matching the embedded Canvas form block) so
       // auth-gated forms return their full shape — including pages / per-field
       // page_id — when the viewer has a valid session.
       return publicClient.getForm(formSlug, { authenticated: !!memberInfo });
     },
-    enabled: !!formSlug,
+    enabled: !!formSlug || !!assignmentToken,
     retry: false
   });
+
+  // Assignment metadata (event context + window state) when opened via an
+  // assignment link; null for slug-based access.
+  const assignmentMeta = rawForm?.__assignment || null;
 
   // Survey presentation (question numbering) — no-op for standard forms
   const form = useMemo(() => applySurveyPresentation(rawForm), [rawForm]);
@@ -836,6 +858,9 @@ export default function FormViewPage({ slug: slugProp = null }) {
         credentials: 'include',
         body: JSON.stringify({
           ...submissionData,
+          // Task #3331: the assignment token lets the server stamp the
+          // event/assignment/version — never a client-supplied event id.
+          ...(assignmentToken && { assignment_token: assignmentToken }),
           idempotency_key: getIdempotencyKey(),
           tenant: tenantSlug
         })
@@ -1946,6 +1971,26 @@ export default function FormViewPage({ slug: slugProp = null }) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+
+  // Task #3331: assignment link opened outside its window, or requiring
+  // authentication — the server returned event context but no form config.
+  if (assignmentMeta && (rawForm?.__assignmentBlocked || assignmentMeta.closed_message || assignmentMeta.require_authentication)) {
+    const eventTitle = assignmentMeta.event?.title;
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+        <Card className="max-w-md">
+          <CardContent className="p-6 text-center space-y-2">
+            {eventTitle && <p className="font-medium text-slate-800">{eventTitle}</p>}
+            <p className="text-slate-600">
+              {assignmentMeta.require_authentication
+                ? 'Please log in to access this survey.'
+                : (assignmentMeta.closed_message || 'This survey is not available.')}
+            </p>
+          </CardContent>
+        </Card>
       </div>
     );
   }
