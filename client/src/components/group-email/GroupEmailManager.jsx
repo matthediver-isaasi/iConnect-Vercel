@@ -48,6 +48,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { base44 } from "@/api/base44Client";
 import { extractDynamicSlots } from "@/components/email-builder/types";
 import { ReadOnlyBlockPreview, SlotEditContext } from "@/components/email-builder/BlockRenderer";
+import { sanitizeHtml } from "@/components/email-builder/sanitize";
 
 // design_json may be persisted as a JSON string or an object depending on the
 // source (entity REST vs. campaign row). Normalize to an object (or null).
@@ -101,13 +102,17 @@ function isTemplatePermittedForGroup(tpl, groupClassId) {
 
 // Replace every {{token}} occurrence in an HTML/text string with its slot value.
 // Mirrors applyDynamicSlotValues in api/_lib/campaignService.js for client preview.
-// Values are HTML-escaped and newlines become <br>, matching the server-side
+// Plain values are HTML-escaped and newlines become <br>; rich values (tokens
+// listed in richSlots) are injected as sanitized HTML, matching the server-side
 // HTML-body substitution so the preview shows what the recipient will see.
-function fillDynamicSlots(input, slotValues) {
+function fillDynamicSlots(input, slotValues, richSlots) {
   if (!input || !slotValues) return input || "";
+  const richSet = new Set(Array.isArray(richSlots) ? richSlots : []);
   return String(input).replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (match, token) => {
     if (!Object.prototype.hasOwnProperty.call(slotValues, token)) return match;
-    return String(slotValues[token] ?? "")
+    const raw = String(slotValues[token] ?? "");
+    if (richSet.has(token)) return sanitizeHtml(raw);
+    return raw
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
@@ -147,6 +152,7 @@ function blankComposeState() {
     template_id: "",
     slotValues: {},
     hiddenSlots: [],
+    richSlots: [],
     audience_roles: [],
   };
 }
@@ -229,6 +235,7 @@ export default function GroupEmailManager({ group, heading = "Email campaigns", 
         design_json: null,
         slotValues: {},
         hiddenSlots: [],
+        richSlots: [],
         html_content: "",
       }));
       return;
@@ -248,6 +255,7 @@ export default function GroupEmailManager({ group, heading = "Email campaigns", 
       design_json: design,
       slotValues,
       hiddenSlots: [],
+      richSlots: [],
       html_content: tpl.body || "",
       subject: prev.subject || tpl.subject || "",
     }));
@@ -299,6 +307,11 @@ export default function GroupEmailManager({ group, heading = "Email campaigns", 
       }
       const savedHidden = (design && Array.isArray(design.hiddenSlots)) ? design.hiddenSlots : [];
       const hiddenSlots = savedHidden.filter((t) => validTokens.has(t));
+      // richSlots marks which slot values are rich HTML (TipTap-authored).
+      // Drafts saved before rich slots existed carry no marker, so every
+      // value stays treated as legacy plain text.
+      const savedRich = (design && Array.isArray(design.richSlots)) ? design.richSlots : [];
+      const richSlots = savedRich.filter((t) => validTokens.has(t));
       setCompose({
         id: full.id,
         name: full.name || "",
@@ -310,6 +323,7 @@ export default function GroupEmailManager({ group, heading = "Email campaigns", 
         template_id: full.email_template_id ? String(full.email_template_id) : "",
         slotValues,
         hiddenSlots,
+        richSlots,
         audience_roles: segment && Array.isArray(segment.roles) ? segment.roles : [],
       });
     } else {
@@ -371,7 +385,12 @@ export default function GroupEmailManager({ group, heading = "Email campaigns", 
     // Fold the per-send slot values into the design so the server can inject
     // them at send time (parseCampaignDesign reads design_json.slotValues).
     const designToSave = compose.design_json
-      ? { ...compose.design_json, slotValues: compose.slotValues || {}, hiddenSlots: compose.hiddenSlots || [] }
+      ? {
+          ...compose.design_json,
+          slotValues: compose.slotValues || {},
+          hiddenSlots: compose.hiddenSlots || [],
+          richSlots: compose.richSlots || [],
+        }
       : null;
     const body = isUpdate
       ? {
@@ -533,11 +552,20 @@ export default function GroupEmailManager({ group, heading = "Email campaigns", 
       else set.add(token);
       return { ...prev, hiddenSlots: Array.from(set) };
     });
+  // Marks a dynamic text slot's value as rich HTML (set the first time the
+  // TipTap slot editor reports a change for that token).
+  const markRichSlot = (token) =>
+    setCompose((prev) => {
+      if ((prev.richSlots || []).includes(token)) return prev;
+      return { ...prev, richSlots: [...(prev.richSlots || []), token] };
+    });
   const slotEditCtx = {
     slotValues: compose.slotValues || {},
     hiddenSlots: compose.hiddenSlots || [],
+    richSlots: compose.richSlots || [],
     onChangeSlot: changeSlotValue,
     onToggleHidden: toggleHiddenSlot,
+    onMarkRich: markRichSlot,
   };
   const composeSlots = compose.design_json ? extractDynamicSlots(compose.design_json) : [];
   const hiddenCount = (compose.hiddenSlots || []).length;
@@ -760,7 +788,7 @@ export default function GroupEmailManager({ group, heading = "Email campaigns", 
               ) : compose.html_content ? (
                 <div className="border rounded-md overflow-hidden bg-white">
                   <iframe
-                    srcDoc={fillDynamicSlots(compose.html_content, compose.slotValues)}
+                    srcDoc={fillDynamicSlots(compose.html_content, compose.slotValues, compose.richSlots)}
                     title="Email preview"
                     className="w-full border-0"
                     style={{ minHeight: 400 }}

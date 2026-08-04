@@ -75,11 +75,13 @@ export default async function handler(req, res) {
     // values (design_json.slotValues); freeform html_content is ignored.
     const requestedSlotValues = (design_json && typeof design_json === 'object') ? design_json.slotValues : null;
     const requestedHiddenSlots = (design_json && typeof design_json === 'object') ? design_json.hiddenSlots : null;
+    const requestedRichSlots = (design_json && typeof design_json === 'object') ? design_json.richSlots : null;
     const resolved = await resolveMemberCampaignTemplateContent({
       templateId: email_template_id,
       tenantId: access.tenantContext.tenantId,
       requestedSlotValues,
       requestedHiddenSlots,
+      requestedRichSlots,
       groupClassificationId: group.classificationId || null,
     });
     if (!resolved.ok) {

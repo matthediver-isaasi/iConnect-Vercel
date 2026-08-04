@@ -110,6 +110,7 @@ export default async function handler(req, res) {
     let campaignContentWidth = null;
     let campaignSlotValues = null;
     let campaignHiddenSlots = null;
+    let campaignRichSlots = null;
     if (campaign.design_json) {
       campaignSkipFooter = true;
       try {
@@ -121,6 +122,9 @@ export default async function handler(req, res) {
         if (designData?.slotValues && typeof designData.slotValues === 'object') campaignSlotValues = designData.slotValues;
         if (Array.isArray(designData?.hiddenSlots) && designData.hiddenSlots.length > 0) {
           campaignHiddenSlots = designData.hiddenSlots.filter((t) => typeof t === 'string');
+        }
+        if (Array.isArray(designData?.richSlots) && designData.richSlots.length > 0) {
+          campaignRichSlots = designData.richSlots.filter((t) => typeof t === 'string');
         }
       } catch (_e) {}
     }
@@ -137,8 +141,8 @@ export default async function handler(req, res) {
 
       let html = campaign.html_content || '';
       html = stripHiddenDynamicRegions(html, campaignHiddenSlots);
-      if (campaignSlotValues) html = applyDynamicSlotValues(html, campaignSlotValues, { html: true });
-      const subject = `[TEST] ${applyDynamicSlotValues(campaign.subject || 'No Subject', campaignSlotValues)}`;
+      if (campaignSlotValues) html = applyDynamicSlotValues(html, campaignSlotValues, { html: true, richSlots: campaignRichSlots });
+      const subject = `[TEST] ${applyDynamicSlotValues(campaign.subject || 'No Subject', campaignSlotValues, { richSlots: campaignRichSlots })}`;
       html = html.replace(/\{\{first_name\}\}/gi, 'Test');
       html = html.replace(/\{\{last_name\}\}/gi, 'User');
       html = html.replace(/\{\{email\}\}/gi, emailToUse);

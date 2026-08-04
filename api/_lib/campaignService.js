@@ -3,6 +3,7 @@ import { sendEmail, replacePlaceholders } from './emailService.js';
 import { replaceBookingPlaceholders } from './eventConfirmationEmail.js';
 import { checkEmailQuota } from './planQuota.js';
 import { buildQrImageUrl, ensureBookingToken, ensureComplexSessionTokens } from './checkinService.js';
+import { sanitizeSlotHtml, htmlSlotToPlainText } from './slotHtmlSanitizer.js';
 import crypto from 'crypto';
 
 const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
@@ -214,6 +215,27 @@ export function extractDynamicSlotTokens(design) {
 }
 
 /**
+ * Collect the set of DYNAMIC TEXT tokens only (rich-text formatting is allowed
+ * exclusively on dynamic_text slots — image URLs and button text/link stay
+ * plain). Used to validate a client-supplied richSlots marker list.
+ */
+export function extractDynamicTextSlotTokens(design) {
+  const root = normalizeDesignJson(design);
+  const blocks = Array.isArray(root) ? root : (root?.blocks || []);
+  const tokens = new Set();
+  const visit = (block) => {
+    if (!block || typeof block !== 'object') return;
+    if (block.type === 'dynamic_text' && block.token) tokens.add(block.token);
+    if (Array.isArray(block.children)) block.children.forEach(visit);
+    if (Array.isArray(block.columns)) {
+      block.columns.forEach((col) => { if (Array.isArray(col?.blocks)) col.blocks.forEach(visit); });
+    }
+  };
+  blocks.forEach(visit);
+  return tokens;
+}
+
+/**
  * Collect the set of PRIMARY dynamic tokens (the keys used in DYN_BLOCK markers
  * and in the hiddenSlots list) — i.e. every dynamic block's `token`, but NOT a
  * dynamic_button's `linkToken` (a link cannot be hidden independently of its
@@ -273,7 +295,7 @@ export async function assertVisualTemplateForCampaign(templateId, tenantId) {
  * @param {string|null}   [opts.groupClassificationId]  - classification_id of the
  *   member group that owns this campaign. Pass null/undefined for unclassified groups.
  */
-export async function resolveMemberCampaignTemplateContent({ templateId, tenantId, requestedSlotValues, requestedHiddenSlots, groupClassificationId } = {}) {
+export async function resolveMemberCampaignTemplateContent({ templateId, tenantId, requestedSlotValues, requestedHiddenSlots, requestedRichSlots, groupClassificationId } = {}) {
   if (!templateId || templateId === 'none' || templateId === '') {
     return { ok: false, error: 'A visual email template is required.' };
   }
@@ -332,11 +354,31 @@ export async function resolveMemberCampaignTemplateContent({ templateId, tenantI
       }
     }
 
+    // richSlots: per-send marker for slot values authored as rich HTML in the
+    // TipTap slot editor. Only dynamic_text tokens may be marked rich — image
+    // and button slots stay plain — so a client can never flip a URL/text slot
+    // into raw-HTML injection mode. Rich values are additionally sanitized so
+    // the persisted design never carries scripts/dangerous markup.
+    const richables = extractDynamicTextSlotTokens(design);
+    const richSlots = [];
+    if (Array.isArray(requestedRichSlots)) {
+      for (const token of requestedRichSlots) {
+        if (typeof token === 'string' && richables.has(token) && !richSlots.includes(token)) {
+          richSlots.push(token);
+        }
+      }
+    }
+    for (const token of richSlots) {
+      if (Object.prototype.hasOwnProperty.call(slotValues, token)) {
+        slotValues[token] = sanitizeSlotHtml(slotValues[token]);
+      }
+    }
+
     return {
       ok: true,
       email_template_id: data.id,
       html_content: data.body || '',
-      design_json: { ...design, slotValues, hiddenSlots },
+      design_json: { ...design, slotValues, hiddenSlots, richSlots },
     };
   } catch (err) {
     console.error('[Campaign Service] Error resolving template content:', err);
@@ -2761,17 +2803,28 @@ export function encodeSlotValueForHtml(value) {
 }
 
 // Replace {{token}} placeholders with per-send slot values.
-// Pass { html: true } when filling an HTML body: values are HTML-escaped and
-// newlines become <br>. Leave it off for subjects/plain text (no tags injected).
+// Pass { html: true } when filling an HTML body: plain-text values are
+// HTML-escaped and newlines become <br>. Leave it off for subjects/plain text
+// (no tags injected).
+// Pass { richSlots: [tokens...] } (from design_json.richSlots) to mark slots
+// whose value is rich HTML from the TipTap slot editor: in html mode those are
+// injected as sanitized HTML instead of being escaped; in subject/plain mode
+// they are flattened to plain text so no markup ever reaches a subject.
 export function applyDynamicSlotValues(html, slotValues, options = {}) {
   if (!html || !slotValues || typeof slotValues !== 'object') return html;
   const asHtml = !!options.html;
+  const richSet = new Set(Array.isArray(options.richSlots) ? options.richSlots.filter((t) => typeof t === 'string') : []);
   let out = html;
   for (const [token, value] of Object.entries(slotValues)) {
     if (!token) continue;
     const re = new RegExp(`\\{\\{\\s*${token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\}\\}`, 'gi');
     const raw = value == null ? '' : String(value);
-    const replacement = asHtml ? encodeSlotValueForHtml(raw) : raw;
+    let replacement;
+    if (richSet.has(token)) {
+      replacement = asHtml ? sanitizeSlotHtml(raw) : htmlSlotToPlainText(raw);
+    } else {
+      replacement = asHtml ? encodeSlotValueForHtml(raw) : raw;
+    }
     // Function replacer so '$' sequences in values are inserted literally.
     out = out.replace(re, () => replacement);
   }
@@ -2784,6 +2837,7 @@ function parseCampaignDesign(campaign) {
   let contentWidth = null;
   let slotValues = null;
   let hiddenSlots = null;
+  let richSlots = null;
   if (campaign.design_json) {
     try {
       const designData = typeof campaign.design_json === 'string' ? JSON.parse(campaign.design_json) : campaign.design_json;
@@ -2795,6 +2849,9 @@ function parseCampaignDesign(campaign) {
       }
       if (Array.isArray(designData?.hiddenSlots) && designData.hiddenSlots.length > 0) {
         hiddenSlots = designData.hiddenSlots.filter((t) => typeof t === 'string');
+      }
+      if (Array.isArray(designData?.richSlots) && designData.richSlots.length > 0) {
+        richSlots = designData.richSlots.filter((t) => typeof t === 'string');
       }
       const checkForUnsubscribe = (blocks) => {
         if (!Array.isArray(blocks)) return false;
@@ -2819,7 +2876,7 @@ function parseCampaignDesign(campaign) {
     // which are required to use the builder) receive the tenant footer.
     skipFooter = hasUnsubscribeBlock;
   }
-  return { skipFooter, hasUnsubscribeBlock, contentWidth, slotValues, hiddenSlots };
+  return { skipFooter, hasUnsubscribeBlock, contentWidth, slotValues, hiddenSlots, richSlots };
 }
 
 const EVENT_QR_BLOCK_RE = /<!--\s*EVENT_QR_BLOCK:START\s*-->[\s\S]*?<!--\s*EVENT_QR_BLOCK:END\s*-->/gi;
@@ -3101,8 +3158,8 @@ async function sendToRecipient(recipient, campaign, tenantId, tenantSlug, reques
     // Dynamic Text slots: single per-send values, identical for every recipient.
     // Resolve before any per-recipient placeholder substitution.
     if (designInfo?.slotValues) {
-      html = applyDynamicSlotValues(html, designInfo.slotValues, { html: true });
-      subject = applyDynamicSlotValues(subject, designInfo.slotValues);
+      html = applyDynamicSlotValues(html, designInfo.slotValues, { html: true, richSlots: designInfo.richSlots });
+      subject = applyDynamicSlotValues(subject, designInfo.slotValues, { richSlots: designInfo.richSlots });
     }
 
     const recipientName = `${recipient.first_name || ''} ${recipient.last_name || ''}`.trim() || '';

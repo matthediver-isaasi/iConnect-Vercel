@@ -92,11 +92,15 @@ export default async function handler(req, res) {
       const requestedHiddenSlots = (updates.design_json && typeof updates.design_json === 'object')
         ? updates.design_json.hiddenSlots
         : null;
+      const requestedRichSlots = (updates.design_json && typeof updates.design_json === 'object')
+        ? updates.design_json.richSlots
+        : null;
       const resolved = await resolveMemberCampaignTemplateContent({
         templateId: effectiveTemplateId,
         tenantId: access.tenantContext.tenantId,
         requestedSlotValues,
         requestedHiddenSlots,
+        requestedRichSlots,
         groupClassificationId: group.classificationId || null,
       });
       if (!resolved.ok) return res.status(400).json({ error: resolved.error });

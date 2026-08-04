@@ -11,14 +11,29 @@ import { base44 } from '@/api/base44Client';
 import { toast } from 'sonner';
 import { showUploadErrorToast } from '@/lib/planQuotaError';
 import { BLOCK_TYPES } from './types';
-import { sanitizeHtml, stripTrailingEmptyParagraphs } from './sanitize';
+import { sanitizeHtml, stripTrailingEmptyParagraphs, isRichTextEmpty } from './sanitize';
+import RichTextEditor from './RichTextEditor';
 import { getIndividualValues } from './SpacingControl';
 
 // When present, dynamic blocks render their actual filled-in values and become
 // click-to-edit (popover) + hideable. When absent (the visual builder canvas),
 // dynamic blocks render their design-time placeholder chips instead.
-// Shape: { slotValues, hiddenSlots, onChangeSlot(token,value), onToggleHidden(token) }
+// Shape: { slotValues, hiddenSlots, richSlots, onChangeSlot(token,value),
+//          onToggleHidden(token), onMarkRich(token) }
+// richSlots lists the dynamic_text tokens whose slotValues entry is rich HTML
+// (authored in the TipTap slot editor) rather than legacy plain text.
 export const SlotEditContext = createContext(null);
+
+// Convert a legacy plain-text slot value into equivalent HTML for loading into
+// the TipTap slot editor: escape markup characters and keep line breaks.
+export function plainSlotValueToHtml(text) {
+  const escaped = String(text ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  if (!escaped) return '';
+  return `<p>${escaped.replace(/\r\n|\r|\n/g, '<br>')}</p>`;
+}
 
 function getSpacingStyle(styles, prefix, cssPrefix) {
   const vals = getIndividualValues(styles, prefix);
@@ -538,7 +553,7 @@ function EventQrBlockPreview({ block, isChild }) {
 // Wraps a rendered dynamic element in campaign-edit mode: a dashed editable
 // outline that opens a popover (the `editor`) on click, plus a Hide action that
 // removes the element from the sent email entirely.
-function CampaignSlotWrapper({ block, slotCtx, label, isChild, children, editor }) {
+function CampaignSlotWrapper({ block, slotCtx, label, isChild, children, editor, wide = false }) {
   const [open, setOpen] = useState(false);
   const wrapped = (
     <Popover open={open} onOpenChange={setOpen}>
@@ -552,7 +567,7 @@ function CampaignSlotWrapper({ block, slotCtx, label, isChild, children, editor 
           {children}
         </div>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-80 space-y-3" data-testid={`campaign-slot-editor-${block.token}`}>
+      <PopoverContent align="start" className={`${wide ? 'w-[460px] max-w-[95vw]' : 'w-80'} space-y-3`} data-testid={`campaign-slot-editor-${block.token}`}>
         <div className="flex items-center justify-between gap-2">
           <span className="text-xs font-medium text-foreground truncate">{label}</span>
           <Button
@@ -598,16 +613,21 @@ function HiddenSlotStrip({ block, slotCtx }) {
 }
 
 function DynamicTextSlotEditor({ block, slotCtx }) {
-  const value = slotCtx.slotValues?.[block.token] ?? '';
+  const raw = slotCtx.slotValues?.[block.token] ?? '';
+  const isRich = (slotCtx.richSlots || []).includes(block.token);
+  // Legacy plain-text values are converted to HTML for the editor on open;
+  // the stored value only flips to HTML (and gets the rich marker) when the
+  // sender actually edits, so untouched drafts round-trip unchanged.
+  const content = isRich ? raw : plainSlotValueToHtml(raw);
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-1.5" data-testid={`campaign-input-${block.token}`}>
       <span className="text-xs text-muted-foreground">Text</span>
-      <Textarea
-        value={value}
-        rows={3}
-        placeholder="Type the text for this send…"
-        onChange={(e) => slotCtx.onChangeSlot(block.token, e.target.value)}
-        data-testid={`campaign-input-${block.token}`}
+      <RichTextEditor
+        content={content}
+        onChange={(html) => {
+          slotCtx.onChangeSlot(block.token, html);
+          if (slotCtx.onMarkRich) slotCtx.onMarkRich(block.token);
+        }}
       />
     </div>
   );
@@ -712,18 +732,28 @@ function DynamicTextBlockPreview({ block, isChild, globalFontFamily }) {
       return <HiddenSlotStrip block={block} slotCtx={slotCtx} />;
     }
     const value = slotCtx.slotValues?.[block.token];
-    const display = value && String(value).trim() ? value : `[ ${label} ]`;
+    const isRich = (slotCtx.richSlots || []).includes(block.token);
+    const hasValue = isRich ? !isRichTextEmpty(value) : !!(value && String(value).trim());
     return (
       <CampaignSlotWrapper
         block={block}
         slotCtx={slotCtx}
         label={label}
         isChild={isChild}
+        wide
         editor={<DynamicTextSlotEditor block={block} slotCtx={slotCtx} />}
       >
-        <div style={{ ...paddingStyle, textAlign, fontFamily, fontSize, color, lineHeight, whiteSpace: 'pre-wrap' }}>
-          {display}
-        </div>
+        {isRich && hasValue ? (
+          <div
+            className="prose prose-sm max-w-none [&_p]:mt-0 [&_p]:mb-[1em] [&_p:last-child]:mb-0 [&_ul]:pl-5 [&_ol]:pl-5 [&_a]:underline [&_strong]:text-inherit [&_em]:text-inherit [&_p]:text-inherit [&_li]:text-inherit"
+            style={{ ...paddingStyle, textAlign, fontFamily, fontSize, color, lineHeight }}
+            dangerouslySetInnerHTML={{ __html: sanitizeHtml(stripTrailingEmptyParagraphs(value)) }}
+          />
+        ) : (
+          <div style={{ ...paddingStyle, textAlign, fontFamily, fontSize, color, lineHeight, whiteSpace: 'pre-wrap' }}>
+            {hasValue ? value : `[ ${label} ]`}
+          </div>
+        )}
       </CampaignSlotWrapper>
     );
   }

@@ -16,6 +16,7 @@ const EVENT_QR_BLOCK_RE = /<!--\s*EVENT_QR_BLOCK:START\s*-->[\s\S]*?<!--\s*EVENT
 function parseDesign(campaign) {
   let slotValues = null;
   let hiddenSlots = null;
+  let richSlots = null;
   if (campaign.design_json) {
     try {
       const d = typeof campaign.design_json === 'string'
@@ -23,22 +24,23 @@ function parseDesign(campaign) {
         : campaign.design_json;
       if (d?.slotValues && typeof d.slotValues === 'object') slotValues = d.slotValues;
       if (Array.isArray(d?.hiddenSlots)) hiddenSlots = d.hiddenSlots.filter((t) => typeof t === 'string');
+      if (Array.isArray(d?.richSlots)) richSlots = d.richSlots.filter((t) => typeof t === 'string');
     } catch (e) {
       // ignore malformed design_json
     }
   }
-  return { slotValues, hiddenSlots };
+  return { slotValues, hiddenSlots, richSlots };
 }
 
 // Reduce the delivered HTML body to the plain, human-readable text a member sees
 // in the reading pane. Applies the same transforms as the [id] render path, then
 // strips tags so searches don't match tag names, attributes, inline CSS or URLs.
 function toSearchableText(campaign, recipient) {
-  const { slotValues, hiddenSlots } = parseDesign(campaign);
+  const { slotValues, hiddenSlots, richSlots } = parseDesign(campaign);
   let html = campaign.html_content || '';
 
   html = stripHiddenDynamicRegions(html, hiddenSlots);
-  if (slotValues) html = applyDynamicSlotValues(html, slotValues, { html: true });
+  if (slotValues) html = applyDynamicSlotValues(html, slotValues, { html: true, richSlots });
 
   const recipientName = `${recipient.first_name || ''} ${recipient.last_name || ''}`.trim();
   html = html
