@@ -419,3 +419,17 @@ test("empty role_access_item table keeps hardcoded-map behavior", (t) => {
   assert.equal(isResourceExcluded(["events"], "events.discount-codes"), true);
   assert.equal(isResourceExcluded(["commerce"], "events.discount-codes"), false);
 });
+
+// Task #3332 regression: the Survey Reports nav item must be hidden when a
+// role excludes the canonical forms.survey-reports key, whichever identifier
+// the navigation entry uses (canonical or legacy page_* variants).
+test("survey-reports exclusion hides nav regardless of identifier variant", () => {
+  const excluded = new Set(["forms.survey-reports"]);
+  for (const id of ["forms.survey-reports", "page_SurveyReports", "page_admin_SurveyReports"]) {
+    assert.equal(
+      excluded.has(migrateLegacyFeatureId(id)),
+      true,
+      `identifier "${id}" must resolve to the excluded canonical key`
+    );
+  }
+});

@@ -596,12 +596,21 @@ export default function FormManagementPage() {
         </div>
         <div className="flex items-center justify-between text-sm">
           <span className="text-slate-600">Submissions:</span>
-          <Link to={`${createPageUrl('FormSubmissions')}?formId=${form.id}`}>
-            <Badge variant="secondary" className="gap-1 cursor-pointer hover:bg-slate-200">
-              <BarChart3 className="w-3 h-3" />
-              {submissionCounts[form.id] || 0}
-            </Badge>
-          </Link>
+          <div className="flex items-center gap-1.5">
+            {form.form_type === 'survey' && (
+              <Link to={`${createPageUrl('SurveyReports')}?formId=${form.id}`}>
+                <Badge variant="secondary" className="cursor-pointer hover:bg-slate-200" data-testid={`link-survey-report-${form.id}`}>
+                  Report
+                </Badge>
+              </Link>
+            )}
+            <Link to={`${createPageUrl('FormSubmissions')}?formId=${form.id}`}>
+              <Badge variant="secondary" className="gap-1 cursor-pointer hover:bg-slate-200">
+                <BarChart3 className="w-3 h-3" />
+                {submissionCounts[form.id] || 0}
+              </Badge>
+            </Link>
+          </div>
         </div>
         <div className="flex items-center justify-between text-sm">
           <span className="text-slate-600">Slug:</span>
@@ -749,6 +758,13 @@ export default function FormManagementPage() {
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap lg:flex-nowrap lg:justify-end">
+          {form.form_type === 'survey' && (
+            <Link to={`${createPageUrl('SurveyReports')}?formId=${form.id}`}>
+              <Badge variant="secondary" className="cursor-pointer hover:bg-slate-200" title="Survey report" data-testid={`link-survey-report-row-${form.id}`}>
+                Report
+              </Badge>
+            </Link>
+          )}
           <Link to={`${createPageUrl('FormSubmissions')}?formId=${form.id}`}>
             <Badge variant="secondary" className="gap-1 cursor-pointer hover:bg-slate-200" title="Submissions">
               <BarChart3 className="w-3 h-3" />

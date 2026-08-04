@@ -604,6 +604,13 @@ export const ROLE_ACCESS_MAP: Module[] = [
       {
         id: "forms.conversion-report",
         label: "Form Conversion Report"
+      },
+      {
+        id: "forms.survey-reports",
+        label: "Survey Reports",
+        features: [
+          { id: "forms.survey-reports.response-detail", label: "Response-Level Detail & Export" }
+        ]
       }
     ]
   },
@@ -1087,6 +1094,8 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_admin_SponsorManagement": "events.sponsors",
   "page_EventRegistrationReport": "events.event-report",
   "page_admin_EventRegistrationReport": "events.event-report",
+  "page_SurveyReports": "forms.survey-reports",
+  "page_admin_SurveyReports": "forms.survey-reports",
   "page_admin_OrganisationPreferences": "organisation.field-permissions",
   "page_admin_MemberPreferences": "membership.member-field-permissions",
   "page_Dashboard": "system.dashboard",

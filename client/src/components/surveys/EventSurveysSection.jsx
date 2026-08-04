@@ -322,6 +322,18 @@ export default function EventSurveysSection({ eventId, eventType = "event" }) {
                     type="button"
                     variant="outline"
                     size="sm"
+                    asChild
+                    data-testid={`link-survey-report-${row.id}`}
+                  >
+                    <a href={`/SurveyReports?formId=${row.form_id}&assignment=${row.id}`}>
+                      <BarChart3 className="w-3.5 h-3.5 mr-1.5" />
+                      Report
+                    </a>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
                     onClick={() => copyLink(row)}
                     data-testid={`button-copy-link-${row.id}`}
                   >

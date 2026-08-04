@@ -8358,7 +8358,14 @@ export default function FormBuilderPage() {
               <div className="space-y-6">
                 <Card className="border-slate-200">
                   <CardHeader className="pb-4">
-                    <CardTitle className="text-lg">Survey Settings</CardTitle>
+                    <div className="flex items-center justify-between gap-2">
+                      <CardTitle className="text-lg">Survey Settings</CardTitle>
+                      {formId && (
+                        <Button type="button" variant="outline" size="sm" asChild data-testid="link-survey-report-builder">
+                          <a href={`/SurveyReports?formId=${formId}`}>View Report</a>
+                        </Button>
+                      )}
+                    </div>
                   </CardHeader>
                   <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2 md:col-span-2">
