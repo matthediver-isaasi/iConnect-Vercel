@@ -43,6 +43,7 @@ export default function NewsEditorPage() {
   const [seoDescription, setSeoDescription] = useState("");
   const [ogImageUrl, setOgImageUrl] = useState("");
   const [publishedDate, setPublishedDate] = useState(new Date().toISOString());
+  const [tickerExpiryDate, setTickerExpiryDate] = useState("");
   const [uploadingImage, setUploadingImage] = useState(false);
   const [autoSaving, setAutoSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState(null);
@@ -104,6 +105,7 @@ export default function NewsEditorPage() {
       setTags(news.tags || []);
       setStatus(news.status || "draft");
       setPublishedDate(news.published_date || new Date().toISOString());
+      setTickerExpiryDate(news.ticker_expiry_date || "");
       setSeoTitle(news.seo_title || "");
       setSeoDescription(news.seo_description || "");
       setOgImageUrl(news.og_image_url || "");
@@ -144,6 +146,7 @@ export default function NewsEditorPage() {
             tags,
             status,
             published_date: publishedDate,
+            ticker_expiry_date: tickerExpiryDate || null,
             seo_title: seoTitle,
             seo_description: seoDescription,
             og_image_url: ogImageUrl,
@@ -158,7 +161,7 @@ export default function NewsEditorPage() {
     }, 3000);
 
     return () => clearTimeout(autoSaveTimer);
-  }, [title, slug, summary, content, featureImage, focalPoint, subcategories, tags, status, publishedDate, seoTitle, seoDescription, ogImageUrl, isEditing, newsId, memberInfo, currentMember]);
+  }, [title, slug, summary, content, featureImage, focalPoint, subcategories, tags, status, publishedDate, tickerExpiryDate, seoTitle, seoDescription, ogImageUrl, isEditing, newsId, memberInfo, currentMember]);
 
   const saveMutation = useMutation({
     mutationFn: async ({ publishNow }) => {
@@ -179,6 +182,7 @@ export default function NewsEditorPage() {
         tags,
         status: publishNow ? 'published' : status,
         published_date: publishedDate,
+        ticker_expiry_date: tickerExpiryDate || null,
         seo_title: seoTitle,
         seo_description: seoDescription,
         og_image_url: ogImageUrl,
@@ -613,6 +617,26 @@ export default function NewsEditorPage() {
                       </p>
                     </div>
                   )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="ticker-expiry-date">Ticker Expiry Date (optional)</Label>
+                  <Input
+                    id="ticker-expiry-date"
+                    type="datetime-local"
+                    value={tickerExpiryDate ? (() => {
+                      const d = new Date(tickerExpiryDate);
+                      const pad = (n) => String(n).padStart(2, '0');
+                      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+                    })() : ''}
+                    onChange={(e) => {
+                      setTickerExpiryDate(e.target.value ? new Date(e.target.value).toISOString() : "");
+                    }}
+                    data-testid="input-ticker-expiry-date"
+                  />
+                  <p className="text-xs text-slate-500">
+                    After this date the article no longer appears in the news ticker. It stays published everywhere else. Leave blank to never expire from the ticker.
+                  </p>
                 </div>
               </CardContent>
             </Card>

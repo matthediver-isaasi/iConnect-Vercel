@@ -90,7 +90,9 @@ export default function NewsTickerBar() {
           .filter(news => 
             news.status === 'published' && 
             news.published_date && 
-            news.published_date <= nowIso
+            news.published_date <= nowIso &&
+            // Exclude articles whose ticker expiry has passed (missing/empty = never expires)
+            (!news.ticker_expiry_date || new Date(news.ticker_expiry_date).toISOString() > nowIso)
           )
           .sort((a, b) => new Date(b.published_date) - new Date(a.published_date))
           .slice(0, tickerCount);
