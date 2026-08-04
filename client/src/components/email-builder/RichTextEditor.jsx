@@ -637,6 +637,44 @@ function MenuBar({ editor, breakpoint, anchorOptions, compact }) {
   );
 }
 
+// Task #3380: the full extension set is shared between compact and full
+// toolbar modes — `compact` only hides toolbar controls, it never removes
+// extensions, so saved slot HTML with headings/colors/font sizes parses and
+// round-trips unchanged. Exported so tests can instantiate a headless editor
+// with the EXACT extension list this component uses.
+export function buildRichTextExtensions() {
+  return [
+    StarterKit.configure({
+      heading: { levels: [1, 2, 3] },
+    }),
+    TextAlign.configure({
+      types: ['heading', 'paragraph'],
+    }),
+    TextStyle,
+    Color,
+    FontFamily,
+    FontSize,
+    BackgroundColor,
+    // Task #2775: inline links now carry a per-link "open in new tab" choice.
+    // The old config forced `target=_blank` on every link. We must NOT simply
+    // drop the HTMLAttributes key: `.configure()` deep-merges over the
+    // extension's own defaults (`target: '_blank'`), and `renderHTML` always
+    // merges `this.options.HTMLAttributes` on top, so a per-mark `target:null`
+    // alone can't win. Explicitly nulling the global target/rel makes brand-new
+    // links default to same tab; existing saved links keep their `target`/`rel`
+    // (parsed from stored HTML) and per-link choices are written by
+    // handleSetLink via setLink({ target, rel }).
+    Link.configure({
+      openOnClick: false,
+      HTMLAttributes: {
+        target: null,
+        rel: null,
+      },
+    }),
+    Underline,
+  ];
+}
+
 export default function RichTextEditor({ content, onChange, fontFamily, color, lineHeight, breakpoint, anchorOptions, compact }) {
   const buildStyle = (ff, c, lh) => [
     ff ? `font-family: ${ff}` : '',
@@ -645,36 +683,7 @@ export default function RichTextEditor({ content, onChange, fontFamily, color, l
   ].filter(Boolean).join('; ');
 
   const editor = useEditor({
-    extensions: [
-      StarterKit.configure({
-        heading: { levels: [1, 2, 3] },
-      }),
-      TextAlign.configure({
-        types: ['heading', 'paragraph'],
-      }),
-      TextStyle,
-      Color,
-      FontFamily,
-      FontSize,
-      BackgroundColor,
-      // Task #2775: inline links now carry a per-link "open in new tab" choice.
-      // The old config forced `target=_blank` on every link. We must NOT simply
-      // drop the HTMLAttributes key: `.configure()` deep-merges over the
-      // extension's own defaults (`target: '_blank'`), and `renderHTML` always
-      // merges `this.options.HTMLAttributes` on top, so a per-mark `target:null`
-      // alone can't win. Explicitly nulling the global target/rel makes brand-new
-      // links default to same tab; existing saved links keep their `target`/`rel`
-      // (parsed from stored HTML) and per-link choices are written by
-      // handleSetLink via setLink({ target, rel }).
-      Link.configure({
-        openOnClick: false,
-        HTMLAttributes: {
-          target: null,
-          rel: null,
-        },
-      }),
-      Underline,
-    ],
+    extensions: buildRichTextExtensions(),
     content: content || '<p></p>',
     onUpdate: ({ editor }) => {
       onChange(editor.getHTML());
