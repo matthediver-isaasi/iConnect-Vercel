@@ -19,6 +19,7 @@ import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import EmailCampaigns from "@/components/EmailCampaigns";
+import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
 
 export default function CommunicationsManagementPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -148,7 +149,7 @@ export default function CommunicationsManagementPage() {
 
   const { data: allOrganizations = [] } = useQuery({
     queryKey: ['all-organizations-for-lookup'],
-    queryFn: () => base44.entities.Organization.listAll(),
+    queryFn: () => listAllOrganizationsForAdmin(),
     staleTime: 60000,
   });
 

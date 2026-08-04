@@ -101,6 +101,7 @@ import CrmTagInput from "@/components/crm/CrmTagInput";
 import { useWorkflowConfirmation } from "@/hooks/useWorkflowConfirmation";
 import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
 import WorkflowConfirmationModal, { DryRunSimulationModal } from "@/components/WorkflowConfirmationModal";
+import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
 
 const getMemberName = (m) => {
   return [m?.first_name, m?.last_name].filter(Boolean).join(' ') || m?.full_name || '';
@@ -522,7 +523,7 @@ export default function OrganisationDetailView({
       try {
         // Paginate past the API's 1000-row cap so large tenants see the
         // full organisation list, sorted alphabetically.
-        const orgs = await base44.entities.Organization.listAll({ sort: { name: 'asc' } });
+        const orgs = await listAllOrganizationsForAdmin({ sort: { name: 'asc' } });
         return orgs || [];
       } catch (err) {
         console.error('Failed to load organisations for member creation:', err);

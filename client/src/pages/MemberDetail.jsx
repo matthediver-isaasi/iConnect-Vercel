@@ -59,6 +59,7 @@ import { COUNTRIES } from "@/data/countries";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command";
 import { ChevronsUpDown } from "lucide-react";
+import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
 
 // Stable empty-array fallback for disabled/unloaded queries. Using an inline
 // `= []` destructure default creates a NEW array identity on every render,
@@ -312,7 +313,7 @@ export default function MemberDetail() {
   const { data: organizations = [] } = useQuery({
     queryKey: ['organizations-for-member-detail'],
     enabled: isAccessReady,
-    queryFn: () => base44.entities.Organization.list('name')
+    queryFn: () => listOrganizationsForAdmin('name')
   });
 
   const { data: roles = [] } = useQuery({

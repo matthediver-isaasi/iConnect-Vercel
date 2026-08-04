@@ -39,6 +39,7 @@ import { toast } from "sonner";
 import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
 
 export default function AwardManagementPage() {
   const { memberInfo, isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -194,7 +195,7 @@ export default function AwardManagementPage() {
   const { data: organizations = [], isLoading: organizationsLoading } = useQuery({
     queryKey: ['organizations'],
     queryFn: async () => {
-      const orgs = await base44.entities.Organization.list({ limit: 5000 });
+      const orgs = await listOrganizationsForAdmin({ limit: 5000 });
       return orgs.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     },
     enabled: assignDialogOpen

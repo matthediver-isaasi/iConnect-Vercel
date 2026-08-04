@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { useTagColors } from "@/hooks/useTagColors";
 import { toast } from "sonner";
+import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
 
 function ColorPicker({ selectedColor, onSelect, palette }) {
   return (
@@ -59,7 +60,7 @@ export default function CrmTagInput({ tags = [], onChange, entityType, disabled 
   const entityConfig = {
     organization: {
       queryKey: ['admin-organizations-tags'],
-      listFn: () => base44.entities.Organization.list(),
+      listFn: () => listOrganizationsForAdmin(),
     },
     member: {
       queryKey: ['admin-members-tags'],

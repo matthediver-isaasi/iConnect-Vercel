@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { base44 } from "@/api/base44Client";
+import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -157,7 +158,7 @@ export default function PostJobPage() {
   // Fetch organisations for search (only if user has permission)
   const { data: allOrganizations = [] } = useQuery({
     queryKey: ['organizations-for-job-posting'],
-    queryFn: () => base44.entities.Organization.list(),
+    queryFn: () => listOrganizationsForAdmin(),
     enabled: canPostOnBehalfOfOrg,
   });
   

@@ -53,6 +53,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { downloadSubmissionsDocx, resolveAwardType, sanitizeFileName } from "@/lib/formSubmissionWordExport";
 import SubmissionReplies from "@/components/forms/SubmissionReplies";
+import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
 
 const ALLOWED_PAGE_SIZES = [10, 20, 50, 100];
 const DEFAULT_PAGE_SIZE = 20;
@@ -454,7 +455,7 @@ export default function FormSubmissionsPage() {
   // Used by CSV export to resolve organisation_dropdown UUIDs to names.
   const { data: organisationsForExport = [] } = useQuery({
     queryKey: ['organizations-for-form-submissions-export'],
-    queryFn: async () => await base44.entities.Organization.listAll(),
+    queryFn: async () => await listAllOrganizationsForAdmin(),
     staleTime: 5 * 60 * 1000,
   });
 

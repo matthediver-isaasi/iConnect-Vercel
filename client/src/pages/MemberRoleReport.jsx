@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Users, Shield, Download, BarChart3, ChevronDown, ChevronRight, ChevronLeft, Building2, Filter } from "lucide-react";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
+import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
 
 const MEMBERS_PER_PAGE = 25;
 
@@ -45,7 +46,7 @@ export default function MemberRoleReportPage() {
 
   const { data: organizations = [], isLoading: loadingOrgs } = useQuery({
     queryKey: ['organizations-list-all'],
-    queryFn: () => base44.entities.Organization.listAll(),
+    queryFn: () => listAllOrganizationsForAdmin(),
   });
 
   const { data: segmentationFieldSetting } = useQuery({

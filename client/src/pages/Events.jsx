@@ -62,6 +62,7 @@ import {
   getTbcBannerStyle,
   getTbcBannerTitle,
 } from "@/lib/tbcEventsBanner";
+import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
 import { 
   createFilterTagKey, 
   parseFilterTagKey, 
@@ -883,7 +884,7 @@ export default function EventsPage({
   const { data: complexOrganizationsData } = useQuery({
     queryKey: ['organizations-for-attendees'],
     queryFn: async () => {
-      return await base44.entities.Organization.listAll();
+      return await listAllOrganizationsForAdmin();
     },
     enabled: showComplexAttendeesModal && isAdmin,
   });

@@ -93,6 +93,7 @@ import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useWidgetDrill, WidgetDrillChip } from "@/components/dashboard/widgetDrill";
+import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
 
 const DEFAULT_COLUMNS = [
   { id: 'name', label: 'Member', visible: true, locked: true },
@@ -235,7 +236,7 @@ export default function MembersListPage() {
     queryFn: async () => {
       // Paginate past the API's 1000-row cap so large tenants see the
       // full organisation list.
-      return await base44.entities.Organization.listAll({ sort: { name: 'asc' } });
+      return await listAllOrganizationsForAdmin({ sort: { name: 'asc' } });
     }
   });
 

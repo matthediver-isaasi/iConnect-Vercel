@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
+import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
 
 export default function WallOfFameManagementPage() {
   const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -57,7 +58,7 @@ export default function WallOfFameManagementPage() {
   const { data: organizations = [], isLoading: organizationsLoading } = useQuery({
     queryKey: ['organizations-for-member-selection'],
     queryFn: async () => {
-      const orgs = await base44.entities.Organization.list({ limit: 5000 });
+      const orgs = await listOrganizationsForAdmin({ limit: 5000 });
       return orgs.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     },
     enabled: showPersonDialog

@@ -17,6 +17,7 @@ import { parseJobClosingDate, startOfLocalToday } from "@/lib/jobDate";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import DOMPurify from 'dompurify';
+import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
 
 export default function JobPostingManagementPage() {
   const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -51,7 +52,7 @@ export default function JobPostingManagementPage() {
 
   const { data: organizations = [] } = useQuery({
     queryKey: ['organizations'],
-    queryFn: () => base44.entities.Organization.list(),
+    queryFn: () => listOrganizationsForAdmin(),
     staleTime: 0,
     refetchOnMount: true,
   });

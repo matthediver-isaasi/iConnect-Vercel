@@ -40,6 +40,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
 import {
   Tooltip,
   TooltipContent,
@@ -208,7 +209,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
   const { data: organizationsData } = useQuery({
     queryKey: ['organizations-for-attendees'],
     queryFn: async () => {
-      return await base44.entities.Organization.listAll();
+      return await listAllOrganizationsForAdmin();
     },
     enabled: showAttendeesModal && isAdmin,
   });

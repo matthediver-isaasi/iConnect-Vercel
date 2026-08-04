@@ -38,6 +38,7 @@ import { COUNTRIES } from '@/data/countries';
 import { TimezoneAwareDateTimeInput } from "@/components/events/TimezoneAwareDateTimeInput";
 import TimezoneSelect from "@/components/TimezoneSelect";
 import FormOwnersSelector from "@/components/forms/FormOwnersSelector";
+import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
 
 const BADGE_STYLE_DEFAULTS = {
   background_color: '#ffffff',
@@ -5282,7 +5283,7 @@ export default function FormBuilderPage() {
     queryKey: ['organizations-for-contracts'],
     queryFn: async () => {
       try {
-        const orgs = await base44.entities.Organization.list('name');
+        const orgs = await listOrganizationsForAdmin('name');
         return orgs || [];
       } catch {
         return [];

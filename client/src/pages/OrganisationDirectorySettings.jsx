@@ -11,6 +11,7 @@ import { Save, Settings, Search, Building, Filter, Shield } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
+import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
 
 export default function OrganisationDirectorySettingsPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -42,7 +43,7 @@ export default function OrganisationDirectorySettingsPage() {
   // Fetch all organizations
   const { data: organizations = [] } = useQuery({
     queryKey: ['all-organizations'],
-    queryFn: () => base44.entities.Organization.list('name')
+    queryFn: () => listOrganizationsForAdmin('name')
   });
 
   // Fetch all roles for the reverse card multi-select

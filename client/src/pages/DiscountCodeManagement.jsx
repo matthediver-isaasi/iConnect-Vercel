@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
 
 const ITEMS_PER_PAGE = 10;
 
@@ -65,7 +66,7 @@ export default function DiscountCodeManagementPage() {
 
   const { data: organizations = [] } = useQuery({
     queryKey: ['organizations'],
-    queryFn: () => base44.entities.Organization.list(),
+    queryFn: () => listOrganizationsForAdmin(),
     staleTime: 0,
     refetchOnMount: true,
   });

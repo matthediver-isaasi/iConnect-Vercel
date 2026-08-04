@@ -11,6 +11,7 @@ import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
 import OrganizationTransactionsModal from "../components/analytics/OrganizationTransactionsModal";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
 
 export default function TicketSalesAnalyticsPage() {
   const { memberInfo, isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -39,7 +40,7 @@ export default function TicketSalesAnalyticsPage() {
 
   const { data: organizations = [], isLoading: loadingOrganizations } = useQuery({
     queryKey: ['all-organizations'],
-    queryFn: () => base44.entities.Organization.list(),
+    queryFn: () => listOrganizationsForAdmin(),
     staleTime: 0,
     refetchOnMount: true,
   });

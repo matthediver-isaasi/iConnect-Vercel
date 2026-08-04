@@ -36,6 +36,7 @@ import { createPageUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
 import SimpleRichTextEditor from "@/components/SimpleRichTextEditor";
 import { sanitizeRichText } from "@/components/canvas/blocks/sanitize";
+import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
 
 function isDuplicateClassificationError(error) {
   const msg = (error?.message || error?.error || '').toLowerCase();
@@ -248,7 +249,7 @@ export default function MemberGroupManagementPage() {
   const { data: organizations = [], isLoading: organizationsLoading } = useQuery({
     queryKey: ['organizations-for-assignment'],
     queryFn: async () => {
-      const orgs = await base44.entities.Organization.list('name');
+      const orgs = await listOrganizationsForAdmin('name');
       return orgs;
     },
     enabled: showAssignDialog

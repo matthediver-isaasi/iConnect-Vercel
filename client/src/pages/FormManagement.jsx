@@ -27,6 +27,7 @@ import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { Link } from "react-router-dom";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
 
 const PAGE_SIZE_OPTIONS = [12, 24, 48];
 const DEFAULT_PAGE_SIZE = 12;
@@ -352,7 +353,7 @@ export default function FormManagementPage() {
   const { data: organizations = [] } = useQuery({
     queryKey: ['organizations-for-form-management'],
     queryFn: async () => {
-      return await base44.entities.Organization.list('name');
+      return await listOrganizationsForAdmin('name');
     },
     enabled: isAuthenticated,
   });

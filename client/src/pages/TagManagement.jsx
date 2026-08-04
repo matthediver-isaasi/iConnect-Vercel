@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import { useTagColors, TAG_COLOR_PALETTE } from "@/hooks/useTagColors";
+import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
 
 function ColorPicker({ selectedColor, onSelect, palette }) {
   return (
@@ -104,7 +105,7 @@ export default function TagManagementPage() {
 
   const { data: organizations = [], isLoading: orgsLoading } = useQuery({
     queryKey: ['admin-organizations-tags'],
-    queryFn: () => base44.entities.Organization.list(),
+    queryFn: () => listOrganizationsForAdmin(),
     staleTime: 0,
     refetchOnMount: true,
   });

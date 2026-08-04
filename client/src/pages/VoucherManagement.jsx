@@ -21,6 +21,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useAdminBalancesRealtime } from "@/hooks/useAdminBalancesRealtime";
 import { useSavedExportReports } from "@/hooks/useSavedExportReports";
 import ExportReportSwitcher from "@/components/ExportReportSwitcher";
+import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
 
 const ITEMS_PER_PAGE = 10;
 
@@ -191,7 +192,7 @@ export default function VoucherManagementPage() {
 
   const { data: organizations = [] } = useQuery({
     queryKey: ['organizations'],
-    queryFn: () => base44.entities.Organization.list(),
+    queryFn: () => listOrganizationsForAdmin(),
     staleTime: 0,
     refetchOnMount: true,
   });
