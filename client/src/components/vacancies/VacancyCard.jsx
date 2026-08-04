@@ -257,6 +257,15 @@ export default function VacancyCard({
               ? `All ${total} position${total === 1 ? "" : "s"} filled`
               : `${remaining} of ${total} position${total === 1 ? "" : "s"} remaining`}
           </span>
+          {closingDateLabel && (
+            <span
+              className="inline-flex items-center gap-1.5"
+              data-testid={`text-vacancy-closing-date-${vacancy.id}`}
+            >
+              <CalendarX className="w-4 h-4 text-slate-400" />
+              {isClosed ? `Closed ${closingDateLabel}` : `Closes ${closingDateLabel}`}
+            </span>
+          )}
         </div>
       </div>
     );
