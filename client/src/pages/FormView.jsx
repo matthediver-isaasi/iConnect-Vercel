@@ -61,7 +61,7 @@ function resolveRedirectTarget(form, formValues) {
 // event, access mode and open/close window from the token — the client never
 // supplies an event id.
 export default function FormViewPage({ slug: slugProp = null, assignmentToken = null }) {
-  const { memberInfo, organizationInfo } = useMemberAccess();
+  const { memberInfo, organizationInfo, authResolved } = useMemberAccess();
   const { setForceBlankLayout } = useLayoutContext();
 
   const [currentStep, setCurrentStep] = useState(0);
@@ -145,6 +145,22 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // Assignment metadata (event context + window state) when opened via an
   // assignment link; null for slug-based access.
   const assignmentMeta = rawForm?.__assignment || null;
+
+  // Task #3364: anonymous visitor on an auth-required form (or an
+  // auth-required survey assignment) — send them through login and back to
+  // this exact URL (slug/params/assignment token preserved) instead of the
+  // static "please log in" dead end. Wait for auth resolution so a valid
+  // session is never bounced to /login while the authenticated refetch is
+  // still in flight.
+  const needsLoginRedirect = !memberInfo && !!(
+    assignmentMeta?.require_authentication ||
+    (!assignmentMeta && rawForm?.require_authentication)
+  );
+  useEffect(() => {
+    if (!authResolved || !needsLoginRedirect) return;
+    const returnTo = `${window.location.pathname}${window.location.search}`;
+    window.location.replace(`/login?returnTo=${encodeURIComponent(returnTo)}`);
+  }, [authResolved, needsLoginRedirect]);
 
   // Survey presentation (question numbering) — no-op for standard forms
   const form = useMemo(() => applySurveyPresentation(rawForm), [rawForm]);
@@ -1984,11 +2000,18 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
         <Card className="max-w-md">
           <CardContent className="p-6 text-center space-y-2">
             {eventTitle && <p className="font-medium text-slate-800">{eventTitle}</p>}
-            <p className="text-slate-600">
-              {assignmentMeta.require_authentication
-                ? 'Please log in to access this survey.'
-                : (assignmentMeta.closed_message || 'This survey is not available.')}
-            </p>
+            {assignmentMeta.require_authentication && !memberInfo ? (
+              <>
+                <Loader2 className="w-6 h-6 animate-spin text-blue-600 mx-auto" />
+                <p className="text-slate-600">Redirecting to login…</p>
+              </>
+            ) : (
+              <p className="text-slate-600">
+                {assignmentMeta.require_authentication
+                  ? 'Please log in to access this survey.'
+                  : (assignmentMeta.closed_message || 'This survey is not available.')}
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -2008,11 +2031,15 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   }
 
   if (form.require_authentication && !memberInfo) {
+    // Task #3364: the redirect effect above sends the visitor to
+    // /login?returnTo=<this form URL>. Render a transient redirect state
+    // (never the old static dead end) while auth resolves / navigation runs.
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
         <Card className="max-w-md">
-          <CardContent className="p-6 text-center">
-            <p className="text-slate-600">Please log in to access this form.</p>
+          <CardContent className="p-6 text-center space-y-2">
+            <Loader2 className="w-6 h-6 animate-spin text-blue-600 mx-auto" />
+            <p className="text-slate-600">Redirecting to login…</p>
           </CardContent>
         </Card>
       </div>

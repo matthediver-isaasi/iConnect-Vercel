@@ -5,7 +5,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useParams, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Loader2, ChevronLeft, ChevronRight, CheckCircle2 } from "lucide-react";
+import { Loader2, ChevronLeft, ChevronRight, CheckCircle2, Lock } from "lucide-react";
 import FormRenderer from "../components/forms/FormRenderer";
 import { toast, Toaster } from "sonner";
 import { publicClient } from "@/api/publicClient";
@@ -49,7 +49,7 @@ export default function EmbedFormPage() {
   // The Canvas Form Embed block uses a same-origin iframe, so the session
   // cookie flows with this request. Never throws — anonymous viewers (or any
   // failure) resolve to null and the form degrades gracefully to blank fields.
-  const { data: authMember = null } = useQuery({
+  const { data: authMember = null, isLoading: authMemberLoading } = useQuery({
     queryKey: ['embed-auth-member'],
     queryFn: async () => {
       try {
@@ -65,6 +65,35 @@ export default function EmbedFormPage() {
     retry: false
   });
 
+  // Task #3364: anonymous visitor on an auth-required form. The public
+  // endpoint returns a limited preview shape in this case — instead of
+  // rendering it, route the visitor through login and back.
+  //  - Top window (direct /embed/form/<slug> visit, e.g. a Canvas form block
+  //    in link mode): redirect to /login with returnTo back to this form.
+  //  - Framed (Canvas inline/iframe embed): render a login prompt whose link
+  //    opens in the TOP window and returns to the embedding page after login.
+  const isFramed = (() => {
+    try { return window.self !== window.top; } catch { return true; }
+  })();
+  const loginReturnTo = useMemo(() => {
+    if (isFramed) {
+      // Same-origin Canvas embeds: read the containing page's URL directly;
+      // fall back to the referrer, then to this embed URL itself.
+      try {
+        const topLoc = window.top.location;
+        return `${topLoc.pathname}${topLoc.search}`;
+      } catch { /* cross-origin frame */ }
+      try {
+        if (document.referrer) {
+          const u = new URL(document.referrer);
+          if (u.origin === window.location.origin) return `${u.pathname}${u.search}`;
+        }
+      } catch { /* ignore */ }
+    }
+    return `${window.location.pathname}${window.location.search}`;
+  }, [isFramed]);
+  const loginHref = `/login?returnTo=${encodeURIComponent(loginReturnTo)}`;
+
   const { data: rawForm, isLoading, error } = useQuery({
     queryKey: ['embed-form', slug, tenantParam, !!authMember],
     queryFn: async () => await publicClient.getForm(slug, { authenticated: !!authMember }) || null,
@@ -73,6 +102,16 @@ export default function EmbedFormPage() {
 
   // Survey presentation (question numbering) — no-op for standard forms
   const form = useMemo(() => applySurveyPresentation(rawForm), [rawForm]);
+
+  // Task #3364: auth-required form viewed anonymously. Wait for the auth
+  // probe to settle so a logged-in visitor is never bounced to /login while
+  // their authenticated refetch is still in flight.
+  const authRequiredAnonymous = !!form?.require_authentication && !authMember && !authMemberLoading;
+  useEffect(() => {
+    if (authRequiredAnonymous && !isFramed) {
+      window.location.replace(loginHref);
+    }
+  }, [authRequiredAnonymous, isFramed, loginHref]);
 
   // Task #3336: authenticated fallback — when the form uses member/organisation
   // prefill and no explicit URL param is supplied, prefill from the logged-in
@@ -901,6 +940,45 @@ export default function EmbedFormPage() {
             <p className="text-center text-muted-foreground">
               {error?.message || 'Form not found or no longer available'}
             </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Task #3364: never render the preview-shape form for anonymous visitors —
+  // top windows are redirected to login (effect above); framed embeds show a
+  // login prompt whose link navigates the TOP window and returns to the
+  // embedding page after login.
+  if (form.require_authentication && !authMember) {
+    if (authMemberLoading) {
+      return (
+        <div className="flex items-center justify-center min-h-[200px] p-4" data-testid="embed-form-loading">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      );
+    }
+    if (!isFramed) {
+      // Redirecting to /login (effect above) — transient state.
+      return (
+        <div className="flex flex-col items-center justify-center gap-2 min-h-[200px] p-4" data-testid="embed-form-auth-redirect">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">Redirecting to login…</p>
+        </div>
+      );
+    }
+    return (
+      <div className="flex items-center justify-center min-h-[200px] p-4" data-testid="embed-form-auth-required">
+        <Card className="w-full max-w-md">
+          <CardContent className="pt-6 text-center space-y-3">
+            <Lock className="h-8 w-8 text-slate-400 mx-auto" aria-hidden="true" />
+            <p className="font-medium text-slate-800">Log in to access this form</p>
+            <p className="text-sm text-muted-foreground">
+              {form.name ? `“${form.name}” requires you to be logged in.` : 'This form requires you to be logged in.'}
+            </p>
+            <Button asChild className="w-full" data-testid="button-embed-form-login">
+              <a href={loginHref} target="_top">Log in to continue</a>
+            </Button>
           </CardContent>
         </Card>
       </div>
