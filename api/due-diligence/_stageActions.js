@@ -3,7 +3,6 @@ import { sendEmail } from '../_lib/emailService.js';
 import { buildInboxDelivery } from '../_lib/transactionalInbox.js';
 import { generateMemberPreferencesToken } from '../email-preferences/index.js';
 import { getTenantBaseUrl } from '../_lib/campaignService.js';
-import { getPublicBaseUrl } from '../_lib/publicBaseUrl.js';
 import { resolveDdOwnerForSubmission } from '../_lib/ddOwner.js';
 import { buildContractBracketPlaceholders, replaceContractBracketPlaceholders } from '../_lib/contractPlaceholders.js';
 import { triggerWorkflows, triggerPreferenceWorkflows } from '../_lib/workflows.js';
@@ -313,7 +312,7 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
       .eq('id', tenantId)
       .single();
 
-    const baseUrl = `https://${tenant?.slug || 'app'}.iconn.app`;
+    const baseUrl = getTenantBaseUrl(tenant?.slug || null);
 
     const { data: contractInstances, error: instancesError } = await supabase
       .from('contract_instance')
@@ -768,7 +767,7 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
       .eq('id', tenantId)
       .single();
 
-    const baseUrl = `https://${tenant?.slug || 'app'}.iconn.app`;
+    const baseUrl = getTenantBaseUrl(tenant?.slug || null);
 
     for (const mr of meetingRequests) {
       const template = mr.meeting_template;
@@ -1959,8 +1958,17 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
     const prefChanges = []; // [{ field_id, previousValue, newValue }]
 
     // Derive baseUrl for workflow email placeholders (set_password_url etc).
-    // Workflows themselves don't strictly need it; passing what's available.
-    const baseUrl = options.baseUrl || getPublicBaseUrl(null);
+    // Prefer the tenant's own subdomain over the shared fallback so links in
+    // workflow emails land on the tenant's real domain (Task #3385).
+    let baseUrl = options.baseUrl;
+    if (!baseUrl) {
+      const { data: baseUrlTenant } = await supabase
+        .from('tenant')
+        .select('slug')
+        .eq('id', tenantId)
+        .single();
+      baseUrl = getTenantBaseUrl(baseUrlTenant?.slug || null);
+    }
     
     // Original submission data (fallback)
     const originalData = formSubmission.submission_data || {};

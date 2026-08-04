@@ -2,7 +2,7 @@ import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
 import { resolveDdOwnerForSubmission } from '../_lib/ddOwner.js';
 import { buildContractBracketPlaceholders, replaceContractBracketPlaceholders } from '../_lib/contractPlaceholders.js';
-import { getPublicBaseUrl } from '../_lib/publicBaseUrl.js';
+import { getTenantBaseUrl } from '../_lib/campaignService.js';
 
 // Fetch organization name from a contract instance
 async function getOrganizationName(formSubmissionId) {
@@ -192,11 +192,11 @@ export default async function handler(req, res) {
               ? `${signer.first_name} ${signer.last_name || ''}`.trim()
               : signer.name || 'Signer';
 
-            // Build signing URL using cached tenant slug
-            const appUrl = getPublicBaseUrl(null);
-            const signingUrl = tenantSlug 
-              ? `https://${tenantSlug}.iconn.app/form/${form.slug}?contract_instance=${instance.id}&signer_email=${encodeURIComponent(signer.email)}`
-              : `${appUrl}/form/${form.slug}?contract_instance=${instance.id}&signer_email=${encodeURIComponent(signer.email)}`;
+            // Build signing URL using cached tenant slug. getTenantBaseUrl
+            // resolves {slug}.{APP_DOMAIN} for the tenant, falling back to
+            // the configured public app URL when no slug is known (Task #3385).
+            const appUrl = getTenantBaseUrl(tenantSlug || null);
+            const signingUrl = `${appUrl}/form/${form.slug}?contract_instance=${instance.id}&signer_email=${encodeURIComponent(signer.email)}`;
 
             let emailSubject = `Reminder: Please sign ${form.name}`;
             let emailBody = `
