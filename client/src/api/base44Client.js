@@ -251,6 +251,8 @@ class EntitiesProxy {
   get WallOfFamePerson() { return this._getEntity('WallOfFamePerson'); }
   get Floater() { return this._getEntity('Floater'); }
   get Form() { return this._getEntity('Form'); }
+  get SurveyVersion() { return this._getEntity('SurveyVersion'); }
+  get SurveyAnswer() { return this._getEntity('SurveyAnswer'); }
   get FormSubmission() { return this._getEntity('FormSubmission'); }
   get FormSubmissionEmail() { return this._getEntity('FormSubmissionEmail'); }
   get FormSubmissionSavedView() { return this._getEntity('FormSubmissionSavedView'); }

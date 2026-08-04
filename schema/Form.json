@@ -1,176 +1,214 @@
 {
-    "name": "Form",
-    "type": "object",
-    "properties": {
-      "name": {
-        "type": "string",
-        "description": "Form name"
-      },
-      "description": {
-        "type": "string",
-        "description": "Form description"
-      },
-      "slug": {
-        "type": "string",
-        "description": "URL-friendly identifier for the form"
-      },
-      "layout_type": {
-        "type": "string",
-        "enum": [
-          "standard",
-          "card_swipe"
-        ],
-        "default": "standard",
-        "description": "Form layout: standard (all fields at once) or card_swipe (one field per card)"
-      },
-      "fields": {
-        "type": "array",
-        "items": {
-          "type": "object"
-        },
-        "default": [],
-        "description": "Array of form field definitions. Each field is an object keyed by an `id` with a `type` and `label`. Boolean fields additionally support `default_value` (boolean), `flag_on_checkin` (boolean — when true and the form is event-linked, a truthy answer surfaces a warning on the QR check-in screen, check-in dashboard, and registration report), `flag_label` (string — the warning text shown to check-in staff; falls back to the field label when blank) and `flag_color` (string — one of `default`/`red`/`orange`/`green`/`blue`/`purple`/`pink`/`slate`; colours the flag banner/badge so check-in staff can tell different requirements apart; defaults to the amber warning colour)."
-      },
-      "submit_button_text": {
-        "type": "string",
-        "default": "Submit",
-        "description": "Text for the submit button"
-      },
-      "success_message": {
-        "type": "string",
-        "default": "Thank you for your submission!",
-        "description": "Message shown after successful submission"
-      },
-      "redirect_url": {
-        "type": "string",
-        "description": "Optional URL to redirect to after submission"
-      },
-      "require_authentication": {
-        "type": "boolean",
-        "default": false,
-        "description": "Whether users must be logged in to submit"
-      },
-      "is_active": {
-        "type": "boolean",
-        "default": true,
-        "description": "Whether the form is currently active"
-      },
-      "deactivate_at": {
-        "type": "string",
-        "description": "Optional scheduled deactivation timestamp (UTC ISO string). When set and in the past, the public form stops being served even while is_active is true. Null/empty means no scheduled deactivation."
-      },
-      "deactivate_timezone": {
-        "type": "string",
-        "description": "IANA timezone (e.g. Europe/London) used to display and interpret deactivate_at in the FormBuilder picker."
-      },
-      "is_event_related": {
-        "type": "boolean",
-        "default": false,
-        "description": "Whether this form is related to an event. When true, related_event_id points at the linked event and submissions carry that event reference."
-      },
-      "allow_save_continue_later": {
-        "type": "boolean",
-        "default": true,
-        "description": "Whether the public form offers the 'Save & Continue Later' button (save progress and get a resume link). Defaults to true so existing forms keep current behaviour; set false to hide the button while normal submission still works. Treat a missing value as true."
-      },
-      "related_event_id": {
-        "type": "string",
-        "description": "The single event this form is related to (Event id). Only meaningful when is_event_related is true."
-      },
-      "submission_count": {
-        "type": "number",
-        "default": 0,
-        "description": "Number of submissions received"
-      },
-      "owners": {
-        "type": "array",
-        "items": {
-          "type": "string"
-        },
-        "default": [],
-        "description": "Array of member IDs who own this form. Owners get a scoped 'My Forms' tab on the FormSubmissions page showing only submissions for forms they own. Defaults to an empty list."
-      },
-      "is_application_form": {
-        "type": "boolean",
-        "default": false,
-        "description": "Whether this is an application form that requires uniqueness validation"
-      },
-      "is_job_posting": {
-        "type": "boolean",
-        "default": false,
-        "description": "Whether this form is a job-posting application form. When true it appears in the member-group vacancy form picker so a vacancy can collect applications through it. For member pre-fill to populate, set prefill_source to 'member'."
-      },
-      "application_level": {
-        "type": "string",
-        "enum": [
-          "member",
-          "organization"
-        ],
-        "description": "For application forms: whether to check uniqueness at member or organization level"
-      },
-      "uniqueness_checks": {
-        "type": "array",
-        "items": {
-          "type": "object",
-          "properties": {
-            "field_id": {
-              "type": "string",
-              "description": "The ID of the field to check for uniqueness"
-            },
-            "check_mode": {
-              "type": "string",
-              "enum": ["full", "domain_only"],
-              "default": "full",
-              "description": "For email fields: full = entire email, domain_only = just the domain part"
-            }
-          }
-        },
-        "default": [],
-        "description": "Array of field IDs that must be unique in existing submissions or database records"
-      },
-      "auto_create_entity": {
-        "type": "boolean",
-        "default": false,
-        "description": "For application forms: automatically create member/organization on submission (vs require admin approval)"
-      },
-      "field_mappings": {
-        "type": "array",
-        "items": {
-          "type": "object",
-          "properties": {
-            "source_field_id": {
-              "type": "string",
-              "description": "ID of the form field to map from"
-            },
-            "target_type": {
-              "type": "string",
-              "enum": ["core", "custom"],
-              "description": "Whether mapping to a core field or custom preference field"
-            },
-            "target_entity": {
-              "type": "string",
-              "enum": ["member", "organization"],
-              "description": "Target entity type"
-            },
-            "target_field": {
-              "type": "string",
-              "description": "Name of core field or ID of custom field"
-            },
-            "transformation": {
-              "type": "string",
-              "enum": ["none", "trim", "uppercase", "lowercase", "titlecase", "extract_domain", "extract_username", "first_word", "last_word", "remove_spaces", "numbers_only"],
-              "default": "none",
-              "description": "Transformation to apply to the value"
-            }
-          }
-        },
-        "default": [],
-        "description": "Array of field mappings for application forms"
-      }
+  "name": "Form",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Form name"
     },
-    "required": [
-      "name",
-      "slug",
-      "layout_type"
-    ]
-  }
+    "description": {
+      "type": "string",
+      "description": "Form description"
+    },
+    "slug": {
+      "type": "string",
+      "description": "URL-friendly identifier for the form"
+    },
+    "layout_type": {
+      "type": "string",
+      "enum": [
+        "standard",
+        "card_swipe"
+      ],
+      "default": "standard",
+      "description": "Form layout: standard (all fields at once) or card_swipe (one field per card)"
+    },
+    "fields": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "default": [],
+      "description": "Array of form field definitions. Each field is an object keyed by an `id` with a `type` and `label`. Boolean fields additionally support `default_value` (boolean), `flag_on_checkin` (boolean \u2014 when true and the form is event-linked, a truthy answer surfaces a warning on the QR check-in screen, check-in dashboard, and registration report), `flag_label` (string \u2014 the warning text shown to check-in staff; falls back to the field label when blank) and `flag_color` (string \u2014 one of `default`/`red`/`orange`/`green`/`blue`/`purple`/`pink`/`slate`; colours the flag banner/badge so check-in staff can tell different requirements apart; defaults to the amber warning colour)."
+    },
+    "submit_button_text": {
+      "type": "string",
+      "default": "Submit",
+      "description": "Text for the submit button"
+    },
+    "success_message": {
+      "type": "string",
+      "default": "Thank you for your submission!",
+      "description": "Message shown after successful submission"
+    },
+    "redirect_url": {
+      "type": "string",
+      "description": "Optional URL to redirect to after submission"
+    },
+    "require_authentication": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether users must be logged in to submit"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether the form is currently active"
+    },
+    "deactivate_at": {
+      "type": "string",
+      "description": "Optional scheduled deactivation timestamp (UTC ISO string). When set and in the past, the public form stops being served even while is_active is true. Null/empty means no scheduled deactivation."
+    },
+    "deactivate_timezone": {
+      "type": "string",
+      "description": "IANA timezone (e.g. Europe/London) used to display and interpret deactivate_at in the FormBuilder picker."
+    },
+    "is_event_related": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether this form is related to an event. When true, related_event_id points at the linked event and submissions carry that event reference."
+    },
+    "allow_save_continue_later": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether the public form offers the 'Save & Continue Later' button (save progress and get a resume link). Defaults to true so existing forms keep current behaviour; set false to hide the button while normal submission still works. Treat a missing value as true."
+    },
+    "related_event_id": {
+      "type": "string",
+      "description": "The single event this form is related to (Event id). Only meaningful when is_event_related is true."
+    },
+    "submission_count": {
+      "type": "number",
+      "default": 0,
+      "description": "Number of submissions received"
+    },
+    "owners": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": "Array of member IDs who own this form. Owners get a scoped 'My Forms' tab on the FormSubmissions page showing only submissions for forms they own. Defaults to an empty list."
+    },
+    "is_application_form": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether this is an application form that requires uniqueness validation"
+    },
+    "is_job_posting": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether this form is a job-posting application form. When true it appears in the member-group vacancy form picker so a vacancy can collect applications through it. For member pre-fill to populate, set prefill_source to 'member'."
+    },
+    "application_level": {
+      "type": "string",
+      "enum": [
+        "member",
+        "organization"
+      ],
+      "description": "For application forms: whether to check uniqueness at member or organization level"
+    },
+    "uniqueness_checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "field_id": {
+            "type": "string",
+            "description": "The ID of the field to check for uniqueness"
+          },
+          "check_mode": {
+            "type": "string",
+            "enum": [
+              "full",
+              "domain_only"
+            ],
+            "default": "full",
+            "description": "For email fields: full = entire email, domain_only = just the domain part"
+          }
+        }
+      },
+      "default": [],
+      "description": "Array of field IDs that must be unique in existing submissions or database records"
+    },
+    "auto_create_entity": {
+      "type": "boolean",
+      "default": false,
+      "description": "For application forms: automatically create member/organization on submission (vs require admin approval)"
+    },
+    "field_mappings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "source_field_id": {
+            "type": "string",
+            "description": "ID of the form field to map from"
+          },
+          "target_type": {
+            "type": "string",
+            "enum": [
+              "core",
+              "custom"
+            ],
+            "description": "Whether mapping to a core field or custom preference field"
+          },
+          "target_entity": {
+            "type": "string",
+            "enum": [
+              "member",
+              "organization"
+            ],
+            "description": "Target entity type"
+          },
+          "target_field": {
+            "type": "string",
+            "description": "Name of core field or ID of custom field"
+          },
+          "transformation": {
+            "type": "string",
+            "enum": [
+              "none",
+              "trim",
+              "uppercase",
+              "lowercase",
+              "titlecase",
+              "extract_domain",
+              "extract_username",
+              "first_word",
+              "last_word",
+              "remove_spaces",
+              "numbers_only"
+            ],
+            "default": "none",
+            "description": "Transformation to apply to the value"
+          }
+        }
+      },
+      "default": [],
+      "description": "Array of field mappings for application forms"
+    },
+    "form_type": {
+      "type": "string",
+      "enum": [
+        "standard",
+        "survey"
+      ],
+      "default": "standard",
+      "description": "Form behaviour type. 'survey' enables Score fields, survey settings, versioning and server-side scoring; 'standard' forms are unchanged."
+    },
+    "survey_settings": {
+      "type": "object",
+      "description": "Survey-only settings: status (draft/published/archived, separate from is_active), intro_text, thank_you_message, response_identity (identified/anonymous/anonymous_dedupe), one_submission_per_respondent, show_progress, show_question_numbers, score_display (weighted/unweighted), reporting_scale, anonymity_threshold (default 3), current_version, parent_form_id."
+    },
+    "survey_audit_log": {
+      "type": "array",
+      "description": "Append-only audit entries for survey lifecycle actions: {at, actor, action (create/edit/publish/version/archive), detail}."
+    }
+  },
+  "required": [
+    "name",
+    "slug",
+    "layout_type"
+  ]
+}

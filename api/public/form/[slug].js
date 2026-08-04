@@ -13,7 +13,10 @@ const PUBLIC_FORM_FIELDS = [
   'blank_layout',
   'require_authentication', 'updated_at',
   'allow_submitter_email_copy',
-  'allow_save_continue_later'
+  'allow_save_continue_later',
+  // Survey forms (Task #3330): the public renderer needs the type flag and
+  // the presentation subset of survey settings (intro text, progress, etc.).
+  'form_type', 'survey_settings'
 ];
 
 const AUTHENTICATED_EXTRA_FIELDS = [
@@ -87,6 +90,45 @@ export default async function handler(req, res) {
         hasValidSession = !!session;
       } catch (e) {
         console.error('[Public Form API] Session check error:', e);
+      }
+    }
+
+    // Survey forms (Task #3330): only PUBLISHED surveys are publicly
+    // reachable. Authenticated viewers (admin builder preview) may still see
+    // drafts; archived surveys are gone for everyone.
+    if (form.form_type === 'survey') {
+      const surveyStatus = form.survey_settings?.status || 'draft';
+      if (surveyStatus === 'archived' || (surveyStatus !== 'published' && !hasValidSession)) {
+        return res.status(404).json({ error: 'Form not found or inactive' });
+      }
+      // Published surveys serve the IMMUTABLE active snapshot, never the
+      // mutable live row — respondents must see exactly what server-side
+      // scoring validates against. Fail closed if the pointed snapshot is
+      // missing. Drafts remain reachable ONLY with a valid session
+      // (authenticated builder preview) and are served live.
+      if (surveyStatus === 'published') {
+        const currentVersion = Number(form.survey_settings?.current_version);
+        if (!Number.isInteger(currentVersion) || currentVersion < 1) {
+          return res.status(404).json({ error: 'Form not found or inactive' });
+        }
+        const { data: snapshot } = await supabase
+          .from('survey_version')
+          .select('fields, pages, visibility_rules, survey_settings, version_number')
+          .eq('form_id', form.id)
+          .eq('tenant_id', form.tenant_id)
+          .eq('version_number', currentVersion)
+          .maybeSingle();
+        if (!snapshot) {
+          return res.status(404).json({ error: 'Form not found or inactive' });
+        }
+        form.fields = snapshot.fields || [];
+        form.pages = snapshot.pages || [];
+        form.visibility_rules = snapshot.visibility_rules || [];
+        form.survey_settings = {
+          ...(snapshot.survey_settings || {}),
+          status: 'published',
+          current_version: currentVersion
+        };
       }
     }
 

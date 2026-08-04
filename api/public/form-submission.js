@@ -4,6 +4,8 @@ import { executeStageActions } from '../due-diligence/_stageActions.js';
 import { sendSubmitterCopyEmail } from '../forms/send-submitter-copy.js';
 import { getSessionMember } from '../_lib/session.js';
 import { sendSubmissionEmailsGuarded } from '../_lib/formSubmissionEmails.js';
+import { scoreSubmission, redactIdentityAnswers, anonymizeSubmissionRecord, activeVersionNumber } from '../_lib/surveyScoring.js';
+import { createHmac } from 'node:crypto';
 
 export default async function handler(req, res) {
   console.log('[Public Form Submission] === ENDPOINT CALLED ===');
@@ -52,7 +54,7 @@ export default async function handler(req, res) {
     // Include communication_category_id for newsletter subscription
     const { data: form, error: formError } = await supabase
       .from('form')
-      .select('id, name, tenant_id, require_authentication, fields, entity_pipelines, field_mappings, application_level, due_diligence_required, communication_category_id, allow_submitter_email_copy, prevent_duplicate_email_submission, is_event_related, related_event_id, deactivate_at, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping')
+      .select('id, name, tenant_id, require_authentication, fields, entity_pipelines, field_mappings, application_level, due_diligence_required, communication_category_id, allow_submitter_email_copy, prevent_duplicate_email_submission, is_event_related, related_event_id, deactivate_at, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type, survey_settings')
       .eq('id', form_id)
       .eq('tenant_id', tenantData.id)
       .eq('is_active', true)
@@ -79,9 +81,87 @@ export default async function handler(req, res) {
       }
     }
 
-    // Forms that require authentication cannot be submitted publicly
+    // Resolve the authenticated submitter (if any) from the server-side
+    // session. Public form submissions are session-OPTIONAL: a logged-in
+    // member who applies (e.g. a vacancy "Express interest") should have their
+    // real name persisted, but a truly anonymous/public visitor with no
+    // session must still succeed. We never trust the client-sent name — it is
+    // derived from the session member here. Any session lookup failure is
+    // swallowed so it can never block a public submission.
+    let sessionMemberName = null;
+    let sessionMemberEmail = null;
+    let hasTenantSession = false;
+    try {
+      const sessionMember = await getSessionMember(req);
+      // Only honour a session that belongs to THIS tenant, so a member's
+      // session for another tenant can't attach their identity here. A member's
+      // tenant may be set directly or inherited from their organisation
+      // (mirrors api/_lib/tenantContext.js resolution).
+      const memberTenantId =
+        sessionMember?.tenant_id || sessionMember?.organization?.tenant_id || null;
+      if (sessionMember && memberTenantId === tenantData.id) {
+        hasTenantSession = true;
+        const fullName = [sessionMember.first_name, sessionMember.last_name]
+          .filter((p) => typeof p === 'string' && p.trim())
+          .join(' ')
+          .trim();
+        sessionMemberName = fullName || null;
+        if (typeof sessionMember.email === 'string' && sessionMember.email.trim()) {
+          sessionMemberEmail = sessionMember.email.trim().toLowerCase();
+        }
+      }
+    } catch (sessionErr) {
+      console.warn('[Public Form Submission] Session member lookup failed (continuing as anonymous):', sessionErr?.message);
+    }
+
+    // Forms that require authentication cannot be submitted publicly —
+    // EXCEPT surveys with a verified same-tenant session: surveys always
+    // submit through this endpoint (it's the only scoring path), so an
+    // authenticated member with a valid session for this tenant is allowed.
     if (form.require_authentication) {
-      return res.status(403).json({ error: 'This form requires authentication' });
+      const isAuthedSurvey = form.form_type === 'survey' && hasTenantSession;
+      if (!isAuthedSurvey) {
+        return res.status(403).json({ error: 'This form requires authentication' });
+      }
+    }
+
+    // --- Survey handling (Task #3330) -----------------------------------
+    // For survey forms, answers are validated and scored server-side against
+    // the PUBLISHED version snapshot — never client-supplied config. Weights,
+    // ranges and reverse-scoring all come from the snapshot.
+    const isSurvey = form.form_type === 'survey';
+    const surveySettings = (isSurvey && form.survey_settings && typeof form.survey_settings === 'object')
+      ? form.survey_settings
+      : {};
+    let surveyVersion = null;
+    let surveyScoring = null;
+    if (isSurvey) {
+      if (surveySettings.status !== 'published') {
+        return res.status(403).json({ error: 'This survey is not accepting responses' });
+      }
+      const { data: versionRow, error: versionError } = await supabase
+        .from('survey_version')
+        .select('id, version_number, fields, pages, visibility_rules, survey_settings')
+        .eq('form_id', form.id)
+        .eq('tenant_id', tenantData.id)
+        // The ACTIVE snapshot is the one the published form points at
+        // (current_version) — never just the highest version_number, which
+        // could be a superseded snapshot after an older config is re-published.
+        .eq('version_number', activeVersionNumber(surveySettings))
+        .limit(1)
+        .maybeSingle();
+      if (versionError || !versionRow) {
+        console.error('[Public Form Submission] Survey has no published version:', versionError?.message);
+        return res.status(403).json({ error: 'This survey is not accepting responses' });
+      }
+      surveyVersion = versionRow;
+      surveyScoring = scoreSubmission(surveyVersion, submission_data || {});
+      if (surveyScoring.errors.length > 0) {
+        return res.status(400).json({
+          error: 'Survey answers failed validation',
+          details: surveyScoring.errors
+        });
+      }
     }
 
     // Extract the submitter's email from the submission_data by walking the
@@ -90,7 +170,9 @@ export default async function handler(req, res) {
     // Returns null if no usable email is present.
     const extractSubmitterEmail = () => {
       const data = submission_data || {};
-      const fields = form.fields || [];
+      // Surveys: derive identity ONLY from the immutable published snapshot's
+      // fields (the same source used for validation/scoring/redaction).
+      const fields = isSurvey ? (surveyVersion?.fields || []) : (form.fields || []);
       const isEmail = (v) => typeof v === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
       // Prefer fields explicitly typed as email or named like email.
       for (const field of fields) {
@@ -122,35 +204,62 @@ export default async function handler(req, res) {
       ? resolvedSubmitterEmail.trim().toLowerCase()
       : null;
 
-    // Resolve the authenticated submitter (if any) from the server-side
-    // session. Public form submissions are session-OPTIONAL: a logged-in
-    // member who applies (e.g. a vacancy "Express interest") should have their
-    // real name persisted, but a truly anonymous/public visitor with no
-    // session must still succeed. We never trust the client-sent name — it is
-    // derived from the session member here. Any session lookup failure is
-    // swallowed so it can never block a public submission.
-    let sessionMemberName = null;
-    let sessionMemberEmail = null;
-    try {
-      const sessionMember = await getSessionMember(req);
-      // Only honour a session that belongs to THIS tenant, so a member's
-      // session for another tenant can't attach their identity here. A member's
-      // tenant may be set directly or inherited from their organisation
-      // (mirrors api/_lib/tenantContext.js resolution).
-      const memberTenantId =
-        sessionMember?.tenant_id || sessionMember?.organization?.tenant_id || null;
-      if (sessionMember && memberTenantId === tenantData.id) {
-        const fullName = [sessionMember.first_name, sessionMember.last_name]
-          .filter((p) => typeof p === 'string' && p.trim())
-          .join(' ')
-          .trim();
-        sessionMemberName = fullName || null;
-        if (typeof sessionMember.email === 'string' && sessionMember.email.trim()) {
-          sessionMemberEmail = sessionMember.email.trim().toLowerCase();
+    // --- Survey respondent identity & duplicate prevention (Task #3330) ---
+    // identified          -> identity stored as usual
+    // anonymous           -> no identity stored, no dedupe possible
+    // anonymous_dedupe    -> no identity stored; a one-way hash of the
+    //                        respondent (session/collected email) prevents
+    //                        duplicates without being reversible to identity.
+    // Identity/dedupe behaviour comes from the IMMUTABLE published snapshot's
+    // settings — never the live row, which an admin could mutate after
+    // publishing (e.g. flipping anonymous -> identified).
+    const snapshotSettings = (isSurvey && surveyVersion?.survey_settings && typeof surveyVersion.survey_settings === 'object')
+      ? surveyVersion.survey_settings
+      : surveySettings;
+    const surveyIdentityMode = isSurvey ? (snapshotSettings.response_identity || 'identified') : null;
+    const surveyIsAnonymous = isSurvey && surveyIdentityMode !== 'identified';
+    let surveyRespondentKey = null;
+    if (isSurvey) {
+      const respondentIdentity = sessionMemberEmail || canonicalSubmitterEmail || null;
+      const wantsDedupe = surveyIdentityMode === 'anonymous_dedupe' ||
+        (snapshotSettings.one_submission_per_respondent === true && surveyIdentityMode !== 'anonymous');
+      // Fail CLOSED: dedupe-enabled surveys REQUIRE a canonical respondent
+      // identity (verified session email or submitted email). Without one
+      // there is no key to dedupe on, so an anonymous caller could submit
+      // unlimited responses by simply omitting the email.
+      if (wantsDedupe && !respondentIdentity) {
+        return res.status(400).json({
+          error: 'This survey requires an email address to prevent duplicate responses.',
+          code: 'RESPONDENT_IDENTITY_REQUIRED'
+        });
+      }
+      if (wantsDedupe && respondentIdentity) {
+        // Keyed HMAC (server secret) rather than a bare hash so the stored
+        // key cannot be reversed by offline guessing of common emails.
+        // Fail CLOSED if the secret is missing — a predictable key would
+        // make the "irreversible" hash guessable.
+        if (!process.env.SESSION_SECRET) {
+          console.error('[Public Form Submission] SESSION_SECRET missing — cannot derive survey respondent key');
+          return res.status(500).json({ error: 'Server is not configured for anonymous duplicate prevention' });
+        }
+        surveyRespondentKey = createHmac('sha256', process.env.SESSION_SECRET)
+          .update(`${tenantData.id}|${form.id}|${respondentIdentity}`)
+          .digest('hex');
+        const { data: priorResponse, error: priorErr } = await supabase
+          .from('form_submission')
+          .select('id')
+          .eq('form_id', form.id)
+          .eq('tenant_id', tenantData.id)
+          .eq('survey_respondent_key', surveyRespondentKey)
+          .limit(1)
+          .maybeSingle();
+        if (!priorErr && priorResponse) {
+          return res.status(409).json({
+            error: 'You have already responded to this survey.',
+            duplicate: true
+          });
         }
       }
-    } catch (sessionErr) {
-      console.warn('[Public Form Submission] Session member lookup failed (continuing as anonymous):', sessionErr?.message);
     }
 
     // Enforce "one submission per email" if the form opts in. The check runs
@@ -273,12 +382,22 @@ export default async function handler(req, res) {
       // Prefer the email the form itself collected; fall back to the
       // authenticated member's email so logged-in applicants are attributable
       // even when the form has no email field.
-      submitted_by_email: canonicalSubmitterEmail || sessionMemberEmail,
+      // Anonymous surveys must store NO member identity on the submission
+      // (only the irreversible respondent hash when dedupe is enabled).
+      submitted_by_email: surveyIsAnonymous ? null : (canonicalSubmitterEmail || sessionMemberEmail),
       // Persist the authenticated member's real name (null for genuinely
       // anonymous/public submissions, which keep falling back to the email /
       // "Anonymous submission" label in admin views).
-      submitted_by_name: sessionMemberName,
-      submission_data: submission_data || {},
+      submitted_by_name: surveyIsAnonymous ? null : sessionMemberName,
+      // Anonymous surveys: redact identity-bearing answers (email/phone/name/
+      // contact/signature fields) from the stored payload as well — the
+      // dedupe key above was already derived before redaction.
+      // IMPORTANT: redaction uses the IMMUTABLE published snapshot's fields
+      // (same source as validation/scoring) — never the mutable live form
+      // config, which an admin could edit after publishing.
+      submission_data: surveyIsAnonymous
+        ? redactIdentityAnswers(surveyVersion.fields || [], submission_data || {}).data
+        : (submission_data || {}),
       created_date: new Date().toISOString(),
       tenant_id: tenantData.id,
       ...(contract_instance_id && { contract_instance_id }),
@@ -292,19 +411,69 @@ export default async function handler(req, res) {
       ...(vacancy_id && { vacancy_id }),
       // Duplicate-submission guard: persist the key so retries/second tabs
       // hit the unique index instead of creating a second row.
-      ...(idemKey && { idempotency_key: idemKey })
+      ...(idemKey && { idempotency_key: idemKey }),
+      // Survey scoring (computed server-side against the published version)
+      ...(isSurvey && {
+        survey_version_id: surveyVersion.id,
+        survey_score_weighted: surveyScoring.overallWeighted,
+        survey_score_unweighted: surveyScoring.overallUnweighted,
+        is_anonymous: surveyIsAnonymous,
+        ...(surveyRespondentKey && { survey_respondent_key: surveyRespondentKey })
+      })
     };
 
-    let { data: submission, error: insertError } = await supabase
-      .from('form_submission')
-      .insert(submissionRecord)
-      .select()
-      .single();
+    // Anonymous surveys: final belt-and-braces anonymity pass — nulls member
+    // identity AND network metadata (ip_address, user_agent) so no
+    // construction path above can reintroduce respondent-identifying columns.
+    const finalSubmissionRecord = surveyIsAnonymous
+      ? anonymizeSubmissionRecord(submissionRecord)
+      : submissionRecord;
+
+    // Surveys write the submission row and normalised answer rows in ONE DB
+    // transaction (RPC) — the answers ARE the survey result, so no
+    // half-state is ever observable. Standard forms keep the plain insert.
+    let submission = null;
+    let insertError = null;
+    if (isSurvey) {
+      const answersPayload = surveyScoring.answers.map((answer) => ({
+        ...answer,
+        tenant_id: tenantData.id,
+        form_id: form.id,
+        survey_version_id: surveyVersion.id
+      }));
+      const { data: rpcRows, error: rpcError } = await supabase
+        .rpc('create_survey_submission', {
+          p_submission: finalSubmissionRecord,
+          p_answers: answersPayload
+        });
+      submission = Array.isArray(rpcRows) ? rpcRows[0] : rpcRows;
+      insertError = rpcError;
+    } else {
+      const insertResult = await supabase
+        .from('form_submission')
+        .insert(finalSubmissionRecord)
+        .select()
+        .single();
+      submission = insertResult.data;
+      insertError = insertResult.error;
+    }
 
     // Race safety: two truly concurrent requests with the same idempotency
     // key both pass the pre-check above; the unique partial index on
     // (form_id, idempotency_key) rejects the loser with 23505. Return the
     // winner's row as the original success payload.
+    // Race safety for survey respondent dedupe: the unique partial index on
+    // (form_id, survey_respondent_key) rejects the concurrent loser — return
+    // the same 409 the pre-insert check would have produced.
+    if (insertError && insertError.code === '23505'
+        && surveyRespondentKey
+        && /respondent/i.test(`${insertError.message || ''}${insertError.details || ''}`)) {
+      return res.status(409).json({
+        error: 'A response has already been recorded for this respondent',
+        code: 'DUPLICATE_SURVEY_RESPONSE'
+      });
+    }
+
     if (insertError && insertError.code === '23505' && idemKey) {
       console.log('[Public Form Submission] Concurrent duplicate (unique violation) — fetching original row');
       const { data: winner, error: winnerErr } = await supabase
@@ -332,7 +501,9 @@ export default async function handler(req, res) {
     // The submitted form may be either the case-study Permission form
     // (case_study_form_id -> case_study_submission_id) or the brief-level
     // Copyright Assignment form (copyright_form_id -> copyright_submission_id).
-    if (brief_id) {
+    // Anonymous surveys never link to article briefs — the brief inbox item
+    // is built from unredacted submitted values (email/name/files).
+    if (brief_id && !surveyIsAnonymous) {
       try {
         console.log('[Public Form Submission] Linking submission to article_brief:', brief_id);
         const { data: matchingBrief, error: briefLookupError } = await supabase
@@ -506,7 +677,9 @@ export default async function handler(req, res) {
     }
 
     // Handle newsletter/communication category subscription early (before slower pipeline/DD processing)
-    if (form.communication_category_id) {
+    // Anonymous surveys: NEVER create identity records (member prefs /
+    // email_subscriber rows) from an anonymous response.
+    if (form.communication_category_id && !surveyIsAnonymous) {
       const processSubscription = async (attempt = 1) => {
         try {
           console.log('[Public Form Submission] Processing newsletter subscription for category:', form.communication_category_id, '(attempt', attempt + ')');
@@ -608,7 +781,7 @@ export default async function handler(req, res) {
     // otherwise be dropped. Route them to email_subscriber, mirroring the
     // legacy single-category newsletter block above.
     const commPrefFields = (form.fields || []).filter(f => f && f.type === 'communication_preferences');
-    if (commPrefFields.length > 0) {
+    if (commPrefFields.length > 0 && !surveyIsAnonymous) {
       const processCommPrefs = async (attempt = 1) => {
         try {
           // Collect (category_id, is_subscribed) selections across every
@@ -745,7 +918,8 @@ export default async function handler(req, res) {
     let pipelineCreatedMemberId = null;
     let pipelineCreatedOrgId = null;
     const hasEntityPipelines = (form.entity_pipelines?.members?.length > 0) || (form.entity_pipelines?.organisations?.length > 0);
-    if (hasEntityPipelines) {
+    // Anonymous surveys never run identity-creating pipelines.
+    if (hasEntityPipelines && !surveyIsAnonymous) {
       try {
         console.log('[Public Form Submission] Processing entity pipelines for tenant:', tenantData.id);
         const pipelineResponse = await fetch(`${baseUrl}/api/forms/process-application`, {
@@ -868,7 +1042,9 @@ export default async function handler(req, res) {
     }
 
     // Generate PDF for contract signatures and add history log
-    if (contract_instance_id) {
+    // Anonymous surveys are incompatible with contract signing (a signature
+    // IS identity) — never run the contract branch for them.
+    if (contract_instance_id && !surveyIsAnonymous) {
       const hasSignatureData = Object.values(submission_data || {}).some(v => 
         v && typeof v === 'object' && (v.type === 'signature' || (v.data && v.signed_at))
       );
@@ -1048,7 +1224,9 @@ export default async function handler(req, res) {
 
     // Auto-create due diligence record if form has due diligence enabled
     console.log('[Public Form Submission] Checking DD enabled:', form.due_diligence_required, 'form_id:', form.id);
-    if (form.due_diligence_required) {
+    // Anonymous surveys never create due-diligence records (they carry the
+    // respondent's raw answers/identity into admin review surfaces).
+    if (form.due_diligence_required && !surveyIsAnonymous) {
       try {
         console.log('[Public Form Submission] Creating due diligence record for submission:', submission.id);
         
@@ -1158,7 +1336,13 @@ export default async function handler(req, res) {
     // call to /api/forms/send-submission-email becomes a no-op afterwards
     // (exactly-once). Failures are recorded durably on the row and NEVER
     // block the submission success response.
-    try {
+    // Anonymous surveys send NO configured submission emails at all: the
+    // email sender resolves recipients/content from live form config and
+    // raw values (field mappings), which could disclose respondent-provided
+    // identity. Skipping entirely is the only safe behaviour.
+    if (surveyIsAnonymous) {
+      console.log('[Public Form Submission] Anonymous survey — submission emails skipped');
+    } else try {
       const emailSendResult = await sendSubmissionEmailsGuarded({
         supabase,
         form,
@@ -1187,6 +1371,7 @@ export default async function handler(req, res) {
     // success response (the user has already submitted successfully).
     if (
       form.allow_submitter_email_copy &&
+      !surveyIsAnonymous &&
       submitterCopyRequested === true &&
       typeof submitterCopyEmail === 'string' &&
       /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(submitterCopyEmail.trim())

@@ -38,6 +38,9 @@ import { COUNTRIES } from '@/data/countries';
 import { TimezoneAwareDateTimeInput } from "@/components/events/TimezoneAwareDateTimeInput";
 import TimezoneSelect from "@/components/TimezoneSelect";
 import FormOwnersSelector from "@/components/forms/FormOwnersSelector";
+import { SCORE_CONDITION_OPERATORS } from "@/lib/surveyConditions";
+import ScoreField from "@/components/forms/ScoreField";
+import { validateScoreFieldConfig, validateSurveyForPublish, getScoreRange, getScoreWeight } from "../../../api/_lib/surveyScoring.js";
 import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
 
 const BADGE_STYLE_DEFAULTS = {
@@ -93,13 +96,28 @@ const PAYMENT_FIELD_TYPES = [
   { value: 'membership_payment', label: 'Membership Payment' },
 ];
 
-const FIELD_TYPES = [...STANDARD_FIELD_TYPES, ...PREPOPULATE_FIELD_TYPES, ...AUTO_FIELD_TYPES, ...PAYMENT_FIELD_TYPES];
+// Survey-only field types (Task #3330). Only offered when form_type === 'survey'.
+const SURVEY_FIELD_TYPES = [
+  { value: 'score', label: 'Score / Rating' },
+];
+
+const SCORE_STYLE_OPTIONS = [
+  { value: 'stars', label: 'Stars' },
+  { value: 'smileys', label: 'Smiley faces' },
+  { value: 'numbers', label: 'Numbered buttons' },
+  { value: 'descriptive', label: 'Descriptive buttons' },
+  { value: 'slider', label: 'Slider' },
+  { value: 'nps', label: 'NPS preset (0–10)' },
+];
+
+const FIELD_TYPES = [...STANDARD_FIELD_TYPES, ...PREPOPULATE_FIELD_TYPES, ...AUTO_FIELD_TYPES, ...PAYMENT_FIELD_TYPES, ...SURVEY_FIELD_TYPES];
 
 const getFieldTypeCategory = (fieldType) => {
   if (STANDARD_FIELD_TYPES.find(f => f.value === fieldType)) return 'standard';
   if (PREPOPULATE_FIELD_TYPES.find(f => f.value === fieldType)) return 'prepopulate';
   if (AUTO_FIELD_TYPES.find(f => f.value === fieldType)) return 'auto';
   if (PAYMENT_FIELD_TYPES.find(f => f.value === fieldType)) return 'payment';
+  if (SURVEY_FIELD_TYPES.find(f => f.value === fieldType)) return 'survey';
   return 'standard';
 };
 
@@ -1606,8 +1624,11 @@ function LogicRulesSection({
                 <div className="space-y-2">
                   {conditions.map((condition, condIndex) => {
                     const isBooleanRef = isBooleanReferenceField(condition.field_id);
+                    const isScoreRef = fields.find(f => f.id === condition.field_id)?.type === 'score';
                     const conditionOptions = getConditionFieldOptions(condition.field_id);
-                    const operatorOptions = isBooleanRef ? BOOLEAN_OPERATORS : VISIBILITY_OPERATORS;
+                    const operatorOptions = isBooleanRef
+                      ? BOOLEAN_OPERATORS
+                      : (isScoreRef ? SCORE_CONDITION_OPERATORS : VISIBILITY_OPERATORS);
                     // For booleans, only equals/not_equals are allowed and both need a value.
                     const needsValueInput = isBooleanRef
                       ? true
@@ -2753,6 +2774,18 @@ function OrgFieldValueSelector({ fieldType, fieldName, selectedValues, onChange,
   );
 }
 
+// Interactive live preview for the Score field config (Task #3330)
+function ScoreFieldPreview({ field }) {
+  const [previewValue, setPreviewValue] = useState(null);
+  return (
+    <ScoreField
+      field={{ ...field, label: '' }}
+      value={previewValue}
+      onChange={setPreviewValue}
+    />
+  );
+}
+
 function FieldCard({ 
   field, 
   index, 
@@ -2771,9 +2804,12 @@ function FieldCard({
   onOpenDrawer,
   onCloseDrawer,
   contractForms = [],
-  allFields = []
+  allFields = [],
+  formType = 'standard',
+  scoringLocked = false
 }) {
   const isEmailType = field.type === 'email' || field.type === 'user_email';
+  const isSurveyForm = formType === 'survey';
   const isUrlType = field.type === 'url';
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
   const [bulkImportText, setBulkImportText] = useState('');
@@ -2926,7 +2962,43 @@ function FieldCard({
 
               <div className="space-y-4">
                 {/* Field Type Selection */}
-                <div className="grid grid-cols-4 gap-3">
+                <div className={`grid ${isSurveyForm ? 'grid-cols-5' : 'grid-cols-4'} gap-3`}>
+                  {isSurveyForm && (
+                    <div className="space-y-1">
+                      <Label className="text-xs">Survey Fields</Label>
+                      <Select
+                        value={getFieldTypeCategory(field.type) === 'survey' ? field.type : ''}
+                        onValueChange={(value) => {
+                          if (value === 'score' && field.type !== 'score') {
+                            updateField(originalIndex, {
+                              type: 'score',
+                              score_style: 'stars',
+                              score_min: 1,
+                              score_max: 5,
+                              weight: 1,
+                              include_in_overall: true,
+                              reverse_scoring: false,
+                              allow_na: false
+                            });
+                          } else if (value) {
+                            updateField(originalIndex, { type: value });
+                          }
+                        }}
+                        disabled={scoringLocked}
+                      >
+                        <SelectTrigger className="h-9" data-testid={`select-survey-type-${field.id}`}>
+                          <SelectValue placeholder="Select..." />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-60 overflow-y-auto">
+                          {SURVEY_FIELD_TYPES.map(type => (
+                            <SelectItem key={type.value} value={type.value}>
+                              {type.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
                   <div className="space-y-1">
                     <Label className="text-xs">Standard Fields</Label>
                     <Select
@@ -3075,6 +3147,223 @@ function FieldCard({
                   rows={2}
                 />
               </div>
+
+              {/* Score / Rating configuration (survey forms, Task #3330) */}
+              {field.type === 'score' && (() => {
+                const { errors: scoreErrors, warnings: scoreWarnings } = validateScoreFieldConfig(field);
+                const isNps = (field.score_style || 'stars') === 'nps';
+                const { min: scoreMin, max: scoreMax } = getScoreRange(field);
+                const rangeCount = scoreMax - scoreMin + 1;
+                const perValueEditable = rangeCount > 1 && rangeCount <= 11;
+                const existingCategories = [...new Set(
+                  allFields
+                    .filter(f => f.type === 'score' && f.id !== field.id && f.reporting_category)
+                    .map(f => f.reporting_category)
+                )];
+                const setLabels = (updates) => updateField(originalIndex, {
+                  score_labels: { ...(field.score_labels || {}), ...updates }
+                });
+                return (
+                  <div className="border rounded-lg p-4 space-y-4 bg-slate-50/50" data-testid={`score-config-${field.id}`}>
+                    <h4 className="text-sm font-semibold text-slate-700">Score / Rating settings</h4>
+                    {scoringLocked && (
+                      <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+                        This survey already has responses — scoring settings are locked. Use "Duplicate as New Version" to make scoring changes.
+                      </p>
+                    )}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Reporting Name</Label>
+                        <Input
+                          value={field.reporting_name || ''}
+                          onChange={(e) => updateField(originalIndex, { reporting_name: e.target.value })}
+                          placeholder="Short name used in reports"
+                          className="h-9"
+                          data-testid={`input-reporting-name-${field.id}`}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Reporting Category</Label>
+                        <Input
+                          value={field.reporting_category || ''}
+                          onChange={(e) => updateField(originalIndex, { reporting_category: e.target.value })}
+                          placeholder="Pick existing or type new"
+                          className="h-9"
+                          list={`score-categories-${field.id}`}
+                          data-testid={`input-reporting-category-${field.id}`}
+                        />
+                        <datalist id={`score-categories-${field.id}`}>
+                          {existingCategories.map(cat => <option key={cat} value={cat} />)}
+                        </datalist>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Rendering Style</Label>
+                        <Select
+                          value={field.score_style || 'stars'}
+                          onValueChange={(value) => updateField(originalIndex, { score_style: value })}
+                          disabled={scoringLocked}
+                        >
+                          <SelectTrigger className="h-9" data-testid={`select-score-style-${field.id}`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {SCORE_STYLE_OPTIONS.map(opt => (
+                              <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <Label className="text-xs">Minimum</Label>
+                          <Input
+                            type="number"
+                            step="1"
+                            value={isNps ? 0 : (field.score_min ?? 1)}
+                            onChange={(e) => updateField(originalIndex, { score_min: e.target.value === '' ? '' : Number(e.target.value) })}
+                            disabled={isNps || scoringLocked}
+                            className="h-9"
+                            data-testid={`input-score-min-${field.id}`}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Maximum</Label>
+                          <Input
+                            type="number"
+                            step="1"
+                            value={isNps ? 10 : (field.score_max ?? 5)}
+                            onChange={(e) => updateField(originalIndex, { score_max: e.target.value === '' ? '' : Number(e.target.value) })}
+                            disabled={isNps || scoringLocked}
+                            className="h-9"
+                            data-testid={`input-score-max-${field.id}`}
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Low-end Label</Label>
+                        <Input
+                          value={field.score_labels?.low || ''}
+                          onChange={(e) => setLabels({ low: e.target.value })}
+                          placeholder="e.g. Poor"
+                          className="h-9"
+                          data-testid={`input-score-label-low-${field.id}`}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">High-end Label</Label>
+                        <Input
+                          value={field.score_labels?.high || ''}
+                          onChange={(e) => setLabels({ high: e.target.value })}
+                          placeholder="e.g. Excellent"
+                          className="h-9"
+                          data-testid={`input-score-label-high-${field.id}`}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Weighting</Label>
+                        <Input
+                          type="number"
+                          step="0.1"
+                          min="0.1"
+                          value={field.weight ?? 1}
+                          onChange={(e) => updateField(originalIndex, { weight: e.target.value === '' ? '' : Number(e.target.value) })}
+                          disabled={scoringLocked}
+                          className="h-9"
+                          data-testid={`input-score-weight-${field.id}`}
+                        />
+                      </div>
+                      {field.allow_na === true && (
+                        <div className="space-y-1">
+                          <Label className="text-xs">"Not Applicable" Label</Label>
+                          <Input
+                            value={field.na_label || ''}
+                            onChange={(e) => updateField(originalIndex, { na_label: e.target.value })}
+                            placeholder="Not applicable"
+                            className="h-9"
+                            data-testid={`input-score-na-label-${field.id}`}
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {perValueEditable && ['numbers', 'descriptive', 'nps'].includes(field.score_style || 'stars') && (
+                      <div className="space-y-1">
+                        <Label className="text-xs">Per-value Labels (optional)</Label>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                          {Array.from({ length: rangeCount }, (_, i) => scoreMin + i).map(v => (
+                            <div key={v} className="flex items-center gap-1.5">
+                              <span className="text-xs text-slate-500 w-6 text-right">{v}</span>
+                              <Input
+                                value={field.score_labels?.values?.[String(v)] || ''}
+                                onChange={(e) => setLabels({
+                                  values: { ...(field.score_labels?.values || {}), [String(v)]: e.target.value }
+                                })}
+                                className="h-8 text-xs"
+                                data-testid={`input-score-value-label-${field.id}-${v}`}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap gap-x-6 gap-y-2">
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={field.include_in_overall !== false}
+                          onCheckedChange={(checked) => updateField(originalIndex, { include_in_overall: checked })}
+                          disabled={scoringLocked}
+                          data-testid={`switch-include-overall-${field.id}`}
+                        />
+                        <Label className="text-xs">Include in overall score</Label>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={field.reverse_scoring === true}
+                          onCheckedChange={(checked) => updateField(originalIndex, { reverse_scoring: checked })}
+                          disabled={scoringLocked}
+                          data-testid={`switch-reverse-scoring-${field.id}`}
+                        />
+                        <Label className="text-xs">Reverse scoring</Label>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={field.allow_na === true}
+                          onCheckedChange={(checked) => updateField(originalIndex, { allow_na: checked })}
+                          data-testid={`switch-allow-na-${field.id}`}
+                        />
+                        <Label className="text-xs">Offer "Not Applicable"</Label>
+                      </div>
+                    </div>
+
+                    {scoreErrors.length > 0 && (
+                      <div className="space-y-1" data-testid={`score-errors-${field.id}`}>
+                        {scoreErrors.map((msg, i) => (
+                          <p key={i} className="text-xs text-red-600">• {msg}</p>
+                        ))}
+                      </div>
+                    )}
+                    {scoreWarnings.length > 0 && (
+                      <div className="space-y-1" data-testid={`score-warnings-${field.id}`}>
+                        {scoreWarnings.map((msg, i) => (
+                          <p key={i} className="text-xs text-amber-600">• {msg}</p>
+                        ))}
+                      </div>
+                    )}
+
+                    {scoreErrors.length === 0 && (
+                      <div className="space-y-1">
+                        <Label className="text-xs">Live Preview</Label>
+                        <div className="bg-white border rounded-md p-3">
+                          <p className="text-sm font-medium text-slate-700 mb-2">{field.label || 'Untitled question'}</p>
+                          {field.description && <p className="text-xs text-slate-500 mb-2">{field.description}</p>}
+                          <ScoreFieldPreview field={field} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Pre-fill Field Selection - When prefill is enabled */}
               {prefillSource !== "none" && (
@@ -5026,7 +5315,7 @@ function FieldCard({
 }
 
 export default function FormBuilderPage() {
-  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [formData, setFormData] = useState({
     name: "",
@@ -5084,7 +5373,11 @@ export default function FormBuilderPage() {
       applicant_email_field: null, // Field ID from DD form for applicant's email
       alternative_signer_form_id: null // Form where applicant provides new signer details
     },
-    communication_category_id: null // Link form to a communication category for newsletter signups
+    communication_category_id: null, // Link form to a communication category for newsletter signups
+    // Survey forms (Task #3330)
+    form_type: 'standard', // 'standard' | 'survey'
+    survey_settings: {}, // status, intro/thank-you, identity mode, display options
+    survey_audit_log: [] // append-only lifecycle audit entries
   });
   
   // Track which form pages are expanded (for collapsible UI) - true = expanded, false = collapsed
@@ -5094,6 +5387,9 @@ export default function FormBuilderPage() {
   
   // Track which field's configuration drawer is open
   const [editingFieldId, setEditingFieldId] = useState(null);
+
+  // Controlled tab state (survey validation links jump back to the builder)
+  const [activeTab, setActiveTab] = useState('builder');
   
   const togglePageExpanded = (pageId) => {
     setExpandedPages(prev => {
@@ -5181,6 +5477,22 @@ export default function FormBuilderPage() {
         return [];
       }
     },
+  });
+
+  // Survey lock (Task #3330): once a form has ANY responses, form type and
+  // scoring settings are locked and "Duplicate as New Version" is offered.
+  const { data: hasResponses = false } = useQuery({
+    queryKey: ['form-has-responses', formId],
+    queryFn: async () => {
+      try {
+        const rows = await base44.entities.FormSubmission.filter({ form_id: formId }, '-created_date', 1);
+        return (rows || []).length > 0;
+      } catch (err) {
+        console.warn('Failed to check for existing submissions:', err);
+        return false;
+      }
+    },
+    enabled: !!formId,
   });
 
   // Fetch DD forms for applicant field mapping in timeout notifications
@@ -5576,7 +5888,10 @@ export default function FormBuilderPage() {
           require_signature: true,
           signers: []
         },
-        communication_category_id: existingForm.communication_category_id || null
+        communication_category_id: existingForm.communication_category_id || null,
+        form_type: existingForm.form_type || 'standard',
+        survey_settings: existingForm.survey_settings || {},
+        survey_audit_log: Array.isArray(existingForm.survey_audit_log) ? existingForm.survey_audit_log : []
       });
     }
   }, [existingForm]);
@@ -5880,6 +6195,98 @@ export default function FormBuilderPage() {
     }
   };
 
+  // --- Survey publish / duplicate (Task #3330) --------------------------
+  const updateSurveySetting = (key, value) => {
+    setFormData((prev) => {
+      const nextSettings = { ...(prev.survey_settings || {}), [key]: value };
+      // Audit entries (incl. archive) are appended server-side.
+      return { ...prev, survey_settings: nextSettings };
+    });
+  };
+
+  const surveyValidation = useMemo(() => {
+    if (formData.form_type !== 'survey') return null;
+    return validateSurveyForPublish(formData.fields || [], formData.survey_settings || {});
+  }, [formData.form_type, formData.fields, formData.survey_settings]);
+
+  const publishSurveyMutation = useMutation({
+    mutationFn: async () => {
+      // Save the current builder state first so the server snapshots exactly
+      // what the admin sees, then publish server-side (the publish endpoint
+      // is the only writer of survey_version snapshots).
+      await base44.entities.Form.update(formId, {
+        fields: formData.fields || [],
+        pages: formData.pages || [],
+        visibility_rules: formData.visibility_rules || [],
+        survey_settings: formData.survey_settings || {}
+      });
+      const response = await fetch('/api/forms/publish-survey', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ form_id: formId })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload?.error || 'Failed to publish survey');
+      }
+      return payload;
+    },
+    onSuccess: (payload) => {
+      setFormData((prev) => ({
+        ...prev,
+        survey_settings: payload.survey_settings || prev.survey_settings,
+        survey_audit_log: payload.survey_audit_log || prev.survey_audit_log
+      }));
+      queryClient.invalidateQueries({ queryKey: ['form', formId] });
+      toast.success(`Survey published (version ${payload.version_number})`);
+    },
+    onError: (err) => {
+      console.error('Publish survey failed:', err);
+      toast.error(err?.message || 'Failed to publish survey');
+    }
+  });
+
+  const handlePublishSurvey = () => {
+    if (!formId) {
+      toast.error('Save the survey first, then publish.');
+      return;
+    }
+    if (surveyValidation?.errors?.length) {
+      toast.error('Fix the validation issues before publishing.');
+      return;
+    }
+    publishSurveyMutation.mutate();
+  };
+
+  const duplicateSurveyMutation = useMutation({
+    mutationFn: async () => {
+      const { _ccCustomMode, _bccCustomMode, ...copy } = formData;
+      const newForm = await base44.entities.Form.create({
+        ...copy,
+        name: `${formData.name} (new version)`,
+        slug: `${formData.slug}-v${Date.now().toString(36)}`,
+        is_active: false,
+        survey_settings: {
+          ...(formData.survey_settings || {}),
+          status: 'draft',
+          current_version: 0,
+          parent_form_id: formId
+        },
+        // Audit entry appended server-side on create.
+      });
+      return newForm;
+    },
+    onSuccess: (newForm) => {
+      toast.success('New draft version created');
+      window.location.href = `${createPageUrl('FormBuilder')}?formId=${newForm.id}`;
+    },
+    onError: (err) => {
+      console.error('Duplicate survey failed:', err);
+      toast.error('Failed to duplicate survey');
+    }
+  });
+
   const handleSubmit = () => {
     console.log('[FormBuilder] handleSubmit called');
     console.log('[FormBuilder] formData:', JSON.stringify(formData, null, 2));
@@ -5963,6 +6370,11 @@ export default function FormBuilderPage() {
     // Remove temporary UI-only flags before saving
     const { _ccCustomMode, _bccCustomMode, ...dataToSave } = formData;
 
+    // Survey audit trail is SERVER-authored: the entity API strips any
+    // client-supplied survey_audit_log and appends create/edit/archive
+    // entries itself, so never send it from the builder.
+    delete dataToSave.survey_audit_log;
+
     // Strip blank/whitespace-only option rows so empty "Add Option" rows are
     // never persisted (image_options fields keep their own structure).
     dataToSave.fields = (dataToSave.fields || []).map((f) => {
@@ -6025,13 +6437,16 @@ export default function FormBuilderPage() {
         </div>
 
         {/* Tabs for organizing form sections */}
-        <Tabs defaultValue="builder" className="w-full">
-          <TabsList className="grid w-full grid-cols-5 mb-6" data-testid="formbuilder-tabs">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className={`grid w-full ${formData.form_type === 'survey' ? 'grid-cols-6' : 'grid-cols-5'} mb-6`} data-testid="formbuilder-tabs">
             <TabsTrigger value="builder" data-testid="tab-builder">Builder</TabsTrigger>
             <TabsTrigger value="settings" data-testid="tab-settings">Form Settings</TabsTrigger>
             <TabsTrigger value="submission" data-testid="tab-submission">Submission Settings</TabsTrigger>
             <TabsTrigger value="emails" data-testid="tab-emails">Emails</TabsTrigger>
             <TabsTrigger value="logic" data-testid="tab-logic">Conditional Logic</TabsTrigger>
+            {formData.form_type === 'survey' && (
+              <TabsTrigger value="survey" data-testid="tab-survey">Survey Settings</TabsTrigger>
+            )}
           </TabsList>
 
           {/* Form Settings Tab */}
@@ -6061,6 +6476,34 @@ export default function FormBuilderPage() {
                   onChange={(e) => setFormData({ ...formData, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') })}
                   placeholder="contact-form"
                 />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="form_type">Form Type</Label>
+                <Select
+                  value={formData.form_type || 'standard'}
+                  onValueChange={(value) => {
+                    setFormData({
+                      ...formData,
+                      form_type: value,
+                      survey_settings: value === 'survey'
+                        ? { status: 'draft', anonymity_threshold: 3, response_identity: 'identified', ...(formData.survey_settings || {}) }
+                        : (formData.survey_settings || {})
+                    });
+                  }}
+                  disabled={hasResponses}
+                >
+                  <SelectTrigger data-testid="select-form-type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="standard">Standard Form</SelectItem>
+                    <SelectItem value="survey">Survey Form</SelectItem>
+                  </SelectContent>
+                </Select>
+                {hasResponses && (
+                  <p className="text-xs text-slate-500">Form type is locked because this form already has responses.</p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -7669,6 +8112,8 @@ export default function FormBuilderPage() {
                                       onCloseDrawer={() => setEditingFieldId(null)}
                                       contractForms={contractForms}
                                       allFields={formData.fields}
+                                      formType={formData.form_type}
+                                      scoringLocked={hasResponses && formData.form_type === 'survey'}
                                     />
                                   ))}
                                 {provided.placeholder}
@@ -7811,6 +8256,8 @@ export default function FormBuilderPage() {
                                                   onCloseDrawer={() => setEditingFieldId(null)}
                                                   contractForms={contractForms}
                                                   allFields={formData.fields}
+                                      formType={formData.form_type}
+                                      scoringLocked={hasResponses && formData.form_type === 'survey'}
                                                 />
                                               ))
                                             )}
@@ -7870,6 +8317,8 @@ export default function FormBuilderPage() {
                               onCloseDrawer={() => setEditingFieldId(null)}
                               contractForms={contractForms}
                               allFields={formData.fields}
+                                      formType={formData.form_type}
+                                      scoringLocked={hasResponses && formData.form_type === 'survey'}
                             />
                           ))}
                           {provided.placeholder}
@@ -7898,6 +8347,236 @@ export default function FormBuilderPage() {
             </Card>
             </div>
           </TabsContent>
+
+          {/* Survey Settings (Task #3330) */}
+          {formData.form_type === 'survey' && (
+            <TabsContent value="survey">
+              <div className="space-y-6">
+                <Card className="border-slate-200">
+                  <CardHeader className="pb-4">
+                    <CardTitle className="text-lg">Survey Settings</CardTitle>
+                  </CardHeader>
+                  <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2 md:col-span-2">
+                      <Label>Respondent Introduction</Label>
+                      <Textarea
+                        value={formData.survey_settings?.intro_text || ''}
+                        onChange={(e) => updateSurveySetting('intro_text', e.target.value)}
+                        placeholder="Shown to respondents above the survey..."
+                        rows={2}
+                        data-testid="input-survey-intro"
+                      />
+                    </div>
+                    <div className="space-y-2 md:col-span-2">
+                      <Label>Thank-you Message</Label>
+                      <Textarea
+                        value={formData.survey_settings?.thank_you_message || ''}
+                        onChange={(e) => updateSurveySetting('thank_you_message', e.target.value)}
+                        placeholder="Shown after submitting (overrides the standard success message)"
+                        rows={2}
+                        data-testid="input-survey-thankyou"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Survey Status</Label>
+                      <Select
+                        value={formData.survey_settings?.status || 'draft'}
+                        onValueChange={(value) => updateSurveySetting('status', value)}
+                      >
+                        <SelectTrigger data-testid="select-survey-status"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="draft">Draft</SelectItem>
+                          {(formData.survey_settings?.status === 'published') && (
+                            <SelectItem value="published">Published</SelectItem>
+                          )}
+                          <SelectItem value="archived">Archived</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-slate-500">Separate from the form's Active flag. Publishing happens only via the Publish button (creates a version snapshot); editing a published survey reverts it to draft until re-published.</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Response Identity</Label>
+                      <Select
+                        value={formData.survey_settings?.response_identity || 'identified'}
+                        onValueChange={(value) => updateSurveySetting('response_identity', value)}
+                        disabled={hasResponses}
+                      >
+                        <SelectTrigger data-testid="select-survey-identity"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="identified">Identified</SelectItem>
+                          <SelectItem value="anonymous">Anonymous</SelectItem>
+                          <SelectItem value="anonymous_dedupe">Anonymous (prevent duplicates)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Score Display</Label>
+                      <Select
+                        value={formData.survey_settings?.score_display || 'weighted'}
+                        onValueChange={(value) => updateSurveySetting('score_display', value)}
+                      >
+                        <SelectTrigger data-testid="select-survey-score-display"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="weighted">Weighted</SelectItem>
+                          <SelectItem value="unweighted">Unweighted</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Reporting Scale</Label>
+                      <Select
+                        value={String(formData.survey_settings?.reporting_scale || 100)}
+                        onValueChange={(value) => updateSurveySetting('reporting_scale', Number(value))}
+                      >
+                        <SelectTrigger data-testid="select-survey-reporting-scale"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="100">0–100</SelectItem>
+                          <SelectItem value="10">0–10</SelectItem>
+                          <SelectItem value="5">0–5</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Anonymity Threshold</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={formData.survey_settings?.anonymity_threshold ?? 3}
+                        onChange={(e) => updateSurveySetting('anonymity_threshold', e.target.value === '' ? '' : Number(e.target.value))}
+                        data-testid="input-survey-anonymity-threshold"
+                      />
+                      <p className="text-xs text-slate-500">Minimum responses before results are shown in reporting.</p>
+                    </div>
+                    <div className="flex flex-col gap-3 md:col-span-2">
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={formData.survey_settings?.one_submission_per_respondent === true}
+                          onCheckedChange={(checked) => updateSurveySetting('one_submission_per_respondent', checked)}
+                          data-testid="switch-survey-one-submission"
+                        />
+                        <Label>One submission per respondent</Label>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={formData.survey_settings?.show_progress === true}
+                          onCheckedChange={(checked) => updateSurveySetting('show_progress', checked)}
+                          data-testid="switch-survey-progress"
+                        />
+                        <Label>Show progress indicator</Label>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={formData.survey_settings?.show_question_numbers === true}
+                          onCheckedChange={(checked) => updateSurveySetting('show_question_numbers', checked)}
+                          data-testid="switch-survey-question-numbers"
+                        />
+                        <Label>Show question numbers</Label>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="border-slate-200">
+                  <CardHeader className="pb-4">
+                    <CardTitle className="text-lg">Survey Summary</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {surveyValidation && (
+                      <>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                          <div className="border rounded p-3">
+                            <p className="text-2xl font-semibold" data-testid="summary-scored-count">{surveyValidation.summary.scoredCount}</p>
+                            <p className="text-xs text-slate-500">Scored questions</p>
+                          </div>
+                          <div className="border rounded p-3">
+                            <p className="text-2xl font-semibold" data-testid="summary-nonscored-count">{surveyValidation.summary.nonScoredCount}</p>
+                            <p className="text-xs text-slate-500">Non-scored questions</p>
+                          </div>
+                          <div className="border rounded p-3">
+                            <p className="text-2xl font-semibold" data-testid="summary-total-weight">{surveyValidation.summary.totalWeight}</p>
+                            <p className="text-xs text-slate-500">Total weighting</p>
+                          </div>
+                          <div className="border rounded p-3">
+                            <p className="text-2xl font-semibold" data-testid="summary-excluded-count">{surveyValidation.summary.excludedFromOverall.length}</p>
+                            <p className="text-xs text-slate-500">Excluded from overall</p>
+                          </div>
+                        </div>
+                        {surveyValidation.summary.missingCategory.length > 0 && (
+                          <p className="text-xs text-amber-600">
+                            {surveyValidation.summary.missingCategory.length} score question(s) have no reporting category.
+                          </p>
+                        )}
+                        {(surveyValidation.errors.length > 0 || surveyValidation.warnings.length > 0) && (
+                          <div className="space-y-1" data-testid="survey-validation-issues">
+                            {surveyValidation.errors.map((issue, i) => (
+                              <p key={`e${i}`} className="text-xs text-red-600">
+                                •{' '}
+                                {issue.field_id ? (
+                                  <button
+                                    type="button"
+                                    className="underline"
+                                    onClick={() => {
+                                      setActiveTab('builder');
+                                      setEditingFieldId(issue.field_id);
+                                    }}
+                                  >
+                                    {(formData.fields || []).find(f => f.id === issue.field_id)?.label || 'Question'}
+                                  </button>
+                                ) : null}{issue.field_id ? ': ' : ''}{issue.message}
+                              </p>
+                            ))}
+                            {surveyValidation.warnings.map((issue, i) => (
+                              <p key={`w${i}`} className="text-xs text-amber-600">
+                                •{' '}
+                                {issue.field_id ? (
+                                  <button
+                                    type="button"
+                                    className="underline"
+                                    onClick={() => {
+                                      setActiveTab('builder');
+                                      setEditingFieldId(issue.field_id);
+                                    }}
+                                  >
+                                    {(formData.fields || []).find(f => f.id === issue.field_id)?.label || 'Question'}
+                                  </button>
+                                ) : null}{issue.field_id ? ': ' : ''}{issue.message}
+                              </p>
+                            ))}
+                          </div>
+                        )}
+                        {surveyValidation.errors.length === 0 && (
+                          <p className="text-xs text-green-600">Validation passed — ready to publish.</p>
+                        )}
+                      </>
+                    )}
+                    <div className="flex flex-wrap gap-3 pt-2">
+                      <Button
+                        onClick={handlePublishSurvey}
+                        disabled={!formId || publishSurveyMutation.isPending || (surveyValidation?.errors?.length > 0)}
+                        data-testid="button-publish-survey"
+                      >
+                        {publishSurveyMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                        Publish Survey (version {(Number(formData.survey_settings?.current_version) || 0) + 1})
+                      </Button>
+                      {hasResponses && (
+                        <Button
+                          variant="outline"
+                          onClick={() => duplicateSurveyMutation.mutate()}
+                          disabled={duplicateSurveyMutation.isPending}
+                          data-testid="button-duplicate-survey-version"
+                        >
+                          {duplicateSurveyMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                          Duplicate as New Version
+                        </Button>
+                      )}
+                    </div>
+                    {!formId && <p className="text-xs text-slate-500">Save the survey first, then publish.</p>}
+                  </CardContent>
+                </Card>
+              </div>
+            </TabsContent>
+          )}
         </Tabs>
       </div>
     </div>

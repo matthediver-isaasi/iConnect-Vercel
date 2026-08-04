@@ -10,6 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Loader2, Plus, X, Check, ChevronsUpDown } from "lucide-react";
 import CustomFieldFileUpload from "@/components/CustomFieldFileUpload";
 import SignatureField from "@/components/forms/SignatureField";
+import ScoreField from "@/components/forms/ScoreField";
 import MembershipPaymentField from "@/components/forms/MembershipPaymentField";
 import {
   Select,
@@ -649,6 +650,26 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
             )}
           </div>
         );
+
+      case 'score': {
+        // Survey Score / Rating field (Task #3330). Question number is its
+        // position among the survey's question fields (display-only).
+        let questionNumber = null;
+        if (Array.isArray(allFields) && allFields.length > 0) {
+          const questionFields = allFields.filter(f => !['instructions', 'image'].includes(f.type));
+          const idx = questionFields.findIndex(f => f.id === field.id);
+          if (idx >= 0) questionNumber = idx + 1;
+        }
+        return (
+          <ScoreField
+            field={field}
+            value={value}
+            onChange={onChange}
+            disabled={isFieldDisabled}
+            questionNumber={field.show_question_number ? questionNumber : null}
+          />
+        );
+      }
 
       case 'tel':
       case 'number':

@@ -1,0 +1,21 @@
+{
+  "name": "SurveyAnswer",
+  "type": "object",
+  "description": "Normalised per-question survey answer row, written server-side at submission time. One row per score field answered (or marked N/A) in a survey submission. All scoring values are computed server-side from the published survey version, never from client input.",
+  "properties": {
+    "tenant_id": { "type": "string", "description": "Tenant that owns the survey" },
+    "submission_id": { "type": "string", "description": "form_submission this answer belongs to" },
+    "form_id": { "type": "string", "description": "Survey form" },
+    "survey_version_id": { "type": "string", "description": "Published survey version the answer was validated against" },
+    "field_id": { "type": "string", "description": "Score field id within the version snapshot" },
+    "reporting_name": { "type": "string", "description": "Short reporting name copied from the field config" },
+    "reporting_category": { "type": "string", "description": "Reporting category copied from the field config" },
+    "raw_score": { "type": "number", "description": "Raw value the respondent selected (null when N/A)" },
+    "is_na": { "type": "boolean", "description": "True when the respondent chose Not Applicable" },
+    "normalised_score": { "type": "number", "description": "0..1 normalised score after reverse-scoring inversion (null when N/A)" },
+    "weight": { "type": "number", "description": "Question weight from the version snapshot" },
+    "weighted_contribution": { "type": "number", "description": "normalised_score * weight (null when excluded from overall)" },
+    "included_in_overall": { "type": "boolean", "description": "Whether this answer counted towards the overall score denominator" }
+  },
+  "required": ["tenant_id", "submission_id", "form_id", "field_id"]
+}

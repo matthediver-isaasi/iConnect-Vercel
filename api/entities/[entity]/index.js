@@ -155,6 +155,8 @@ const entityToTable = {
   'WallOfFamePerson': 'wall_of_fame_person',
   'Floater': 'floater',
   'Form': 'form',
+  'SurveyVersion': 'survey_version',
+  'SurveyAnswer': 'survey_answer',
   'EmailTemplate': 'email_template',
   'FormSubmission': 'form_submission',
   'NewsPost': 'news_post',
@@ -282,6 +284,23 @@ export default async function handler(req, res) {
   
   const adminOnlyEntities = ['externalwriter', 'externalwriterdocument'];
   if (adminOnlyEntities.includes(entityNorm)) {
+    if (!tenantCtx.isAuthenticated) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    const isAdmin = await hasAdminAccess(tenantCtx);
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+  }
+
+  // SECURITY (Task #3330): survey version snapshots and normalised survey
+  // answers are server-authoritative records. Writes go ONLY through the
+  // publish endpoint / public submission endpoint (service role); reads are
+  // admin-gated (reporting surfaces).
+  if (entityNorm === 'surveyversion' || entityNorm === 'surveyanswer') {
+    if (req.method !== 'GET') {
+      return res.status(403).json({ error: 'Survey records are managed server-side and cannot be written directly' });
+    }
     if (!tenantCtx.isAuthenticated) {
       return res.status(401).json({ error: 'Authentication required' });
     }
@@ -1088,6 +1107,45 @@ export default async function handler(req, res) {
       for (const field of uuidFields) {
         if (field in sanitizedBody && sanitizedBody[field] === '') {
           sanitizedBody[field] = null;
+        }
+      }
+
+      // SECURITY (Task #3330): survey submissions must go through the public
+      // form-submission endpoint — the only path that validates answers
+      // against the published version snapshot, computes scores server-side,
+      // writes normalised survey_answer rows and enforces anonymity/dedupe.
+      // Direct generic FormSubmission creation would bypass all of it.
+      if (entityNorm === 'formsubmission' && sanitizedBody.form_id) {
+        const { data: targetForm } = await supabase
+          .from('form')
+          .select('form_type')
+          .eq('id', sanitizedBody.form_id)
+          .eq('tenant_id', tenantCtx.tenantId)
+          .maybeSingle();
+        if (targetForm?.form_type === 'survey') {
+          return res.status(400).json({
+            error: 'Survey responses must be submitted via the public form submission endpoint'
+          });
+        }
+      }
+
+      // SECURITY (Task #3330): surveys are created draft-only — 'published'
+      // status exists ONLY via the publish endpoint (which snapshots a
+      // version). A directly-created "published" survey would serve publicly
+      // with no snapshot to score against.
+      if (entityNorm === 'form' && sanitizedBody.form_type === 'survey'
+          && sanitizedBody.survey_settings && typeof sanitizedBody.survey_settings === 'object'
+          && sanitizedBody.survey_settings.status === 'published') {
+        sanitizedBody.survey_settings = { ...sanitizedBody.survey_settings, status: 'draft' };
+      }
+      // Audit log is SERVER-authored: ignore any client-supplied history and
+      // start surveys with a single server-written create entry.
+      if (entityNorm === 'form') {
+        delete sanitizedBody.survey_audit_log;
+        if (sanitizedBody.form_type === 'survey') {
+          sanitizedBody.survey_audit_log = [
+            { action: 'create', at: new Date().toISOString(), actor: tenantCtx?.memberId || null }
+          ];
         }
       }
 

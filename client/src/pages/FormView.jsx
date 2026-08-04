@@ -1,3 +1,5 @@
+import { applySurveyPresentation, surveySuccessMessage, surveyIntroText, showSurveyProgress, surveyProgress } from '@/lib/surveyPresentation';
+import { evaluateScoreCondition } from '@/lib/surveyConditions';
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
@@ -109,7 +111,7 @@ export default function FormViewPage({ slug: slugProp = null }) {
     enabled: !!memberInfo?.id
   });
 
-  const { data: form, isLoading, error: formError } = useQuery({
+  const { data: rawForm, isLoading, error: formError } = useQuery({
     queryKey: ['public-form-by-slug', formSlug, !!memberInfo],
     queryFn: async () => {
       // Use publicClient which handles both subdomain and custom domain resolution.
@@ -121,6 +123,9 @@ export default function FormViewPage({ slug: slugProp = null }) {
     enabled: !!formSlug,
     retry: false
   });
+
+  // Survey presentation (question numbering) — no-op for standard forms
+  const form = useMemo(() => applySurveyPresentation(rawForm), [rawForm]);
 
   // Task #3336: authenticated fallback — when the form uses member/organisation
   // prefill and no explicit URL param is supplied, prefill from the logged-in
@@ -134,6 +139,7 @@ export default function FormViewPage({ slug: slugProp = null }) {
     viewerMemberId: memberInfo?.id,
     viewerOrgId: memberInfo?.organization_id || organizationInfo?.id,
   });
+
 
   useEffect(() => {
     if (!isLoading && form) {
@@ -692,7 +698,7 @@ export default function FormViewPage({ slug: slugProp = null }) {
       : prefillBooking;
     if (!primaryEntity) return;
     
-    console.log('[FormView Prefill] ========== PREFILL DEBUG START ==========');
+    console.log('[FormView Prefill] ---------- PREFILL DEBUG START ----------');
     console.log('[FormView Prefill] Form prefill_source:', form.prefill_source);
     console.log('[FormView Prefill] Booking entity:', prefillBooking);
     console.log('[FormView Prefill] Member entity:', memberEntity);
@@ -804,6 +810,9 @@ export default function FormViewPage({ slug: slugProp = null }) {
       const response = await fetch('/api/public/form-submission', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        // Send session cookies so require_authentication surveys accept a
+        // logged-in member even when the form is served cross-origin.
+        credentials: 'include',
         body: JSON.stringify({
           ...submissionData,
           idempotency_key: getIdempotencyKey(),
@@ -950,6 +959,9 @@ export default function FormViewPage({ slug: slugProp = null }) {
 
   // Helper to evaluate a single condition
   const evaluateSingleCondition = (triggerValue, operator, value, debugInfo = {}) => {
+    // Survey Score answers ({score}/{na}) + numeric operators (Task #3330)
+    const scoreResult = evaluateScoreCondition(triggerValue, operator, value);
+    if (scoreResult !== undefined) return scoreResult;
     // Normalize boolean trigger values so saved string comparison values like
     // "true"/"false" (used by the FormBuilder boolean value picker) match the
     // actual JS booleans stored in formValues. Only applied to equality
@@ -2278,7 +2290,7 @@ export default function FormViewPage({ slug: slugProp = null }) {
               <CheckCircle2 className="w-8 h-8 text-green-600" />
             </div>
             <h3 className="text-xl font-semibold text-slate-900 mb-2">Success!</h3>
-            <p className="text-slate-600">{form.success_message}</p>
+            <p className="text-slate-600">{surveySuccessMessage(form)}</p>
             {resolveRedirectTarget(form, formValues) && (
               <p className="text-sm text-slate-500 mt-4">Redirecting...</p>
             )}
@@ -2527,6 +2539,23 @@ export default function FormViewPage({ slug: slugProp = null }) {
           <CardHeader>
             <CardTitle>{form.name}</CardTitle>
             {form.description && <CardDescription className="whitespace-pre-line">{form.description}</CardDescription>}
+            {surveyIntroText(form) && (
+              <p className="text-sm text-slate-600 whitespace-pre-line mt-2" data-testid="survey-intro-text">{surveyIntroText(form)}</p>
+            )}
+            {showSurveyProgress(form) && (() => {
+              const progress = surveyProgress(form, hiddenFieldIds, formValues);
+              return (
+                <div className="mt-4" data-testid="survey-progress" role="progressbar" aria-valuenow={progress.answered} aria-valuemin={0} aria-valuemax={progress.total} aria-label="Survey progress">
+                  <div className="flex items-center justify-between mb-1 text-sm text-slate-600">
+                    <span>Progress</span>
+                    <span>{progress.answered} of {progress.total} answered</span>
+                  </div>
+                  <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                    <div className="h-full bg-blue-600 rounded-full transition-all" style={{ width: `${progress.pct}%` }} />
+                  </div>
+                </div>
+              );
+            })()}
             {/* Page progress indicator */}
             {hasPages && (
               <div className="mt-4">

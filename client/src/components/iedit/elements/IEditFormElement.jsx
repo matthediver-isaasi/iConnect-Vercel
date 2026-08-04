@@ -1,3 +1,4 @@
+import { evaluateScoreCondition } from '@/lib/surveyConditions';
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
@@ -20,6 +21,7 @@ import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyl
 import { AlignLeft, AlignCenter, AlignRight } from "lucide-react";
 import { buildPrefillValues, isFieldValueFilled, resolveEffectivePrefillIds, shouldWaitForPrefillCustomValues } from "@/lib/formFieldPrefill";
 import { getFormPagination } from "@/lib/formPagination";
+import { applySurveyPresentation, surveyIntroText, surveySuccessMessage } from "@/lib/surveyPresentation";
 
 const formQuillModules = {
   toolbar: [
@@ -245,7 +247,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
 
   const tenantSlug = getTenantSlugFromLocation();
 
-  const { data: form, isLoading } = useQuery({
+  const { data: rawForm, isLoading } = useQuery({
     queryKey: ['form-embed', formSlug, tenantSlug, !!memberInfo],
     queryFn: async () => {
       if (!formSlug) return null;
@@ -253,6 +255,10 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     },
     enabled: !!formSlug
   });
+  // Shared survey presentation (question-number prefixes etc.) — same
+  // transform FormView/EmbedForm apply. iEdit's native per-step progress bar
+  // covers the survey progress indicator.
+  const form = useMemo(() => applySurveyPresentation(rawForm), [rawForm]);
 
   // Task #3336: authenticated fallback — when the form uses member/organisation
   // prefill and no explicit URL param is supplied, prefill from the logged-in
@@ -622,6 +628,9 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
 
   // Helper to evaluate a rule condition
   const evaluateSingleCondition = (triggerValue, operator, value) => {
+    // Survey Score answers ({score}/{na}) + numeric operators (Task #3330)
+    const scoreResult = evaluateScoreCondition(triggerValue, operator, value);
+    if (scoreResult !== undefined) return scoreResult;
     // Normalize boolean trigger values so saved string comparison values like
     // "true"/"false" (used by the FormBuilder boolean value picker) match the
     // actual JS booleans stored in formValues. Only applied to equality
@@ -1247,7 +1256,11 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
 
   const submitFormMutation = useMutation({
     mutationFn: async (data) => {
-      if (memberInfo) {
+      // Survey forms (Task #3330) must ALWAYS go through the public
+      // submission endpoint — it is the only path that validates answers
+      // against the published version snapshot, computes scores server-side,
+      // writes normalised survey_answer rows and enforces anonymity/dedupe.
+      if (memberInfo && form?.form_type !== 'survey') {
         // Authenticated entity API: include the same per-session idempotency
         // key so double-clicks/slow-network retries collapse to a single
         // submission server-side (enforced by the unique index on
@@ -1304,7 +1317,10 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
         // Process entity pipelines if configured (create/update member/org entities)
         // Only for authenticated users - unauthenticated submissions are processed server-side by form-submission.js
         const hasEntityPipelines = (form?.entity_pipelines?.members?.length > 0) || (form?.entity_pipelines?.organisations?.length > 0);
-        if (memberInfo && hasEntityPipelines) {
+        // Surveys submit through the public endpoint, which runs (or, for
+        // anonymous surveys, deliberately skips) pipelines server-side —
+        // never re-run them client-side.
+        if (memberInfo && hasEntityPipelines && form?.form_type !== 'survey') {
           try {
             const response = await fetch('/api/forms/process-application', {
               method: 'POST',
@@ -1783,7 +1799,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                 <CheckCircle2 className="w-8 h-8 text-green-600" />
               </div>
               <h3 className="text-xl font-semibold text-slate-900 mb-2">Success!</h3>
-              <p className="text-slate-600">{form.success_message || 'Your form has been submitted successfully.'}</p>
+              <p className="text-slate-600">{surveySuccessMessage(form) || form.success_message || 'Your form has been submitted successfully.'}</p>
               {form.redirect_url && (
                 <p className="text-sm text-slate-500 mt-4">Redirecting...</p>
               )}
@@ -1799,8 +1815,9 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     const currentField = visibleFields[currentStep];
     const isLastStep = currentStep === visibleFields.length - 1;
     
-    // Check if field has a value (for required check)
-    const hasValue = formValues[currentField?.id];
+    // Check if field has a value (for required check) — shared validator so
+    // score/contact/grouped shapes gate identically to FormView/EmbedForm.
+    const hasValue = currentField ? isFieldValueFilled(currentField, formValues[currentField.id]) : false;
     // Check if field passes format validation (default to true if not tracked)
     const isFormatValid = fieldValidity[currentField?.id] !== false;
     // Can proceed if: (not required OR has value) AND format is valid
@@ -1828,6 +1845,9 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                 {show_form_title && <CardTitle>{form.name}</CardTitle>}
                 {show_form_description && form.description && (
                   <CardDescription className="whitespace-pre-line">{form.description}</CardDescription>
+                )}
+                {surveyIntroText(form) && (
+                  <CardDescription className="whitespace-pre-line" data-testid="text-survey-intro">{surveyIntroText(form)}</CardDescription>
                 )}
                 <div className="flex gap-1 mt-4">
                   {visibleFields.map((_, index) => (

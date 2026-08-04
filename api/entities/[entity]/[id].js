@@ -78,6 +78,8 @@ const entityToTable = {
   'WallOfFamePerson': 'wall_of_fame_person',
   'Floater': 'floater',
   'Form': 'form',
+  'SurveyVersion': 'survey_version',
+  'SurveyAnswer': 'survey_answer',
   'EmailTemplate': 'email_template',
   'FormSubmission': 'form_submission',
   'FormSubmissionSavedView': 'form_submission_saved_view',
@@ -179,6 +181,23 @@ export default async function handler(req, res) {
   const entityNorm = entity.replace(/[-_]/g, '').toLowerCase();
   const adminOnlyEntities = ['externalwriter', 'externalwriterdocument'];
   if (adminOnlyEntities.includes(entityNorm)) {
+    if (!tenantCtx.isAuthenticated) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    const isAdmin = await hasAdminAccess(tenantCtx);
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+  }
+
+  // SECURITY (Task #3330): survey version snapshots and normalised survey
+  // answers are server-authoritative records. Writes go ONLY through the
+  // publish endpoint / public submission endpoint (service role); reads are
+  // admin-gated (reporting surfaces).
+  if (entityNorm === 'surveyversion' || entityNorm === 'surveyanswer') {
+    if (req.method !== 'GET') {
+      return res.status(403).json({ error: 'Survey records are managed server-side and cannot be written directly' });
+    }
     if (!tenantCtx.isAuthenticated) {
       return res.status(401).json({ error: 'Authentication required' });
     }
@@ -434,6 +453,31 @@ export default async function handler(req, res) {
         }
       }
 
+      // SECURITY (survey integrity): survey responses are server-authoritative
+      // and immutable — scored answers, identity/anonymity fields and version
+      // pointers are written only by the submission RPC. Block generic PATCH
+      // of any FormSubmission whose persisted form is a survey (form looked up
+      // server-side, tenant-scoped; never trust the request body).
+      if (entityNormalized === 'formsubmission') {
+        const { data: subRow } = await supabase
+          .from('form_submission')
+          .select('form_id')
+          .eq('id', id)
+          .eq('tenant_id', tenantCtx.tenantId)
+          .maybeSingle();
+        if (subRow?.form_id) {
+          const { data: subForm } = await supabase
+            .from('form')
+            .select('form_type')
+            .eq('id', subRow.form_id)
+            .eq('tenant_id', tenantCtx.tenantId)
+            .maybeSingle();
+          if (subForm?.form_type === 'survey') {
+            return res.status(403).json({ error: 'Survey responses are immutable and cannot be edited' });
+          }
+        }
+      }
+
       // For Organization/Member/JobPosting, fetch before data for workflow evaluation
       // Also fetch before data for ArticleBrief to track key field changes in activity log
       let beforeData = null;
@@ -526,6 +570,69 @@ export default async function handler(req, res) {
       for (const field of uuidFields) {
         if (field in sanitizedBody && sanitizedBody[field] === '') {
           sanitizedBody[field] = null;
+        }
+      }
+
+      // SECURITY (Task #3330): survey publication is server-authoritative.
+      // Clients may never flip survey_settings.status to 'published' via the
+      // generic Form update — only /api/forms/publish-survey does (it creates
+      // the version snapshot). Editing a published survey's fields/rules via
+      // this path reverts it to draft, so the live config can never drift
+      // from the snapshot while publicly serving.
+      // Audit log is SERVER-authored and append-only: never accept a
+      // client-supplied survey_audit_log on ANY Form PATCH (an audit-only
+      // payload could otherwise erase/fabricate lifecycle history).
+      if (entityNormalized === 'form') {
+        const hadAuditKey = Object.prototype.hasOwnProperty.call(sanitizedBody, 'survey_audit_log');
+        delete sanitizedBody.survey_audit_log;
+        if (hadAuditKey && Object.keys(sanitizedBody).length === 0) {
+          // Audit-only payload: nothing legitimate left to update.
+          return res.status(400).json({ error: 'survey_audit_log is server-managed and cannot be updated directly' });
+        }
+      }
+      if (entityNormalized === 'form'
+          && (Object.prototype.hasOwnProperty.call(sanitizedBody, 'survey_settings')
+            || Object.prototype.hasOwnProperty.call(sanitizedBody, 'fields')
+            || Object.prototype.hasOwnProperty.call(sanitizedBody, 'visibility_rules')
+            || Object.prototype.hasOwnProperty.call(sanitizedBody, 'pages')
+            || Object.prototype.hasOwnProperty.call(sanitizedBody, 'form_type'))) {
+        const { data: existingForm } = await supabase
+          .from('form')
+          .select('form_type, survey_settings, survey_audit_log')
+          .eq('id', id)
+          .maybeSingle();
+        const isSurveyTarget = existingForm?.form_type === 'survey' || sanitizedBody.form_type === 'survey';
+        if (isSurveyTarget) {
+          const currentStatus = existingForm?.survey_settings?.status || 'draft';
+          const requestedStatus = sanitizedBody.survey_settings?.status;
+          if (requestedStatus === 'published' && currentStatus !== 'published') {
+            return res.status(400).json({ error: 'Surveys are published via the publish endpoint, not a direct status update' });
+          }
+          // ANY config or settings mutation on a published survey reverts it
+          // to draft (fields, rules, pages, AND survey_settings — e.g.
+          // flipping response_identity after publication). The only allowed
+          // published-state transition here is archiving.
+          const touchesConfig = ['fields', 'visibility_rules', 'pages', 'survey_settings', 'form_type'].some(
+            (k) => Object.prototype.hasOwnProperty.call(sanitizedBody, k)
+          );
+          if (currentStatus === 'published' && touchesConfig && requestedStatus !== 'archived') {
+            sanitizedBody.survey_settings = {
+              ...(existingForm?.survey_settings || {}),
+              ...(sanitizedBody.survey_settings && typeof sanitizedBody.survey_settings === 'object' ? sanitizedBody.survey_settings : {}),
+              status: 'draft'
+            };
+          }
+          // Server-authored audit entries for lifecycle transitions.
+          const priorAudit = Array.isArray(existingForm?.survey_audit_log) ? existingForm.survey_audit_log : [];
+          const auditAppend = [];
+          if (requestedStatus === 'archived' && currentStatus !== 'archived') {
+            auditAppend.push({ action: 'archive', at: new Date().toISOString(), actor: tenantCtx?.memberId || null });
+          } else if (touchesConfig) {
+            auditAppend.push({ action: 'edit', at: new Date().toISOString(), actor: tenantCtx?.memberId || null });
+          }
+          if (auditAppend.length > 0) {
+            sanitizedBody.survey_audit_log = [...priorAudit, ...auditAppend];
+          }
         }
       }
 
@@ -1333,6 +1440,31 @@ export default async function handler(req, res) {
 
     } else if (req.method === 'DELETE') {
       // Handle cascade deletion for entities with foreign key relationships
+
+      // SECURITY (survey integrity): survey responses cannot be deleted via
+      // the generic entity API — see the PATCH guard above.
+      {
+        const entityNormalizedDel = entity.replace(/[-_]/g, '').toLowerCase();
+        if (entityNormalizedDel === 'formsubmission') {
+          const { data: subRow } = await supabase
+            .from('form_submission')
+            .select('form_id')
+            .eq('id', id)
+            .eq('tenant_id', tenantCtx.tenantId)
+            .maybeSingle();
+          if (subRow?.form_id) {
+            const { data: subForm } = await supabase
+              .from('form')
+              .select('form_type')
+              .eq('id', subRow.form_id)
+              .eq('tenant_id', tenantCtx.tenantId)
+              .maybeSingle();
+            if (subForm?.form_type === 'survey') {
+              return res.status(403).json({ error: 'Survey responses are immutable and cannot be deleted' });
+            }
+          }
+        }
+      }
 
       // SECURITY: Prevent deletion of system canvas pages (slug='login').
       if (entity === 'IEditPage') {

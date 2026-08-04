@@ -1,63 +1,83 @@
 {
-    "name": "FormSubmission",
-    "type": "object",
-    "properties": {
-      "form_id": {
-        "type": "string",
-        "description": "Reference to Form entity"
-      },
-      "form_name": {
-        "type": "string",
-        "description": "Cached form name for reference"
-      },
-      "event_id": {
-        "type": "string",
-        "description": "The event this submission relates to, copied from the form's related_event_id at submission time (for event-linked forms). Null for forms not linked to an event."
-      },
-      "submitted_by_email": {
-        "type": "string",
-        "format": "email",
-        "description": "Email of the submitter (if authenticated)"
-      },
-      "submitted_by_name": {
-        "type": "string",
-        "description": "Name of the submitter (if authenticated)"
-      },
-      "submission_data": {
-        "type": "object",
-        "additionalProperties": true,
-        "description": "The submitted form data as key-value pairs"
-      },
-      "ip_address": {
-        "type": "string",
-        "description": "IP address of submitter"
-      },
-      "user_agent": {
-        "type": "string",
-        "description": "Browser user agent"
-      },
-      "status": {
-        "type": "string",
-        "enum": [
-          "new",
-          "junk",
-          "actioned"
-        ],
-        "default": "new",
-        "description": "Status of the submission"
-      },
-      "status_updated_by": {
-        "type": "string",
-        "description": "Email of the user who last updated the status"
-      },
-      "status_updated_at": {
-        "type": "string",
-        "format": "date-time",
-        "description": "When the status was last updated"
-      }
+  "name": "FormSubmission",
+  "type": "object",
+  "properties": {
+    "form_id": {
+      "type": "string",
+      "description": "Reference to Form entity"
     },
-    "required": [
-      "form_id",
-      "submission_data"
-    ]
-  }
+    "form_name": {
+      "type": "string",
+      "description": "Cached form name for reference"
+    },
+    "event_id": {
+      "type": "string",
+      "description": "The event this submission relates to, copied from the form's related_event_id at submission time (for event-linked forms). Null for forms not linked to an event."
+    },
+    "submitted_by_email": {
+      "type": "string",
+      "format": "email",
+      "description": "Email of the submitter (if authenticated)"
+    },
+    "submitted_by_name": {
+      "type": "string",
+      "description": "Name of the submitter (if authenticated)"
+    },
+    "submission_data": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "The submitted form data as key-value pairs"
+    },
+    "ip_address": {
+      "type": "string",
+      "description": "IP address of submitter"
+    },
+    "user_agent": {
+      "type": "string",
+      "description": "Browser user agent"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "new",
+        "junk",
+        "actioned"
+      ],
+      "default": "new",
+      "description": "Status of the submission"
+    },
+    "status_updated_by": {
+      "type": "string",
+      "description": "Email of the user who last updated the status"
+    },
+    "status_updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the status was last updated"
+    },
+    "survey_version_id": {
+      "type": "string",
+      "description": "Published survey version this submission was scored against (surveys only)."
+    },
+    "survey_score_weighted": {
+      "type": "number",
+      "description": "Cached weighted overall score (0..1), computed server-side."
+    },
+    "survey_score_unweighted": {
+      "type": "number",
+      "description": "Cached unweighted overall score (0..1), computed server-side."
+    },
+    "is_anonymous": {
+      "type": "boolean",
+      "description": "True when the survey suppressed respondent identity."
+    },
+    "survey_respondent_key": {
+      "type": "string",
+      "description": "One-way hash used for duplicate prevention on anonymous surveys; never reversible to identity."
+    }
+  },
+  "required": [
+    "form_id",
+    "submission_data"
+  ]
+}

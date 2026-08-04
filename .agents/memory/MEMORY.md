@@ -1,4 +1,3 @@
-// hint: Logic changed on both sides. Requires understanding intent of each change.
 - [Router consistency in client/](router-consistency.md) — app uses react-router-dom; new pages built with wouter look like they navigate but break SPA routing.
 - [Supabase realtime publication](supabase-realtime-publication.md) — realtime subscriptions silently get no events until the table is added to the supabase_realtime publication.
 - [Membership tier scheduling](membership-tier-scheduling.md) — a config is "in effect" by date range, not just effective_to IS NULL; switch-over caps the old config to newStart-1.
@@ -145,4 +144,5 @@
 - [record_create workflows & custom fields](workflow-record-create-custom-fields.md) — trigger AFTER preference values persist or custom-field conditions see empty; workflow_log status check allows success|partial|failed|skipped.
 - [Form prefill logged-in fallback](form-prefill-fallback.md) — prefill target: URL param > authed member/org via shared resolver; prefill effect must wait for member AND org custom values; embed iframe resolves auth via /api/auth/me itself.
 - [Event hard-delete vs booking rows](event-delete-booking-detach.md) — bookings survive event deletion detached (event_id NULL + event_name snapshot); surfaces must fall back to booking.event_name.
+- [Survey forms & scoring path](survey-forms.md) — one authoritative submission endpoint; anonymity/redaction must read the published snapshot, not live config; publish + snapshot writes are server-only.
 - [Unified directory card-back ordering](directory-back-order.md) — one mixed core+custom order list; resolver duplicated client+server, keep in sync; visibility toggles still gate content.

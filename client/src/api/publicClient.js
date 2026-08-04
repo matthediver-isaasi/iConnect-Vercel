@@ -471,8 +471,13 @@ class PublicClient {
       ...restData,
       tenant: data.tenant || tenantParam || this.tenantSlug
     };
+    // credentials: 'include' so auth-required surveys submitted from the
+    // embed/iEdit surfaces carry the browser session to the endpoint (the
+    // endpoint accepts a verified same-tenant session as authentication and
+    // uses it for respondent dedupe).
     return this._fetch('/api/public/form-submission', {
       method: 'POST',
+      credentials: 'include',
       body: JSON.stringify(submissionData)
     });
   }

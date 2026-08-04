@@ -23,6 +23,21 @@ export const isFieldValueFilled = (field, value) => {
     return answeredCount >= minRequired;
   }
 
+  if (field.type === 'score') {
+    // Only a real integer score or an explicit N/A counts as answered —
+    // partial shapes like { score: '' } must NOT pass client validation
+    // (the server would reject them after submit).
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    if (value.na === true) return field.allow_na === true;
+    const n = Number(value.score);
+    if (!Number.isInteger(n)) return false;
+    // Mirror the server's range rules (surveyScoring.getScoreRange).
+    const isNps = (field.score_style || 'stars') === 'nps';
+    const min = isNps ? 0 : (Number.isFinite(Number(field.score_min)) ? Math.trunc(Number(field.score_min)) : 1);
+    const max = isNps ? 10 : (Number.isFinite(Number(field.score_max)) ? Math.trunc(Number(field.score_max)) : 5);
+    return n >= min && n <= max;
+  }
+
   if (!value) return false;
 
   if (field.type === 'countries') {

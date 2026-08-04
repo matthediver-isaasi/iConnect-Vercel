@@ -160,3 +160,29 @@ test('disabled queries (no ids) can never block prefill', () => {
 test('everything settled → apply', () => {
   assert.equal(shouldWaitForPrefillCustomValues(base), false);
 });
+
+test('score field filled-state: only integer score in range or explicit allowed N/A', async () => {
+  const { isFieldValueFilled } = await import('./formFieldPrefill.js');
+  const f = { type: 'score', score_min: 1, score_max: 5 };
+  assert.equal(isFieldValueFilled(f, { score: '' }), false); // partial shape
+  assert.equal(isFieldValueFilled(f, {}), false);
+  assert.equal(isFieldValueFilled(f, { score: 3 }), true);
+  assert.equal(isFieldValueFilled(f, { score: 9 }), false); // out of range
+  assert.equal(isFieldValueFilled(f, { score: 2.5 }), false);
+  assert.equal(isFieldValueFilled(f, { na: true }), false); // N/A not allowed
+  assert.equal(isFieldValueFilled({ ...f, allow_na: true }, { na: true }), true);
+  const nps = { type: 'score', score_style: 'nps' };
+  assert.equal(isFieldValueFilled(nps, { score: 10 }), true);
+  assert.equal(isFieldValueFilled(nps, { score: 11 }), false);
+});
+
+test('card-swipe gating: score shapes cannot advance a required step when invalid', async () => {
+  const { isFieldValueFilled } = await import('./formFieldPrefill.js');
+  const scoreField = { type: 'score', required: true, score_min: 1, score_max: 5 };
+  // Empty/partial score shapes and disallowed N/A must NOT count as filled
+  // (this is the shared gate the iEdit card-swipe "Next" button uses).
+  assert.equal(isFieldValueFilled(scoreField, { score: '' }), false);
+  assert.equal(isFieldValueFilled(scoreField, { na: true }), false); // N/A not allowed
+  assert.equal(isFieldValueFilled(scoreField, { score: 4 }), true);
+  assert.equal(isFieldValueFilled({ ...scoreField, allow_na: true }, { na: true }), true);
+});

@@ -1,3 +1,5 @@
+import { applySurveyPresentation, surveySuccessMessage, surveyIntroText, showSurveyProgress, surveyProgress } from '@/lib/surveyPresentation';
+import { evaluateScoreCondition } from '@/lib/surveyConditions';
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useParams, useSearchParams } from "react-router-dom";
@@ -8,7 +10,7 @@ import FormRenderer from "../components/forms/FormRenderer";
 import { toast, Toaster } from "sonner";
 import { publicClient } from "@/api/publicClient";
 import { base44 } from "@/api/base44Client";
-import { buildPrefillValues, resolveEffectivePrefillIds, shouldWaitForPrefillCustomValues } from "@/lib/formFieldPrefill";
+import { buildPrefillValues, resolveEffectivePrefillIds, shouldWaitForPrefillCustomValues, isFieldValueFilled } from "@/lib/formFieldPrefill";
 import { useSubmissionIdempotencyKey } from "@/lib/useSubmissionIdempotencyKey";
 
 // Stable empty array so disabled custom-value queries don't create a fresh
@@ -63,11 +65,14 @@ export default function EmbedFormPage() {
     retry: false
   });
 
-  const { data: form, isLoading, error } = useQuery({
+  const { data: rawForm, isLoading, error } = useQuery({
     queryKey: ['embed-form', slug, tenantParam, !!authMember],
     queryFn: async () => await publicClient.getForm(slug, { authenticated: !!authMember }) || null,
     enabled: !!slug
   });
+
+  // Survey presentation (question numbering) — no-op for standard forms
+  const form = useMemo(() => applySurveyPresentation(rawForm), [rawForm]);
 
   // Task #3336: authenticated fallback — when the form uses member/organisation
   // prefill and no explicit URL param is supplied, prefill from the logged-in
@@ -152,7 +157,6 @@ export default function EmbedFormPage() {
     },
     enabled: !!effectiveOrgIdForCustomFields && !!form?.prefill_source && form.prefill_source !== 'none'
   });
-
   const [defaultsInitialized, setDefaultsInitialized] = useState(false);
   const [prefillApplied, setPrefillApplied] = useState(false);
 
@@ -260,6 +264,9 @@ export default function EmbedFormPage() {
   }, [form?.id]);
 
   const evaluateSingleCondition = (triggerValue, operator, value) => {
+    // Survey Score answers ({score}/{na}) + numeric operators (Task #3330)
+    const scoreResult = evaluateScoreCondition(triggerValue, operator, value);
+    if (scoreResult !== undefined) return scoreResult;
     switch (operator) {
       case 'equals':
         if (Array.isArray(triggerValue)) {
@@ -677,7 +684,7 @@ export default function EmbedFormPage() {
     
     for (const field of fieldsToValidate) {
       if (!field) continue;
-      if ((field.is_required || field.required) && !formValues[field.id]) {
+      if ((field.is_required || field.required) && !isFieldValueFilled(field, formValues[field.id])) {
         return false;
       }
       if (fieldValidity[field.id] === false) {
@@ -891,7 +898,7 @@ export default function EmbedFormPage() {
             <CheckCircle2 className="h-12 w-12 text-green-500 mx-auto mb-4" />
             <h3 className="text-lg font-semibold mb-2">Thank You!</h3>
             <p className="text-muted-foreground">
-              {form.success_message || 'Your submission has been received.'}
+              {surveySuccessMessage(form) || 'Your submission has been received.'}
             </p>
             {form.redirect_url && (
               <p className="text-sm text-muted-foreground mt-2">Redirecting...</p>
@@ -1012,6 +1019,23 @@ export default function EmbedFormPage() {
           {form.description && (
             <CardDescription data-testid="embed-form-description">{form.description}</CardDescription>
           )}
+          {surveyIntroText(form) && (
+            <p className="text-sm text-slate-600 whitespace-pre-line mt-2" data-testid="survey-intro-text">{surveyIntroText(form)}</p>
+          )}
+          {showSurveyProgress(form) && (() => {
+            const progress = surveyProgress(form, hiddenFieldIds, formValues);
+            return (
+              <div className="mt-3" data-testid="survey-progress" role="progressbar" aria-valuenow={progress.answered} aria-valuemin={0} aria-valuemax={progress.total} aria-label="Survey progress">
+                <div className="flex items-center justify-between mb-1 text-xs text-muted-foreground">
+                  <span>Progress</span>
+                  <span>{progress.answered} of {progress.total} answered</span>
+                </div>
+                <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                  <div className="h-full bg-blue-600 rounded-full transition-all" style={{ width: `${progress.pct}%` }} />
+                </div>
+              </div>
+            );
+          })()}
           {isMultiPage && (
             <>
               <div className="flex items-center gap-2 text-sm text-muted-foreground mt-2">
