@@ -706,7 +706,6 @@ export default function EventsPage({
   }
 
   const featuredEvents = filteredEvents.filter(e => e.is_featured === true);
-  const nonFeaturedEvents = filteredEvents.filter(e => e.is_featured !== true);
 
   const featuredBgSetting = (() => {
     const setting = Array.isArray(systemSettings)
@@ -728,10 +727,11 @@ export default function EventsPage({
   const featuredHeaderIconColor = featuredBgSetting?.headerIconColor || null;
 
   // TBC events banner config (pre-registration section demarcation).
-  // Placed above the first TBC event in rendered order (featured section
-  // renders first, then the non-featured grid).
+  // The main grid renders the full filtered list (featured events interleaved
+  // in date order), so the banner is placed above the first TBC event in that
+  // full grid list.
   const tbcBannerConfig = parseTbcBannerConfig(systemSettings);
-  const tbcBannerPlacement = getTbcBannerPlacement(tbcBannerConfig, featuredEvents, nonFeaturedEvents);
+  const tbcBannerPlacement = getTbcBannerPlacement(tbcBannerConfig, [], filteredEvents);
   const showTbcBanner = tbcBannerPlacement.show;
   const tbcBannerStyle = getTbcBannerStyle(tbcBannerConfig);
   const tbcBannerTitle = getTbcBannerTitle(tbcBannerConfig);
@@ -1822,11 +1822,7 @@ export default function EventsPage({
                     >Featured Events</h2>
                   </div>
                   <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
-                    {featuredEvents.map((event, featuredIndex) => {
-                      const featuredTbcBanner =
-                        tbcBannerPlacement.section === 'featured' && featuredIndex === tbcBannerPlacement.index
-                          ? tbcBannerNode
-                          : null;
+                    {featuredEvents.map((event) => {
                       if (event.is_complex) {
                         const eventTimezone = event.timezone || DEFAULT_TIMEZONE;
                         const detailUrl = event.slug
@@ -1853,7 +1849,6 @@ export default function EventsPage({
 
                         return (
                           <React.Fragment key={`featured-complex-${event.id}`}>
-                          {featuredTbcBanner}
                           <Card
                             className="overflow-hidden hover:shadow-lg transition-shadow duration-300 border-slate-200 bg-white"
                             data-testid={`card-featured-event-${event.id}`}
@@ -2135,7 +2130,6 @@ export default function EventsPage({
 
                       return (
                         <React.Fragment key={`featured-${event.id}`}>
-                        {featuredTbcBanner}
                         <EventCard
                           event={event}
                           organizationInfo={organizationInfo}
@@ -2153,7 +2147,7 @@ export default function EventsPage({
                 </div>
               )}
               <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
-                {nonFeaturedEvents.map((event, eventIndex) => {
+                {filteredEvents.map((event, eventIndex) => {
                   // Full-width banner injected above the first TBC event,
                   // demarking the pre-registration section.
                   const tbcBannerElement =
