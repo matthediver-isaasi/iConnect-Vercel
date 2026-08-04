@@ -12,6 +12,8 @@ import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
+import { ORG_BACK_CORE_ITEMS, ORG_BACK_DEFAULT_ORDER, resolveBackFieldOrder } from "@/utils/directorySettings";
+import BackFieldOrderList from "@/components/directory/BackFieldOrderList";
 
 export default function OrganisationDirectorySettingsPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -29,6 +31,7 @@ export default function OrganisationDirectorySettingsPage() {
   const [allowedApplicationStatuses, setAllowedApplicationStatuses] = useState([]);
   const [visibleOrgTypes, setVisibleOrgTypes] = useState([]);
   const [reverseCardRoleIds, setReverseCardRoleIds] = useState([]);
+  const [backFieldOrder, setBackFieldOrder] = useState([]);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -128,6 +131,7 @@ export default function OrganisationDirectorySettingsPage() {
       const allowedStatusesSetting = allSettings.find((s) => s.setting_key === 'org_directory_allowed_application_statuses');
       const visibleOrgTypesSetting = allSettings.find((s) => s.setting_key === 'org_directory_visible_org_types');
       const reverseCardRolesSetting = allSettings.find((s) => s.setting_key === 'org_directory_reverse_card_role_ids');
+      const backOrderSetting = allSettings.find((s) => s.setting_key === 'org_directory_back_field_order');
       return {
         header: headerSetting,
         logo: logoSetting,
@@ -139,7 +143,8 @@ export default function OrganisationDirectorySettingsPage() {
         excludedOrgs: excludedOrgsSetting,
         allowedStatuses: allowedStatusesSetting,
         visibleOrgTypes: visibleOrgTypesSetting,
-        reverseCardRoles: reverseCardRolesSetting
+        reverseCardRoles: reverseCardRolesSetting,
+        backOrder: backOrderSetting
       };
     },
     refetchOnMount: true
@@ -197,6 +202,14 @@ export default function OrganisationDirectorySettingsPage() {
         setReverseCardRoleIds(Array.isArray(ids) ? ids : []);
       } catch {
         setReverseCardRoleIds([]);
+      }
+    }
+    if (settings?.backOrder) {
+      try {
+        const order = JSON.parse(settings.backOrder.setting_value);
+        setBackFieldOrder(Array.isArray(order) ? order : []);
+      } catch {
+        setBackFieldOrder([]);
       }
     }
   }, [settings]);
@@ -368,6 +381,19 @@ export default function OrganisationDirectorySettingsPage() {
           description: 'List of role IDs whose members are listed on the reverse of organisation directory cards'
         });
       }
+
+      // Save unified back-of-card field order setting
+      if (settings?.backOrder) {
+        await base44.entities.SystemSettings.update(settings.backOrder.id, {
+          setting_value: JSON.stringify(backFieldOrder)
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'org_directory_back_field_order',
+          setting_value: JSON.stringify(backFieldOrder),
+          description: 'Tenant-wide order of core elements and custom fields on the reverse of organisation directory cards'
+        });
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['organisation-directory-settings-admin'] });
@@ -410,6 +436,28 @@ export default function OrganisationDirectorySettingsPage() {
         : [...prev, roleId]
     );
   };
+
+  // Unified reverse-card order: org core elements + org custom fields interleaved.
+  const activeOrgFields = useMemo(
+    () => [...orgCustomFields].sort((a, b) => (a.display_order || 0) - (b.display_order || 0)),
+    [orgCustomFields]
+  );
+  const resolvedBackOrder = resolveBackFieldOrder({
+    directoryOrder: null,
+    tenantOrder: backFieldOrder,
+    defaultOrder: ORG_BACK_DEFAULT_ORDER,
+    customFields: activeOrgFields,
+  });
+  const backOrderItems = useMemo(() => {
+    const items = {};
+    for (const core of ORG_BACK_CORE_ITEMS) {
+      items[core.key] = { label: core.label, description: core.description };
+    }
+    for (const f of activeOrgFields) {
+      items[`custom:${f.id}`] = { label: f.label, isCustom: true };
+    }
+    return items;
+  }, [activeOrgFields]);
 
   const filteredOrganizations = organizations.filter((org) =>
   org.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -764,6 +812,37 @@ export default function OrganisationDirectorySettingsPage() {
                 disabled={saveMutation.isPending}
                 className="bg-blue-600 hover:bg-blue-700"
                 data-testid="button-save-reverse-card-roles"
+              >
+                <Save className="w-4 h-4 mr-2" />
+                {saveMutation.isPending ? 'Saving...' : 'Save Settings'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-200 shadow-sm mt-6">
+          <CardHeader>
+            <CardTitle>Reverse Card Field Order</CardTitle>
+            <p className="text-sm text-slate-600 mt-2">
+              Arrange the order in which core elements and custom fields appear on the reverse of organisation
+              cards. This is the tenant-wide default; individual dynamic directories can override it in Dynamic
+              Directory Management. Visibility settings (member count toggle, reverse-card roles, per-directory
+              custom field settings) still control what shows.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <BackFieldOrderList
+              order={resolvedBackOrder}
+              items={backOrderItems}
+              droppableId="org-back-order"
+              onChange={setBackFieldOrder}
+            />
+            <div className="pt-4 border-t">
+              <Button
+                onClick={() => saveMutation.mutate()}
+                disabled={saveMutation.isPending}
+                className="bg-blue-600 hover:bg-blue-700"
+                data-testid="button-save-back-order"
               >
                 <Save className="w-4 h-4 mr-2" />
                 {saveMutation.isPending ? 'Saving...' : 'Save Settings'}

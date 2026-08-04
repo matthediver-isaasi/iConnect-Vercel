@@ -16,7 +16,8 @@ import { toast } from "sonner";
 import SEOSettings from "@/components/blog/SEOSettings";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
-import { getDirectoryFilterOptions } from "@/utils/directorySettings";
+import { getDirectoryFilterOptions, isFieldInDirectory, CORE_FIELDS, MEMBER_BACK_DEFAULT_ORDER, ORG_BACK_CORE_ITEMS, ORG_BACK_DEFAULT_ORDER, resolveBackFieldOrder, enrichFieldForDirectory, getDirectoryOrderedFields } from "@/utils/directorySettings";
+import BackFieldOrderList from "@/components/directory/BackFieldOrderList";
 
 const ENTITY_TYPES = [
   { value: 'member', label: 'Member', icon: User },
@@ -54,6 +55,8 @@ export default function DynamicDirectoryManagementPage() {
   const [seoDescription, setSeoDescription] = useState('');
   const [ogImageUrl, setOgImageUrl] = useState('');
   const [showMembersOnCardBack, setShowMembersOnCardBack] = useState(true);
+  // null = use tenant default order; array = per-directory override
+  const [backFieldOrder, setBackFieldOrder] = useState(null);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -152,6 +155,84 @@ export default function DynamicDirectoryManagementPage() {
     enabled: isDialogOpen && entityType === 'member'
   });
 
+  // Tenant-wide default back-of-card orders + this directory's custom fields,
+  // for the per-directory back order override editor.
+  const { data: tenantBackOrderDefaults } = useQuery({
+    queryKey: ['tenant-back-order-defaults'],
+    queryFn: async () => {
+      const allSettings = await base44.entities.SystemSettings.list();
+      let memberOrder = null;
+      let memberSettings = null;
+      const memberSetting = allSettings.find(s => s.setting_key === 'member_directory_display');
+      if (memberSetting?.setting_value) {
+        try {
+          memberSettings = JSON.parse(memberSetting.setting_value);
+          if (Array.isArray(memberSettings?.back_field_order)) memberOrder = memberSettings.back_field_order;
+        } catch {}
+      }
+      let orgOrder = null;
+      const orgSetting = allSettings.find(s => s.setting_key === 'org_directory_back_field_order');
+      if (orgSetting?.setting_value) {
+        try {
+          const parsed = JSON.parse(orgSetting.setting_value);
+          if (Array.isArray(parsed)) orgOrder = parsed;
+        } catch {}
+      }
+      return { memberOrder, orgOrder, memberSettings };
+    },
+    enabled: isDialogOpen,
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
+  const { data: backOrderCustomFields = [] } = useQuery({
+    queryKey: ['back-order-custom-fields', entityType, editingDirectory?.id],
+    queryFn: async () => {
+      const dirId = editingDirectory?.id;
+      try {
+        const fields = await base44.entities.PreferenceField.list({
+          filter: { is_active: true, entity_scope: entityType },
+          sort: { display_order: 'asc' }
+        });
+        const scoped = (fields || []).filter(f =>
+          (entityType === 'member' ? (!f.entity_scope || f.entity_scope === 'member') : f.entity_scope === 'organization')
+        );
+        return scoped
+          .filter(f => isFieldInDirectory(f, dirId))
+          .map(f => enrichFieldForDirectory(f, dirId));
+      } catch {
+        return [];
+      }
+    },
+    enabled: isDialogOpen && !!editingDirectory?.id,
+  });
+
+  const backOrderDefaultOrder = entityType === 'organization' ? ORG_BACK_DEFAULT_ORDER : MEMBER_BACK_DEFAULT_ORDER;
+  const backOrderTenantOrder = entityType === 'organization'
+    ? tenantBackOrderDefaults?.orgOrder
+    : tenantBackOrderDefaults?.memberOrder;
+  const backOrderLegacyFields = entityType === 'organization'
+    ? getDirectoryOrderedFields(backOrderCustomFields, null)
+    : getDirectoryOrderedFields(backOrderCustomFields, tenantBackOrderDefaults?.memberSettings);
+  const resolvedDialogBackOrder = resolveBackFieldOrder({
+    directoryOrder: backFieldOrder,
+    tenantOrder: backOrderTenantOrder,
+    defaultOrder: backOrderDefaultOrder,
+    customFields: backOrderLegacyFields,
+  });
+  const dialogBackOrderItems = (() => {
+    const items = {};
+    if (entityType === 'organization') {
+      for (const core of ORG_BACK_CORE_ITEMS) items[core.key] = { label: core.label, description: core.description };
+    } else {
+      for (const cf of CORE_FIELDS) items[cf.key] = { label: cf.label, description: cf.description };
+    }
+    for (const f of backOrderLegacyFields) {
+      items[`custom:${f.id}`] = { label: f._displayLabel || f.label, isCustom: true };
+    }
+    return items;
+  })();
+
   const availableFilterFields = allFilterableFields.filter(f => f.id !== filterFieldId);
 
   const selectedField = preferenceFields.find(f => f.id === filterFieldId);
@@ -214,6 +295,7 @@ export default function DynamicDirectoryManagementPage() {
     setSeoDescription('');
     setOgImageUrl('');
     setShowMembersOnCardBack(true);
+    setBackFieldOrder(null);
   };
 
   const handleOpenCreateDialog = () => {
@@ -238,6 +320,9 @@ export default function DynamicDirectoryManagementPage() {
     setSeoDescription(directory.seo_description || '');
     setOgImageUrl(directory.og_image_url || '');
     setShowMembersOnCardBack(directory.show_members_on_card_back !== false);
+    setBackFieldOrder(Array.isArray(directory.back_field_order) && directory.back_field_order.length > 0
+      ? directory.back_field_order
+      : null);
     setIsDialogOpen(true);
   };
 
@@ -316,7 +401,8 @@ export default function DynamicDirectoryManagementPage() {
       seo_title: seoTitle || null,
       seo_description: seoDescription || null,
       og_image_url: ogImageUrl || null,
-      show_members_on_card_back: entityType === 'organization' ? showMembersOnCardBack : true
+      show_members_on_card_back: entityType === 'organization' ? showMembersOnCardBack : true,
+      back_field_order: (Array.isArray(backFieldOrder) && backFieldOrder.length > 0) ? backFieldOrder : null
     };
 
     if (editingDirectory) {
@@ -676,6 +762,51 @@ export default function DynamicDirectoryManagementPage() {
                 />
               </div>
             )}
+
+            <div className="space-y-3 p-3 bg-slate-50 rounded-lg border">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label htmlFor="overrideBackOrder" className="cursor-pointer">Custom card back order</Label>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {backFieldOrder
+                      ? 'This directory uses its own back-of-card field order.'
+                      : 'Using the tenant default order from the directory settings pages.'}
+                  </p>
+                </div>
+                <Switch
+                  id="overrideBackOrder"
+                  checked={!!backFieldOrder}
+                  disabled={!editingDirectory}
+                  onCheckedChange={(checked) => {
+                    setBackFieldOrder(checked ? resolvedDialogBackOrder : null);
+                  }}
+                  data-testid="switch-override-back-order"
+                />
+              </div>
+              {!editingDirectory && (
+                <p className="text-xs text-slate-500">
+                  Save the directory first, then edit it to customise the back-of-card order.
+                </p>
+              )}
+              {editingDirectory && backFieldOrder && (
+                <>
+                  <BackFieldOrderList
+                    order={resolvedDialogBackOrder}
+                    items={dialogBackOrderItems}
+                    droppableId="dialog-back-order"
+                    onChange={setBackFieldOrder}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setBackFieldOrder(null)}
+                    data-testid="button-reset-back-order"
+                  >
+                    Reset to tenant default
+                  </Button>
+                </>
+              )}
+            </div>
 
             <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border">
               <div>

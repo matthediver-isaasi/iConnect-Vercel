@@ -7,6 +7,26 @@ import {
   fetchOrgDisplaySettings,
 } from '../_lib/directoryConfig.js';
 
+// Columns fetched for the public directory row. Must include
+// back_field_order (per-directory back-of-card order override) and
+// show_members_on_card_back so guest/Canvas consumers can resolve the
+// unified back-of-card order exactly like the portal does.
+export const PUBLIC_DIRECTORY_SELECT =
+  'id, slug, name, entity_type, filter_field_id, filter_value, is_active, back_field_order, show_members_on_card_back';
+
+// Public shape of the directory row returned to embeds.
+export function buildPublicDirectoryPayload(directory) {
+  if (!directory) return null;
+  return {
+    id: directory.id,
+    slug: directory.slug,
+    name: directory.name,
+    entity_type: directory.entity_type,
+    back_field_order: Array.isArray(directory.back_field_order) ? directory.back_field_order : null,
+    show_members_on_card_back: directory.show_members_on_card_back !== false,
+  };
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -35,7 +55,7 @@ export default async function handler(req, res) {
   try {
     const { data: directories, error: dirError } = await supabase
       .from('dynamic_directory')
-      .select('id, slug, name, entity_type, filter_field_id, filter_value, is_active')
+      .select(PUBLIC_DIRECTORY_SELECT)
       .eq('tenant_id', tenantId)
       .eq('slug', slug)
       .eq('is_active', true)
@@ -164,7 +184,7 @@ async function renderMembers({ supabase, tenantId, directory, pageNum, pageSize,
     total: total || 0,
     page: pageNum,
     pageSize,
-    config: { displaySettings, roles, directoryCustomFields },
+    config: { displaySettings, roles, directoryCustomFields, directory: buildPublicDirectoryPayload(directory) },
   });
 }
 
@@ -212,7 +232,7 @@ async function renderOrganizations({ supabase, tenantId, directory, pageNum, pag
     total: count || 0,
     page: pageNum,
     pageSize,
-    config: { displaySettings },
+    config: { displaySettings, directory: buildPublicDirectoryPayload(directory) },
   });
 }
 

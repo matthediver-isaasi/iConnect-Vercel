@@ -81,6 +81,62 @@ export function sortFieldsForDirectory(fields) {
     .map(([f]) => f);
 }
 
+// --- unified back-of-card ordering (mirrors client directorySettings.js) ----
+
+export const CUSTOM_FIELDS_SLOT = '__custom_fields__';
+
+export const MEMBER_BACK_DEFAULT_ORDER = [
+  'show_profile_photo',
+  'show_job_title',
+  'show_organization',
+  'show_bio_in_popup',
+  'show_events',
+  'show_articles',
+  CUSTOM_FIELDS_SLOT,
+  'show_awards',
+  'show_linkedin',
+];
+
+export const ORG_BACK_DEFAULT_ORDER = [
+  'org_member_count',
+  'org_members_list',
+  CUSTOM_FIELDS_SLOT,
+];
+
+/**
+ * Resolve the unified back-of-card order into a flat list of keys
+ * (core keys + `custom:<id>`). Resolution: per-directory override →
+ * tenant default → hardcoded default. Mirrors
+ * client/src/utils/directorySettings.js resolveBackFieldOrder — keep in sync.
+ */
+export function resolveBackFieldOrder({ directoryOrder, tenantOrder, defaultOrder, customFields }) {
+  const coreSet = new Set(defaultOrder.filter((k) => k !== CUSTOM_FIELDS_SLOT));
+  const customKeys = (customFields || []).map((f) => `custom:${f.id}`);
+  const customSet = new Set(customKeys);
+  const isKnown = (k) => typeof k === 'string' && (coreSet.has(k) || customSet.has(k));
+
+  const pickSaved = (list) => (Array.isArray(list) && list.some(isKnown)) ? list : null;
+  const saved = pickSaved(directoryOrder) || pickSaved(tenantOrder);
+
+  const result = [];
+  const seen = new Set();
+  const push = (k) => { if (!seen.has(k)) { seen.add(k); result.push(k); } };
+
+  if (saved) {
+    for (const k of saved) {
+      if (isKnown(k)) push(k);
+    }
+  }
+  for (const k of defaultOrder) {
+    if (k === CUSTOM_FIELDS_SLOT) {
+      for (const ck of customKeys) push(ck);
+    } else {
+      push(k);
+    }
+  }
+  return result;
+}
+
 // --- roles ------------------------------------------------------------------
 
 export async function fetchRoles(supabase, tenantId) {
@@ -165,5 +221,6 @@ export async function fetchOrgDisplaySettings(supabase, tenantId) {
     cardsPerRow: settingsMap['org_directory_cards_per_row'] || '3',
     excludedOrgIds: parseJsonArray(settingsMap['org_directory_excluded_orgs']),
     reverseCardRoleIds: parseJsonArray(settingsMap['org_directory_reverse_card_role_ids']),
+    backFieldOrder: parseJsonArray(settingsMap['org_directory_back_field_order']),
   };
 }

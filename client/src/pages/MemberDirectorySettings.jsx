@@ -10,10 +10,11 @@ import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
-import { CORE_FIELDS, normalizeFieldVisibility, reorderCoreFieldOrder } from "@/utils/directorySettings";
+import { CORE_FIELDS, normalizeFieldVisibility, reorderCoreFieldOrder, MEMBER_BACK_DEFAULT_ORDER, resolveBackFieldOrder, getOrderedCustomFields, isCustomFieldVisibleOnBack, isVisibleOnBack } from "@/utils/directorySettings";
+import BackFieldOrderList from "@/components/directory/BackFieldOrderList";
 
 function migrateSettings(raw) {
-  const migrated = { field_order: raw.field_order || [], custom_fields: {}, visible_role_ids: raw.visible_role_ids || [] };
+  const migrated = { field_order: raw.field_order || [], back_field_order: Array.isArray(raw.back_field_order) ? raw.back_field_order : [], custom_fields: {}, visible_role_ids: raw.visible_role_ids || [] };
 
   for (const cf of CORE_FIELDS) {
     const val = raw[cf.key];
@@ -73,6 +74,27 @@ export default function MemberDirectorySettingsPage() {
     },
     staleTime: 0,
     refetchOnMount: true,
+  });
+
+  const { data: memberCustomFields = [] } = useQuery({
+    queryKey: ['member-custom-fields-for-directory-settings'],
+    queryFn: async () => {
+      try {
+        const fields = await base44.entities.PreferenceField.list({
+          filter: { is_active: true, entity_scope: 'member' },
+          sort: { display_order: 'asc' }
+        });
+        return (fields || []).filter(f => !f.entity_scope || f.entity_scope === 'member');
+      } catch {
+        try {
+          const allFields = await base44.entities.PreferenceField.list({ filter: { is_active: true } });
+          return (allFields || []).filter(f => !f.entity_scope || f.entity_scope === 'member');
+        } catch {
+          return [];
+        }
+      }
+    },
+    staleTime: 60 * 1000,
   });
 
   const { data: roles = [], isLoading: isLoadingRoles } = useQuery({
@@ -186,6 +208,30 @@ export default function MemberDirectorySettingsPage() {
   }
 
   const coreFieldMap = Object.fromEntries(CORE_FIELDS.map(f => [f.key, f]));
+
+  // Unified back/detail order: core fields + member custom fields interleaved.
+  const orderedCustoms = getOrderedCustomFields(memberCustomFields, settings);
+  const resolvedBackOrder = resolveBackFieldOrder({
+    directoryOrder: null,
+    tenantOrder: settings.back_field_order,
+    defaultOrder: MEMBER_BACK_DEFAULT_ORDER,
+    customFields: orderedCustoms,
+  });
+  const backOrderItems = {};
+  for (const cf of CORE_FIELDS) {
+    backOrderItems[cf.key] = {
+      label: cf.label,
+      description: cf.description,
+      hidden: !isVisibleOnBack(settings, cf.key),
+    };
+  }
+  for (const f of memberCustomFields) {
+    backOrderItems[`custom:${f.id}`] = {
+      label: f.label,
+      isCustom: true,
+      hidden: !isCustomFieldVisibleOnBack(settings, f.id),
+    };
+  }
 
   return (
     <div className="min-h-screen p-4 md:p-8">
@@ -341,6 +387,29 @@ export default function MemberDirectorySettingsPage() {
                 )}
               </Droppable>
             </DragDropContext>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-200 mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Eye className="w-5 h-5" />
+              Detail View Order
+            </CardTitle>
+            <CardDescription>
+              Arrange the order fields appear in the member detail (back-of-card) view. Core fields and custom
+              fields share one sequence. This is the tenant-wide default; individual dynamic directories can
+              override it in Dynamic Directory Management. Visibility toggles above (and per-directory custom
+              field settings) still control what shows — fields marked "Hidden" keep their place but don't render.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <BackFieldOrderList
+              order={resolvedBackOrder}
+              items={backOrderItems}
+              droppableId="member-back-order"
+              onChange={(next) => setSettings(prev => ({ ...prev, back_field_order: next }))}
+            />
           </CardContent>
         </Card>
 

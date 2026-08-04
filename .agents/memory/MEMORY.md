@@ -1,3 +1,4 @@
+// hint: Logic changed on both sides. Requires understanding intent of each change.
 - [Router consistency in client/](router-consistency.md) — app uses react-router-dom; new pages built with wouter look like they navigate but break SPA routing.
 - [Supabase realtime publication](supabase-realtime-publication.md) — realtime subscriptions silently get no events until the table is added to the supabase_realtime publication.
 - [Membership tier scheduling](membership-tier-scheduling.md) — a config is "in effect" by date range, not just effective_to IS NULL; switch-over caps the old config to newStart-1.
@@ -130,7 +131,7 @@
 - [Dashboard registry column drift](dashboard-country-column-drift.md) — sources registry declares organization.country but the column doesn't exist in DEST; select it with a 42703 drop-and-retry.
 - [GoCardless arrears & DD console](gocardless-arrears-phase4.md) — grace is a non-rolling snapshot; retry guard must throw fail-closed; arrears policy applies once; money-moving admin actions need server-side finance RBAC.
 - [v2 flow sections never run SectionRender](canvas-flow-section-backgrounds.md) — flow containers paint style-only; all content.bgType section features (image/gradient/overlay/fixed-crop) are v1-only.
-- [Merge verifier flags "=======" comments](merge-verifier-equals-comments.md) — resolution check substring-matches 7+ '='; long `// ===` comment rulers cause false "markers remain"; rewrite as `-`.
+- [Merge verifier flags equals-ruler comments](merge-verifier-equals-comments.md) — resolution check substring-matches 7+ '='; long `// ===` comment rulers cause false "markers remain"; rewrite as `-`.
 - [RBAC map-driven parent resolution](rbac-parent-resolution.md) — exclusion parent/child lookups must use ROLE_ACCESS_MAP nesting (client hierarchy + generated server file), never dot-prefix splitting.
 - [Form submission emails](form-submission-emails.md) — exactly-once via atomic claim on form_submission.submission_email_state; all send paths must use the shared guarded sender.
 - [Widget click-through drilldown](widget-drilldown-clickthrough.md) — big id lists POST in a body (never URL); toggle enforced server-side; Recharts click key via entry.key ?? payload.key ?? name.
@@ -142,3 +143,4 @@
 - [Resource category & subcategory role access](resource-category-role-access.md) — name-level visible-wins hiding via one shared helper; ~6 surfaces must strip access fields + trim hidden names or roles leak.
 - [Org directory filters vs admin surfaces](org-directory-filter-admin.md) — non-tenant-admin Organization lists are directory-filtered unless skipDirectoryFilters=true; admin pages use adminOrgList helpers.
 - [record_create workflows & custom fields](workflow-record-create-custom-fields.md) — trigger AFTER preference values persist or custom-field conditions see empty; workflow_log status check allows success|partial|failed|skipped.
+- [Unified directory card-back ordering](directory-back-order.md) — one mixed core+custom order list; resolver duplicated client+server, keep in sync; visibility toggles still gate content.

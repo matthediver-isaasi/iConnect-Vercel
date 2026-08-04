@@ -154,6 +154,125 @@ export function reorderCoreFieldOrder(fieldOrder, srcIdx, destIdx) {
   return (fieldOrder || []).map(k => (isCore(k) ? coreKeys[i++] : k));
 }
 
+// ---- Unified back-of-card ordering (core + custom fields interleaved) ------
+//
+// The back/detail side of directory cards renders from a single ordered list
+// of keys: core field keys (member: CORE_FIELDS keys; org: ORG_BACK_CORE_ITEMS
+// keys) plus `custom:<field_id>` entries. A tenant-wide default order lives in
+// member_directory_display.back_field_order (member) and the
+// org_directory_back_field_order system setting (organisation); each dynamic
+// directory may override it via dynamic_directory.back_field_order.
+// Resolution: per-directory override → tenant default → hardcoded default.
+// Ordering only sequences visible content — visibility toggles still gate it.
+//
+// NOTE: mirrored in api/_lib/directoryConfig.js (resolveBackFieldOrder);
+// keep both implementations in sync.
+
+export const CUSTOM_FIELDS_SLOT = '__custom_fields__';
+
+/** Member back default order — mirrors the historical hardcoded render. */
+export const MEMBER_BACK_DEFAULT_ORDER = [
+  'show_profile_photo',
+  'show_job_title',
+  'show_organization',
+  'show_bio_in_popup',
+  'show_events',
+  'show_articles',
+  CUSTOM_FIELDS_SLOT,
+  'show_awards',
+  'show_linkedin',
+];
+
+/** Organisation reverse-card core elements (orderable body sections). */
+export const ORG_BACK_CORE_ITEMS = [
+  { key: 'org_member_count', label: 'Member count', description: 'Number of members in the organisation' },
+  { key: 'org_members_list', label: 'Members / contacts list', description: 'Members grouped by the configured reverse-card roles' },
+];
+
+export const ORG_BACK_DEFAULT_ORDER = [
+  'org_member_count',
+  'org_members_list',
+  CUSTOM_FIELDS_SLOT,
+];
+
+/**
+ * Resolve the unified back-of-card order into a flat list of keys
+ * (core keys + `custom:<id>`, custom slot expanded).
+ *
+ * @param directoryOrder per-directory override (dynamic_directory.back_field_order)
+ * @param tenantOrder    tenant-wide default order
+ * @param defaultOrder   hardcoded default (may contain CUSTOM_FIELDS_SLOT)
+ * @param customFields   custom fields ALREADY in their legacy-resolved order
+ *                       (e.g. getDirectoryOrderedFields output); fields absent
+ *                       from any saved list are appended at the slot position.
+ */
+export function resolveBackFieldOrder({ directoryOrder, tenantOrder, defaultOrder, customFields }) {
+  const coreSet = new Set(defaultOrder.filter(k => k !== CUSTOM_FIELDS_SLOT));
+  const customKeys = (customFields || []).map(f => `custom:${f.id}`);
+  const customSet = new Set(customKeys);
+  const isKnown = (k) => typeof k === 'string' && (coreSet.has(k) || customSet.has(k));
+
+  const pickSaved = (list) => (Array.isArray(list) && list.some(isKnown)) ? list : null;
+  const saved = pickSaved(directoryOrder) || pickSaved(tenantOrder);
+
+  const result = [];
+  const seen = new Set();
+  const push = (k) => { if (!seen.has(k)) { seen.add(k); result.push(k); } };
+
+  if (saved) {
+    for (const k of saved) {
+      if (isKnown(k)) push(k);
+    }
+  }
+  // Append anything missing following the default order; custom fields keep
+  // their incoming (legacy-resolved) sequence at the slot position.
+  for (const k of defaultOrder) {
+    if (k === CUSTOM_FIELDS_SLOT) {
+      for (const ck of customKeys) push(ck);
+    } else {
+      push(k);
+    }
+  }
+  return result;
+}
+
+/**
+ * Group an ordered list of back-of-card items (each `{ kind: 'block'|'stat'|'custom', ... }`)
+ * into render sections: consecutive 'stat' items share one grid, consecutive
+ * 'custom' items share one "Additional Information" grid, 'block' items stand
+ * alone. Returns `[{ type: 'block'|'stat'|'custom', items: [...] }]`.
+ * Pure — shared by every detail-dialog renderer and unit-testable.
+ */
+export function groupBackOrderItems(items) {
+  const sections = [];
+  let i = 0;
+  while (i < (items?.length || 0)) {
+    const kind = items[i].kind;
+    if (kind === 'stat' || kind === 'custom') {
+      const batch = [];
+      while (i < items.length && items[i].kind === kind) {
+        batch.push(items[i]);
+        i += 1;
+      }
+      sections.push({ type: kind, items: batch });
+    } else {
+      sections.push({ type: 'block', items: [items[i]] });
+      i += 1;
+    }
+  }
+  return sections;
+}
+
+/** Move an entry within a resolved back order list (drag-and-drop helper). */
+export function reorderBackFieldOrder(order, srcIdx, destIdx) {
+  if (!Array.isArray(order)) return order;
+  if (srcIdx < 0 || srcIdx >= order.length || destIdx < 0 || destIdx >= order.length) return order;
+  const next = [...order];
+  const [moved] = next.splice(srcIdx, 1);
+  next.splice(destIdx, 0, moved);
+  return next;
+}
+
 export function hasDirectoryFieldValue(field, rawValue) {
   if (rawValue === undefined || rawValue === null) return false;
 

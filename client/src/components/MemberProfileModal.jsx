@@ -11,9 +11,12 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
-import { isVisibleOnBack, isFieldVisibleOnBackFor, getDirectoryOrderedFields, enrichFieldForDirectory, isFieldInDirectory, hasDirectoryFieldValue } from "@/utils/directorySettings";
+import { isVisibleOnBack, isFieldVisibleOnBackFor, getDirectoryOrderedFields, enrichFieldForDirectory, isFieldInDirectory, hasDirectoryFieldValue, resolveBackFieldOrder, MEMBER_BACK_DEFAULT_ORDER, groupBackOrderItems } from "@/utils/directorySettings";
 
-export default function MemberProfileModal({ memberId, open, onOpenChange }) {
+// `backFieldOrder`: optional per-directory back-of-card order override
+// (dynamic_directory.back_field_order); falls back to the tenant default in
+// member_directory_display, then the hardcoded default.
+export default function MemberProfileModal({ memberId, open, onOpenChange, backFieldOrder = null }) {
   const { isFeatureExcluded } = useMemberAccess();
   const canViewMemberBiography = !isFeatureExcluded('view_member_biography');
 
@@ -271,160 +274,193 @@ export default function MemberProfileModal({ memberId, open, onOpenChange }) {
               </div>
             </div>
 
-            {isVisibleOnBack(displaySettings, 'show_organization') && (() => {
-              const organization = organizations.find(o => o.id === member.organization_id);
-              return organization ? (
-                <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
-                  <div className="flex items-center gap-2 text-slate-700">
-                    <Building2 className="w-5 h-5 text-blue-600" />
-                    <span className="font-semibold">{organization.name}</span>
-                  </div>
-                </div>
-              ) : null;
-            })()}
-
-            {isVisibleOnBack(displaySettings, 'show_bio_in_popup') && member.biography && canViewMemberBiography && (
-              <div className="bg-slate-50 rounded-lg p-4 border border-slate-200 space-y-2">
-                <p className="text-xs font-medium text-slate-500">About</p>
-                <p className={`text-sm text-slate-900 leading-relaxed ${!bioExpanded ? 'line-clamp-4' : ''}`}>
-                  {member.biography}
-                </p>
-                {member.biography.length > 300 && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setBioExpanded(!bioExpanded)}
-                    className="text-blue-600 hover:text-blue-700 p-0 h-auto font-medium"
-                  >
-                    {bioExpanded ? (
-                      <>
-                        <ChevronUp className="w-4 h-4 mr-1" />
-                        Show less
-                      </>
-                    ) : (
-                      <>
-                        <ChevronDown className="w-4 h-4 mr-1" />
-                        Read more
-                      </>
-                    )}
-                  </Button>
-                )}
-              </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-4">
-              {isVisibleOnBack(displaySettings, 'show_events') && (
-                <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-4 border border-green-200">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Calendar className="w-5 h-5 text-green-600" />
-                    <span className="text-sm font-medium text-green-900">Events Attended</span>
-                  </div>
-                  <p className="text-2xl font-bold text-green-700">
-                    {stats.eventsAttended}
-                  </p>
-                </div>
-              )}
-
-              {isVisibleOnBack(displaySettings, 'show_articles') && (
-                <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-4 border border-purple-200">
-                  <div className="flex items-center gap-2 mb-1">
-                    <FileText className="w-5 h-5 text-purple-600" />
-                    <span className="text-sm font-medium text-purple-900">Articles Published</span>
-                  </div>
-                  <p className="text-2xl font-bold text-purple-700">
-                    {stats.publishedArticles}
-                  </p>
-                </div>
-              )}
-            </div>
-
-            {isVisibleOnBack(displaySettings, 'show_awards') && stats.totalAwards > 0 && (
-              <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wide flex items-center gap-2">
-                  <Trophy className="w-4 h-4 text-warning" />
-                  Awards & Recognition ({stats.totalAwards})
-                </h3>
-                <div className="grid grid-cols-2 gap-3">
-                  {stats.onlineAwards.map(award => (
-                    <div key={award.id} className="bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg p-3 border border-warning/30">
-                      <div className="flex items-center gap-2">
-                        {award.image_url && (
-                          <img src={award.image_url} alt={award.name} className="w-8 h-8 object-contain" />
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-warning line-clamp-1">{award.name}</p>
-                          {award.description && (
-                            <p className="text-xs text-warning line-clamp-1">{award.description}</p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  {stats.offlineAwards.map(award => (
-                    <div key={award.id} className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-3 border border-purple-200">
-                      <div className="flex items-center gap-2">
-                        {award.image_url && (
-                          <img src={award.image_url} alt={award.name} className="w-8 h-8 object-contain" />
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-purple-900 line-clamp-1">{award.name}</p>
-                          {award.period_text && (
-                            <p className="text-xs text-purple-700">{award.period_text}</p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
             {(() => {
+              // Unified back-of-card ordering: sections render in the resolved
+              // order (directory override → tenant default → hardcoded default).
               const orderedFields = getDirectoryOrderedFields(directoryCustomFields, displaySettings);
-              const enabledFields = orderedFields.filter(f =>
-                isFieldVisibleOnBackFor(f, displaySettings)
-              );
-              if (enabledFields.length === 0) return null;
+              const resolvedOrder = resolveBackFieldOrder({
+                directoryOrder: backFieldOrder,
+                tenantOrder: displaySettings?.back_field_order,
+                defaultOrder: MEMBER_BACK_DEFAULT_ORDER,
+                customFields: orderedFields,
+              });
+              const fieldById = new Map(orderedFields.map(f => [String(f.id), f]));
               const memberValues = memberPreferenceMap[member.id] || {};
-              const fieldsWithValues = enabledFields.filter(f =>
-                hasDirectoryFieldValue(f, memberValues[f.id])
-              );
-              if (fieldsWithValues.length === 0) return null;
-              return (
-                <div className="space-y-3 pt-4 border-t border-slate-200">
-                  <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wide">Additional Information</h3>
-                  <div className="grid grid-cols-2 gap-3">
-                    {fieldsWithValues.map(field => {
-                      let displayValue = memberValues[field.id];
-                      if (field.field_type === 'picklist' && displayValue) {
-                        const arr = Array.isArray(displayValue) ? displayValue : (() => {
-                          try { return JSON.parse(displayValue); } catch { return [displayValue]; }
-                        })();
-                        if (Array.isArray(arr) && field.options) {
-                          displayValue = arr
-                            .map(v => field.options.find(o => o.value === v)?.label || v)
-                            .join(', ');
-                        }
-                      } else if (field.field_type === 'dropdown' && displayValue && field.options) {
-                        const option = field.options.find(o => o.value === displayValue);
-                        if (option) displayValue = option.label;
-                      } else if (field.field_type === 'boolean') {
-                        displayValue = displayValue === true || displayValue === 'true' ? 'Yes' : 'No';
-                      } else if (field.field_type === 'date' && displayValue) {
-                        try {
-                          displayValue = new Date(displayValue).toLocaleDateString();
-                        } catch {}
-                      }
-                      return (
-                        <div key={field.id} className="bg-slate-50 rounded-lg p-3 border border-slate-200" data-testid={`custom-field-${field.id}`}>
-                          <p className="text-xs font-medium text-slate-500 mb-1">{field._displayLabel || field.label}</p>
-                          <p className="text-sm text-slate-900 break-words">{String(displayValue)}</p>
-                        </div>
-                      );
-                    })}
+
+              const renderCustomField = (field) => {
+                let displayValue = memberValues[field.id];
+                if (field.field_type === 'picklist' && displayValue) {
+                  const arr = Array.isArray(displayValue) ? displayValue : (() => {
+                    try { return JSON.parse(displayValue); } catch { return [displayValue]; }
+                  })();
+                  if (Array.isArray(arr) && field.options) {
+                    displayValue = arr
+                      .map(v => field.options.find(o => o.value === v)?.label || v)
+                      .join(', ');
+                  }
+                } else if (field.field_type === 'dropdown' && displayValue && field.options) {
+                  const option = field.options.find(o => o.value === displayValue);
+                  if (option) displayValue = option.label;
+                } else if (field.field_type === 'boolean') {
+                  displayValue = displayValue === true || displayValue === 'true' ? 'Yes' : 'No';
+                } else if (field.field_type === 'date' && displayValue) {
+                  try {
+                    displayValue = new Date(displayValue).toLocaleDateString();
+                  } catch {}
+                }
+                return (
+                  <div key={field.id} className="bg-slate-50 rounded-lg p-3 border border-slate-200" data-testid={`custom-field-${field.id}`}>
+                    <p className="text-xs font-medium text-slate-500 mb-1">{field._displayLabel || field.label}</p>
+                    <p className="text-sm text-slate-900 break-words">{String(displayValue)}</p>
                   </div>
-                </div>
-              );
+                );
+              };
+
+              const items = [];
+              for (const key of resolvedOrder) {
+                if (key === 'show_organization') {
+                  if (!isVisibleOnBack(displaySettings, 'show_organization')) continue;
+                  const organization = organizations.find(o => o.id === member.organization_id);
+                  if (!organization) continue;
+                  items.push({ kind: 'block', node: (
+                    <div key={key} className="bg-slate-50 rounded-lg p-4 border border-slate-200">
+                      <div className="flex items-center gap-2 text-slate-700">
+                        <Building2 className="w-5 h-5 text-blue-600" />
+                        <span className="font-semibold">{organization.name}</span>
+                      </div>
+                    </div>
+                  ) });
+                } else if (key === 'show_bio_in_popup') {
+                  if (!isVisibleOnBack(displaySettings, 'show_bio_in_popup') || !member.biography || !canViewMemberBiography) continue;
+                  items.push({ kind: 'block', node: (
+                    <div key={key} className="bg-slate-50 rounded-lg p-4 border border-slate-200 space-y-2">
+                      <p className="text-xs font-medium text-slate-500">About</p>
+                      <p className={`text-sm text-slate-900 leading-relaxed ${!bioExpanded ? 'line-clamp-4' : ''}`}>
+                        {member.biography}
+                      </p>
+                      {member.biography.length > 300 && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setBioExpanded(!bioExpanded)}
+                          className="text-blue-600 hover:text-blue-700 p-0 h-auto font-medium"
+                        >
+                          {bioExpanded ? (
+                            <><ChevronUp className="w-4 h-4 mr-1" />Show less</>
+                          ) : (
+                            <><ChevronDown className="w-4 h-4 mr-1" />Read more</>
+                          )}
+                        </Button>
+                      )}
+                    </div>
+                  ) });
+                } else if (key === 'show_events') {
+                  if (!isVisibleOnBack(displaySettings, 'show_events')) continue;
+                  items.push({ kind: 'stat', node: (
+                    <div key={key} className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-4 border border-green-200">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Calendar className="w-5 h-5 text-green-600" />
+                        <span className="text-sm font-medium text-green-900">Events Attended</span>
+                      </div>
+                      <p className="text-2xl font-bold text-green-700">{stats.eventsAttended}</p>
+                    </div>
+                  ) });
+                } else if (key === 'show_articles') {
+                  if (!isVisibleOnBack(displaySettings, 'show_articles')) continue;
+                  items.push({ kind: 'stat', node: (
+                    <div key={key} className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-4 border border-purple-200">
+                      <div className="flex items-center gap-2 mb-1">
+                        <FileText className="w-5 h-5 text-purple-600" />
+                        <span className="text-sm font-medium text-purple-900">Articles Published</span>
+                      </div>
+                      <p className="text-2xl font-bold text-purple-700">{stats.publishedArticles}</p>
+                    </div>
+                  ) });
+                } else if (key.startsWith('custom:')) {
+                  const field = fieldById.get(key.slice(7));
+                  if (!field) continue;
+                  if (!isFieldVisibleOnBackFor(field, displaySettings)) continue;
+                  if (!hasDirectoryFieldValue(field, memberValues[field.id])) continue;
+                  items.push({ kind: 'custom', node: renderCustomField(field) });
+                } else if (key === 'show_awards') {
+                  if (!isVisibleOnBack(displaySettings, 'show_awards') || !(stats.totalAwards > 0)) continue;
+                  items.push({ kind: 'block', node: (
+                    <div key={key} className="space-y-3">
+                      <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wide flex items-center gap-2">
+                        <Trophy className="w-4 h-4 text-warning" />
+                        Awards & Recognition ({stats.totalAwards})
+                      </h3>
+                      <div className="grid grid-cols-2 gap-3">
+                        {stats.onlineAwards.map(award => (
+                          <div key={award.id} className="bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg p-3 border border-warning/30">
+                            <div className="flex items-center gap-2">
+                              {award.image_url && (
+                                <img src={award.image_url} alt={award.name} className="w-8 h-8 object-contain" />
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-semibold text-warning line-clamp-1">{award.name}</p>
+                                {award.description && (
+                                  <p className="text-xs text-warning line-clamp-1">{award.description}</p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                        {stats.offlineAwards.map(award => (
+                          <div key={award.id} className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-3 border border-purple-200">
+                            <div className="flex items-center gap-2">
+                              {award.image_url && (
+                                <img src={award.image_url} alt={award.name} className="w-8 h-8 object-contain" />
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-semibold text-purple-900 line-clamp-1">{award.name}</p>
+                                {award.period_text && (
+                                  <p className="text-xs text-purple-700">{award.period_text}</p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) });
+                } else if (key === 'show_linkedin') {
+                  if (!isVisibleOnBack(displaySettings, 'show_linkedin') || !member.linkedin_url) continue;
+                  items.push({ kind: 'block', node: (
+                    <Button
+                      key={key}
+                      onClick={() => window.open(member.linkedin_url, '_blank')}
+                      variant="outline"
+                      className="w-full"
+                      size="lg"
+                    >
+                      <Linkedin className="w-5 h-5 mr-2" />
+                      View LinkedIn Profile
+                    </Button>
+                  ) });
+                }
+                // show_profile_photo / show_job_title render in the fixed header above.
+              }
+
+              // Batch consecutive stat/custom items into their grid layouts.
+              return groupBackOrderItems(items).map((section, idx) => {
+                if (section.type === 'stat') {
+                  return (
+                    <div key={`stats-${idx}`} className="grid grid-cols-2 gap-4">
+                      {section.items.map(it => it.node)}
+                    </div>
+                  );
+                }
+                if (section.type === 'custom') {
+                  return (
+                    <div key={`customs-${idx}`} className="space-y-3 pt-4 border-t border-slate-200">
+                      <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wide">Additional Information</h3>
+                      <div className="grid grid-cols-2 gap-3">{section.items.map(it => it.node)}</div>
+                    </div>
+                  );
+                }
+                return section.items[0].node;
+              });
             })()}
 
             <div className="pt-4 border-t border-slate-200 space-y-3">
@@ -470,17 +506,6 @@ export default function MemberProfileModal({ memberId, open, onOpenChange }) {
                 Send Email to {member.first_name}
               </Button>
 
-              {isVisibleOnBack(displaySettings, 'show_linkedin') && member.linkedin_url && (
-                <Button
-                  onClick={() => window.open(member.linkedin_url, '_blank')}
-                  variant="outline"
-                  className="w-full"
-                  size="lg"
-                >
-                  <Linkedin className="w-5 h-5 mr-2" />
-                  View LinkedIn Profile
-                </Button>
-              )}
             </div>
           </div>
         )}

@@ -19,7 +19,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { toast } from "sonner";
 import { isDeletedMember } from "@/utils";
-import { isVisibleOnFront, isVisibleOnBack, isFieldVisibleOnBackFor, getDirectoryOrderedFields, enrichFieldForDirectory, isFieldInDirectory, hasDirectoryFieldValue, getDirectoryFilterOptions, directoryFilterValueMatches } from "@/utils/directorySettings";
+import { isVisibleOnFront, isVisibleOnBack, isFieldVisibleOnBackFor, getDirectoryOrderedFields, enrichFieldForDirectory, isFieldInDirectory, hasDirectoryFieldValue, getDirectoryFilterOptions, directoryFilterValueMatches, resolveBackFieldOrder, MEMBER_BACK_DEFAULT_ORDER, ORG_BACK_DEFAULT_ORDER } from "@/utils/directorySettings";
 import { DirectoryMemberCard, DirectoryOrganizationCard } from "@/components/directory/DirectoryCards";
 
 export default function DynamicDirectoryView() {
@@ -208,6 +208,7 @@ export default function DynamicDirectoryView() {
       const cardsPerRowSetting = allSettings.find(s => s.setting_key === 'org_directory_cards_per_row');
       const excludedOrgsSetting = allSettings.find(s => s.setting_key === 'org_directory_excluded_orgs');
       const reverseCardRolesSetting = allSettings.find(s => s.setting_key === 'org_directory_reverse_card_role_ids');
+      const backOrderSetting = allSettings.find(s => s.setting_key === 'org_directory_back_field_order');
 
       let excludedOrgIds = [];
       if (excludedOrgsSetting) {
@@ -236,7 +237,16 @@ export default function DynamicDirectoryView() {
         showNameTooltip: nameTooltipSetting?.setting_value === 'true',
         cardsPerRow: cardsPerRowSetting?.setting_value || '3',
         excludedOrgIds: excludedOrgIds,
-        reverseCardRoleIds: reverseCardRoleIds
+        reverseCardRoleIds: reverseCardRoleIds,
+        backFieldOrder: (() => {
+          if (!backOrderSetting?.setting_value) return null;
+          try {
+            const parsed = JSON.parse(backOrderSetting.setting_value);
+            return Array.isArray(parsed) ? parsed : null;
+          } catch {
+            return null;
+          }
+        })()
       };
     },
     enabled: !!directory && directory.entity_type === 'organization' && !isGuest,
@@ -1040,131 +1050,176 @@ export default function DynamicDirectoryView() {
               </div>
             </DialogHeader>
             <div className="space-y-4 py-4">
-              {!isGuest && showMembersOnCardBack && (
-                <div className="flex items-center gap-2 text-slate-600">
-                  <Users className="w-4 h-4" />
-                  <span>{organizationMemberCounts[selectedOrg?.id] || 0} members</span>
-                </div>
-              )}
-              {!isGuest && reverseCardContactGroups.length > 0 && (
-                <div className="space-y-3 pt-2 border-t">
-                  <div className="flex items-center gap-2">
-                    <Mail className="w-4 h-4 text-blue-600" />
-                    <h4 className="font-medium text-slate-900">Contacts</h4>
-                  </div>
-                  <div className="space-y-4">
-                    {reverseCardContactGroups.map((group) => (
-                      <div key={group.roleId} className="space-y-2">
+              {(() => {
+                // Unified reverse-card ordering: per-directory override →
+                // tenant default → hardcoded default. Existing visibility
+                // gates (showMembersOnCardBack, reverse-card roles, back
+                // flags) still control what renders.
+                const orderedOrgFields = getDirectoryOrderedFields(orgCustomFields, null);
+                const resolvedOrder = resolveBackFieldOrder({
+                  directoryOrder: directory?.back_field_order,
+                  tenantOrder: orgDisplaySettings?.backFieldOrder,
+                  defaultOrder: ORG_BACK_DEFAULT_ORDER,
+                  customFields: orderedOrgFields,
+                });
+                const fieldById = new Map(orderedOrgFields.map(f => [String(f.id), f]));
+
+                const renderOrgCustomField = (field) => {
+                  const valueRecord = selectedOrgValues.find(v => v.field_id === field.id);
+                  let displayValue = valueRecord?.value || '';
+                  if (field.field_type === 'picklist' && displayValue) {
+                    try {
+                      const parsed = JSON.parse(displayValue);
+                      if (Array.isArray(parsed) && field.options) {
+                        displayValue = parsed.map(v => field.options.find(o => o.value === v)?.label || v).join(', ');
+                      }
+                    } catch {}
+                  }
+                  if (field.field_type === 'dropdown' && displayValue && field.options) {
+                    const option = field.options.find(o => o.value === displayValue);
+                    if (option) displayValue = option.label;
+                  }
+                  return (
+                    <div key={field.id} className="flex justify-between items-start gap-4">
+                      <span className="text-sm text-slate-600">{field._displayLabel || field.label}</span>
+                      <span className="text-sm font-medium text-slate-900 text-right">
+                        {displayValue || <span className="text-slate-400 italic">Not set</span>}
+                      </span>
+                    </div>
+                  );
+                };
+
+                const items = [];
+                for (const key of resolvedOrder) {
+                  if (key === 'org_member_count') {
+                    if (isGuest || !showMembersOnCardBack) continue;
+                    items.push({ kind: 'block', node: (
+                      <div key={key} className="flex items-center gap-2 text-slate-600">
+                        <Users className="w-4 h-4" />
+                        <span>{organizationMemberCounts[selectedOrg?.id] || 0} members</span>
+                      </div>
+                    ) });
+                  } else if (key === 'org_members_list') {
+                    if (isGuest || reverseCardContactGroups.length === 0) continue;
+                    items.push({ kind: 'block', node: (
+                      <div key={key} className="space-y-3 pt-2 border-t">
                         <div className="flex items-center gap-2">
-                          <Badge variant="secondary" className="bg-blue-100 text-blue-700">
-                            {group.role?.name || 'Role'}
-                          </Badge>
+                          <Mail className="w-4 h-4 text-blue-600" />
+                          <h4 className="font-medium text-slate-900">Contacts</h4>
                         </div>
-                        <div className="space-y-2">
-                          {group.members.map((member) => {
-                            const fullName = `${member.first_name || ''} ${member.last_name || ''}`.trim() || 'Unnamed member';
-                            const initials = `${(member.first_name || '').charAt(0)}${(member.last_name || '').charAt(0)}`.toUpperCase() || '?';
-                            return (
-                              <div
-                                key={member.id}
-                                className="flex items-center gap-3 p-2 rounded-lg bg-slate-50"
-                                data-testid={`row-contact-member-${member.id}`}
-                              >
-                                <div className="flex-shrink-0">
-                                  {member.profile_photo_url ? (
-                                    <img
-                                      src={member.profile_photo_url}
-                                      alt={fullName}
-                                      className="w-10 h-10 rounded-full object-cover border border-slate-200"
-                                    />
-                                  ) : (
-                                    <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-xs font-medium text-slate-600">
-                                      {initials}
-                                    </div>
-                                  )}
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <p
-                                    className="text-sm font-medium text-slate-900 truncate"
-                                    data-testid={`text-contact-name-${member.id}`}
-                                  >
-                                    {fullName}
-                                  </p>
-                                  {member.job_title && (
-                                    <p className="text-xs text-slate-600 truncate">{member.job_title}</p>
-                                  )}
-                                </div>
-                                <div className="flex items-center gap-2 flex-shrink-0">
-                                  <Button
-                                    size="sm"
-                                    asChild
-                                    className="bg-blue-600 hover:bg-blue-700 gap-1.5"
-                                    data-testid={`button-email-member-${member.id}`}
-                                  >
-                                    <a href={`mailto:${member.email}`}>
-                                      <Mail className="w-3.5 h-3.5" />
-                                      Email
-                                    </a>
-                                  </Button>
-                                  <Button
-                                    size="icon"
-                                    variant="outline"
-                                    onClick={() => handleCopyMemberEmail(member.email)}
-                                    aria-label={`Copy email for ${fullName}`}
-                                    data-testid={`button-copy-email-${member.id}`}
-                                  >
-                                    <Copy className="w-4 h-4" />
-                                  </Button>
-                                </div>
+                        <div className="space-y-4">
+                          {reverseCardContactGroups.map((group) => (
+                            <div key={group.roleId} className="space-y-2">
+                              <div className="flex items-center gap-2">
+                                <Badge variant="secondary" className="bg-blue-100 text-blue-700">
+                                  {group.role?.name || 'Role'}
+                                </Badge>
                               </div>
-                            );
-                          })}
+                              <div className="space-y-2">
+                                {group.members.map((member) => {
+                                  const fullName = `${member.first_name || ''} ${member.last_name || ''}`.trim() || 'Unnamed member';
+                                  const initials = `${(member.first_name || '').charAt(0)}${(member.last_name || '').charAt(0)}`.toUpperCase() || '?';
+                                  return (
+                                    <div
+                                      key={member.id}
+                                      className="flex items-center gap-3 p-2 rounded-lg bg-slate-50"
+                                      data-testid={`row-contact-member-${member.id}`}
+                                    >
+                                      <div className="flex-shrink-0">
+                                        {member.profile_photo_url ? (
+                                          <img
+                                            src={member.profile_photo_url}
+                                            alt={fullName}
+                                            className="w-10 h-10 rounded-full object-cover border border-slate-200"
+                                          />
+                                        ) : (
+                                          <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-xs font-medium text-slate-600">
+                                            {initials}
+                                          </div>
+                                        )}
+                                      </div>
+                                      <div className="flex-1 min-w-0">
+                                        <p
+                                          className="text-sm font-medium text-slate-900 truncate"
+                                          data-testid={`text-contact-name-${member.id}`}
+                                        >
+                                          {fullName}
+                                        </p>
+                                        {member.job_title && (
+                                          <p className="text-xs text-slate-600 truncate">{member.job_title}</p>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-2 flex-shrink-0">
+                                        <Button
+                                          size="sm"
+                                          asChild
+                                          className="bg-blue-600 hover:bg-blue-700 gap-1.5"
+                                          data-testid={`button-email-member-${member.id}`}
+                                        >
+                                          <a href={`mailto:${member.email}`}>
+                                            <Mail className="w-3.5 h-3.5" />
+                                            Email
+                                          </a>
+                                        </Button>
+                                        <Button
+                                          size="icon"
+                                          variant="outline"
+                                          onClick={() => handleCopyMemberEmail(member.email)}
+                                          aria-label={`Copy email for ${fullName}`}
+                                          data-testid={`button-copy-email-${member.id}`}
+                                        >
+                                          <Copy className="w-4 h-4" />
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {orgCustomFields.some(f => f._visBack !== false) && (
-                <div className="space-y-3 pt-2 border-t">
-                  <div className="flex items-center gap-2">
-                    <ClipboardList className="w-4 h-4 text-blue-600" />
-                    <h4 className="font-medium text-slate-900">Additional Information</h4>
-                  </div>
-                  {isLoadingOrgValues ? (
-                    <div className="flex items-center justify-center py-4">
-                      <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {getDirectoryOrderedFields(orgCustomFields, null).filter(f => f._visBack !== false).map((field) => {
-                        const valueRecord = selectedOrgValues.find(v => v.field_id === field.id);
-                        let displayValue = valueRecord?.value || '';
-                        if (field.field_type === 'picklist' && displayValue) {
-                          try {
-                            const parsed = JSON.parse(displayValue);
-                            if (Array.isArray(parsed) && field.options) {
-                              displayValue = parsed.map(v => field.options.find(o => o.value === v)?.label || v).join(', ');
-                            }
-                          } catch {}
-                        }
-                        if (field.field_type === 'dropdown' && displayValue && field.options) {
-                          const option = field.options.find(o => o.value === displayValue);
-                          if (option) displayValue = option.label;
-                        }
-                        return (
-                          <div key={field.id} className="flex justify-between items-start gap-4">
-                            <span className="text-sm text-slate-600">{field._displayLabel || field.label}</span>
-                            <span className="text-sm font-medium text-slate-900 text-right">
-                              {displayValue || <span className="text-slate-400 italic">Not set</span>}
-                            </span>
+                    ) });
+                  } else if (key.startsWith('custom:')) {
+                    const field = fieldById.get(key.slice(7));
+                    if (!field || field._visBack === false) continue;
+                    items.push({ kind: 'custom', field });
+                  }
+                }
+
+                const sections = [];
+                let i = 0;
+                let batchIdx = 0;
+                while (i < items.length) {
+                  if (items[i].kind === 'custom') {
+                    const batch = [];
+                    while (i < items.length && items[i].kind === 'custom') {
+                      batch.push(items[i].field);
+                      i += 1;
+                    }
+                    sections.push(
+                      <div key={`org-customs-${batchIdx}`} className="space-y-3 pt-2 border-t">
+                        <div className="flex items-center gap-2">
+                          <ClipboardList className="w-4 h-4 text-blue-600" />
+                          <h4 className="font-medium text-slate-900">Additional Information</h4>
+                        </div>
+                        {isLoadingOrgValues ? (
+                          <div className="flex items-center justify-center py-4">
+                            <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
                           </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
+                        ) : (
+                          <div className="space-y-3">{batch.map(renderOrgCustomField)}</div>
+                        )}
+                      </div>
+                    );
+                    batchIdx += 1;
+                  } else {
+                    sections.push(items[i].node);
+                    i += 1;
+                  }
+                }
+                return sections;
+              })()}
             </div>
             <DialogFooter className="gap-2 sm:gap-2">
               <Button variant="outline" onClick={() => setSelectedOrg(null)}>Close</Button>
@@ -1469,152 +1524,215 @@ export default function DynamicDirectoryView() {
                 </div>
               </div>
 
-              {isVisibleOnBack(memberDisplaySettings, 'show_organization') && (() => {
-                const organization = allOrganizations.find(o => o.id === viewingMember.organization_id);
-                return organization ? (
-                  <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
-                    <div className="flex items-center gap-2 text-slate-700">
-                      <Building2 className="w-5 h-5 text-blue-600" />
-                      <span className="font-semibold">{organization.name}</span>
-                    </div>
-                  </div>
-                ) : null;
-              })()}
-
-              {isVisibleOnBack(memberDisplaySettings, 'show_bio_in_popup') && viewingMember.biography && (
-                <div className="bg-slate-50 rounded-lg p-4 border border-slate-200 space-y-2">
-                  <p className="text-xs font-medium text-slate-500">About</p>
-                  <p className={`text-sm text-slate-900 leading-relaxed ${!bioExpanded ? 'line-clamp-4' : ''}`}>
-                    {viewingMember.biography}
-                  </p>
-                  {viewingMember.biography.length > 300 && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setBioExpanded(!bioExpanded)}
-                      className="text-blue-600 hover:text-blue-700 p-0 h-auto font-medium"
-                    >
-                      {bioExpanded ? (
-                        <><ChevronUp className="w-4 h-4 mr-1" />Show less</>
-                      ) : (
-                        <><ChevronDown className="w-4 h-4 mr-1" />Read more</>
-                      )}
-                    </Button>
-                  )}
-                </div>
-              )}
-
-              <div className="grid grid-cols-2 gap-4">
-                {!isGuest && isVisibleOnBack(memberDisplaySettings, 'show_events') && (
-                  <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-4 border border-green-200">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Calendar className="w-5 h-5 text-green-600" />
-                      <span className="text-sm font-medium text-green-900">Events Attended</span>
-                    </div>
-                    <p className="text-2xl font-bold text-green-700">
-                      {memberStats[viewingMember.id]?.eventsAttended || 0}
-                    </p>
-                  </div>
-                )}
-                {!isGuest && isVisibleOnBack(memberDisplaySettings, 'show_articles') && (
-                  <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-4 border border-purple-200">
-                    <div className="flex items-center gap-2 mb-1">
-                      <FileText className="w-5 h-5 text-purple-600" />
-                      <span className="text-sm font-medium text-purple-900">Articles Published</span>
-                    </div>
-                    <p className="text-2xl font-bold text-purple-700">
-                      {memberStats[viewingMember.id]?.publishedArticles || 0}
-                    </p>
-                  </div>
-                )}
-              </div>
-
               {(() => {
+                // Unified back-of-card ordering: render body sections in the
+                // resolved order (per-directory override → tenant default →
+                // hardcoded default). Visibility toggles still gate content.
                 const orderedFields = getDirectoryOrderedFields(directoryCustomFields, memberDisplaySettings);
-                const enabledFields = orderedFields.filter(f =>
-                  isFieldVisibleOnBackFor(f, memberDisplaySettings)
-                );
-                if (enabledFields.length === 0) return null;
+                const resolvedOrder = resolveBackFieldOrder({
+                  directoryOrder: directory?.back_field_order,
+                  tenantOrder: memberDisplaySettings?.back_field_order,
+                  defaultOrder: MEMBER_BACK_DEFAULT_ORDER,
+                  customFields: orderedFields,
+                });
+                const fieldById = new Map(orderedFields.map(f => [String(f.id), f]));
                 const memberValues = memberPreferenceMap[viewingMember.id] || {};
-                const fieldsWithValues = enabledFields.filter(f => hasDirectoryFieldValue(f, memberValues[f.id]));
-                if (fieldsWithValues.length === 0) return null;
-                return (
-                  <div className="space-y-3 pt-4 border-t border-slate-200">
-                    <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wide">Additional Information</h3>
-                    <div className="grid grid-cols-2 gap-3">
-                      {fieldsWithValues.map(field => {
-                        let displayValue = memberValues[field.id];
-                        if (field.field_type === 'picklist' && displayValue) {
-                          const arr = Array.isArray(displayValue) ? displayValue : (() => {
-                            try { return JSON.parse(displayValue); } catch { return [displayValue]; }
-                          })();
-                          if (Array.isArray(arr) && field.options) {
-                            displayValue = arr
-                              .map(v => field.options.find(o => o.value === v)?.label || v)
-                              .join(', ');
-                          }
-                        } else if (field.field_type === 'dropdown' && displayValue && field.options) {
-                          const option = field.options.find(o => o.value === displayValue);
-                          if (option) displayValue = option.label;
-                        } else if (field.field_type === 'boolean') {
-                          displayValue = displayValue === true || displayValue === 'true' ? 'Yes' : 'No';
-                        } else if (field.field_type === 'date' && displayValue) {
-                          try {
-                            displayValue = new Date(displayValue).toLocaleDateString();
-                          } catch {}
-                        }
-                        return (
-                          <div key={field.id} className="bg-slate-50 rounded-lg p-3 border border-slate-200" data-testid={`popup-custom-field-${field.id}`}>
-                            <p className="text-xs font-medium text-slate-500 mb-1">{field._displayLabel || field.label}</p>
-                            <p className="text-sm text-slate-900 break-words">{String(displayValue)}</p>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })()}
 
-              {!isGuest && isVisibleOnBack(memberDisplaySettings, 'show_awards') && memberStats[viewingMember.id]?.totalAwards > 0 && (
-                <div className="space-y-3">
-                  <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wide flex items-center gap-2">
-                    <Trophy className="w-4 h-4 text-warning" />
-                    Awards & Recognition ({memberStats[viewingMember.id].totalAwards})
-                  </h3>
-                  <div className="grid grid-cols-2 gap-3">
-                    {memberStats[viewingMember.id].onlineAwards.map(award => (
-                      <div key={award.id} className="bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg p-3 border border-warning/30">
-                        <div className="flex items-center gap-2">
-                          {award.image_url && (
-                            <img src={award.image_url} alt={award.name} className="w-8 h-8 object-contain" />
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-warning line-clamp-1">{award.name}</p>
-                            {award.description && (
-                              <p className="text-xs text-warning line-clamp-1">{award.description}</p>
-                            )}
-                          </div>
+                const renderCustomField = (field) => {
+                  let displayValue = memberValues[field.id];
+                  if (field.field_type === 'picklist' && displayValue) {
+                    const arr = Array.isArray(displayValue) ? displayValue : (() => {
+                      try { return JSON.parse(displayValue); } catch { return [displayValue]; }
+                    })();
+                    if (Array.isArray(arr) && field.options) {
+                      displayValue = arr
+                        .map(v => field.options.find(o => o.value === v)?.label || v)
+                        .join(', ');
+                    }
+                  } else if (field.field_type === 'dropdown' && displayValue && field.options) {
+                    const option = field.options.find(o => o.value === displayValue);
+                    if (option) displayValue = option.label;
+                  } else if (field.field_type === 'boolean') {
+                    displayValue = displayValue === true || displayValue === 'true' ? 'Yes' : 'No';
+                  } else if (field.field_type === 'date' && displayValue) {
+                    try {
+                      displayValue = new Date(displayValue).toLocaleDateString();
+                    } catch {}
+                  }
+                  return (
+                    <div key={field.id} className="bg-slate-50 rounded-lg p-3 border border-slate-200" data-testid={`popup-custom-field-${field.id}`}>
+                      <p className="text-xs font-medium text-slate-500 mb-1">{field._displayLabel || field.label}</p>
+                      <p className="text-sm text-slate-900 break-words">{String(displayValue)}</p>
+                    </div>
+                  );
+                };
+
+                // Build ordered items: { kind: 'block' | 'stat' | 'custom', node }
+                const items = [];
+                for (const key of resolvedOrder) {
+                  if (key === 'show_organization') {
+                    if (!isVisibleOnBack(memberDisplaySettings, 'show_organization')) continue;
+                    const organization = allOrganizations.find(o => o.id === viewingMember.organization_id);
+                    if (!organization) continue;
+                    items.push({ kind: 'block', node: (
+                      <div key={key} className="bg-slate-50 rounded-lg p-4 border border-slate-200">
+                        <div className="flex items-center gap-2 text-slate-700">
+                          <Building2 className="w-5 h-5 text-blue-600" />
+                          <span className="font-semibold">{organization.name}</span>
                         </div>
                       </div>
-                    ))}
-                    {memberStats[viewingMember.id].offlineAwards.map(award => (
-                      <div key={award.id} className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-3 border border-purple-200">
-                        <div className="flex items-center gap-2">
-                          {award.image_url && (
-                            <img src={award.image_url} alt={award.name} className="w-8 h-8 object-contain" />
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-purple-900 line-clamp-1">{award.name}</p>
-                            {award.period_text && (
-                              <p className="text-xs text-purple-700">{award.period_text}</p>
+                    ) });
+                  } else if (key === 'show_bio_in_popup') {
+                    if (!isVisibleOnBack(memberDisplaySettings, 'show_bio_in_popup') || !viewingMember.biography) continue;
+                    items.push({ kind: 'block', node: (
+                      <div key={key} className="bg-slate-50 rounded-lg p-4 border border-slate-200 space-y-2">
+                        <p className="text-xs font-medium text-slate-500">About</p>
+                        <p className={`text-sm text-slate-900 leading-relaxed ${!bioExpanded ? 'line-clamp-4' : ''}`}>
+                          {viewingMember.biography}
+                        </p>
+                        {viewingMember.biography.length > 300 && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setBioExpanded(!bioExpanded)}
+                            className="text-blue-600 hover:text-blue-700 p-0 h-auto font-medium"
+                          >
+                            {bioExpanded ? (
+                              <><ChevronUp className="w-4 h-4 mr-1" />Show less</>
+                            ) : (
+                              <><ChevronDown className="w-4 h-4 mr-1" />Read more</>
                             )}
-                          </div>
+                          </Button>
+                        )}
+                      </div>
+                    ) });
+                  } else if (key === 'show_events') {
+                    if (isGuest || !isVisibleOnBack(memberDisplaySettings, 'show_events')) continue;
+                    items.push({ kind: 'stat', node: (
+                      <div key={key} className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-4 border border-green-200">
+                        <div className="flex items-center gap-2 mb-1">
+                          <Calendar className="w-5 h-5 text-green-600" />
+                          <span className="text-sm font-medium text-green-900">Events Attended</span>
+                        </div>
+                        <p className="text-2xl font-bold text-green-700">
+                          {memberStats[viewingMember.id]?.eventsAttended || 0}
+                        </p>
+                      </div>
+                    ) });
+                  } else if (key === 'show_articles') {
+                    if (isGuest || !isVisibleOnBack(memberDisplaySettings, 'show_articles')) continue;
+                    items.push({ kind: 'stat', node: (
+                      <div key={key} className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-4 border border-purple-200">
+                        <div className="flex items-center gap-2 mb-1">
+                          <FileText className="w-5 h-5 text-purple-600" />
+                          <span className="text-sm font-medium text-purple-900">Articles Published</span>
+                        </div>
+                        <p className="text-2xl font-bold text-purple-700">
+                          {memberStats[viewingMember.id]?.publishedArticles || 0}
+                        </p>
+                      </div>
+                    ) });
+                  } else if (key.startsWith('custom:')) {
+                    const field = fieldById.get(key.slice(7));
+                    if (!field) continue;
+                    if (!isFieldVisibleOnBackFor(field, memberDisplaySettings)) continue;
+                    if (!hasDirectoryFieldValue(field, memberValues[field.id])) continue;
+                    items.push({ kind: 'custom', node: renderCustomField(field) });
+                  } else if (key === 'show_awards') {
+                    if (isGuest || !isVisibleOnBack(memberDisplaySettings, 'show_awards')) continue;
+                    if (!(memberStats[viewingMember.id]?.totalAwards > 0)) continue;
+                    items.push({ kind: 'block', node: (
+                      <div key={key} className="space-y-3">
+                        <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wide flex items-center gap-2">
+                          <Trophy className="w-4 h-4 text-warning" />
+                          Awards & Recognition ({memberStats[viewingMember.id].totalAwards})
+                        </h3>
+                        <div className="grid grid-cols-2 gap-3">
+                          {memberStats[viewingMember.id].onlineAwards.map(award => (
+                            <div key={award.id} className="bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg p-3 border border-warning/30">
+                              <div className="flex items-center gap-2">
+                                {award.image_url && (
+                                  <img src={award.image_url} alt={award.name} className="w-8 h-8 object-contain" />
+                                )}
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-semibold text-warning line-clamp-1">{award.name}</p>
+                                  {award.description && (
+                                    <p className="text-xs text-warning line-clamp-1">{award.description}</p>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                          {memberStats[viewingMember.id].offlineAwards.map(award => (
+                            <div key={award.id} className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-3 border border-purple-200">
+                              <div className="flex items-center gap-2">
+                                {award.image_url && (
+                                  <img src={award.image_url} alt={award.name} className="w-8 h-8 object-contain" />
+                                )}
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-semibold text-purple-900 line-clamp-1">{award.name}</p>
+                                  {award.period_text && (
+                                    <p className="text-xs text-purple-700">{award.period_text}</p>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+                    ) });
+                  } else if (key === 'show_linkedin') {
+                    if (isGuest || !isVisibleOnBack(memberDisplaySettings, 'show_linkedin') || !viewingMember.linkedin_url) continue;
+                    items.push({ kind: 'block', node: (
+                      <Button
+                        key={key}
+                        onClick={() => window.open(viewingMember.linkedin_url, '_blank')}
+                        variant="outline"
+                        className="w-full"
+                        size="lg"
+                      >
+                        <Linkedin className="w-5 h-5 mr-2" />
+                        View LinkedIn Profile
+                      </Button>
+                    ) });
+                  }
+                  // show_profile_photo / show_job_title render in the fixed header above.
+                }
+
+                // Batch consecutive stat/custom items into their grid layouts
+                // so the visual style matches the previous fixed layout.
+                const sections = [];
+                let i = 0;
+                let batchIdx = 0;
+                while (i < items.length) {
+                  const item = items[i];
+                  if (item.kind === 'stat' || item.kind === 'custom') {
+                    const kind = item.kind;
+                    const batch = [];
+                    while (i < items.length && items[i].kind === kind) {
+                      batch.push(items[i].node);
+                      i += 1;
+                    }
+                    if (kind === 'stat') {
+                      sections.push(
+                        <div key={`stats-${batchIdx}`} className="grid grid-cols-2 gap-4">{batch}</div>
+                      );
+                    } else {
+                      sections.push(
+                        <div key={`customs-${batchIdx}`} className="space-y-3 pt-4 border-t border-slate-200">
+                          <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wide">Additional Information</h3>
+                          <div className="grid grid-cols-2 gap-3">{batch}</div>
+                        </div>
+                      );
+                    }
+                    batchIdx += 1;
+                  } else {
+                    sections.push(item.node);
+                    i += 1;
+                  }
+                }
+                return sections;
+              })()}
 
               {(() => {
                 if (isGuest) return null;
@@ -1660,17 +1778,6 @@ export default function DynamicDirectoryView() {
                       <Mail className="w-5 h-5 mr-2" />
                       Send Email to {viewingMember.first_name}
                     </Button>
-                    {isVisibleOnBack(memberDisplaySettings, 'show_linkedin') && viewingMember.linkedin_url && (
-                      <Button
-                        onClick={() => window.open(viewingMember.linkedin_url, '_blank')}
-                        variant="outline"
-                        className="w-full"
-                        size="lg"
-                      >
-                        <Linkedin className="w-5 h-5 mr-2" />
-                        View LinkedIn Profile
-                      </Button>
-                    )}
                   </div>
                 );
               })()}

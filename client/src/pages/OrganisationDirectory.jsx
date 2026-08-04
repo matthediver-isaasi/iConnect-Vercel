@@ -14,7 +14,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { toast } from "sonner";
 import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { isDeletedMember } from "@/utils";
-import { hasDirectoryFieldValue, enrichFieldForDirectory, isFieldInDirectory, getDirectoryOrderedFields, getDirectoryFilterOptions, directoryFilterValueMatches } from "@/utils/directorySettings";
+import { hasDirectoryFieldValue, enrichFieldForDirectory, isFieldInDirectory, getDirectoryOrderedFields, getDirectoryFilterOptions, directoryFilterValueMatches, resolveBackFieldOrder, ORG_BACK_DEFAULT_ORDER } from "@/utils/directorySettings";
 
 // Helper to add cache-busting for JPG images which have loading issues
 const getLogoUrl = (url, orgId) => {
@@ -72,6 +72,7 @@ export default function OrganisationDirectoryPage() {
       const allowedStatusesSetting = allSettings.find(s => s.setting_key === 'org_directory_allowed_application_statuses');
       const visibleOrgTypesSetting = allSettings.find(s => s.setting_key === 'org_directory_visible_org_types');
       const reverseCardRolesSetting = allSettings.find(s => s.setting_key === 'org_directory_reverse_card_role_ids');
+      const backOrderSetting = allSettings.find(s => s.setting_key === 'org_directory_back_field_order');
 
       let excludedOrgIds = [];
       if (excludedOrgsSetting) {
@@ -121,7 +122,16 @@ export default function OrganisationDirectoryPage() {
         excludedOrgIds: excludedOrgIds,
         allowedApplicationStatuses: allowedApplicationStatuses,
         visibleOrgTypes: visibleOrgTypes,
-        reverseCardRoleIds: reverseCardRoleIds
+        reverseCardRoleIds: reverseCardRoleIds,
+        backFieldOrder: (() => {
+          if (!backOrderSetting?.setting_value) return null;
+          try {
+            const parsed = JSON.parse(backOrderSetting.setting_value);
+            return Array.isArray(parsed) ? parsed : null;
+          } catch {
+            return null;
+          }
+        })()
       };
     },
     staleTime: 5 * 60 * 1000 // Cache for 5 minutes to prevent refetch flickering
@@ -867,16 +877,104 @@ export default function OrganisationDirectoryPage() {
           </DialogHeader>
           
           <div className="space-y-4 py-4">
-            {/* Member count */}
-            {displaySettings?.showMemberCount && (
-              <div className="flex items-center gap-2 text-slate-600">
-                <Users className="w-4 h-4" />
-                <span>{organizationMemberCounts[selectedOrg?.id] || 0} members</span>
-              </div>
-            )}
+            {(() => {
+              // Unified reverse-card ordering (tenant default → hardcoded
+              // default). Visibility settings still gate what renders.
+              const orderedOrgFields = getDirectoryOrderedFields(orgCustomFields, null);
+              const resolvedOrder = resolveBackFieldOrder({
+                directoryOrder: null,
+                tenantOrder: displaySettings?.backFieldOrder,
+                defaultOrder: ORG_BACK_DEFAULT_ORDER,
+                customFields: orderedOrgFields,
+              });
+              const fieldById = new Map(orderedOrgFields.map(f => [String(f.id), f]));
 
-            {/* Contacts Section (reverse-card configured roles) */}
-            {reverseCardContactGroups.length > 0 && (
+              const sections = [];
+              let pendingCustoms = [];
+              let batchIdx = 0;
+              const flushCustoms = () => {
+                if (pendingCustoms.length === 0) return;
+                const batch = pendingCustoms;
+                pendingCustoms = [];
+                const idx = batchIdx++;
+                if (isLoadingOrgValues) {
+                  sections.push(
+                    <div key={`org-customs-${idx}`} className="space-y-3 pt-2 border-t">
+                      <div className="flex items-center gap-2">
+                        <ClipboardList className="w-4 h-4 text-blue-600" />
+                        <h4 className="font-medium text-slate-900">Additional Information</h4>
+                      </div>
+                      <div className="flex items-center justify-center py-4">
+                        <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+                      </div>
+                    </div>
+                  );
+                  return;
+                }
+                const populatedFields = batch
+                  .map((field) => {
+                    const valueRecord = selectedOrgValues.find(v => v.field_id === field.id);
+                    const rawValue = valueRecord?.value;
+                    if (!hasDirectoryFieldValue(field, rawValue)) return null;
+                    let displayValue = rawValue;
+                    if (field.field_type === 'picklist' && displayValue) {
+                      try {
+                        const parsed = JSON.parse(displayValue);
+                        if (Array.isArray(parsed) && field.options) {
+                          displayValue = parsed
+                            .map(v => field.options.find(o => o.value === v)?.label || v)
+                            .join(', ');
+                        }
+                      } catch {
+                        // Keep as is
+                      }
+                    }
+                    if (field.field_type === 'dropdown' && displayValue && field.options) {
+                      const option = field.options.find(o => o.value === displayValue);
+                      if (option) displayValue = option.label;
+                    }
+                    if (displayValue === '' || displayValue === null || displayValue === undefined) {
+                      return null;
+                    }
+                    return { field, displayValue };
+                  })
+                  .filter(Boolean);
+                if (populatedFields.length === 0) return;
+                sections.push(
+                  <div key={`org-customs-${idx}`} className="space-y-3 pt-2 border-t">
+                    <div className="flex items-center gap-2">
+                      <ClipboardList className="w-4 h-4 text-blue-600" />
+                      <h4 className="font-medium text-slate-900">Additional Information</h4>
+                    </div>
+                    <div className="space-y-3">
+                      {populatedFields.map(({ field, displayValue }) => (
+                        <div key={field.id} className="flex justify-between items-start gap-4">
+                          <span className="text-sm text-slate-600">{field._displayLabel || field.label}</span>
+                          <span className="text-sm font-medium text-slate-900 text-right">
+                            {displayValue}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              };
+
+              for (const key of resolvedOrder) {
+                if (key === 'org_member_count') {
+                  if (!displaySettings?.showMemberCount) continue;
+                  flushCustoms();
+                  sections.push(
+                    <div key={key} className="flex items-center gap-2 text-slate-600">
+                      <Users className="w-4 h-4" />
+                      <span>{organizationMemberCounts[selectedOrg?.id] || 0} members</span>
+                    </div>
+                  );
+                } else if (key === 'org_members_list') {
+                  if (reverseCardContactGroups.length === 0) continue;
+                  flushCustoms();
+                  sections.push(
+                    <React.Fragment key={key}>
               <div className="space-y-3 pt-2 border-t">
                 <div className="flex items-center gap-2">
                   <Mail className="w-4 h-4 text-blue-600" />
@@ -954,83 +1052,19 @@ export default function OrganisationDirectoryPage() {
                   ))}
                 </div>
               </div>
-            )}
-
-            {/* Custom Fields Section */}
-            {orgCustomFields.some(f => f._visBack !== false) && (() => {
-              if (isLoadingOrgValues) {
-                return (
-                  <div className="space-y-3 pt-2 border-t">
-                    <div className="flex items-center gap-2">
-                      <ClipboardList className="w-4 h-4 text-blue-600" />
-                      <h4 className="font-medium text-slate-900">Additional Information</h4>
-                    </div>
-                    <div className="flex items-center justify-center py-4">
-                      <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
-                    </div>
-                  </div>
-                );
+            
+                    </React.Fragment>
+                  );
+                } else if (key.startsWith('custom:')) {
+                  const field = fieldById.get(key.slice(7));
+                  if (!field || field._visBack === false) continue;
+                  pendingCustoms.push(field);
+                }
               }
-
-              const populatedFields = getDirectoryOrderedFields(orgCustomFields, null)
-                .filter(f => f._visBack !== false)
-                .map((field) => {
-                  const valueRecord = selectedOrgValues.find(v => v.field_id === field.id);
-                  const rawValue = valueRecord?.value;
-
-                  if (!hasDirectoryFieldValue(field, rawValue)) return null;
-
-                  let displayValue = rawValue;
-
-                  // Handle picklist (array) values
-                  if (field.field_type === 'picklist' && displayValue) {
-                    try {
-                      const parsed = JSON.parse(displayValue);
-                      if (Array.isArray(parsed) && field.options) {
-                        displayValue = parsed
-                          .map(v => field.options.find(o => o.value === v)?.label || v)
-                          .join(', ');
-                      }
-                    } catch {
-                      // Keep as is
-                    }
-                  }
-
-                  // Handle dropdown - show label instead of value
-                  if (field.field_type === 'dropdown' && displayValue && field.options) {
-                    const option = field.options.find(o => o.value === displayValue);
-                    if (option) displayValue = option.label;
-                  }
-
-                  if (displayValue === '' || displayValue === null || displayValue === undefined) {
-                    return null;
-                  }
-
-                  return { field, displayValue };
-                })
-                .filter(Boolean);
-
-              if (populatedFields.length === 0) return null;
-
-              return (
-                <div className="space-y-3 pt-2 border-t">
-                  <div className="flex items-center gap-2">
-                    <ClipboardList className="w-4 h-4 text-blue-600" />
-                    <h4 className="font-medium text-slate-900">Additional Information</h4>
-                  </div>
-                  <div className="space-y-3">
-                    {populatedFields.map(({ field, displayValue }) => (
-                      <div key={field.id} className="flex justify-between items-start gap-4">
-                        <span className="text-sm text-slate-600">{field._displayLabel || field.label}</span>
-                        <span className="text-sm font-medium text-slate-900 text-right">
-                          {displayValue}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
+              flushCustoms();
+              return sections;
             })()}
+
           </div>
 
           <DialogFooter className="gap-2 sm:gap-2">
