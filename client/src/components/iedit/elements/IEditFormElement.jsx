@@ -18,7 +18,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { useIsMobile } from "@/hooks/use-mobile";
 import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
 import { AlignLeft, AlignCenter, AlignRight } from "lucide-react";
-import { isFieldValueFilled, parseCustomFieldValue } from "@/lib/formFieldPrefill";
+import { buildPrefillValues, isFieldValueFilled, resolveEffectivePrefillIds, shouldWaitForPrefillCustomValues } from "@/lib/formFieldPrefill";
 import { getFormPagination } from "@/lib/formPagination";
 
 const formQuillModules = {
@@ -75,8 +75,8 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   
   // Get URL parameters, falling back to logged-in user when no URL params present
   const urlParams = new URLSearchParams(window.location.search);
-  const prefillMemberId = urlParams.get('member_id') || (memberInfo?.id || null);
-  const prefillOrgId = urlParams.get('organization_id') || (memberInfo?.organization_id || null);
+  const urlPrefillMemberId = urlParams.get('member_id');
+  const urlPrefillOrgId = urlParams.get('organization_id');
   const draftToken = urlParams.get('draft');
   
   // Draft save state
@@ -254,6 +254,19 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     enabled: !!formSlug
   });
 
+  // Task #3336: authenticated fallback — when the form uses member/organisation
+  // prefill and no explicit URL param is supplied, prefill from the logged-in
+  // member and their associated organisation. Explicit URL params always take
+  // precedence; anonymous viewers get no fallback. Gated on the loaded form's
+  // prefill_source so forms without prefill behave exactly as before.
+  const { prefillMemberId, prefillOrgId } = resolveEffectivePrefillIds({
+    urlMemberId: urlPrefillMemberId,
+    urlOrgId: urlPrefillOrgId,
+    prefillSource: form?.prefill_source,
+    viewerMemberId: memberInfo?.id,
+    viewerOrgId: memberInfo?.organization_id || organizationInfo?.id,
+  });
+
   // Load draft if resume token is in URL
   const { data: draftData, isError: draftFetchError } = useQuery({
     queryKey: ['form-draft-embed', draftToken],
@@ -418,7 +431,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     ? prefillOrgId
     : prefillMember?.organization_id;
 
-  const { data: prefillOrgCustomValues = [] } = useQuery({
+  const { data: prefillOrgCustomValues = [], isLoading: orgCustomValuesLoading } = useQuery({
     queryKey: ['prefill-org-custom-values-embed', effectiveOrgIdForCustomFields],
     queryFn: async () => {
       const values = await base44.entities.OrganizationPreferenceValue.list({
@@ -553,60 +566,35 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     if (!defaultsInitialized) return;
     if (prefillApplied) return;
     if (draftToken && !draftLoaded && !draftFetchError) return;
-    
-    if (form.prefill_source === 'member' && memberCustomValuesLoading) {
-      return;
-    }
+
+    // Wait for BOTH member and organisation custom values before applying —
+    // the entity can resolve first, and applying then would latch
+    // prefillApplied and permanently skip custom-field prefills.
+    if (shouldWaitForPrefillCustomValues({
+      prefillSource: form.prefill_source,
+      authenticated: !!memberInfo,
+      memberId: prefillMemberId,
+      orgIdForCustomFields: effectiveOrgIdForCustomFields,
+      memberCustomValuesLoading,
+      orgCustomValuesLoading,
+    })) return;
+
     
     const memberEntity = prefillMember;
     const orgEntity = form.prefill_source === 'organization' ? prefillOrg : prefillMemberOrg;
     const primaryEntity = form.prefill_source === 'member' ? memberEntity : orgEntity;
     if (!primaryEntity) return;
 
-    const newValues = {};
-    for (const field of (form.fields || [])) {
-      if (field.type === 'organisation_dropdown') {
-        if (form.prefill_source === 'organization' && prefillOrgId) {
-          newValues[field.id] = prefillOrgId;
-        } else if (form.prefill_source === 'member' && memberEntity?.organization_id) {
-          newValues[field.id] = memberEntity.organization_id;
-        }
-        continue;
-      }
-      
-      if (!field.prefill_field) continue;
+    const newValues = buildPrefillValues({
+      form,
+      memberEntity,
+      orgEntity,
+      primaryEntity,
+      memberCustomValues: prefillMemberCustomValues,
+      orgCustomValues: prefillOrgCustomValues,
+      prefillOrgId,
+    });
 
-      const prefillField = field.prefill_field;
-      let value = null;
-
-      if (prefillField.startsWith('member:')) {
-        const fieldName = prefillField.replace('member:', '');
-        value = memberEntity?.[fieldName];
-      } else if (prefillField.startsWith('org:')) {
-        const fieldName = prefillField.replace('org:', '');
-        value = orgEntity?.[fieldName];
-      } else if (prefillField.startsWith('member_custom:')) {
-        const customFieldId = prefillField.replace('member_custom:', '');
-        const cfv = prefillMemberCustomValues.find(v => v.field_id === customFieldId);
-        value = parseCustomFieldValue(cfv, field.type);
-      } else if (prefillField.startsWith('org_custom:')) {
-        const customFieldId = prefillField.replace('org_custom:', '');
-        const cfv = prefillOrgCustomValues.find(v => v.field_id === customFieldId);
-        value = parseCustomFieldValue(cfv, field.type);
-      } else if (prefillField.startsWith('custom:')) {
-        const customFieldId = prefillField.replace('custom:', '');
-        const customValues = form.prefill_source === 'member' ? prefillMemberCustomValues : prefillOrgCustomValues;
-        const cfv = customValues.find(v => v.field_id === customFieldId);
-        value = parseCustomFieldValue(cfv, field.type);
-      } else {
-        value = primaryEntity?.[prefillField];
-      }
-
-      if (value !== null && value !== undefined) {
-        newValues[field.id] = value;
-      }
-    }
-    
     if (Object.keys(newValues).length > 0) {
       setFormValues(prev => {
         const merged = { ...prev };
@@ -624,9 +612,13 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
         }
         return merged;
       });
-      setPrefillApplied(true);
     }
-  }, [form, prefillMember, prefillOrg, prefillMemberOrg, prefillMemberCustomValues, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId, memberCustomValuesLoading, draftToken, draftLoaded, draftData, draftFetchError]);
+    // Latch even when nothing matched: the target entity and custom values
+    // have settled, so an empty result is final. Without this, a later query
+    // refetch could re-run prefill and overwrite values the user has since
+    // edited. Draft precedence is preserved by the merge above.
+    setPrefillApplied(true);
+  }, [form, prefillMember, prefillOrg, prefillMemberOrg, prefillMemberCustomValues, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId, prefillMemberId, effectiveOrgIdForCustomFields, memberInfo, memberCustomValuesLoading, orgCustomValuesLoading, draftToken, draftLoaded, draftData, draftFetchError]);
 
   // Helper to evaluate a rule condition
   const evaluateSingleCondition = (triggerValue, operator, value) => {

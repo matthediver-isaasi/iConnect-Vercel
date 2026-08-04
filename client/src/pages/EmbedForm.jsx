@@ -7,7 +7,13 @@ import { Loader2, ChevronLeft, ChevronRight, CheckCircle2 } from "lucide-react";
 import FormRenderer from "../components/forms/FormRenderer";
 import { toast, Toaster } from "sonner";
 import { publicClient } from "@/api/publicClient";
+import { base44 } from "@/api/base44Client";
+import { buildPrefillValues, resolveEffectivePrefillIds, shouldWaitForPrefillCustomValues } from "@/lib/formFieldPrefill";
 import { useSubmissionIdempotencyKey } from "@/lib/useSubmissionIdempotencyKey";
+
+// Stable empty array so disabled custom-value queries don't create a fresh
+// default identity every render (which would re-trigger dependent effects).
+const EMPTY_ARRAY = [];
 
 export default function EmbedFormPage() {
   const { slug } = useParams();
@@ -31,24 +37,131 @@ export default function EmbedFormPage() {
     setFieldValidity(prev => ({ ...prev, [fieldId]: isValid }));
   };
 
-  const prefillOrgId = searchParams.get('organization_id');
+  const urlPrefillMemberId = searchParams.get('member_id');
+  const urlPrefillOrgId = searchParams.get('organization_id');
   const tenantParam = searchParams.get('tenant');
   const fontFamilyParam = searchParams.get('font') || '';
   const fontSizeParam = searchParams.get('fontSize') || '';
 
+  // Task #3336: resolve the authenticated member inside the embed iframe.
+  // The Canvas Form Embed block uses a same-origin iframe, so the session
+  // cookie flows with this request. Never throws — anonymous viewers (or any
+  // failure) resolve to null and the form degrades gracefully to blank fields.
+  const { data: authMember = null } = useQuery({
+    queryKey: ['embed-auth-member'],
+    queryFn: async () => {
+      try {
+        const response = await fetch('/api/auth/me', { credentials: 'include' });
+        if (!response.ok) return null;
+        const member = await response.json();
+        return member && member.id ? member : null;
+      } catch {
+        return null;
+      }
+    },
+    staleTime: 5 * 60 * 1000,
+    retry: false
+  });
+
   const { data: form, isLoading, error } = useQuery({
-    queryKey: ['embed-form', slug, tenantParam],
-    queryFn: async () => await publicClient.getForm(slug) || null,
+    queryKey: ['embed-form', slug, tenantParam, !!authMember],
+    queryFn: async () => await publicClient.getForm(slug, { authenticated: !!authMember }) || null,
     enabled: !!slug
   });
 
+  // Task #3336: authenticated fallback — when the form uses member/organisation
+  // prefill and no explicit URL param is supplied, prefill from the logged-in
+  // member and their associated organisation. Explicit URL params always take
+  // precedence; anonymous viewers get no fallback.
+  const { prefillMemberId, prefillOrgId } = resolveEffectivePrefillIds({
+    urlMemberId: urlPrefillMemberId,
+    urlOrgId: urlPrefillOrgId,
+    prefillSource: form?.prefill_source,
+    viewerMemberId: authMember?.id,
+    viewerOrgId: authMember?.organization_id,
+  });
+
+  // Prefill: fetch the target entities and custom values. Mirrors FormView's
+  // dual path — the authenticated entity API when a session exists (full
+  // data), the public prefill endpoints otherwise (safe subset) so explicit
+  // ?member_id/?organization_id URLs work for anonymous viewers too.
+  const { data: prefillMemberData } = useQuery({
+    queryKey: ['prefill-member-embedform', prefillMemberId, !!authMember],
+    queryFn: async () => {
+      if (authMember) {
+        const member = await base44.entities.Member.get(prefillMemberId);
+        return { member, customValues: null };
+      }
+      return publicClient.getPrefillMember(prefillMemberId, slug);
+    },
+    enabled: !!prefillMemberId && form?.prefill_source === 'member'
+  });
+
+  const prefillMember = prefillMemberData?.member || null;
+
+  const { data: prefillOrg } = useQuery({
+    queryKey: ['prefill-org-embedform', prefillOrgId, !!authMember],
+    queryFn: async () => {
+      if (authMember) {
+        return base44.entities.Organization.get(prefillOrgId);
+      }
+      return publicClient.getOrganization(prefillOrgId);
+    },
+    enabled: !!prefillOrgId && form?.prefill_source === 'organization'
+  });
+
+  const { data: prefillMemberOrg } = useQuery({
+    queryKey: ['prefill-member-org-embedform', prefillMember?.organization_id, !!authMember],
+    queryFn: async () => {
+      if (authMember) {
+        return base44.entities.Organization.get(prefillMember.organization_id);
+      }
+      return publicClient.getOrganization(prefillMember.organization_id);
+    },
+    enabled: !!prefillMember?.organization_id && form?.prefill_source === 'member'
+  });
+
+  const { data: prefillMemberCustomValues = EMPTY_ARRAY, isLoading: memberCustomValuesLoading } = useQuery({
+    queryKey: ['prefill-member-custom-values-embedform', prefillMemberId, !!authMember],
+    queryFn: async () => {
+      if (authMember) {
+        const values = await base44.entities.MemberPreferenceValue.list({
+          filter: { member_id: prefillMemberId }
+        });
+        return values || [];
+      }
+      return prefillMemberData?.customValues || [];
+    },
+    enabled: !!prefillMemberId && form?.prefill_source === 'member' && (!!authMember || !!prefillMemberData)
+  });
+
+  // Org custom values come from the direct org prefill target or, for member
+  // prefill, the member's own organisation (so org custom-field prefill also
+  // works from the authenticated fallback org).
+  const effectiveOrgIdForCustomFields = form?.prefill_source === 'organization'
+    ? prefillOrgId
+    : prefillMember?.organization_id;
+
+  const { data: prefillOrgCustomValues = EMPTY_ARRAY, isLoading: orgCustomValuesLoading } = useQuery({
+    queryKey: ['prefill-org-custom-values-embedform', effectiveOrgIdForCustomFields],
+    queryFn: async () => {
+      // Public endpoint (as in FormView) so anonymous explicit-param prefill
+      // also gets org custom values.
+      const values = await publicClient.getOrganizationPreferenceValues(effectiveOrgIdForCustomFields);
+      return values || [];
+    },
+    enabled: !!effectiveOrgIdForCustomFields && !!form?.prefill_source && form.prefill_source !== 'none'
+  });
+
   const [defaultsInitialized, setDefaultsInitialized] = useState(false);
+  const [prefillApplied, setPrefillApplied] = useState(false);
 
   useEffect(() => {
     setCurrentPageIndex(0);
     setCurrentStep(0);
     setSubmitted(false);
     setDefaultsInitialized(false);
+    setPrefillApplied(false);
     setFormValues({});
   }, [form?.id]);
 
@@ -79,6 +192,64 @@ export default function EmbedFormPage() {
     }
     setDefaultsInitialized(true);
   }, [form?.fields, defaultsInitialized]);
+
+  // Prefill: populate form values when the prefill entity loads (one-time only).
+  // Mirrors the FormView / IEditFormElement mapping for member/organisation
+  // prefill sources. Waits for defaults so booleans aren't overwritten, and for
+  // custom values so custom-field prefill isn't skipped by a race.
+  useEffect(() => {
+    if (!form || !form.prefill_source || form.prefill_source === 'none') return;
+    if (!defaultsInitialized) return;
+    if (prefillApplied) return;
+    // Wait for BOTH member and organisation custom values before applying —
+    // the entity can resolve first, and applying then would latch
+    // prefillApplied and permanently skip custom-field prefills.
+    if (shouldWaitForPrefillCustomValues({
+      prefillSource: form.prefill_source,
+      // The custom-value queries also run for anonymous viewers (public
+      // endpoints), so the gate must apply regardless of auth state.
+      authenticated: true,
+      memberId: prefillMemberId,
+      orgIdForCustomFields: effectiveOrgIdForCustomFields,
+      memberCustomValuesLoading,
+      orgCustomValuesLoading,
+    })) return;
+
+    const memberEntity = prefillMember;
+    const orgEntity = form.prefill_source === 'organization' ? prefillOrg : prefillMemberOrg;
+    const primaryEntity = form.prefill_source === 'member' ? memberEntity : orgEntity;
+    if (!primaryEntity) return;
+
+    const newValues = buildPrefillValues({
+      form,
+      memberEntity,
+      orgEntity,
+      primaryEntity,
+      memberCustomValues: prefillMemberCustomValues,
+      orgCustomValues: prefillOrgCustomValues,
+      prefillOrgId,
+    });
+
+    if (Object.keys(newValues).length > 0) {
+      setFormValues(prev => {
+        const merged = { ...prev };
+        for (const [key, value] of Object.entries(newValues)) {
+          const field = form.fields?.find(f => f.id === key);
+          if (field?.type === 'boolean') {
+            merged[key] = value;
+          } else if (prev[key] === undefined || prev[key] === '' || prev[key] === null) {
+            merged[key] = value;
+          }
+        }
+        return merged;
+      });
+    }
+    // Latch even when nothing matched: the entity and custom values have
+    // settled, so an empty result is final. Without this, a later query
+    // refetch could re-run prefill and overwrite values the user has since
+    // typed into (then cleared/edited) blank fields.
+    setPrefillApplied(true);
+  }, [form, prefillMember, prefillOrg, prefillMemberOrg, prefillMemberCustomValues, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId, prefillMemberId, effectiveOrgIdForCustomFields, authMember, memberCustomValuesLoading, orgCustomValuesLoading]);
 
   const originalValuesRef = useRef({});
   const activeSetValueActionsRef = useRef(new Set());
@@ -422,7 +593,10 @@ export default function EmbedFormPage() {
     mutationFn: (submissionData) => publicClient.submitForm({
       ...submissionData,
       idempotency_key: getIdempotencyKey(),
-      prefill_organization_id: prefillOrgId || null
+      // Submission-side mapping is out of scope for the authenticated prefill
+      // fallback (the server already uses the authenticated member/org), so
+      // only an explicit URL param is forwarded here — unchanged behaviour.
+      prefill_organization_id: urlPrefillOrgId || null
     }),
     onSuccess: async () => {
       rotateIdempotencyKey();

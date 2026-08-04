@@ -60,6 +60,108 @@ export const isFieldValueFilled = (field, value) => {
   return true;
 };
 
+// Task #3336: shared precedence rule for the prefill target across all three
+// form surfaces (FormView, EmbedForm iframe, IEditFormElement):
+//   explicit URL param > authenticated member/org > nothing.
+// The authenticated fallback only applies when the LOADED form actually uses
+// member/organisation prefill, so non-prefill forms and anonymous viewers
+// behave exactly as before.
+export const resolveEffectivePrefillIds = ({
+  urlMemberId,
+  urlOrgId,
+  prefillSource,
+  viewerMemberId,
+  viewerOrgId,
+}) => {
+  const eligible = !!viewerMemberId &&
+    (prefillSource === 'member' || prefillSource === 'organization');
+  return {
+    prefillMemberId: urlMemberId || (eligible ? (viewerMemberId || null) : null),
+    prefillOrgId: urlOrgId || (eligible ? (viewerOrgId || null) : null),
+  };
+};
+
+// Task #3336: shared readiness gate for the one-time prefill effect. The
+// effect must NOT apply (and latch prefillApplied) while any custom-value
+// query that will feed `member_custom:` / `org_custom:` / legacy `custom:`
+// fields is still in flight, otherwise those fields are permanently skipped
+// when the entity resolves before the custom values do.
+// Each *_CustomValuesLoading flag should be the react-query isLoading of the
+// respective query; the id args mirror the queries' `enabled` predicates so a
+// permanently-disabled query can never block prefill.
+export const shouldWaitForPrefillCustomValues = ({
+  prefillSource,
+  authenticated,
+  memberId,
+  orgIdForCustomFields,
+  memberCustomValuesLoading,
+  orgCustomValuesLoading,
+}) => {
+  if (!prefillSource || prefillSource === 'none') return false;
+  if (!authenticated) return false;
+  if (prefillSource === 'member' && memberId && memberCustomValuesLoading) return true;
+  if (orgIdForCustomFields && orgCustomValuesLoading) return true;
+  return false;
+};
+
+// Task #3336: pure mapping from a form's field prefill config to form values,
+// for the member/organisation prefill sources. Returns an object of
+// fieldId -> value; an EMPTY object is a legitimate outcome (entity resolved
+// but nothing matched) and callers must STILL latch their one-time
+// prefill-applied flag, or later query refetches can overwrite user input.
+export const buildPrefillValues = ({
+  form,
+  memberEntity,
+  orgEntity,
+  primaryEntity,
+  memberCustomValues = [],
+  orgCustomValues = [],
+  prefillOrgId = null,
+}) => {
+  const newValues = {};
+  for (const field of (form?.fields || [])) {
+    if (field.type === 'organisation_dropdown') {
+      if (form.prefill_source === 'organization' && prefillOrgId) {
+        newValues[field.id] = prefillOrgId;
+      } else if (form.prefill_source === 'member' && memberEntity?.organization_id) {
+        newValues[field.id] = memberEntity.organization_id;
+      }
+      continue;
+    }
+
+    if (!field.prefill_field) continue;
+
+    const prefillField = field.prefill_field;
+    let value = null;
+
+    if (prefillField.startsWith('member:')) {
+      value = memberEntity?.[prefillField.replace('member:', '')];
+    } else if (prefillField.startsWith('org:')) {
+      value = orgEntity?.[prefillField.replace('org:', '')];
+    } else if (prefillField.startsWith('member_custom:')) {
+      const customFieldId = prefillField.replace('member_custom:', '');
+      const cfv = memberCustomValues.find(v => v.field_id === customFieldId);
+      value = parseCustomFieldValue(cfv, field.type);
+    } else if (prefillField.startsWith('org_custom:')) {
+      const customFieldId = prefillField.replace('org_custom:', '');
+      const cfv = orgCustomValues.find(v => v.field_id === customFieldId);
+      value = parseCustomFieldValue(cfv, field.type);
+    } else if (prefillField.startsWith('custom:')) {
+      const customFieldId = prefillField.replace('custom:', '');
+      const customValues = form.prefill_source === 'member' ? memberCustomValues : orgCustomValues;
+      const cfv = customValues.find(v => v.field_id === customFieldId);
+      value = parseCustomFieldValue(cfv, field.type);
+    } else {
+      value = primaryEntity?.[prefillField];
+    }
+
+    if (value !== null && value !== undefined) {
+      newValues[field.id] = value;
+    }
+  }
+  return newValues;
+};
+
 export const parseCustomFieldValue = (cfv, fieldType) => {
   if (!cfv || cfv.value === undefined || cfv.value === null) return null;
   let parsedValue = cfv.value;

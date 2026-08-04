@@ -9,7 +9,7 @@ import FormRenderer from "../components/forms/FormRenderer";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useLayoutContext } from "@/contexts/LayoutContext";
-import { isFieldValueFilled, parseCustomFieldValue } from "@/lib/formFieldPrefill";
+import { isFieldValueFilled, parseCustomFieldValue, resolveEffectivePrefillIds, shouldWaitForPrefillCustomValues } from "@/lib/formFieldPrefill";
 import { getFormPagination } from "@/lib/formPagination";
 import { useSubmissionIdempotencyKey } from "@/lib/useSubmissionIdempotencyKey";
 
@@ -80,8 +80,8 @@ export default function FormViewPage({ slug: slugProp = null }) {
   const queryClient = useQueryClient();
   const urlParams = new URLSearchParams(window.location.search);
   const formSlug = slugProp || urlParams.get('slug');
-  const prefillMemberId = urlParams.get('member_id');
-  const prefillOrgId = urlParams.get('organization_id');
+  const urlPrefillMemberId = urlParams.get('member_id');
+  const urlPrefillOrgId = urlParams.get('organization_id');
   const prefillBookingId = urlParams.get('booking_id');
   const draftToken = urlParams.get('draft');
   const contractInstanceId = urlParams.get('contract_instance');
@@ -120,6 +120,19 @@ export default function FormViewPage({ slug: slugProp = null }) {
     },
     enabled: !!formSlug,
     retry: false
+  });
+
+  // Task #3336: authenticated fallback — when the form uses member/organisation
+  // prefill and no explicit URL param is supplied, prefill from the logged-in
+  // member and their associated organisation. Explicit URL params always take
+  // precedence; anonymous viewers get no fallback. Gated on the loaded form's
+  // prefill_source so forms without prefill behave exactly as before.
+  const { prefillMemberId, prefillOrgId } = resolveEffectivePrefillIds({
+    urlMemberId: urlPrefillMemberId,
+    urlOrgId: urlPrefillOrgId,
+    prefillSource: form?.prefill_source,
+    viewerMemberId: memberInfo?.id,
+    viewerOrgId: memberInfo?.organization_id || organizationInfo?.id,
   });
 
   useEffect(() => {
@@ -635,13 +648,21 @@ export default function FormViewPage({ slug: slugProp = null }) {
       return;
     }
     
-    if (form.prefill_source === 'organization' && orgCustomValuesLoading) {
-      console.log('[FormView Prefill] Waiting for org custom values to load...');
-      return;
-    }
-    
-    if (form.prefill_source === 'member' && memberCustomValuesLoading) {
-      console.log('[FormView Prefill] Waiting for member custom values to load...');
+    // Wait for BOTH member and organisation custom values before applying —
+    // the entity can resolve first (e.g. member loads before the member-org
+    // custom-values query settles), and applying then would latch
+    // prefillApplied and permanently skip custom-field prefills.
+    // authenticated:true because FormView's custom-value queries also run for
+    // anonymous viewers via the public endpoints.
+    if (shouldWaitForPrefillCustomValues({
+      prefillSource: form.prefill_source,
+      authenticated: true,
+      memberId: prefillMemberId,
+      orgIdForCustomFields: effectiveOrgIdForCustomFields,
+      memberCustomValuesLoading,
+      orgCustomValuesLoading,
+    })) {
+      console.log('[FormView Prefill] Waiting for custom values to load...');
       return;
     }
     
@@ -752,11 +773,15 @@ export default function FormViewPage({ slug: slugProp = null }) {
         console.log('[FormView Prefill] Merged formValues:', merged);
         return merged;
       });
-      setPrefillApplied(true);
     } else {
       console.log('[FormView Prefill] No newValues to apply - check if fields have prefill_field configured');
     }
-  }, [form, prefillMember, effectiveOrgEntity, prefillMemberCustomValues, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId, orgCustomValuesLoading, memberCustomValuesLoading, draftToken, draftLoaded, prefillBooking, prefillBookingMember, prefillBookingOrg, prefillBookingMemberCustomValues, prefillBookingOrgCustomValues, bookingPrefillLoading]);
+    // Latch even when nothing matched: the target entity and custom values
+    // have settled, so an empty result is final. Without this, a later query
+    // refetch could re-run prefill and overwrite values the user has since
+    // edited.
+    setPrefillApplied(true);
+  }, [form, prefillMember, effectiveOrgEntity, prefillMemberCustomValues, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId, prefillMemberId, effectiveOrgIdForCustomFields, orgCustomValuesLoading, memberCustomValuesLoading, draftToken, draftLoaded, prefillBooking, prefillBookingMember, prefillBookingOrg, prefillBookingMemberCustomValues, prefillBookingOrgCustomValues, bookingPrefillLoading]);
 
   // Duplicate-submission guard: shared per-session idempotency key (sent on
   // every attempt, rotated only after a successful submit).
