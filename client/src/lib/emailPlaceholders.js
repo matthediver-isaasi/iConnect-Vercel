@@ -1380,6 +1380,14 @@ export const EMAIL_PLACEHOLDERS = [
     'api/_lib/membershipFeeTokenEmail.js',
   ),
   entry(
+    '{{invoice_description}}',
+    PLACEHOLDER_SYNTAX.CURLY,
+    'Membership Fees',
+    'The tier config\'s "Description for invoice" text (with {year} substituted), matching the fee line on the Xero/QBO invoice. Empty string when no description is configured.',
+    ['Membership Fee Link'],
+    'api/_lib/membershipFeeTokenEmail.js',
+  ),
+  entry(
     '{{tenant_name}}',
     PLACEHOLDER_SYNTAX.CURLY,
     'Membership Fees',

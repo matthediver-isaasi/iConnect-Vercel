@@ -119,12 +119,13 @@ async function ensureMemberTokenColumns(client) {
   }
 }
 
-function buildBreakdownRows(currencySymbol, costBreakdown, finalCost) {
+function buildBreakdownRows(currencySymbol, costBreakdown, finalCost, feeLineLabel) {
   const rows = [];
+  const feeLabel = feeLineLabel || 'Annual Membership Fee';
   if (costBreakdown.annualCostBeforeDiscounts != null && costBreakdown.annualCostBeforeDiscounts !== finalCost) {
-    rows.push({ label: 'Annual Membership Fee', value: `${currencySymbol}${parseFloat(costBreakdown.annualCostBeforeDiscounts).toFixed(2)}` });
+    rows.push({ label: feeLabel, value: `${currencySymbol}${parseFloat(costBreakdown.annualCostBeforeDiscounts).toFixed(2)}` });
   } else if (costBreakdown.annualCost != null) {
-    rows.push({ label: 'Annual Membership Fee', value: `${currencySymbol}${parseFloat(costBreakdown.annualCost).toFixed(2)}` });
+    rows.push({ label: feeLabel, value: `${currencySymbol}${parseFloat(costBreakdown.annualCost).toFixed(2)}` });
   }
   if (Array.isArray(costBreakdown.customDiscountDetails) && costBreakdown.customDiscountDetails.length > 0) {
     costBreakdown.customDiscountDetails.forEach((d) => {
@@ -386,7 +387,15 @@ export async function sendMembershipFeeTokenEmail({
   const currencySymbol = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' }[currency] || currency;
 
   const cb = costBreakdown || {};
-  const rows = buildBreakdownRows(currencySymbol, cb, finalCost);
+  const escapeHtmlLabel = (s) => String(s || '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  // Mirror the Xero/QBO invoice description, including {year} substitution
+  // (see membershipSimulation.js buildInvoiceDescription usage).
+  const invoiceDescription = (tierConfig?.invoice_description || '')
+    .replace(/\{year\}/gi, membershipYear || '')
+    .trim();
+  const feeLineLabel = invoiceDescription ? escapeHtmlLabel(invoiceDescription) : null;
+  const rows = buildBreakdownRows(currencySymbol, cb, finalCost, feeLineLabel);
   const hasVat = cb.vatAmount > 0;
   const displayTotal = hasVat ? cb.totalWithVat : finalCost;
   if (hasVat) {
@@ -468,6 +477,7 @@ export async function sendMembershipFeeTokenEmail({
       expires_at: expiresHuman,
       xero_invoice_number: xeroInvoiceNumber || '',
       xero_online_invoice_url: xeroOnlineInvoiceUrl || '',
+      invoice_description: invoiceDescription || '',
       tenant_name: tenantName,
     };
     emailHtml = renderFeeLinkPlaceholders(customTemplate.body || defaultEmailHtml, placeholderData);
