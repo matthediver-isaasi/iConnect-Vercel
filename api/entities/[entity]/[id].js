@@ -767,6 +767,16 @@ export default async function handler(req, res) {
       // SECURITY: Protect system canvas pages (slug='login') from slug/title mutation
       // and enforce that publishing a login canvas page requires a login-form block.
       if (entity === 'IEditPage') {
+        // Task #3371: static "AI generated" page content is immutable via the
+        // API — static_html/static_css are sanitized+scoped at store time by
+        // platform tooling only. Metadata (title/slug/status/chrome) stays
+        // manageable; content fields are silently dropped like other
+        // server-owned fields. builder_type is immutable after creation for
+        // every page class (a DB trigger raises on change; stripping it here
+        // keeps the API's contract explicit and its errors friendly).
+        delete sanitizedBody.static_html;
+        delete sanitizedBody.static_css;
+        delete sanitizedBody.builder_type;
         const needsSlugCheck = sanitizedBody.slug !== undefined || sanitizedBody.title !== undefined;
         const isPublishing = sanitizedBody.status === 'published';
         if (needsSlugCheck || isPublishing) {

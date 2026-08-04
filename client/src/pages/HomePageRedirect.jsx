@@ -2,6 +2,7 @@ import { useLayoutEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import IEditElementRenderer from "../components/iedit/IEditElementRenderer";
 import CanvasPageRenderer from "../components/canvas/CanvasPageRenderer";
+import StaticHtmlPageRenderer from "../components/staticpage/StaticHtmlPageRenderer";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import Events from "./Events";
@@ -69,6 +70,16 @@ export default function HomePageRedirect() {
 
   if (pageLoading || !pageData?.page) {
     return null;
+  }
+
+  // Static AI-generated pages (Task #3371) carry their whole body on the
+  // page row — mirror DynamicPage's dispatch.
+  if (pageData.page.builder_type === 'ai_static') {
+    return (
+      <div className="w-full" data-testid="home-page-static">
+        <StaticHtmlPageRenderer page={pageData.page} />
+      </div>
+    );
   }
 
   // Canvas Builder pages render via their own design document instead of

@@ -62,6 +62,17 @@ export default function PageManagerItem({
   const isPinned = !!page.pinned_at;
   const isHome = homePageSlug === page.slug;
   const isLogin = page.slug === "login";
+  // Task #3371: 'ai_static' pages are read-only static HTML/CSS — no builder
+  // exists for them. They show a distinct badge, no Edit entry point (only
+  // the settings/rename dialog for metadata), and cannot be duplicated (the
+  // entity API refuses to create ai_static rows).
+  const isStatic = page.builder_type === "ai_static";
+  const builderLabel =
+    page.builder_type === "canvas"
+      ? "Canvas"
+      : isStatic
+      ? "AI generated"
+      : "iEdit";
 
   const layoutLabel =
     page.layout_type === "member"
@@ -119,7 +130,7 @@ export default function PageManagerItem({
             {layoutLabel}
           </Badge>
           <Badge variant="outline" className="flex-shrink-0 hidden md:inline-flex">
-            {page.builder_type === "canvas" ? "Canvas" : "iEdit"}
+            {builderLabel}
           </Badge>
           {page.microsite_id && (
             <Badge
@@ -190,7 +201,7 @@ export default function PageManagerItem({
           <div className="text-sm">
             <span className="text-slate-500">Builder:</span>
             <Badge variant="outline" className="ml-2">
-              {page.builder_type === "canvas" ? "Canvas" : "iEdit"}
+              {builderLabel}
             </Badge>
             {page.microsite_id && (
               <Badge
@@ -369,7 +380,7 @@ export default function PageManagerItem({
             : "Public"}
         </Badge>
         <Badge variant="outline" className="flex-shrink-0 hidden md:inline-flex">
-          {page.builder_type === "canvas" ? "Canvas" : "iEdit"}
+          {builderLabel}
         </Badge>
         {page.microsite_id && (
           <Badge
@@ -397,9 +408,9 @@ export default function PageManagerItem({
           <Button
             variant="outline"
             size="icon"
-            onClick={() => onEdit(page)}
-            title="Edit"
-            data-testid={`button-edit-page-${page.id}`}
+            onClick={() => (isStatic ? onRename(page) : onEdit(page))}
+            title={isStatic ? "AI-generated page — content is not editable. Open page settings." : "Edit"}
+            data-testid={isStatic ? `button-settings-page-${page.id}` : `button-edit-page-${page.id}`}
           >
             <Pencil className="w-3 h-3" />
           </Button>
@@ -431,8 +442,8 @@ export default function PageManagerItem({
               variant="outline"
               size="icon"
               onClick={() => onDuplicate(page)}
-              disabled={duplicatePending}
-              title="Duplicate"
+              disabled={duplicatePending || isStatic}
+              title={isStatic ? "AI-generated pages cannot be duplicated" : "Duplicate"}
               data-testid={`button-duplicate-page-${page.id}`}
             >
               <Copy className="w-3 h-3" />
@@ -519,7 +530,7 @@ export default function PageManagerItem({
             className="ml-2"
             data-testid={`badge-builder-type-${page.id}`}
           >
-            {page.builder_type === "canvas" ? "Canvas" : "iEdit"}
+            {builderLabel}
           </Badge>
           {page.microsite_id && (
             <Badge
@@ -552,12 +563,13 @@ export default function PageManagerItem({
           <Button
             variant="outline"
             size="sm"
-            onClick={() => onEdit(page)}
+            onClick={() => (isStatic ? onRename(page) : onEdit(page))}
             className="flex-1"
-            data-testid={`button-edit-page-${page.id}`}
+            title={isStatic ? "AI-generated page — content is not editable. Open page settings." : "Edit"}
+            data-testid={isStatic ? `button-settings-page-${page.id}` : `button-edit-page-${page.id}`}
           >
             <Pencil className="w-3 h-3 mr-1" />
-            Edit
+            {isStatic ? "Settings" : "Edit"}
           </Button>
           {pinButton}
           {page.status === "published" && (
@@ -585,7 +597,7 @@ export default function PageManagerItem({
               <Pencil className="w-3 h-3" />
             </Button>
           )}
-          {!isLogin && (
+          {!isLogin && !isStatic && (
             <Button
               variant="outline"
               size="icon"

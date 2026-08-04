@@ -502,7 +502,7 @@ async function resolveIEditPage(tenantId, slug, microsite = null) {
   // (canonical URL is the prefixed path); without it, pages assigned to a
   // microsite must NOT resolve at their bare slug. Legacy-tolerant: if the
   // microsite_id column doesn't exist yet, retry without it.
-  const baseColumns = 'id, title, slug, description, meta_title, meta_description, seo_title, seo_description, og_image_url, status, layout_type, builder_type, canvas_design';
+  const baseColumns = 'id, title, slug, description, meta_title, meta_description, seo_title, seo_description, og_image_url, status, layout_type, builder_type, canvas_design, static_html';
   let page = null;
   const { data, error } = await supabase
     .from('i_edit_page')
@@ -554,7 +554,17 @@ async function resolveIEditPage(tenantId, slug, microsite = null) {
   // of the i_edit_page_element table. Phase 1 keeps the fallback minimal:
   // walk the design tree for any text/image content using the same
   // CMS_TEXT_FIELDS / CMS_IMAGE_FIELDS extractors used for iEdit elements.
-  if (page.builder_type === 'canvas') {
+  if (page.builder_type === 'ai_static') {
+    // Static AI-generated pages (Task #3371): derive description/image from
+    // the store-time-sanitized HTML body.
+    if (!description && page.static_html) {
+      description = stripHtml(page.static_html);
+    }
+    if (!image && page.static_html) {
+      const imgMatch = String(page.static_html).match(/<img[^>]+src="([^"]+)"/i);
+      if (imgMatch) image = imgMatch[1];
+    }
+  } else if (page.builder_type === 'canvas') {
     if ((!description || !image) && page.canvas_design && typeof page.canvas_design === 'object') {
       if (!image) image = extractCmsImage(page.canvas_design);
       if (!description) {

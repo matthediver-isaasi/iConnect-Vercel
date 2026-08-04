@@ -5,6 +5,7 @@ import { publicClient } from "@/api/publicClient";
 import { useQuery } from "@tanstack/react-query";
 import IEditElementRenderer from "../components/iedit/IEditElementRenderer";
 import CanvasPageRenderer from "../components/canvas/CanvasPageRenderer";
+import StaticHtmlPageRenderer from "../components/staticpage/StaticHtmlPageRenderer";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
@@ -205,6 +206,12 @@ export default function DynamicPage() {
       // (`!microsite && page.microsite_id` → 404) so the authenticated fallback
       // does not leak microsite pages at their bare /{slug} URL.
       if (page.microsite_id) return { page: null, elements: [] };
+
+      // Static AI-generated pages (Task #3371) carry their whole body on the
+      // page row (static_html/static_css) — no element rows, no symbols.
+      if (page.builder_type === 'ai_static') {
+        return { page, elements: [] };
+      }
 
       // Canvas Builder pages have no i_edit_page_element rows — their
       // layout lives in canvas_design on the page row itself. Skip the
@@ -665,6 +672,16 @@ export default function DynamicPage() {
             Log In
           </a>
         </div>
+      </div>
+    );
+  }
+
+  // Static AI-generated pages (Task #3371): pre-sanitized HTML + page-scoped
+  // CSS stored on the row itself; rendered read-only inside normal chrome.
+  if (page.builder_type === 'ai_static') {
+    return (
+      <div className="w-full" data-testid={`dynamic-page-${slug}`}>
+        <StaticHtmlPageRenderer page={page} />
       </div>
     );
   }

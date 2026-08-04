@@ -147,4 +147,5 @@
 - [Survey event assignments](survey-event-assignments.md) — token-resolved server-side event linkage; per-assignment dedupe; new form_submission survey columns need the RPC allowlist redefined.
 - [Survey forms & scoring path](survey-forms.md) — one authoritative submission endpoint; anonymity/redaction must read the published snapshot, not live config; publish + snapshot writes are server-only.
 - [Survey reporting anonymity boundary](survey-reporting.md) — every survey-report view/export must apply the threshold-suppression + generated-reference check; aggregation always from raw answers.
+- [Static "AI generated" page class](static-page-class.md) — builder_type='ai_static' pages render stored sanitized HTML/CSS read-only; writes only via the store-time sanitize+scope helper, never the entity API.
 - [Unified directory card-back ordering](directory-back-order.md) — one mixed core+custom order list; resolver duplicated client+server, keep in sync; visibility toggles still gate content.

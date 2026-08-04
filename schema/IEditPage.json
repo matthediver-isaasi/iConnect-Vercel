@@ -79,6 +79,24 @@
         "format": "date-time",
         "description": "When set, the page is pinned to the top of its folder view in the admin page manager"
       },
+      "builder_type": {
+        "type": "string",
+        "enum": [
+          "iedit",
+          "canvas",
+          "ai_static"
+        ],
+        "default": "iedit",
+        "description": "Which page builder this page uses: 'iedit' (legacy element renderer), 'canvas' (Canvas Builder), or 'ai_static' (read-only AI-generated static HTML/CSS; no editor). Set at creation; immutable afterwards."
+      },
+      "static_html": {
+        "type": "string",
+        "description": "Sanitized static body HTML. Only used when builder_type = 'ai_static'. Written exclusively by platform tooling (store-time sanitisation via api/_lib/staticPageContent.js); the generic entity API strips this field from create/update payloads."
+      },
+      "static_css": {
+        "type": "string",
+        "description": "Page CSS for builder_type = 'ai_static', scoped at store time so every selector starts with [data-static-page=\"<page id>\"]. Written exclusively by platform tooling; stripped from entity API payloads."
+      },
       "microsite_id": {
         "type": "string",
         "description": "Microsite this page belongs to (task #2426). Null = default tenant site. Assigned pages are served at /{microsite prefix}/{slug} with the microsite's chrome."

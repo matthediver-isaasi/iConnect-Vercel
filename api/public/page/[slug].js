@@ -115,6 +115,20 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Page not found or not published' });
     }
 
+    // Static AI-generated pages (Task #3371): the whole body lives on the
+    // page row (static_html sanitized + static_css scoped at store time), so
+    // there are no element rows to fetch. Return the row as-is — the client
+    // renders static_html/static_css verbatim inside chrome.
+    if (page.builder_type === 'ai_static') {
+      // Always revalidate so status/content updates are reflected immediately.
+      res.setHeader('Cache-Control', 'no-store, must-revalidate');
+      return res.status(200).json({
+        success: true,
+        page,
+        elements: [],
+      });
+    }
+
     // Canvas Builder pages have no i_edit_page_element rows — their layout
     // lives in canvas_design on the page row itself. Skip the element query
     // entirely to avoid an unnecessary round trip on every public request.

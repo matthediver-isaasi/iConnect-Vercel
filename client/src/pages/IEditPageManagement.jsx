@@ -1544,6 +1544,11 @@ export default function IEditPageManagementPage() {
                       homePageSlug={homePageSlug}
                       getStatusBadge={getStatusBadge}
                       onEdit={(p) => {
+                        if (p.builder_type === 'ai_static') {
+                          // Task #3371: AI-generated static pages have no editor.
+                          openRenameDialog(p);
+                          return;
+                        }
                         const editorPage = p.builder_type === 'canvas' ? 'CanvasPageEditor' : 'IEditPageEditor';
                         navigate(buildEditorUrl(editorPage, p.id));
                       }}
@@ -1574,6 +1579,11 @@ export default function IEditPageManagementPage() {
                       homePageSlug={homePageSlug}
                       getStatusBadge={getStatusBadge}
                       onEdit={(p) => {
+                        if (p.builder_type === 'ai_static') {
+                          // Task #3371: AI-generated static pages have no editor.
+                          openRenameDialog(p);
+                          return;
+                        }
                         const editorPage = p.builder_type === 'canvas' ? 'CanvasPageEditor' : 'IEditPageEditor';
                         navigate(buildEditorUrl(editorPage, p.id));
                       }}

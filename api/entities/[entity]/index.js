@@ -1115,6 +1115,21 @@ export default async function handler(req, res) {
         }
       }
 
+      // SECURITY (Task #3371): the static "AI generated" page class stores
+      // pre-sanitized HTML/CSS on the page row. Those fields are only ever
+      // written through platform tooling (api/_lib/staticPageContent.js —
+      // sanitize + scope at store time); the generic API refuses to create
+      // ai_static pages or accept their content fields.
+      if (entityNorm === 'ieditpage') {
+        if (sanitizedBody.builder_type === 'ai_static') {
+          return res.status(403).json({
+            error: 'AI-generated static pages are created via platform tooling only',
+          });
+        }
+        delete sanitizedBody.static_html;
+        delete sanitizedBody.static_css;
+      }
+
       // SECURITY (Task #3330): survey submissions must go through the public
       // form-submission endpoint — the only path that validates answers
       // against the published version snapshot, computes scores server-side,

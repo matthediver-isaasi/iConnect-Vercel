@@ -2,6 +2,7 @@ import { supabase } from '../_lib/database.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { getArticleUrlConfig } from '../_lib/articleUrlPaths.js';
 import { resolveMicrositeByPrefix } from '../_lib/microsites.js';
+import { buildStaticPageSsrHtml } from '../_lib/staticPageSsr.js';
 
 function escapeHtml(str) {
   if (!str) return '';
@@ -1041,7 +1042,7 @@ async function renderCustomPage(supabaseClient, tenant, pageSlug, baseUrl, optio
   const buildQuery = (scoped) => {
     let q = supabaseClient
       .from('i_edit_page')
-      .select('id, title, slug, description, meta_title, meta_description, seo_title, seo_description, og_image_url, builder_type, canvas_design')
+      .select('id, title, slug, description, meta_title, meta_description, seo_title, seo_description, og_image_url, builder_type, canvas_design, static_html, static_css')
       .eq('tenant_id', tenant.id)
       .ilike('slug', escapedSlug)
       .eq('status', 'published')
@@ -1063,7 +1064,21 @@ async function renderCustomPage(supabaseClient, tenant, pageSlug, baseUrl, optio
   const bodySections = [];
   let ogImage = null;
 
-  if (page.builder_type === 'canvas') {
+  if (page.builder_type === 'ai_static') {
+    // Static AI-generated pages (Task #3371): the stored HTML was sanitized
+    // server-side at store time (no scripts/handlers/inline styles), so it is
+    // safe to serve to crawlers verbatim — full semantic markup, headings,
+    // links and alt text intact. Emit the same scoped <style> + wrapper the
+    // client renderer uses so the prerendered response is styled identically.
+    const staticSection = buildStaticPageSsrHtml(page);
+    if (staticSection) {
+      bodySections.push(staticSection);
+      const text = stripHtml(page.static_html || '');
+      if (text) allTexts.push(text);
+      const imgMatch = (page.static_html || '').match(/<img[^>]+src="([^"]+)"/i);
+      if (imgMatch) ogImage = imgMatch[1];
+    }
+  } else if (page.builder_type === 'canvas') {
     // Canvas Builder pages: walk the canvas_design tree block-by-block,
     // preserving heading levels, images with alt text, buttons-as-links,
     // and FAQ/testimonial structure. Crawlers/social unfurl bots see the
