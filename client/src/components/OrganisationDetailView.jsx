@@ -520,9 +520,12 @@ export default function OrganisationDetailView({
     enabled: isCreatingMember,
     queryFn: async () => {
       try {
-        const orgs = await base44.entities.Organization.list() || [];
+        // Paginate past the API's 1000-row cap so large tenants see the
+        // full organisation list, sorted alphabetically.
+        const orgs = await base44.entities.Organization.listAll({ sort: { name: 'asc' } });
         return orgs || [];
-      } catch {
+      } catch (err) {
+        console.error('Failed to load organisations for member creation:', err);
         return [];
       }
     }

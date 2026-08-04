@@ -16,6 +16,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -56,7 +59,8 @@ import {
   Copy,
   Check,
   Wallet,
-  Tag
+  Tag,
+  ChevronsUpDown
 } from "lucide-react";
 import { format } from "date-fns";
 import {
@@ -100,6 +104,77 @@ function formatGroupTermDate(value) {
     month: "short",
     year: "numeric",
   });
+}
+
+// Searchable organisation picker (combobox). Sorts alphabetically and
+// filters as the user types; keeps a "No Organisation" option.
+function OrganisationCombobox({ organizations = [], value, onChange, disabled = false }) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const sortedOrgs = useMemo(
+    () => organizations
+      .filter(org => org.id)
+      .slice()
+      .sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' })),
+    [organizations]
+  );
+  const filteredOrgs = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return sortedOrgs;
+    return sortedOrgs.filter(org => (org.name || '').toLowerCase().includes(q));
+  }, [sortedOrgs, search]);
+  const selectedOrg = sortedOrgs.find(org => org.id === value);
+  return (
+    <Popover open={open} onOpenChange={(v) => { setOpen(v); if (!v) setSearch(''); }}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          disabled={disabled}
+          className="w-full justify-between font-normal"
+          data-testid="select-member-org"
+        >
+          <span className="truncate">
+            {selectedOrg ? selectedOrg.name : (value ? 'Unknown organisation' : 'No Organisation')}
+          </span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+        <Command shouldFilter={false}>
+          <CommandInput
+            placeholder="Search organisations..."
+            value={search}
+            onValueChange={setSearch}
+          />
+          <CommandList>
+            <CommandEmpty>No organisation found.</CommandEmpty>
+            <CommandGroup>
+              <CommandItem
+                value="__none__"
+                onSelect={() => { onChange(''); setOpen(false); setSearch(''); }}
+              >
+                <Check className={cn("mr-2 h-4 w-4", !value ? "opacity-100" : "opacity-0")} />
+                No Organisation
+              </CommandItem>
+              {filteredOrgs.map(org => (
+                <CommandItem
+                  key={org.id}
+                  value={org.id}
+                  onSelect={() => { onChange(org.id); setOpen(false); setSearch(''); }}
+                >
+                  <Check className={cn("mr-2 h-4 w-4", value === org.id ? "opacity-100" : "opacity-0")} />
+                  {org.name}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 export default function MemberDetailView({ 
@@ -147,6 +222,9 @@ export default function MemberDetailView({
   // });
 
   const [isEditing, setIsEditing] = useState(isNew);
+  // When launched from an organisation detail page, the org context is
+  // unambiguous: pre-select it and lock the field.
+  const isOrgLocked = isNew && !!defaultOrganizationId;
   const [activeTab, setActiveTab] = useState('overview');
   const [formData, setFormData] = useState({
     first_name: '',
@@ -1282,20 +1360,23 @@ export default function MemberDetailView({
                     {isEditing ? (
                       <div className="space-y-2">
                         <Label>Organisation</Label>
-                        <Select 
-                          value={formData.organization_id || '__none__'} 
-                          onValueChange={(v) => setFormData(prev => ({ ...prev, organization_id: v === '__none__' ? '' : v }))}
-                        >
-                          <SelectTrigger data-testid="select-member-org">
-                            <SelectValue placeholder="Select organisation" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="__none__">No Organisation</SelectItem>
-                            {organizations.filter(org => org.id).map(org => (
-                              <SelectItem key={org.id} value={org.id}>{org.name}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        {isOrgLocked ? (
+                          <div
+                            className="flex items-center gap-2 h-10 px-3 rounded-md border border-slate-200 bg-slate-50 text-sm text-slate-700"
+                            data-testid="locked-member-org"
+                          >
+                            <Building2 className="w-4 h-4 text-slate-400 shrink-0" />
+                            <span className="truncate">
+                              {organizations.find(o => o.id === formData.organization_id)?.name || 'Selected organisation'}
+                            </span>
+                          </div>
+                        ) : (
+                          <OrganisationCombobox
+                            organizations={organizations}
+                            value={formData.organization_id || ''}
+                            onChange={(v) => setFormData(prev => ({ ...prev, organization_id: v }))}
+                          />
+                        )}
                       </div>
                     ) : org ? (
                       <div className="flex items-start gap-3">

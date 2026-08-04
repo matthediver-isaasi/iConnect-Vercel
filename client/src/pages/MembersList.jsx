@@ -233,7 +233,9 @@ export default function MembersListPage() {
     queryKey: ['organizations-for-members'],
     enabled: accessChecked,
     queryFn: async () => {
-      return await base44.entities.Organization.list('name');
+      // Paginate past the API's 1000-row cap so large tenants see the
+      // full organisation list.
+      return await base44.entities.Organization.listAll({ sort: { name: 'asc' } });
     }
   });
 
