@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Calendar, CalendarDays, MapPin, Users, Clock, Ticket, AlertCircle, ShoppingCart, Pencil, Trash2, Video, Globe, UsersRound, Download, Upload, Search, ChevronLeft, ChevronRight, Loader2, CheckCircle2, XCircle, AlertTriangle, Send, Plus, Copy, Lock, Info } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { createPageUrl, getEventUrl } from "@/utils";
@@ -408,6 +409,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
   const showAvailableSeats = showSeatsEnabled && (!isFeatureExcluded || !isFeatureExcluded('element_AvailableSeatsDisplay'));
 
   const [deleteOrganiserMessage, setDeleteOrganiserMessage] = useState("");
+  const [deleteSendEmails, setDeleteSendEmails] = useState(true);
   const [deleteResultSummary, setDeleteResultSummary] = useState(null);
   const [deletePreview, setDeletePreview] = useState(null);
   const [deletePreviewLoading, setDeletePreviewLoading] = useState(false);
@@ -419,7 +421,10 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ organiser_message: deleteOrganiserMessage || null }),
+        body: JSON.stringify({
+          organiser_message: deleteSendEmails ? (deleteOrganiserMessage || null) : null,
+          suppress_emails: !deleteSendEmails,
+        }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -443,6 +448,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
       setShowDeleteDialog(false);
       setDeleteConfirmText("");
       setDeleteOrganiserMessage("");
+      setDeleteSendEmails(true);
       setDeleteResultSummary(null);
       if (onEventDeleted) {
         onEventDeleted(event.id);
@@ -1127,6 +1133,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
           if (!open) {
             setDeleteConfirmText("");
             setDeleteOrganiserMessage("");
+            setDeleteSendEmails(true);
             setDeleteResultSummary(null);
           }
         }}>
@@ -1138,7 +1145,9 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                   Are you sure you want to delete <strong>"{event.title}"</strong>?
                 </p>
                 <p className="text-red-600 font-medium">
-                  All active bookings will be cancelled, refunds processed, credit notes raised, Zoom registrations removed, and attendees emailed. This cannot be undone.
+                  {deleteSendEmails
+                    ? "All active bookings will be cancelled, refunds processed, credit notes raised, Zoom registrations removed, and attendees emailed. This cannot be undone."
+                    : "All active bookings will be cancelled, refunds processed, credit notes raised, and Zoom registrations removed. No cancellation emails will be sent. This cannot be undone."}
                 </p>
                 <p>
                   To confirm deletion, please type <strong>DELETE EVENT</strong> below:
@@ -1170,17 +1179,35 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                   )}
                 </div>
               )}
-              <div>
-                <label className="text-sm font-medium text-slate-700 block mb-1">Optional message to attendees</label>
-                <textarea
-                  className="w-full rounded-md border border-slate-200 p-2 text-sm focus:border-slate-400 focus:outline-none"
-                  rows={3}
-                  placeholder="e.g. We're very sorry — the venue had to cancel at short notice."
-                  value={deleteOrganiserMessage}
-                  onChange={(e) => setDeleteOrganiserMessage(e.target.value)}
-                  data-testid="textarea-delete-organiser-message"
+              <div className="flex items-start justify-between gap-3 rounded-md border border-slate-200 p-3">
+                <div>
+                  <Label htmlFor={`switch-delete-send-emails-${event.id}`} className="text-sm font-medium text-slate-700">
+                    Send cancellation email to attendees
+                  </Label>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Turn off if attendees have already been told another way (e.g. a test event). Refunds and reversals still happen.
+                  </p>
+                </div>
+                <Switch
+                  id={`switch-delete-send-emails-${event.id}`}
+                  checked={deleteSendEmails}
+                  onCheckedChange={setDeleteSendEmails}
+                  data-testid="switch-delete-send-emails"
                 />
               </div>
+              {deleteSendEmails && (
+                <div>
+                  <label className="text-sm font-medium text-slate-700 block mb-1">Optional message to attendees</label>
+                  <textarea
+                    className="w-full rounded-md border border-slate-200 p-2 text-sm focus:border-slate-400 focus:outline-none"
+                    rows={3}
+                    placeholder="e.g. We're very sorry — the venue had to cancel at short notice."
+                    value={deleteOrganiserMessage}
+                    onChange={(e) => setDeleteOrganiserMessage(e.target.value)}
+                    data-testid="textarea-delete-organiser-message"
+                  />
+                </div>
+              )}
               <Input
                 placeholder="Type DELETE EVENT to confirm"
                 value={deleteConfirmText}

@@ -305,6 +305,7 @@ export default function EventsPage({
   });
 
   const [complexDeleteOrganiserMessage, setComplexDeleteOrganiserMessage] = useState("");
+  const [complexDeleteSendEmails, setComplexDeleteSendEmails] = useState(true);
   const [complexDeleteResultSummary, setComplexDeleteResultSummary] = useState(null);
   const [complexDeletePreview, setComplexDeletePreview] = useState(null);
   const [complexDeletePreviewLoading, setComplexDeletePreviewLoading] = useState(false);
@@ -338,7 +339,10 @@ export default function EventsPage({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ organiser_message: complexDeleteOrganiserMessage || null }),
+        body: JSON.stringify({
+          organiser_message: complexDeleteSendEmails ? (complexDeleteOrganiserMessage || null) : null,
+          suppress_emails: !complexDeleteSendEmails,
+        }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -362,6 +366,7 @@ export default function EventsPage({
       setComplexDeleteTarget(null);
       setComplexDeleteConfirmText("");
       setComplexDeleteOrganiserMessage("");
+      setComplexDeleteSendEmails(true);
       setComplexDeleteResultSummary(null);
     },
     onError: (error) => {
@@ -2466,6 +2471,7 @@ export default function EventsPage({
           setComplexDeleteTarget(null);
           setComplexDeleteConfirmText("");
           setComplexDeleteOrganiserMessage("");
+          setComplexDeleteSendEmails(true);
           setComplexDeleteResultSummary(null);
         }
       }}>
@@ -2473,7 +2479,9 @@ export default function EventsPage({
           <DialogHeader>
             <DialogTitle>Delete Complex Event</DialogTitle>
             <DialogDescription>
-              All active bookings for "{complexDeleteTarget?.title}" will be cancelled, refunds processed, credit notes raised, Zoom registrations removed, and attendees emailed. The event and its tracks/sessions/ticket classes will then be deleted. This cannot be undone.
+              {complexDeleteSendEmails
+                ? `All active bookings for "${complexDeleteTarget?.title || ''}" will be cancelled, refunds processed, credit notes raised, Zoom registrations removed, and attendees emailed. The event and its tracks/sessions/ticket classes will then be deleted. This cannot be undone.`
+                : `All active bookings for "${complexDeleteTarget?.title || ''}" will be cancelled, refunds processed, credit notes raised, and Zoom registrations removed. No cancellation emails will be sent. The event and its tracks/sessions/ticket classes will then be deleted. This cannot be undone.`}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-4">
@@ -2504,17 +2512,35 @@ export default function EventsPage({
                 )}
               </div>
             )}
-            <div>
-              <label className="text-sm font-medium text-slate-700 block mb-1">Optional message to attendees</label>
-              <textarea
-                className="w-full rounded-md border border-slate-200 p-2 text-sm focus:border-slate-400 focus:outline-none"
-                rows={3}
-                placeholder="e.g. We're very sorry — the venue had to cancel at short notice."
-                value={complexDeleteOrganiserMessage}
-                onChange={(e) => setComplexDeleteOrganiserMessage(e.target.value)}
-                data-testid="textarea-complex-delete-organiser-message"
+            <div className="flex items-start justify-between gap-3 rounded-md border border-slate-200 p-3">
+              <div>
+                <Label htmlFor="switch-complex-delete-send-emails" className="text-sm font-medium text-slate-700">
+                  Send cancellation email to attendees
+                </Label>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Turn off if attendees have already been told another way (e.g. a test event). Refunds and reversals still happen.
+                </p>
+              </div>
+              <Switch
+                id="switch-complex-delete-send-emails"
+                checked={complexDeleteSendEmails}
+                onCheckedChange={setComplexDeleteSendEmails}
+                data-testid="switch-complex-delete-send-emails"
               />
             </div>
+            {complexDeleteSendEmails && (
+              <div>
+                <label className="text-sm font-medium text-slate-700 block mb-1">Optional message to attendees</label>
+                <textarea
+                  className="w-full rounded-md border border-slate-200 p-2 text-sm focus:border-slate-400 focus:outline-none"
+                  rows={3}
+                  placeholder="e.g. We're very sorry — the venue had to cancel at short notice."
+                  value={complexDeleteOrganiserMessage}
+                  onChange={(e) => setComplexDeleteOrganiserMessage(e.target.value)}
+                  data-testid="textarea-complex-delete-organiser-message"
+                />
+              </div>
+            )}
             <p className="text-sm text-slate-600">Type <span className="font-bold">DELETE EVENT</span> to confirm:</p>
             <Input
               value={complexDeleteConfirmText}
