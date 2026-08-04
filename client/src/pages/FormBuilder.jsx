@@ -31,6 +31,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Check, ChevronsUpDown } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
@@ -96,6 +100,61 @@ const AUTO_FIELD_TYPES = [
 const PAYMENT_FIELD_TYPES = [
   { value: 'membership_payment', label: 'Membership Payment' },
 ];
+
+// Searchable combobox for picking the form's linked event. Type-ahead filters
+// events by title; the list arrives already alphabetised from the caller.
+function LinkedEventCombobox({ eventOptions, value, onChange, includesPastEvents }) {
+  const [open, setOpen] = useState(false);
+  const selected = eventOptions.find(ev => ev.id === value) || null;
+  const placeholder = includesPastEvents ? "Select an event..." : "Select an upcoming event...";
+  const emptyLabel = includesPastEvents ? "No events found" : "No upcoming events found";
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="w-full justify-between font-normal"
+          data-testid="select-related-event"
+        >
+          <span className={cn("truncate", !selected && "text-muted-foreground")}>
+            {selected
+              ? `${selected.title}${selected.start_date ? ` — ${new Date(selected.start_date).toLocaleDateString()}` : ''}`
+              : placeholder}
+          </span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+        <Command>
+          <CommandInput placeholder="Search events..." data-testid="input-related-event-search" />
+          <CommandList>
+            <CommandEmpty>{emptyLabel}</CommandEmpty>
+            {eventOptions.map(event => (
+              <CommandItem
+                key={event.id}
+                value={`${event.title || ''} ${event.id}`}
+                onSelect={() => {
+                  onChange(event.id === value ? null : event.id);
+                  setOpen(false);
+                }}
+                data-testid={`option-event-${event.id}`}
+              >
+                <Check className={cn("h-4 w-4", event.id === value ? "opacity-100" : "opacity-0")} />
+                <span className="truncate">
+                  {event.title}
+                  {event.start_date ? ` — ${new Date(event.start_date).toLocaleDateString()}` : ''}
+                </span>
+              </CommandItem>
+            ))}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 // Survey-only field types (Task #3330). Only offered when form_type === 'survey'.
 const SURVEY_FIELD_TYPES = [
@@ -5572,24 +5631,26 @@ export default function FormBuilderPage() {
     }
   });
 
-  // Upcoming events for the dropdown (ordered by start date). Any event that
-  // is already linked to this form is always included even if it is now in the
-  // past, so editing an existing form restores its selection cleanly.
+  // Events for the linked-event dropdown, alphabetical by title. Survey forms
+  // include past events (surveys usually follow an event that already ran);
+  // standard forms keep the upcoming-only filter. Any event already linked to
+  // this form is always included even if it is now in the past, so editing an
+  // existing form restores its selection cleanly.
+  const isSurveyForm = formData.form_type === 'survey';
   const eventOptions = useMemo(() => {
     const now = Date.now();
     const selectedId = formData.related_event_id || null;
     const list = (allEvents || []).filter(ev => {
       if (!ev || !ev.id) return false;
+      if (isSurveyForm) return true;
       if (selectedId && ev.id === selectedId) return true;
       const start = ev.start_date ? new Date(ev.start_date).getTime() : NaN;
       return Number.isFinite(start) ? start >= now : false;
     });
-    return list.sort((a, b) => {
-      const da = a.start_date ? new Date(a.start_date).getTime() : Infinity;
-      const db = b.start_date ? new Date(b.start_date).getTime() : Infinity;
-      return da - db;
-    });
-  }, [allEvents, formData.related_event_id]);
+    return list.sort((a, b) =>
+      String(a.title || '').localeCompare(String(b.title || ''), undefined, { sensitivity: 'base' })
+    );
+  }, [allEvents, formData.related_event_id, isSurveyForm]);
 
   // Fetch organisations for contract linking
   const { data: organizations = [] } = useQuery({
@@ -6742,26 +6803,12 @@ export default function FormBuilderPage() {
               <div className="mt-4 pt-4 border-t border-slate-100">
                 <div className="space-y-2 max-w-md">
                   <Label htmlFor="related_event_id" className="text-sm">Linked Event *</Label>
-                  <Select
-                    value={formData.related_event_id || ""}
-                    onValueChange={(value) => setFormData({ ...formData, related_event_id: value || null })}
-                  >
-                    <SelectTrigger data-testid="select-related-event">
-                      <SelectValue placeholder="Select an upcoming event..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {eventOptions.length === 0 ? (
-                        <div className="px-2 py-1.5 text-sm text-slate-500">No upcoming events found</div>
-                      ) : (
-                        eventOptions.map(event => (
-                          <SelectItem key={event.id} value={event.id} data-testid={`option-event-${event.id}`}>
-                            {event.title}
-                            {event.start_date ? ` — ${new Date(event.start_date).toLocaleDateString()}` : ''}
-                          </SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
+                  <LinkedEventCombobox
+                    eventOptions={eventOptions}
+                    value={formData.related_event_id || null}
+                    onChange={(value) => setFormData({ ...formData, related_event_id: value || null })}
+                    includesPastEvents={isSurveyForm}
+                  />
                   <p className="text-xs text-slate-500">
                     Submissions to this form will be associated with the selected event.
                   </p>
