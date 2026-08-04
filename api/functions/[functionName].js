@@ -14,6 +14,7 @@ import { getMembershipAddonSettings } from '../_lib/membershipAddons.js';
 import { getStripeCredentials, findOrCreateStripeCustomer } from '../_lib/stripeCredentials.js';
 import { sendConfirmationEmailsFromTemplate as sharedSendConfirmationEmailsFromTemplate } from '../_lib/eventConfirmationEmail.js';
 import { sanitizeOptionSelections, isAttendeeOptionsCollectionEnabled, EMPTY_OPTION_SELECTIONS } from '../_lib/eventOptionSelections.js';
+import { fetchMemberJobTitlesByEmail, resolveStoredJobTitle } from '../_lib/attendeeJobTitleEnrichment.js';
 import { getAllowVoucherUseAfterExpiry, isVoucherUsableForEventDate } from '../_lib/voucherExpiryPolicy.js';
 import { orderVoucherIdsForRedemption } from '../_lib/voucherOrdering.js';
 import {
@@ -2515,7 +2516,16 @@ const functionHandlers = {
     // Tenant toggle: when dietary/accessibility collection is disabled,
     // never persist submitted selections (defense in depth).
     const collectOptionsEnabled = await isAttendeeOptionsCollectionEnabled(supabase, event.tenant_id);
-    
+
+    // Task #3310: attendees who are members in their own right but did not
+    // enter a job title get their own member-profile title stored at booking
+    // time. Explicitly entered titles always win; non-members stay blank.
+    const memberJobTitlesByEmail = await fetchMemberJobTitlesByEmail(
+      supabase,
+      event.tenant_id,
+      bookingAttendees.filter((a) => !(a.job_title || '').trim()).map((a) => a.email)
+    );
+
     for (let i = 0; i < bookingAttendees.length; i++) {
       const attendee = bookingAttendees[i];
       console.log(`[createOneOffEventBooking] Processing attendee ${i + 1}/${bookingAttendees.length}:`, attendee.email);
@@ -2553,7 +2563,7 @@ const functionHandlers = {
         is_guest_booking: isGuestBooking,
         guest_organisation_name: attendee.organization || null,
         attendee_phone: attendee.phone || null,
-        attendee_job_title: attendee.job_title || null,
+        attendee_job_title: resolveStoredJobTitle(attendee.job_title, attendee.email, memberJobTitlesByEmail),
         discount_code_id: validatedDiscountCodeId || null,
         discount_code_amount: validatedDiscountAmount > 0 ? validatedDiscountAmount / ticketsRequired : 0,
         third_party_consent: (event.pricing_config?.collectThirdPartyConsent === true && typeof thirdPartyConsent === 'boolean') ? thirdPartyConsent : null,

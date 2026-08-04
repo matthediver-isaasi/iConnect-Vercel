@@ -4,6 +4,7 @@ import { scheduleComplexEventReminders } from '../_lib/complexEventReminders.js'
 import { getSessionMember } from '../_lib/session.js';
 import { getStripeCredentials } from '../_lib/stripeCredentials.js';
 import { sanitizeOptionSelections, isAttendeeOptionsCollectionEnabled, EMPTY_OPTION_SELECTIONS } from '../_lib/eventOptionSelections.js';
+import { fetchMemberJobTitlesByEmail, resolveStoredJobTitle } from '../_lib/attendeeJobTitleEnrichment.js';
 import {
   resolveTicketPrice,
   getTicketClassFromConfig,
@@ -690,6 +691,15 @@ export default async function handler(req, res) {
     // never persist submitted selections (defense in depth).
     const collectOptionsEnabled = await isAttendeeOptionsCollectionEnabled(supabase, tenant.id);
 
+    // Task #3310: attendees who are members in their own right but did not
+    // enter a job title get their own member-profile title stored at booking
+    // time. Explicitly entered titles always win; non-members stay blank.
+    const memberJobTitlesByEmail = await fetchMemberJobTitlesByEmail(
+      supabase,
+      tenant.id,
+      resolvedItems.flatMap((it) => it.attendees.filter((a) => !(a.job_title || '').trim()).map((a) => a.email))
+    );
+
     for (const item of resolvedItems) {
       for (let i = 0; i < item.attendees.length; i++) {
         const attendee = item.attendees[i];
@@ -710,7 +720,7 @@ export default async function handler(req, res) {
           attendee_last_name: attendee.last_name || null,
           attendee_organization: attendee.organization || null,
           attendee_phone: attendee.phone || null,
-          attendee_job_title: attendee.job_title || null,
+          attendee_job_title: resolveStoredJobTitle(attendee.job_title, email, memberJobTitlesByEmail),
           member_id: member_id || null,
           organization_id: organization_id || null,
           ticket_class_id: item.ticket_class_id || null,
