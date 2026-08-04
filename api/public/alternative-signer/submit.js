@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 import { resolveDdOwnerForSubmission, applyDdOwnerPlaceholders } from '../../_lib/ddOwner.js';
+import { getInternalApiBaseUrl } from '../../_lib/publicBaseUrl.js';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -246,7 +247,7 @@ export default async function handler(req, res) {
 
       console.log('[Alternative Signer] Sending contract email to:', newSigner.email);
 
-      const emailResponse = await fetch(`${process.env.VERCEL_URL ? 'https://' + process.env.VERCEL_URL : ''}/api/_lib/sendEmail`, {
+      const emailResponse = await fetch(`${getInternalApiBaseUrl(req)}/api/_lib/sendEmail`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(emailPayload)

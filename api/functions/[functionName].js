@@ -2,6 +2,7 @@ import Stripe from 'stripe';
 import crypto from 'crypto';
 import { getSession, getSessionMember } from '../_lib/session.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
+import { getPublicBaseUrl } from '../_lib/publicBaseUrl.js';
 import { isResourceExcluded } from '../_lib/roleVisibility.js';
 import { sendEmail, replacePlaceholders } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
@@ -4934,14 +4935,10 @@ const functionHandlers = {
       console.warn('[sendTeamMemberInvite] Could not resolve tenant context:', e.message);
     }
     
-    // Get base URL for signup link
-    let baseUrl = process.env.SITE_URL;
-    if (!baseUrl && process.env.VERCEL_URL) {
-      baseUrl = `https://${process.env.VERCEL_URL}`;
-    }
-    if (!baseUrl && req?.headers?.origin) {
-      baseUrl = req.headers.origin;
-    }
+    // Get base URL for signup link — request origin/host first so the link
+    // uses the domain the inviter is actually on; NEVER the raw VERCEL_URL
+    // deployment domain (Task #3384).
+    const baseUrl = getPublicBaseUrl(req);
     if (!baseUrl) {
       console.error('[sendTeamMemberInvite] Base URL could not be determined');
       return { success: false, error: 'Server configuration error: site URL not set' };

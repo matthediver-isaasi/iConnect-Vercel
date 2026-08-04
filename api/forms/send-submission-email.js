@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { sendSubmissionEmailsGuarded } from '../_lib/formSubmissionEmails.js';
+import { getPublicBaseUrl } from '../_lib/publicBaseUrl.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -61,12 +62,7 @@ export default async function handler(req, res) {
     }
 
     // Derive base URL for {{set_password_url}} placeholder
-    const protocol = req.headers['x-forwarded-proto'] || 'https';
-    let host = req.headers['x-forwarded-host'] || req.headers.host || '';
-    if (!host && process.env.VERCEL_URL) {
-      host = process.env.VERCEL_URL;
-    }
-    const baseUrl = host ? `${protocol}://${host}` : (process.env.APP_URL || '');
+    const baseUrl = getPublicBaseUrl(req);
 
     // Task #3194: force_resend deliberately bypasses the exactly-once guard
     // (admin rerun of an already-sent submission). Only authenticated tenant

@@ -2,6 +2,7 @@ import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { resolveDdOwnerForSubmission } from '../_lib/ddOwner.js';
+import { getPublicBaseUrl } from '../_lib/publicBaseUrl.js';
 
 // Helper to escape regex special characters
 function escapeRegex(str) {
@@ -349,7 +350,7 @@ export default async function handler(req, res) {
     });
 
     const tenantSlug = tenant?.slug || '';
-    const appUrl = process.env.APP_URL || process.env.VERCEL_URL || 'https://iconn.app';
+    const appUrl = getPublicBaseUrl(req);
     const signingUrl = tenantSlug 
       ? `https://${tenantSlug}.iconn.app/form/${form.slug}?contract_instance=${instance.id}&signer_email=${encodeURIComponent(signer.email)}`
       : `${appUrl}/form/${form.slug}?contract_instance=${instance.id}&signer_email=${encodeURIComponent(signer.email)}`;

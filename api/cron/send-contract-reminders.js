@@ -2,6 +2,7 @@ import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
 import { resolveDdOwnerForSubmission } from '../_lib/ddOwner.js';
 import { buildContractBracketPlaceholders, replaceContractBracketPlaceholders } from '../_lib/contractPlaceholders.js';
+import { getPublicBaseUrl } from '../_lib/publicBaseUrl.js';
 
 // Fetch organization name from a contract instance
 async function getOrganizationName(formSubmissionId) {
@@ -192,7 +193,7 @@ export default async function handler(req, res) {
               : signer.name || 'Signer';
 
             // Build signing URL using cached tenant slug
-            const appUrl = process.env.APP_URL || process.env.VERCEL_URL || 'https://iconn.app';
+            const appUrl = getPublicBaseUrl(null);
             const signingUrl = tenantSlug 
               ? `https://${tenantSlug}.iconn.app/form/${form.slug}?contract_instance=${instance.id}&signer_email=${encodeURIComponent(signer.email)}`
               : `${appUrl}/form/${form.slug}?contract_instance=${instance.id}&signer_email=${encodeURIComponent(signer.email)}`;

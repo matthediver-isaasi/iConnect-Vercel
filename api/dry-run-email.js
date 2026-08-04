@@ -1,6 +1,7 @@
 import { supabase } from './_lib/database.js';
 import { getTenantContext } from './_lib/tenantContext.js';
 import { dryRunEmail } from './_lib/workflows.js';
+import { getPublicBaseUrl } from './_lib/publicBaseUrl.js';
 
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') {
@@ -38,12 +39,7 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Workflow not found' });
     }
 
-    const protocol = req.headers['x-forwarded-proto'] || 'https';
-    let host = req.headers['x-forwarded-host'] || req.headers.host || '';
-    if (!host && process.env.VERCEL_URL) {
-      host = process.env.VERCEL_URL;
-    }
-    const baseUrl = host ? `${protocol}://${host}` : (process.env.APP_URL || '');
+    const baseUrl = getPublicBaseUrl(req);
 
     const result = await dryRunEmail(action, workflow, entity_type, entity_id, baseUrl);
 

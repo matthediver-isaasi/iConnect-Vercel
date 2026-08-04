@@ -23,6 +23,7 @@ import { checkMemberQuota, checkEventQuota } from '../../_lib/planQuota.js';
 import { filterInternalNotesForViewer } from '../../_lib/supportTicketQueues.js';
 import { isCategoryRestricted, hasSubcategoryRestrictions, filterCategoriesForViewer, filterCategorySubcategoriesForViewer, stripCategoryAccessFields } from '../../_lib/resourceCategoryAccess.js';
 import { sendSubmissionEmailsGuarded } from '../../_lib/formSubmissionEmails.js';
+import { getPublicBaseUrl } from '../../_lib/publicBaseUrl.js';
 
 /**
  * Task #3100: support staff = tenant users (admin dashboard), tenant admins,
@@ -1729,18 +1730,10 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: error.message, details: error.details, hint: error.hint, code: error.code });
       }
 
-      // Derive base URL for workflow email placeholders
-      // On Vercel, use VERCEL_URL env var as fallback
-      const protocol = req.headers['x-forwarded-proto'] || 'https';
-      let host = req.headers['x-forwarded-host'] || req.headers.host || '';
-      
-      // Fallback to VERCEL_URL or configured app URL if host is missing
-      if (!host && process.env.VERCEL_URL) {
-        host = process.env.VERCEL_URL;
-      }
-      
-      const baseUrl = host ? `${protocol}://${host}` : (process.env.APP_URL || '');
-      console.log(`[Entity POST] Derived baseUrl: "${baseUrl}" (protocol: ${protocol}, host: ${host})`);
+      // Derive base URL for workflow email placeholders (never the raw
+      // VERCEL_URL deployment domain — Task #3384)
+      const baseUrl = getPublicBaseUrl(req);
+      console.log(`[Entity POST] Derived baseUrl: "${baseUrl}"`);
       console.log(`[Entity POST] Request headers:`, JSON.stringify({
         'x-forwarded-proto': req.headers['x-forwarded-proto'],
         'x-forwarded-host': req.headers['x-forwarded-host'],

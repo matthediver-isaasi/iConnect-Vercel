@@ -3,6 +3,7 @@ import { sendEmail } from '../_lib/emailService.js';
 import { buildInboxDelivery } from '../_lib/transactionalInbox.js';
 import { generateMemberPreferencesToken } from '../email-preferences/index.js';
 import { getTenantBaseUrl } from '../_lib/campaignService.js';
+import { getPublicBaseUrl } from '../_lib/publicBaseUrl.js';
 import { resolveDdOwnerForSubmission } from '../_lib/ddOwner.js';
 import { buildContractBracketPlaceholders, replaceContractBracketPlaceholders } from '../_lib/contractPlaceholders.js';
 import { triggerWorkflows, triggerPreferenceWorkflows } from '../_lib/workflows.js';
@@ -1959,7 +1960,7 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
 
     // Derive baseUrl for workflow email placeholders (set_password_url etc).
     // Workflows themselves don't strictly need it; passing what's available.
-    const baseUrl = options.baseUrl || process.env.APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
+    const baseUrl = options.baseUrl || getPublicBaseUrl(null);
     
     // Original submission data (fallback)
     const originalData = formSubmission.submission_data || {};

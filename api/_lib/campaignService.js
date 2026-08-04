@@ -4,6 +4,7 @@ import { replaceBookingPlaceholders } from './eventConfirmationEmail.js';
 import { checkEmailQuota } from './planQuota.js';
 import { buildQrImageUrl, ensureBookingToken, ensureComplexSessionTokens } from './checkinService.js';
 import { sanitizeSlotHtml, htmlSlotToPlainText } from './slotHtmlSanitizer.js';
+import { getPublicBaseUrl } from './publicBaseUrl.js';
 import crypto from 'crypto';
 
 const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
@@ -29,7 +30,9 @@ export function getTenantBaseUrl(tenantSlug, requestHost = null) {
     return `https://${requestHost}`;
   }
   if (!tenantSlug) {
-    return process.env.APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:5000');
+    // Never fall back to the raw VERCEL_URL deployment domain for
+    // user-facing links (Task #3384).
+    return getPublicBaseUrl(null);
   }
   return `https://${tenantSlug}.${APP_DOMAIN}`;
 }

@@ -21,6 +21,7 @@ import { sendSupportNotification } from '../../support/notify.js';
 import { getAccountingProvider } from '../../_lib/accountingProvider.js';
 import { pruneSpeakerIdsFromReferences } from '../../_lib/speakerReferences.js';
 import { assessAiCodePagePublishGate } from '../../_lib/aiCodeActions.js';
+import { getPublicBaseUrl } from '../../_lib/publicBaseUrl.js';
 import { isCategoryRestricted, hasSubcategoryRestrictions, isCategoryVisibleToViewer, filterCategorySubcategoriesForViewer, getSubcategoryExclusionMap } from '../../_lib/resourceCategoryAccess.js';
 
 // Entity name to Supabase table mapping (singular names for Base44 compatibility)
@@ -1195,16 +1196,9 @@ export default async function handler(req, res) {
         }
       }
 
-      // Derive base URL for workflow email placeholders
-      const protocol = req.headers['x-forwarded-proto'] || 'https';
-      let host = req.headers['x-forwarded-host'] || req.headers.host || '';
-      
-      // Fallback to VERCEL_URL or configured APP_URL if host is missing
-      if (!host && process.env.VERCEL_URL) {
-        host = process.env.VERCEL_URL;
-      }
-      
-      const baseUrl = host ? `${protocol}://${host}` : (process.env.APP_URL || '');
+      // Derive base URL for workflow email placeholders (never the raw
+      // VERCEL_URL deployment domain — Task #3384)
+      const baseUrl = getPublicBaseUrl(req);
 
       // Trigger workflow evaluation and check for pending confirmations
       let pendingWorkflowConfirmations = [];

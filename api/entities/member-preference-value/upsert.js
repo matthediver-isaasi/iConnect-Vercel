@@ -2,6 +2,7 @@ import { supabase } from '../../_lib/database.js';
 import { getTenantContext, checkCrossMemberPermissions } from '../../_lib/tenantContext.js';
 import { triggerPreferenceWorkflows } from '../../_lib/workflows.js';
 import { triggerZohoCrmSync } from '../../_lib/zohoCrmSync.js';
+import { getPublicBaseUrl } from '../../_lib/publicBaseUrl.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -86,12 +87,7 @@ export default async function handler(req, res) {
 
     triggerZohoCrmSync(effectiveTenantId, 'member', member_id, { action: 'preference_change' });
 
-    const protocol = req.headers['x-forwarded-proto'] || 'https';
-    let host = req.headers['x-forwarded-host'] || req.headers.host || '';
-    if (!host && process.env.VERCEL_URL) {
-      host = process.env.VERCEL_URL;
-    }
-    const baseUrl = host ? `${protocol}://${host}` : (process.env.APP_URL || '');
+    const baseUrl = getPublicBaseUrl(req);
 
     let pendingWorkflowConfirmations = [];
     try {
