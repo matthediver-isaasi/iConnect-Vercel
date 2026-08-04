@@ -96,6 +96,40 @@ export const resolveEffectivePrefillIds = ({
   };
 };
 
+// Task #3357: effective organisation ID for member-source forms. The org
+// entity fetch, org custom values and the organisation dropdown must all key
+// off the SAME id: the member entity's own organization_id when present,
+// else the authenticated fallback org id (resolveEffectivePrefillIds'
+// prefillOrgId — explicit URL param or the session's resolved organisation).
+// Returns null for non-member prefill sources so organization-source
+// behaviour is unchanged.
+export const resolveMemberSourceOrgId = ({ prefillSource, memberEntity, fallbackOrgId }) => {
+  if (prefillSource !== 'member') return null;
+  return memberEntity?.organization_id || fallbackOrgId || null;
+};
+
+// Task #3357: readiness gate for the org-entity fetch. The one-time prefill
+// effect must not apply (and latch prefillApplied) while an org-entity fetch
+// that will feed `org:`-mapped fields is still in flight — otherwise, when
+// the member resolves before its organisation, org fields are permanently
+// skipped. Mirrors the custom-values gate: `effectiveOrgId` must mirror the
+// org query's `enabled` predicate (pass null when the query can never run,
+// e.g. unauthenticated on surfaces whose org query requires a session), and
+// `orgEntityLoading` should be the react-query v5 isLoading (false for
+// disabled queries), so the effect can never be blocked forever.
+export const shouldWaitForPrefillOrgEntity = ({
+  prefillSource,
+  form,
+  effectiveOrgId,
+  orgEntityLoading,
+}) => {
+  if (prefillSource !== 'member' && prefillSource !== 'organization') return false;
+  if (!effectiveOrgId || !orgEntityLoading) return false;
+  return (form?.fields || []).some(f =>
+    typeof f.prefill_field === 'string' && f.prefill_field.startsWith('org:')
+  );
+};
+
 // Task #3336: shared readiness gate for the one-time prefill effect. The
 // effect must NOT apply (and latch prefillApplied) while any custom-value
 // query that will feed `member_custom:` / `org_custom:` / legacy `custom:`
@@ -138,8 +172,10 @@ export const buildPrefillValues = ({
     if (field.type === 'organisation_dropdown') {
       if (form.prefill_source === 'organization' && prefillOrgId) {
         newValues[field.id] = prefillOrgId;
-      } else if (form.prefill_source === 'member' && memberEntity?.organization_id) {
-        newValues[field.id] = memberEntity.organization_id;
+      } else if (form.prefill_source === 'member' && (memberEntity?.organization_id || prefillOrgId)) {
+        // Task #3357: fall back to the resolved prefill org id (authenticated
+        // session's organisation) when the member row has no organization_id.
+        newValues[field.id] = memberEntity?.organization_id || prefillOrgId;
       }
       continue;
     }

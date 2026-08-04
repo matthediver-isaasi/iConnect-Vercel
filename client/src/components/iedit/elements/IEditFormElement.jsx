@@ -19,7 +19,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { useIsMobile } from "@/hooks/use-mobile";
 import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
 import { AlignLeft, AlignCenter, AlignRight } from "lucide-react";
-import { buildPrefillValues, isFieldValueFilled, resolveEffectivePrefillIds, shouldWaitForPrefillCustomValues } from "@/lib/formFieldPrefill";
+import { buildPrefillValues, isFieldValueFilled, resolveEffectivePrefillIds, resolveMemberSourceOrgId, shouldWaitForPrefillCustomValues, shouldWaitForPrefillOrgEntity } from "@/lib/formFieldPrefill";
 import { getFormPagination } from "@/lib/formPagination";
 import { applySurveyPresentation, surveyIntroText, surveySuccessMessage } from "@/lib/surveyPresentation";
 
@@ -411,13 +411,21 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     enabled: !!memberInfo && !!prefillOrgId && form?.prefill_source === 'organization'
   });
 
+  // Task #3357: effective org id for member-source forms — member entity's
+  // own organization_id, else the authenticated fallback (prefillOrgId).
+  const memberSourceOrgId = resolveMemberSourceOrgId({
+    prefillSource: form?.prefill_source,
+    memberEntity: prefillMember,
+    fallbackOrgId: prefillOrgId,
+  });
+
   // Prefill: Fetch member's organization when prefill_source = 'member'
-  const { data: prefillMemberOrg } = useQuery({
-    queryKey: ['prefill-member-org-embed', prefillMember?.organization_id],
+  const { data: prefillMemberOrg, isLoading: memberOrgLoading } = useQuery({
+    queryKey: ['prefill-member-org-embed', memberSourceOrgId],
     queryFn: async () => {
-      return base44.entities.Organization.get(prefillMember.organization_id);
+      return base44.entities.Organization.get(memberSourceOrgId);
     },
-    enabled: !!memberInfo && !!prefillMember?.organization_id && form?.prefill_source === 'member'
+    enabled: !!memberInfo && !!memberSourceOrgId && form?.prefill_source === 'member'
   });
 
   // Prefill: Fetch member custom field values
@@ -435,7 +443,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   // Prefill: Fetch org custom field values (from direct org prefill or member's org)
   const effectiveOrgIdForCustomFields = form?.prefill_source === 'organization'
     ? prefillOrgId
-    : prefillMember?.organization_id;
+    : memberSourceOrgId;
 
   const { data: prefillOrgCustomValues = [], isLoading: orgCustomValuesLoading } = useQuery({
     queryKey: ['prefill-org-custom-values-embed', effectiveOrgIdForCustomFields],
@@ -585,7 +593,20 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       orgCustomValuesLoading,
     })) return;
 
-    
+    // Task #3357: also wait while an org-entity fetch that will feed
+    // `org:`-mapped fields is still in flight, so the effect can't latch
+    // before the organisation resolves. The org queries here require an
+    // authenticated session, so mirror that in the id (null when the query
+    // can never run — the gate must not block anonymous viewers forever).
+    if (shouldWaitForPrefillOrgEntity({
+      prefillSource: form.prefill_source,
+      form,
+      effectiveOrgId: memberInfo
+        ? (form.prefill_source === 'organization' ? prefillOrgId : memberSourceOrgId)
+        : null,
+      orgEntityLoading: form.prefill_source === 'organization' ? prefillOrgLoading : memberOrgLoading,
+    })) return;
+
     const memberEntity = prefillMember;
     const orgEntity = form.prefill_source === 'organization' ? prefillOrg : prefillMemberOrg;
     const primaryEntity = form.prefill_source === 'member' ? memberEntity : orgEntity;
@@ -624,7 +645,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     // refetch could re-run prefill and overwrite values the user has since
     // edited. Draft precedence is preserved by the merge above.
     setPrefillApplied(true);
-  }, [form, prefillMember, prefillOrg, prefillMemberOrg, prefillMemberCustomValues, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId, prefillMemberId, effectiveOrgIdForCustomFields, memberInfo, memberCustomValuesLoading, orgCustomValuesLoading, draftToken, draftLoaded, draftData, draftFetchError]);
+  }, [form, prefillMember, prefillOrg, prefillMemberOrg, prefillMemberCustomValues, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId, prefillMemberId, memberSourceOrgId, memberOrgLoading, prefillOrgLoading, effectiveOrgIdForCustomFields, memberInfo, memberCustomValuesLoading, orgCustomValuesLoading, draftToken, draftLoaded, draftData, draftFetchError]);
 
   // Helper to evaluate a rule condition
   const evaluateSingleCondition = (triggerValue, operator, value) => {

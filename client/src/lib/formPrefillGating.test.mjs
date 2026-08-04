@@ -4,7 +4,7 @@
 // permanently skip custom-field prefills on EmbedForm.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { shouldWaitForPrefillCustomValues, resolveEffectivePrefillIds, buildPrefillValues } from './formFieldPrefill.js';
+import { shouldWaitForPrefillCustomValues, resolveEffectivePrefillIds, buildPrefillValues, resolveMemberSourceOrgId, shouldWaitForPrefillOrgEntity } from './formFieldPrefill.js';
 
 // --- buildPrefillValues: pure field mapping; empty result is legitimate ---
 
@@ -185,4 +185,83 @@ test('card-swipe gating: score shapes cannot advance a required step when invali
   assert.equal(isFieldValueFilled(scoreField, { na: true }), false); // N/A not allowed
   assert.equal(isFieldValueFilled(scoreField, { score: 4 }), true);
   assert.equal(isFieldValueFilled({ ...scoreField, allow_na: true }, { na: true }), true);
+});
+
+// --- Task #3357: member-source effective org id + org-entity readiness gate ---
+
+test('resolveMemberSourceOrgId prefers the member entity org, falls back to prefillOrgId', () => {
+  assert.equal(
+    resolveMemberSourceOrgId({ prefillSource: 'member', memberEntity: { organization_id: 'o1' }, fallbackOrgId: 'o2' }),
+    'o1'
+  );
+  assert.equal(
+    resolveMemberSourceOrgId({ prefillSource: 'member', memberEntity: { organization_id: null }, fallbackOrgId: 'o2' }),
+    'o2'
+  );
+  assert.equal(
+    resolveMemberSourceOrgId({ prefillSource: 'member', memberEntity: null, fallbackOrgId: 'o2' }),
+    'o2'
+  );
+  assert.equal(
+    resolveMemberSourceOrgId({ prefillSource: 'member', memberEntity: null, fallbackOrgId: null }),
+    null
+  );
+  // Non-member sources are unaffected
+  assert.equal(
+    resolveMemberSourceOrgId({ prefillSource: 'organization', memberEntity: { organization_id: 'o1' }, fallbackOrgId: 'o2' }),
+    null
+  );
+  assert.equal(
+    resolveMemberSourceOrgId({ prefillSource: 'booking', memberEntity: { organization_id: 'o1' }, fallbackOrgId: 'o2' }),
+    null
+  );
+});
+
+const orgForm = { fields: [{ id: 'f1', prefill_field: 'org:name' }] };
+
+test('shouldWaitForPrefillOrgEntity waits only while an org fetch feeding org: fields is in flight', () => {
+  assert.equal(shouldWaitForPrefillOrgEntity({
+    prefillSource: 'member', form: orgForm, effectiveOrgId: 'o1', orgEntityLoading: true,
+  }), true);
+  assert.equal(shouldWaitForPrefillOrgEntity({
+    prefillSource: 'organization', form: orgForm, effectiveOrgId: 'o1', orgEntityLoading: true,
+  }), true);
+  // Fetch settled -> no wait
+  assert.equal(shouldWaitForPrefillOrgEntity({
+    prefillSource: 'member', form: orgForm, effectiveOrgId: 'o1', orgEntityLoading: false,
+  }), false);
+  // No resolvable org -> never blocks
+  assert.equal(shouldWaitForPrefillOrgEntity({
+    prefillSource: 'member', form: orgForm, effectiveOrgId: null, orgEntityLoading: true,
+  }), false);
+  // No org-mapped fields -> no wait needed
+  assert.equal(shouldWaitForPrefillOrgEntity({
+    prefillSource: 'member',
+    form: { fields: [{ id: 'f1', prefill_field: 'member:first_name' }] },
+    effectiveOrgId: 'o1',
+    orgEntityLoading: true,
+  }), false);
+  // Booking/none sources are out of scope
+  assert.equal(shouldWaitForPrefillOrgEntity({
+    prefillSource: 'booking', form: orgForm, effectiveOrgId: 'o1', orgEntityLoading: true,
+  }), false);
+});
+
+test('org dropdown on member-source forms falls back to prefillOrgId when member row lacks organization_id', () => {
+  const form = { prefill_source: 'member', fields: [{ id: 'f1', type: 'organisation_dropdown' }] };
+  const memberEntity = { id: 'me' }; // no organization_id
+  assert.deepEqual(
+    buildPrefillValues({ form, memberEntity, orgEntity: null, primaryEntity: memberEntity, prefillOrgId: 'sess-org' }),
+    { f1: 'sess-org' }
+  );
+  // Member entity org still wins over the fallback
+  assert.deepEqual(
+    buildPrefillValues({ form, memberEntity: { id: 'me', organization_id: 'own-org' }, orgEntity: null, primaryEntity: memberEntity, prefillOrgId: 'sess-org' }),
+    { f1: 'own-org' }
+  );
+  // No fallback and no member org -> untouched
+  assert.deepEqual(
+    buildPrefillValues({ form, memberEntity, orgEntity: null, primaryEntity: memberEntity }),
+    {}
+  );
 });

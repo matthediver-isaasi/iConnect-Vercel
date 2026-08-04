@@ -10,7 +10,7 @@ import FormRenderer from "../components/forms/FormRenderer";
 import { toast, Toaster } from "sonner";
 import { publicClient } from "@/api/publicClient";
 import { base44 } from "@/api/base44Client";
-import { buildPrefillValues, resolveEffectivePrefillIds, shouldWaitForPrefillCustomValues, isFieldValueFilled } from "@/lib/formFieldPrefill";
+import { buildPrefillValues, resolveEffectivePrefillIds, resolveMemberSourceOrgId, shouldWaitForPrefillCustomValues, shouldWaitForPrefillOrgEntity, isFieldValueFilled } from "@/lib/formFieldPrefill";
 import { useSubmissionIdempotencyKey } from "@/lib/useSubmissionIdempotencyKey";
 
 // Stable empty array so disabled custom-value queries don't create a fresh
@@ -104,7 +104,7 @@ export default function EmbedFormPage() {
 
   const prefillMember = prefillMemberData?.member || null;
 
-  const { data: prefillOrg } = useQuery({
+  const { data: prefillOrg, isLoading: prefillOrgLoading } = useQuery({
     queryKey: ['prefill-org-embedform', prefillOrgId, !!authMember],
     queryFn: async () => {
       if (authMember) {
@@ -115,15 +115,23 @@ export default function EmbedFormPage() {
     enabled: !!prefillOrgId && form?.prefill_source === 'organization'
   });
 
-  const { data: prefillMemberOrg } = useQuery({
-    queryKey: ['prefill-member-org-embedform', prefillMember?.organization_id, !!authMember],
+  // Task #3357: effective org id for member-source forms — member entity's
+  // own organization_id, else the authenticated fallback (prefillOrgId).
+  const memberSourceOrgId = resolveMemberSourceOrgId({
+    prefillSource: form?.prefill_source,
+    memberEntity: prefillMember,
+    fallbackOrgId: prefillOrgId,
+  });
+
+  const { data: prefillMemberOrg, isLoading: memberOrgLoading } = useQuery({
+    queryKey: ['prefill-member-org-embedform', memberSourceOrgId, !!authMember],
     queryFn: async () => {
       if (authMember) {
-        return base44.entities.Organization.get(prefillMember.organization_id);
+        return base44.entities.Organization.get(memberSourceOrgId);
       }
-      return publicClient.getOrganization(prefillMember.organization_id);
+      return publicClient.getOrganization(memberSourceOrgId);
     },
-    enabled: !!prefillMember?.organization_id && form?.prefill_source === 'member'
+    enabled: !!memberSourceOrgId && form?.prefill_source === 'member'
   });
 
   const { data: prefillMemberCustomValues = EMPTY_ARRAY, isLoading: memberCustomValuesLoading } = useQuery({
@@ -145,7 +153,7 @@ export default function EmbedFormPage() {
   // works from the authenticated fallback org).
   const effectiveOrgIdForCustomFields = form?.prefill_source === 'organization'
     ? prefillOrgId
-    : prefillMember?.organization_id;
+    : memberSourceOrgId;
 
   const { data: prefillOrgCustomValues = EMPTY_ARRAY, isLoading: orgCustomValuesLoading } = useQuery({
     queryKey: ['prefill-org-custom-values-embedform', effectiveOrgIdForCustomFields],
@@ -219,6 +227,16 @@ export default function EmbedFormPage() {
       orgCustomValuesLoading,
     })) return;
 
+    // Task #3357: also wait while an org-entity fetch that will feed
+    // `org:`-mapped fields is still in flight, so the effect can't latch
+    // before the organisation resolves.
+    if (shouldWaitForPrefillOrgEntity({
+      prefillSource: form.prefill_source,
+      form,
+      effectiveOrgId: form.prefill_source === 'organization' ? prefillOrgId : memberSourceOrgId,
+      orgEntityLoading: form.prefill_source === 'organization' ? prefillOrgLoading : memberOrgLoading,
+    })) return;
+
     const memberEntity = prefillMember;
     const orgEntity = form.prefill_source === 'organization' ? prefillOrg : prefillMemberOrg;
     const primaryEntity = form.prefill_source === 'member' ? memberEntity : orgEntity;
@@ -253,7 +271,7 @@ export default function EmbedFormPage() {
     // refetch could re-run prefill and overwrite values the user has since
     // typed into (then cleared/edited) blank fields.
     setPrefillApplied(true);
-  }, [form, prefillMember, prefillOrg, prefillMemberOrg, prefillMemberCustomValues, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId, prefillMemberId, effectiveOrgIdForCustomFields, authMember, memberCustomValuesLoading, orgCustomValuesLoading]);
+  }, [form, prefillMember, prefillOrg, prefillMemberOrg, prefillMemberCustomValues, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId, prefillMemberId, memberSourceOrgId, memberOrgLoading, prefillOrgLoading, effectiveOrgIdForCustomFields, authMember, memberCustomValuesLoading, orgCustomValuesLoading]);
 
   const originalValuesRef = useRef({});
   const activeSetValueActionsRef = useRef(new Set());
