@@ -750,6 +750,13 @@ export const BLOCK_DEFAULTS = {
       expandOne: true,
       questionFontSize: 14,
       itemGap: 8,
+      // Task #3338: tenant typography + colour controls. Empty string means
+      // "no tenant style" so legacy blocks (questionFontSize only) render
+      // exactly as before.
+      questionTypographyStyleId: '',
+      answerTypographyStyleId: '',
+      questionColor: '',
+      answerColor: '',
     },
   },
   [BLOCK_TYPES.TESTIMONIALS]: {

@@ -3706,15 +3706,55 @@ export function isDocumentAsset(asset) {
   return /\.(pdf|docx?|xlsx?|pptx?|txt|csv|rtf|odt)(\?|$)/.test(u);
 }
 
-function AccordionRender({ block, asEditor }) {
+function AccordionRender({ block, asEditor, breakpoint }) {
   const c = block.content || {};
   // Controlled open-state so we can enforce expandOne (only one item open at
   // a time). When expandOne is false the user can open as many as they like.
   const [openIds, setOpenIds] = useState([]);
   const items = c.items || [];
-  const questionStyle = Number.isFinite(c.questionFontSize)
-    ? { fontSize: `${c.questionFontSize}px` }
-    : undefined;
+
+  // Task #3338: tenant typography + colour for questions and answers,
+  // mirroring the Hero/Testimonials pattern. When no tenant style is chosen
+  // the legacy `questionFontSize` render is preserved byte-identically.
+  const { styles: tenantStyles, resolved: stylesResolved } = useTenantTypographyStylesState();
+  const questionStyleObj = resolveTenantStyle(c.questionTypographyStyleId, tenantStyles);
+  const answerStyleObj = resolveTenantStyle(c.answerTypographyStyleId, tenantStyles);
+  const awaitingQuestion = isAwaitingTypographyStyle(c.questionTypographyStyleId, questionStyleObj, stylesResolved);
+  const awaitingAnswer = isAwaitingTypographyStyle(c.answerTypographyStyleId, answerStyleObj, stylesResolved);
+  const isPreview = breakpoint === 'desktop' || breakpoint === 'tablet' || breakpoint === 'mobile';
+  const bpForInline = isPreview ? breakpoint : 'desktop';
+
+  // Question: tenant style wins when chosen (margin-bottom omitted — the
+  // button box owns vertical rhythm); otherwise the legacy manual font size.
+  let questionStyle = questionStyleObj
+    ? buildTypographyInlineStyle(questionStyleObj, { breakpoint: bpForInline, omitMarginBottom: true })
+    : (Number.isFinite(c.questionFontSize) ? { fontSize: `${c.questionFontSize}px` } : undefined);
+  // Explicit colour override beats the style's colour.
+  if (c.questionColor) questionStyle = { ...(questionStyle || {}), color: c.questionColor };
+  if (awaitingQuestion) questionStyle = { ...(questionStyle || {}), visibility: 'hidden' };
+
+  // Answer body: applied on the prose wrapper so TipTap inline colour/size
+  // marks on inner spans still win at the span level.
+  let answerStyle = answerStyleObj
+    ? buildTypographyInlineStyle(answerStyleObj, { breakpoint: bpForInline, omitMarginBottom: true })
+    : null;
+  if (c.answerColor) answerStyle = { ...(answerStyle || {}), color: c.answerColor };
+  if (awaitingAnswer) answerStyle = { ...(answerStyle || {}), visibility: 'hidden' };
+
+  // Public visitor path (no breakpoint prop): emit per-block @media rules
+  // targeting the data-tg-r-tagged elements so tablet/mobile style values
+  // apply — inline-only styles would be desktop-only publicly.
+  const safeBlockId = String(block.id || '').replace(/["\\]/g, '');
+  const accordionResponsiveCss = !isPreview
+    ? [
+        questionStyleObj && hasResponsiveTypographyOverride(questionStyleObj)
+          ? buildTenantTypographyResponsiveCss(`[data-cb="${safeBlockId}"] [data-tg-r="accordion-q"]`, questionStyleObj)
+          : null,
+        answerStyleObj && hasResponsiveTypographyOverride(answerStyleObj)
+          ? buildTenantTypographyResponsiveCss(`[data-cb="${safeBlockId}"] [data-tg-r="accordion-a"]`, answerStyleObj)
+          : null,
+      ].filter(Boolean).join('') || null
+    : null;
   const itemGap = Number.isFinite(c.itemGap) ? Math.max(0, c.itemGap) : 8;
   const toggle = (idx) => {
     setOpenIds((prev) => {
@@ -3741,6 +3781,7 @@ function AccordionRender({ block, asEditor }) {
       role="region"
       aria-label={block.a11y?.ariaLabel || 'Frequently asked questions'}
     >
+      {accordionResponsiveCss ? <style>{accordionResponsiveCss}</style> : null}
       {items.map((item, i) => {
         const isOpen = openIds.includes(i);
         const headingId = `${block.id}-acc-h-${i}`;
@@ -3755,7 +3796,8 @@ function AccordionRender({ block, asEditor }) {
                 aria-controls={panelId}
                 onClick={() => toggle(i)}
                 style={questionStyle}
-                className="w-full px-3 py-2 cursor-pointer font-medium text-sm flex items-center justify-between text-left hover-elevate active-elevate-2"
+                data-tg-r="accordion-q"
+                className={`w-full px-3 py-2 cursor-pointer flex items-center justify-between text-left hover-elevate active-elevate-2 ${questionStyleObj ? '' : 'font-medium text-sm'}`}
               >
                 <span>{item.q || `Question ${i + 1}`}</span>
                 <ChevronDown
@@ -3773,6 +3815,8 @@ function AccordionRender({ block, asEditor }) {
             >
               <div
                 className="prose prose-sm max-w-none [&_p:last-child]:mb-0"
+                style={answerStyle || undefined}
+                data-tg-r="accordion-a"
                 dangerouslySetInnerHTML={{ __html: sanitizeRichText(stripTrailingEmptyParagraphs(item.a || '')) }}
               />
               {Array.isArray(item.links) && item.links.length > 0 && (
@@ -3819,8 +3863,32 @@ function AccordionInspector({ block, update }) {
   return (
     <>
       <ToggleField label="Expand one at a time" value={!!c.expandOne} onChange={(v) => set({ expandOne: v })} testId="toggle-accordion-expand-one" />
+      <TypographyStyleField
+        label="Question typography style"
+        value={c.questionTypographyStyleId}
+        onChange={(id) => set({ questionTypographyStyleId: id })}
+        testId="select-accordion-question-typography"
+      />
+      <ColorField
+        label="Question font colour"
+        value={c.questionColor}
+        onChange={(v) => set({ questionColor: v })}
+        testId="input-accordion-question-color"
+      />
+      <TypographyStyleField
+        label="Answer typography style"
+        value={c.answerTypographyStyleId}
+        onChange={(id) => set({ answerTypographyStyleId: id })}
+        testId="select-accordion-answer-typography"
+      />
+      <ColorField
+        label="Answer font colour"
+        value={c.answerColor}
+        onChange={(v) => set({ answerColor: v })}
+        testId="input-accordion-answer-color"
+      />
       <NumberField
-        label="Question font size (px)"
+        label="Question font size (px — used when no typography style is chosen)"
         min={8}
         max={72}
         value={c.questionFontSize}
