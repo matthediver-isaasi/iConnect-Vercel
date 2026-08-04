@@ -11,12 +11,15 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
-import { isVisibleOnBack, isFieldVisibleOnBackFor, getDirectoryOrderedFields, enrichFieldForDirectory, isFieldInDirectory, hasDirectoryFieldValue, resolveBackFieldOrder, MEMBER_BACK_DEFAULT_ORDER, groupBackOrderItems } from "@/utils/directorySettings";
+import { isVisibleOnBack, isFieldVisibleOnBackFor, getDirectoryOrderedFields, enrichFieldForDirectory, isFieldInDirectory, hasDirectoryFieldValue, resolveBackFieldOrder, MEMBER_BACK_DEFAULT_ORDER, groupBackOrderItems, applyCoreFieldVisibility } from "@/utils/directorySettings";
 
 // `backFieldOrder`: optional per-directory back-of-card order override
 // (dynamic_directory.back_field_order); falls back to the tenant default in
 // member_directory_display, then the hardcoded default.
-export default function MemberProfileModal({ memberId, open, onOpenChange, backFieldOrder = null }) {
+// `coreFieldVisibility`: optional per-directory core-field visibility
+// overrides (dynamic_directory.core_field_visibility) layered over the
+// tenant-global member_directory_display settings.
+export default function MemberProfileModal({ memberId, open, onOpenChange, backFieldOrder = null, coreFieldVisibility = null }) {
   const { isFeatureExcluded } = useMemberAccess();
   const canViewMemberBiography = !isFeatureExcluded('view_member_biography');
 
@@ -36,7 +39,7 @@ export default function MemberProfileModal({ memberId, open, onOpenChange, backF
     staleTime: 60 * 1000,
   });
 
-  const { data: displaySettings } = useQuery({
+  const { data: globalDisplaySettings } = useQuery({
     queryKey: ['memberDirectoryDisplay'],
     enabled: open,
     queryFn: async () => {
@@ -53,6 +56,13 @@ export default function MemberProfileModal({ memberId, open, onOpenChange, backF
     },
     staleTime: 0,
   });
+
+  // Per-directory core-field visibility overrides layered over the
+  // tenant-global settings (no overrides = identical to the global config).
+  const displaySettings = useMemo(
+    () => applyCoreFieldVisibility(globalDisplaySettings, coreFieldVisibility),
+    [globalDisplaySettings, coreFieldVisibility]
+  );
 
   const { data: roles = [] } = useQuery({
     queryKey: ['roles'],

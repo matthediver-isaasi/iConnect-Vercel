@@ -15,8 +15,11 @@ import { reorderBackFieldOrder } from "@/utils/directorySettings";
  *  - onChange(nextOrder)
  *  - droppableId (unique per page)
  *  - disabled: render rows without drag affordance
+ *  - renderControls(key, item): optional extra per-row controls (e.g. the
+ *    per-directory visibility selects on Dynamic Directory Management),
+ *    rendered on the right of the row.
  */
-export default function BackFieldOrderList({ order, items, onChange, droppableId = "back-field-order", disabled = false }) {
+export default function BackFieldOrderList({ order, items, onChange, droppableId = "back-field-order", disabled = false, renderControls = null }) {
   const handleDragEnd = (result) => {
     if (!result.destination) return;
     const src = result.source.index;
@@ -56,6 +59,7 @@ export default function BackFieldOrderList({ order, items, onChange, droppableId
           {item.hidden && (
             <Badge variant="outline" className="text-xs text-slate-400 border-slate-300">Hidden</Badge>
           )}
+          {renderControls && renderControls(key, item)}
         </div>
       </div>
     );

@@ -14,6 +14,67 @@ export const MEMBER_DISPLAY_DEFAULTS = {
   show_awards: true, show_bio_in_popup: true,
 };
 
+// --- per-directory core-field visibility (mirror client logic) --------------
+//
+// dynamic_directory.core_field_visibility is a JSONB map:
+//   { "<core key>": { front?: boolean, back?: boolean } }
+// Missing key/side = inherit tenant-global settings. Mirrors
+// client/src/utils/directorySettings.js — keep both in sync.
+
+export const CORE_FIELD_KEYS = [
+  'show_profile_photo', 'show_organization', 'show_job_title', 'show_linkedin',
+  'show_events', 'show_articles', 'show_awards', 'show_bio_in_popup',
+];
+
+function normalizeVis(value) {
+  if (value === undefined || value === null) return { front: true, back: true };
+  if (typeof value === 'boolean') return { front: value, back: value };
+  if (typeof value === 'object' && value !== null) {
+    return { front: value.front !== false, back: value.back !== false };
+  }
+  return { front: true, back: true };
+}
+
+export function parseCoreFieldVisibility(value) {
+  if (!value) return null;
+  let parsed = value;
+  if (typeof parsed === 'string') {
+    try { parsed = JSON.parse(parsed); } catch { return null; }
+  }
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+  return null;
+}
+
+/**
+ * Layer a directory's core-field visibility overrides over the tenant-global
+ * member display settings. Only explicit boolean front/back overrides replace
+ * the global value. Mirrors client applyCoreFieldVisibility — keep in sync.
+ */
+export function applyCoreFieldVisibility(settings, coreFieldVisibility) {
+  const overrides = parseCoreFieldVisibility(coreFieldVisibility);
+  if (!overrides) return settings;
+  const merged = { ...(settings || {}) };
+  for (const key of CORE_FIELD_KEYS) {
+    const ov = overrides[key];
+    if (!ov || typeof ov !== 'object' || Array.isArray(ov)) continue;
+    if (typeof ov.front !== 'boolean' && typeof ov.back !== 'boolean') continue;
+    const base = normalizeVis(merged[key]);
+    merged[key] = {
+      front: typeof ov.front === 'boolean' ? ov.front : base.front,
+      back: typeof ov.back === 'boolean' ? ov.back : base.back,
+    };
+  }
+  return merged;
+}
+
+/** Org core back items: per-directory override → global fallback boolean. */
+export function isOrgCoreItemVisible(coreFieldVisibility, key, fallback = true) {
+  const overrides = parseCoreFieldVisibility(coreFieldVisibility);
+  const ov = overrides?.[key];
+  if (ov && typeof ov === 'object' && !Array.isArray(ov) && typeof ov.back === 'boolean') return ov.back;
+  return fallback !== false;
+}
+
 // --- directory_visibility helpers (mirror client logic) ---------------------
 
 export function parseDirVis(field) {

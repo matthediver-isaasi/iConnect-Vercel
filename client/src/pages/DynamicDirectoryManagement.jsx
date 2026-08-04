@@ -57,6 +57,9 @@ export default function DynamicDirectoryManagementPage() {
   const [showMembersOnCardBack, setShowMembersOnCardBack] = useState(true);
   // null = use tenant default order; array = per-directory override
   const [backFieldOrder, setBackFieldOrder] = useState(null);
+  // Per-directory core-field visibility overrides: { key: { front?, back? } }.
+  // Absent key/side = inherit the tenant-global directory settings.
+  const [coreFieldVisibility, setCoreFieldVisibility] = useState(null);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -233,6 +236,61 @@ export default function DynamicDirectoryManagementPage() {
     return items;
   })();
 
+  // --- Per-directory core-field visibility (tri-state: inherit/show/hide) ---
+  const coreVisibilityMeta = entityType === 'organization'
+    ? ORG_BACK_CORE_ITEMS.map(c => ({ key: c.key, sides: ['back'] }))
+    : CORE_FIELDS.map(c => ({ key: c.key, sides: c.backOnly ? ['back'] : ['front', 'back'] }));
+  const coreVisibilityMetaByKey = Object.fromEntries(coreVisibilityMeta.map(m => [m.key, m]));
+
+  const getCoreVisState = (key, side) => {
+    const ov = coreFieldVisibility?.[key];
+    if (ov && typeof ov === 'object' && typeof ov[side] === 'boolean') return ov[side] ? 'show' : 'hide';
+    return 'inherit';
+  };
+  const setCoreVisState = (key, side, val) => {
+    setCoreFieldVisibility(prev => {
+      const next = { ...(prev || {}) };
+      const entry = { ...(next[key] && typeof next[key] === 'object' ? next[key] : {}) };
+      if (val === 'inherit') delete entry[side];
+      else entry[side] = val === 'show';
+      if (typeof entry.front !== 'boolean' && typeof entry.back !== 'boolean') delete next[key];
+      else next[key] = entry;
+      return Object.keys(next).length > 0 ? next : null;
+    });
+  };
+
+  const renderCoreVisibilityControls = (key, item) => {
+    if (item.isCustom) return null;
+    const meta = coreVisibilityMetaByKey[key];
+    if (!meta) return null;
+    const sideLabel = (side) => {
+      if (entityType === 'organization') return 'Popup';
+      return side === 'front' ? 'Front' : 'Back';
+    };
+    return (
+      <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+        {meta.sides.map(side => {
+          const state = getCoreVisState(key, side);
+          return (
+            <div key={side} className="flex items-center gap-1">
+              <span className="text-[10px] uppercase tracking-wide text-slate-400">{sideLabel(side)}</span>
+              <select
+                className={`h-7 rounded-md border text-xs px-1 bg-white ${state === 'inherit' ? 'text-slate-500 border-slate-200' : 'text-slate-800 border-blue-300'}`}
+                value={state}
+                onChange={(e) => setCoreVisState(key, side, e.target.value)}
+                data-testid={`select-core-vis-${key}-${side}`}
+              >
+                <option value="inherit">Inherit</option>
+                <option value="show">Show</option>
+                <option value="hide">Hide</option>
+              </select>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   const availableFilterFields = allFilterableFields.filter(f => f.id !== filterFieldId);
 
   const selectedField = preferenceFields.find(f => f.id === filterFieldId);
@@ -296,6 +354,7 @@ export default function DynamicDirectoryManagementPage() {
     setOgImageUrl('');
     setShowMembersOnCardBack(true);
     setBackFieldOrder(null);
+    setCoreFieldVisibility(null);
   };
 
   const handleOpenCreateDialog = () => {
@@ -323,6 +382,11 @@ export default function DynamicDirectoryManagementPage() {
     setBackFieldOrder(Array.isArray(directory.back_field_order) && directory.back_field_order.length > 0
       ? directory.back_field_order
       : null);
+    setCoreFieldVisibility(
+      directory.core_field_visibility && typeof directory.core_field_visibility === 'object' && !Array.isArray(directory.core_field_visibility) && Object.keys(directory.core_field_visibility).length > 0
+        ? directory.core_field_visibility
+        : null
+    );
     setIsDialogOpen(true);
   };
 
@@ -402,7 +466,8 @@ export default function DynamicDirectoryManagementPage() {
       seo_description: seoDescription || null,
       og_image_url: ogImageUrl || null,
       show_members_on_card_back: entityType === 'organization' ? showMembersOnCardBack : true,
-      back_field_order: (Array.isArray(backFieldOrder) && backFieldOrder.length > 0) ? backFieldOrder : null
+      back_field_order: (Array.isArray(backFieldOrder) && backFieldOrder.length > 0) ? backFieldOrder : null,
+      core_field_visibility: (coreFieldVisibility && Object.keys(coreFieldVisibility).length > 0) ? coreFieldVisibility : null
     };
 
     if (editingDirectory) {
@@ -785,25 +850,33 @@ export default function DynamicDirectoryManagementPage() {
               </div>
               {!editingDirectory && (
                 <p className="text-xs text-slate-500">
-                  Save the directory first, then edit it to customise the back-of-card order.
+                  Save the directory first, then edit it to customise the back-of-card order and field visibility.
                 </p>
               )}
-              {editingDirectory && backFieldOrder && (
+              {editingDirectory && (
                 <>
+                  <p className="text-xs text-slate-500">
+                    Use the per-field dropdowns to show or hide core fields on this directory only.
+                    "Inherit" follows the global directory settings. Hidden fields keep their slot in the order.
+                  </p>
                   <BackFieldOrderList
                     order={resolvedDialogBackOrder}
                     items={dialogBackOrderItems}
                     droppableId="dialog-back-order"
                     onChange={setBackFieldOrder}
+                    disabled={!backFieldOrder}
+                    renderControls={renderCoreVisibilityControls}
                   />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setBackFieldOrder(null)}
-                    data-testid="button-reset-back-order"
-                  >
-                    Reset to tenant default
-                  </Button>
+                  {backFieldOrder && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setBackFieldOrder(null)}
+                      data-testid="button-reset-back-order"
+                    >
+                      Reset to tenant default order
+                    </Button>
+                  )}
                 </>
               )}
             </div>

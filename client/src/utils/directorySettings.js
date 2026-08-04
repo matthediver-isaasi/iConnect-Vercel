@@ -11,6 +11,59 @@ const CORE_FIELDS = [
 
 export { CORE_FIELDS };
 
+// ---- Per-directory core-field visibility overrides --------------------------
+//
+// dynamic_directory.core_field_visibility is a JSONB map:
+//   { "<core key>": { front?: boolean, back?: boolean } }
+// A missing key or missing side means "inherit the tenant-global setting".
+// NOTE: mirrored in api/_lib/directoryConfig.js — keep both in sync.
+
+/** Parse a directory's core_field_visibility value into an object (or null). */
+export function parseCoreFieldVisibility(value) {
+  if (!value) return null;
+  let parsed = value;
+  if (typeof parsed === 'string') {
+    try { parsed = JSON.parse(parsed); } catch { return null; }
+  }
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+  return null;
+}
+
+/**
+ * Layer a directory's core-field visibility overrides over the tenant-global
+ * member display settings, returning a merged settings object that the
+ * existing isVisibleOnFront/isVisibleOnBack helpers read as usual.
+ * Only explicit boolean front/back overrides replace the global value.
+ */
+export function applyCoreFieldVisibility(settings, coreFieldVisibility) {
+  const overrides = parseCoreFieldVisibility(coreFieldVisibility);
+  if (!overrides) return settings;
+  const merged = { ...(settings || {}) };
+  for (const cf of CORE_FIELDS) {
+    const ov = overrides[cf.key];
+    if (!ov || typeof ov !== 'object' || Array.isArray(ov)) continue;
+    if (typeof ov.front !== 'boolean' && typeof ov.back !== 'boolean') continue;
+    const base = normalizeFieldVisibility(merged[cf.key]);
+    merged[cf.key] = {
+      front: typeof ov.front === 'boolean' ? ov.front : base.front,
+      back: typeof ov.back === 'boolean' ? ov.back : base.back,
+    };
+  }
+  return merged;
+}
+
+/**
+ * Organisation core back items ('org_member_count', 'org_members_list'):
+ * per-directory override → the provided global fallback boolean.
+ * Only the `back` side applies (org cores render in the detail popup only).
+ */
+export function isOrgCoreItemVisible(coreFieldVisibility, key, fallback = true) {
+  const overrides = parseCoreFieldVisibility(coreFieldVisibility);
+  const ov = overrides?.[key];
+  if (ov && typeof ov === 'object' && !Array.isArray(ov) && typeof ov.back === 'boolean') return ov.back;
+  return fallback !== false;
+}
+
 export function normalizeFieldVisibility(value) {
   if (value === undefined || value === null) return { front: true, back: true };
   if (typeof value === 'boolean') return { front: value, back: value };

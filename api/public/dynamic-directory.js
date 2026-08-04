@@ -5,6 +5,8 @@ import {
   fetchMemberDisplaySettings,
   fetchMemberFields,
   fetchOrgDisplaySettings,
+  applyCoreFieldVisibility,
+  isOrgCoreItemVisible,
 } from '../_lib/directoryConfig.js';
 
 // Columns fetched for the public directory row. Must include
@@ -12,7 +14,7 @@ import {
 // show_members_on_card_back so guest/Canvas consumers can resolve the
 // unified back-of-card order exactly like the portal does.
 export const PUBLIC_DIRECTORY_SELECT =
-  'id, slug, name, entity_type, filter_field_id, filter_value, is_active, back_field_order, show_members_on_card_back';
+  'id, slug, name, entity_type, filter_field_id, filter_value, is_active, back_field_order, show_members_on_card_back, core_field_visibility';
 
 // Public shape of the directory row returned to embeds.
 export function buildPublicDirectoryPayload(directory) {
@@ -24,6 +26,9 @@ export function buildPublicDirectoryPayload(directory) {
     entity_type: directory.entity_type,
     back_field_order: Array.isArray(directory.back_field_order) ? directory.back_field_order : null,
     show_members_on_card_back: directory.show_members_on_card_back !== false,
+    core_field_visibility: (directory.core_field_visibility && typeof directory.core_field_visibility === 'object' && !Array.isArray(directory.core_field_visibility))
+      ? directory.core_field_visibility
+      : null,
   };
 }
 
@@ -128,11 +133,14 @@ async function renderMembers({ supabase, tenantId, directory, pageNum, pageSize,
   const pageMembers = data || [];
 
   // Config needed to render cards identically to the portal (guest view).
-  const [roles, displaySettings, { directoryCustomFields }] = await Promise.all([
+  const [roles, globalDisplaySettings, { directoryCustomFields }] = await Promise.all([
     fetchRoles(supabase, tenantId),
     fetchMemberDisplaySettings(supabase, tenantId),
     fetchMemberFields(supabase, tenantId, directory.id),
   ]);
+  // Layer this directory's core-field visibility overrides over the global
+  // settings so guest/embed cards resolve visibility exactly like the portal.
+  const displaySettings = applyCoreFieldVisibility(globalDisplaySettings, directory.core_field_visibility);
 
   // Resolve organisation names for the page's members.
   const orgIds = [...new Set(pageMembers.map((m) => m.organization_id).filter(Boolean))];
@@ -226,6 +234,11 @@ async function renderOrganizations({ supabase, tenantId, directory, pageNum, pag
     website_url: o.website_url || null,
   }));
   const displaySettings = await fetchOrgDisplaySettings(supabase, tenantId);
+  // Per-directory override for the member-count core item (detail popup /
+  // card back); falls back to the tenant-global org directory setting.
+  displaySettings.showMemberCount = isOrgCoreItemVisible(
+    directory.core_field_visibility, 'org_member_count', displaySettings.showMemberCount
+  );
   return res.json({
     entityType: 'organization',
     records,

@@ -19,7 +19,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { toast } from "sonner";
 import { isDeletedMember } from "@/utils";
-import { isVisibleOnFront, isVisibleOnBack, isFieldVisibleOnBackFor, getDirectoryOrderedFields, enrichFieldForDirectory, isFieldInDirectory, hasDirectoryFieldValue, getDirectoryFilterOptions, directoryFilterValueMatches, resolveBackFieldOrder, MEMBER_BACK_DEFAULT_ORDER, ORG_BACK_DEFAULT_ORDER } from "@/utils/directorySettings";
+import { isVisibleOnFront, isVisibleOnBack, isFieldVisibleOnBackFor, getDirectoryOrderedFields, enrichFieldForDirectory, isFieldInDirectory, hasDirectoryFieldValue, getDirectoryFilterOptions, directoryFilterValueMatches, resolveBackFieldOrder, MEMBER_BACK_DEFAULT_ORDER, ORG_BACK_DEFAULT_ORDER, applyCoreFieldVisibility, isOrgCoreItemVisible } from "@/utils/directorySettings";
 import { DirectoryMemberCard, DirectoryOrganizationCard } from "@/components/directory/DirectoryCards";
 
 export default function DynamicDirectoryView() {
@@ -406,8 +406,24 @@ export default function DynamicDirectoryView() {
   const roles = isGuest ? (publicConfig?.roles || []) : authRoles;
   const organizations = isGuest ? (publicConfig?.organizations || []) : authOrganizations;
   const allOrganizations = isGuest ? (publicConfig?.allOrganizations || []) : authAllOrganizations;
-  const orgDisplaySettings = isGuest ? publicConfig?.displaySettings : authOrgDisplaySettings;
-  const memberDisplaySettings = isGuest ? publicConfig?.displaySettings : authMemberDisplaySettings;
+  const rawOrgDisplaySettings = isGuest ? publicConfig?.displaySettings : authOrgDisplaySettings;
+  // Per-directory core visibility overrides layered over the tenant-global
+  // settings (guest configs arrive pre-merged from the server; merging again
+  // is a no-op, so both paths resolve identically).
+  const orgDisplaySettings = useMemo(() => {
+    if (!rawOrgDisplaySettings) return rawOrgDisplaySettings;
+    return {
+      ...rawOrgDisplaySettings,
+      showMemberCount: isOrgCoreItemVisible(
+        directory?.core_field_visibility, 'org_member_count', rawOrgDisplaySettings.showMemberCount
+      ),
+    };
+  }, [rawOrgDisplaySettings, directory?.core_field_visibility]);
+  const rawMemberDisplaySettings = isGuest ? publicConfig?.displaySettings : authMemberDisplaySettings;
+  const memberDisplaySettings = useMemo(
+    () => applyCoreFieldVisibility(rawMemberDisplaySettings, directory?.core_field_visibility),
+    [rawMemberDisplaySettings, directory?.core_field_visibility]
+  );
   const orgCustomFields = isGuest ? (publicConfig?.orgCustomFields || []) : authOrgCustomFields;
   const memberCustomFields = isGuest ? (publicConfig?.memberCustomFields || []) : authMemberCustomFields;
   const directoryCustomFields = isGuest ? (publicConfig?.directoryCustomFields || []) : authDirectoryCustomFields;
@@ -518,10 +534,18 @@ export default function DynamicDirectoryView() {
   // Members are grouped by role in the order admins selected those roles; within each role they
   // are sorted alphabetically by last name then first name.
   const showMembersOnCardBack = directory?.show_members_on_card_back !== false;
+  // Per-directory core visibility overrides for the org detail popup items;
+  // fallback preserves the existing show_members_on_card_back behaviour.
+  const orgMemberCountVisible = isOrgCoreItemVisible(
+    directory?.core_field_visibility, 'org_member_count', showMembersOnCardBack
+  );
+  const orgMembersListVisible = isOrgCoreItemVisible(
+    directory?.core_field_visibility, 'org_members_list', showMembersOnCardBack
+  );
 
   const reverseCardContactGroups = useMemo(() => {
     const roleIds = orgDisplaySettings?.reverseCardRoleIds || [];
-    if (!showMembersOnCardBack || !selectedOrg || roleIds.length === 0 || allOrgMembersForCount.length === 0) {
+    if (!orgMembersListVisible || !selectedOrg || roleIds.length === 0 || allOrgMembersForCount.length === 0) {
       return [];
     }
     const orgMembers = allOrgMembersForCount.filter(
@@ -550,11 +574,11 @@ export default function DynamicDirectoryView() {
         return { roleId, role, members: groupMembers };
       })
       .filter((g) => g.members.length > 0);
-  }, [orgDisplaySettings?.reverseCardRoleIds, selectedOrg, allOrgMembersForCount, roles, showMembersOnCardBack]);
+  }, [orgDisplaySettings?.reverseCardRoleIds, selectedOrg, allOrgMembersForCount, roles, orgMembersListVisible]);
 
   // When the toggle is off and there's no other content to show on the back,
   // suppress the reverse-card dialog entirely (clicking the card becomes a no-op).
-  const hasReverseCardContent = showMembersOnCardBack || orgCustomFields.length > 0;
+  const hasReverseCardContent = orgMembersListVisible || orgMemberCountVisible || orgCustomFields.length > 0;
 
   const handleCopyMemberEmail = async (email) => {
     if (!email) return;
@@ -1092,7 +1116,7 @@ export default function DynamicDirectoryView() {
                 const items = [];
                 for (const key of resolvedOrder) {
                   if (key === 'org_member_count') {
-                    if (isGuest || !showMembersOnCardBack) continue;
+                    if (isGuest || !orgMemberCountVisible) continue;
                     items.push({ kind: 'block', node: (
                       <div key={key} className="flex items-center gap-2 text-slate-600">
                         <Users className="w-4 h-4" />
@@ -1223,7 +1247,7 @@ export default function DynamicDirectoryView() {
             </div>
             <DialogFooter className="gap-2 sm:gap-2">
               <Button variant="outline" onClick={() => setSelectedOrg(null)}>Close</Button>
-              {!isGuest && showMembersOnCardBack && (
+              {!isGuest && orgMembersListVisible && (
                 <Button
                   onClick={() => { window.location.href = `/memberdirectory?org=${selectedOrg?.id}`; }}
                   className="bg-blue-600 hover:bg-blue-700 gap-2"

@@ -8,6 +8,8 @@ import {
   fetchMemberDisplaySettings,
   fetchMemberFields,
   fetchOrgDisplaySettings,
+  applyCoreFieldVisibility,
+  isOrgCoreItemVisible,
 } from '../_lib/directoryConfig.js';
 
 /**
@@ -90,7 +92,12 @@ export default async function handler(req, res) {
 // --- member directory config ------------------------------------------------
 
 async function buildMemberConfig({ res, tenantId, directory, dirId, roles, filterField }) {
-  const displaySettings = await fetchMemberDisplaySettings(supabase, tenantId);
+  // Layer this directory's core-field visibility overrides over the global
+  // settings so guests resolve visibility exactly like logged-in members.
+  const displaySettings = applyCoreFieldVisibility(
+    await fetchMemberDisplaySettings(supabase, tenantId),
+    directory.core_field_visibility
+  );
 
   const { data: allOrgRows } = await supabase
     .from('organization')
@@ -115,6 +122,9 @@ async function buildMemberConfig({ res, tenantId, directory, dirId, roles, filte
 
 async function buildOrgConfig({ res, tenantId, directory, dirId, roles, filterField }) {
   const displaySettings = await fetchOrgDisplaySettings(supabase, tenantId);
+  displaySettings.showMemberCount = isOrgCoreItemVisible(
+    directory.core_field_visibility, 'org_member_count', displaySettings.showMemberCount
+  );
 
   const { data: orgRows } = await supabase
     .from('organization')

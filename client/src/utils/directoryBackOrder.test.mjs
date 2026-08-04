@@ -8,6 +8,11 @@ import {
   resolveBackFieldOrder,
   reorderBackFieldOrder,
   groupBackOrderItems,
+  CORE_FIELDS,
+  applyCoreFieldVisibility,
+  isOrgCoreItemVisible,
+  isVisibleOnFront,
+  isVisibleOnBack,
 } from './directorySettings.js';
 
 import {
@@ -15,6 +20,9 @@ import {
   MEMBER_BACK_DEFAULT_ORDER as SRV_MEMBER_DEFAULT,
   ORG_BACK_DEFAULT_ORDER as SRV_ORG_DEFAULT,
   resolveBackFieldOrder as srvResolve,
+  CORE_FIELD_KEYS as SRV_CORE_KEYS,
+  applyCoreFieldVisibility as srvApplyCoreVis,
+  isOrgCoreItemVisible as srvIsOrgCoreItemVisible,
 } from '../../../api/_lib/directoryConfig.js';
 
 const customFields = [{ id: 'f1' }, { id: 'f2' }, { id: 'f3' }];
@@ -155,6 +163,77 @@ test('groupBackOrderItems batches consecutive stats/customs and keeps blocks sta
     ['block', 1], ['stat', 2], ['custom', 1], ['block', 1], ['custom', 2],
   ]);
   assert.deepEqual(groupBackOrderItems([]), []);
+});
+
+// ---- per-directory core-field visibility overrides -------------------------
+
+test('core visibility: client and server key lists stay in sync', () => {
+  assert.deepEqual(CORE_FIELDS.map(f => f.key), SRV_CORE_KEYS);
+});
+
+test('applyCoreFieldVisibility: no overrides = untouched settings (both copies)', () => {
+  const settings = { show_job_title: { front: true, back: false }, show_awards: false };
+  for (const apply of [applyCoreFieldVisibility, srvApplyCoreVis]) {
+    assert.equal(apply(settings, null), settings);
+    assert.equal(apply(settings, undefined), settings);
+    assert.equal(apply(settings, 'not json {'), settings);
+    assert.equal(apply(settings, []), settings);
+  }
+});
+
+test('applyCoreFieldVisibility: override wins per side, missing side inherits', () => {
+  const settings = {
+    show_job_title: { front: true, back: true },
+    show_linkedin: false, // legacy boolean form
+  };
+  const overrides = {
+    show_job_title: { front: false }, // back inherits (true)
+    show_linkedin: { back: true },    // front inherits (false)
+    show_events: { front: false, back: false }, // absent in settings → default true baseline
+    bogus_key: { front: false },      // unknown keys ignored
+    show_awards: 'nope',              // malformed override ignored
+  };
+  for (const apply of [applyCoreFieldVisibility, srvApplyCoreVis]) {
+    const merged = apply(settings, overrides);
+    assert.notEqual(merged, settings);
+    assert.deepEqual(merged.show_job_title, { front: false, back: true });
+    assert.deepEqual(merged.show_linkedin, { front: false, back: true });
+    assert.deepEqual(merged.show_events, { front: false, back: false });
+    assert.equal(merged.show_awards, undefined);
+    assert.ok(!('bogus_key' in merged));
+    // Original settings object untouched.
+    assert.deepEqual(settings.show_job_title, { front: true, back: true });
+  }
+});
+
+test('applyCoreFieldVisibility: accepts JSON string values (both copies)', () => {
+  const overrides = JSON.stringify({ show_profile_photo: { front: false, back: false } });
+  for (const apply of [applyCoreFieldVisibility, srvApplyCoreVis]) {
+    const merged = apply({}, overrides);
+    assert.deepEqual(merged.show_profile_photo, { front: false, back: false });
+  }
+});
+
+test('client isVisibleOnFront/Back read merged overrides like globals', () => {
+  const merged = applyCoreFieldVisibility(
+    { show_job_title: { front: true, back: true } },
+    { show_job_title: { front: false } }
+  );
+  assert.equal(isVisibleOnFront(merged, 'show_job_title'), false);
+  assert.equal(isVisibleOnBack(merged, 'show_job_title'), true);
+});
+
+test('isOrgCoreItemVisible: override → fallback, both copies agree', () => {
+  for (const fn of [isOrgCoreItemVisible, srvIsOrgCoreItemVisible]) {
+    assert.equal(fn(null, 'org_member_count', true), true);
+    assert.equal(fn(null, 'org_member_count', false), false);
+    assert.equal(fn({ org_member_count: { back: false } }, 'org_member_count', true), false);
+    assert.equal(fn({ org_members_list: { back: true } }, 'org_members_list', false), true);
+    assert.equal(fn({ org_members_list: {} }, 'org_members_list', false), false);
+    assert.equal(fn(JSON.stringify({ org_member_count: { back: false } }), 'org_member_count', true), false);
+    // Hidden overrides never leak across keys.
+    assert.equal(fn({ org_member_count: { back: false } }, 'org_members_list', true), true);
+  }
 });
 
 test('reorderBackFieldOrder moves entries and is bounds-safe', () => {
