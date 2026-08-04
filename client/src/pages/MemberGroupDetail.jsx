@@ -2328,6 +2328,7 @@ export default function MemberGroupDetailPage() {
                       expressDisabled={!memberInfo?.id}
                       joinLocked={!canAccessGroupContent}
                       adminActions={adminActions}
+                      collapsible
                     />
                   );
                 })}
