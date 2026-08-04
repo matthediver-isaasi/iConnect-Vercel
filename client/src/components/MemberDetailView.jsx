@@ -95,6 +95,12 @@ import MemberMembershipTab from "@/components/MemberMembershipTab";
 import CrmTagInput from "@/components/crm/CrmTagInput";
 import { formatTermLength } from "@/lib/memberGroupTermSnapshot";
 
+// Stable empty-array fallback for disabled/unloaded useQuery data.
+// Inline `= []` defaults create a fresh array identity every render, which
+// re-triggers sync effects and can starve React Router navigation in an
+// infinite render loop (see .agents/memory/usequery-default-array-loop.md).
+const EMPTY_ARRAY = [];
+
 function formatGroupTermDate(value) {
   if (!value) return null;
   const d = new Date(value);
@@ -345,7 +351,7 @@ export default function MemberDetailView({
     }
   };
 
-  const { data: memberValues = [], isLoading: valuesLoading } = useQuery({
+  const { data: memberValues = EMPTY_ARRAY, isLoading: valuesLoading } = useQuery({
     queryKey: ['member-detail-preference-values', member?.id],
     enabled: !!member?.id,
     queryFn: async () => {
@@ -361,7 +367,7 @@ export default function MemberDetailView({
   });
 
 
-  const { data: resourceCategories = [], isLoading: categoriesLoading } = useQuery({
+  const { data: resourceCategories = EMPTY_ARRAY, isLoading: categoriesLoading } = useQuery({
     queryKey: ['resource-categories-for-member-detail'],
     enabled: activeTab === 'categories',
     queryFn: async () => {
@@ -377,7 +383,7 @@ export default function MemberDetailView({
   });
 
   // Fetch member's category selections from the dedicated backend endpoint
-  const { data: memberCategorySelections = [], isLoading: selectionsLoading } = useQuery({
+  const { data: memberCategorySelections = EMPTY_ARRAY, isLoading: selectionsLoading } = useQuery({
     queryKey: ['member-resource-categories', member?.id],
     enabled: !!member?.id && activeTab === 'categories',
     queryFn: async () => {
@@ -393,7 +399,7 @@ export default function MemberDetailView({
     }
   });
 
-  const { data: preferenceFields = [], isLoading: prefFieldsLoading } = useQuery({
+  const { data: preferenceFields = EMPTY_ARRAY, isLoading: prefFieldsLoading } = useQuery({
     queryKey: ['category-preference-fields'],
     enabled: activeTab === 'categories',
     queryFn: async () => {
@@ -424,7 +430,7 @@ export default function MemberDetailView({
   const memberOrgId = formData.organization_id || member?.organization_id;
 
   // Fetch the organization's preference values to get the segmentation field value
-  const { data: orgPreferenceValues = [] } = useQuery({
+  const { data: orgPreferenceValues = EMPTY_ARRAY } = useQuery({
     queryKey: ['org-preference-values-for-role-filter', memberOrgId],
     enabled: !!memberOrgId && !!segmentationFieldId,
     queryFn: async () => {
@@ -455,7 +461,7 @@ export default function MemberDetailView({
   const verifiedDomains = orgDomainsData?.verified_domains || [];
 
   // Communication categories and preferences (tenant-scoped via entity API)
-  const { data: communicationCategories = [], isLoading: communicationCategoriesLoading } = useQuery({
+  const { data: communicationCategories = EMPTY_ARRAY, isLoading: communicationCategoriesLoading } = useQuery({
     queryKey: ["communicationCategories"],
     enabled: activeTab === 'communications' || activeTab === 'overview',
     queryFn: async () => {
@@ -471,7 +477,7 @@ export default function MemberDetailView({
     },
   });
 
-  const { data: communicationPreferences = [] } = useQuery({
+  const { data: communicationPreferences = EMPTY_ARRAY } = useQuery({
     queryKey: ["communicationPreferences", member?.id],
     enabled: !!member?.id && (activeTab === 'communications' || activeTab === 'overview'),
     queryFn: async () => {
@@ -485,7 +491,7 @@ export default function MemberDetailView({
     },
   });
 
-  const { data: groupAssignments = [], isLoading: groupAssignmentsLoading } = useQuery({
+  const { data: groupAssignments = EMPTY_ARRAY, isLoading: groupAssignmentsLoading } = useQuery({
     queryKey: ["member-detail-group-assignments", member?.id],
     enabled: !!member?.id && activeTab === 'roles',
     queryFn: async () => {
@@ -506,7 +512,7 @@ export default function MemberDetailView({
     return Array.from(ids);
   }, [groupAssignments]);
 
-  const { data: assignmentGroups = [] } = useQuery({
+  const { data: assignmentGroups = EMPTY_ARRAY } = useQuery({
     queryKey: ["member-detail-assignment-groups", assignmentGroupIds],
     enabled: assignmentGroupIds.length > 0,
     queryFn: async () => {
@@ -662,6 +668,12 @@ export default function MemberDetailView({
   // Only sync when not editing to preserve user edits
   useEffect(() => {
     if (!isEditing) {
+      // No-op while the query is disabled/empty (e.g. Add New mode where
+      // member.id is undefined) so we never setState in a render loop.
+      if (memberValues.length === 0) {
+        setCustomFieldValues(prev => (Object.keys(prev).length === 0 ? prev : {}));
+        return;
+      }
       const valuesMap = {};
       memberValues.forEach(pv => {
         const field = (memberCustomFields || []).find(f => f.id === pv.field_id);
@@ -687,7 +699,14 @@ export default function MemberDetailView({
   // Format: [{resource_category_id, subcategory_name}, ...]
   useEffect(() => {
     if (selectionsLoading) return;
-    
+
+    // No-op while the query is disabled/empty (e.g. Add New mode) so we
+    // never setState with a fresh array identity in a render loop.
+    if (memberCategorySelections.length === 0) {
+      setSelectedSubcategories(prev => (prev.length === 0 ? prev : []));
+      return;
+    }
+
     // Map backend data to local state format
     const selections = memberCategorySelections.map(sel => ({
       category_id: sel.resource_category_id,
@@ -782,7 +801,7 @@ export default function MemberDetailView({
   };
 
   // Member Notes query
-  const { data: memberNotes = [], isLoading: notesLoading } = useQuery({
+  const { data: memberNotes = EMPTY_ARRAY, isLoading: notesLoading } = useQuery({
     queryKey: ['member-notes', member?.id],
     enabled: !!member?.id && activeTab === 'notes',
     queryFn: async () => {
