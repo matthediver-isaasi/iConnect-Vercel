@@ -302,20 +302,31 @@ async function handleGet(req, res) {
     const regularBookingIds = [...new Set((requests || []).filter(r => r.booking_source !== BOOKING_SOURCE_COMPLEX).map(r => r.booking_id))];
     const complexBookingIds = [...new Set((requests || []).filter(r => r.booking_source === BOOKING_SOURCE_COMPLEX).map(r => r.booking_id))];
 
+    // event_name is the deleted-event title snapshot (task #3344); selected
+    // with a 42703 drop-and-retry so stale environments without the column
+    // still work.
     let bookingsMap = {};
     if (regularBookingIds.length > 0) {
-      const { data: bookings } = await supabase
+      const regularCols = 'id, attendee_email, attendee_first_name, attendee_last_name, event_id, status, booking_group_reference, booking_reference, ticket_class_name, training_fund_amount, voucher_amount, discount_code_id, discount_code_amount, stripe_payment_intent_id, account_amount, total_cost, payment_method, organization_id, xero_invoice_id, xero_invoice_number, accounting_provider, accounting_invoice_id, accounting_invoice_number';
+      let { data: bookings, error: bkErr } = await supabase
         .from('booking')
-        .select('id, attendee_email, attendee_first_name, attendee_last_name, event_id, status, booking_group_reference, booking_reference, ticket_class_name, training_fund_amount, voucher_amount, discount_code_id, discount_code_amount, stripe_payment_intent_id, account_amount, total_cost, payment_method, organization_id, xero_invoice_id, xero_invoice_number, accounting_provider, accounting_invoice_id, accounting_invoice_number')
+        .select(regularCols + ', event_name')
         .in('id', regularBookingIds);
+      if (bkErr && bkErr.code === '42703') {
+        ({ data: bookings } = await supabase.from('booking').select(regularCols).in('id', regularBookingIds));
+      }
       for (const b of (bookings || [])) bookingsMap[b.id] = b;
     }
     if (complexBookingIds.length > 0) {
-      const { data: cBookings } = await supabase
+      const complexCols = 'id, attendee_email, attendee_first_name, attendee_last_name, event_id, status, booking_group_reference, booking_reference, ticket_class_name, training_fund_amount, voucher_amount, voucher_id, discount_code, discount_code_id, discount_amount, stripe_payment_intent_id, account_balance_amount, total_paid, payment_method, organization_id, xero_invoice_id, xero_invoice_number, accounting_provider, accounting_invoice_id, accounting_invoice_number';
+      let { data: cBookings, error: cbErr } = await supabase
         .from('complex_event_booking')
-        .select('id, attendee_email, attendee_first_name, attendee_last_name, event_id, status, booking_group_reference, booking_reference, ticket_class_name, training_fund_amount, voucher_amount, voucher_id, discount_code, discount_code_id, discount_amount, stripe_payment_intent_id, account_balance_amount, total_paid, payment_method, organization_id, xero_invoice_id, xero_invoice_number, accounting_provider, accounting_invoice_id, accounting_invoice_number')
+        .select(complexCols + ', event_name')
         .in('id', complexBookingIds)
         .eq('tenant_id', tenantId);
+      if (cbErr && cbErr.code === '42703') {
+        ({ data: cBookings } = await supabase.from('complex_event_booking').select(complexCols).in('id', complexBookingIds).eq('tenant_id', tenantId));
+      }
       for (const b of (cBookings || [])) bookingsMap[b.id] = normalizeComplexBooking(b);
     }
 
@@ -450,7 +461,10 @@ async function handleGet(req, res) {
         ...r,
         booking,
         member: membersMap[r.member_id] || null,
-        event: eventId ? (eventsMap[eventId] || null) : null,
+        // Fall back to the snapshotted title when the event row was
+        // hard-deleted via delete-with-cancellations (task #3344).
+        event: (eventId && eventsMap[eventId])
+          || (booking?.event_name ? { id: eventId || null, title: booking.event_name, deleted: true } : null),
         financialSummary,
       };
     });

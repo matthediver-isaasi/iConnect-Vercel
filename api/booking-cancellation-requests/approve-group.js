@@ -698,20 +698,30 @@ async function sendGroupNotificationEmails({ requests, status, tenantId, reviewN
   const bookingSource = firstRequest.booking_source || 'booking';
   const isComplex = isComplexSource(bookingSource);
 
+  // event_name = deleted-event title snapshot (task #3344); 42703 retry keeps
+  // stale environments without the column working.
   let bookings;
   if (isComplex) {
-    const { data } = await supabase
+    const cols = 'id, attendee_email, attendee_first_name, attendee_last_name, member_id, booking_reference, booking_group_reference, event_id, total_paid';
+    let { data, error } = await supabase
       .from('complex_event_booking')
-      .select('id, attendee_email, attendee_first_name, attendee_last_name, member_id, booking_reference, booking_group_reference, event_id, total_paid')
+      .select(cols + ', event_name')
       .in('id', bookingIds)
       .eq('tenant_id', tenantId);
+    if (error && error.code === '42703') {
+      ({ data } = await supabase.from('complex_event_booking').select(cols).in('id', bookingIds).eq('tenant_id', tenantId));
+    }
     bookings = (data || []).map(b => ({ ...b, total_cost: b.total_paid }));
   } else {
-    const { data } = await supabase
+    const cols = 'id, attendee_email, attendee_first_name, attendee_last_name, member_id, booking_reference, booking_group_reference, event_id, total_cost';
+    let { data, error } = await supabase
       .from('booking')
-      .select('id, attendee_email, attendee_first_name, attendee_last_name, member_id, booking_reference, booking_group_reference, event_id, total_cost')
+      .select(cols + ', event_name')
       .in('id', bookingIds)
       .eq('tenant_id', tenantId);
+    if (error && error.code === '42703') {
+      ({ data } = await supabase.from('booking').select(cols).in('id', bookingIds).eq('tenant_id', tenantId));
+    }
     bookings = data;
   }
 
@@ -743,6 +753,8 @@ async function sendGroupNotificationEmails({ requests, status, tenantId, reviewN
     }
     if (event?.title) eventName = event.title;
   }
+  // Event row hard-deleted (task #3344): fall back to the snapshotted title.
+  if (eventName === 'your event' && bookings[0].event_name) eventName = bookings[0].event_name;
 
   let bookerEmail = null;
   let bookerFirstName = null;

@@ -143,4 +143,5 @@
 - [Resource category & subcategory role access](resource-category-role-access.md) — name-level visible-wins hiding via one shared helper; ~6 surfaces must strip access fields + trim hidden names or roles leak.
 - [Org directory filters vs admin surfaces](org-directory-filter-admin.md) — non-tenant-admin Organization lists are directory-filtered unless skipDirectoryFilters=true; admin pages use adminOrgList helpers.
 - [record_create workflows & custom fields](workflow-record-create-custom-fields.md) — trigger AFTER preference values persist or custom-field conditions see empty; workflow_log status check allows success|partial|failed|skipped.
+- [Event hard-delete vs booking rows](event-delete-booking-detach.md) — bookings survive event deletion detached (event_id NULL + event_name snapshot); surfaces must fall back to booking.event_name.
 - [Unified directory card-back ordering](directory-back-order.md) — one mixed core+custom order list; resolver duplicated client+server, keep in sync; visibility toggles still gate content.

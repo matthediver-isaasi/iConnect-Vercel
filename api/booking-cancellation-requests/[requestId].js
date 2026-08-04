@@ -189,23 +189,33 @@ async function sendCancellationNotificationEmails({ request, status, tenantId, r
   const isComplex = isComplexSource(bookingSource);
   console.log(`[CancellationEmail] Starting email notification | bookingId: ${bookingId} | status: ${status} | source: ${bookingSource} | member_id: ${request?.member_id || 'null (guest/public)'}`);
 
+  // event_name = deleted-event title snapshot (task #3344); 42703 retry keeps
+  // stale environments without the column working.
   let booking, bookingError;
   if (isComplex) {
-    const { data, error } = await supabase
+    const cols = 'attendee_email, attendee_first_name, attendee_last_name, member_id, booking_reference, booking_group_reference, event_id, total_paid';
+    let { data, error } = await supabase
       .from('complex_event_booking')
-      .select('attendee_email, attendee_first_name, attendee_last_name, member_id, booking_reference, booking_group_reference, event_id, total_paid')
+      .select(cols + ', event_name')
       .eq('id', bookingId)
       .eq('tenant_id', tenantId)
       .single();
+    if (error && error.code === '42703') {
+      ({ data, error } = await supabase.from('complex_event_booking').select(cols).eq('id', bookingId).eq('tenant_id', tenantId).single());
+    }
     booking = data ? { ...data, total_cost: data.total_paid } : null;
     bookingError = error;
   } else {
-    const result = await supabase
+    const cols = 'attendee_email, attendee_first_name, attendee_last_name, member_id, booking_reference, booking_group_reference, event_id, total_cost';
+    let result = await supabase
       .from('booking')
-      .select('attendee_email, attendee_first_name, attendee_last_name, member_id, booking_reference, booking_group_reference, event_id, total_cost')
+      .select(cols + ', event_name')
       .eq('id', bookingId)
       .eq('tenant_id', tenantId)
       .single();
+    if (result.error && result.error.code === '42703') {
+      result = await supabase.from('booking').select(cols).eq('id', bookingId).eq('tenant_id', tenantId).single();
+    }
     booking = result.data;
     bookingError = result.error;
   }
@@ -243,6 +253,8 @@ async function sendCancellationNotificationEmails({ request, status, tenantId, r
     }
     if (event?.title) eventName = event.title;
   }
+  // Event row hard-deleted (task #3344): fall back to the snapshotted title.
+  if (eventName === 'your event' && booking.event_name) eventName = booking.event_name;
 
   let bookerEmail = null;
   let bookerFirstName = null;

@@ -197,6 +197,31 @@ export async function deleteEventWithCancellations({
   // 6. Cleanup orphan rows.
   const cleanupSummary = await cleanupEventOrphans({ eventId, tenantId, isComplex });
 
+  // 6.5 Task #3344: snapshot the event title onto every remaining booking row
+  // (so history/reports stay readable after the event is gone) and detach the
+  // bookings by clearing event_id. Deliberately NOT tenant-filtered — stray
+  // rows with a NULL/other tenant_id would otherwise still block the FK
+  // (booking_event_id_fkey). The FK is also ON DELETE SET NULL as a guard,
+  // but detaching here keeps the snapshot+detach atomic per row.
+  {
+    let { error: detachErr } = await supabase
+      .from(bookingTable)
+      .update({ event_name: event.title, event_id: null })
+      .eq('event_id', eventId);
+    if (detachErr && detachErr.code === '42703') {
+      // Stale environment without the event_name column — still detach.
+      ({ error: detachErr } = await supabase
+        .from(bookingTable)
+        .update({ event_id: null })
+        .eq('event_id', eventId));
+    }
+    if (detachErr) {
+      // Non-blocking: the FK is ON DELETE SET NULL, so the delete below can
+      // still proceed; log so the missing snapshot is visible.
+      console.error('[EventDeletion] Booking snapshot/detach failed:', detachErr.message);
+    }
+  }
+
   // 7. Hard-delete the event row.
   const { error: delErr } = await supabase
     .from(eventTable)
