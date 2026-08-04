@@ -1,8 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
-import { jsPDF } from 'jspdf';
 import { getSessionTenantUser } from '../_lib/session.js';
 import { addTenantStorageBytes } from '../_lib/tenantStorageUsage.js';
-import { toWinAnsi } from '../_lib/pdfWinAnsi.js';
+import { buildFormSubmissionPdf } from '../_lib/formSubmissionPdf.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -55,147 +54,19 @@ export default async function handler(req, res) {
     const form = submission.form;
     const submissionData = submission.submission_data || {};
 
-    const doc = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: 'a4'
-    });
-
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const margin = 20;
-    const contentWidth = pageWidth - (margin * 2);
-    let yPos = margin;
-
-    doc.setFontSize(18);
-    doc.setFont('helvetica', 'bold');
-    const titleLines = doc.splitTextToSize(toWinAnsi(form.name || 'Contract'), contentWidth);
-    doc.text(titleLines, margin, yPos);
-    yPos += titleLines.length * 8 + 4;
-
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(100);
     const signedDate = new Date(submission.created_date).toLocaleDateString('en-GB', {
       day: 'numeric',
       month: 'long',
       year: 'numeric'
     });
-    doc.text(toWinAnsi(`Signed: ${signedDate}`), margin, yPos);
-    yPos += 15;
 
-    doc.setTextColor(0);
-
-    let allFields = [];
-    if (form.fields && Array.isArray(form.fields)) {
-      allFields = form.fields;
-    }
-
-    for (const field of allFields) {
-      if (field.type === 'instructions' || field.type === 'heading') {
-        continue;
-      }
-
-      if (yPos > pageHeight - 40) {
-        doc.addPage();
-        yPos = margin;
-      }
-
-      const value = submissionData[field.id];
-
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'bold');
-      const labelLines = doc.splitTextToSize(toWinAnsi(field.label || field.id), contentWidth);
-      doc.text(labelLines, margin, yPos);
-      yPos += labelLines.length * 5;
-
-      doc.setFont('helvetica', 'normal');
-
-      if (field.type === 'signature') {
-        if (value && typeof value === 'object' && value.data) {
-          try {
-            const base64Data = value.data;
-            if (base64Data.startsWith('data:image/png;base64,')) {
-              const imgWidth = 60;
-              const imgHeight = 20;
-              
-              if (yPos + imgHeight > pageHeight - margin) {
-                doc.addPage();
-                yPos = margin;
-              }
-              
-              doc.addImage(base64Data, 'PNG', margin, yPos, imgWidth, imgHeight);
-              yPos += imgHeight + 3;
-              
-              if (value.mode === 'typed' && value.typedName) {
-                doc.setFontSize(8);
-                doc.setTextColor(100);
-                doc.text(toWinAnsi(`(Typed: ${value.typedName})`), margin, yPos);
-                doc.setTextColor(0);
-                yPos += 4;
-              }
-              
-              if (value.signed_at) {
-                doc.setFontSize(8);
-                doc.setTextColor(100);
-                const signedAt = new Date(value.signed_at).toLocaleString('en-GB');
-                doc.text(toWinAnsi(`Signed at: ${signedAt}`), margin, yPos);
-                doc.setTextColor(0);
-                yPos += 4;
-              }
-            }
-          } catch (imgError) {
-            console.error('[contracts/generate-pdf] Error adding signature image:', imgError);
-            doc.text('[Signature]', margin, yPos);
-            yPos += 5;
-          }
-        } else {
-          doc.text('[No signature]', margin, yPos);
-          yPos += 5;
-        }
-      } else if (field.type === 'contact') {
-        if (value && typeof value === 'object') {
-          const contactParts = [];
-          if (value.firstName) contactParts.push(value.firstName);
-          if (value.lastName) contactParts.push(value.lastName);
-          if (value.email) contactParts.push(`<${value.email}>`);
-          doc.text(toWinAnsi(contactParts.join(' ') || '-'), margin, yPos);
-        } else {
-          doc.text('-', margin, yPos);
-        }
-        yPos += 6;
-      } else if (field.type === 'boolean' || field.type === 'terms_conditions') {
-        doc.text(value ? 'Yes' : 'No', margin, yPos);
-        yPos += 6;
-      } else if (field.type === 'file_upload' || field.type === 'file') {
-        if (value) {
-          const fileInfo = typeof value === 'string' ? value : (value.name || value.filename || '[File attached]');
-          doc.text(toWinAnsi(`[Uploaded: ${fileInfo}]`), margin, yPos);
-        } else {
-          doc.text('[No file uploaded]', margin, yPos);
-        }
-        yPos += 6;
-      } else if (Array.isArray(value)) {
-        const arrayText = toWinAnsi(value.join(', ') || '-');
-        const lines = doc.splitTextToSize(arrayText, contentWidth);
-        doc.text(lines, margin, yPos);
-        yPos += lines.length * 5 + 3;
-      } else if (typeof value === 'object' && value !== null) {
-        const objText = toWinAnsi(JSON.stringify(value, null, 2));
-        const lines = doc.splitTextToSize(objText, contentWidth);
-        doc.text(lines, margin, yPos);
-        yPos += lines.length * 5 + 3;
-      } else {
-        const textValue = toWinAnsi(value?.toString() || '-');
-        const lines = doc.splitTextToSize(textValue, contentWidth);
-        doc.text(lines, margin, yPos);
-        yPos += lines.length * 5 + 3;
-      }
-
-      yPos += 3;
-    }
-
-    const pdfBuffer = Buffer.from(doc.output('arraybuffer'));
+    const pdfBuffer = buildFormSubmissionPdf({
+      title: form.name || 'Contract',
+      dateLabel: `Signed: ${signedDate}`,
+      fields: Array.isArray(form.fields) ? form.fields : [],
+      submissionData,
+      logPrefix: '[contracts/generate-pdf]'
+    });
 
     const signerEmail = submissionData.signer_email || 'unknown';
     const sanitizedEmail = signerEmail.replace(/[^a-zA-Z0-9@._-]/g, '_');

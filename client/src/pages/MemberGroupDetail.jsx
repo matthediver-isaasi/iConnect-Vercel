@@ -75,6 +75,7 @@ import {
   X,
   Pencil,
   FileText,
+  Download,
   ChevronDown,
   AlertTriangle,
   MessageSquare,
@@ -1095,6 +1096,37 @@ export default function MemberGroupDetailPage() {
     enabled: accessChecked && isGroupAdmin && !!applicantsVacancy?.id,
     staleTime: 0,
   });
+
+  // Task #3312: group-admin PDF download of an application/submission via a
+  // short-lived signed URL from the server (authorised server-side too).
+  const [downloadingPdfId, setDownloadingPdfId] = useState(null);
+  const handleDownloadApplicationPdf = async (sourceType, sourceId) => {
+    setDownloadingPdfId(sourceId);
+    try {
+      const response = await fetch(
+        `/api/member-groups/vacancy-application-pdf?source_type=${encodeURIComponent(
+          sourceType
+        )}&source_id=${encodeURIComponent(sourceId)}`,
+        { credentials: "include" }
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.downloadUrl) {
+        throw new Error(data.error || "Failed to generate PDF");
+      }
+      const link = document.createElement("a");
+      link.href = data.downloadUrl;
+      link.download = data.fileName || "application.pdf";
+      link.target = "_blank";
+      link.rel = "noopener";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (error) {
+      toast.error(error.message || "Failed to download the application PDF.");
+    } finally {
+      setDownloadingPdfId(null);
+    }
+  };
 
   const [memberSearch, setMemberSearch] = useState("");
   const [memberPage, setMemberPage] = useState(1);
@@ -3752,6 +3784,24 @@ export default function MemberGroupDetailPage() {
                                 View sent email
                               </Button>
                             )}
+                            {isGroupAdmin && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={downloadingPdfId === app.id}
+                                onClick={() =>
+                                  handleDownloadApplicationPdf("application", app.id)
+                                }
+                                data-testid={`button-download-pdf-applicant-${app.id}`}
+                              >
+                                {downloadingPdfId === app.id ? (
+                                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                ) : (
+                                  <Download className="w-4 h-4 mr-2" />
+                                )}
+                                Download PDF
+                              </Button>
+                            )}
                           </div>
                         </div>
                         {app.message && (
@@ -3949,6 +3999,24 @@ export default function MemberGroupDetailPage() {
                               >
                                 <Mail className="w-4 h-4 mr-2" />
                                 View sent email
+                              </Button>
+                            )}
+                            {isGroupAdmin && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={downloadingPdfId === sub.id}
+                                onClick={() =>
+                                  handleDownloadApplicationPdf("submission", sub.id)
+                                }
+                                data-testid={`button-download-pdf-submission-${sub.id}`}
+                              >
+                                {downloadingPdfId === sub.id ? (
+                                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                ) : (
+                                  <Download className="w-4 h-4 mr-2" />
+                                )}
+                                Download PDF
                               </Button>
                             )}
                           </div>
