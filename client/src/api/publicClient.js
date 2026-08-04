@@ -82,17 +82,22 @@ function getTenantSlugFromSubdomain(hostname) {
 export function getTenantSlugFromLocation() {
   const hostname = window.location.hostname;
   
-  // Check URL query parameter first (for testing specific tenants)
+  // Subdomain detection is the authoritative source for production/preview.
+  // It deliberately beats the ?tenant= query param on tenant-subdomain hosts
+  // (Task #3387): otherwise typo.iconn.app/?tenant=real would quietly serve
+  // the real tenant from the wrong host and wrong-domain links would leak.
+  // The query param still works for localhost/custom-host testing below.
+  const subdomainTenant = getTenantSlugFromSubdomain(hostname);
   const urlParams = new URLSearchParams(window.location.search);
   const queryTenant = urlParams.get('tenant');
-  if (queryTenant) {
+  if (queryTenant && !subdomainTenant) {
     console.log('[publicClient] Using tenant from URL query param:', queryTenant);
     return queryTenant;
   }
+  if (queryTenant && subdomainTenant && queryTenant !== subdomainTenant) {
+    console.warn('[publicClient] Ignoring ?tenant=', queryTenant, '— host subdomain', subdomainTenant, 'is authoritative');
+  }
   
-  // Try subdomain detection - this is the authoritative source for production/preview
-  // This ensures {tenant}.dev.iconn.app correctly identifies the tenant
-  const subdomainTenant = getTenantSlugFromSubdomain(hostname);
   if (subdomainTenant) {
     console.log('[publicClient] Detected tenant from subdomain:', subdomainTenant);
     // Update localStorage to match current subdomain tenant

@@ -23,7 +23,7 @@ import { checkMemberQuota, checkEventQuota } from '../../_lib/planQuota.js';
 import { filterInternalNotesForViewer } from '../../_lib/supportTicketQueues.js';
 import { isCategoryRestricted, hasSubcategoryRestrictions, filterCategoriesForViewer, filterCategorySubcategoriesForViewer, stripCategoryAccessFields } from '../../_lib/resourceCategoryAccess.js';
 import { sendSubmissionEmailsGuarded } from '../../_lib/formSubmissionEmails.js';
-import { getPublicBaseUrl } from '../../_lib/publicBaseUrl.js';
+import { getTrustedBaseUrlForTenant } from '../../_lib/publicBaseUrl.js';
 
 /**
  * Task #3100: support staff = tenant users (admin dashboard), tenant admins,
@@ -1731,8 +1731,10 @@ export default async function handler(req, res) {
       }
 
       // Derive base URL for workflow email placeholders (never the raw
-      // VERCEL_URL deployment domain — Task #3384)
-      const baseUrl = getPublicBaseUrl(req);
+      // VERCEL_URL deployment domain — Task #3384). Cross-checked against
+      // the record's tenant so a typo'd wildcard subdomain can't leak into
+      // emailed links (Task #3387).
+      const baseUrl = await getTrustedBaseUrlForTenant(req, supabase, data?.tenant_id || null);
       console.log(`[Entity POST] Derived baseUrl: "${baseUrl}"`);
       console.log(`[Entity POST] Request headers:`, JSON.stringify({
         'x-forwarded-proto': req.headers['x-forwarded-proto'],

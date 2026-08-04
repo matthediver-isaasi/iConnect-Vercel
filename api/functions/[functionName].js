@@ -2,7 +2,7 @@ import Stripe from 'stripe';
 import crypto from 'crypto';
 import { getSession, getSessionMember } from '../_lib/session.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
-import { getPublicBaseUrl } from '../_lib/publicBaseUrl.js';
+import { getTrustedBaseUrlForTenant } from '../_lib/publicBaseUrl.js';
 import { isResourceExcluded } from '../_lib/roleVisibility.js';
 import { sendEmail, replacePlaceholders } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
@@ -4937,8 +4937,10 @@ const functionHandlers = {
     
     // Get base URL for signup link — request origin/host first so the link
     // uses the domain the inviter is actually on; NEVER the raw VERCEL_URL
-    // deployment domain (Task #3384).
-    const baseUrl = getPublicBaseUrl(req);
+    // deployment domain (Task #3384). Cross-checked against the tenant's
+    // real slug so a typo'd wildcard subdomain (fgi.dev.iconn.app for the
+    // gfi tenant) can't leak into the emailed link (Task #3387).
+    const baseUrl = await getTrustedBaseUrlForTenant(req, supabase, resolvedTenantId);
     if (!baseUrl) {
       console.error('[sendTeamMemberInvite] Base URL could not be determined');
       return { success: false, error: 'Server configuration error: site URL not set' };

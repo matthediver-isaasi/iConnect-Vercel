@@ -83,11 +83,25 @@ export default async function handler(req, res) {
     
     console.log('[Auth Me] Final hasTenantUserLink:', hasTenantUserLink, 'for member:', member.id);
 
+    // Tenant slug/domain so the client can canonicalize a typo'd wildcard
+    // subdomain (Task #3387: fgi.dev.iconn.app serving the gfi tenant).
+    let tenantSlug = null;
+    let tenantDomain = null;
+    if (member.tenant_id && supabase) {
+      const { data: tenantRow } = await supabase
+        .from('tenant')
+        .select('slug, domain')
+        .eq('id', member.tenant_id)
+        .maybeSingle();
+      tenantSlug = tenantRow?.slug || null;
+      tenantDomain = tenantRow?.domain || null;
+    }
+
     const session = await getSession(req);
     const isMasquerading = session?.data?.isMasquerading === true;
     const masqueradeAdminName = isMasquerading ? session.data.masqueradeAdminName : null;
 
-    return res.json({ ...member, isAdmin, canEditMembers, canManageCommunications, hasTenantUserLink, isMasquerading, masqueradeAdminName });
+    return res.json({ ...member, isAdmin, canEditMembers, canManageCommunications, hasTenantUserLink, isMasquerading, masqueradeAdminName, tenantSlug, tenantDomain });
   } catch (error) {
     console.error('Auth me error:', error);
     return res.status(500).json({ error: 'Failed to get user' });

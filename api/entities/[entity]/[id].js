@@ -21,7 +21,7 @@ import { sendSupportNotification } from '../../support/notify.js';
 import { getAccountingProvider } from '../../_lib/accountingProvider.js';
 import { pruneSpeakerIdsFromReferences } from '../../_lib/speakerReferences.js';
 import { assessAiCodePagePublishGate } from '../../_lib/aiCodeActions.js';
-import { getPublicBaseUrl } from '../../_lib/publicBaseUrl.js';
+import { getTrustedBaseUrlForTenant } from '../../_lib/publicBaseUrl.js';
 import { isCategoryRestricted, hasSubcategoryRestrictions, isCategoryVisibleToViewer, filterCategorySubcategoriesForViewer, getSubcategoryExclusionMap } from '../../_lib/resourceCategoryAccess.js';
 
 // Entity name to Supabase table mapping (singular names for Base44 compatibility)
@@ -1197,8 +1197,10 @@ export default async function handler(req, res) {
       }
 
       // Derive base URL for workflow email placeholders (never the raw
-      // VERCEL_URL deployment domain — Task #3384)
-      const baseUrl = getPublicBaseUrl(req);
+      // VERCEL_URL deployment domain — Task #3384). Cross-checked against
+      // the record's tenant so a typo'd wildcard subdomain can't leak into
+      // emailed links (Task #3387).
+      const baseUrl = await getTrustedBaseUrlForTenant(req, supabase, data?.tenant_id || beforeData?.tenant_id || null);
 
       // Trigger workflow evaluation and check for pending confirmations
       let pendingWorkflowConfirmations = [];
