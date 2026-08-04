@@ -747,6 +747,9 @@ async function handlePost(req, res, tenantId) {
         invoice_address_field_name: parseInvoiceAddressFieldName(config.invoice_address_field),
         invoice_recipients: normalizedRecipients,
         fee_link_email_template_id: config.fee_link_email_template_id || null,
+        ...(await checkConfigNominalCodeColumnExists()
+          ? { nominal_code: config.pricing_model === 'flat' ? normalizeNominalCode(config.nominal_code) : null }
+          : {}),
         ...ddConfigFields(config),
         updated_at: new Date().toISOString()
       })
@@ -890,6 +893,9 @@ async function handlePost(req, res, tenantId) {
       invoice_address_field_name: parseInvoiceAddressFieldName(config.invoice_address_field),
       invoice_recipients: normalizedRecipients,
       fee_link_email_template_id: config.fee_link_email_template_id || null,
+      ...(await checkConfigNominalCodeColumnExists()
+        ? { nominal_code: config.pricing_model === 'flat' ? normalizeNominalCode(config.nominal_code) : null }
+        : {}),
       ...ddConfigFields(config),
     })
     .select()
@@ -1009,6 +1015,26 @@ async function checkVatRateColumnExists() {
   return !error;
 }
 
+async function checkBandNominalCodeColumnExists() {
+  const { error } = await supabase
+    .from('membership_tier_band')
+    .select('nominal_code')
+    .limit(0);
+  return !error;
+}
+
+async function checkConfigNominalCodeColumnExists() {
+  const { error } = await supabase
+    .from('membership_tier_config')
+    .select('nominal_code')
+    .limit(0);
+  return !error;
+}
+
+function normalizeNominalCode(value) {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
 async function checkMatchValueColumnExists() {
   const { data, error } = await supabase
     .from('membership_tier_band')
@@ -1033,6 +1059,7 @@ async function saveBandsForConfig(configId, tenantId, bands) {
   const hasVatColumn = await checkVatRateColumnExists();
   const hasMatchValueColumn = await checkMatchValueColumnExists();
   const hasDdColumn = await checkDdBandColumnExists();
+  const hasNominalColumn = await checkBandNominalCodeColumnExists();
 
   const bandsToInsert = bands.map((band, index) => {
     const hasMatchValue = band.match_value != null && String(band.match_value).trim() !== '';
@@ -1047,6 +1074,9 @@ async function saveBandsForConfig(configId, tenantId, bands) {
     };
     if (hasVatColumn) {
       row.vat_rate = band.vat_rate || null;
+    }
+    if (hasNominalColumn) {
+      row.nominal_code = normalizeNominalCode(band.nominal_code);
     }
     if (hasMatchValueColumn) {
       row.match_value = hasMatchValue ? String(band.match_value).trim() : null;

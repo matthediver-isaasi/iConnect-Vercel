@@ -282,6 +282,7 @@ export default function MembershipTierManagement() {
     start_mode: 'fixed_date',
     flat_cost: null,
     flat_vat_rate: null,
+    nominal_code: null,
     auto_approve_fees: false,
     online_card_payment: false,
     dd_enabled: false,
@@ -421,6 +422,11 @@ export default function MembershipTierManagement() {
     return [];
   }, [systemSettings]);
 
+  const globalNominalCode = useMemo(() => {
+    const setting = systemSettings.find(s => s.setting_key === 'membership_nominal_ledger');
+    return (setting?.setting_value || '').trim();
+  }, [systemSettings]);
+
   const { data: previewData, isLoading: loadingPreview, refetch: refetchPreview } = useQuery({
     queryKey: ['membership-tier-preview', viewingHistorical || selectedActiveConfigId],
     queryFn: async () => {
@@ -463,6 +469,7 @@ export default function MembershipTierManagement() {
         start_mode: c.start_mode || 'fixed_date',
         flat_cost: c.flat_cost ?? null,
         flat_vat_rate: c.flat_vat_rate || null,
+        nominal_code: c.nominal_code || null,
         invoice_description: c.invoice_description || null,
         auto_approve_fees: c.auto_approve_fees ?? false,
         online_card_payment: c.online_card_payment ?? false,
@@ -522,6 +529,7 @@ export default function MembershipTierManagement() {
       start_mode: inferredStartMode,
       flat_cost: inferredFlatCost,
       flat_vat_rate: c.flat_vat_rate || null,
+      nominal_code: c.nominal_code || null,
       invoice_description: c.invoice_description || null,
       auto_approve_fees: c.auto_approve_fees ?? false,
       online_card_payment: c.online_card_payment ?? false,
@@ -703,6 +711,7 @@ export default function MembershipTierManagement() {
       match_condition: 'equals',
       match_value: '',
       vat_rate: null,
+      nominal_code: null,
       label: '',
     }]);
     setHasChanges(true);
@@ -844,6 +853,7 @@ export default function MembershipTierManagement() {
         start_mode: config.start_mode,
         flat_cost: isFlat ? parseFloat(config.flat_cost) || 0 : undefined,
         flat_vat_rate: isFlat ? (config.flat_vat_rate || null) : null,
+        nominal_code: isFlat ? ((config.nominal_code || '').trim() || null) : null,
       },
       bands: isFlat ? [] : bands.map(b => {
         const matchValue = b.match_value != null && String(b.match_value).trim() !== '' ? String(b.match_value).trim() : null;
@@ -854,6 +864,7 @@ export default function MembershipTierManagement() {
           match_value: matchValue,
           annual_cost: parseFloat(b.annual_cost) || 0,
           vat_rate: b.vat_rate || null,
+          nominal_code: (b.nominal_code || '').trim() || null,
           dd_monthly_amount: b.dd_monthly_amount !== '' && b.dd_monthly_amount != null && !isNaN(parseFloat(b.dd_monthly_amount)) ? parseFloat(b.dd_monthly_amount) : null,
         };
       }),
@@ -1056,6 +1067,7 @@ export default function MembershipTierManagement() {
         start_mode: c.start_mode || 'fixed_date',
         flat_cost: c.flat_cost ?? null,
         flat_vat_rate: c.flat_vat_rate || null,
+        nominal_code: c.nominal_code || null,
         invoice_description: c.invoice_description || null,
         auto_approve_fees: c.auto_approve_fees ?? false,
         online_card_payment: c.online_card_payment ?? false,
@@ -2504,6 +2516,22 @@ export default function MembershipTierManagement() {
                 <p className="text-sm text-muted-foreground">Select the VAT rate to apply to the flat membership cost</p>
               </div>
             )}
+            <div className="space-y-1 mt-3">
+              <Label>Nominal code</Label>
+              <div className="max-w-xs">
+                <Input
+                  value={config.nominal_code || ''}
+                  onChange={(e) => handleConfigChange('nominal_code', e.target.value)}
+                  placeholder={globalNominalCode || 'e.g. 200'}
+                  disabled={!isEditable}
+                  data-testid="input-flat-nominal-code"
+                />
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Overrides the account/nominal code on membership invoice lines.
+                {globalNominalCode ? ` Leave blank to use the global setting (${globalNominalCode}).` : ' Leave blank to use the global membership nominal setting.'}
+              </p>
+            </div>
           </div>
         ) : (
           <div className="mt-4">
@@ -2536,7 +2564,7 @@ export default function MembershipTierManagement() {
                   )}
                   <span>{periodLabel} Cost ({currencySymbol})</span>
                   {showDdBandColumn && <span>DD Monthly ({currencySymbol})</span>}
-                  <span>VAT Rate</span>
+                  <span>VAT Rate / Nominal</span>
                   <span></span>
                 </div>
                 {bands.map((band, index) => {
@@ -2628,32 +2656,41 @@ export default function MembershipTierManagement() {
                           />
                         </div>
                       )}
-                      <Select
-                        value={vatSelectValue}
-                        onValueChange={(value) => {
-                          if (value === '__none') {
-                            updateBand(index, 'vat_rate', null);
-                          } else {
-                            const selectedRate = availableVatRates.find(r => r.taxType === value);
-                            if (selectedRate) {
-                              updateBand(index, 'vat_rate', JSON.stringify({ taxType: selectedRate.taxType, name: selectedRate.name }));
+                      <div className="space-y-1">
+                        <Select
+                          value={vatSelectValue}
+                          onValueChange={(value) => {
+                            if (value === '__none') {
+                              updateBand(index, 'vat_rate', null);
+                            } else {
+                              const selectedRate = availableVatRates.find(r => r.taxType === value);
+                              if (selectedRate) {
+                                updateBand(index, 'vat_rate', JSON.stringify({ taxType: selectedRate.taxType, name: selectedRate.name }));
+                              }
                             }
-                          }
-                        }}
-                        disabled={!isEditable}
-                      >
-                        <SelectTrigger data-testid={`select-band-vat-${index}`}>
-                          <SelectValue placeholder="No VAT" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__none">No VAT</SelectItem>
-                          {availableVatRates.map(rate => (
-                            <SelectItem key={rate.taxType} value={rate.taxType}>
-                              {rate.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                          }}
+                          disabled={!isEditable}
+                        >
+                          <SelectTrigger data-testid={`select-band-vat-${index}`}>
+                            <SelectValue placeholder="No VAT" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none">No VAT</SelectItem>
+                            {availableVatRates.map(rate => (
+                              <SelectItem key={rate.taxType} value={rate.taxType}>
+                                {rate.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Input
+                          value={band.nominal_code || ''}
+                          onChange={(e) => updateBand(index, 'nominal_code', e.target.value)}
+                          placeholder={globalNominalCode ? `Nominal: ${globalNominalCode}` : 'Nominal code'}
+                          disabled={!isEditable}
+                          data-testid={`input-band-nominal-${index}`}
+                        />
+                      </div>
                       {isEditable ? (
                         <Button
                           size="icon"

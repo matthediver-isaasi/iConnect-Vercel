@@ -1838,6 +1838,7 @@ async function executeCreateMemberMembership(action, workflow, memberId) {
     try {
       const { getAccountingProvider, buildInvoiceColumnUpdate } = await import('./accountingProvider.js');
       const { resolveInvoiceAddress } = await import('./invoiceAddressResolver.js');
+      const { resolveMembershipNominalCode } = await import('./membershipNominalCode.js');
       const provider = await getAccountingProvider(tenantId);
       providerLabel = provider?.name === 'quickbooks' ? 'QuickBooks' : 'Xero';
       const invoicingAddress = await resolveInvoiceAddress(supabase, simResult.config, memberId, 'member');
@@ -1852,6 +1853,7 @@ async function executeCreateMemberMembership(action, workflow, memberId) {
         currency: simResult.currency,
         reference: `Membership ${targetYearLabel}`,
         vatRate: simResult.taxType || simResult.matchedBand?.vat_rate || null,
+        nominalCode: await resolveMembershipNominalCode(supabase, tenantId, simResult),
         invoiceDescription: simResult.config?.invoice_description || null,
       });
       if (invoice) {

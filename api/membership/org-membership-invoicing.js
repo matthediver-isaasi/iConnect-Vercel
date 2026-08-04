@@ -4,6 +4,7 @@ import { getAccountingProvider, buildInvoiceColumnUpdate } from '../_lib/account
 import { simulateMembershipForOrg } from '../_lib/membershipSimulation.js';
 import { sendMembershipInvoiceEmail } from '../_lib/membershipInvoiceEmail.js';
 import { resolveInvoiceAddress } from '../_lib/invoiceAddressResolver.js';
+import { resolveMembershipNominalCode } from '../_lib/membershipNominalCode.js';
 import {
   getMembershipAddonSettings,
   validateAddonLines,
@@ -351,6 +352,7 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
       currency: currency,
       reference: xeroReference,
       vatRate: bandVatRate,
+      nominalCode: await resolveMembershipNominalCode(supabase, tenantId, simResult),
       invoiceDescription: simResult.config?.invoice_description || null,
       extraLineItems: buildExtraLineItems(addonLines),
     });
@@ -562,6 +564,7 @@ async function handleAdvanceInvoice(req, res, tenantId, tenantContext) {
       currency: currency,
       reference: xeroReference,
       vatRate: bandVatRate,
+      nominalCode: await resolveMembershipNominalCode(supabase, tenantId, simResult),
       invoiceDescription: simResult.config?.invoice_description || null,
       extraLineItems: buildExtraLineItems(addonLines),
     });

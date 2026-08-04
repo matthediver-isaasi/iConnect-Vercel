@@ -914,6 +914,8 @@ export default async function handler(req, res) {
                 currency: feeToken.currency || 'GBP',
                 reference,
                 vatRate: simResult.taxType || simResult.matchedBand?.vat_rate || null,
+                nominalCode: await (await import('../../_lib/membershipNominalCode.js'))
+                  .resolveMembershipNominalCode(supabase, feeToken.tenant_id, simResult),
                 markAsPaid: true,
                 stripePaymentIntentId: paymentIntentId,
                 invoiceDescription: simResult.config?.invoice_description || null,

@@ -2,6 +2,7 @@ import { supabase } from '../_lib/database.js';
 import { simulateMembershipForOrg, simulateMembershipForMember } from '../_lib/membershipSimulation.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { resolveInvoiceAddress } from '../_lib/invoiceAddressResolver.js';
+import { resolveMembershipNominalCode } from '../_lib/membershipNominalCode.js';
 import { buildInvoiceColumnUpdate } from '../_lib/accountingProvider.js';
 import { resolveDdOffer } from '../_lib/gocardlessDirectDebit.js';
 import { getGocardlessCredentials } from '../_lib/gocardlessCredentials.js';
@@ -575,6 +576,7 @@ async function handlePost(req, res, resolvedTenantId) {
           currency: simResult.currency || 'GBP',
           reference,
           vatRate: simResult.taxType || simResult.matchedBand?.vat_rate || null,
+          nominalCode: await resolveMembershipNominalCode(supabase, tenantId, simResult),
           markAsPaid: true,
           stripePaymentIntentId: paymentIntentId,
           invoiceDescription: simResult.config?.invoice_description || null,

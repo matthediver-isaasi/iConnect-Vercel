@@ -5,6 +5,7 @@ import { simulateMembershipForOrg, simulateMembershipForMember } from '../_lib/m
 import { sendMembershipInvoiceEmail } from '../_lib/membershipInvoiceEmail.js';
 import { sendTenantEmail } from '../_lib/tenantEmailService.js';
 import { resolveInvoiceAddress } from '../_lib/invoiceAddressResolver.js';
+import { resolveMembershipNominalCode } from '../_lib/membershipNominalCode.js';
 import { processTenantReminders } from '../_lib/membershipReminders.js';
 import { processTenantDdRenewals } from '../_lib/gocardlessDdRenewals.js';
 
@@ -439,6 +440,7 @@ async function invoiceExistingRecord(tenantId, orgId, simResult, results) {
       currency: record.currency || 'GBP',
       reference: xeroReference,
       vatRate: bandVatRate,
+      nominalCode: await resolveMembershipNominalCode(supabase, tenantId, simResult),
       invoiceDescription: simResult.config?.invoice_description || null,
       extraLineItems: buildExtraLineItems(addonLines),
     });
@@ -717,6 +719,7 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
         currency: currency,
         reference: xeroReference,
         vatRate: bandVatRate,
+        nominalCode: await resolveMembershipNominalCode(supabase, tenantId, simResult),
         invoiceDescription: simResult.config?.invoice_description || null,
         extraLineItems: buildExtraLineItems(addonLines),
       });
@@ -1146,6 +1149,7 @@ async function processMemberRenewal(tenantId, memberId, simResult, mode, createI
         currency: currency,
         reference: xeroReference,
         vatRate: bandVatRate,
+        nominalCode: await resolveMembershipNominalCode(supabase, tenantId, simResult),
         invoiceDescription: simResult.config?.invoice_description || null,
       });
 
@@ -1291,6 +1295,7 @@ async function invoiceExistingMemberRecord(tenantId, memberId, simResult, result
       currency: record.currency || 'GBP',
       reference: xeroReference,
       vatRate: bandVatRate,
+      nominalCode: await resolveMembershipNominalCode(supabase, tenantId, simResult),
       invoiceDescription: simResult.config?.invoice_description || null,
     });
 

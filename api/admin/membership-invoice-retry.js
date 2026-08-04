@@ -12,6 +12,8 @@ import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { supabase } from '../_lib/database.js';
 import { getAccountingProvider, buildInvoiceColumnUpdate } from '../_lib/accountingProvider.js';
 import { reconcileMembershipInvoicePayment } from '../_lib/membershipPaymentReconciliation.js';
+import { resolveMembershipNominalCode } from '../_lib/membershipNominalCode.js';
+import { simulateMembershipForOrg, simulateMembershipForMember } from '../_lib/membershipSimulation.js';
 
 const ORG_TABLE = 'organisation_membership_history';
 const MEMBER_TABLE = 'member_membership_history';
@@ -87,6 +89,21 @@ export default async function handler(req, res) {
     ? `Membership ${row.membership_year} - PO: ${row.purchase_order_number}`
     : `Membership ${row.membership_year}`;
 
+  // The history row doesn't store the matched tier's nominal code, so run a
+  // best-effort simulation against the CURRENT config to recover a per-tier
+  // override. If the sim fails (e.g. config changed since the row was made)
+  // fall back to the global membership_nominal_ledger setting via the
+  // resolver, which is the pre-override behaviour.
+  let retryNominalCode = null;
+  try {
+    const simResult = isOrg
+      ? await simulateMembershipForOrg(appTenantId, row.organization_id, { targetYear: row.membership_year })
+      : await simulateMembershipForMember(appTenantId, row.member_id, { targetYear: row.membership_year });
+    retryNominalCode = await resolveMembershipNominalCode(supabase, appTenantId, simResult?.success ? simResult : null);
+  } catch (e) {
+    console.warn('[admin/membership-invoice-retry] nominal code resolution failed (using provider default):', e.message);
+  }
+
   try {
     const provider = await getAccountingProvider(appTenantId);
     const invoice = await provider.createMembershipInvoice({
@@ -103,6 +120,7 @@ export default async function handler(req, res) {
       // provider's per-Item default (resolveMembershipItemId →
       // SalesTaxCodeRef on Items / Xero default account code).
       vatRate: null,
+      nominalCode: retryNominalCode,
       markAsPaid: !!row.stripe_payment_intent_id,
       stripePaymentIntentId: row.stripe_payment_intent_id || null,
       invoiceDescription: null,

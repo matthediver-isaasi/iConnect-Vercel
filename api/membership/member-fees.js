@@ -2,6 +2,7 @@ import { supabase } from '../_lib/database.js';
 import { getSessionMember } from '../_lib/session.js';
 import { simulateMembershipForOrg, simulateMembershipForMember } from '../_lib/membershipSimulation.js';
 import { resolveInvoiceAddress } from '../_lib/invoiceAddressResolver.js';
+import { resolveMembershipNominalCode } from '../_lib/membershipNominalCode.js';
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -492,6 +493,7 @@ async function handlePostOrgScoped(req, res, member, tenantId, organizationId, s
           currency: simResult.currency || 'GBP',
           reference,
           vatRate: simResult.matchedBand?.vat_rate || null,
+          nominalCode: await resolveMembershipNominalCode(supabase, tenantId, simResult),
           markAsPaid: true,
           stripePaymentIntentId: paymentIntentId,
           invoiceDescription: simResult.config?.invoice_description || null,
@@ -861,6 +863,7 @@ async function handlePostMemberScoped(req, res, member, tenantId, sessionMember)
           membershipYear: targetYear,
           tierLabel: simResult.tierLabel,
           finalCost: simResult.finalCost,
+          nominalCode: await resolveMembershipNominalCode(supabase, tenantId, simResult),
           currency: simResult.currency || 'GBP',
           reference,
           vatRate: simResult.matchedBand?.vat_rate || null,
