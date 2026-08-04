@@ -502,6 +502,80 @@ The Event Registration Report pulls everything together:
 
 For cancellations, transfers and refunds, see "Managing, transferring and cancelling tickets".`,
   },
+  {
+    slug: 'event-sponsors',
+    title: 'Event sponsors: creating sponsors and showing them on events',
+    category: 'Events',
+    summary: 'Set up sponsors and categories, attach them to your events, and control where the sponsors card appears.',
+    status: 'published',
+    sort_order: 18,
+    required_feature: 'events.sponsors',
+    body: `Sponsors let you recognise the organisations supporting your events. You set sponsors up once in Sponsor Management, attach them to any event, and they appear automatically on the event's public page. This article covers the whole lifecycle: creating sponsors, organising them into categories, assigning them to events, and choosing where the sponsors card sits on the page.
+
+## Creating and editing sponsors
+Open Sponsor Management from the navigation. The Sponsors tab lists every sponsor you've set up, each shown with its logo, category, description and website link.
+
+To add a sponsor, choose "Add Sponsor" and fill in the details:
+
+- Name (required) — how the sponsor is shown everywhere.
+- Logo — upload an image file; it appears on the event page's sponsors card. You can remove or replace it at any time.
+- Website URL — if set, the sponsor's tile on the event page links to this address (opening in a new tab).
+- Description — a short line shown under the sponsor's name on the event page.
+- Category — pick one of your sponsor categories, or leave it as "No Category". The category choice only appears once you've created at least one category.
+
+{{screenshot: The Add Sponsor dialog in Sponsor Management}}
+
+Use the pencil icon on a sponsor's card to edit it later — changes show on every event the sponsor is attached to. Use the bin icon to delete a sponsor; this permanently removes it and takes it off all events, so double-check before confirming.
+
+## Organising sponsors into categories
+Categories group sponsors into tiers — for example Gold, Silver and Bronze. Switch to the Categories tab in Sponsor Management to manage them.
+
+- Choose "Add Category" and give it a name (e.g. Gold) and a Display Order number.
+- The display order controls the order the tiers appear in — both in the sponsor picker when editing an event and on the public event page. Lower numbers come first.
+- Each category card shows how many sponsors are currently in it.
+- Deleting a category doesn't delete its sponsors — they simply become uncategorised.
+
+{{screenshot: The Categories tab with Gold, Silver and Bronze tiers}}
+
+On the public event page, sponsors are shown grouped under their category headings, in display order. Sponsors without a category appear at the end under "Other Sponsors" (or with no heading if none of the event's sponsors have a category).
+
+{{feature: events.browse-events.create}}
+## Adding sponsors to an event
+Both standard events and multi-session events have a Sponsors section in their create and edit screens.
+
+1. In the event editor, find the Sponsors field and choose "Click to select sponsors...".
+2. Tick the sponsors you want on this event — they're listed grouped by category — and confirm.
+3. Each selected sponsor appears as a row under the field, with an optional "What are they sponsoring?" box. Use it to record a per-event sponsorship detail such as "Lunch" or "Keynote"; you can leave it blank.
+4. Save the event as normal — the sponsor assignments are saved with it.
+
+{{screenshot: Selecting sponsors in the event editor}}
+
+To take a sponsor off an event, remove it with the X on its row (or untick it in the picker) and save. This only detaches the sponsor from that event; the sponsor itself is untouched.
+
+If the Sponsors field says no sponsors are available yet, follow its link to Sponsor Management and create some first.
+{{/feature}}
+
+## How sponsors appear on the event page
+When an event has sponsors, its public event page shows a "Sponsors" card automatically — there's nothing extra to switch on.
+
+- Sponsors are grouped by category, in your category display order, with uncategorised sponsors last.
+- Each sponsor tile shows the logo (where one is uploaded), the sponsor's name and its short description.
+- If the sponsor has a website URL, clicking its tile opens that site in a new tab.
+- Events with no sponsors simply don't show the card.
+
+{{screenshot: The Sponsors card on a public event page}}
+
+{{feature: events.event-settings}}
+## Choosing where the sponsors card appears
+By default the sponsors card sits after the event's description and documents. If you'd rather give sponsors more prominence, you can move it higher up the page.
+
+- Open Event Settings and find "Sponsor Card Placement".
+- Choose between "After description & documents (default)" and "Below date section, above description", then save.
+- The setting applies to all event pages — both simple and session-based events.
+
+{{screenshot: The Sponsor Card Placement setting in Event Settings}}
+{{/feature}}`,
+  },
 
   // ------------------------------------------------------------ Your account
   {
