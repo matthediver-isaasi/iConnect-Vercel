@@ -1,0 +1,1203 @@
+# iConnect Survey Forms and Event Reporting
+
+## 1. Objective
+
+Extend the existing `/FormBuilder` functionality so administrators can create forms specifically intended for surveys and feedback collection.
+
+The first phase must provide:
+
+* A new **Survey Form** form type.
+* A new configurable **Score** field.
+* The ability to assign a survey to one or more events.
+* Collection of survey responses against the correct event.
+* Reporting for:
+
+  * An individual event.
+  * Multiple events within a date range.
+  * Individual questions.
+  * Survey sections or reporting categories.
+  * Overall and cumulative survey scores.
+* Exportable survey data.
+
+The implementation must preserve all existing standard form functionality and create a foundation for later additions such as automated post-event survey invitations, reminders and benchmarking.
+
+---
+
+# 2. Form Type
+
+## 2.1 New Form Type Selector
+
+Add a form type selector within `/FormBuilder`.
+
+Options:
+
+* Standard Form
+* Survey Form
+
+Existing forms must default to `Standard Form`.
+
+Selecting `Survey Form` should:
+
+* Enable survey-specific fields and settings.
+* Make the new Score field available in the builder.
+* Expose event assignment controls.
+* Enable survey reporting.
+* Continue to allow normal form fields such as:
+
+  * Short text
+  * Long text
+  * Radio buttons
+  * Checkboxes
+  * Dropdowns
+  * Headings
+  * Explanatory text
+  * Consent fields
+
+Normal form fields do not contribute towards survey scoring unless explicitly supported in a future phase.
+
+## 2.2 Changing Form Type
+
+An administrator may change a form between Standard and Survey while it remains in draft and has no responses.
+
+Once responses exist:
+
+* The form type must be locked.
+* Scoring settings must not be changed in a way that alters historical results.
+* The administrator should be offered a **Duplicate as New Version** action instead.
+
+This prevents historic reports from changing because a question range, weight or scoring direction was edited later.
+
+---
+
+# 3. Survey-Level Settings
+
+When the form type is Survey Form, expose a Survey Settings panel.
+
+Settings should include:
+
+### Survey identity
+
+* Survey title
+* Internal description
+* Respondent-facing introduction
+* Completion/thank-you message
+* Survey status:
+
+  * Draft
+  * Published
+  * Archived
+
+### Response identity
+
+Allow the administrator to select:
+
+* Identified responses
+* Anonymous responses
+* Anonymous responses with duplicate prevention
+
+For identified responses, retain the existing member/contact relationship where available.
+
+For anonymous responses:
+
+* Do not expose member details in reports.
+* Store only the technical information required for security and duplicate prevention.
+* Do not inadvertently make anonymous respondents identifiable through exports.
+
+### Submission controls
+
+* Allow one submission per respondent
+* Allow respondents to edit an existing submission
+* Allow incomplete submissions to be resumed
+* Require all mandatory questions before submission
+* Display a progress indicator
+* Display question numbers
+* Randomise eligible questions, disabled by default
+
+### Scoring settings
+
+* Display weighted score reports
+* Display unweighted score reports
+* Default reporting scale:
+
+  * Raw score
+  * Percentage
+  * Both
+* Minimum response threshold for anonymous reporting, defaulting to 3
+
+Where the anonymity threshold is enabled, respondent-level detail and segmented results must not be shown until the threshold has been met.
+
+---
+
+# 4. Score Field
+
+## 4.1 New Builder Element
+
+Add a new field type named:
+
+**Score / Rating**
+
+This field should only be available when the form type is Survey Form.
+
+The field must support drag-and-drop placement, reordering, duplication, deletion and preview in the same way as existing FormBuilder elements.
+
+## 4.2 Score Field Content
+
+Each Score field must contain:
+
+* Question label
+* Optional supporting text
+* Optional reporting name
+* Optional reporting category
+* Required/optional setting
+* Score minimum
+* Score maximum
+* Rendering style
+* Low-score label
+* High-score label
+* Optional labels for individual score values
+* Weighting
+* Include in overall score toggle
+* Reverse scoring toggle
+* Not Applicable option
+* Conditional logic settings
+
+### Question label
+
+This is the complete question shown to the respondent, for example:
+
+“How would you rate the quality of the speaker?”
+
+### Reporting name
+
+An optional shorter name used in reports and charts, for example:
+
+“Speaker quality”
+
+If no reporting name is supplied, use the full question label.
+
+### Reporting category
+
+Allow questions to be grouped into categories such as:
+
+* Event organisation
+* Venue
+* Speakers
+* Content
+* Catering
+* Overall experience
+
+The category should be selectable from existing categories or entered as a new category.
+
+Categories must be available as grouped results within reporting.
+
+## 4.3 Score Range
+
+Allow administrators to define the score range.
+
+Examples:
+
+* 1–5
+* 1–10
+* 0–10
+* 1–3
+* 1–7
+
+Validation requirements:
+
+* Minimum and maximum must be whole numbers.
+* Maximum must be greater than minimum.
+* Button-based ranges should contain no more than 11 selectable values.
+* The builder should display an explanation if the selected visual style does not support the chosen range.
+
+## 4.4 Rendering Styles
+
+Provide the following rendering options.
+
+### Stars
+
+Render selectable star icons.
+
+Recommended ranges:
+
+* 1–5
+* 1–10
+
+### Smiley faces
+
+Render a progression of facial expressions from negative to positive.
+
+Initially support:
+
+* 3 faces
+* 5 faces
+* 7 faces
+
+Each face must have an accessible text label and must not rely on colour alone to communicate its meaning.
+
+### Numbered buttons
+
+Render each score as a clearly selectable numbered button.
+
+Suitable for:
+
+* 1–5
+* 1–10
+* 0–10
+* Other short ranges
+
+### Descriptive buttons
+
+Allow each score to have its own label, for example:
+
+* Very poor
+* Poor
+* Average
+* Good
+* Excellent
+
+The numeric score should still be stored behind each option.
+
+### Slider
+
+Render a slider with:
+
+* Minimum value
+* Maximum value
+* Current selected value
+* Low and high labels
+* Optional tick marks
+
+No value should be preselected unless the administrator explicitly enables a default.
+
+### Net Promoter Score
+
+Provide an NPS-style preset:
+
+* Range fixed at 0–10
+* Low label such as “Not at all likely”
+* High label such as “Extremely likely”
+
+NPS classification and reporting can be added in this phase or enabled through the reporting model described below.
+
+## 4.5 Labels
+
+Support:
+
+* A label for the lowest score.
+* A label for the highest score.
+* Optional labels for every value.
+
+Example:
+
+* 1: Very poor
+* 2: Poor
+* 3: Acceptable
+* 4: Good
+* 5: Excellent
+
+These labels must appear in the builder preview and may optionally appear in reporting exports.
+
+## 4.6 Weighting
+
+Each scored question must have a weighting.
+
+Default weighting:
+
+`1.0`
+
+Example:
+
+* Overall event experience: weight 3
+* Venue quality: weight 1
+* Catering quality: weight 0.5
+
+Requirements:
+
+* Weighting must support decimal values.
+* Weighting must never be visible to respondents.
+* Weighting must be greater than zero when the question contributes to the overall score.
+* Reports must clearly distinguish weighted and unweighted results.
+
+Also provide an explicit:
+
+**Include in overall score**
+
+toggle.
+
+This is preferable to using a zero weighting because it clearly indicates that a question is informational and should not affect the overall survey score.
+
+## 4.7 Reverse Scoring
+
+Add a Reverse Scoring option.
+
+This supports questions where a lower response is positive, for example:
+
+“How difficult did you find the registration process?”
+
+When reverse scoring is enabled:
+
+* The respondent still sees the original range.
+* Reporting calculations invert the normalised score.
+* Raw results remain available for transparency.
+
+## 4.8 Not Applicable
+
+Allow the administrator to add a Not Applicable option.
+
+Not Applicable responses must:
+
+* Be stored distinctly from an unanswered question.
+* Be excluded from averages and weighted calculations.
+* Appear as a separate count in reports.
+
+## 4.9 Conditional Logic
+
+Integrate Score fields with the existing conditional logic system.
+
+Score fields should support conditions including:
+
+* Equals
+* Does not equal
+* Greater than
+* Greater than or equal to
+* Less than
+* Less than or equal to
+* Between
+
+Example:
+
+If “Overall event rating” is less than or equal to 2, display:
+
+“Please tell us what went wrong.”
+
+The Score field must also be capable of being shown or hidden based on answers to earlier fields.
+
+---
+
+# 5. Builder Experience
+
+## 5.1 Field Preview
+
+The FormBuilder must show an accurate preview of:
+
+* Icons
+* Score range
+* Labels
+* Required state
+* Not Applicable option
+* Mobile behaviour
+* Conditional fields
+
+## 5.2 Survey Summary Panel
+
+Add a summary panel showing:
+
+* Number of scored questions
+* Number of non-scored questions
+* Total available raw score
+* Total included weighting
+* Questions excluded from the overall score
+* Questions without a reporting category
+* Validation issues
+
+## 5.3 Survey Validation
+
+Before publishing, validate that:
+
+* At least one Score field exists.
+* Every scored question has a valid range.
+* Every included question has a valid weighting.
+* Question labels are present.
+* Rendering styles support their selected ranges.
+* Conditional logic does not reference deleted fields.
+* At least one event is assigned, unless the survey is intentionally being published as an unassigned template.
+
+Warnings should not be hidden inside individual fields. Display a clear validation summary with links that take the administrator directly to the affected field.
+
+---
+
+# 6. Survey Templates and Event Assignments
+
+## 6.1 Separate Survey Definition from Event Assignment
+
+Do not permanently attach a survey definition to only one event.
+
+The data model should distinguish between:
+
+1. The reusable Survey Form.
+2. An Event Survey Assignment.
+
+This allows the same survey to be used for multiple events without duplicating the form.
+
+Example:
+
+Survey:
+
+“Standard Conference Feedback Survey”
+
+Assigned to:
+
+* Annual Conference 2026
+* Regional Conference North 2026
+* Regional Conference South 2026
+
+Each event must retain separate responses and reporting while also supporting cumulative reporting across all three events.
+
+## 6.2 Event Assignment Interface
+
+Within the Survey Form editor, add an **Events** tab or panel.
+
+Allow administrators to:
+
+* Search events by title.
+* Filter events by date.
+* Select one or more events.
+* View event title, date and venue.
+* Assign the survey to an event.
+* Remove a future assignment.
+* Open the event record.
+* View the number of responses received for each event.
+
+An event assignment should include:
+
+* Survey form
+* Survey version
+* Event
+* Open date/time
+* Close date/time
+* Assignment status
+* Public or authenticated access setting
+* Unique assignment URL or token
+* Number of responses
+* Date of first response
+* Date of most recent response
+
+## 6.3 Event Administration Integration
+
+Add a Surveys section or tab to the relevant event administration screen.
+
+It should show:
+
+* Surveys assigned to the event
+* Survey status
+* Open and close dates
+* Number of responses
+* Link to the survey
+* Link to event-specific results
+* Assign another survey action
+
+## 6.4 Submission Event Association
+
+The event must be resolved from the Event Survey Assignment.
+
+Do not rely on a client-supplied event ID that could be changed in the browser.
+
+Every response must be associated with:
+
+* Tenant/organisation
+* Survey
+* Survey version
+* Event Survey Assignment
+* Event
+* Submission date/time
+* Respondent, where applicable
+
+If an event is later renamed or edited, historic results must remain linked correctly.
+
+If an event is archived, its survey results must remain reportable.
+
+---
+
+# 7. Survey Versioning
+
+Survey questions and scoring rules must remain historically accurate.
+
+Each response must reference the exact survey version completed by the respondent.
+
+After responses have been received:
+
+* Text corrections that do not change meaning may be allowed with caution.
+* Score ranges, weighting, reverse scoring, inclusion in overall score and question identity must be locked.
+* Material changes should create a new survey version.
+* Existing event assignments should remain attached to their original version unless deliberately updated before responses are received.
+
+Reports must clearly indicate when results contain more than one survey version.
+
+Question IDs must remain stable within a version so reports do not depend on editable question wording.
+
+---
+
+# 8. Scoring Calculations
+
+## 8.1 Raw Question Score
+
+Store the exact score selected by the respondent.
+
+Example:
+
+`4 out of 5`
+
+## 8.2 Normalised Question Score
+
+To compare questions with different ranges, calculate a normalised score between 0 and 100.
+
+Normal scoring:
+
+`((selected score - minimum score) / (maximum score - minimum score)) × 100`
+
+Reverse scoring:
+
+`((maximum score - selected score) / (maximum score - minimum score)) × 100`
+
+Example for a 1–5 question:
+
+* 1 = 0%
+* 2 = 25%
+* 3 = 50%
+* 4 = 75%
+* 5 = 100%
+
+## 8.3 Weighted Overall Score
+
+For each response:
+
+`Sum of normalised question score × question weight`
+
+divided by:
+
+`Sum of the weights of all valid answered questions`
+
+The result should be presented as an overall percentage.
+
+Questions must be excluded from the denominator when they are:
+
+* Unanswered and optional
+* Marked Not Applicable
+* Hidden by conditional logic
+* Excluded from the overall score
+
+## 8.4 Unweighted Overall Score
+
+Also calculate the average normalised score across all included valid questions without applying weighting.
+
+This allows administrators to compare the effect of weighting.
+
+## 8.5 Cumulative Calculations
+
+When reporting across multiple events, calculate cumulative results from all valid individual answers.
+
+Do not calculate the simple average of event averages because this would give a small event the same influence as a large event.
+
+Example:
+
+* Event A: 100 responses with an average of 80%
+* Event B: 10 responses with an average of 50%
+
+The cumulative result must be based on all 110 responses, rather than calculating `(80 + 50) / 2`.
+
+## 8.6 Total Score
+
+Where the report shows “Total Score”, clearly identify the type:
+
+* Total raw score
+* Total weighted points
+* Average normalised score
+* Maximum possible score
+
+Avoid displaying an unexplained total that cannot be compared between events with different response numbers.
+
+Tooltips should explain every calculated metric.
+
+---
+
+# 9. Survey Reporting
+
+## 9.1 Reporting Route
+
+Add a dedicated reporting area such as:
+
+`/SurveyReports`
+
+Suggested routes:
+
+* `/SurveyReports`
+* `/SurveyReports/:surveyId`
+* `/SurveyReports/:surveyId/event/:eventId`
+
+Also provide links into the reports from:
+
+* The Survey Form list
+* The Survey Form editor
+* The Event administration screen
+
+## 9.2 Report Filters
+
+The reporting screen should support:
+
+* Survey
+* Survey version
+* Event
+* Multiple events
+* Event category/type, where available
+* Event date range
+* Response submission date range
+* Reporting category
+* Identified or anonymous responses
+* Complete or incomplete responses
+* Organisation, branch or group where available and permitted
+
+For date-range reporting, default to filtering by the event date.
+
+Provide an option to change the date basis to response submission date.
+
+## 9.3 Summary Metrics
+
+Display summary cards for:
+
+* Number of responses
+* Number of completed responses
+* Number of partial responses
+* Average overall weighted score
+* Average overall unweighted score
+* Total raw score
+* Number of events included
+* Average responses per event
+* Response rate, where the number of event attendees or survey invitations is known
+
+Response rate should only be displayed when a reliable denominator exists.
+
+## 9.4 Question Results
+
+For each scored question, display:
+
+* Question/reporting name
+* Reporting category
+* Score range
+* Number of valid answers
+* Number skipped
+* Number marked Not Applicable
+* Raw average
+* Normalised average percentage
+* Weighted contribution
+* Minimum response
+* Maximum response
+* Response distribution
+
+Suggested visualisations:
+
+* Horizontal average score bars
+* Score distribution bar chart
+* Percentage breakdown
+* Trend over time
+
+Allow the administrator to click a question to view its detailed distribution.
+
+## 9.5 Category Results
+
+Where reporting categories are used, display:
+
+* Category name
+* Number of questions
+* Number of valid answers
+* Average normalised score
+* Weighted category score
+* Trend across events
+
+Example categories:
+
+* Speakers: 84%
+* Venue: 78%
+* Organisation: 91%
+* Catering: 72%
+
+## 9.6 Event Comparison
+
+Provide a table comparing events.
+
+Columns should include:
+
+* Event name
+* Event date
+* Number of responses
+* Response rate where available
+* Weighted overall score
+* Unweighted overall score
+* Highest scoring category
+* Lowest scoring category
+* Link to event report
+
+Allow sorting by:
+
+* Event date
+* Response count
+* Overall score
+* Individual question
+* Reporting category
+
+## 9.7 Date-Range and Cumulative Reporting
+
+Administrators must be able to select a date range and see:
+
+* All matching events
+* Combined response count
+* Cumulative question averages
+* Cumulative category averages
+* Overall cumulative weighted score
+* Trends by event date
+* Comparison with the previous equivalent period
+
+The previous-period comparison should be optional and can be disabled when no comparable data exists.
+
+## 9.8 Non-Scored Questions
+
+Include responses from non-scored questions in the report.
+
+Examples:
+
+* Free-text comments
+* Multiple-choice responses
+* Yes/no responses
+
+Free-text responses should be accessible through a separate Comments section with:
+
+* Event filter
+* Question filter
+* Date filter
+* Search
+* CSV export
+
+Do not attempt automated sentiment analysis in this phase.
+
+## 9.9 Response Drilldown
+
+For identified surveys, authorised administrators may view an individual response.
+
+For anonymous surveys:
+
+* Do not show personal identity.
+* Use a generated response reference.
+* Respect the minimum anonymity threshold.
+* Do not expose technical metadata that could identify the respondent.
+
+---
+
+# 10. Charts and Visualisations
+
+Required initial charts:
+
+* Overall score by event
+* Question average comparison
+* Category average comparison
+* Response distribution for an individual question
+* Score trend by event date
+* Response volume over time
+
+Charts must:
+
+* Be accessible.
+* Include text values and tooltips.
+* Respond to active filters.
+* Work on desktop and tablet layouts.
+* Avoid using colour as the only method of distinguishing results.
+* Have a table-based alternative where practical.
+
+---
+
+# 11. Reporting Exports
+
+## 11.1 Summary Export
+
+Provide a CSV or XLSX summary export containing:
+
+* Survey name
+* Survey version
+* Event
+* Event date
+* Response count
+* Weighted score
+* Unweighted score
+* Question averages
+* Category averages
+
+## 11.2 Response-Level Export
+
+Provide an authorised response-level export containing:
+
+* Response reference
+* Event
+* Event date
+* Submission date
+* Completion status
+* Question
+* Raw answer
+* Normalised score
+* Question weighting
+* Weighted contribution
+* Reporting category
+* Overall response score
+
+For identified surveys, member/contact details may be included only where the exporting user has permission.
+
+Anonymous exports must remain anonymous.
+
+## 11.3 Recommended XLSX Structure
+
+Where XLSX export is implemented, create separate worksheets:
+
+* Summary
+* Events
+* Questions
+* Categories
+* Responses
+* Comments
+
+---
+
+# 12. Permissions
+
+Use the existing iConnect permissions and tenant isolation model.
+
+Suggested permissions:
+
+* View survey forms
+* Create survey forms
+* Edit survey forms
+* Publish survey forms
+* Assign surveys to events
+* View summary survey reports
+* View response-level reports
+* Export survey data
+* View respondent identity
+* Archive surveys
+
+A user who can view aggregate results should not automatically be permitted to view identifiable response-level data.
+
+All report queries and exports must be tenant-scoped on the server.
+
+---
+
+# 13. Data Model
+
+The exact implementation should follow existing iConnect conventions, but the minimum model should support the following.
+
+## Forms
+
+Add or extend:
+
+* `form_type`
+
+  * `standard`
+  * `survey`
+
+## Form fields
+
+Add a new field type:
+
+* `score`
+
+Score configuration should store:
+
+* Minimum score
+* Maximum score
+* Rendering style
+* Low label
+* High label
+* Per-value labels
+* Weight
+* Include in overall score
+* Reverse scoring
+* Allow Not Applicable
+* Reporting name
+* Reporting category
+* Required status
+* Conditional logic
+
+Use typed columns where values need to be indexed or validated. A JSON configuration object may be used for renderer-specific display settings.
+
+## Survey versions
+
+Store:
+
+* Survey ID
+* Version number
+* Published date
+* Published by
+* Version status
+* Immutable field/scoring configuration snapshot
+
+## Event survey assignments
+
+Store:
+
+* Tenant ID
+* Survey ID
+* Survey version ID
+* Event ID
+* Opens at
+* Closes at
+* Status
+* Access mode
+* Assignment token
+* Created by
+* Created at
+
+## Submissions
+
+Each submission must reference:
+
+* Tenant ID
+* Form ID
+* Survey version ID
+* Event survey assignment ID
+* Event ID
+* Respondent ID where applicable
+* Anonymous response reference
+* Started at
+* Submitted at
+* Completion status
+* Weighted overall score
+* Unweighted overall score
+
+Calculated scores may be cached for performance, but the raw answers and scoring configuration must remain the authoritative data.
+
+## Answers
+
+Score answers should store:
+
+* Field/question ID
+* Raw numeric score
+* Not Applicable status
+* Normalised score
+* Weight used
+* Weighted contribution
+* Answered at
+
+## Database indexes
+
+Add indexes suitable for reporting on:
+
+* Tenant ID
+* Survey ID
+* Survey version ID
+* Event ID
+* Event survey assignment ID
+* Submitted date
+* Event date
+* Reporting category
+
+---
+
+# 14. API and Server-Side Requirements
+
+All survey calculations must be validated or calculated server-side.
+
+The API must reject:
+
+* Scores outside the configured range
+* Invalid Not Applicable values
+* Answers to fields not included in the published version
+* Manipulated weighting values
+* Manipulated event IDs
+* Responses submitted outside the permitted period where enforcement is enabled
+
+The API should provide endpoints or equivalent server actions for:
+
+* Creating and editing surveys
+* Publishing survey versions
+* Assigning surveys to events
+* Submitting responses
+* Retrieving aggregate reports
+* Retrieving event reports
+* Retrieving question distributions
+* Exporting reports
+* Archiving surveys and assignments
+
+Use aggregated server-side queries rather than downloading all responses to the browser and calculating reports client-side.
+
+---
+
+# 15. Backward Compatibility
+
+The implementation must not change the behaviour of existing forms.
+
+Requirements:
+
+* Existing forms are migrated as `standard`.
+* Existing field types continue to render unchanged.
+* Existing submissions remain accessible.
+* Existing public form URLs continue to work.
+* Survey-specific controls remain hidden for standard forms.
+* Existing permissions continue to apply unless new survey permissions are explicitly granted.
+
+---
+
+# 16. Audit and Data Integrity
+
+Record audit entries for:
+
+* Survey creation
+* Survey editing
+* Survey publishing
+* New survey version creation
+* Event assignment
+* Event assignment removal
+* Survey archiving
+* Report export
+
+Surveys with responses should be archived rather than permanently deleted.
+
+Events with survey responses must not be hard deleted in a way that removes reporting relationships.
+
+---
+
+# 17. Performance Requirements
+
+Reporting must remain responsive across large response volumes.
+
+Requirements:
+
+* Use indexed server-side aggregation.
+* Paginate response-level views.
+* Load detailed question distributions only when required.
+* Do not return free-text responses in the initial summary report payload.
+* Avoid recalculating unchanged historic reports unnecessarily.
+* Consider cached aggregates if performance testing shows they are required.
+
+The first implementation should use live aggregation unless current platform volumes demonstrate that background aggregation is necessary.
+
+---
+
+# 18. Accessibility
+
+Score fields must be fully usable through:
+
+* Keyboard navigation
+* Screen readers
+* Touch devices
+* Desktop browsers
+
+Requirements:
+
+* Every score option must have an accessible label.
+* Focus states must be visible.
+* Icon-only scores must expose text equivalents.
+* Smiley faces must not rely solely on colour.
+* Validation messages must identify the affected question.
+* Star and smiley controls should behave as a single logical input group.
+
+---
+
+# 19. Testing Requirements
+
+Testing must cover:
+
+### Builder
+
+* Switching between Standard and Survey form types
+* Adding every Score renderer
+* Score range validation
+* Weight validation
+* Reverse scoring
+* Not Applicable
+* Conditional logic
+* Survey publishing
+* Version locking
+
+### Event assignments
+
+* Assigning one survey to one event
+* Assigning one survey to multiple events
+* Preventing invalid or cross-tenant event assignments
+* Opening and closing dates
+* Removing assignments without responses
+* Preserving assignments with responses
+
+### Submission
+
+* Valid scores
+* Out-of-range scores
+* Required questions
+* Optional questions
+* Not Applicable
+* Hidden conditional questions
+* Anonymous responses
+* Identified responses
+* Duplicate response rules
+
+### Reporting
+
+* Single-event results
+* Multiple-event results
+* Event date-range filtering
+* Submission date-range filtering
+* Raw averages
+* Normalised averages
+* Weighted calculations
+* Reverse scoring
+* Not Applicable exclusions
+* Cumulative calculations
+* Anonymous reporting thresholds
+* CSV/XLSX exports
+
+---
+
+# 20. Acceptance Criteria
+
+The feature is complete when:
+
+1. An administrator can create a Survey Form from `/FormBuilder`.
+2. Existing standard forms remain unaffected.
+3. A Survey Form can contain Score fields rendered as stars, smiley faces, numbered buttons, descriptive buttons, sliders or NPS.
+4. Each Score field can have its own range, labels, weighting, reporting category and scoring rules.
+5. Score fields work with required-state and conditional logic.
+6. A reusable Survey Form can be assigned to one or more events.
+7. Every response is securely associated with the correct event assignment.
+8. Historic responses retain the scoring rules used when they were submitted.
+9. Administrators can report on one event.
+10. Administrators can report across events in a selected event date range.
+11. Reports show response counts, overall scores, question averages and category averages.
+12. Cumulative reports are calculated from individual responses rather than averages of averages.
+13. Weighted, unweighted and normalised results are clearly identified.
+14. Not Applicable responses are excluded from scoring but included in response counts.
+15. Authorised users can export summary and response-level data.
+16. Anonymous survey data remains anonymous.
+17. Report and export access is controlled through permissions.
+18. Survey reporting performs calculations on the server and remains tenant-isolated.
+
+---
+
+# 21. Explicitly Out of Scope for This Phase
+
+The following should not be included in the initial build unless already supported by an existing reusable iConnect service:
+
+* Automated survey invitation emails
+* Reminder campaigns
+* SMS or WhatsApp survey distribution
+* QR code generation
+* Certificates or CPD allocation
+* AI sentiment analysis
+* AI-generated survey questions
+* Cross-organisation industry benchmarking
+* Public publication of survey results
+* Advanced statistical significance calculations
+* Automatic actions based on low scores
+
+The data model should not prevent these from being added later.
+
+---
+
+# 22. Suggested Future Phase
+
+The next phase can build on Event Survey Assignments to provide:
+
+* Automatic survey invitations after an event ends
+* Invitations limited to registered or attended delegates
+* Scheduled reminder emails
+* Unique respondent links
+* Response-rate tracking
+* Event-level QR codes
+* Low-score alerts
+* Follow-up task creation
+* Survey templates by event type
+* Year-on-year event benchmarking
+* Organisation-wide satisfaction dashboards
