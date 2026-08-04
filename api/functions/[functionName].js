@@ -4992,10 +4992,53 @@ const functionHandlers = {
       organizationPhone = org?.phone || '';
     }
     
-    // Build the signup/login link with organization_id parameter
-    // Note: Member record is NOT created here - it will be created when the invitee
-    // completes the signup form. This prevents zombie members from unanswered invites.
-    const signupLink = `${baseUrl}/login?email=${encodeURIComponent(email)}${organizationId ? `&organization_id=${organizationId}` : ''}`;
+    // Build a tokenised public signup link (Task #3392). A single-use,
+    // expiring invite row backs the /team-invite/<token> page so the invitee
+    // can create their account without logging in first. Resending supersedes
+    // any prior pending token for the same invitee. The member record is NOT
+    // created here — it is created when the invitee completes the signup form,
+    // which prevents zombie members from unanswered invites.
+    const inviteTenantId = inviter?.tenant_id || resolvedTenantId || null;
+    let signupLink;
+    if (inviteTenantId) {
+      const inviteToken = crypto.randomBytes(32).toString('hex');
+      const inviteExpiry = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+
+      // Supersede prior pending invites for this invitee in this tenant.
+      const { error: supersedeErr } = await supabase
+        .from('team_member_invitation')
+        .update({ status: 'superseded' })
+        .eq('tenant_id', inviteTenantId)
+        .eq('email', email.toLowerCase())
+        .eq('status', 'pending');
+      if (supersedeErr) {
+        console.error('[sendTeamMemberInvite] Failed to supersede prior invites:', supersedeErr.message);
+      }
+
+      const { error: inviteInsertErr } = await supabase
+        .from('team_member_invitation')
+        .insert({
+          token: inviteToken,
+          tenant_id: inviteTenantId,
+          email: email.toLowerCase(),
+          organization_id: organizationId || null,
+          invited_by_member_id: inviter?.id || null,
+          inviter_name: inviterFullName || null,
+          status: 'pending',
+          expires_at: inviteExpiry,
+        });
+      if (inviteInsertErr) {
+        console.error('[sendTeamMemberInvite] Failed to store invite token:', inviteInsertErr.message);
+        return { success: false, error: 'Could not create the invitation. Please try again.' };
+      }
+
+      signupLink = `${baseUrl}/team-invite/${inviteToken}`;
+    } else {
+      // No tenant context at all — fall back to the legacy login link rather
+      // than creating an unscoped token.
+      console.warn('[sendTeamMemberInvite] No tenant context; falling back to legacy login link');
+      signupLink = `${baseUrl}/login?email=${encodeURIComponent(email)}${organizationId ? `&organization_id=${organizationId}` : ''}`;
+    }
     
     // Build the email content
     let finalSubject = emailSubject || `You're invited to join our team`;

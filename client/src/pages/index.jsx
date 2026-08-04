@@ -356,6 +356,7 @@ import SubmitPOPage from "./SubmitPOPage";
 import GroupBookingPage from "./GroupBookingPage";
 import GuestApprovalPage from "./GuestApprovalPage";
 import MemberGroupRoleInvitePage from "./MemberGroupRoleInvitePage";
+import TeamInvitePage from "./TeamInvitePage";
 import DirectDebitInvitationPage from "./DirectDebitInvitationPage";
 import DirectDebitMigrationPage from "./DirectDebitMigrationPage";
 
@@ -1288,6 +1289,7 @@ function StandaloneRoutes() {
             <Route path="/group-booking/:token" element={<GroupBookingPage />} />
             <Route path="/guest-approval/:token" element={<GuestApprovalPage />} />
             <Route path="/group-role-invite/:token" element={<MemberGroupRoleInvitePage />} />
+            <Route path="/team-invite/:token" element={<TeamInvitePage />} />
             <Route path="/dd-setup/:token" element={<DirectDebitInvitationPage />} />
             <Route path="/dd-migrate/:token" element={<DirectDebitMigrationPage />} />
             <Route path="/EventDetails" element={<EventDetails />} />
@@ -1397,6 +1399,7 @@ function AppRoutes() {
     const isGroupBookingPage = location.pathname.toLowerCase().startsWith('/group-booking/');
     const isGuestApprovalPage = location.pathname.toLowerCase().startsWith('/guest-approval/');
     const isGroupRoleInvitePage = location.pathname.toLowerCase().startsWith('/group-role-invite/');
+    const isTeamInvitePage = location.pathname.toLowerCase().startsWith('/team-invite/');
     const isDdSetupPage = location.pathname.toLowerCase().startsWith('/dd-setup/')
         || location.pathname.toLowerCase().startsWith('/dd-migrate/');
     const isCampaignsPage = location.pathname.toLowerCase() === '/campaigns';
@@ -1407,7 +1410,7 @@ function AppRoutes() {
     const isAdminPage = location.pathname.toLowerCase().startsWith('/admin');
     const isPlatformPage = location.pathname.toLowerCase().startsWith('/platform');
     
-    if (isStandalonePage || isEmbedPage || isBookingPage || isDonatePage || isFundraisePage || isFundraiserPage || isMembershipFeePage || isSubmitPoPage || isGroupBookingPage || isGuestApprovalPage || isGroupRoleInvitePage || isDdSetupPage || isCampaignsPage || hasEmbedParam) {
+    if (isStandalonePage || isEmbedPage || isBookingPage || isDonatePage || isFundraisePage || isFundraiserPage || isMembershipFeePage || isSubmitPoPage || isGroupBookingPage || isGuestApprovalPage || isGroupRoleInvitePage || isTeamInvitePage || isDdSetupPage || isCampaignsPage || hasEmbedParam) {
         return <StandaloneRoutes />;
     }
     
