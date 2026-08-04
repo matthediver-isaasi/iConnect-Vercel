@@ -1,5 +1,6 @@
 import { supabase } from '../_lib/database.js';
-import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import { resolveTenantFromRequest, getHostFromRequest } from '../_lib/tenantResolver.js';
+import { evaluateTenantOverride } from '../_lib/tenantHostGuard.js';
 import { listActiveMicrosites } from '../_lib/microsites.js';
 
 /**
@@ -17,7 +18,10 @@ export default async function handler(req, res) {
 
   try {
     let tenant = await resolveTenantFromRequest(req);
-    if (!tenant && req.query.tenant) {
+    // Task #3390: on wildcard {slug}.iconn.app hosts the host slug is
+    // authoritative — don't let a mismatched ?tenant= param resolve here.
+    const { hostSlug, allowOverride } = evaluateTenantOverride(getHostFromRequest(req), req.query.tenant);
+    if (!tenant && req.query.tenant && (!hostSlug || allowOverride)) {
       const { data } = await supabase
         .from('tenant')
         .select('id, slug, status')

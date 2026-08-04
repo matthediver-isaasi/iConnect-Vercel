@@ -1,4 +1,5 @@
 import { supabase } from './database.js';
+import { evaluateTenantOverride } from './tenantHostGuard.js';
 
 const tenantCache = new Map();
 const CACHE_TTL = 5 * 60 * 1000;
@@ -141,10 +142,26 @@ export async function resolveTenantFromRequest(req) {
   }
   
   // Support explicit tenant identifier from query or body for embedded contexts
-  const tenantParam = req.query?.tenant || req.body?.tenant || req.query?.slug;
-  const domainParam = req.query?.domain;
+  let tenantParam = req.query?.tenant || req.body?.tenant || req.query?.slug;
+  let domainParam = req.query?.domain;
   
   console.log('[TenantResolver] Params - tenant:', tenantParam, 'domain:', domainParam);
+  
+  // Task #3390: on wildcard {slug}.iconn.app / {slug}.{env}.iconn.app hosts
+  // the HOST slug is authoritative. Refuse a mismatched ?tenant=/?domain=
+  // override and resolve from the host instead, so direct API calls can't
+  // read another tenant's data from a typo'd subdomain. localhost,
+  // *.replit.dev, and custom domains keep the param behaviour (embeds).
+  if (tenantParam || domainParam) {
+    const requestHost = getHostFromRequest(req);
+    const { hostSlug, allowOverride } = evaluateTenantOverride(requestHost, tenantParam);
+    if (hostSlug && !allowOverride) {
+      console.warn('[TenantResolver] Refusing tenant/domain override on wildcard host', requestHost,
+        '- host slug', hostSlug, 'wins over params tenant:', tenantParam, 'domain:', domainParam);
+      tenantParam = null;
+      domainParam = null;
+    }
+  }
   
   if (tenantParam) {
     console.log('[TenantResolver] Trying tenant param lookup:', tenantParam);

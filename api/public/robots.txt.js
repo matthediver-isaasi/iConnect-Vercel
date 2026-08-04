@@ -1,4 +1,5 @@
 import { supabase } from '../_lib/database.js';
+import { evaluateTenantOverride, getIconnHostSlug } from '../_lib/tenantHostGuard.js';
 
 async function resolveTenant(hostname, supabaseClient) {
   if (!hostname) return null;
@@ -6,9 +7,10 @@ async function resolveTenant(hostname, supabaseClient) {
   // Remove port if present
   const cleanHostname = hostname.split(':')[0];
   
-  // Handle tenant subdomains like tenant.iconn.app
+  // Handle tenant subdomains like tenant.iconn.app and tenant.dev.iconn.app
   if (cleanHostname.endsWith('.iconn.app')) {
-    const slug = cleanHostname.replace('.iconn.app', '');
+    const slug = getIconnHostSlug(cleanHostname);
+    if (!slug) return null;
     const { data: tenant } = await supabaseClient
       .from('tenant')
       .select('id, slug, settings')
@@ -45,6 +47,30 @@ async function resolveTenant(hostname, supabaseClient) {
   return null;
 }
 
+/**
+ * Endpoint-level tenant selection for robots.txt (exported for tests).
+ * Task #3390: on wildcard {slug}.iconn.app / {slug}.{env}.iconn.app hosts
+ * the host slug is authoritative — a mismatched ?tenant= override is
+ * ignored and the tenant resolves from the host instead.
+ * @param {string} host - raw Host / X-Forwarded-Host value
+ * @param {string|undefined} tenantParam - ?tenant= query value
+ * @param {object} supabaseClient
+ */
+export async function resolveRobotsTenant(host, tenantParam, supabaseClient) {
+  const { hostSlug, allowOverride } = evaluateTenantOverride(host, tenantParam);
+  if (tenantParam && (!hostSlug || allowOverride)) {
+    const { data } = await supabaseClient
+      .from('tenant')
+      .select('id, slug, settings')
+      .eq('slug', tenantParam)
+      .eq('status', 'active')
+      .single();
+    return data || null;
+  }
+  // Resolve tenant from host using same logic as tenant-branding
+  return resolveTenant(host, supabaseClient);
+}
+
 export default async function handler(req, res) {
   // Set content type to plain text for robots.txt
   res.setHeader('Content-Type', 'text/plain');
@@ -63,20 +89,9 @@ export default async function handler(req, res) {
     const host = req.headers['x-forwarded-host'] || req.headers.host || '';
     const cleanHost = host.split(':')[0];
 
-    // First check for explicit tenant query param
-    let tenant = null;
-    if (req.query.tenant) {
-      const { data } = await supabase
-        .from('tenant')
-        .select('id, slug, settings')
-        .eq('slug', req.query.tenant)
-        .eq('status', 'active')
-        .single();
-      tenant = data;
-    } else {
-      // Resolve tenant from host using same logic as tenant-branding
-      tenant = await resolveTenant(host, supabase);
-    }
+    // Task #3390: host slug wins over a mismatched ?tenant= override on
+    // wildcard iconn.app hosts (see resolveRobotsTenant).
+    const tenant = await resolveRobotsTenant(host, req.query.tenant, supabase);
 
     if (!tenant) {
       // No tenant identified - block indexing by default
