@@ -35,7 +35,11 @@ export const getTimingOptions = (mode = "event") => {
   ];
 };
 
-export const createEmptyEmail = (emailType = "reminder") => ({
+// `mode`: 'event' (simple events) or 'session' (complex events). Complex-event
+// confirmations default to the {{session_schedule}} placeholder, which renders
+// the attendee's accessible sessions grouped by day (with times, locations,
+// tracks and per-session join links) instead of a single flat date/location.
+export const createEmptyEmail = (emailType = "reminder", mode = "event") => ({
   id: `email-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
   email_type: emailType,
   timing_type: emailType === "booking_confirmation" ? null : "1_day_before",
@@ -46,7 +50,9 @@ export const createEmptyEmail = (emailType = "reminder") => ({
     ? "Your booking confirmation for {{event_name}}"
     : "Reminder: {{event_name}} is coming up!",
   body: emailType === "booking_confirmation"
-    ? "Dear {{attendee_first_name}},\n\nThank you for booking {{event_name}}.\n\nEvent Date: {{event_date}}\nLocation: {{event_location}}\n{{#zoom_link}}Join Link: {{zoom_link}}{{/zoom_link}}\n\nWe look forward to seeing you!"
+    ? (mode === "session"
+        ? "Dear {{attendee_first_name}},\n\nThank you for booking {{event_name}}.\n\nHere is your personal schedule:\n\n{{session_schedule}}\n\nA calendar file with all your sessions is attached so you can add the full programme to your calendar.\n\nWe look forward to seeing you!"
+        : "Dear {{attendee_first_name}},\n\nThank you for booking {{event_name}}.\n\nEvent Date: {{event_date}}\nLocation: {{event_location}}\n{{#zoom_link}}Join Link: {{zoom_link}}{{/zoom_link}}\n\nWe look forward to seeing you!")
     : "Dear {{attendee_first_name}},\n\nThis is a reminder that {{event_name}} is coming up soon.\n\nEvent Date: {{event_date}}\nLocation: {{event_location}}\n{{#zoom_link}}Join Link: {{zoom_link}}{{/zoom_link}}\n\nSee you there!",
   cc: "",
   is_enabled: true,

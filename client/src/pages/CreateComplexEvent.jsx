@@ -908,7 +908,7 @@ export default function CreateComplexEvent() {
   // Email configuration helpers now live in the shared
   // EventEmailSettingsEditor component (Task #3263).
   const addEventEmail = (emailType = 'reminder') => {
-    setEventEmails([...eventEmails, createEmptyEmail(emailType)]);
+    setEventEmails([...eventEmails, createEmptyEmail(emailType, 'session')]);
   };
 
   // Clear any prior save error for an email row once the admin edits it.

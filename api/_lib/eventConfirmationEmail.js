@@ -231,11 +231,17 @@ function buildIcsAttachment(event, booking, complexEventData) {
       const sessions = complexEventData?.sessions || [];
       for (const s of sessions) {
         if (!s.start_time || !s.end_time) continue;
-        const isVirtual = s.delivery_mode === 'virtual';
+        const isVirtual = s.delivery_mode ? s.delivery_mode === 'virtual' : !!s.is_online;
+        const isHybrid = s.delivery_mode === 'hybrid';
         const sessionUrl = s.zoom_join_url || '';
-        const location = isVirtual
-          ? (sessionUrl || 'Online')
-          : (s.location || '');
+        let location;
+        if (isVirtual) {
+          location = sessionUrl || 'Online';
+        } else if (isHybrid) {
+          location = [s.location, sessionUrl || 'Online'].filter(Boolean).join(' / ');
+        } else {
+          location = s.location || '';
+        }
         entries.push({
           uid: buildSessionUid(bookingId, s.id),
           title: [event.title, s.title].filter(Boolean).join(' — ') || 'Event',
@@ -248,8 +254,22 @@ function buildIcsAttachment(event, booking, complexEventData) {
         });
       }
       if (entries.length === 0) {
-        console.warn('[buildIcsAttachment] Skipping ICS — complex event has no accessible sessions with valid times');
-        return null;
+        // No accessible sessions with valid times — fall back to a single
+        // whole-event VEVENT so the attendee still gets something importable.
+        if (event?.start_date && event?.end_date) {
+          entries.push({
+            uid: buildEventUid(bookingId, event.id),
+            title: event.title || 'Event',
+            description: event.description || '',
+            start: event.start_date,
+            end: event.end_date,
+            location: event.is_online ? 'Online' : (event.location || ''),
+            timeZone: event.timezone || undefined,
+          });
+        } else {
+          console.warn('[buildIcsAttachment] Skipping ICS — complex event has no accessible sessions with valid times and no event dates');
+          return null;
+        }
       }
     } else {
       if (!event?.start_date || !event?.end_date) {
@@ -288,6 +308,36 @@ function buildIcsAttachment(event, booking, complexEventData) {
   }
 }
 
+// Session columns the schedule/ICS rendering wants. `is_online` may not exist
+// on older schemas, so the fetch drops back to the base column set on 42703
+// (undefined column) rather than failing the whole send.
+const SESSION_BASE_COLUMNS = 'id, title, description, start_time, end_time, delivery_mode, track_name, zoom_join_url, zoom_webinar_id, zoom_meeting_id, location, timezone';
+const SESSION_EXTRA_COLUMNS = ', is_online';
+
+async function fetchComplexEventSessions(eventId, tenantId) {
+  const runQuery = async (columns) => {
+    let q = supabase
+      .from('complex_event_session')
+      .select(columns)
+      .eq('event_id', eventId)
+      .eq('status', 'scheduled')
+      .order('start_time', { ascending: true })
+      .order('sort_order', { ascending: true });
+    if (tenantId) q = q.eq('tenant_id', tenantId);
+    return q;
+  };
+
+  let { data, error } = await runQuery(SESSION_BASE_COLUMNS + SESSION_EXTRA_COLUMNS);
+  if (error && error.code === '42703') {
+    ({ data, error } = await runQuery(SESSION_BASE_COLUMNS));
+  }
+  if (error) {
+    console.warn('[fetchComplexEventSessions] Session query error:', error.message);
+    return [];
+  }
+  return data || [];
+}
+
 async function fetchComplexEventData(eventId, ticketClassId, ticketClassName, tenantId, eventTimezone = null) {
   try {
     let ticketClass = null;
@@ -301,35 +351,51 @@ async function fetchComplexEventData(eventId, ticketClassId, ticketClassName, te
       ticketClass = data;
     }
 
-    let sessionQuery = supabase
-      .from('complex_event_session')
-      .select('id, title, description, start_time, end_time, delivery_mode, track_name, zoom_join_url, zoom_webinar_id, zoom_meeting_id, location, timezone')
-      .eq('event_id', eventId)
-      .eq('status', 'scheduled')
-      .order('start_time', { ascending: true })
-      .order('sort_order', { ascending: true });
-
-    if (tenantId) {
-      sessionQuery = sessionQuery.eq('tenant_id', tenantId);
-    }
-
-    const { data: sessions } = await sessionQuery;
+    const sessions = await fetchComplexEventSessions(eventId, tenantId);
 
     if (!sessions || sessions.length === 0) {
       return { sessions: [], ticketClass, accessibleTracks: [], sessionScheduleHtml: '' };
+    }
+
+    // Track colours for the schedule badges. Tolerant: any failure just means
+    // badges render without a custom colour.
+    const trackColours = {};
+    let eventTracks = [];
+    try {
+      let trackQuery = supabase
+        .from('complex_event_track')
+        .select('id, name, colour')
+        .eq('complex_event_id', eventId);
+      if (tenantId) trackQuery = trackQuery.eq('tenant_id', tenantId);
+      const { data: trackRows, error: trackError } = await trackQuery;
+      if (!trackError && trackRows) {
+        eventTracks = trackRows;
+        for (const t of trackRows) {
+          if (t.name) trackColours[t.name.trim().toLowerCase()] = t.colour || null;
+        }
+      }
+    } catch (trackErr) {
+      console.warn('[fetchComplexEventData] Track colour fetch failed:', trackErr?.message);
     }
 
     let accessibleSessions = sessions;
     const accessibleTracks = [];
 
     if (ticketClass && !ticketClass.all_tracks && ticketClass.linked_track_ids?.length > 0) {
-      const { data: tracks } = await supabase
-        .from('complex_event_track')
-        .select('id, name')
-        .in('id', ticketClass.linked_track_ids);
+      const linkedIds = new Set(ticketClass.linked_track_ids);
+      let tracks = eventTracks.filter(t => linkedIds.has(t.id));
+      if (tracks.length === 0 && eventTracks.length === 0) {
+        // Track fetch above failed — fall back to a direct lookup so access
+        // filtering keeps working.
+        const { data } = await supabase
+          .from('complex_event_track')
+          .select('id, name')
+          .in('id', ticketClass.linked_track_ids);
+        tracks = data || [];
+      }
 
-      const trackNames = (tracks || []).map(t => t.name?.trim().toLowerCase());
-      accessibleTracks.push(...(tracks || []).map(t => t.name));
+      const trackNames = tracks.map(t => t.name?.trim().toLowerCase());
+      accessibleTracks.push(...tracks.map(t => t.name));
 
       accessibleSessions = sessions.filter(s => {
         if (!s.track_name) return true;
@@ -340,7 +406,7 @@ async function fetchComplexEventData(eventId, ticketClassId, ticketClassName, te
       accessibleTracks.push(...uniqueTracks);
     }
 
-    const sessionScheduleHtml = buildSessionScheduleHtml(accessibleSessions, eventTimezone);
+    const sessionScheduleHtml = buildSessionScheduleHtml(accessibleSessions, eventTimezone, { trackColours });
 
     return {
       sessions: accessibleSessions,
@@ -354,43 +420,166 @@ async function fetchComplexEventData(eventId, ticketClassId, ticketClassName, te
   }
 }
 
-function buildSessionScheduleHtml(sessions, eventTimezone = null) {
+function escapeScheduleHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function isValidHexColour(value) {
+  return typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value.trim());
+}
+
+function isSessionOnline(session) {
+  if (session?.delivery_mode) return session.delivery_mode === 'virtual';
+  return !!session?.is_online;
+}
+
+function isSessionHybrid(session) {
+  return session?.delivery_mode === 'hybrid';
+}
+
+// Day key (YYYY-MM-DD) in the display timezone, for grouping sessions by
+// calendar day the way the public schedule page does.
+function formatDayKey(dateStr, timeZone) {
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return null;
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: timeZone || 'UTC',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(d);
+  } catch {
+    return null;
+  }
+}
+
+function formatDayHeading(dateStr, timeZone) {
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return '';
+    return new Intl.DateTimeFormat('en-GB', {
+      timeZone: timeZone || 'UTC',
+      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+    }).format(d);
+  } catch {
+    return '';
+  }
+}
+
+function formatTimeOnly(dateStr, timeZone) {
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return '';
+    return new Intl.DateTimeFormat('en-GB', {
+      timeZone: timeZone || 'UTC',
+      hour: '2-digit', minute: '2-digit', hour12: false,
+    }).format(d);
+  } catch {
+    return '';
+  }
+}
+
+// Email-safe rendering of the attendee's session schedule, grouped by
+// calendar day in the event timezone — a lightweight mirror of the public
+// /session-events schedule view. Only tables + inline styles (no flexbox,
+// grid or media queries) so it degrades gracefully in Outlook/Gmail. Long
+// descriptions are deliberately omitted to keep the email scannable.
+//
+// options.trackColours: { lowercasedTrackName: '#rrggbb' | null }
+// options.accentColor: link colour (defaults to the blue the old builder used).
+function buildSessionScheduleHtml(sessions, eventTimezone = null, options = {}) {
   if (!sessions || sessions.length === 0) return '';
 
-  const rows = sessions.map(s => {
-    const tz = s.timezone || eventTimezone || 'UTC';
-    const startTime = s.start_time ? formatSessionTime(s.start_time, tz) : 'TBC';
-    const endTime = s.end_time ? formatSessionTime(s.end_time, tz) : '';
-    const timeRange = endTime ? `${startTime} - ${endTime}` : startTime;
-    const locationStr = s.delivery_mode === 'virtual' ? 'Online' : (s.location || '');
-    const zoomLink = s.zoom_join_url || '';
+  const accent = isValidHexColour(options.accentColor) ? options.accentColor.trim() : '#2563eb';
+  const trackColours = options.trackColours || {};
 
-    let locationCell = locationStr;
-    if (zoomLink) {
-      locationCell = `<a href="${zoomLink}" style="color: #2563eb; text-decoration: underline;">Join via Zoom</a>`;
-      if (locationStr && s.delivery_mode === 'hybrid') {
-        locationCell = `${locationStr} / ${locationCell}`;
-      }
+  // Group by day in the display timezone; sessions without a start time go
+  // into a trailing "Date to be confirmed" bucket.
+  const dayMap = new Map();
+  const undated = [];
+  for (const s of sessions) {
+    const tz = s.timezone || eventTimezone || 'UTC';
+    const key = s.start_time ? formatDayKey(s.start_time, tz) : null;
+    if (!key) {
+      undated.push(s);
+      continue;
+    }
+    if (!dayMap.has(key)) dayMap.set(key, { heading: formatDayHeading(s.start_time, tz), sessions: [] });
+    dayMap.get(key).sessions.push(s);
+  }
+
+  const dayKeys = [...dayMap.keys()].sort();
+
+  const renderSessionRow = (s, isLast) => {
+    const tz = s.timezone || eventTimezone || 'UTC';
+    const startTime = s.start_time ? formatTimeOnly(s.start_time, tz) : 'TBC';
+    const endTime = s.end_time ? formatTimeOnly(s.end_time, tz) : '';
+    const timeRange = endTime ? `${startTime}&#8211;${endTime}` : startTime;
+
+    const online = isSessionOnline(s);
+    const hybrid = isSessionHybrid(s);
+    const locationParts = [];
+    if (!online && s.location) locationParts.push(escapeScheduleHtml(s.location));
+    if (online) locationParts.push('Online');
+    if (hybrid) {
+      if (locationParts.length === 0 && s.location) locationParts.push(escapeScheduleHtml(s.location));
+      locationParts.push('Online');
+    }
+    const locationText = locationParts.join(' &middot; ') || (online ? 'Online' : '');
+
+    let trackBadge = '';
+    if (s.track_name) {
+      const colour = trackColours[s.track_name.trim().toLowerCase()];
+      const badgeColour = isValidHexColour(colour) ? colour.trim() : '#6b7280';
+      trackBadge = `<span style="display:inline-block;border:1px solid ${badgeColour};color:${badgeColour};border-radius:10px;padding:0 8px;font-size:11px;line-height:18px;margin-left:6px;vertical-align:middle;">${escapeScheduleHtml(s.track_name)}</span>`;
     }
 
-    const trackBadge = s.track_name ? `<span style="display:inline-block;background:#e5e7eb;border-radius:4px;padding:1px 6px;font-size:11px;margin-left:4px;">${s.track_name}</span>` : '';
+    const joinLink = s.zoom_join_url
+      ? `<a href="${escapeScheduleHtml(s.zoom_join_url)}" style="color:${accent};text-decoration:underline;font-size:13px;">Join online</a>`
+      : '';
+
+    const metaBits = [locationText, joinLink].filter(Boolean).join(' &middot; ');
+    const metaLine = metaBits
+      ? `<div style="font-size:13px;color:#6b7280;padding-top:2px;">${metaBits}</div>`
+      : '';
+
+    const borderStyle = isLast ? '' : 'border-bottom:1px solid #e5e7eb;';
 
     return `<tr>
-      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;white-space:nowrap;vertical-align:top;">${timeRange}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;vertical-align:top;"><strong>${s.title || ''}</strong>${trackBadge}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;vertical-align:top;">${locationCell}</td>
+      <td width="110" style="padding:10px 12px;${borderStyle}white-space:nowrap;vertical-align:top;font-size:13px;color:#374151;">${timeRange}</td>
+      <td style="padding:10px 12px;${borderStyle}vertical-align:top;">
+        <div style="font-size:14px;color:#111827;"><strong>${escapeScheduleHtml(s.title || 'Session')}</strong>${trackBadge}</div>
+        ${metaLine}
+      </td>
     </tr>`;
-  }).join('');
+  };
 
-  return `<table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;">
-    <thead>
-      <tr style="background:#f3f4f6;">
-        <th style="padding:8px 12px;text-align:left;border-bottom:2px solid #d1d5db;font-weight:600;">Time</th>
-        <th style="padding:8px 12px;text-align:left;border-bottom:2px solid #d1d5db;font-weight:600;">Session</th>
-        <th style="padding:8px 12px;text-align:left;border-bottom:2px solid #d1d5db;font-weight:600;">Location</th>
+  const renderDayBlock = (heading, daySessions) => {
+    const rows = daySessions.map((s, i) => renderSessionRow(s, i === daySessions.length - 1)).join('');
+    return `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;margin:0 0 16px 0;border:1px solid #e5e7eb;border-radius:6px;">
+      <tr>
+        <td colspan="2" style="padding:8px 12px;background-color:#f3f4f6;font-size:13px;font-weight:bold;color:#111827;border-bottom:1px solid #e5e7eb;">${escapeScheduleHtml(heading)}</td>
       </tr>
-    </thead>
-    <tbody>${rows}</tbody>
+      ${rows}
+    </table>`;
+  };
+
+  const blocks = [];
+  for (const key of dayKeys) {
+    const day = dayMap.get(key);
+    blocks.push(renderDayBlock(day.heading, day.sessions));
+  }
+  if (undated.length > 0) {
+    blocks.push(renderDayBlock('Date to be confirmed', undated));
+  }
+
+  return `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;margin:16px 0;font-family:Arial,sans-serif;">
+    <tr><td>
+      ${blocks.join('\n')}
+    </td></tr>
   </table>`;
 }
 
