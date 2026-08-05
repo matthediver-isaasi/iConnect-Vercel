@@ -12,6 +12,7 @@ import {
   allocationDate,
   buildMovements,
   rollupMonth,
+  expiryRecognitionMonth,
 } from './voucherMonthlyRollup.js';
 
 const ORG = 'org-1';
@@ -124,6 +125,78 @@ test('post-event reinstatement is a correcting adjustment in the approval month'
   assert.equal(may[ORG].closing_balance, 100);
   const reinst = movements.find((m) => m.bucket === 'reinstated');
   assert.equal(reinst.ref, 'B-1'); // references original booking
+});
+
+test('expiryRecognitionMonth: expiry month unless missing or closed before txn', () => {
+  // Normal case: entry written the day after an end-of-month expiry.
+  assert.equal(
+    expiryRecognitionMonth({ expiresAt: '2026-05-31T00:00:00Z', txnMonth: '2026-06', txnCreatedAt: '2026-06-01T02:00:00Z' }),
+    '2026-05'
+  );
+  // Missing expires_at -> txn month.
+  assert.equal(
+    expiryRecognitionMonth({ expiresAt: null, txnMonth: '2026-06', txnCreatedAt: '2026-06-01T02:00:00Z' }),
+    '2026-06'
+  );
+  // Expiry month closed BEFORE the entry was written -> txn month.
+  assert.equal(
+    expiryRecognitionMonth({
+      expiresAt: '2026-05-31T00:00:00Z', txnMonth: '2026-06',
+      txnCreatedAt: '2026-06-03T02:00:00Z',
+      closedMonthCutoffs: { '2026-05': '2026-06-02T00:00:00Z' },
+    }),
+    '2026-06'
+  );
+  // Expiry month closed AFTER the entry was written (close cron already
+  // included it) -> stays in the expiry month.
+  assert.equal(
+    expiryRecognitionMonth({
+      expiresAt: '2026-05-31T00:00:00Z', txnMonth: '2026-06',
+      txnCreatedAt: '2026-06-01T02:00:00Z',
+      closedMonthCutoffs: { '2026-05': '2026-06-02T00:00:00Z' },
+    }),
+    '2026-05'
+  );
+});
+
+test('end-of-month expiry with ledger entry next month reported in expiry month', () => {
+  // Remaining value is zeroed by the expiry cron; original 250 reconstructed
+  // from the ledger.
+  const vouchers = [v('v1', 0, '2026-01-01T00:00:00Z', ORG, { expires_at: '2026-05-31T23:59:59Z' })];
+  const transactions = [tx('v1', 'expiry', 250, '2026-06-01T01:00:00Z')];
+  const movements = buildMovements({ vouchers, transactions, eventStartById: {} });
+
+  const may = rollupMonth({ month: '2026-05', movements });
+  assert.equal(may[ORG].expired, 250);
+  assert.equal(may[ORG].closing_balance, 0);
+
+  const jun = rollupMonth({ month: '2026-06', movements });
+  assert.equal(jun[ORG].expired, 0);
+  assert.equal(jun[ORG].opening_balance, 0);
+  assert.equal(jun[ORG].closing_balance, 0);
+  // Carry-forward continuity: closing(May) == opening(June).
+  assert.equal(jun[ORG].opening_balance, may[ORG].closing_balance);
+});
+
+test('expiry after the expiry month closed falls back to the txn month', () => {
+  const vouchers = [v('v1', 0, '2026-01-01T00:00:00Z', ORG, { expires_at: '2026-05-31T23:59:59Z' })];
+  const transactions = [tx('v1', 'expiry', 100, '2026-06-05T01:00:00Z')];
+  const movements = buildMovements({
+    vouchers,
+    transactions,
+    eventStartById: {},
+    closedMonthCutoffs: { '2026-05': '2026-06-02T00:00:00Z' },
+  });
+
+  const may = rollupMonth({ month: '2026-05', movements });
+  assert.equal(may[ORG].expired, 0);
+  assert.equal(may[ORG].closing_balance, 100); // closed month never rewritten
+
+  const jun = rollupMonth({ month: '2026-06', movements });
+  assert.equal(jun[ORG].expired, 100);
+  assert.equal(jun[ORG].opening_balance, 100);
+  assert.equal(jun[ORG].closing_balance, 0);
+  assert.equal(jun[ORG].opening_balance, may[ORG].closing_balance);
 });
 
 test('expiry and adjustments recognised in txn month', () => {

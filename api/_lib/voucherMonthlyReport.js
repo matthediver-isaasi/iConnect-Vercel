@@ -10,7 +10,10 @@
 //   - cancellation_refund in/before the event month: negative usage in the
 //     event month; after the event month: positive reinstatement in the
 //     refund month.
-//   - expiry / credit_adjustment / debit_adjustment: transaction month.
+//   - expiry: the voucher's expires_at month; falls back to the transaction
+//     month when expires_at is missing or when the expiry-date month was
+//     already closed before the ledger entry was written.
+//   - credit_adjustment / debit_adjustment: transaction month.
 //
 // Summary figures themselves come from Phase 2 (snapshots for closed months,
 // computeTenantMonthRollup live otherwise) — never recomputed here.
@@ -20,6 +23,8 @@ import {
   monthKey,
   allocationDate,
   deriveOriginalValue,
+  expiryRecognitionMonth,
+  loadClosedMonthCutoffs,
 } from './voucherMonthlyRollup.js';
 
 function num(v) {
@@ -151,6 +156,7 @@ export async function loadReportData(tenantId) {
   const transactions = await loadTransactionsDetailed(tenantId);
   const eventIds = Array.from(new Set(transactions.map((t) => t.event_id).filter(Boolean)));
   const eventInfoById = await loadEventStarts(tenantId, eventIds);
+  const closedMonthCutoffs = await loadClosedMonthCutoffs(tenantId);
 
   const { data: orgs, error: orgErr } = await supabase
     .from('organization')
@@ -160,7 +166,7 @@ export async function loadReportData(tenantId) {
   const orgNameById = {};
   (orgs || []).forEach((o) => { orgNameById[o.id] = o.name || ''; });
 
-  return { vouchers, transactions, eventInfoById, orgNameById };
+  return { vouchers, transactions, eventInfoById, orgNameById, closedMonthCutoffs };
 }
 
 export function voucherStatus(v, nowIso = new Date().toISOString()) {
@@ -173,7 +179,7 @@ export function voucherStatus(v, nowIso = new Date().toISOString()) {
  * Build the full detail-row set (all months). Rows mirror buildMovements'
  * recognition rules; callers filter by reporting_month / org / etc.
  */
-export function buildDetailRows({ vouchers, transactions, eventInfoById = {} }) {
+export function buildDetailRows({ vouchers, transactions, eventInfoById = {}, closedMonthCutoffs = {} }) {
   const voucherById = {};
   const txnsByVoucher = {};
   for (const t of transactions || []) {
@@ -253,6 +259,12 @@ export function buildDetailRows({ vouchers, transactions, eventInfoById = {} }) 
         break;
       }
       case 'expiry':
+        reportingMonth = expiryRecognitionMonth({
+          expiresAt: v?.expires_at || null,
+          txnMonth,
+          txnCreatedAt: t.created_at || null,
+          closedMonthCutoffs,
+        });
         bucket = 'expired';
         signed = -amt;
         break;

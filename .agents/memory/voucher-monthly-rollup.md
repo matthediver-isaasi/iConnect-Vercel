@@ -8,7 +8,8 @@ Monthly voucher snapshots (per tenant+org+month) follow deterministic recognitio
 - **Allocations have NO real ledger row** — "voucher_awarded" is synthetic. Allocated amount is reconstructed as remaining value + debits − credits from the ledger; allocation month = voucher `valid_from ?? issued_at ?? created_at`.
 - **Usage is recognised in the EVENT start month**, not the booking/txn month. Value booked for a future event stays in the closing balance but is reported as `reserved_future` (available = closing − reserved).
 - **Cancellation refunds branch on timing**: refund month ≤ event month → nets against `used` in the event month (never reported as used); refund AFTER the event month → `reinstated` correcting adjustment in the refund month, so closed months are never rewritten.
-- **Expiry/adjustments** → transaction month.
+- **Expiry** → the voucher's `expires_at` month (mirrors the usage rule), falling back to the txn month when `expires_at` is missing or the expiry-date month was already closed BEFORE the ledger entry was written. Closed-month awareness = `closedMonthCutoffs` ('YYYY-MM' → earliest snapshot `generated_at`), loaded by `loadClosedMonthCutoffs` and threaded through all call paths. Crucially, a recompute of a closed month PRESERVES the original `generated_at` — it doubles as the stable close-instant cutoff; refreshing it would flip expiry attribution and make stored vs recompute drift.
+- **Adjustments** → transaction month.
 
 **Why:** finance wants event-date attribution and immutable closed months; any rule depending on "when the snapshot ran" would make reconciliation (stored vs recompute) permanently dirty.
 

@@ -24,8 +24,13 @@
 //     event month, the closed month is never rewritten: the refund appears
 //     as a correcting `reinstated` adjustment in the month it was approved,
 //     referencing the original booking/event.
-//   - Expiry: recognised in the month the expiry ledger entry was written
-//     (the daily expiry cron writes it within a day of expires_at).
+//   - Expiry: recognised in the month of the voucher's expires_at date
+//     (mirroring usage's event-month rule), falling back to the transaction
+//     month when expires_at is missing OR when the expiry-date month had
+//     already been closed before the ledger entry was written — closed
+//     months are never rewritten (same pattern as post-event cancellation
+//     refunds). Closed-month awareness comes from closedMonthCutoffs
+//     ('YYYY-MM' -> ISO instant the month was first closed).
 //   - credit_adjustment / debit_adjustment: recognised in the transaction
 //     month.
 //
@@ -104,6 +109,28 @@ export function allocationDate(voucher) {
 }
 
 /**
+ * Recognition month for an expiry ledger entry: the voucher's expiry-date
+ * month, falling back to the transaction month when expires_at is missing
+ * or when the expiry-date month was already closed BEFORE the ledger entry
+ * was written (closed months are never rewritten).
+ *
+ * @param {object} args
+ * @param {string|null} args.expiresAt          voucher.expires_at
+ * @param {string} args.txnMonth                'YYYY-MM' of the ledger entry
+ * @param {string|null} args.txnCreatedAt       ledger entry created_at ISO
+ * @param {object} [args.closedMonthCutoffs]    'YYYY-MM' -> ISO instant the
+ *   month was first closed for this tenant
+ * @returns {string} 'YYYY-MM'
+ */
+export function expiryRecognitionMonth({ expiresAt, txnMonth, txnCreatedAt, closedMonthCutoffs = {} }) {
+  const expiryMonth = monthKey(expiresAt);
+  if (!expiryMonth || expiryMonth >= txnMonth) return txnMonth;
+  const closedAt = closedMonthCutoffs[expiryMonth];
+  if (closedAt && (!txnCreatedAt || closedAt < txnCreatedAt)) return txnMonth;
+  return expiryMonth;
+}
+
+/**
  * Turn vouchers + transactions into signed movements, each attributed to a
  * recognition month and bucket.
  *
@@ -114,12 +141,15 @@ export function allocationDate(voucher) {
  *                                    organization_id, type, amount,
  *                                    created_at, event_id, booking_reference)
  * @param {object} args.eventStartById  map event_id -> event start ISO date
+ * @param {object} [args.closedMonthCutoffs]  'YYYY-MM' -> ISO instant the
+ *   month was first closed for this tenant (expiry recognition fallback)
  * @returns {Array<{orgId, month, bucket, amount, txnCreatedAt?, eventMonth?, ref?}>}
  *   bucket ∈ allocated | used | expired | adj_pos | adj_neg | reinstated
  *   `used` movements may be negative (pre-event refund netting).
  */
-export function buildMovements({ vouchers, transactions, eventStartById = {} }) {
+export function buildMovements({ vouchers, transactions, eventStartById = {}, closedMonthCutoffs = {} }) {
   const orgByVoucher = {};
+  const expiresAtByVoucher = {};
   const txnsByVoucher = {};
   for (const t of transactions || []) {
     if (t.voucher_id) {
@@ -131,6 +161,7 @@ export function buildMovements({ vouchers, transactions, eventStartById = {} }) 
 
   for (const v of vouchers || []) {
     orgByVoucher[v.id] = v.organization_id || null;
+    expiresAtByVoucher[v.id] = v.expires_at || null;
     const orgId = v.organization_id || null;
     if (!orgId) continue;
     const allocMonth = monthKey(allocationDate(v));
@@ -195,7 +226,17 @@ export function buildMovements({ vouchers, transactions, eventStartById = {} }) 
         break;
       }
       case 'expiry':
-        movements.push({ orgId, month: txnMonth, bucket: 'expired', amount: amt });
+        movements.push({
+          orgId,
+          month: expiryRecognitionMonth({
+            expiresAt: expiresAtByVoucher[t.voucher_id] || null,
+            txnMonth,
+            txnCreatedAt: t.created_at || null,
+            closedMonthCutoffs,
+          }),
+          bucket: 'expired',
+          amount: amt,
+        });
         break;
       case 'credit_adjustment':
         movements.push({ orgId, month: txnMonth, bucket: 'adj_pos', amount: amt });
@@ -378,8 +419,33 @@ async function loadVouchers(tenantId) {
   }
 }
 
+// 'YYYY-MM' -> ISO instant the month was FIRST closed for this tenant
+// (earliest generated_at across the month's snapshot rows). Used by the
+// expiry recognition rule so a closed month is never rewritten by an expiry
+// ledger entry written after the close.
+export async function loadClosedMonthCutoffs(tenantId) {
+  const { data, error } = await supabase
+    .from('voucher_monthly_snapshot')
+    .select('month, generated_at')
+    .eq('tenant_id', tenantId);
+  if (error) {
+    if (error.code === '42P01') return {};
+    throw new Error('Failed to load closed months: ' + error.message);
+  }
+  const cutoffs = {};
+  for (const s of data || []) {
+    const month = String(s.month).slice(0, 7);
+    // A null generated_at still marks the month closed; treat it as closed
+    // before everything (conservative — falls back to the txn month).
+    const at = s.generated_at || '0000-01-01T00:00:00.000Z';
+    if (!cutoffs[month] || at < cutoffs[month]) cutoffs[month] = at;
+  }
+  return cutoffs;
+}
+
 export async function loadTenantVoucherData(tenantId) {
   const vouchers = await loadVouchers(tenantId);
+  const closedMonthCutoffs = await loadClosedMonthCutoffs(tenantId);
   const transactions = await pageAll((a, b) =>
     supabase
       .from('voucher_transaction')
@@ -431,7 +497,7 @@ export async function loadTenantVoucherData(tenantId) {
       });
   }
 
-  return { vouchers, transactions, eventStartById };
+  return { vouchers, transactions, eventStartById, closedMonthCutoffs };
 }
 
 /**
@@ -474,9 +540,10 @@ export async function computeTenantMonthRollup(tenantId, month) {
 export async function snapshotTenantMonth(tenantId, month, { mode = 'close', generatedBy = null } = {}) {
   const { data: existing, error: exErr } = await supabase
     .from('voucher_monthly_snapshot')
-    .select('id')
+    .select('id, generated_at')
     .eq('tenant_id', tenantId)
     .eq('month', monthStartDate(month))
+    .order('generated_at', { ascending: true })
     .limit(1);
   if (exErr) throw new Error('Snapshot existence check failed: ' + exErr.message);
   const alreadyClosed = existing && existing.length > 0;
@@ -485,7 +552,12 @@ export async function snapshotTenantMonth(tenantId, month, { mode = 'close', gen
   }
 
   const { rows } = await computeTenantMonthRollup(tenantId, month);
-  const nowIso = new Date().toISOString();
+  // generated_at doubles as the month's "first closed at" instant, which the
+  // expiry recognition rule uses as its closed-month cutoff. A recompute of
+  // an already-closed month must PRESERVE the original instant, or the
+  // cutoff would move forward and expiry attribution (and therefore stored
+  // vs recomputed figures) would drift between runs.
+  const nowIso = (alreadyClosed && existing[0].generated_at) || new Date().toISOString();
   const records = Object.entries(rows).map(([orgId, r]) => ({
     tenant_id: tenantId,
     organization_id: orgId,
