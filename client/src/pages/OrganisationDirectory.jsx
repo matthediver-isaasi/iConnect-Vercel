@@ -14,7 +14,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { toast } from "sonner";
 import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { isDeletedMember } from "@/utils";
-import { hasDirectoryFieldValue, enrichFieldForDirectory, isFieldInDirectory, getDirectoryOrderedFields, getDirectoryFilterOptions, directoryFilterValueMatches, resolveBackFieldOrder, ORG_BACK_DEFAULT_ORDER } from "@/utils/directorySettings";
+import { hasDirectoryFieldValue, enrichFieldForDirectory, isFieldInDirectory, getDirectoryOrderedFields, getDirectoryFilterOptions, directoryFilterValueMatches, resolveBackFieldOrder, ORG_BACK_DEFAULT_ORDER, resolveCustomFieldsLabel } from "@/utils/directorySettings";
 
 // Helper to add cache-busting for JPG images which have loading issues
 const getLogoUrl = (url, orgId) => {
@@ -73,6 +73,7 @@ export default function OrganisationDirectoryPage() {
       const visibleOrgTypesSetting = allSettings.find(s => s.setting_key === 'org_directory_visible_org_types');
       const reverseCardRolesSetting = allSettings.find(s => s.setting_key === 'org_directory_reverse_card_role_ids');
       const backOrderSetting = allSettings.find(s => s.setting_key === 'org_directory_back_field_order');
+      const customFieldsLabelSetting = allSettings.find(s => s.setting_key === 'org_directory_custom_fields_label');
 
       let excludedOrgIds = [];
       if (excludedOrgsSetting) {
@@ -123,6 +124,7 @@ export default function OrganisationDirectoryPage() {
         allowedApplicationStatuses: allowedApplicationStatuses,
         visibleOrgTypes: visibleOrgTypes,
         reverseCardRoleIds: reverseCardRoleIds,
+        customFieldsLabel: customFieldsLabelSetting?.setting_value || null,
         backFieldOrder: (() => {
           if (!backOrderSetting?.setting_value) return null;
           try {
@@ -902,7 +904,7 @@ export default function OrganisationDirectoryPage() {
                     <div key={`org-customs-${idx}`} className="space-y-3 pt-2 border-t">
                       <div className="flex items-center gap-2">
                         <ClipboardList className="w-4 h-4 text-blue-600" />
-                        <h4 className="font-medium text-slate-900">Additional Information</h4>
+                        <h4 className="font-medium text-slate-900">{resolveCustomFieldsLabel(displaySettings?.customFieldsLabel)}</h4>
                       </div>
                       <div className="flex items-center justify-center py-4">
                         <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
@@ -944,7 +946,7 @@ export default function OrganisationDirectoryPage() {
                   <div key={`org-customs-${idx}`} className="space-y-3 pt-2 border-t">
                     <div className="flex items-center gap-2">
                       <ClipboardList className="w-4 h-4 text-blue-600" />
-                      <h4 className="font-medium text-slate-900">Additional Information</h4>
+                      <h4 className="font-medium text-slate-900">{resolveCustomFieldsLabel(displaySettings?.customFieldsLabel)}</h4>
                     </div>
                     <div className="space-y-3">
                       {populatedFields.map(({ field, displayValue }) => (

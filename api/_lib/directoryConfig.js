@@ -198,6 +198,19 @@ export function resolveBackFieldOrder({ directoryOrder, tenantOrder, defaultOrde
   return result;
 }
 
+// --- back-of-card custom-fields section label --------------------------------
+// Mirrors client/src/utils/directorySettings.js — keep both in sync.
+
+export const DEFAULT_CUSTOM_FIELDS_LABEL = 'Additional Information';
+
+/** First non-blank string label wins; falls back to the default text. */
+export function resolveCustomFieldsLabel(...labels) {
+  for (const label of labels) {
+    if (typeof label === 'string' && label.trim()) return label.trim();
+  }
+  return DEFAULT_CUSTOM_FIELDS_LABEL;
+}
+
 // --- roles ------------------------------------------------------------------
 
 export async function fetchRoles(supabase, tenantId) {
@@ -283,5 +296,6 @@ export async function fetchOrgDisplaySettings(supabase, tenantId) {
     excludedOrgIds: parseJsonArray(settingsMap['org_directory_excluded_orgs']),
     reverseCardRoleIds: parseJsonArray(settingsMap['org_directory_reverse_card_role_ids']),
     backFieldOrder: parseJsonArray(settingsMap['org_directory_back_field_order']),
+    customFieldsLabel: settingsMap['org_directory_custom_fields_label'] || null,
   };
 }

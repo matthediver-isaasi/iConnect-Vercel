@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
-import { isVisibleOnBack, isFieldVisibleOnBackFor, getDirectoryOrderedFields, enrichFieldForDirectory, isFieldInDirectory, hasDirectoryFieldValue, resolveBackFieldOrder, MEMBER_BACK_DEFAULT_ORDER, groupBackOrderItems, applyCoreFieldVisibility } from "@/utils/directorySettings";
+import { isVisibleOnBack, isFieldVisibleOnBackFor, getDirectoryOrderedFields, enrichFieldForDirectory, isFieldInDirectory, hasDirectoryFieldValue, resolveBackFieldOrder, MEMBER_BACK_DEFAULT_ORDER, groupBackOrderItems, applyCoreFieldVisibility, resolveCustomFieldsLabel } from "@/utils/directorySettings";
 
 // `backFieldOrder`: optional per-directory back-of-card order override
 // (dynamic_directory.back_field_order); falls back to the tenant default in
@@ -19,7 +19,10 @@ import { isVisibleOnBack, isFieldVisibleOnBackFor, getDirectoryOrderedFields, en
 // `coreFieldVisibility`: optional per-directory core-field visibility
 // overrides (dynamic_directory.core_field_visibility) layered over the
 // tenant-global member_directory_display settings.
-export default function MemberProfileModal({ memberId, open, onOpenChange, backFieldOrder = null, coreFieldVisibility = null }) {
+// `customFieldsLabel`: optional per-directory override for the heading above
+// the custom-field grid; falls back to the tenant-global
+// member_directory_display custom_fields_label, then "Additional Information".
+export default function MemberProfileModal({ memberId, open, onOpenChange, backFieldOrder = null, coreFieldVisibility = null, customFieldsLabel = null }) {
   const { isFeatureExcluded } = useMemberAccess();
   const canViewMemberBiography = !isFeatureExcluded('view_member_biography');
 
@@ -464,7 +467,7 @@ export default function MemberProfileModal({ memberId, open, onOpenChange, backF
                 if (section.type === 'custom') {
                   return (
                     <div key={`customs-${idx}`} className="space-y-3 pt-4 border-t border-slate-200">
-                      <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wide">Additional Information</h3>
+                      <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wide">{resolveCustomFieldsLabel(customFieldsLabel, globalDisplaySettings?.custom_fields_label)}</h3>
                       <div className="grid grid-cols-2 gap-3">{section.items.map(it => it.node)}</div>
                     </div>
                   );

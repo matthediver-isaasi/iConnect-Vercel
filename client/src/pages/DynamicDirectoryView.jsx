@@ -19,7 +19,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { toast } from "sonner";
 import { isDeletedMember } from "@/utils";
-import { isVisibleOnFront, isVisibleOnBack, isFieldVisibleOnBackFor, getDirectoryOrderedFields, enrichFieldForDirectory, isFieldInDirectory, hasDirectoryFieldValue, getDirectoryFilterOptions, directoryFilterValueMatches, resolveBackFieldOrder, MEMBER_BACK_DEFAULT_ORDER, ORG_BACK_DEFAULT_ORDER, applyCoreFieldVisibility, isOrgCoreItemVisible } from "@/utils/directorySettings";
+import { isVisibleOnFront, isVisibleOnBack, isFieldVisibleOnBackFor, getDirectoryOrderedFields, enrichFieldForDirectory, isFieldInDirectory, hasDirectoryFieldValue, getDirectoryFilterOptions, directoryFilterValueMatches, resolveBackFieldOrder, MEMBER_BACK_DEFAULT_ORDER, ORG_BACK_DEFAULT_ORDER, applyCoreFieldVisibility, isOrgCoreItemVisible, resolveCustomFieldsLabel } from "@/utils/directorySettings";
 import { DirectoryMemberCard, DirectoryOrganizationCard } from "@/components/directory/DirectoryCards";
 
 export default function DynamicDirectoryView() {
@@ -209,6 +209,7 @@ export default function DynamicDirectoryView() {
       const excludedOrgsSetting = allSettings.find(s => s.setting_key === 'org_directory_excluded_orgs');
       const reverseCardRolesSetting = allSettings.find(s => s.setting_key === 'org_directory_reverse_card_role_ids');
       const backOrderSetting = allSettings.find(s => s.setting_key === 'org_directory_back_field_order');
+      const customFieldsLabelSetting = allSettings.find(s => s.setting_key === 'org_directory_custom_fields_label');
 
       let excludedOrgIds = [];
       if (excludedOrgsSetting) {
@@ -238,6 +239,7 @@ export default function DynamicDirectoryView() {
         cardsPerRow: cardsPerRowSetting?.setting_value || '3',
         excludedOrgIds: excludedOrgIds,
         reverseCardRoleIds: reverseCardRoleIds,
+        customFieldsLabel: customFieldsLabelSetting?.setting_value || null,
         backFieldOrder: (() => {
           if (!backOrderSetting?.setting_value) return null;
           try {
@@ -1225,7 +1227,7 @@ export default function DynamicDirectoryView() {
                       <div key={`org-customs-${batchIdx}`} className="space-y-3 pt-2 border-t">
                         <div className="flex items-center gap-2">
                           <ClipboardList className="w-4 h-4 text-blue-600" />
-                          <h4 className="font-medium text-slate-900">Additional Information</h4>
+                          <h4 className="font-medium text-slate-900">{resolveCustomFieldsLabel(directory?.custom_fields_label, orgDisplaySettings?.customFieldsLabel)}</h4>
                         </div>
                         {isLoadingOrgValues ? (
                           <div className="flex items-center justify-center py-4">
@@ -1744,7 +1746,7 @@ export default function DynamicDirectoryView() {
                     } else {
                       sections.push(
                         <div key={`customs-${batchIdx}`} className="space-y-3 pt-4 border-t border-slate-200">
-                          <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wide">Additional Information</h3>
+                          <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wide">{resolveCustomFieldsLabel(directory?.custom_fields_label, rawMemberDisplaySettings?.custom_fields_label)}</h3>
                           <div className="grid grid-cols-2 gap-3">{batch}</div>
                         </div>
                       );

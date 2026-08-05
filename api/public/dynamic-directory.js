@@ -14,7 +14,7 @@ import {
 // show_members_on_card_back so guest/Canvas consumers can resolve the
 // unified back-of-card order exactly like the portal does.
 export const PUBLIC_DIRECTORY_SELECT =
-  'id, slug, name, entity_type, filter_field_id, filter_value, is_active, back_field_order, show_members_on_card_back, core_field_visibility';
+  'id, slug, name, entity_type, filter_field_id, filter_value, is_active, back_field_order, show_members_on_card_back, core_field_visibility, custom_fields_label';
 
 // Public shape of the directory row returned to embeds.
 export function buildPublicDirectoryPayload(directory) {
@@ -28,6 +28,9 @@ export function buildPublicDirectoryPayload(directory) {
     show_members_on_card_back: directory.show_members_on_card_back !== false,
     core_field_visibility: (directory.core_field_visibility && typeof directory.core_field_visibility === 'object' && !Array.isArray(directory.core_field_visibility))
       ? directory.core_field_visibility
+      : null,
+    custom_fields_label: (typeof directory.custom_fields_label === 'string' && directory.custom_fields_label.trim())
+      ? directory.custom_fields_label.trim()
       : null,
   };
 }

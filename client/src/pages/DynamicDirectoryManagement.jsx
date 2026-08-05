@@ -57,6 +57,8 @@ export default function DynamicDirectoryManagementPage() {
   const [showMembersOnCardBack, setShowMembersOnCardBack] = useState(true);
   // null = use tenant default order; array = per-directory override
   const [backFieldOrder, setBackFieldOrder] = useState(null);
+  // '' = inherit the tenant-global label; non-blank = per-directory override
+  const [customFieldsLabel, setCustomFieldsLabel] = useState('');
   // Per-directory core-field visibility overrides: { key: { front?, back? } }.
   // Absent key/side = inherit the tenant-global directory settings.
   const [coreFieldVisibility, setCoreFieldVisibility] = useState(null);
@@ -355,6 +357,7 @@ export default function DynamicDirectoryManagementPage() {
     setShowMembersOnCardBack(true);
     setBackFieldOrder(null);
     setCoreFieldVisibility(null);
+    setCustomFieldsLabel('');
   };
 
   const handleOpenCreateDialog = () => {
@@ -379,6 +382,7 @@ export default function DynamicDirectoryManagementPage() {
     setSeoDescription(directory.seo_description || '');
     setOgImageUrl(directory.og_image_url || '');
     setShowMembersOnCardBack(directory.show_members_on_card_back !== false);
+    setCustomFieldsLabel(directory.custom_fields_label || '');
     setBackFieldOrder(Array.isArray(directory.back_field_order) && directory.back_field_order.length > 0
       ? directory.back_field_order
       : null);
@@ -467,7 +471,8 @@ export default function DynamicDirectoryManagementPage() {
       og_image_url: ogImageUrl || null,
       show_members_on_card_back: entityType === 'organization' ? showMembersOnCardBack : true,
       back_field_order: (Array.isArray(backFieldOrder) && backFieldOrder.length > 0) ? backFieldOrder : null,
-      core_field_visibility: (coreFieldVisibility && Object.keys(coreFieldVisibility).length > 0) ? coreFieldVisibility : null
+      core_field_visibility: (coreFieldVisibility && Object.keys(coreFieldVisibility).length > 0) ? coreFieldVisibility : null,
+      custom_fields_label: customFieldsLabel.trim() || null
     };
 
     if (editingDirectory) {
@@ -879,6 +884,22 @@ export default function DynamicDirectoryManagementPage() {
                   )}
                 </>
               )}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="customFieldsLabel">Custom Fields Section Label</Label>
+              <p className="text-xs text-slate-500">
+                Heading shown above the custom-field section on this directory's card detail view.
+                Leave blank to inherit the {entityType === 'organization' ? 'Organisation' : 'Member'} Directory
+                Settings label (default "Additional Information").
+              </p>
+              <Input
+                id="customFieldsLabel"
+                value={customFieldsLabel}
+                onChange={(e) => setCustomFieldsLabel(e.target.value)}
+                placeholder="Additional Information"
+                data-testid="input-custom-fields-label"
+              />
             </div>
 
             <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border">

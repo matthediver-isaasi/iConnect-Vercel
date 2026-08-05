@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -14,7 +16,7 @@ import { CORE_FIELDS, normalizeFieldVisibility, reorderCoreFieldOrder, MEMBER_BA
 import BackFieldOrderList from "@/components/directory/BackFieldOrderList";
 
 function migrateSettings(raw) {
-  const migrated = { field_order: raw.field_order || [], back_field_order: Array.isArray(raw.back_field_order) ? raw.back_field_order : [], custom_fields: {}, visible_role_ids: raw.visible_role_ids || [] };
+  const migrated = { field_order: raw.field_order || [], back_field_order: Array.isArray(raw.back_field_order) ? raw.back_field_order : [], custom_fields: {}, visible_role_ids: raw.visible_role_ids || [], custom_fields_label: typeof raw.custom_fields_label === 'string' ? raw.custom_fields_label : '' };
 
   for (const cf of CORE_FIELDS) {
     const val = raw[cf.key];
@@ -410,6 +412,29 @@ export default function MemberDirectorySettingsPage() {
               droppableId="member-back-order"
               onChange={(next) => setSettings(prev => ({ ...prev, back_field_order: next }))}
             />
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-200 mt-6">
+          <CardHeader>
+            <CardTitle>Custom Fields Section Label</CardTitle>
+            <CardDescription>
+              The heading shown above the custom-field grid in the member detail (back-of-card) view.
+              Leave blank to use the default "Additional Information". Individual dynamic directories
+              can override this in Dynamic Directory Management.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2 max-w-md">
+              <Label htmlFor="custom-fields-label">Section label</Label>
+              <Input
+                id="custom-fields-label"
+                value={settings.custom_fields_label || ''}
+                onChange={(e) => setSettings(prev => ({ ...prev, custom_fields_label: e.target.value }))}
+                placeholder="Additional Information"
+                data-testid="input-custom-fields-label"
+              />
+            </div>
           </CardContent>
         </Card>
 

@@ -32,6 +32,7 @@ export default function OrganisationDirectorySettingsPage() {
   const [visibleOrgTypes, setVisibleOrgTypes] = useState([]);
   const [reverseCardRoleIds, setReverseCardRoleIds] = useState([]);
   const [backFieldOrder, setBackFieldOrder] = useState([]);
+  const [customFieldsLabel, setCustomFieldsLabel] = useState("");
 
   useEffect(() => {
     if (isAccessReady) {
@@ -132,6 +133,7 @@ export default function OrganisationDirectorySettingsPage() {
       const visibleOrgTypesSetting = allSettings.find((s) => s.setting_key === 'org_directory_visible_org_types');
       const reverseCardRolesSetting = allSettings.find((s) => s.setting_key === 'org_directory_reverse_card_role_ids');
       const backOrderSetting = allSettings.find((s) => s.setting_key === 'org_directory_back_field_order');
+      const customFieldsLabelSetting = allSettings.find((s) => s.setting_key === 'org_directory_custom_fields_label');
       return {
         header: headerSetting,
         logo: logoSetting,
@@ -144,7 +146,8 @@ export default function OrganisationDirectorySettingsPage() {
         allowedStatuses: allowedStatusesSetting,
         visibleOrgTypes: visibleOrgTypesSetting,
         reverseCardRoles: reverseCardRolesSetting,
-        backOrder: backOrderSetting
+        backOrder: backOrderSetting,
+        customFieldsLabel: customFieldsLabelSetting
       };
     },
     refetchOnMount: true
@@ -211,6 +214,9 @@ export default function OrganisationDirectorySettingsPage() {
       } catch {
         setBackFieldOrder([]);
       }
+    }
+    if (settings?.customFieldsLabel) {
+      setCustomFieldsLabel(settings.customFieldsLabel.setting_value || "");
     }
   }, [settings]);
 
@@ -379,6 +385,19 @@ export default function OrganisationDirectorySettingsPage() {
           setting_key: 'org_directory_reverse_card_role_ids',
           setting_value: JSON.stringify(reverseCardRoleIds),
           description: 'List of role IDs whose members are listed on the reverse of organisation directory cards'
+        });
+      }
+
+      // Save custom fields section label setting
+      if (settings?.customFieldsLabel) {
+        await base44.entities.SystemSettings.update(settings.customFieldsLabel.id, {
+          setting_value: customFieldsLabel.trim()
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'org_directory_custom_fields_label',
+          setting_value: customFieldsLabel.trim(),
+          description: 'Heading shown above the custom-field section on the reverse of organisation directory cards (blank = "Additional Information")'
         });
       }
 
@@ -843,6 +862,41 @@ export default function OrganisationDirectorySettingsPage() {
                 disabled={saveMutation.isPending}
                 className="bg-blue-600 hover:bg-blue-700"
                 data-testid="button-save-back-order"
+              >
+                <Save className="w-4 h-4 mr-2" />
+                {saveMutation.isPending ? 'Saving...' : 'Save Settings'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-200 shadow-sm mt-6">
+          <CardHeader>
+            <CardTitle>Custom Fields Section Label</CardTitle>
+            <p className="text-sm text-slate-600 mt-2">
+              The heading shown above the custom-field section on the reverse of organisation cards
+              (and on the My Organisation profile page). Leave blank to use the default
+              "Additional Information". Individual dynamic directories can override this in
+              Dynamic Directory Management.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2 max-w-md">
+              <Label htmlFor="org-custom-fields-label">Section label</Label>
+              <Input
+                id="org-custom-fields-label"
+                value={customFieldsLabel}
+                onChange={(e) => setCustomFieldsLabel(e.target.value)}
+                placeholder="Additional Information"
+                data-testid="input-custom-fields-label"
+              />
+            </div>
+            <div className="pt-4 border-t">
+              <Button
+                onClick={() => saveMutation.mutate()}
+                disabled={saveMutation.isPending}
+                className="bg-blue-600 hover:bg-blue-700"
+                data-testid="button-save-custom-fields-label"
               >
                 <Save className="w-4 h-4 mr-2" />
                 {saveMutation.isPending ? 'Saving...' : 'Save Settings'}

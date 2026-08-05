@@ -16,6 +16,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl, isDeletedMember } from "@/utils";
 import { useToast } from "@/components/ui/use-toast";
 import CustomFieldFileUpload, { CustomFieldFileDisplay } from "@/components/CustomFieldFileUpload";
+import { resolveCustomFieldsLabel } from "@/utils/directorySettings";
 
 function ListFieldInput({ items, onChange, placeholder, fieldId }) {
   const [newItem, setNewItem] = useState('');
@@ -166,6 +167,23 @@ export default function MyOrganisationPage() {
       return null;
     },
     enabled: accessChecked,
+  });
+
+  // Tenant-global custom-fields section label (shared with the organisation
+  // directory reverse card); falls back to "Additional Information".
+  const { data: customFieldsLabelSetting } = useQuery({
+    queryKey: ['org-directory-custom-fields-label'],
+    enabled: accessChecked,
+    queryFn: async () => {
+      try {
+        const allSettings = await base44.entities.SystemSettings.list();
+        const setting = allSettings.find(s => s.setting_key === 'org_directory_custom_fields_label');
+        return setting?.setting_value || null;
+      } catch {
+        return null;
+      }
+    },
+    staleTime: 5 * 60 * 1000,
   });
 
   const { data: membersRaw = [], isLoading: membersLoading } = useQuery({
@@ -1257,7 +1275,7 @@ export default function MyOrganisationPage() {
                   <CardTitle className="text-lg flex items-center justify-between">
                     <span className="flex items-center gap-2">
                       <ClipboardList className="w-5 h-5 text-blue-600" />
-                      Additional Information
+                      {resolveCustomFieldsLabel(customFieldsLabelSetting)}
                     </span>
                     {collapsedSections.customFields ? (
                       <ChevronDown className="w-5 h-5 text-slate-400" />

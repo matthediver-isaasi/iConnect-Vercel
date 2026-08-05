@@ -326,6 +326,25 @@ export function reorderBackFieldOrder(order, srcIdx, destIdx) {
   return next;
 }
 
+// ---- Back-of-card custom-fields section label -------------------------------
+//
+// The heading above the custom-field grid on the back/detail side of directory
+// cards. Resolution: per-directory override (dynamic_directory.custom_fields_label)
+// → tenant-global setting (member_directory_display.custom_fields_label for
+// member surfaces; org_directory_custom_fields_label system setting for
+// organisation surfaces) → the default text.
+// NOTE: mirrored in api/_lib/directoryConfig.js — keep both in sync.
+
+export const DEFAULT_CUSTOM_FIELDS_LABEL = 'Additional Information';
+
+/** First non-blank string label wins; falls back to the default text. */
+export function resolveCustomFieldsLabel(...labels) {
+  for (const label of labels) {
+    if (typeof label === 'string' && label.trim()) return label.trim();
+  }
+  return DEFAULT_CUSTOM_FIELDS_LABEL;
+}
+
 export function hasDirectoryFieldValue(field, rawValue) {
   if (rawValue === undefined || rawValue === null) return false;
 
