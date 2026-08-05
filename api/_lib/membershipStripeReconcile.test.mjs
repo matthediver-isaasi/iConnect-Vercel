@@ -354,9 +354,13 @@ test('RACE: webhook records mid-confirm, then the stale inline/cron reconcile mu
       maybeSingle: (q) => (q.filters.stripe_payment_intent_id === 'pi_test_123' ? { ...dbRow } : null),
       exec: (q) => {
         if (q.op !== 'update') return { data: null, error: null };
-        // Emulate the DB's conditional update semantics.
+        // Emulate the DB's conditional update semantics. The reconcile
+        // guard is NULL-safe (IS DISTINCT FROM) via an .or() of
+        // `payment_status.neq.<target>,payment_status.is.null`.
         const target = q.payload?.payment_status;
-        if (q.filters['neq:payment_status'] === target && dbRow.payment_status === target) {
+        const guarded = q.filters['neq:payment_status'] === target
+          || q.filters.or === `payment_status.neq.${target},payment_status.is.null`;
+        if (guarded && dbRow.payment_status === target) {
           return { data: [], error: null }; // guard: no row matched
         }
         Object.assign(dbRow, q.payload);

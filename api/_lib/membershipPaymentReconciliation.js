@@ -113,11 +113,15 @@ export async function reconcileRow({ table, row, baseUrl = '' }, deps = {}) {
   // state, and fire the workflow ONLY if this update actually changed a
   // row — this is what guarantees the paid workflow fires exactly once
   // across confirm, webhook, and cron.
+  // NULL-safe guard (Task #3409): `.neq('payment_status', x)` is SQL
+  // `payment_status <> x`, which is NULL (not true) for NULL rows — so
+  // NULL-status rows could never transition. Use IS DISTINCT FROM
+  // semantics via an .or() including is.null.
   const { data: updatedRows, error: updateErr } = await db
     .from(table)
     .update(update)
     .eq('id', recordId)
-    .neq('payment_status', afterStatus)
+    .or(`payment_status.neq.${afterStatus},payment_status.is.null`)
     .select('id');
 
   if (updateErr) {

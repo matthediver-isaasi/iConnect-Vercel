@@ -70,12 +70,31 @@ const { getAccountingProviderByName, PROVIDER_XERO, PROVIDER_NONE } = await impo
 
 const totals = { scanned: 0, paid: 0, voided: 0, partial: 0, unchanged: 0, errors: 0, skipped: 0 };
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function withRateLimitRetry(fn, attempts = 5) {
+  for (let i = 0; ; i++) {
+    try {
+      await sleep(1200); // stay under Xero's 60 req/min tenant limit
+      return await fn();
+    } catch (err) {
+      if (i < attempts - 1 && /429/.test(String(err.message))) {
+        console.log(`  [429] rate limited, waiting 30s (attempt ${i + 1}/${attempts})…`);
+        await sleep(30_000);
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 for (const table of TABLES) {
   console.log(`\n=== Backfilling ${table} ${DRY_RUN ? '(dry-run)' : ''} ===`);
   let query = supabase
     .from(table)
     .select('*')
-    .eq('payment_status', 'unpaid')
+    // NULL counts as unpaid (Task #3409) — most historic rows never had
+    // payment_status set at creation, so an .eq('unpaid') filter misses them.
+    .or('payment_status.eq.unpaid,payment_status.is.null')
     .or('accounting_invoice_id.not.is.null,xero_invoice_id.not.is.null')
     .order('created_at', { ascending: true })
     .limit(LIMIT);
@@ -99,7 +118,8 @@ for (const table of TABLES) {
     let snapshot;
     try {
       const provider = getAccountingProviderByName(providerName);
-      snapshot = await provider.fetchInvoiceStatus(invoiceId, row.tenant_id);
+      // Throttle + retry: Xero rate-limits at ~60 calls/min per tenant.
+      snapshot = await withRateLimitRetry(() => provider.fetchInvoiceStatus(invoiceId, row.tenant_id));
     } catch (err) {
       totals.errors++;
       console.error(`  [error] ${table}#${row.id} provider=${providerName}: ${err.message}`);

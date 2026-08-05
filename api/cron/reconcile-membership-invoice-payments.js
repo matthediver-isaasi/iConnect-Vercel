@@ -180,10 +180,12 @@ async function retryPendingStripeMembershipEvents(baseUrl) {
 async function fetchOutstanding(table) {
   // Non-terminal payment statuses: `unpaid` and `partial` both need
   // continued polling until they settle as `paid` (or `voided`).
+  // NULL counts as unpaid (Task #3409): many creators never set
+  // payment_status, so a plain .in() filter would skip those rows forever.
   const { data, error } = await supabase
     .from(table)
     .select('*')
-    .in('payment_status', ['unpaid', 'partial'])
+    .or('payment_status.in.(unpaid,partial),payment_status.is.null')
     .or('accounting_invoice_id.not.is.null,xero_invoice_id.not.is.null')
     .order('created_at', { ascending: true })
     .limit(MAX_ROWS_PER_RUN);
